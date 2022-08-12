@@ -124,8 +124,9 @@ pub struct Snapshot {
     /// for this account.
     pub data: im::HashMap<(EpochId, AccountId), Arc<SignedAccountData>>,
     /// Indices on data.
-    pub peers_by_account: OrdMultiMap<AccountId,PeerId>,
-    pub accounts_by_peer: OrdMultiMap<PeerId,AccountId>,
+    pub proxy_peers_by_account: OrdMultiMap<AccountId,PeerId>,
+    pub accounts_by_proxy_peer: OrdMultiMap<PeerId,AccountId>,
+    pub accounts_by_tier1_peer: OrdMultiMap<PeerId,AccountId>,
 }
 
 impl Snapshot {
@@ -138,9 +139,12 @@ impl Snapshot {
             }
     }
     fn add_to_index(&mut self, d:&SignedAccountData, n:i64) {
+        if let Some(peer_id) = &d.peer_id {
+            self.accounts_by_tier1_peer.add(peer_id.clone(),d.account_id.clone(),n);
+        }
         for p in &d.peers {
-            self.peers_by_account.add(d.account_id.clone(),p.peer_id.clone(),n);
-            self.accounts_by_peer.add(p.peer_id.clone(),d.account_id.clone(),n);
+            self.proxy_peers_by_account.add(d.account_id.clone(),p.peer_id.clone(),n);
+            self.accounts_by_proxy_peer.add(p.peer_id.clone(),d.account_id.clone(),n);
         }
     }
     fn try_insert(&mut self, d: Arc<SignedAccountData>) -> Option<Arc<SignedAccountData>> {
@@ -184,8 +188,9 @@ impl Cache {
         Self(WriteMutex::new(Snapshot {
             keys: Arc::new(AccountKeys::default()),
             data: im::HashMap::new(),
-            peers_by_account: OrdMultiMap::default(),
-            accounts_by_peer: OrdMultiMap::default(),
+            proxy_peers_by_account: OrdMultiMap::default(),
+            accounts_by_proxy_peer: OrdMultiMap::default(),
+            accounts_by_tier1_peer: OrdMultiMap::default(),
         }))
     }
 

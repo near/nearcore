@@ -52,7 +52,7 @@ use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
-use std::net::{IpAddr, SocketAddr};
+use std::net::{SocketAddr};
 use std::ops::Sub;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -894,15 +894,7 @@ impl PeerManagerActor {
             && !self.config.outbound_disabled
     }
 
-    fn is_inbound_allowed(&self) -> bool {
-        self.state.connected_peers.read().len() + self.outgoing_peers.len()
-            < self.max_num_peers as usize
-    }
-
-    /// is_peer_whitelisted checks whether a peer is a whitelisted node.
-    /// whitelisted nodes are allowed to connect, even if the inbound connections limit has
-    /// been reached. This predicate should be evaluated AFTER the Handshake.
-    fn is_peer_whitelisted(&self, peer_info: &PeerInfo) -> bool {
+    fn is_peer_whitelisted(&self, peer_info:&PeerInfo) -> bool {
         self.whitelist_nodes
             .iter()
             .filter(|wn| wn.id == peer_info.id)
@@ -910,13 +902,25 @@ impl PeerManagerActor {
             .any(|wn| wn.account_id.is_none() || wn.account_id == peer_info.account_id)
     }
 
-    /// is_ip_whitelisted checks whether the IP address of an inbound
-    /// connection may belong to a whitelisted node. All whitelisted nodes
-    /// are required to have IP:port specified. We consider only IPs since
-    /// the port of an inbound TCP connection is assigned at random.
-    /// This predicate should be evaluated BEFORE the Handshake.
-    fn is_ip_whitelisted(&self, ip: &IpAddr) -> bool {
-        self.whitelist_nodes.iter().any(|wn| wn.addr.ip() == *ip)
+    // predicate checking whether we should allow an inbound connection from peer_info.
+    fn is_inbound_allowed(&self, peer_info: &PeerInfo) -> bool {
+        // Check if we have spare inbound connections capacity.  
+        if self.state.connected_peers.read().len() + self.outgoing_peers.len() < self.max_num_peers as usize {
+            return true;
+        }
+        // Whitelisted nodes are allowed to connect, even if the inbound connections limit has
+        // been reached.
+        if self.is_peer_whitelisted(peer_info) {
+            return true;
+        }
+        // TIER1 peers are allowed to connect, no matter what the connection limit is.
+        // TODO(gprusak): with the current constraints it is theoretically possible
+        // to have >1 peer per tier1 account. In such a case we allow for multiple inbound
+        // connections. Consider making this condition more precise. 
+        if self.state.accounts_data.load().accounts_by_tier1_peer.iter_once_at(peer_info.id.clone()).count()>0 {
+            return true;
+        }
+        false
     }
 
     /// Returns peers close to the highest height
@@ -1037,6 +1041,7 @@ impl PeerManagerActor {
     ///    until safe set has safe_set_size elements.
     fn maybe_stop_active_connection(&self) {
         let connected_peers = self.state.connected_peers.read();
+        let accounts_data = self.state.accounts_data.load();
         let filter_peers = |predicate: &dyn Fn(&ConnectedPeer) -> bool| -> Vec<_> {
             connected_peers
                 .values()
@@ -1048,15 +1053,33 @@ impl PeerManagerActor {
         // Build safe set
         let mut safe_set = HashSet::new();
 
-        // If there is not enough non-whitelisted peers, return without disconnecting anyone.
+        // TIER1 connections.
+        let mut tier1_conns = HashMap::new();
+        // Browse the connections from the oldest.
+        let mut conns: Vec<_> = connected_peers.values().collect();
+        conns.sort_unstable_by_key(|c|c.connection_established_time);
+        conns.reverse();
+        // Direct TIER1 connections.
+        for conn in &conns {
+            for account_id in accounts_data.accounts_by_tier1_peer.iter_once_at(conn.peer_info.id.clone()) {
+                tier1_conns.insert(account_id,conn);
+            }
+        }
+        // Proxy TIER1 connections.
+        for conn in &conns {
+            for account_id in accounts_data.accounts_by_proxy_peer.iter_once_at(conn.peer_info.id.clone()) {
+                tier1_conns.insert(account_id,conn);
+            }
+        }
+        safe_set.extend(tier1_conns.into_values().map(|conn|conn.peer_info.id.clone()));
+        // Add whitelisted nodes to the safe set.
         let whitelisted_peers = filter_peers(&|p| self.is_peer_whitelisted(&p.peer_info));
-        if connected_peers.len() - whitelisted_peers.len()
-            <= self.config.ideal_connections_hi as usize
-        {
+        safe_set.extend(whitelisted_peers);
+        
+        // If there is not enough non-whitelisted peers, return without disconnecting anyone.
+        if connected_peers.len() - safe_set.len() <= self.config.ideal_connections_hi as usize {
             return;
         }
-        // Add whitelisted nodes to the safe set.
-        safe_set.extend(whitelisted_peers);
 
         // If there is not enough outbound peers, add them to the safe set.
         let outbound_peers = filter_peers(&|p| p.peer_type == PeerType::Outbound);
@@ -1083,6 +1106,7 @@ impl PeerManagerActor {
             })
             .cloned()
             .collect();
+
         // Sort by established time.
         active_peers.sort_by_key(|p| p.connection_established_time);
         // Saturate safe set with recently active peers.
@@ -1650,18 +1674,12 @@ impl PeerManagerActor {
     #[perf]
     fn handle_msg_inbound_tcp_connect(&self, msg: InboundTcpConnect, ctx: &mut Context<Self>) {
         let _d = delay_detector::DelayDetector::new(|| "inbound tcp connect".into());
-        if self.is_inbound_allowed()
-            || msg
-                .stream
-                .peer_addr()
-                .map(|addr| self.is_ip_whitelisted(&addr.ip()))
-                .unwrap_or(false)
-        {
-            self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
-        } else {
-            // TODO(1896): Gracefully drop inbound connection for other peer.
-            debug!(target: "network", "Inbound connection dropped (network at max capacity).");
-        }
+        // Always let the new peer to send a handshake message.
+        // Only then we can decide whether we should accept a connection.
+        // It is expected to be reasonably cheap: eventually, for TIER2 network
+        // we would like to exchange set of connected peers even without establishing
+        // a proper connection.
+        self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
     }
 
     #[perf]
@@ -1738,30 +1756,26 @@ impl PeerManagerActor {
             return RegisterPeerResponse::Reject;
         }
 
-        // This is incoming connection but we have this peer already in outgoing.
-        // This only happens when both of us connect at the same time, break tie using higher peer id.
-        if msg.connection_state.peer_type == PeerType::Inbound
-            && self.outgoing_peers.contains(&peer_info.id)
-        {
-            // We pick connection that has lower id.
-            if peer_info.id > self.my_peer_id {
+        if msg.connection_state.peer_type == PeerType::Inbound {
+            // This is incoming connection but we have this peer already in outgoing.
+            // This only happens when both of us connect at the same time, break tie using peer id.
+            // Connection with the lower peer_id of the outbound peer wins.
+            if self.outgoing_peers.contains(&peer_info.id) && peer_info.id > self.my_peer_id {
                 debug!(target: "network", my_peer_id = ?self.my_peer_id, id = ?peer_info.id, "Dropping handshake (Tied).");
+                return RegisterPeerResponse::Reject;
+            }
+            if !self.is_inbound_allowed(&peer_info) {
+                // TODO(1896): Gracefully drop inbound connection for other peer.
+                debug!(target: "network",
+                    connected_peers = self.state.connected_peers.read().len(), outgoing_peers = self.outgoing_peers.len(),
+                    max_num_peers = self.max_num_peers,
+                    "Inbound connection dropped (network at max capacity)."
+                );
                 return RegisterPeerResponse::Reject;
             }
         }
 
-        if msg.connection_state.peer_type == PeerType::Inbound
-            && !self.is_inbound_allowed()
-            && !self.is_peer_whitelisted(&peer_info)
-        {
-            // TODO(1896): Gracefully drop inbound connection for other peer.
-            debug!(target: "network",
-                connected_peers = self.state.connected_peers.read().len(), outgoing_peers = self.outgoing_peers.len(),
-                max_num_peers = self.max_num_peers,
-                "Inbound connection dropped (network at max capacity)."
-            );
-            return RegisterPeerResponse::Reject;
-        }
+        
 
         let other_edge_info = &msg.connection_state.partial_edge_info;
         if other_edge_info.nonce == 0 {
