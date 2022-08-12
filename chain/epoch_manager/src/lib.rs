@@ -1115,6 +1115,8 @@ impl EpochManager {
     }
 
     /// Get validators for current epoch and next epoch.
+    /// WARNING: this function calls EpochManager::get_epoch_info_aggregator_upto_last
+    /// underneath which can be very expensive.
     pub fn get_validator_info(
         &self,
         epoch_identifier: ValidatorInfoIdentifier,

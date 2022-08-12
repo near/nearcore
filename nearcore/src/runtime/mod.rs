@@ -1638,6 +1638,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    /// WARNING: this function calls EpochManager::get_epoch_info_aggregator_upto_last
+    /// underneath which can be very expensive.
     fn get_validator_info(
         &self,
         epoch_id: ValidatorInfoIdentifier,
