@@ -69,15 +69,6 @@ impl StoreConfig {
     pub const fn col_cache_size(&self, col: crate::DBCol) -> bytesize::ByteSize {
         match col {
             crate::DBCol::State => self.col_state_cache_size,
-            // Since we user little endian for heights and this column doesn't have any
-            // values all keys end up in the same SST file. The latter leads to bloom
-            // filter growing huge and we need to make sure it fits in a rocksdb
-            // block cache.
-            // Formula to estimate required cache size on a given height `h` and bloom
-            // filters using `10` bits for a single key: (`h` * `10` / 8)MB.
-            // On top of this we also need to make sure that rocksdb uses a single
-            // sharded block cache: see rocksdb_block_based_options function.
-            crate::DBCol::ProcessedBlockHeights => bytesize::ByteSize::mib(200),
             _ => bytesize::ByteSize::mib(32),
         }
     }

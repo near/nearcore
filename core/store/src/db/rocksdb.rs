@@ -359,8 +359,7 @@ fn rocksdb_block_based_options(
     block_opts.set_checksum(/*no checksum */'\0');
     block_opts.set_block_size(block_size.as_u64().try_into().unwrap());
     // We create block_cache for each of 47 columns, so the total cache size is 32 * 47 = 1504mb
-    if col == DBCol::ProcessedBlockHeights
-        || col == DBCol::BlockHeight
+    if col == DBCol::BlockHeight
         || col == DBCol::ChunkHashesByHeight
         || col == DBCol::HeaderHashesByHeight
         || col == DBCol::BlockPerHeight
@@ -373,8 +372,20 @@ fn rocksdb_block_based_options(
             .set_block_cache(&Cache::new_lru_cache(cache_size.as_u64().try_into().unwrap()).unwrap());
     }
 
-    block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
-    block_opts.set_cache_index_and_filter_blocks(true);
+    if col == DBCol::ProcessedBlockHeights {
+        // Since we user little endian for heights and this column doesn't have any
+        // values all keys end up in the same SST file. The latter leads to bloom
+        // filter growing huge and we need to make sure we don't reread it every time.
+        // Estimated size if this extra cache would be: (`h` * `10` / 8)MB,
+        //   where `h` is the current chain height and `10` is the number of bits
+        //   we use in bloom filters for a single key.
+        // Since explicit rocksdb cache doesn't user sharding we don't need to
+        // specify num_shard_bits = 1 as for other height-indexed columns (see above).
+        block_opts.set_cache_index_and_filter_blocks(false);
+    } else {
+        block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
+        block_opts.set_cache_index_and_filter_blocks(true);
+    }
     block_opts.set_bloom_filter(10.0, true);
     block_opts
 }
