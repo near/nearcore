@@ -58,10 +58,6 @@ no_cache = ["nearcore/no_cache"]
 delay_detector = ["nearcore/delay_detector"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
-protocol_feature_chunk_only_producers = [
-  "nearcore/protocol_feature_chunk_only_producers",
-  "near-primitives/protocol_feature_chunk_only_producers",
-]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
 protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
 
@@ -74,7 +70,6 @@ nightly_protocol = ["nearcore/nightly_protocol"]
 # Shardnet is the experimental network that we deploy for chunk-only producer testing.
 shardnet = [
   "near-primitives/shardnet",
-  "protocol_feature_chunk_only_producers"
 ]
 
 # Compile with option to emit a detailed trace of IO operations and their

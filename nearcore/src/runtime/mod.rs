@@ -1638,6 +1638,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    /// WARNING: this function calls EpochManager::get_epoch_info_aggregator_upto_last
+    /// underneath which can be very expensive.
     fn get_validator_info(
         &self,
         epoch_id: ValidatorInfoIdentifier,
@@ -2383,12 +2385,8 @@ mod test {
             &signer,
             CryptoHash::default(),
         );
-        let test2_stake_amount = if cfg!(feature = "protocol_feature_chunk_only_producers") {
-            3600 * crate::NEAR_BASE
-        } else {
-            TESTING_INIT_STAKE
-        };
-        let transactions = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+        let test2_stake_amount = 3600 * crate::NEAR_BASE;
+        let transactions = {
             // With the new validator selection algorithm, test2 needs to have less stake to
             // become a fisherman.
             let signer = InMemorySigner::from_seed(
@@ -2401,8 +2399,6 @@ mod test {
                 create_account_transaction,
                 stake(1, &signer, &block_producers[1], test2_stake_amount),
             ]
-        } else {
-            vec![staking_transaction, create_account_transaction]
         };
         env.step_default(transactions);
         env.step_default(vec![]);
@@ -3218,18 +3214,14 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = if !cfg!(feature = "protocol_feature_chunk_only_producers") {
-            TestEnv::new_with_minimum_stake_divisor(
-                vec![validators.clone()],
-                4,
-                false,
-                // We need to be able to stake enough to be fisherman, but not enough to be
-                // validator
-                20000,
-            )
-        } else {
-            TestEnv::new(vec![validators.clone()], 4, false)
-        };
+        let mut env = TestEnv::new_with_minimum_stake_divisor(
+            vec![validators.clone()],
+            4,
+            false,
+            // We need to be able to stake enough to be fisherman, but not enough to be
+            // validator
+            20000,
+        );
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -3294,18 +3286,14 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = if !cfg!(feature = "protocol_feature_chunk_only_producers") {
-            TestEnv::new_with_minimum_stake_divisor(
-                vec![validators.clone()],
-                2,
-                false,
-                // We need to be able to stake enough to be fisherman, but not enough to be
-                // validator
-                20000,
-            )
-        } else {
-            TestEnv::new(vec![validators.clone()], 2, false)
-        };
+        let mut env = TestEnv::new_with_minimum_stake_divisor(
+            vec![validators.clone()],
+            2,
+            false,
+            // We need to be able to stake enough to be fisherman, but not enough to be
+            // validator
+            20000,
+        );
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))

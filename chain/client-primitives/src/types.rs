@@ -190,13 +190,6 @@ impl Message for GetBlock {
     type Result = Result<BlockView, GetBlockError>;
 }
 
-/// Actor message requesting block hash by id, hash or sync state.
-pub struct GetBlockHash(pub BlockReference);
-
-impl Message for GetBlockHash {
-    type Result = Result<CryptoHash, GetBlockError>;
-}
-
 /// Get block with the block merkle tree. Used for testing
 pub struct GetBlockWithMerkleTree(pub BlockReference);
 

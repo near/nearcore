@@ -19,13 +19,12 @@ use near_chain::{
 };
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_client_primitives::types::{
-    Error, GetBlock, GetBlockError, GetBlockHash, GetBlockProof, GetBlockProofError,
-    GetBlockProofResponse, GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome,
-    GetExecutionOutcomeError, GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError,
-    GetNextLightClientBlockError, GetProtocolConfig, GetProtocolConfigError, GetReceipt,
-    GetReceiptError, GetStateChangesError, GetStateChangesWithCauseInBlock,
-    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
-    TxStatus, TxStatusError,
+    Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
+    GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
+    GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetNextLightClientBlockError,
+    GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError, GetStateChangesError,
+    GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
+    GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 #[cfg(feature = "test_features")]
@@ -149,7 +148,7 @@ impl ViewClientActor {
                 let block_hash = self.chain.head()?.last_block_hash;
                 self.chain.get_block_header(&block_hash)
             }
-            Some(BlockId::Height(height)) => self.chain.get_header_by_height(height),
+            Some(BlockId::Height(height)) => self.chain.get_block_header_by_height(height),
             Some(BlockId::Hash(block_hash)) => self.chain.get_block_header(&block_hash),
         }
     }
@@ -170,11 +169,10 @@ impl ViewClientActor {
         &self,
         finality: &Finality,
     ) -> Result<CryptoHash, near_chain::Error> {
-        let head_header = self.chain.head_header()?;
         match finality {
-            Finality::None => Ok(*head_header.hash()),
-            Finality::DoomSlug => Ok(*head_header.last_ds_final_block()),
-            Finality::Final => self.chain.final_head().map(|t| t.last_block_hash),
+            Finality::None => Ok(self.chain.head()?.last_block_hash),
+            Finality::DoomSlug => Ok(*self.chain.head_header()?.last_ds_final_block()),
+            Finality::Final => Ok(self.chain.final_head()?.last_block_hash),
         }
     }
 
@@ -193,7 +191,7 @@ impl ViewClientActor {
     fn handle_query(&mut self, msg: Query) -> Result<QueryResponse, QueryError> {
         let header = match msg.block_reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
-                self.chain.get_header_by_height(block_height)
+                self.chain.get_block_header_by_height(block_height)
             }
             BlockReference::BlockId(BlockId::Hash(block_hash)) => {
                 self.chain.get_block_header(&block_hash)
@@ -549,31 +547,6 @@ impl Handler<GetBlock> for ViewClientActor {
     }
 }
 
-/// Handles retrieving block header from the chain.
-impl Handler<GetBlockHash> for ViewClientActor {
-    type Result = Result<CryptoHash, GetBlockError>;
-
-    #[perf]
-    fn handle(&mut self, msg: GetBlockHash, _: &mut Self::Context) -> Self::Result {
-        match msg.0 {
-            BlockReference::Finality(finality) => self.get_block_hash_by_finality(&finality),
-            BlockReference::BlockId(BlockId::Height(height)) => {
-                self.chain.get_block_hash_by_height(height)
-            }
-            BlockReference::BlockId(BlockId::Hash(hash)) => {
-                // Fetch block header to confirm that the block exists.  This is
-                // only done so that we can get an error if the hash does not
-                // correspond to a known block.
-                self.chain.get_block_header(&hash).map(|_| hash)
-            }
-            BlockReference::SyncCheckpoint(sync_checkpoint) => Ok(self
-                .get_block_hash_by_sync_checkpoint(&sync_checkpoint)?
-                .ok_or(GetBlockError::NotSyncedYet)?),
-        }
-        .map_err(std::convert::Into::into)
-    }
-}
-
 impl Handler<GetBlockWithMerkleTree> for ViewClientActor {
     type Result = Result<(BlockView, Arc<PartialMerkleTree>), GetBlockError>;
 
@@ -670,7 +643,7 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
             EpochReference::BlockId(block_id) => {
                 let block_header = match block_id {
                     BlockId::Hash(h) => self.chain.get_block_header(&h)?,
-                    BlockId::Height(h) => self.chain.get_header_by_height(h)?,
+                    BlockId::Height(h) => self.chain.get_block_header_by_height(h)?,
                 };
                 let next_block_hash =
                     self.chain.store().get_next_block_hash(block_header.hash())?;
@@ -979,7 +952,7 @@ impl Handler<GetProtocolConfig> for ViewClientActor {
                 self.chain.get_block_header(&block_hash)
             }
             BlockReference::BlockId(BlockId::Height(height)) => {
-                self.chain.get_header_by_height(height)
+                self.chain.get_block_header_by_height(height)
             }
             BlockReference::BlockId(BlockId::Hash(hash)) => self.chain.get_block_header(&hash),
             BlockReference::SyncCheckpoint(sync_checkpoint) => {
