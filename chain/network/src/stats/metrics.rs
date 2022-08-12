@@ -210,7 +210,27 @@ pub(crate) static NETWORK_ROUTED_MSG_LATENCY: Lazy<HistogramVec> = Lazy::new(|| 
 pub(crate) static PEER_TO_MANAGER_MESSAGE_HANDLING_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_peer_to_manager_message_handling_latency",
-        "Latency of handlng PeerToManagerMsg",
+        "Latency of handling PeerToManagerMsg",
+        &["msg_type"],
+        Some(exponential_buckets(0.0001, 1.6, 40).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static PEER_MANAGER_MESSAGE_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_peer_manager_message_latency",
+        "Latency of handling PeerManagerMessage",
+        &["msg_type"],
+        Some(exponential_buckets(0.0001, 1.6, 40).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static PEER_MANAGER_ACTOR_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_peer_manager_actor_latency",
+        "Latency of handling messages by PeerManagerActor",
         &["msg_type"],
         Some(exponential_buckets(0.0001, 1.6, 40).unwrap()),
     )

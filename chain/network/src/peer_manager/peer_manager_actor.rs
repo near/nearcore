@@ -1865,6 +1865,9 @@ impl PeerManagerActor {
         ctx: &mut Context<Self>,
         throttle_controller: Option<ThrottleController>,
     ) -> PeerManagerMessageResponse {
+        let msg_type: &'static str = (&msg).into();
+        let _timer =
+            metrics::PEER_MANAGER_MESSAGE_LATENCY.with_label_values(&[msg_type]).start_timer();
         let _span =
             tracing::trace_span!(target: "network", "handle_peer_manager_message").entered();
         match msg {
@@ -2090,6 +2093,7 @@ impl PeerManagerActor {
             // i.e. Return false in case of Ping and Pong
             match &msg.msg.body {
                 RoutedMessageBody::Ping(ping) => {
+                    info!(target: "network", "received ping, sending pong");
                     self.send_pong(ping.nonce as usize, msg.hash());
                     self.event_sink.push(Event::Ping(ping.clone()));
                     false
@@ -2132,6 +2136,9 @@ impl PeerManagerActor {
 impl Handler<GetNetworkInfo> for PeerManagerActor {
     type Result = NetworkInfo;
     fn handle(&mut self, _: GetNetworkInfo, _ctx: &mut Self::Context) -> NetworkInfo {
+        let _timer = metrics::PEER_MANAGER_ACTOR_LATENCY
+            .with_label_values(&["GetNetworkInfo"])
+            .start_timer();
         let _span = tracing::trace_span!(
                 target: "network",
                 "handle",
@@ -2145,6 +2152,8 @@ impl Handler<GetNetworkInfo> for PeerManagerActor {
 impl Handler<SetChainInfo> for PeerManagerActor {
     type Result = ();
     fn handle(&mut self, info: SetChainInfo, _ctx: &mut Self::Context) {
+        let _timer =
+            metrics::PEER_MANAGER_ACTOR_LATENCY.with_label_values(&["SetChainInfo"]).start_timer();
         let _span = tracing::trace_span!(
                 target: "network",
                 "handle",
@@ -2244,6 +2253,9 @@ impl Handler<ActixMessageWrapper<PeerToManagerMsgWithContext>> for PeerManagerAc
         msg: ActixMessageWrapper<PeerToManagerMsgWithContext>,
         ctx: &mut Self::Context,
     ) -> Self::Result {
+        let _timer = metrics::PEER_MANAGER_ACTOR_LATENCY
+            .with_label_values(&["PeerToManagerMsgWithContext-Wrapper"])
+            .start_timer();
         let span = tracing::trace_span!(
             target: "network",
             "handle",
@@ -2272,6 +2284,9 @@ impl Handler<PeerToManagerMsgWithContext> for PeerManagerActor {
         msg: PeerToManagerMsgWithContext,
         ctx: &mut Self::Context,
     ) -> Self::Result {
+        let _timer = metrics::PEER_MANAGER_ACTOR_LATENCY
+            .with_label_values(&["PeerToManagerMsgWithContext"])
+            .start_timer();
         let span = tracing::trace_span!(
             target: "network",
             "handle",
@@ -2290,6 +2305,9 @@ impl Handler<PeerManagerMessageRequestWithContext> for PeerManagerActor {
         msg: PeerManagerMessageRequestWithContext,
         ctx: &mut Self::Context,
     ) -> Self::Result {
+        let _timer = metrics::PEER_MANAGER_ACTOR_LATENCY
+            .with_label_values(&["PeerManagerMessageRequestWithContext"])
+            .start_timer();
         let span = tracing::trace_span!(
             target: "network",
             "handle",
