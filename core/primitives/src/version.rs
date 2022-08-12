@@ -86,7 +86,6 @@ pub fn is_implicit_account_creation_enabled(protocol_version: ProtocolVersion) -
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ProtocolFeature {
     // stable features
-    ForwardChunkParts,
     RectifyInflation,
     /// Add `AccessKey` nonce range by setting nonce to `(block_height - 1) * 1e6`, see
     /// <https://github.com/near/nearcore/issues/3779>.
@@ -154,9 +153,10 @@ pub enum ProtocolFeature {
     LowerStorageKeyLimit,
     // alt_bn128_g1_multiexp, alt_bn128_g1_sum, alt_bn128_pairing_check host functions
     AltBn128,
-
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     ChunkOnlyProducers,
+    /// Ensure the total stake of validators that are kicked out does not exceed a percentage of total stakes
+    MaxKickoutStake,
+
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
@@ -177,12 +177,12 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 55;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 56;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    130
+    131
 } else if cfg!(feature = "shardnet") {
     // For shardnet, enable `ChunkOnlyProducers` but nothing else.
     100
@@ -219,9 +219,7 @@ impl ProtocolFeature {
             ProtocolFeature::LowerStorageCost => 42,
             ProtocolFeature::DeleteActionRestriction => 43,
             ProtocolFeature::FixApplyChunks => 44,
-            ProtocolFeature::ForwardChunkParts
-            | ProtocolFeature::RectifyInflation
-            | ProtocolFeature::AccessKeyNonceRange => 45,
+            ProtocolFeature::RectifyInflation | ProtocolFeature::AccessKeyNonceRange => 45,
             ProtocolFeature::AccountVersions
             | ProtocolFeature::TransactionSizeLimit
             | ProtocolFeature::FixStorageUsage
@@ -246,10 +244,10 @@ impl ProtocolFeature {
             | ProtocolFeature::ChunkNodesCache
             | ProtocolFeature::LowerStorageKeyLimit => 53,
             ProtocolFeature::AltBn128 => 55,
+            ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
 
-            // Nightly & shardnet features
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            ProtocolFeature::ChunkOnlyProducers => 100,
+            // Nightly & shardnet features, this is to make feature MaxKickoutStake not enabled on
+            // shardnet
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]

@@ -12,7 +12,7 @@ import "google/protobuf/timestamp.proto";
 // - an attacker observes M1 signed by A in some context
 // - the attacker then sends M2 with A's signature of M1 (which also matches M2, since
 //   their serialized representations match) to B, effectively impersonating A.
-// NOTE that proto serialization is non-unique, so the message passed around with the signature
+// NOTE: that proto serialization is non-unique, so the message passed around with the signature
 // should be in serialized form.
 // TODO: move to a separate file, probably in a separate package.
 message AccountKeyPayload {
@@ -185,14 +185,16 @@ message SocketAddr {
 
 message PeerAddr {
   SocketAddr addr = 1; // required
-  PublicKey peer_id = 2; // optional
+  PublicKey peer_id = 2; // required
 }
 
 message AccountData {
   string account_id = 1; // required
   // Either address of the node handling the account (if it has a public IP),
   // or a list of peers known to be connected to the validator.
-  repeated PeerAddr peers = 2; // non-empty, at most 10 elements (this is an arbitrary limit, might be relaxed in the future).
+  // If empty, the validator explicitly declares that it has no public IP
+  // and the P2P routing should be used instead (discouraged, might be disallowed in the future).
+  repeated PeerAddr peers = 2;
 
   // Epoch for which this data is valid.
   // This AccountData should be signed with the account key assigned to
@@ -231,6 +233,10 @@ message UpdateNonceResponse {
   Edge edge = 1;
 }
 
+// SyncAccountData message can represent:
+// - incremental sync (incremental = true, requesting_full_sync = false)
+// - full sync request (incremental = false, requesting_full_sync = true)
+// - full sync response (incremental = false, requesting_full_sync = false)
 message SyncAccountsData {
   // Data about the (important) accounts,
   // which should be broadcasted to the whole network.

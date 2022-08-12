@@ -185,6 +185,7 @@ impl ClientActor {
                 sent_bytes_per_sec: 0,
                 known_producers: vec![],
                 peer_counter: 0,
+                tier1_accounts: vec![],
             },
             last_validator_announce_time: None,
             info_helper,
@@ -576,6 +577,10 @@ impl ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
+                self.client.block_production_info.record_chunk_collected(
+                    partial_encoded_chunk.height_created(),
+                    partial_encoded_chunk.shard_id(),
+                );
                 let _ = self.client.process_partial_encoded_chunk(
                     MaybeValidated::from(partial_encoded_chunk),
                     self.get_apply_chunks_done_callback(),
@@ -624,7 +629,7 @@ impl Handler<near_client_primitives::types::SandboxMessage> for ClientActor {
         match msg {
             near_client_primitives::types::SandboxMessage::SandboxPatchState(state) => {
                 self.client.chain.patch_state(
-                    near_primitives::sandbox_state_patch::SandboxStatePatch::new(state),
+                    near_primitives::sandbox::state_patch::SandboxStatePatch::new(state),
                 );
                 near_client_primitives::types::SandboxResponse::SandboxNoResponse
             }
@@ -981,15 +986,32 @@ impl ClientActor {
             debug!(target: "client", "Cannot produce any block: not enough approvals beyond {}", latest_known.height);
         }
 
+        let me = if let Some(me) = &self.client.validator_signer {
+            me.validator_id().clone()
+        } else {
+            return Ok(());
+        };
+
+        // For debug purpose, we record the approvals we have seen so far to the future blocks
+        for height in latest_known.height + 1..=self.client.doomslug.get_largest_approval_height() {
+            let next_block_producer_account =
+                self.client.runtime_adapter.get_block_producer(&epoch_id, height)?;
+
+            if me == next_block_producer_account {
+                self.client.block_production_info.record_approvals(
+                    height,
+                    self.client.doomslug.approval_status_at_height(&height),
+                );
+            }
+        }
+
         for height in
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
         {
             let next_block_producer_account =
                 self.client.runtime_adapter.get_block_producer(&epoch_id, height)?;
 
-            if self.client.validator_signer.as_ref().map(|bp| bp.validator_id())
-                == Some(&next_block_producer_account)
-            {
+            if me == next_block_producer_account {
                 let num_chunks = self.client.shards_mgr.num_chunks_for_block(&head.last_block_hash);
                 let have_all_chunks = head.height == 0
                     || num_chunks == self.client.runtime_adapter.num_shards(&epoch_id).unwrap();
@@ -1365,7 +1387,7 @@ impl ClientActor {
             Err(e) => match e {
                 near_chain::Error::Orphan => {
                     if !self.client.chain.is_orphan(&prev_hash) {
-                        self.request_block_by_hash(prev_hash, peer_id)
+                        self.request_block(prev_hash, peer_id)
                     }
                 }
                 // missing chunks are already handled in self.client.process_block()
@@ -1397,7 +1419,7 @@ impl ClientActor {
         }
     }
 
-    fn request_block_by_hash(&mut self, hash: CryptoHash, peer_id: PeerId) {
+    fn request_block(&mut self, hash: CryptoHash, peer_id: PeerId) {
         match self.client.chain.block_exists(&hash) {
             Ok(false) => {
                 self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
@@ -1686,7 +1708,7 @@ impl ClientActor {
                                     for hash in
                                         vec![*header.prev_hash(), *header.hash()].into_iter()
                                     {
-                                        self.request_block_by_hash(hash, id.clone());
+                                        self.request_block(hash, id.clone());
                                     }
                                 }
                             }

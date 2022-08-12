@@ -13,7 +13,6 @@ use near_primitives::merkle;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReedSolomonWrapper, ShardChunkHeader,
 };
-#[cfg(feature = "protocol_feature_chunk_only_producers")]
 use near_primitives::types::NumShards;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::types::{BlockHeight, MerkleHash};
@@ -156,7 +155,6 @@ impl ChunkTestFixture {
     }
 
     // Create a ChunkTestFixture to test chunk only producers
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     pub fn new_with_chunk_only_producers() -> Self {
         let store = near_store::test_utils::create_test_store();
         // 3 block producer. 1 block producer + 2 chunk only producer per shard
@@ -251,8 +249,7 @@ impl ChunkTestFixture {
             .iter()
             .copied()
             .filter(|p| {
-                mock_runtime.get_part_owner(&mock_ancestor_hash, *p).unwrap()
-                    == mock_chunk_part_owner
+                mock_runtime.get_part_owner(&mock_epoch_id, *p).unwrap() == mock_chunk_part_owner
             })
             .collect();
         let encoded_chunk =
@@ -294,24 +291,8 @@ impl ChunkTestFixture {
     }
 }
 
-#[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
-fn make_validators(n: usize) -> ValidatorSchedule {
-    if n > 26 {
-        panic!("I can't make that many validators!");
-    }
-
-    let letters =
-        ('a'..='z').take(n).map(|c| AccountId::try_from(format!("test_{}", c)).unwrap()).collect();
-
-    ValidatorSchedule::new()
-        .num_shards(3)
-        .block_producers_per_epoch(vec![letters])
-        .validator_groups(3)
-}
-
 /// `num_bp` is number of block producers
 /// `num_cp` is number of chunk producers per shard
-#[cfg(feature = "protocol_feature_chunk_only_producers")]
 fn make_validators(
     num_bp: usize,
     num_cp_per_shard: usize,
@@ -338,9 +319,6 @@ fn make_validators(
 fn default_runtime() -> KeyValueRuntime {
     let store = near_store::test_utils::create_test_store();
     // 12 validators, 3 shards, 4 validators per shard
-    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
-    let vs = make_validators(12);
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     let vs = make_validators(12, 0, 3);
     KeyValueRuntime::new_with_validators(store.clone(), vs, 5)
 }

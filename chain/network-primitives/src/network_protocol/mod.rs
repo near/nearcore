@@ -71,8 +71,16 @@ impl fmt::Display for PeerInfo {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum ParsePeerInfoError {
+    #[error("invalid format: {0}")]
+    InvalidFormat(String),
+    #[error("PeerId: {0}")]
+    PeerId(#[source] near_crypto::ParseKeyError),
+}
+
 impl FromStr for PeerInfo {
-    type Err = Box<dyn std::error::Error>;
+    type Err = ParsePeerInfoError;
     /// Returns a PeerInfo from string
     ///
     /// Valid format examples:
@@ -90,13 +98,6 @@ impl FromStr for PeerInfo {
         let addr;
         let account_id;
 
-        let invalid_peer_error_factory = || -> Self::Err {
-            Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!("Invalid PeerInfo format: {:?}", chunks),
-            ))
-        };
-
         if chunks.len() == 1 {
             addr = None;
             account_id = None;
@@ -113,20 +114,16 @@ impl FromStr for PeerInfo {
                 addr = x.next();
                 account_id = Some(chunks[2].parse().unwrap());
             } else {
-                return Err(invalid_peer_error_factory());
+                return Err(Self::Err::InvalidFormat(s.to_string()));
             }
         } else {
-            return Err(invalid_peer_error_factory());
+            return Err(Self::Err::InvalidFormat(s.to_string()));
         }
-        Ok(PeerInfo { id: PeerId::new(chunks[0].parse()?), addr, account_id })
-    }
-}
-
-impl TryFrom<&str> for PeerInfo {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        Self::from_str(s)
+        Ok(PeerInfo {
+            id: PeerId::new(chunks[0].parse().map_err(Self::Err::PeerId)?),
+            addr,
+            account_id,
+        })
     }
 }
 
@@ -216,6 +213,21 @@ pub enum RoutedMessageBody {
     VersionedPartialEncodedChunk(PartialEncodedChunk),
     VersionedStateResponse(StateResponseInfo),
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
+}
+
+impl RoutedMessageBody {
+    // Return whether this message is important.
+    // In routing logics, we send important messages multiple times to minimize the risk that they are
+    // lost
+    pub fn is_important(&self) -> bool {
+        match self {
+            // Both BlockApproval and PartialEncodedChunk is essential for block production and
+            // are only sent by the original node and if they are lost, the receiver node doesn't
+            // know to request them.
+            RoutedMessageBody::BlockApproval(_) | RoutedMessageBody::PartialEncodedChunk(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl From<PartialEncodedChunkWithArcReceipts> for RoutedMessageBody {

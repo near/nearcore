@@ -7,7 +7,7 @@ use borsh::BorshSerialize;
 use chrono::Duration;
 use itertools::Itertools;
 use near_o11y::log_assert;
-use near_primitives::sandbox_state_patch::SandboxStatePatch;
+use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::time::Clock;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
@@ -444,7 +444,12 @@ pub struct Chain {
     /// place in the database. Instead, we will include this "bonus changes" in
     /// the next block we'll be processing, keeping them in this field in the
     /// meantime.
-    pending_state_patch: Option<SandboxStatePatch>,
+    ///
+    /// Note that without `sandbox` feature enabled, `SandboxStatePatch` is
+    /// a ZST.  All methods of the type are no-ops which behave as if the object
+    /// was empty and could not hold any records (which it cannot).  It’s
+    /// impossible to have non-empty state patch on non-sandbox builds.
+    pending_state_patch: SandboxStatePatch,
 }
 
 impl ChainAccess for Chain {
@@ -468,7 +473,7 @@ impl Drop for Chain {
 }
 impl Chain {
     pub fn make_genesis_block(
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: &dyn RuntimeAdapter,
         chain_genesis: &ChainGenesis,
     ) -> Result<Block, Error> {
         let (_, state_roots) = runtime_adapter.genesis_state();
@@ -487,7 +492,7 @@ impl Chain {
             chain_genesis.min_gas_price,
             chain_genesis.total_supply,
             Chain::compute_bp_hash(
-                &*runtime_adapter,
+                runtime_adapter,
                 EpochId::default(),
                 EpochId::default(),
                 &CryptoHash::default(),
@@ -503,7 +508,7 @@ impl Chain {
     ) -> Result<Chain, Error> {
         let (store, _) = runtime_adapter.genesis_state();
         let store = ChainStore::new(store, chain_genesis.height, save_trie_changes);
-        let genesis = Self::make_genesis_block(runtime_adapter.clone(), chain_genesis)?;
+        let genesis = Self::make_genesis_block(&*runtime_adapter, chain_genesis)?;
         let (sc, rc) = unbounded();
         Ok(Chain {
             store,
@@ -520,7 +525,7 @@ impl Chain {
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             last_time_head_updated: Clock::instant(),
-            pending_state_patch: None,
+            pending_state_patch: Default::default(),
         })
     }
 
@@ -657,7 +662,7 @@ impl Chain {
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             last_time_head_updated: Clock::instant(),
-            pending_state_patch: None,
+            pending_state_patch: Default::default(),
         })
     }
 
@@ -1469,7 +1474,7 @@ impl Chain {
             }
         }
         for part_id in 0..self.runtime_adapter.num_total_parts() {
-            if &Some(self.runtime_adapter.get_part_owner(&parent_hash, part_id as u64)?) == me {
+            if &Some(self.runtime_adapter.get_part_owner(&epoch_id, part_id as u64)?) == me {
                 return Ok(true);
             }
         }
@@ -1553,7 +1558,11 @@ impl Chain {
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), Error> {
         let block_received_time = Clock::instant();
-        self.blocks_delay_tracker.mark_block_received(block.get_inner(), block_received_time);
+        self.blocks_delay_tracker.mark_block_received(
+            block.get_inner(),
+            block_received_time,
+            Clock::utc(),
+        );
         metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
 
         let block_height = block.header().height();
@@ -2029,7 +2038,7 @@ impl Chain {
             chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results)?;
         chain_update.commit()?;
 
-        self.pending_state_patch = None;
+        self.pending_state_patch.clear();
 
         if let Some(tip) = &new_head {
             // TODO: move this logic of tracking validators metrics to EpochManager
@@ -2087,7 +2096,7 @@ impl Chain {
         provenance: &Provenance,
         challenges: &mut Vec<ChallengeBody>,
         block_received_time: Instant,
-        state_patch: Option<SandboxStatePatch>,
+        state_patch: SandboxStatePatch,
     ) -> Result<
         (
             Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send + 'static>>,
@@ -3075,7 +3084,7 @@ impl Chain {
                 &prev_block,
                 &receipts_by_shard,
                 ApplyChunksMode::CatchingUp,
-                None,
+                Default::default(),
             )?;
             blocks_catch_up_state.scheduled_blocks.insert(pending_block);
             block_catch_up_scheduler(BlockCatchUpRequest {
@@ -3393,7 +3402,7 @@ impl Chain {
         prev_block: &Block,
         incoming_receipts: &HashMap<ShardId, Vec<ReceiptProof>>,
         mode: ApplyChunksMode,
-        mut state_patch: Option<SandboxStatePatch>,
+        mut state_patch: SandboxStatePatch,
     ) -> Result<
         Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send + 'static>>,
         Error,
@@ -4296,14 +4305,11 @@ impl Chain {
     // NB: `SandboxStatePatch` can only be created in `#[cfg(feature =
     // "sandbox")]`, so we don't need extra cfg-gating here.
     pub fn patch_state(&mut self, patch: SandboxStatePatch) {
-        match &mut self.pending_state_patch {
-            None => self.pending_state_patch = Some(patch),
-            Some(pending) => pending.merge(patch),
-        }
+        self.pending_state_patch.merge(patch);
     }
 
     pub fn patch_state_in_progress(&self) -> bool {
-        self.pending_state_patch.is_some()
+        !self.pending_state_patch.is_empty()
     }
 }
 
@@ -5001,7 +5007,7 @@ impl<'a> ChainUpdate<'a> {
             *block_header.random_value(),
             true,
             is_first_block_with_chunk_of_version,
-            None,
+            Default::default(),
         )?;
 
         let (outcome_root, outcome_proofs) =
@@ -5085,7 +5091,7 @@ impl<'a> ChainUpdate<'a> {
             *block_header.random_value(),
             false,
             false,
-            None,
+            Default::default(),
         )?;
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);

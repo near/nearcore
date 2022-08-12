@@ -50,14 +50,14 @@ pub enum ParsePeerAddrError {
     #[error("addr: {0}")]
     Addr(ParseRequiredError<ParseSocketAddrError>),
     #[error("peer_id: {0}")]
-    PeerId(ParsePeerIdError),
+    PeerId(ParseRequiredError<ParsePeerIdError>),
 }
 
 impl From<&PeerAddr> for proto::PeerAddr {
     fn from(x: &PeerAddr) -> Self {
         Self {
             addr: MF::some((&x.addr).into()),
-            peer_id: MF::from_option(x.peer_id.as_ref().map(Into::into)),
+            peer_id: MF::some((&x.peer_id).into()),
             ..Self::default()
         }
     }
@@ -68,12 +68,7 @@ impl TryFrom<&proto::PeerAddr> for PeerAddr {
     fn try_from(x: &proto::PeerAddr) -> Result<Self, Self::Error> {
         Ok(Self {
             addr: try_from_required(&x.addr).map_err(Self::Error::Addr)?,
-            peer_id: x
-                .peer_id
-                .as_ref()
-                .map(|p| p.try_into())
-                .transpose()
-                .map_err(Self::Error::PeerId)?,
+            peer_id: try_from_required(&x.peer_id).map_err(Self::Error::PeerId)?,
         })
     }
 }

@@ -31,15 +31,51 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PEER_MIN_ALLOWED_PROTOCOL_VERSION;
 use protobuf::Message as _;
 use std::fmt;
-use thiserror::Error;
+use std::sync::Arc;
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct PeerAddr {
-    addr: std::net::SocketAddr,
-    peer_id: Option<PeerId>,
+    pub addr: std::net::SocketAddr,
+    pub peer_id: PeerId,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, Hash)]
+impl serde::Serialize for PeerAddr {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&format!("{}@{}", self.peer_id, self.addr))
+    }
+}
+
+impl<'a> serde::Deserialize<'a> for PeerAddr {
+    fn deserialize<D: serde::Deserializer<'a>>(d: D) -> Result<Self, D::Error> {
+        <String as serde::Deserialize>::deserialize(d)?.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ParsePeerAddrError {
+    #[error("expected <PeerId>@<IP>:<port>, got \'{0}\'")]
+    Format(String),
+    #[error("PeerId: {0}")]
+    PeerId(#[source] near_crypto::ParseKeyError),
+    #[error("SocketAddr: {0}")]
+    SocketAddr(#[source] std::net::AddrParseError),
+}
+
+impl std::str::FromStr for PeerAddr {
+    type Err = ParsePeerAddrError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<_> = s.split('@').collect();
+        if parts.len() != 2 {
+            return Err(Self::Err::Format(s.to_string()));
+        }
+        Ok(PeerAddr {
+            peer_id: PeerId::new(parts[0].parse().map_err(Self::Err::PeerId)?),
+            addr: parts[1].parse().map_err(Self::Err::SocketAddr)?,
+        })
+    }
+}
+
+#[derive(PartialEq, Eq, Debug, Hash)]
 pub struct AccountData {
     pub peers: Vec<PeerAddr>,
     pub account_id: AccountId,
@@ -84,7 +120,7 @@ impl AccountData {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, Hash)]
+#[derive(PartialEq, Eq, Debug, Hash)]
 pub struct AccountKeySignedPayload {
     payload: Vec<u8>,
     signature: near_crypto::Signature,
@@ -94,14 +130,21 @@ impl AccountKeySignedPayload {
     pub fn len(&self) -> usize {
         self.payload.len()
     }
-    pub fn verify(&self, key: &PublicKey) -> bool {
-        self.signature.verify(&self.payload, key)
+    pub fn signature(&self) -> &near_crypto::Signature {
+        &self.signature
+    }
+    pub fn verify(&self, key: &PublicKey) -> Result<(), ()> {
+        match self.signature.verify(&self.payload, key) {
+            true => Ok(()),
+            false => Err(()),
+        }
     }
 }
 
-// TODO(gprusak): if we expect this to be large, perhaps we should
-// pass around an Arc, rather than pass it by value.
-#[derive(PartialEq, Eq, Clone, Debug, Hash)]
+// TODO(gprusak): this is effectively immutable, and we always pass it around
+// in an Arc, so the Arc can be moved inside (except that constructing malformed
+// SignedAccountData for tests may get a little tricky).
+#[derive(PartialEq, Eq, Debug, Hash)]
 pub struct SignedAccountData {
     account_data: AccountData,
     // Serialized and signed AccountData.
@@ -187,9 +230,10 @@ pub enum HandshakeFailureReason {
     InvalidTarget,
 }
 
+/// See SyncAccountsData in network_protocol/network.proto.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct SyncAccountsData {
-    pub accounts_data: Vec<SignedAccountData>,
+    pub accounts_data: Vec<Arc<SignedAccountData>>,
     pub requesting_full_sync: bool,
     pub incremental: bool,
 }
@@ -241,16 +285,16 @@ pub enum Encoding {
     Proto,
 }
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum ParsePeerMessageError {
     #[error("BorshDecode")]
-    BorshDecode(std::io::Error),
+    BorshDecode(#[source] std::io::Error),
     #[error("BorshConv")]
-    BorshConv(borsh_conv::ParsePeerMessageError),
+    BorshConv(#[source] borsh_conv::ParsePeerMessageError),
     #[error("ProtoDecode")]
-    ProtoDecode(protobuf::Error),
+    ProtoDecode(#[source] protobuf::Error),
     #[error("ProtoConv")]
-    ProtoConv(proto_conv::ParsePeerMessageError),
+    ProtoConv(#[source] proto_conv::ParsePeerMessageError),
 }
 
 impl PeerMessage {

@@ -1,19 +1,20 @@
 //! Types for telemetry reporting. Can be received by any telemetry dashboard to display
 //! node count and their status across the network.
-use serde::{Deserialize, Serialize};
+use near_primitives_core::hash::CryptoHash;
+use serde::Serialize;
 
 use crate::types::BlockHeight;
 
 use crate::types::AccountId;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 pub struct TelemetryAgentInfo {
     pub name: String,
     pub version: String,
     pub build: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 pub struct TelemetrySystemInfo {
     pub bandwidth_download: u64,
     pub bandwidth_upload: u64,
@@ -22,18 +23,22 @@ pub struct TelemetrySystemInfo {
     pub boot_time_seconds: i64,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 pub struct TelemetryChainInfo {
     pub node_id: String,
     pub account_id: Option<AccountId>,
     pub is_validator: bool,
     pub status: String,
-    pub latest_block_hash: String,
+    pub latest_block_hash: CryptoHash,
     pub latest_block_height: BlockHeight,
     pub num_peers: usize,
+    pub block_production_tracking_delay: f64,
+    pub min_block_production_delay: f64,
+    pub max_block_production_delay: f64,
+    pub max_block_wait_delay: f64,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 pub struct TelemetryInfo {
     pub agent: TelemetryAgentInfo,
     pub system: TelemetrySystemInfo,

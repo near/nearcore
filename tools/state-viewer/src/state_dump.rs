@@ -140,10 +140,10 @@ pub fn state_dump_redis(
     let block_hash = last_block_header.hash();
 
     for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let trie =
-            runtime.get_trie_for_shard(shard_id as u64, last_block_header.prev_hash()).unwrap();
-        let trie = trie.iter(&state_root).unwrap();
-        for item in trie {
+        let trie = runtime
+            .get_trie_for_shard(shard_id as u64, last_block_header.prev_hash(), state_root.clone())
+            .unwrap();
+        for item in trie.iter().unwrap() {
             let (key, value) = item.unwrap();
             if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
                 if let StateRecord::Account { account_id, account } = &sr {
@@ -231,10 +231,10 @@ fn iterate_over_records(
     };
     let mut total_supply = 0;
     for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let trie =
-            runtime.get_trie_for_shard(shard_id as u64, last_block_header.prev_hash()).unwrap();
-        let trie = trie.iter(state_root).unwrap();
-        for item in trie {
+        let trie = runtime
+            .get_trie_for_shard(shard_id as u64, last_block_header.prev_hash(), state_root.clone())
+            .unwrap();
+        for item in trie.iter().unwrap() {
             let (key, value) = item.unwrap();
             if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {
                 if !should_include_record(&sr, &account_allowlist) {
@@ -351,7 +351,8 @@ mod test {
                 "test".parse().unwrap(),
                 KeyType::ED25519,
             ))),
-        );
+        )
+        .unwrap();
 
         (store, genesis, env, near_config)
     }
@@ -702,7 +703,8 @@ mod test {
                 "test".parse().unwrap(),
                 KeyType::ED25519,
             ))),
-        );
+        )
+        .unwrap();
 
         let last_block = blocks.pop().unwrap();
         let state_roots =
@@ -762,7 +764,8 @@ mod test {
                 "test".parse().unwrap(),
                 KeyType::ED25519,
             ))),
-        );
+        )
+        .unwrap();
         let head = env.clients[0].chain.head().unwrap();
         let last_block_hash = head.last_block_hash;
         let cur_epoch_id = head.epoch_id;

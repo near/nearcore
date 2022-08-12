@@ -12,8 +12,6 @@ use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
 use near_primitives::version::DbVersion;
-#[cfg(feature = "rosetta_rpc")]
-use near_rosetta_rpc::start_rosetta_rpc;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
 use near_store::db::RocksDB;
@@ -252,7 +250,7 @@ pub fn start_with_config_and_synchronization(
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(&config.genesis);
-    let genesis_block = Chain::make_genesis_block(runtime.clone(), &chain_genesis)?;
+    let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis)?;
     let genesis_id = GenesisId {
         chain_id: config.client_config.chain_id.clone(),
         hash: genesis_block.header().hash().clone(),
@@ -285,7 +283,6 @@ pub fn start_with_config_and_synchronization(
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
     let arbiter = Arbiter::new();
-    config.network_config.verify().context("start_with_config")?;
     let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), {
         let client_actor = client_actor.clone();
         let view_client = view_client.clone();
@@ -316,9 +313,10 @@ pub fn start_with_config_and_synchronization(
     if let Some(rosetta_rpc_config) = config.rosetta_rpc_config {
         rpc_servers.push((
             "Rosetta RPC",
-            start_rosetta_rpc(
+            near_rosetta_rpc::start_rosetta_rpc(
                 rosetta_rpc_config,
-                Arc::new(config.genesis.clone()),
+                config.genesis,
+                genesis_block.header().hash(),
                 client_actor.clone(),
                 view_client.clone(),
             ),
