@@ -14,12 +14,12 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::ProtocolVersion;
-use near_store::{get, get_account, get_postponed_receipt, TrieReader, TrieUpdate};
+use near_store::{get, get_account, get_postponed_receipt, TrieAccess, TrieUpdate};
 use std::collections::HashSet;
 
 /// Returns delayed receipts with given range of indices.
 fn get_delayed_receipts(
-    state: &impl TrieReader,
+    state: &dyn TrieAccess,
     indexes: std::ops::Range<u64>,
 ) -> Result<Vec<Receipt>, StorageError> {
     indexes
@@ -77,7 +77,7 @@ fn total_receipts_cost(
 
 /// Returns total account balance of all accounts with given ids.
 fn total_accounts_balance(
-    state: &impl TrieReader,
+    state: &dyn TrieAccess,
     accounts_ids: &HashSet<AccountId>,
 ) -> Result<Balance, RuntimeError> {
     accounts_ids.iter().try_fold(0u128, |accumulator, account_id| {
@@ -91,7 +91,7 @@ fn total_accounts_balance(
 
 /// Calculates and returns total costs of all the postponed receipts.
 fn total_postponed_receipts_cost(
-    state: &impl TrieReader,
+    state: &dyn TrieAccess,
     transaction_costs: &RuntimeFeesConfig,
     current_protocol_version: ProtocolVersion,
     receipt_ids: &HashSet<(AccountId, crate::CryptoHash)>,

@@ -11,6 +11,7 @@ use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
 use near_primitives::state_record::is_delayed_receipt_key;
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{StateRoot, StateRootNode};
 
 use crate::flat_state::FlatState;
@@ -412,14 +413,14 @@ pub struct Trie {
 }
 
 /// Trait for reading data from a trie.
-pub trait TrieReader {
+pub trait TrieAccess {
     /// Retrieves value with given key from the trie.
     ///
     /// In principle, this does not allow reads data from different chunks (be
     /// it from different shards or different blocks).  In practice it might be
     /// possible to retrieve nodes which don’t belong to a trie this reader is
     /// meant for, but this must not be relied upon.
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError>;
+    fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError>;
 }
 
 /// Stores reference count change for some key-value pair in DB.
@@ -755,9 +756,9 @@ impl Trie {
     }
 }
 
-impl TrieReader for Trie {
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
-        Trie::get(self, key)
+impl TrieAccess for Trie {
+    fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
+        Trie::get(self, &key.to_vec())
     }
 }
 

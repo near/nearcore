@@ -32,7 +32,7 @@ pub use crate::trie::iterator::TrieIterator;
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
     estimator, split_state, ApplyStatePartResult, KeyForStateChanges, PartialStorage, ShardTries,
-    Trie, TrieCache, TrieCacheFactory, TrieCachingStorage, TrieChanges, TrieReader, TrieStorage,
+    Trie, TrieAccess, TrieCache, TrieCacheFactory, TrieCachingStorage, TrieChanges, TrieStorage,
     WrappedTrieChanges,
 };
 
@@ -428,11 +428,11 @@ impl fmt::Debug for StoreUpdate {
 /// Reads an object from Trie.
 /// # Errors
 /// see StorageError
-pub fn get<T: BorshDeserialize, R: TrieReader>(
-    trie: &R,
+pub fn get<T: BorshDeserialize>(
+    trie: &dyn TrieAccess,
     key: &TrieKey,
 ) -> Result<Option<T>, StorageError> {
-    match trie.get(&key.to_vec())? {
+    match trie.get(key)? {
         None => Ok(None),
         Some(data) => match T::try_from_slice(&data) {
             Err(_err) => {
@@ -453,8 +453,8 @@ pub fn set_account(state_update: &mut TrieUpdate, account_id: AccountId, account
     set(state_update, TrieKey::Account { account_id }, account)
 }
 
-pub fn get_account<R: TrieReader>(
-    trie: &R,
+pub fn get_account(
+    trie: &dyn TrieAccess,
     account_id: &AccountId,
 ) -> Result<Option<Account>, StorageError> {
     get(trie, &TrieKey::Account { account_id: account_id.clone() })
@@ -469,8 +469,8 @@ pub fn set_received_data(
     set(state_update, TrieKey::ReceivedData { receiver_id, data_id }, data);
 }
 
-pub fn get_received_data<R: TrieReader>(
-    trie: &R,
+pub fn get_received_data(
+    trie: &dyn TrieAccess,
     receiver_id: &AccountId,
     data_id: CryptoHash,
 ) -> Result<Option<ReceivedData>, StorageError> {
@@ -493,16 +493,16 @@ pub fn remove_postponed_receipt(
     state_update.remove(TrieKey::PostponedReceipt { receiver_id: receiver_id.clone(), receipt_id });
 }
 
-pub fn get_postponed_receipt<R: TrieReader>(
-    trie: &R,
+pub fn get_postponed_receipt(
+    trie: &dyn TrieAccess,
     receiver_id: &AccountId,
     receipt_id: CryptoHash,
 ) -> Result<Option<Receipt>, StorageError> {
     get(trie, &TrieKey::PostponedReceipt { receiver_id: receiver_id.clone(), receipt_id })
 }
 
-pub fn get_delayed_receipt_indices<R: TrieReader>(
-    trie: &R,
+pub fn get_delayed_receipt_indices(
+    trie: &dyn TrieAccess,
 ) -> Result<DelayedReceiptIndices, StorageError> {
     Ok(get(trie, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default())
 }
@@ -524,8 +524,8 @@ pub fn remove_access_key(
     state_update.remove(TrieKey::AccessKey { account_id, public_key });
 }
 
-pub fn get_access_key<R: TrieReader>(
-    trie: &R,
+pub fn get_access_key(
+    trie: &dyn TrieAccess,
     account_id: &AccountId,
     public_key: &PublicKey,
 ) -> Result<Option<AccessKey>, StorageError> {
@@ -535,8 +535,8 @@ pub fn get_access_key<R: TrieReader>(
     )
 }
 
-pub fn get_access_key_raw<R: TrieReader>(
-    trie: &R,
+pub fn get_access_key_raw(
+    trie: &dyn TrieAccess,
     raw_key: &[u8],
 ) -> Result<Option<AccessKey>, StorageError> {
     get(
@@ -550,13 +550,13 @@ pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &Con
     state_update.set(TrieKey::ContractCode { account_id }, code.code().to_vec());
 }
 
-pub fn get_code<R: TrieReader>(
-    trie: &R,
+pub fn get_code(
+    trie: &dyn TrieAccess,
     account_id: &AccountId,
     code_hash: Option<CryptoHash>,
 ) -> Result<Option<ContractCode>, StorageError> {
     let key = TrieKey::ContractCode { account_id: account_id.clone() };
-    trie.get(&key.to_vec()).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
+    trie.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
 }
 
 /// Removes account, code and all access keys associated to it.
