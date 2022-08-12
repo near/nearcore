@@ -416,9 +416,9 @@ pub struct Trie {
 pub trait TrieAccess {
     /// Retrieves value with given key from the trie.
     ///
-    /// In principle, this does not allow reads data from different chunks (be
-    /// it from different shards or different blocks).  In practice it might be
-    /// possible to retrieve nodes which don’t belong to a trie this reader is
+    /// In principle, this doesn’t allow reads data from different chunks (be it
+    /// from different shards or different blocks).  In practice it might be
+    /// possible to retrieve values which don’t belong to a trie this reader is
     /// meant for, but this must not be relied upon.
     fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError>;
 }
