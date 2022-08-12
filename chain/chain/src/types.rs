@@ -699,6 +699,7 @@ pub trait RuntimeAdapter: Send + Sync {
         request: &QueryRequest,
     ) -> Result<QueryResponse, near_chain_primitives::error::QueryError>;
 
+    /// WARNING: this call may be expensive.
     fn get_validator_info(
         &self,
         epoch_id: ValidatorInfoIdentifier,
