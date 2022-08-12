@@ -108,7 +108,4 @@ skip = [
 
     # prometheus depends on an old version of protobuf
     { name = "protobuf", version = "=2.27.1" },
-
-    # redis we’re using uses ancient sha
-    { name = "sha1", version = "=0.6.1" },
 ]

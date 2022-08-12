@@ -89,7 +89,7 @@ impl Store {
         tracing::trace!(
             target: "store",
             db_op = "get",
-            col = ?column,
+            col = %column,
             key = %to_base(key),
             size = value.as_ref().map(Vec::len)
         );
@@ -215,7 +215,7 @@ impl StoreUpdate {
     /// It is a programming error if `insert` overwrites an existing, different
     /// value. Use it for insert-only columns.
     pub fn insert(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
-        assert!(column.is_insert_only(), "can't insert: {column:?}");
+        assert!(column.is_insert_only(), "can't insert: {column}");
         self.transaction.insert(column, key.to_vec(), value.to_vec())
     }
 
@@ -225,7 +225,7 @@ impl StoreUpdate {
         key: &[u8],
         value: &T,
     ) -> io::Result<()> {
-        assert!(column.is_insert_only(), "can't insert_ser: {column:?}");
+        assert!(column.is_insert_only(), "can't insert_ser: {column}");
         let data = value.try_to_vec()?;
         self.insert(column, key, &data);
         Ok(())
@@ -247,7 +247,7 @@ impl StoreUpdate {
         data: &[u8],
         increase: std::num::NonZeroU32,
     ) {
-        assert!(column.is_rc(), "can't update refcount: {column:?}");
+        assert!(column.is_rc(), "can't update refcount: {column}");
         let value = refcount::add_positive_refcount(data, increase);
         self.transaction.update_refcount(column, key.to_vec(), value);
     }
@@ -270,7 +270,7 @@ impl StoreUpdate {
         key: &[u8],
         decrease: std::num::NonZeroU32,
     ) {
-        assert!(column.is_rc(), "can't update refcount: {column:?}");
+        assert!(column.is_rc(), "can't update refcount: {column}");
         let value = refcount::encode_negative_refcount(decrease);
         self.transaction.update_refcount(column, key.to_vec(), value)
     }
@@ -289,7 +289,7 @@ impl StoreUpdate {
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
-        assert!(!(column.is_rc() || column.is_insert_only()), "can't set: {column:?}");
+        assert!(!(column.is_rc() || column.is_insert_only()), "can't set: {column}");
         self.transaction.set(column, key.to_vec(), value.to_vec())
     }
 
@@ -303,7 +303,7 @@ impl StoreUpdate {
         key: &[u8],
         value: &T,
     ) -> io::Result<()> {
-        assert!(!(column.is_rc() || column.is_insert_only()), "can't set_ser: {column:?}");
+        assert!(!(column.is_rc() || column.is_insert_only()), "can't set_ser: {column}");
         let data = value.try_to_vec()?;
         self.set(column, key, &data);
         Ok(())
@@ -324,7 +324,7 @@ impl StoreUpdate {
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {
-        assert!(!column.is_rc(), "can't delete: {column:?}");
+        assert!(!column.is_rc(), "can't delete: {column}");
         self.transaction.delete(column, key.to_vec());
     }
 
@@ -387,19 +387,19 @@ impl StoreUpdate {
         for op in &self.transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "insert", col = ?col, key =  %to_base(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "insert", col = %col, key =  %to_base(key), size = value.len())
                 }
                 DBOp::Set { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "set", col = ?col, key =  %to_base(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "set", col = %col, key =  %to_base(key), size = value.len())
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "update_rc", col = ?col, key =  %to_base(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key =  %to_base(key), size = value.len())
                 }
                 DBOp::Delete { col, key } => {
-                    tracing::trace!(target: "store", db_op = "delete", col = ?col, key =  %to_base(key))
+                    tracing::trace!(target: "store", db_op = "delete", col = %col, key =  %to_base(key))
                 }
                 DBOp::DeleteAll { col } => {
-                    tracing::trace!(target: "store", db_op = "delete_all", col = ?col)
+                    tracing::trace!(target: "store", db_op = "delete_all", col = %col)
                 }
             }
         }
@@ -412,13 +412,11 @@ impl fmt::Debug for StoreUpdate {
         writeln!(f, "Store Update {{")?;
         for op in self.transaction.ops.iter() {
             match op {
-                DBOp::Insert { col, key, .. } => writeln!(f, "  + {:?} {}", col, to_base(key))?,
-                DBOp::Set { col, key, .. } => writeln!(f, "  * {:?} {}", col, to_base(key))?,
-                DBOp::UpdateRefcount { col, key, .. } => {
-                    writeln!(f, "  +- {:?} {}", col, to_base(key))?
-                }
-                DBOp::Delete { col, key } => writeln!(f, "  - {:?} {}", col, to_base(key))?,
-                DBOp::DeleteAll { col } => writeln!(f, "  delete all {:?}", col)?,
+                DBOp::Insert { col, key, .. } => writeln!(f, "  + {col} {}", to_base(key))?,
+                DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", to_base(key))?,
+                DBOp::UpdateRefcount { col, key, .. } => writeln!(f, "  ± {col} {}", to_base(key))?,
+                DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", to_base(key))?,
+                DBOp::DeleteAll { col } => writeln!(f, "  - {col} (all)")?,
             }
         }
         writeln!(f, "}}")
@@ -641,7 +639,11 @@ impl StoreCompiledContractCache {
 impl CompiledContractCache for StoreCompiledContractCache {
     fn put(&self, key: &CryptoHash, value: Vec<u8>) -> io::Result<()> {
         let mut update = crate::db::DBTransaction::new();
-        update.insert(DBCol::CachedContractCode, key.as_ref().to_vec(), value);
+        // We intentionally use `.set` here, rather than `.insert`. We don't yet
+        // guarantee deterministic compilation, so, if we happen to compile the
+        // same contract concurrently on two threads, the `value`s might differ,
+        // but this doesn't matter.
+        update.set(DBCol::CachedContractCode, key.as_ref().to_vec(), value);
         self.db.write(update)
     }
 

@@ -1387,7 +1387,7 @@ impl ClientActor {
             Err(e) => match e {
                 near_chain::Error::Orphan => {
                     if !self.client.chain.is_orphan(&prev_hash) {
-                        self.request_block_by_hash(prev_hash, peer_id)
+                        self.request_block(prev_hash, peer_id)
                     }
                 }
                 // missing chunks are already handled in self.client.process_block()
@@ -1419,7 +1419,7 @@ impl ClientActor {
         }
     }
 
-    fn request_block_by_hash(&mut self, hash: CryptoHash, peer_id: PeerId) {
+    fn request_block(&mut self, hash: CryptoHash, peer_id: PeerId) {
         match self.client.chain.block_exists(&hash) {
             Ok(false) => {
                 self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
@@ -1708,7 +1708,7 @@ impl ClientActor {
                                     for hash in
                                         vec![*header.prev_hash(), *header.hash()].into_iter()
                                     {
-                                        self.request_block_by_hash(hash, id.clone());
+                                        self.request_block(hash, id.clone());
                                     }
                                 }
                             }

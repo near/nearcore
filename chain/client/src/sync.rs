@@ -344,7 +344,7 @@ impl HeaderSync {
             } else {
                 // Walk backwards to find last known hash.
                 let last_loc = *locator.last().unwrap();
-                if let Ok(header) = chain.get_header_by_height(h) {
+                if let Ok(header) = chain.get_block_header_by_height(h) {
                     if header.height() != last_loc.0 {
                         locator.push((header.height(), *header.hash()));
                     }
@@ -506,7 +506,7 @@ impl BlockSync {
             let mut candidate = (header.height(), *header.hash(), *header.prev_hash());
 
             // First go back until we find the common block
-            while match chain.get_header_by_height(candidate.0) {
+            while match chain.get_block_header_by_height(candidate.0) {
                 Ok(header) => header.hash() != &candidate.1,
                 Err(e) => match e {
                     near_chain::Error::DBNotFoundErr(_) => true,

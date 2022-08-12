@@ -488,7 +488,7 @@ impl ClientActor {
                 let mut production = ProductionAtHeight::default();
 
                 // The block may be in the last epoch from head, we need to account for that.
-                if let Ok(header) = self.client.chain.get_header_by_height(height) {
+                if let Ok(header) = self.client.chain.get_block_header_by_height(height) {
                     epoch_id = header.epoch_id().clone();
                 }
 
