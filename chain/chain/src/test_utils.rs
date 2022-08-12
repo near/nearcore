@@ -553,7 +553,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(validators)
     }
     fn get_epoch_chunk_producers(&self, _epoch_id: &EpochId) -> Result<Vec<ValidatorStake>, Error> {
-        todo!()
+        tracing::warn!("not implemented, returning a dummy value");
+        Ok(vec![])
     }
 
     fn get_block_producer(
