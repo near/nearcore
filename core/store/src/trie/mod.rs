@@ -413,7 +413,7 @@ pub struct Trie {
 
 /// Trait for reading data from a trie.
 pub trait TrieReader {
-    /// Retrieves node with given key from the trie.
+    /// Retrieves value with given key from the trie.
     ///
     /// In principle, this does not allow reads data from different chunks (be
     /// it from different shards or different blocks).  In practice it might be
