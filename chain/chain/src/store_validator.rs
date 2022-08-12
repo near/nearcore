@@ -487,7 +487,7 @@ mod tests {
     #[test]
     fn test_discrepancy() {
         let (chain, mut sv) = init();
-        let block_header = chain.get_header_by_height(0).unwrap();
+        let block_header = chain.get_block_header_by_height(0).unwrap();
         assert!(validate::block_header_hash_validity(&mut sv, block_header.hash(), &block_header)
             .is_ok());
         match validate::block_header_hash_validity(&mut sv, &CryptoHash::default(), &block_header) {
