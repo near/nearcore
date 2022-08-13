@@ -439,11 +439,9 @@ impl ViewClientActor {
         } else {
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
             if Self::need_request(tx_hash, &mut request_manager.tx_status_requests) {
-                let epoch_id =
-                    self.chain.head().map_err(|e| TxStatusError::ChainError(e))?.epoch_id;
                 let target_shard_id = self
                     .runtime_adapter
-                    .account_id_to_shard_id(&signer_account_id, &epoch_id)
+                    .account_id_to_shard_id(&signer_account_id, &head.epoch_id)
                     .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
                 let validator = self
                     .chain
