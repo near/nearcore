@@ -1613,16 +1613,6 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::ReceiptOutComeRequest(account_id, receipt_id) => {
-                if self.send_message_to_account(
-                    &account_id,
-                    RoutedMessageBody::ReceiptOutcomeRequest(receipt_id),
-                ) {
-                    NetworkResponses::NoResponse
-                } else {
-                    NetworkResponses::RouteNotFound
-                }
-            }
             NetworkRequests::Challenge(challenge) => {
                 // TODO(illia): smarter routing?
                 self.state
