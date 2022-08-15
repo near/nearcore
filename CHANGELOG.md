@@ -6,6 +6,29 @@
 
 ### Non-protocol Changes
 
+## 1.29.0 [2022-08-15]
+
+### Protocol Changes
+
+* Stabilized `protocol_feature_chunk_only_producers`. Validators will
+  now be assigned to blocks and chunks separately.
+* The validator uptime kickout threshold has been reduced to 80%
+* Edge nonces between peers can now optionally indicate an expiration
+  time
+
+### Non-protocol Changes
+
+* The logic around forwarding chunks to validators is improved
+* Approvals and partial encoded chunks are now sent multiple times,
+  which should reduce stalls due to lost approvals when the network is
+  under high load
+* We now keep a list of "TIER1" accounts (validators) for whom
+  latency/reliability of messages routed through the network is
+  critical
+* /debug HTTP page has been improved
+* Messages aren't routed through peers that are too far behind
+* Log lines printed every 10 seconds are now less expensive to compute
+* message broadcasts have been improved/optimized
 * `network.external_address` field in `config.json` file is
   deprecated.  In fact it has never been used and only served to
   confuse everyone [#7300](https://github.com/near/nearcore/pull/7300)
