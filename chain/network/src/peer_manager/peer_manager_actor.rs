@@ -305,8 +305,8 @@ impl Actor for PeerManagerActor {
             (MONITOR_PEERS_INITIAL_DURATION, max_interval),
         );
 
-        let skip_tombstones = self.config.skip_sending_tombstones.map(|it| {self.clock.now() + it});
-            
+        let skip_tombstones = self.config.skip_sending_tombstones.map(|it| self.clock.now() + it);
+
         // Periodically reads valid edges from `EdgesVerifierActor` and broadcast.
         self.broadcast_validated_edges_trigger(
             ctx,
