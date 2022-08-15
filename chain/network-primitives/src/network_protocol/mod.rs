@@ -231,8 +231,10 @@ impl RoutedMessageBody {
 
     pub fn log_if_ping_pong(&self) {
         if let Self::Ping(_) = self {
+            let _span = tracing::trace_span!(target: "network", "log_if_ping_pong").entered();
             tracing::info!(target: "ping", body = ?self, "PeerActor: this is a ping");
         } else if let Self::Pong(_) = self {
+            let _span = tracing::trace_span!(target: "network", "log_if_ping_pong").entered();
             tracing::info!(target: "ping", body = ?self, "PeerActor: this is a pong");
         }
     }
