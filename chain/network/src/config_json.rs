@@ -44,10 +44,15 @@ fn default_peer_stats_period() -> Duration {
     Duration::from_secs(5)
 }
 
-// If true - we'll skip sending tombstones during initial sync.
-fn default_skip_tombstones() -> bool {
+// If non-zero - we'll skip sending tombstones during initial sync and for that many seconds after start.
+fn default_skip_tombstones() -> i64 {
     // Enable by default in shardnet only.
-    cfg!(feature = "shardnet")
+    if cfg!(feature = "shardnet") {
+        // Skip sending tombstones during sync and 240 seconds after start.
+        240
+    } else {
+        0
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -159,8 +164,11 @@ pub struct ExperimentalConfig {
     // If true - connect only to the boot nodes.
     #[serde(default)]
     pub connect_only_to_boot_nodes: bool,
+
+    // If greater than 0, then system will no longer send tombstones during sync and during that many seconds
+    // after startup.
     #[serde(default = "default_skip_tombstones")]
-    pub skip_sending_tombstones: bool,
+    pub skip_sending_tombstones_seconds: i64,
 }
 
 impl Default for ExperimentalConfig {
@@ -168,7 +176,7 @@ impl Default for ExperimentalConfig {
         ExperimentalConfig {
             inbound_disabled: false,
             connect_only_to_boot_nodes: false,
-            skip_sending_tombstones: default_skip_tombstones(),
+            skip_sending_tombstones_seconds: default_skip_tombstones(),
         }
     }
 }

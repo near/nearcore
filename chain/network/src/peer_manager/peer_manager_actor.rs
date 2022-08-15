@@ -119,8 +119,6 @@ const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 // network issue.
 const UNRELIABLE_PEER_HORIZON: u64 = 60;
 
-const SKIP_TOMBSTONES_AFTER_STARTUP_TIME: time::Duration = time::Duration::seconds(120);
-
 #[derive(Clone, PartialEq, Eq)]
 struct WhitelistNode {
     id: PeerId,
@@ -307,11 +305,8 @@ impl Actor for PeerManagerActor {
             (MONITOR_PEERS_INITIAL_DURATION, max_interval),
         );
 
-        let skip_tombstones = if self.config.skip_sending_tombstones {
-            Some(self.clock.now() + SKIP_TOMBSTONES_AFTER_STARTUP_TIME)
-        } else {
-            None
-        };
+        let skip_tombstones = self.config.skip_sending_tombstones.map(|it| {self.clock.now() + it});
+            
         // Periodically reads valid edges from `EdgesVerifierActor` and broadcast.
         self.broadcast_validated_edges_trigger(
             ctx,
@@ -619,7 +614,8 @@ impl PeerManagerActor {
                             // Later, the amount of new edges is a lot smaller.
                             if let Some(skip_tombstones_until) = skip_tombstones_until {
                                 if act.clock.now() < skip_tombstones_until {
-                                    filtered_edges.retain(|edge| edge.removal_info().is_none());
+                                    filtered_edges
+                                        .retain(|edge| edge.edge_type() == EdgeState::Active);
                                     metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
                                 }
                             }
@@ -701,7 +697,7 @@ impl PeerManagerActor {
                 // sending messages.
                 let mut known_edges: Vec<Edge> =
                     act.network_graph.read().edges().values().cloned().collect();
-                if act.config.skip_sending_tombstones {
+                if act.config.skip_sending_tombstones.is_some() {
                     known_edges.retain(|edge| edge.removal_info().is_none());
                     metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
                 }

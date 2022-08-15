@@ -153,8 +153,8 @@ pub(crate) static EDGE_TOTAL: Lazy<IntGauge> = Lazy::new(|| {
         .unwrap()
 });
 
-pub(crate) static EDGE_TOMBSTONE_SENDING_SKIPPED: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
+pub(crate) static EDGE_TOMBSTONE_SENDING_SKIPPED: Lazy<IntCounter> = Lazy::new(|| {
+    try_create_int_counter(
         "near_edge_tombstone_sending_skip",
         "Number of times that we didn't send tombstones.",
     )
