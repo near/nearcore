@@ -283,26 +283,26 @@ pub(crate) fn aggregate_per_block_measurements(
     let mut block_costs = Vec::new();
     let mut total_ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
     let mut total = GasCost::zero();
-    let mut n = 0;
+    let num_measurements = measurements.len() as u64;
     for (gas_cost, ext_cost) in measurements {
         block_costs.push(gas_cost.to_gas() as f64);
         total += gas_cost;
-        n += block_size as u64;
         for (c, v) in ext_cost {
             *total_ext_costs.entry(c).or_default() += v;
         }
     }
     for v in total_ext_costs.values_mut() {
+        let n = num_measurements * block_size as u64;
         *v /= n;
     }
-    let mut gas_cost = total / n;
+    let mut gas_cost = total / num_measurements;
     if is_high_variance(&block_costs) {
         gas_cost.set_uncertain("HIGH-VARIANCE");
     }
     if let Some(overhead) = overhead {
         gas_cost = gas_cost.saturating_sub(&overhead, &NonNegativeTolerance::PER_MILLE);
     }
-    (gas_cost, total_ext_costs)
+    (gas_cost / block_size as u64, total_ext_costs)
 }
 
 pub(crate) fn average_cost(measurements: Vec<GasCost>) -> GasCost {
