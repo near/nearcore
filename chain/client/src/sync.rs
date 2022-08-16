@@ -164,7 +164,7 @@ impl HeaderSync {
     pub fn run(
         &mut self,
         sync_status: &mut SyncStatus,
-        chain: &mut Chain,
+        chain: &Chain,
         highest_height: BlockHeight,
         highest_height_peers: &Vec<FullPeerInfo>,
     ) -> Result<(), near_chain::Error> {
@@ -314,7 +314,7 @@ impl HeaderSync {
     }
 
     /// Request headers from a given peer to advance the chain.
-    fn request_headers(&mut self, chain: &mut Chain, peer: FullPeerInfo) -> Option<FullPeerInfo> {
+    fn request_headers(&mut self, chain: &Chain, peer: FullPeerInfo) -> Option<FullPeerInfo> {
         if let Ok(locator) = self.get_locator(chain) {
             debug!(target: "sync", "Sync: request headers: asking {} for headers, {:?}", peer.peer_info.id, locator);
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
@@ -328,7 +328,7 @@ impl HeaderSync {
         None
     }
 
-    fn get_locator(&mut self, chain: &mut Chain) -> Result<Vec<CryptoHash>, near_chain::Error> {
+    fn get_locator(&mut self, chain: &Chain) -> Result<Vec<CryptoHash>, near_chain::Error> {
         let tip = chain.header_head()?;
         let genesis_height = chain.genesis().height();
         let heights = get_locator_heights(tip.height - genesis_height)
@@ -431,7 +431,7 @@ impl BlockSync {
     pub fn run(
         &mut self,
         sync_status: &mut SyncStatus,
-        chain: &mut Chain,
+        chain: &Chain,
         highest_height: BlockHeight,
         highest_height_peers: &[FullPeerInfo],
     ) -> Result<bool, near_chain::Error> {
@@ -481,7 +481,7 @@ impl BlockSync {
     /// Otherwise request recent blocks from peers round robin.
     pub fn block_sync(
         &mut self,
-        chain: &mut Chain,
+        chain: &Chain,
         highest_height_peers: &[FullPeerInfo],
     ) -> Result<bool, near_chain::Error> {
         if self.check_state_needed(chain)? {
@@ -659,7 +659,7 @@ impl StateSync {
     pub fn sync_block_status(
         &mut self,
         prev_hash: &CryptoHash,
-        chain: &mut Chain,
+        chain: &Chain,
         now: DateTime<Utc>,
     ) -> Result<(bool, bool), near_chain::Error> {
         let (request_block, have_block) = if !chain.block_exists(prev_hash)? {
@@ -968,7 +968,7 @@ impl StateSync {
 
     /// Find the hash of the first block on the same epoch (and chain) of block with hash `sync_hash`.
     pub fn get_epoch_start_sync_hash(
-        chain: &mut Chain,
+        chain: &Chain,
         sync_hash: &CryptoHash,
     ) -> Result<CryptoHash, near_chain::Error> {
         let mut header = chain.get_block_header(sync_hash)?;
@@ -1034,7 +1034,7 @@ impl StateSync {
         &mut self,
         me: &Option<AccountId>,
         shard_id: ShardId,
-        chain: &mut Chain,
+        chain: &Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         sync_hash: CryptoHash,
         highest_height_peers: &Vec<FullPeerInfo>,
@@ -1083,7 +1083,7 @@ impl StateSync {
         &mut self,
         me: &Option<AccountId>,
         shard_id: ShardId,
-        chain: &mut Chain,
+        chain: &Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         sync_hash: CryptoHash,
         shard_sync_download: ShardSyncDownload,
@@ -1638,8 +1638,7 @@ mod test {
 
         // fetch three blocks at a time
         for i in 0..3 {
-            let is_state_sync =
-                block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
+            let is_state_sync = block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
             assert!(!is_state_sync);
 
             let expected_blocks: Vec<_> =
@@ -1656,7 +1655,7 @@ mod test {
 
         // Now test when the node receives the block out of order
         // fetch the next three blocks
-        let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
+        let is_state_sync = block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
         check_hashes_from_network_adapter(
             network_adapter.clone(),
@@ -1668,7 +1667,7 @@ mod test {
             Provenance::NONE,
         );
         // the next block sync should not request block[4*MAX_BLOCK_REQUESTS-1] again
-        let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
+        let is_state_sync = block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
         check_hashes_from_network_adapter(
             network_adapter.clone(),
@@ -1682,7 +1681,7 @@ mod test {
             let _ = env.clients[1]
                 .process_block_test(MaybeValidated::from(blocks[i].clone()), Provenance::NONE);
         }
-        block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
+        block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
         let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter);
         assert!(requested_block_hashes.is_empty(), "{:?}", requested_block_hashes);
     }
@@ -1706,7 +1705,7 @@ mod test {
         let mut challenges = vec![];
         env.clients[1].chain.sync_block_headers(block_headers, &mut challenges).unwrap();
         assert!(challenges.is_empty());
-        let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
+        let is_state_sync = block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
         let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter.clone());
         // We don't have archival peers, and thus cannot request any blocks
@@ -1716,7 +1715,7 @@ mod test {
         for peer in peer_infos.iter_mut() {
             peer.chain_info.archival = true;
         }
-        let is_state_sync = block_sync.block_sync(&mut env.clients[1].chain, &peer_infos).unwrap();
+        let is_state_sync = block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
         let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter);
         assert_eq!(
