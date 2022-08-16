@@ -2085,6 +2085,8 @@ fn test_block_height_processed_orphan() {
 
 #[test]
 fn test_validate_chunk_extra() {
+    let mut capture = near_logger_utils::TracingCapture::enable();
+
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
@@ -2168,7 +2170,25 @@ fn test_validate_chunk_extra() {
         assert_matches!(res.unwrap_err(), near_chain::Error::ChunksMissing(_));
     }
 
-    // Process the previously unavailable chunk. This causes two blocks to be accepted.
+    // Process the previously unavailable chunk. This causes two blocks to be
+    // accepted. Technically, the blocks are accepted concurrently, so we can
+    // observe either `block1 -> block2` reorg or `block2, block1` fork. We want
+    // to try to produce chunks on top of block1, so we force the reorg case
+    // using `capture`
+
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    capture.set_callback({
+        let block2_hash = *block2.hash();
+        let barrier = Arc::clone(&barrier);
+        move |msg| {
+            if msg.starts_with("do_apply_chunks")
+                && msg.contains(&format!("block_hash={block2_hash}"))
+            {
+                barrier.wait();
+            }
+        }
+    });
+
     let mut chain_store =
         ChainStore::new(env.clients[0].chain.store().store().clone(), genesis_height, true);
     let chunk_header = encoded_chunk.cloned_header();
@@ -2178,8 +2198,11 @@ fn test_validate_chunk_extra() {
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
     env.clients[0].process_blocks_with_missing_chunks(Arc::new(|_| {}));
-    let accepted_blocks = env.clients[0].finish_blocks_in_processing();
-    assert_eq!(accepted_blocks.len(), 2);
+    let accepted_blocks = env.clients[0].finish_block_in_processing(block1.hash());
+    assert_eq!(accepted_blocks.len(), 1);
+    barrier.wait();
+    let accepted_blocks = env.clients[0].finish_block_in_processing(block2.hash());
+    assert_eq!(accepted_blocks.len(), 1);
 
     // About to produce a block on top of block1. Validate that this chunk is legit.
     let chunks = env.clients[0].shards_mgr.prepare_chunks(block1.hash());
@@ -2464,8 +2487,8 @@ fn test_refund_receipts_processing() {
             .runtime_adapter
             .get_tries()
             .new_trie_update(test_shard_uid, *chunk_extra.state_root());
-        let delayed_indices =
-            get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
+        let delayed_indices: Option<DelayedReceiptIndices> =
+            get(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
         let finished_all_delayed_receipts = match delayed_indices {
             None => false,
             Some(delayed_indices) => {
@@ -3140,10 +3163,8 @@ fn test_congestion_receipt_execution() {
         .runtime_adapter
         .get_tries()
         .new_trie_update(ShardUId::single_shard(), *chunk_extra.state_root());
-    let delayed_indices =
-        get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices)
-            .unwrap()
-            .unwrap();
+    let delayed_indices: DelayedReceiptIndices =
+        get(&state_update, &TrieKey::DelayedReceiptIndices).unwrap().unwrap();
     assert!(delayed_indices.next_available_index > 0);
     let mut block = env.clients[0].produce_block(height + 1).unwrap().unwrap();
     testlib::process_blocks::set_no_chunk_in_block(&mut block, &prev_block);
