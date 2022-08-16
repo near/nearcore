@@ -445,7 +445,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         let mut batch_written: u64 = 0;
         let mut count_keys: u64 = 0;
         for item in src_store.iter_raw_bytes(column) {
-            let (key, value) = item.with_context(|| format!("scanning column {column:?}"))?;
+            let (key, value) = item.with_context(|| format!("scanning column {column}"))?;
             store_update.set_raw_bytes(column, &key, &value);
             total_written += value.len() as u64;
             batch_written += value.len() as u64;
