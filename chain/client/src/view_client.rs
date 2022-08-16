@@ -406,7 +406,7 @@ impl ViewClientActor {
                     }
                 }
                 Err(err) => {
-                    warn!(target: "client", "Error trying to get transaction result: {err}");
+                    warn!(target: "client", ?err, "Error trying to get transaction result");
                     Err(TxStatusError::ChainError(err))
                 }
             }
