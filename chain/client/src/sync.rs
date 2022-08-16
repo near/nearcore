@@ -479,7 +479,7 @@ impl BlockSync {
 
     /// Returns true if state download is required (last known block is too far).
     /// Otherwise request recent blocks from peers round robin.
-    pub fn block_sync(
+    fn block_sync(
         &mut self,
         chain: &Chain,
         highest_height_peers: &[FullPeerInfo],
