@@ -149,7 +149,7 @@ message Handshake {
   // Set if this is a TIER1 connection.
   // Can only be initiated by a TIER1 peer.
   // Both ends have to have TIER1 support enabled to establish a TIER1 connections.
-  bool is_tier1 = 1;
+  bool is_tier1 = 8;
 }
 
 // Response to Handshake, in case the Handshake was rejected.

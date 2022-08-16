@@ -9,7 +9,6 @@ use near_network_primitives::types::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::version::ProtocolVersion;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
@@ -68,19 +67,11 @@ pub enum PeerToManagerMsgResp {
 #[rtype(result = "RegisterPeerResponse")]
 pub(crate) struct RegisterPeer {
     pub connection_state: Arc<ConnectedPeer>,
-    /// Edge information from this node.
-    /// If this is None it implies we are outbound connection, so we need to create our
-    /// EdgeInfo part and send it to the other peer.
-    pub this_edge_info: Option<PartialEdgeInfo>,
-    /// Protocol version of new peer. May be higher than ours.
-    #[allow(dead_code)]
-    pub peer_protocol_version: ProtocolVersion,
 }
 
 #[derive(actix::MessageResponse, Debug)]
 pub enum RegisterPeerResponse {
-    Accept(Option<PartialEdgeInfo>),
-    InvalidNonce(Box<Edge>),
+    Accept,
     Reject,
 }
 

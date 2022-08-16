@@ -8,7 +8,7 @@ use crate::types::FullPeerInfo;
 use arc_swap::ArcSwap;
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext,
+    Edge, PeerChainInfoV2, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext,
     PeerType, ReasonForBan,
 };
 use near_primitives::network::PeerId;
@@ -64,7 +64,7 @@ pub(crate) struct ConnectedPeer {
     pub addr: actix::Addr<PeerActor>,
 
     pub peer_info: PeerInfo,
-    pub partial_edge_info: PartialEdgeInfo,
+    pub edge: Edge,
     pub initial_chain_info: PeerChainInfoV2,
     pub chain_height: AtomicU64,
 
@@ -89,7 +89,7 @@ impl fmt::Debug for ConnectedPeer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         f.debug_struct("ConnectedPeer")
             .field("peer_info", &self.peer_info)
-            .field("partial_edge_info", &self.partial_edge_info)
+            .field("edge", &self.edge)
             .field("peer_type", &self.peer_type)
             .field("connection_established_time", &self.connection_established_time)
             .finish()

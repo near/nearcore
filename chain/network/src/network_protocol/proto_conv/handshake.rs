@@ -115,6 +115,7 @@ impl TryFrom<&proto::Handshake> for Handshake {
                 .map_err(Self::Error::SenderChainInfo)?,
             partial_edge_info: try_from_required(&p.partial_edge_info)
                 .map_err(Self::Error::PartialEdgeInfo)?,
+            is_tier1: p.is_tier1,
         })
     }
 }

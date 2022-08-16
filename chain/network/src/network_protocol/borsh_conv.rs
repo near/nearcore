@@ -14,6 +14,7 @@ impl From<&net::Handshake> for mem::Handshake {
             sender_listen_port: x.sender_listen_port,
             sender_chain_info: x.sender_chain_info.clone(),
             partial_edge_info: x.partial_edge_info.clone(),
+            is_tier1: false,
         }
     }
 }
