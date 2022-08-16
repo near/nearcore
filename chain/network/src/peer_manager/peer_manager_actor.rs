@@ -158,6 +158,8 @@ pub(crate) struct NetworkState {
     pub accounts_data: Arc<accounts_data::Cache>,
     /// Connected peers (inbound and outbound) with their full peer information.
     pub connected_peers: ConnectedPeers,
+
+    pub tier1_connections: ConnectedPeers,
 }
 
 impl NetworkState {
@@ -671,9 +673,10 @@ impl PeerManagerActor {
         let peer_info = peer_info.clone();
 
         self.state.connected_peers.insert(connection_state.clone());
-        self.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
-        self.sync_after_handshake(connection_state, ctx, new_edge);
-        self.event_sink.push(Event::PeerRegistered(peer_info));
+        if !connection_state.is_tier1 {
+            self.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
+            self.sync_after_handshake(connection_state, ctx, new_edge);
+        }
     }
 
     fn sync_after_handshake(
@@ -1757,6 +1760,13 @@ impl PeerManagerActor {
         }
 
         if msg.connection_state.peer_type == PeerType::Inbound {
+            // Allow for inbound TIER1 connections only directly from a TIER1 peers
+            // (not from TIER1 proxies).
+            if msg.connection_state.is_tier1 {
+                if self.state.accounts_data.load().accounts_by_tier1_peer(peer_info.id).count()==0 {
+                    return RegisterPeerResponse::Reject;
+                }
+            }
             // This is incoming connection but we have this peer already in outgoing.
             // This only happens when both of us connect at the same time, break tie using peer id.
             // Connection with the lower peer_id of the outbound peer wins.
@@ -1819,9 +1829,8 @@ impl PeerManagerActor {
 
         let edge_info_response = if require_response { Some(edge_info.clone()) } else { None };
 
-        // TODO: double check that address is connectable and add account id.
         self.register_peer(msg.connection_state, edge_info, ctx);
-
+        self.event_sink.push(Event::PeerRegistered(peer_info));
         RegisterPeerResponse::Accept(edge_info_response)
     }
 

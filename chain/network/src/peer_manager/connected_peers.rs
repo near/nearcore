@@ -54,6 +54,11 @@ impl<T: Clone> AtomicCell<T> {
 
 /// Contains information relevant to a connected peer.
 pub(crate) struct ConnectedPeer {
+    // TODO(gprusak): TIER1 connections should minimize the communication:
+    // routed messages only, no broadcasts, edge not broadcasted,
+    // no routing table sync. We expect ~500 TIER1 connections and that's
+    // too many to advertise.
+    pub is_tier1: bool,
     // TODO(gprusak): addr should be internal, so that ConnectedPeer will become an API of the
     // PeerActor.
     pub addr: actix::Addr<PeerActor>,

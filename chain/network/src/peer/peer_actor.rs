@@ -88,22 +88,27 @@ pub enum Event {
 
 pub(crate) struct PeerActor {
     clock: time::Clock,
+    
+    /// Shared state of the network module.
+    network_state: Arc<NetworkState>,
     /// This node's id and address (either listening or socket address).
     my_node_info: PeerInfo,
+    
     /// Peer address from connection.
-    peer_addr: SocketAddr,
-    /// Peer id and info. Present if outbound or ready.
-    peer_info: DisplayOption<PeerInfo>,
-    /// Peer type.
-    peer_type: PeerType,
-    /// Peer status.
-    peer_status: PeerStatus,
+    peer_addr: SocketAddr,   
+    /// Config for the outbound connection.
+    /// None for inbound connection.
+    outbound_config: Option<OutboundConfig>, 
+    
     /// Protocol version to communicate with this peer.
     protocol_version: ProtocolVersion,
+    
     /// Framed wrapper to send messages through the TCP connection.
     framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
+    
     /// Handshake timeout.
     handshake_timeout: time::Duration,
+    
     /// Peer manager recipient to break the dependency loop.
     /// PeerManager is a recipient of 2 types of messages, therefore
     /// to inject a fake PeerManager in tests, we need a separate
@@ -112,8 +117,7 @@ pub(crate) struct PeerActor {
     peer_manager_wrapper_addr: Recipient<ActixMessageWrapper<PeerToManagerMsg>>,
     /// Tracker for requests and responses.
     tracker: Arc<Mutex<Tracker>>,
-    /// Edge information needed to build the real edge. This is relevant for handshake.
-    partial_edge_info: Option<PartialEdgeInfo>,
+    
     /// How many transactions we have received since the last block message
     /// Note: Shared between multiple Peers.
     txns_since_last_block: Arc<AtomicUsize>,
@@ -123,16 +127,19 @@ pub(crate) struct PeerActor {
     routed_message_cache: LruCache<(PeerId, PeerIdOrHash, Signature), time::Instant>,
     /// A helper data structure for limiting reading
     throttle_controller: ThrottleController,
+    
     /// Whether we detected support for protocol buffers during handshake.
     protocol_buffers_supported: bool,
     /// Whether the PeerActor should skip protobuf support detection and use
     /// a given encoding right away.
     force_encoding: Option<Encoding>,
 
+    /// Peer status.
+    peer_status: PeerStatus,
+    /// Peer id and info. Present when ready.
+    peer_info: Option<PeerInfo>,
     /// Shared state of the connection. Populated once the connection is established.
     connection_state: Option<Arc<ConnectedPeer>>,
-    /// Shared state of the network module.
-    network_state: Arc<NetworkState>,
 
     /// test-only.
     event_sink: Sink<Event>,
@@ -153,19 +160,23 @@ pub enum IOError {
     Send { tid: usize, message_type: String, size: usize },
 }
 
+pub(crate) struct OutboundConfig {
+    peer_info: PeerInfo,
+    partial_edge_info: PartialEdgeInfo,
+    is_tier1: bool,
+}
+
 impl PeerActor {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         clock: time::Clock,
         my_node_info: PeerInfo,
         peer_addr: SocketAddr,
-        peer_info: Option<PeerInfo>,
-        peer_type: PeerType,
+        outbound_config: OutboundConfig,
         framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
         handshake_timeout: time::Duration,
         peer_manager_addr: Recipient<PeerToManagerMsg>,
         peer_manager_wrapper_addr: Recipient<ActixMessageWrapper<PeerToManagerMsg>>,
-        partial_edge_info: Option<PartialEdgeInfo>,
         txns_since_last_block: Arc<AtomicUsize>,
         peer_counter: Arc<AtomicUsize>,
         throttle_controller: ThrottleController,
@@ -177,8 +188,7 @@ impl PeerActor {
             clock,
             my_node_info,
             peer_addr,
-            peer_info: peer_info.into(),
-            peer_type,
+            outbound_config,
             peer_status: PeerStatus::Connecting,
             protocol_version: PROTOCOL_VERSION,
             framed,
@@ -186,7 +196,6 @@ impl PeerActor {
             peer_manager_addr,
             peer_manager_wrapper_addr,
             tracker: Default::default(),
-            partial_edge_info,
             txns_since_last_block,
             peer_counter,
             routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
@@ -315,11 +324,6 @@ impl PeerActor {
     /// `PeerId` of the current node.
     fn my_node_id(&self) -> &PeerId {
         &self.my_node_info.id
-    }
-
-    /// `PeerId` of the other node.
-    fn other_peer_id(&self) -> Option<&PeerId> {
-        self.peer_info.as_ref().as_ref().map(|peer_info| &peer_info.id)
     }
 
     fn receive_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
@@ -630,8 +634,8 @@ impl Actor for PeerActor {
         );
 
         // If outbound peer, initiate handshake.
-        if self.peer_type == PeerType::Outbound {
-            self.send_handshake();
+        if let Some(cfg) = self.outbound_config {
+            self.send_handshake(cfg);
         }
     }
 
@@ -879,9 +883,6 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         interval.tick().await;
                         let sent = tracker.lock().sent_bytes.minute_stats(&clock);
                         let received = tracker.lock().received_bytes.minute_stats(&clock);
-                        // TODO(gprusak): this stuff requires cleanup: only chain_info.height is
-                        // expected to change. Rest of the content of chain_info is not relevant
-                        // after handshake.
                         connection_state.stats.store(Arc::new(Stats {
                             received_bytes_per_sec: received.bytes_per_min / 60,
                             sent_bytes_per_sec: sent.bytes_per_min / 60,
