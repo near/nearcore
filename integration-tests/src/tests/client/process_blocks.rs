@@ -2487,8 +2487,8 @@ fn test_refund_receipts_processing() {
             .runtime_adapter
             .get_tries()
             .new_trie_update(test_shard_uid, *chunk_extra.state_root());
-        let delayed_indices =
-            get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
+        let delayed_indices: Option<DelayedReceiptIndices> =
+            get(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
         let finished_all_delayed_receipts = match delayed_indices {
             None => false,
             Some(delayed_indices) => {
@@ -3163,10 +3163,8 @@ fn test_congestion_receipt_execution() {
         .runtime_adapter
         .get_tries()
         .new_trie_update(ShardUId::single_shard(), *chunk_extra.state_root());
-    let delayed_indices =
-        get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices)
-            .unwrap()
-            .unwrap();
+    let delayed_indices: DelayedReceiptIndices =
+        get(&state_update, &TrieKey::DelayedReceiptIndices).unwrap().unwrap();
     assert!(delayed_indices.next_available_index > 0);
     let mut block = env.clients[0].produce_block(height + 1).unwrap().unwrap();
     testlib::process_blocks::set_no_chunk_in_block(&mut block, &prev_block);
