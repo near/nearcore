@@ -376,8 +376,13 @@ impl PeerManagerActor {
 
         let my_peer_id = config.node_id();
         let network_graph = Arc::new(RwLock::new(routing::GraphWithCache::new(my_peer_id.clone())));
-        let routing_table_addr =
-            routing::Actor::new(clock.clone(), store.clone(), network_graph.clone()).start();
+        let arbiter = Arbiter::new();
+        let routing_table_addr = routing::Actor::start_in_arbiter(&arbiter.handle(), {
+            let clock = clock.clone();
+            let store = store.clone();
+            let network_graph = network_graph.clone();
+            move |_ctx| routing::Actor::new(clock, store, network_graph)
+        });
         let routing_table_view = RoutingTableView::new(store, my_peer_id.clone());
 
         let txns_since_last_block = Arc::new(AtomicUsize::new(0));
