@@ -193,9 +193,9 @@ pub enum RoutedMessageBody {
     TxStatusRequest(AccountId, CryptoHash),
     TxStatusResponse(FinalExecutionOutcomeView),
 
-    /// Not used, but needed to borsh backward compatibility.
+    /// Not used, but needed for borsh backward compatibility.
     _UnusedQueryRequest,
-    /// Not used, but needed to borsh backward compatibility.
+    /// Not used, but needed for borsh backward compatibility.
     _UnusedQueryResponse,
 
     /// Not used any longer and ignored when received.
@@ -267,8 +267,8 @@ impl Debug for RoutedMessageBody {
             RoutedMessageBody::TxStatusResponse(response) => {
                 write!(f, "TxStatusResponse({})", response.transaction.hash)
             }
-            RoutedMessageBody::_UnusedQueryRequest { .. } => write!(f, "QueryRequest"),
-            RoutedMessageBody::_UnusedQueryResponse { .. } => write!(f, "QueryResponse"),
+            RoutedMessageBody::_UnusedQueryRequest => write!(f, "QueryRequest"),
+            RoutedMessageBody::_UnusedQueryResponse => write!(f, "QueryResponse"),
             RoutedMessageBody::ReceiptOutcomeRequest(hash) => write!(f, "ReceiptRequest({})", hash),
             RoutedMessageBody::_UnusedReceiptOutcomeResponse => write!(f, "ReceiptResponse"),
             RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
