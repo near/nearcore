@@ -356,20 +356,27 @@ fn rocksdb_block_based_options(
     col: DBCol,
 ) -> BlockBasedOptions {
     let mut block_opts = BlockBasedOptions::default();
-    block_opts.set_checksum(/*no checksum */'\0');
+    block_opts.set_checksum(/*no checksum */ '\0');
     block_opts.set_block_size(block_size.as_u64().try_into().unwrap());
     // We create block_cache for each of 47 columns, so the total cache size is 32 * 47 = 1504mb
     if col == DBCol::BlockHeight
         || col == DBCol::ChunkHashesByHeight
         || col == DBCol::HeaderHashesByHeight
         || col == DBCol::BlockPerHeight
-        || col == DBCol::BlockRefCount {
+        || col == DBCol::BlockRefCount
+    {
         // num_shards_bits = 0 will lead to LRU cache having (1 << 0) = 1 shards.
-        block_opts
-            .set_block_cache(&Cache::new_lru_cache_with_shard_bits(cache_size.as_u64().try_into().unwrap(), /*num_shard_bits */0).unwrap());
+        block_opts.set_block_cache(
+            &Cache::new_lru_cache_with_shard_bits(
+                cache_size.as_u64().try_into().unwrap(),
+                /*num_shard_bits */ 0,
+            )
+            .unwrap(),
+        );
     } else {
-        block_opts
-            .set_block_cache(&Cache::new_lru_cache(cache_size.as_u64().try_into().unwrap()).unwrap());
+        block_opts.set_block_cache(
+            &Cache::new_lru_cache(cache_size.as_u64().try_into().unwrap()).unwrap(),
+        );
     }
 
     if col == DBCol::ProcessedBlockHeights {
