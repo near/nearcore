@@ -74,6 +74,9 @@ pub(crate) static PEER_DATA_RECEIVED_BYTES: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter("near_peer_data_received_bytes", "Total data received from peers")
         .unwrap()
 });
+pub(crate) static PEER_DATA_SENT_BYTES: Lazy<IntCounter> = Lazy::new(|| {
+    try_create_int_counter("near_peer_data_sent_bytes", "Total data sent to peers").unwrap()
+});
 pub(crate) static PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_peer_message_received_by_type_bytes",
@@ -149,6 +152,15 @@ pub(crate) static EDGE_TOTAL: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_edge_total", "Total edges between peers (including removed ones).")
         .unwrap()
 });
+
+pub(crate) static EDGE_TOMBSTONE_SENDING_SKIPPED: Lazy<IntCounter> = Lazy::new(|| {
+    try_create_int_counter(
+        "near_edge_tombstone_sending_skip",
+        "Number of times that we didn't send tombstones.",
+    )
+    .unwrap()
+});
+
 pub(crate) static PEER_UNRELIABLE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_peer_unreliable",
