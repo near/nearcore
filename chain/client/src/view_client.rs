@@ -1008,14 +1008,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             }
             NetworkViewClientMessages::TxStatus { tx_hash, signer_account_id } => {
                 if let Ok(Some(result)) = self.get_tx_status(tx_hash, signer_account_id, false) {
-                    // TODO: remove this legacy support in #3204
-                    let result = match result {
-                        FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(outcome) => outcome,
-                        FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(
-                            outcome,
-                        ) => outcome.into(),
-                    };
-                    NetworkViewClientResponses::TxStatus(Box::new(result))
+                    NetworkViewClientResponses::TxStatus(Box::new(result.into_outcome()))
                 } else {
                     NetworkViewClientResponses::NoResponse
                 }

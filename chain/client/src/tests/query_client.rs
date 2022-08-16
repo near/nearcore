@@ -29,7 +29,7 @@ use near_primitives::types::{BlockId, BlockReference, EpochId};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{FinalExecutionOutcomeViewEnum, QueryRequest, QueryResponseKind};
+use near_primitives::views::{QueryRequest, QueryResponseKind};
 use num_rational::Ratio;
 
 /// Query account from view client
@@ -151,7 +151,7 @@ fn test_execution_outcome_for_chunk() {
             assert!(matches!(res, NetworkClientResponses::ValidTx));
 
             actix::clock::sleep(Duration::from_millis(500)).await;
-            let execution_outcome = view_client
+            let block_hash = view_client
                 .send(TxStatus {
                     tx_hash,
                     signer_account_id: "test".parse().unwrap(),
@@ -160,18 +160,13 @@ fn test_execution_outcome_for_chunk() {
                 .await
                 .unwrap()
                 .unwrap()
-                .unwrap();
-            let feo = match execution_outcome {
-                FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(outcome) => outcome,
-                FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(outcome) => {
-                    outcome.into()
-                }
-            };
+                .unwrap()
+                .into_outcome()
+                .transaction_outcome
+                .block_hash;
 
             let mut execution_outcomes_in_block = view_client
-                .send(GetExecutionOutcomesForBlock {
-                    block_hash: feo.transaction_outcome.block_hash,
-                })
+                .send(GetExecutionOutcomesForBlock { block_hash })
                 .await
                 .unwrap()
                 .unwrap();
