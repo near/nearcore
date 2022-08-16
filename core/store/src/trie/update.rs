@@ -163,6 +163,12 @@ impl TrieUpdate {
     }
 }
 
+impl crate::TrieAccess for TrieUpdate {
+    fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
+        TrieUpdate::get(self, key)
+    }
+}
+
 struct MergeIter<'a> {
     left: Peekable<Box<dyn Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)> + 'a>>,
     right: Peekable<Box<dyn Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)> + 'a>>,
