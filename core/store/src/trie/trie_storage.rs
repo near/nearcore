@@ -6,7 +6,7 @@ use near_primitives::hash::CryptoHash;
 
 use crate::db::refcount::decode_value_with_rc;
 use crate::trie::POISONED_LOCK_ERR;
-use crate::{DBCol, StorageError, Store};
+use crate::{metrics, DBCol, StorageError, Store};
 use lru::LruCache;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{TrieCacheMode, TrieNodesCount};
@@ -34,7 +34,10 @@ impl TrieCache {
         self.0.lock().expect(POISONED_LOCK_ERR).clear()
     }
 
-    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<&Vec<u8>>)>) {
+    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<&Vec<u8>>)>, shard_uid: ShardUId) {
+        let shard_id_str = format!("{}", shard_uid.shard_id);
+        let labels: [&str; 1] = [&shard_id_str];
+
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
         for (hash, opt_value_rc) in ops {
             if let Some(value_rc) = opt_value_rc {
@@ -43,10 +46,20 @@ impl TrieCache {
                         guard.put(hash, value.into());
                     }
                 } else {
-                    guard.pop(&hash);
+                    match guard.pop(&hash) {
+                        Some(_) => {
+                            metrics::SHARD_CACHE_POPS.with_label_values(&labels).inc();
+                        }
+                        _ => {}
+                    };
                 }
             } else {
-                guard.pop(&hash);
+                match guard.pop(&hash) {
+                    Some(_) => {
+                        metrics::SHARD_CACHE_POPS.with_label_values(&labels).inc();
+                    }
+                    _ => {}
+                };
             }
         }
     }
@@ -179,10 +192,17 @@ pub struct TrieCachingStorage {
     pub(crate) db_read_nodes: Cell<u64>,
     /// Counts trie nodes retrieved from the chunk cache.
     pub(crate) mem_read_nodes: Cell<u64>,
+    /// Boolean for determining if the cache is a view cache or not
+    is_view: bool,
 }
 
 impl TrieCachingStorage {
-    pub fn new(store: Store, shard_cache: TrieCache, shard_uid: ShardUId) -> TrieCachingStorage {
+    pub fn new(
+        store: Store,
+        shard_cache: TrieCache,
+        shard_uid: ShardUId,
+        is_view: bool,
+    ) -> TrieCachingStorage {
         TrieCachingStorage {
             store,
             shard_uid,
@@ -191,6 +211,7 @@ impl TrieCachingStorage {
             chunk_cache: RefCell::new(Default::default()),
             db_read_nodes: Cell::new(0),
             mem_read_nodes: Cell::new(0),
+            is_view,
         }
     }
 
@@ -231,21 +252,36 @@ impl TrieCachingStorage {
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
+        let shard_id_str = format!("{}", self.shard_uid.shard_id);
+        let is_view_str = format!("{}", self.is_view as u8);
+        let labels: [&str; 2] = [&shard_id_str, &is_view_str];
+        {
+            metrics::CHUNK_CACHE_SIZE
+                .with_label_values(&labels)
+                .set(self.chunk_cache.borrow().len() as i64);
+            metrics::SHARD_CACHE_SIZE
+                .with_label_values(&labels)
+                .set(self.shard_cache.0.lock().expect(POISONED_LOCK_ERR).len() as i64);
+        }
         // Try to get value from chunk cache containing nodes with cheaper access. We can do it for any `TrieCacheMode`,
         // because we charge for reading nodes only when `CachingChunk` mode is enabled anyway.
         if let Some(val) = self.chunk_cache.borrow_mut().get(hash) {
+            metrics::CHUNK_CACHE_HITS.with_label_values(&labels).inc();
             self.inc_mem_read_nodes();
             return Ok(val.clone());
         }
+        metrics::CHUNK_CACHE_MISSES.with_label_values(&labels).inc();
 
         // Try to get value from shard cache containing most recently touched nodes.
         let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
         let val = match guard.get(hash) {
             Some(val) => {
+                metrics::SHARD_CACHE_HITS.with_label_values(&labels).inc();
                 near_o11y::io_trace!(count: "shard_cache_hit");
                 val.clone()
             }
             None => {
+                metrics::SHARD_CACHE_MISSES.with_label_values(&labels).inc();
                 near_o11y::io_trace!(count: "shard_cache_miss");
                 // If value is not present in cache, get it from the storage.
                 let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
@@ -265,6 +301,7 @@ impl TrieStorage for TrieCachingStorage {
                 if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
                     guard.put(*hash, val.clone());
                 } else {
+                    metrics::SHARD_CACHE_TOO_LARGE.with_label_values(&labels).inc();
                     near_o11y::io_trace!(count: "shard_cache_too_large");
                 }
 
