@@ -1126,6 +1126,15 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     "Received routed message from {} to {:?}.",
                     self.peer_info,
                     routed_message.msg.target);
+                if matches!(routed_message.body, RoutedMessageBody::StateResponse(..)) {
+                    tracing::warn!(target: "network", "Received routed state response from {:?} to {:?}", routed_message.author, routed_message.target);
+                }
+                if matches!(routed_message.body, RoutedMessageBody::StateRequestHeader(..)) {
+                    tracing::warn!(target: "network", "Received routed state request header from {:?} to {:?}", routed_message.author, routed_message.target);
+                }
+                if matches!(routed_message.body, RoutedMessageBody::StateRequestPart(..)) {
+                    tracing::warn!(target: "network", "Received routed state request part from {:?} to {:?}", routed_message.author, routed_message.target);
+                }
 
                 // Receive invalid routed message from peer.
                 if !routed_message.verify() {
