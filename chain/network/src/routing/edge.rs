@@ -48,4 +48,5 @@ pub(crate) fn merge_edges(
     } else {
         return Err(MergeEdgesError::InvalidNonce);
     }
+    Ok(edge)
 }

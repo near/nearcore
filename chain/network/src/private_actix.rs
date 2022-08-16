@@ -39,7 +39,6 @@ pub(crate) enum PeerToManagerMsg {
     },
 
     // PeerRequest
-    UpdateEdge((PeerId, u64)),
     RouteBack(Box<RoutedMessageBody>, CryptoHash),
     UpdatePeerInfo(PeerInfo),
 }

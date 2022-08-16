@@ -161,7 +161,7 @@ pub(crate) struct NetworkState {
     /// - edges adjacent to my_peer_id
     /// - account id
     /// Full routing table (that currently includes information about all edges in the graph) is now inside Routing Table.
-    routing_table_view: RoutingTableView,
+    pub routing_table_view: RoutingTableView,
 }
 
 impl NetworkState {
@@ -412,7 +412,7 @@ impl PeerManagerActor {
         let rl = config.accounts_data_broadcast_rate_limit;
         Ok(Self {
             clock,
-            my_peer_id,
+            my_peer_id: my_peer_id.clone(),
             config: config.clone(),
             max_num_peers: config.max_num_peers,
             peer_store,
@@ -700,7 +700,7 @@ impl PeerManagerActor {
                     // Wait a time out before broadcasting this new edge to let the other party finish handshake.
                     act.state.connected_peers.broadcast_message(Arc::new(
                         PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(vec![
-                            peer.edge,
+                            peer.edge.clone(),
                         ])),
                     ));
                 }
@@ -1386,17 +1386,16 @@ impl PeerManagerActor {
                 .state
                 .routing_table_view
                 .get_announce_accounts()
-                .iter()
+                .into_iter()
                 .map(|announce_account| KnownProducer {
                     account_id: announce_account.account_id,
-                    peer_id: announce_account.peer_id,
+                    peer_id: announce_account.peer_id.clone(),
                     // TODO: fill in the address.
                     addr: None,
                     next_hops: self
                         .state
                         .routing_table_view
                         .view_route(&announce_account.peer_id)
-                        .map(|it| it.clone()),
                 })
                 .collect(),
             tier1_accounts: self.state.accounts_data.load().data.values().cloned().collect(),
@@ -1664,7 +1663,7 @@ impl PeerManagerActor {
         // It is expected to be reasonably cheap: eventually, for TIER2 network
         // we would like to exchange set of connected peers even without establishing
         // a proper connection.
-        self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
+        self.try_connect_peer(ctx.address(), msg.stream, None);
     }
 
     #[perf]
@@ -1690,7 +1689,7 @@ impl PeerManagerActor {
                                 ctx.address(),
                                 stream,
                                 Some(HandshakeConfig{
-                                    peer_info: msg.peer_info,
+                                    peer_id: msg.peer_info.id,
                                     is_tier1: false,
                                 }),
                             );
@@ -1744,7 +1743,7 @@ impl PeerManagerActor {
             // Allow for inbound TIER1 connections only directly from a TIER1 peers
             // (not from TIER1 proxies).
             if msg.connection_state.is_tier1 {
-                if self.state.accounts_data.load().accounts_by_tier1_peer(peer_info.id).count()==0 {
+                if self.state.accounts_data.load().accounts_by_tier1_peer.iter_once_at(peer_info.id).count()==0 {
                     return RegisterPeerResponse::Reject;
                 }
             }
@@ -1765,8 +1764,8 @@ impl PeerManagerActor {
                 return RegisterPeerResponse::Reject;
             }
         }
-        self.register_peer(msg.connection_state, msg.edge, ctx);
-        self.event_sink.push(Event::PeerRegistered(peer_info));
+        self.register_peer(msg.connection_state, ctx);
+        self.event_sink.push(Event::PeerRegistered(peer_info.clone()));
         RegisterPeerResponse::Accept
     }
 

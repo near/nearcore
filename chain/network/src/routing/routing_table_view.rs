@@ -117,7 +117,7 @@ impl RoutingTableView {
         self.0.lock().is_local_edge_newer(other_peer,nonce)
     } 
 
-    pub(crate) fn set_next_hops(&mut self, routing_table: Arc<routing::NextHopTable>) {
+    pub(crate) fn set_next_hops(&self, routing_table: Arc<routing::NextHopTable>) {
         self.0.lock().next_hops = routing_table;
     }
 
@@ -142,8 +142,8 @@ impl RoutingTableView {
         }
     }
 
-    pub(crate) fn view_route(&self, peer_id: &PeerId) -> Option<&Vec<PeerId>> {
-        self.0.lock().next_hops.get(peer_id)
+    pub(crate) fn view_route(&self, peer_id: &PeerId) -> Option<Vec<PeerId>> {
+        self.0.lock().next_hops.get(peer_id).cloned()
     }
 
     /// Find peer that owns this AccountId.
@@ -217,8 +217,8 @@ impl RoutingTableView {
         self.0.lock().get_announce(account_id)
     }
 
-    pub(crate) fn get_local_edge(&self, other_peer: &PeerId) -> Option<&Edge> {
-        self.0.lock().local_edges_info.get(other_peer)
+    pub(crate) fn get_local_edge(&self, other_peer: &PeerId) -> Option<Edge> {
+        self.0.lock().local_edges_info.get(other_peer).cloned()
     }
 
     pub(crate) fn add_local_edge(&self, edge: Edge) {
@@ -231,7 +231,7 @@ impl RoutingTableView {
         }
     }
 
-    pub(crate) fn remove_local_edge(&mut self, peer_id: &PeerId) {
+    pub(crate) fn remove_local_edge(&self, peer_id: &PeerId) {
         self.0.lock().local_edges_info.remove(peer_id);
     }
 }

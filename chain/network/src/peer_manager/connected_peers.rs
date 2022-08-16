@@ -8,7 +8,7 @@ use crate::types::FullPeerInfo;
 use arc_swap::ArcSwap;
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    Edge, PeerChainInfoV2, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext,
+    PartialEdgeInfo, Edge, PeerChainInfoV2, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext,
     PeerType, ReasonForBan,
 };
 use near_primitives::network::PeerId;
@@ -103,7 +103,14 @@ impl ConnectedPeer {
         FullPeerInfo {
             peer_info: self.peer_info.clone(),
             chain_info,
-            partial_edge_info: self.partial_edge_info.clone(),
+            partial_edge_info: PartialEdgeInfo {
+                nonce: self.edge.nonce(),
+                signature: if self.edge.key().0 == self.peer_info.id {
+                    self.edge.signature0().clone()
+                } else {
+                    self.edge.signature1().clone()
+                }
+            }
         }
     }
 
