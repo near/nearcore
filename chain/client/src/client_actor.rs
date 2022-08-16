@@ -1645,7 +1645,7 @@ impl ClientActor {
                 {
                     unwrap_or_run_later!(self.client.block_sync.run(
                         &mut self.client.sync_status,
-                        &mut self.client.chain,
+                        &self.client.chain,
                         highest_height,
                         &self.network_info.highest_height_peers
                     ))
