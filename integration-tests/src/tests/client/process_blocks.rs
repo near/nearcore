@@ -2085,7 +2085,7 @@ fn test_block_height_processed_orphan() {
 
 #[test]
 fn test_validate_chunk_extra() {
-    let mut capture = near_logger_utils::TracingCapture::enable();
+    let mut capture = near_o11y::TracingCapture::enable();
 
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -2550,7 +2550,7 @@ fn test_refund_receipts_processing() {
 
 #[test]
 fn test_wasmer2_upgrade() {
-    let mut capture = near_logger_utils::TracingCapture::enable();
+    let mut capture = near_o11y::TracingCapture::enable();
 
     let old_protocol_version =
         near_primitives::version::ProtocolFeature::Wasmer2.protocol_version() - 1;
