@@ -520,12 +520,12 @@ impl PeerActor {
                     | RoutedMessageBody::Pong(_)
                     | RoutedMessageBody::TxStatusRequest(_, _)
                     | RoutedMessageBody::TxStatusResponse(_)
-                    | RoutedMessageBody::_UnusedQueryRequest { .. }
-                    | RoutedMessageBody::_UnusedQueryResponse { .. }
+                    | RoutedMessageBody::_UnusedQueryRequest
+                    | RoutedMessageBody::_UnusedQueryResponse
                     | RoutedMessageBody::ReceiptOutcomeRequest(_)
+                    | RoutedMessageBody::_UnusedReceiptOutcomeResponse
                     | RoutedMessageBody::StateRequestHeader(_, _)
-                    | RoutedMessageBody::StateRequestPart(_, _, _)
-                    | RoutedMessageBody::Unused => {
+                    | RoutedMessageBody::StateRequestPart(_, _, _) => {
                         error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", routed_message);
                         return;
                     }
