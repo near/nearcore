@@ -80,6 +80,8 @@ test_features = [
   "near-network-primitives/test_features",
 ]
 
+shardnet = []
+
 [[bench]]
 name = "graph"
 harness = false

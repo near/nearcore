@@ -52,11 +52,6 @@ pub fn pretty_result(result: &Option<Vec<u8>>) -> String {
     }
 }
 
-pub fn pretty_results(results: &[Option<Vec<u8>>]) -> String {
-    let v: Vec<String> = results.iter().map(pretty_result).collect();
-    format!("{:?}", pretty_vec(&v))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
