@@ -2029,7 +2029,7 @@ fn test_sync_hash_validity() {
         env.produce_block(0, i);
     }
     for i in 0..19 {
-        let block_hash = *env.clients[0].chain.get_header_by_height(i).unwrap().hash();
+        let block_hash = *env.clients[0].chain.get_block_header_by_height(i).unwrap().hash();
         let res = env.clients[0].chain.check_sync_hash_validity(&block_hash);
         println!("height {:?} -> {:?}", i, res);
         if i == 11 || i == 16 {
@@ -4107,10 +4107,10 @@ mod contract_precompilation_tests {
         let trie = Rc::new(
             env.clients[1]
                 .runtime_adapter
-                .get_trie_for_shard(0, block.header().prev_hash())
+                .get_trie_for_shard(0, block.header().prev_hash(), state_root)
                 .unwrap(),
         );
-        let state_update = TrieUpdate::new(trie, state_root);
+        let state_update = TrieUpdate::new(trie);
 
         let mut logs = vec![];
         let view_state = ViewApplyState {

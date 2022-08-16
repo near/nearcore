@@ -855,7 +855,7 @@ fn assert_access_key(
     user: &dyn User,
 ) {
     let mut key = access_key.clone();
-    let block = user.get_block_by_hash(result.transaction_outcome.block_hash);
+    let block = user.get_block(result.transaction_outcome.block_hash);
     if let Some(b) = block {
         key.nonce = (b.header.height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
     }

@@ -40,9 +40,9 @@ fn challenges_new_head_prev() {
 
     assert_eq!(chain.head_header().unwrap().hash(), &hashes[2]);
 
-    assert_eq!(chain.get_header_by_height(2).unwrap().hash(), &hashes[1]);
-    assert_eq!(chain.get_header_by_height(3).unwrap().hash(), &hashes[2]);
-    assert!(chain.get_header_by_height(4).is_err());
+    assert_eq!(chain.get_block_header_by_height(2).unwrap().hash(), &hashes[1]);
+    assert_eq!(chain.get_block_header_by_height(3).unwrap().hash(), &hashes[2]);
+    assert!(chain.get_block_header_by_height(4).is_err());
 
     // Try to add a block on top of the fifth block.
     if let Err(e) = chain.preprocess_block(
@@ -51,7 +51,7 @@ fn challenges_new_head_prev() {
         &Provenance::NONE,
         &mut vec![],
         Clock::instant(),
-        None,
+        Default::default(),
     ) {
         assert_matches!(e, Error::ChallengedBlockOnChain)
     } else {

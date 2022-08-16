@@ -109,12 +109,19 @@ pub struct NetworkConfig {
     /// are satisfied.
     /// This flag should be ALWAYS FALSE. Only set to true for testing purposes.
     pub outbound_disabled: bool,
+    // Flag to disable inbound connections. When true, all the incoming handshake/connection requests will be rejected.
+    pub inbound_disabled: bool,
     /// Whether this is an archival node.
     pub archive: bool,
     /// Maximal rate at which SyncAccountsData can be broadcasted.
     pub accounts_data_broadcast_rate_limit: demux::RateLimit,
     /// features
     pub features: Features,
+    // If true - connect only to the bootnodes.
+    pub connect_only_to_boot_nodes: bool,
+
+    // Whether to send tombstones at startup.
+    pub skip_sending_tombstones: Option<time::Duration>,
 }
 
 impl NetworkConfig {
@@ -140,8 +147,8 @@ impl NetworkConfig {
         }
         let this = Self {
             node_key,
-            validator: validator_signer.as_ref().map(|signer| ValidatorConfig {
-                signer: signer.clone(),
+            validator: validator_signer.map(|signer| ValidatorConfig {
+                signer,
                 endpoints: if cfg.public_addrs.len() > 0 {
                     ValidatorEndpoints::PublicAddrs(cfg.public_addrs)
                 } else {
@@ -157,27 +164,25 @@ impl NetworkConfig {
             } else {
                 cfg.boot_nodes
                     .split(',')
-                    .map(|chunk| chunk.try_into())
+                    .map(|chunk| chunk.parse())
                     .collect::<Result<_, _>>()
                     .context("boot_nodes")?
             },
-            whitelist_nodes: (|| -> anyhow::Result<Vec<_>> {
-                let w = &cfg.whitelist_nodes;
-                if w.is_empty() {
-                    return Ok(vec![]);
-                }
-                let mut peers = vec![];
-                for peer in w.split(',') {
-                    let peer: PeerInfo = peer.try_into().context("whitelist_nodes")?;
-                    if peer.addr.is_none() {
-                        anyhow::bail!(
+            whitelist_nodes: if cfg.whitelist_nodes.is_empty() {
+                vec![]
+            } else {
+                cfg.whitelist_nodes
+                    .split(',')
+                    .map(|peer| match peer.parse::<PeerInfo>() {
+                        Ok(peer) if peer.addr.is_none() => anyhow::bail!(
                             "whitelist_nodes are required to specify both PeerId and IP:port"
-                        );
-                    }
-                    peers.push(peer);
-                }
-                Ok(peers)
-            }())?,
+                        ),
+                        Ok(peer) => Ok(peer),
+                        Err(err) => Err(err.into()),
+                    })
+                    .collect::<anyhow::Result<_>>()
+                    .context("whitelist_nodes")?
+            },
             handshake_timeout: cfg.handshake_timeout.try_into()?,
             reconnect_delay: cfg.reconnect_delay.try_into()?,
             bootstrap_peers_period: time::Duration::seconds(60),
@@ -207,6 +212,13 @@ impl NetworkConfig {
             archive,
             accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 0.1, burst: 1 },
             features,
+            inbound_disabled: cfg.experimental.inbound_disabled,
+            connect_only_to_boot_nodes: cfg.experimental.connect_only_to_boot_nodes,
+            skip_sending_tombstones: if cfg.experimental.skip_sending_tombstones_seconds > 0 {
+                Some(time::Duration::seconds(cfg.experimental.skip_sending_tombstones_seconds))
+            } else {
+                None
+            },
         };
         Ok(this)
     }
@@ -258,9 +270,12 @@ impl NetworkConfig {
             push_info_period: time::Duration::milliseconds(100),
             blacklist: Blacklist::default(),
             outbound_disabled: false,
+            inbound_disabled: false,
+            connect_only_to_boot_nodes: false,
             archive: false,
             accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 100., burst: 1000000 },
             features: Features { enable_tier1: true },
+            skip_sending_tombstones: None,
         }
     }
 

@@ -29,16 +29,10 @@ near-cache = { path = "../../utils/near-cache" }
 
 [features]
 expensive_tests = []
-protocol_feature_chunk_only_producers = [
-  "near-primitives/protocol_feature_chunk_only_producers",
-  "near-chain-configs/protocol_feature_chunk_only_producers",
-  "near-chain/protocol_feature_chunk_only_producers",
-]
 protocol_feature_fix_staking_threshold = ["near-primitives/protocol_feature_fix_staking_threshold"]
 nightly = [
   "nightly_protocol",
   "near-primitives/nightly",
-  "protocol_feature_chunk_only_producers",
   "protocol_feature_fix_staking_threshold",
 ]
 mock_node = []

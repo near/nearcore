@@ -406,6 +406,10 @@ class LocalNode(BaseNode):
             'consensus': {
                 'min_num_peers': int(not single_node)
             },
+            # We won't need this after #7383 is released to mainnet, but for now,
+            # we need it, otherwise, the check added in #7383 will complain the
+            # nodes don't track any shard
+            'tracked_shards': [0],
         })
 
         atexit.register(atexit_cleanup, self)

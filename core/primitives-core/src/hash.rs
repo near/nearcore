@@ -6,7 +6,7 @@ use sha2::Digest;
 
 use crate::borsh::BorshSerialize;
 use crate::logging::pretty_hash;
-use crate::serialize::{from_base, to_base};
+use crate::serialize::from_base;
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, derive_more::AsRef, derive_more::AsMut)]
@@ -31,6 +31,21 @@ impl CryptoHash {
 
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
+    }
+
+    /// Converts hash into base58-encoded string and passes it to given visitor.
+    ///
+    /// The conversion is performed without any memory allocation.  The visitor
+    /// is given a reference to a string stored on stack.  Returns whatever the
+    /// visitor returns.
+    fn to_base58_impl<Out>(&self, visitor: impl FnOnce(&str) -> Out) -> Out {
+        // base58-encoded string is at most 1.4 times longer than the binary
+        // sequence.  We’re serialising 32 bytes so ⌈32 * 1.4⌉ = 45 should be
+        // enough.
+        let mut buffer = [0u8; 45];
+        let len = bs58::encode(self).into(&mut buffer[..]).unwrap();
+        let value = std::str::from_utf8(&buffer[..len]).unwrap();
+        visitor(value)
     }
 }
 
@@ -58,7 +73,7 @@ impl Serialize for CryptoHash {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&to_base(&self.0))
+        self.to_base58_impl(|encoded| serializer.serialize_str(encoded))
     }
 }
 
@@ -115,14 +130,14 @@ impl From<CryptoHash> for [u8; 32] {
 }
 
 impl fmt::Debug for CryptoHash {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", pretty_hash(&self.to_string()))
+    fn fmt(&self, fmtr: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.to_base58_impl(|encoded| write!(fmtr, "{}", pretty_hash(encoded)))
     }
 }
 
 impl fmt::Display for CryptoHash {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&to_base(&self.0), f)
+    fn fmt(&self, fmtr: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.to_base58_impl(|encoded| fmtr.write_str(encoded))
     }
 }
 
@@ -150,38 +165,26 @@ pub fn hash(data: &[u8]) -> CryptoHash {
 mod tests {
     use super::*;
 
+    use std::str::FromStr;
+
     #[derive(Deserialize, Serialize)]
     struct Struct {
         hash: CryptoHash,
     }
 
     #[test]
-    fn test_serialize_success() {
-        let hash = hash(&[0, 1, 2]);
-        let s = Struct { hash };
-        let encoded = serde_json::to_string(&s).unwrap();
-        assert_eq!(encoded, "{\"hash\":\"CjNSmWXTWhC3EhRVtqLhRmWMTkRbU96wUACqxMtV1uGf\"}");
-    }
+    fn test_base58_successes() {
+        for (encoded, hash) in [
+            ("11111111111111111111111111111111", CryptoHash::new()),
+            ("CjNSmWXTWhC3EhRVtqLhRmWMTkRbU96wUACqxMtV1uGf", hash(&[0, 1, 2])),
+        ] {
+            assert_eq!(encoded, hash.to_string());
+            assert_eq!(hash, CryptoHash::from_str(encoded).unwrap());
 
-    #[test]
-    fn test_serialize_default() {
-        let s = Struct { hash: CryptoHash::default() };
-        let encoded = serde_json::to_string(&s).unwrap();
-        assert_eq!(encoded, "{\"hash\":\"11111111111111111111111111111111\"}");
-    }
-
-    #[test]
-    fn test_deserialize_default() {
-        let encoded = "{\"hash\":\"11111111111111111111111111111111\"}";
-        let decoded: Struct = serde_json::from_str(encoded).unwrap();
-        assert_eq!(decoded.hash, CryptoHash::default());
-    }
-
-    #[test]
-    fn test_deserialize_success() {
-        let encoded = "{\"hash\":\"CjNSmWXTWhC3EhRVtqLhRmWMTkRbU96wUACqxMtV1uGf\"}";
-        let decoded: Struct = serde_json::from_str(encoded).unwrap();
-        assert_eq!(decoded.hash, hash(&[0, 1, 2]));
+            let json = format!("\"{}\"", encoded);
+            assert_eq!(json, serde_json::to_string(&hash).unwrap());
+            assert_eq!(hash, serde_json::from_str::<CryptoHash>(&json).unwrap());
+        }
     }
 
     #[test]

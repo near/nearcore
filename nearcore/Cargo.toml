@@ -103,16 +103,6 @@ no_cache = [
 delay_detector = ["near-client/delay_detector", "delay-detector/delay_detector"]
 rosetta_rpc = ["near-rosetta-rpc"]
 json_rpc = ["near-jsonrpc"]
-protocol_feature_chunk_only_producers = [
-  "near-chain-configs/protocol_feature_chunk_only_producers",
-  "near-epoch-manager/protocol_feature_chunk_only_producers",
-  "near-chain/protocol_feature_chunk_only_producers",
-  "near-client/protocol_feature_chunk_only_producers",
-  "node-runtime/protocol_feature_chunk_only_producers",
-  "near-rosetta-rpc/protocol_feature_chunk_only_producers",
-  "near-primitives/protocol_feature_chunk_only_producers",
-]
-
 protocol_feature_fix_staking_threshold = [
   "near-primitives/protocol_feature_fix_staking_threshold",
   "near-epoch-manager/protocol_feature_fix_staking_threshold",
@@ -128,7 +118,6 @@ nightly = [
   "near-client/nightly",
   "near-epoch-manager/nightly",
   "near-store/nightly",
-  "protocol_feature_chunk_only_producers",
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_fix_contract_loading_cost",
 ]
@@ -149,4 +138,4 @@ sandbox = [
 ]
 io_trace = ["near-vm-runner/io_trace"]
 
-shardnet = ["protocol_feature_chunk_only_producers"]
+shardnet = ["near-network/shardnet"]

@@ -14,29 +14,6 @@ pub fn from_base64(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send 
     base64::decode(s).map_err(|err| err.into())
 }
 
-pub fn from_base_buf(
-    s: &str,
-    buffer: &mut Vec<u8>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    match bs58::decode(s).into(buffer) {
-        Ok(_) => Ok(()),
-        Err(err) => Err(err.into()),
-    }
-}
-
-pub trait BaseEncode {
-    fn to_base(&self) -> String;
-}
-
-impl<T> BaseEncode for T
-where
-    for<'a> &'a T: Into<Vec<u8>>,
-{
-    fn to_base(&self) -> String {
-        to_base(&self.into())
-    }
-}
-
 pub mod base64_format {
     use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};
