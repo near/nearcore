@@ -1575,26 +1575,23 @@ mod test {
 
     /// Helper function for block sync tests
     fn collect_hashes_from_network_adapter(
-        network_adapter: Arc<MockPeerManagerAdapter>,
+        network_adapter: &MockPeerManagerAdapter,
     ) -> HashSet<CryptoHash> {
-        let mut requested_block_hashes = HashSet::new();
         let mut network_request = network_adapter.requests.write().unwrap();
-        while let Some(request) = network_request.pop_back() {
-            match request {
+        network_request
+            .drain(..)
+            .map(|request| match request {
                 PeerManagerMessageRequest::NetworkRequests(NetworkRequests::BlockRequest {
                     hash,
                     ..
-                }) => {
-                    requested_block_hashes.insert(hash);
-                }
+                }) => hash,
                 _ => panic!("unexpected network request {:?}", request),
-            }
-        }
-        requested_block_hashes
+            })
+            .collect()
     }
 
     fn check_hashes_from_network_adapter(
-        network_adapter: Arc<MockPeerManagerAdapter>,
+        network_adapter: &MockPeerManagerAdapter,
         expected_hashes: Vec<CryptoHash>,
     ) {
         let collected_hashes = collect_hashes_from_network_adapter(network_adapter);
@@ -1644,7 +1641,7 @@ mod test {
             let expected_blocks: Vec<_> =
                 blocks[i * MAX_BLOCK_REQUESTS..(i + 1) * MAX_BLOCK_REQUESTS].to_vec();
             check_hashes_from_network_adapter(
-                network_adapter.clone(),
+                &network_adapter,
                 expected_blocks.iter().map(|b| *b.hash()).collect(),
             );
 
@@ -1658,7 +1655,7 @@ mod test {
         let is_state_sync = block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
         check_hashes_from_network_adapter(
-            network_adapter.clone(),
+            &network_adapter,
             (3 * MAX_BLOCK_REQUESTS..4 * MAX_BLOCK_REQUESTS).map(|h| *blocks[h].hash()).collect(),
         );
         // assumes that we only get block[4*MAX_BLOCK_REQUESTS-1]
@@ -1670,7 +1667,7 @@ mod test {
         let is_state_sync = block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
         check_hashes_from_network_adapter(
-            network_adapter.clone(),
+            &network_adapter,
             (3 * MAX_BLOCK_REQUESTS..4 * MAX_BLOCK_REQUESTS - 1)
                 .map(|h| *blocks[h].hash())
                 .collect(),
@@ -1682,7 +1679,7 @@ mod test {
                 .process_block_test(MaybeValidated::from(blocks[i].clone()), Provenance::NONE);
         }
         block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
-        let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter);
+        let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
         assert!(requested_block_hashes.is_empty(), "{:?}", requested_block_hashes);
     }
 
@@ -1707,7 +1704,7 @@ mod test {
         assert!(challenges.is_empty());
         let is_state_sync = block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
-        let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter.clone());
+        let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
         // We don't have archival peers, and thus cannot request any blocks
         assert_eq!(requested_block_hashes, HashSet::new());
 
@@ -1717,7 +1714,7 @@ mod test {
         }
         let is_state_sync = block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
         assert!(!is_state_sync);
-        let requested_block_hashes = collect_hashes_from_network_adapter(network_adapter);
+        let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
         assert_eq!(
             requested_block_hashes,
             blocks.iter().take(MAX_BLOCK_REQUESTS).map(|b| *b.hash()).collect::<HashSet<_>>()
