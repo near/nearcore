@@ -39,7 +39,7 @@ near-primitives = { path = "../../core/primitives" }
 near-o11y = { path = "../../core/o11y" }
 
 nearcore = { path = "../../nearcore" }
-rocksdb = { git = "https://github.com/EdvardD/rust-rocksdb", rev = "96b45476716bd48cee9bb2aadb3cb5100429350d", default-features = false, features = ["snappy", "lz4", "zstd", "zlib"] }
+rocksdb = { git = "https://github.com/near/rust-rocksdb", rev = "18355460e0dbecbb79025bec4637c4d707b962ed", default-features = false, features = ["snappy", "lz4", "zstd", "zlib"] }
 walrus = "0.18.0"
 hex = "0.4"
 cfg-if = "1"
