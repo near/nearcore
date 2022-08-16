@@ -106,7 +106,7 @@ type Stream<Arg, Res> = mpsc::UnboundedSender<Call<Arg, Res>>;
 #[derive(Clone)]
 pub struct Demux<Arg, Res>(Stream<Arg, Res>);
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, PartialEq)]
 #[error("tokio::Runtime running the demux service has been stopped")]
 pub struct ServiceStoppedError;
 

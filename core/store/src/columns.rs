@@ -5,9 +5,9 @@ use std::fmt;
 /// You can think about our storage as 2-dimensional table (with key and column as indexes/coordinates).
 #[derive(
     PartialEq,
-    Debug,
     Copy,
     Clone,
+    Debug,
     Hash,
     Eq,
     BorshDeserialize,
@@ -360,61 +360,7 @@ impl DBCol {
 
 impl fmt::Display for DBCol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let desc = match self {
-            Self::DbVersion => "db version",
-            Self::BlockMisc => "miscellaneous block data",
-            Self::Block => "block data",
-            Self::BlockHeader => "block header data",
-            Self::BlockHeight => "block height",
-            Self::State => "blockchain state",
-            Self::ChunkExtra => "extra information of trunk",
-            Self::TransactionResult => "transaction results",
-            Self::OutgoingReceipts => "outgoing receipts",
-            Self::IncomingReceipts => "incoming receipts",
-            Self::Peers => "peer information",
-            Self::EpochInfo => "epoch information",
-            Self::BlockInfo => "block information",
-            Self::Chunks => "chunks",
-            Self::PartialChunks => "partial chunks",
-            Self::BlocksToCatchup => "blocks need to apply chunks",
-            Self::StateDlInfos => "blocks downloading",
-            Self::ChallengedBlocks => "challenged blocks",
-            Self::StateHeaders => "state headers",
-            Self::InvalidChunks => "invalid chunks",
-            Self::BlockExtra => "extra block information",
-            Self::BlockPerHeight => "hash of block per height",
-            Self::StateParts => "state parts",
-            Self::EpochStart => "epoch start",
-            Self::AccountAnnouncements => "account announcements",
-            Self::NextBlockHashes => "next block hash",
-            Self::EpochLightClientBlocks => "epoch light client block",
-            Self::ReceiptIdToShardId => "receipt id to shard id",
-            Self::_NextBlockWithNewChunk => "next block with new chunk (deprecated)",
-            Self::_LastBlockWithNewChunk => "last block with new chunk (deprecated)",
-            Self::PeerComponent => "peer components",
-            Self::ComponentEdges => "component edges",
-            Self::LastComponentNonce => "last component nonce",
-            Self::Transactions => "transactions",
-            Self::ChunkPerHeightShard => "hash of chunk per height and shard_id",
-            Self::StateChanges => "key value changes",
-            Self::BlockRefCount => "refcount per block",
-            Self::TrieChanges => "trie changes",
-            Self::BlockMerkleTree => "block merkle tree",
-            Self::ChunkHashesByHeight => "chunk hashes indexed by height_created",
-            Self::BlockOrdinal => "block ordinal",
-            Self::GCCount => "gc count",
-            Self::OutcomeIds => "outcome ids",
-            Self::_TransactionRefCount => "refcount per transaction (deprecated)",
-            Self::ProcessedBlockHeights => "processed block heights",
-            Self::Receipts => "receipts",
-            Self::CachedContractCode => "cached code",
-            Self::EpochValidatorInfo => "epoch validator info",
-            Self::HeaderHashesByHeight => "header hashes indexed by their height",
-            Self::StateChangesForSplitStates => "state changes indexed by block hash and shard id",
-            #[cfg(feature = "protocol_feature_flat_state")]
-            Self::FlatState => "flat state",
-        };
-        write!(f, "{}", desc)
+        fmt::Debug::fmt(self, f)
     }
 }
 

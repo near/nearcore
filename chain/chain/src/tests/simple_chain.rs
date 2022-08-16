@@ -151,8 +151,8 @@ fn build_chain_with_skips_and_forks() {
     assert!(chain.process_block_test(&None, b3).is_ok());
     assert!(chain.process_block_test(&None, b4).is_ok());
     assert!(chain.process_block_test(&None, b5).is_ok());
-    assert!(chain.get_header_by_height(1).is_err());
-    assert_eq!(chain.get_header_by_height(5).unwrap().height(), 5);
+    assert!(chain.get_block_header_by_height(1).is_err());
+    assert_eq!(chain.get_block_header_by_height(5).unwrap().height(), 5);
 }
 
 /// Verifies that the block at height are updated correctly when blocks from different forks are
@@ -199,9 +199,9 @@ fn blocks_at_height() {
     chain.process_block_test(&None, b_3).unwrap();
     assert_eq!(chain.header_head().unwrap().height, 3);
 
-    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), &b_1_hash);
-    assert_eq!(chain.get_header_by_height(2).unwrap().hash(), &b_2_hash);
-    assert_eq!(chain.get_header_by_height(3).unwrap().hash(), &b_3_hash);
+    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &b_1_hash);
+    assert_eq!(chain.get_block_header_by_height(2).unwrap().hash(), &b_2_hash);
+    assert_eq!(chain.get_block_header_by_height(3).unwrap().hash(), &b_3_hash);
 
     chain.process_block_test(&None, c_1).unwrap();
     chain.process_block_test(&None, c_3).unwrap();
@@ -209,31 +209,31 @@ fn blocks_at_height() {
     chain.process_block_test(&None, c_5).unwrap();
     assert_eq!(chain.header_head().unwrap().height, 5);
 
-    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), &c_1_hash);
-    assert!(chain.get_header_by_height(2).is_err());
-    assert_eq!(chain.get_header_by_height(3).unwrap().hash(), &c_3_hash);
-    assert_eq!(chain.get_header_by_height(4).unwrap().hash(), &c_4_hash);
-    assert_eq!(chain.get_header_by_height(5).unwrap().hash(), &c_5_hash);
+    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &c_1_hash);
+    assert!(chain.get_block_header_by_height(2).is_err());
+    assert_eq!(chain.get_block_header_by_height(3).unwrap().hash(), &c_3_hash);
+    assert_eq!(chain.get_block_header_by_height(4).unwrap().hash(), &c_4_hash);
+    assert_eq!(chain.get_block_header_by_height(5).unwrap().hash(), &c_5_hash);
 
     chain.process_block_test(&None, d_3).unwrap();
     chain.process_block_test(&None, d_4).unwrap();
     chain.process_block_test(&None, d_6).unwrap();
     assert_eq!(chain.header_head().unwrap().height, 6);
 
-    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), &b_1_hash);
-    assert_eq!(chain.get_header_by_height(2).unwrap().hash(), &b_2_hash);
-    assert_eq!(chain.get_header_by_height(3).unwrap().hash(), &d_3_hash);
-    assert_eq!(chain.get_header_by_height(4).unwrap().hash(), &d_4_hash);
-    assert!(chain.get_header_by_height(5).is_err());
-    assert_eq!(chain.get_header_by_height(6).unwrap().hash(), &d_6_hash);
+    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &b_1_hash);
+    assert_eq!(chain.get_block_header_by_height(2).unwrap().hash(), &b_2_hash);
+    assert_eq!(chain.get_block_header_by_height(3).unwrap().hash(), &d_3_hash);
+    assert_eq!(chain.get_block_header_by_height(4).unwrap().hash(), &d_4_hash);
+    assert!(chain.get_block_header_by_height(5).is_err());
+    assert_eq!(chain.get_block_header_by_height(6).unwrap().hash(), &d_6_hash);
 
     chain.process_block_test(&None, e_7).unwrap();
 
-    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), &b_1_hash);
+    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &b_1_hash);
     for h in 2..=5 {
-        assert!(chain.get_header_by_height(h).is_err());
+        assert!(chain.get_block_header_by_height(h).is_err());
     }
-    assert_eq!(chain.get_header_by_height(7).unwrap().hash(), &e_7_hash);
+    assert_eq!(chain.get_block_header_by_height(7).unwrap().hash(), &e_7_hash);
 }
 
 #[test]

@@ -19,13 +19,12 @@ use near_chain::{
 };
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_client_primitives::types::{
-    Error, GetBlock, GetBlockError, GetBlockHash, GetBlockProof, GetBlockProofError,
-    GetBlockProofResponse, GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome,
-    GetExecutionOutcomeError, GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError,
-    GetNextLightClientBlockError, GetProtocolConfig, GetProtocolConfigError, GetReceipt,
-    GetReceiptError, GetStateChangesError, GetStateChangesWithCauseInBlock,
-    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
-    TxStatus, TxStatusError,
+    Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
+    GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
+    GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetNextLightClientBlockError,
+    GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError, GetStateChangesError,
+    GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
+    GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
 };
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 #[cfg(feature = "test_features")]
@@ -46,7 +45,7 @@ use near_primitives::syncing::{
 };
 use near_primitives::types::{
     AccountId, BlockId, BlockReference, EpochId, EpochReference, Finality, MaybeBlockId, ShardId,
-    TransactionOrReceiptId,
+    SyncCheckpoint, TransactionOrReceiptId,
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
@@ -149,7 +148,7 @@ impl ViewClientActor {
                 let block_hash = self.chain.head()?.last_block_hash;
                 self.chain.get_block_header(&block_hash)
             }
-            Some(BlockId::Height(height)) => self.chain.get_header_by_height(height),
+            Some(BlockId::Height(height)) => self.chain.get_block_header_by_height(height),
             Some(BlockId::Hash(block_hash)) => self.chain.get_block_header(&block_hash),
         }
     }
@@ -170,67 +169,94 @@ impl ViewClientActor {
         &self,
         finality: &Finality,
     ) -> Result<CryptoHash, near_chain::Error> {
-        let head_header = self.chain.head_header()?;
         match finality {
-            Finality::None => Ok(*head_header.hash()),
-            Finality::DoomSlug => Ok(*head_header.last_ds_final_block()),
-            Finality::Final => self.chain.final_head().map(|t| t.last_block_hash),
+            Finality::None => Ok(self.chain.head()?.last_block_hash),
+            Finality::DoomSlug => Ok(*self.chain.head_header()?.last_ds_final_block()),
+            Finality::Final => Ok(self.chain.final_head()?.last_block_hash),
         }
     }
 
-    fn get_block_hash_by_sync_checkpoint(
-        &mut self,
-        synchronization_checkpoint: &near_primitives::types::SyncCheckpoint,
-    ) -> Result<Option<CryptoHash>, near_chain::Error> {
-        use near_primitives::types::SyncCheckpoint;
+    /// Returns block header by reference.
+    ///
+    /// Returns `None` if the reference is a `SyncCheckpoint::EarliestAvailable`
+    /// reference and no such block exists yet.  This is typically translated by
+    /// the caller into some form of ‘no sync block’ higher-level error.
+    fn get_block_header_by_reference(
+        &self,
+        reference: &BlockReference,
+    ) -> Result<Option<BlockHeader>, near_chain::Error> {
+        match reference {
+            BlockReference::BlockId(BlockId::Height(block_height)) => {
+                self.chain.get_block_header_by_height(*block_height).map(Some)
+            }
+            BlockReference::BlockId(BlockId::Hash(block_hash)) => {
+                self.chain.get_block_header(block_hash).map(Some)
+            }
+            BlockReference::Finality(finality) => self
+                .get_block_hash_by_finality(finality)
+                .and_then(|block_hash| self.chain.get_block_header(&block_hash))
+                .map(Some),
+            BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis) => {
+                Ok(Some(self.chain.genesis().clone()))
+            }
+            BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable) => {
+                let block_hash = match self.chain.get_earliest_block_hash() {
+                    Ok(Some(block_hash)) => block_hash,
+                    Ok(None) => return Ok(None),
+                    Err(err) => return Err(err),
+                };
+                self.chain.get_block_header(&block_hash).map(Some)
+            }
+        }
+    }
 
-        match synchronization_checkpoint {
-            SyncCheckpoint::Genesis => Ok(Some(self.chain.genesis().hash().clone())),
-            SyncCheckpoint::EarliestAvailable => self.chain.get_earliest_block_hash(),
+    /// Returns block by reference.
+    ///
+    /// Returns `None` if the reference is a `SyncCheckpoint::EarliestAvailable`
+    /// reference and no such block exists yet.  This is typically translated by
+    /// the caller into some form of ‘no sync block’ higher-level error.
+    fn get_block_by_reference(
+        &self,
+        reference: &BlockReference,
+    ) -> Result<Option<Block>, near_chain::Error> {
+        match reference {
+            BlockReference::BlockId(BlockId::Height(block_height)) => {
+                self.chain.get_block_by_height(*block_height).map(Some)
+            }
+            BlockReference::BlockId(BlockId::Hash(block_hash)) => {
+                self.chain.get_block(block_hash).map(Some)
+            }
+            BlockReference::Finality(finality) => self
+                .get_block_hash_by_finality(finality)
+                .and_then(|block_hash| self.chain.get_block(&block_hash))
+                .map(Some),
+            BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis) => {
+                Ok(Some(self.chain.genesis_block().clone()))
+            }
+            BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable) => {
+                let block_hash = match self.chain.get_earliest_block_hash() {
+                    Ok(Some(block_hash)) => block_hash,
+                    Ok(None) => return Ok(None),
+                    Err(err) => return Err(err),
+                };
+                self.chain.get_block(&block_hash).map(Some)
+            }
         }
     }
 
     fn handle_query(&mut self, msg: Query) -> Result<QueryResponse, QueryError> {
-        let header = match msg.block_reference {
-            BlockReference::BlockId(BlockId::Height(block_height)) => {
-                self.chain.get_header_by_height(block_height)
+        let header = self.get_block_header_by_reference(&msg.block_reference);
+        let header = match header {
+            Ok(Some(header)) => Ok(header),
+            Ok(None) => Err(QueryError::NoSyncedBlocks),
+            Err(near_chain::near_chain_primitives::Error::DBNotFoundErr(_)) => {
+                Err(QueryError::UnknownBlock { block_reference: msg.block_reference })
             }
-            BlockReference::BlockId(BlockId::Hash(block_hash)) => {
-                self.chain.get_block_header(&block_hash)
+            Err(near_chain::near_chain_primitives::Error::IOErr(err)) => {
+                Err(QueryError::InternalError { error_message: err.to_string() })
             }
-            BlockReference::Finality(ref finality) => self
-                .get_block_hash_by_finality(finality)
-                .and_then(|block_hash| self.chain.get_block_header(&block_hash)),
-            BlockReference::SyncCheckpoint(ref synchronization_checkpoint) => {
-                if let Some(block_hash) = self
-                    .get_block_hash_by_sync_checkpoint(synchronization_checkpoint)
-                    .map_err(|err| match err {
-                        near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => {
-                            QueryError::UnknownBlock {
-                                block_reference: msg.block_reference.clone(),
-                            }
-                        }
-                        near_chain::near_chain_primitives::Error::IOErr(error) => {
-                            QueryError::InternalError { error_message: error.to_string() }
-                        }
-                        _ => QueryError::Unreachable { error_message: err.to_string() },
-                    })?
-                {
-                    self.chain.get_block_header(&block_hash)
-                } else {
-                    return Err(QueryError::NoSyncedBlocks);
-                }
-            }
-        };
-        let header = header.map_err(|err| match err {
-            near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => {
-                QueryError::UnknownBlock { block_reference: msg.block_reference.clone() }
-            }
-            near_chain::near_chain_primitives::Error::IOErr(error) => {
-                QueryError::InternalError { error_message: error.to_string() }
-            }
-            _ => QueryError::Unreachable { error_message: err.to_string() },
-        })?;
+            Err(err) => Err(QueryError::Unreachable { error_message: err.to_string() }),
+        }?;
 
         let account_id = match &msg.request {
             QueryRequest::ViewAccount { account_id, .. } => account_id,
@@ -441,11 +467,9 @@ impl ViewClientActor {
         } else {
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
             if Self::need_request(tx_hash, &mut request_manager.tx_status_requests) {
-                let epoch_id =
-                    self.chain.head().map_err(|e| TxStatusError::ChainError(e))?.epoch_id;
                 let target_shard_id = self
                     .runtime_adapter
-                    .account_id_to_shard_id(&signer_account_id, &epoch_id)
+                    .account_id_to_shard_id(&signer_account_id, &head.epoch_id)
                     .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
                 let validator = self
                     .chain
@@ -521,56 +545,14 @@ impl Handler<GetBlock> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetBlock, _: &mut Self::Context) -> Self::Result {
-        let block = match msg.0 {
-            BlockReference::Finality(finality) => {
-                let block_hash = self.get_block_hash_by_finality(&finality)?;
-                self.chain.get_block(&block_hash)
-            }
-            BlockReference::BlockId(BlockId::Height(height)) => {
-                self.chain.get_block_by_height(height)
-            }
-            BlockReference::BlockId(BlockId::Hash(hash)) => self.chain.get_block(&hash),
-            BlockReference::SyncCheckpoint(sync_checkpoint) => {
-                if let Some(block_hash) =
-                    self.get_block_hash_by_sync_checkpoint(&sync_checkpoint)?
-                {
-                    self.chain.get_block(&block_hash)
-                } else {
-                    return Err(GetBlockError::NotSyncedYet);
-                }
-            }
-        }?;
-
+        let block = match self.get_block_by_reference(&msg.0)? {
+            None => return Err(GetBlockError::NotSyncedYet),
+            Some(block) => block,
+        };
         let block_author = self
             .runtime_adapter
             .get_block_producer(block.header().epoch_id(), block.header().height())?;
-
         Ok(BlockView::from_author_block(block_author, block))
-    }
-}
-
-/// Handles retrieving block header from the chain.
-impl Handler<GetBlockHash> for ViewClientActor {
-    type Result = Result<CryptoHash, GetBlockError>;
-
-    #[perf]
-    fn handle(&mut self, msg: GetBlockHash, _: &mut Self::Context) -> Self::Result {
-        match msg.0 {
-            BlockReference::Finality(finality) => self.get_block_hash_by_finality(&finality),
-            BlockReference::BlockId(BlockId::Height(height)) => {
-                self.chain.get_block_hash_by_height(height)
-            }
-            BlockReference::BlockId(BlockId::Hash(hash)) => {
-                // Fetch block header to confirm that the block exists.  This is
-                // only done so that we can get an error if the hash does not
-                // correspond to a known block.
-                self.chain.get_block_header(&hash).map(|_| hash)
-            }
-            BlockReference::SyncCheckpoint(sync_checkpoint) => Ok(self
-                .get_block_hash_by_sync_checkpoint(&sync_checkpoint)?
-                .ok_or(GetBlockError::NotSyncedYet)?),
-        }
-        .map_err(std::convert::Into::into)
     }
 }
 
@@ -670,7 +652,7 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
             EpochReference::BlockId(block_id) => {
                 let block_header = match block_id {
                     BlockId::Hash(h) => self.chain.get_block_header(&h)?,
-                    BlockId::Height(h) => self.chain.get_header_by_height(h)?,
+                    BlockId::Height(h) => self.chain.get_block_header_by_height(h)?,
                 };
                 let next_block_hash =
                     self.chain.store().get_next_block_hash(block_header.hash())?;
@@ -973,29 +955,13 @@ impl Handler<GetProtocolConfig> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetProtocolConfig, _: &mut Self::Context) -> Self::Result {
-        let block_header = match msg.0 {
-            BlockReference::Finality(finality) => {
-                let block_hash = self.get_block_hash_by_finality(&finality)?;
-                self.chain.get_block_header(&block_hash)
+        let header = match self.get_block_header_by_reference(&msg.0)? {
+            None => {
+                return Err(GetProtocolConfigError::UnknownBlock("EarliestAvailable".to_string()))
             }
-            BlockReference::BlockId(BlockId::Height(height)) => {
-                self.chain.get_header_by_height(height)
-            }
-            BlockReference::BlockId(BlockId::Hash(hash)) => self.chain.get_block_header(&hash),
-            BlockReference::SyncCheckpoint(sync_checkpoint) => {
-                if let Some(block_hash) =
-                    self.get_block_hash_by_sync_checkpoint(&sync_checkpoint)?
-                {
-                    self.chain.get_block_header(&block_hash)
-                } else {
-                    return Err(GetProtocolConfigError::UnknownBlock(format!(
-                        "{:?}",
-                        sync_checkpoint
-                    )));
-                }
-            }
-        }?;
-        let config = self.runtime_adapter.get_protocol_config(block_header.epoch_id())?;
+            Some(header) => header,
+        };
+        let config = self.runtime_adapter.get_protocol_config(header.epoch_id())?;
         Ok(config.into())
     }
 }

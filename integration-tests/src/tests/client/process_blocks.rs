@@ -2029,7 +2029,7 @@ fn test_sync_hash_validity() {
         env.produce_block(0, i);
     }
     for i in 0..19 {
-        let block_hash = *env.clients[0].chain.get_header_by_height(i).unwrap().hash();
+        let block_hash = *env.clients[0].chain.get_block_header_by_height(i).unwrap().hash();
         let res = env.clients[0].chain.check_sync_hash_validity(&block_hash);
         println!("height {:?} -> {:?}", i, res);
         if i == 11 || i == 16 {
