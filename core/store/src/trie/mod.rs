@@ -11,6 +11,7 @@ use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
 use near_primitives::state_record::is_delayed_receipt_key;
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{StateRoot, StateRootNode};
 
 use crate::flat_state::FlatState;
@@ -411,6 +412,17 @@ pub struct Trie {
     pub flat_state: Option<FlatState>,
 }
 
+/// Trait for reading data from a trie.
+pub trait TrieAccess {
+    /// Retrieves value with given key from the trie.
+    ///
+    /// This doesn’t allow to read data from different chunks (be it from
+    /// different shards or different blocks).  That is, the shard and state
+    /// root are already known by the object rather than being passed as
+    /// argument.
+    fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError>;
+}
+
 /// Stores reference count change for some key-value pair in DB.
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct TrieRefcountChange {
@@ -741,6 +753,12 @@ impl Trie {
 
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
         self.storage.get_trie_nodes_count()
+    }
+}
+
+impl TrieAccess for Trie {
+    fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
+        Trie::get(self, &key.to_vec())
     }
 }
 
