@@ -1012,8 +1012,7 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::ForwardTx(_, _)
                         | NetworkRequests::BanPeer { .. }
                         | NetworkRequests::TxStatus(_, _, _)
-                        | NetworkRequests::Challenge(_)
-                        | NetworkRequests::ReceiptOutComeRequest(_, _) => {}
+                        | NetworkRequests::Challenge(_) => {}
                     };
                 }
                 resp

@@ -280,10 +280,13 @@ impl NightshadeRuntime {
     }
 
     fn genesis_state_from_records(store: Store, genesis: &Genesis) -> Vec<StateRoot> {
-        if !genesis.records.as_ref().is_empty() {
-            info!(target: "runtime", "Genesis state has {} records, computing state roots", genesis.records.0.len());
-        } else {
-            info!(target: "runtime", "Computing state roots from records in file {:?}", genesis.records_file);
+        match genesis.records_len() {
+            Ok(count) => {
+                info!(target: "runtime", "Genesis state has {count} records, computing state roots")
+            }
+            Err(path) => {
+                info!(target: "runtime", "Computing state roots from records in file {}", path.display())
+            }
         }
         let mut state_roots = vec![];
         let initial_epoch_config = EpochConfig::from(&genesis.config);
@@ -374,10 +377,9 @@ impl NightshadeRuntime {
         home_dir: &Path,
         genesis: &Genesis,
     ) -> Vec<StateRoot> {
-        let has_records = !genesis.records.as_ref().is_empty();
         let has_dump = home_dir.join(STATE_DUMP_FILE).exists();
         if has_dump {
-            if has_records {
+            if genesis.records_len().is_ok() {
                 warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
             }
             let state_roots = Self::genesis_state_from_dump(store, home_dir);

@@ -360,8 +360,12 @@ impl PeerActor {
                     RoutedMessageBody::TxStatusResponse(tx_result) => {
                         NetworkViewClientMessages::TxStatusResponse(Box::new(tx_result))
                     }
-                    RoutedMessageBody::ReceiptOutcomeRequest(receipt_id) => {
-                        NetworkViewClientMessages::ReceiptOutcomeRequest(receipt_id)
+                    RoutedMessageBody::ReceiptOutcomeRequest(_receipt_id) => {
+                        // Silently ignore for the time being.  We’ve been still
+                        // sending those messages at protocol version 56 so we
+                        // need to wait until 59 before we can remove the
+                        // variant completely.
+                        return;
                     }
                     RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
                         NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash }

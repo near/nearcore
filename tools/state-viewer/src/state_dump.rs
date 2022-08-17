@@ -501,11 +501,11 @@ mod test {
         expected_accounts.extend(select_account_ids.clone());
         expected_accounts.insert(new_genesis.config.protocol_treasury_account.clone());
         let mut actual_accounts: HashSet<AccountId> = HashSet::new();
-        for record in new_genesis.records.0.iter() {
+        new_genesis.for_each_record(|record| {
             if let StateRecord::Account { account_id, .. } = record {
                 actual_accounts.insert(account_id.clone());
             }
-        }
+        });
         assert_eq!(expected_accounts, actual_accounts);
         validate_genesis(&new_genesis);
     }
@@ -854,18 +854,12 @@ mod test {
             vec!["test1".parse().unwrap()]
         );
 
-        let stake: HashMap<AccountId, Balance> = new_genesis
-            .records
-            .0
-            .iter()
-            .filter_map(|x| {
-                if let StateRecord::Account { account_id, account } = x {
-                    Some((account_id.clone(), account.locked()))
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let mut stake = HashMap::<AccountId, Balance>::new();
+        new_genesis.for_each_record(|record| {
+            if let StateRecord::Account { account_id, account } = record {
+                stake.insert(account_id.clone(), account.locked());
+            }
+        });
 
         assert_eq!(stake.get("test0").unwrap_or(&(0 as Balance)), &(0 as Balance));
 
