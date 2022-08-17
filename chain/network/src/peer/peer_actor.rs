@@ -97,8 +97,11 @@ pub(crate) struct PeerActor {
     
     /// Peer address from connection.
     peer_addr: SocketAddr,   
-    /// OUTBOUND-ONLY: state of the handshake. 
-    outbound_handshake: Option<HandshakeState>,
+    peer_type: PeerType,
+    /// OUTBOUND-ONLY: Handshake specification. For outbound connections it is initialized
+    /// in constructor and then can change as HandshakeFailure and LastEdge messages
+    /// are received. For inbound connections, handshake is stateless. 
+    handshake_spec: Option<HandshakeSpec>,
     
     /// Framed wrapper to send messages through the TCP connection.
     framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
@@ -157,15 +160,15 @@ pub enum IOError {
     Send { tid: usize, message_type: String, size: usize },
 }
 
-#[derive(Clone)]
-pub(crate) struct HandshakeConfig {
-    peer_id: PeerId,
-    is_tier1: bool,
+pub(crate) struct OutboundConfig {
+    pub peer_id: PeerId,
+    pub is_tier1: bool,
 }
 
 #[derive(Clone)]
-struct HandshakeState {
-    config: HandshakeConfig,
+struct HandshakeSpec {
+    peer_id: PeerId,
+    is_tier1: bool,
     protocol_version: ProtocolVersion,
     partial_edge_info: PartialEdgeInfo,
 }
@@ -176,7 +179,7 @@ impl PeerActor {
         clock: time::Clock,
         my_node_info: PeerInfo,
         peer_addr: SocketAddr,
-        outbound_handshake: Option<HandshakeConfig>,
+        outbound_config: Option<OutboundConfig>,
         framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
         handshake_timeout: time::Duration,
         peer_manager_addr: Recipient<PeerToManagerMsg>,
@@ -192,10 +195,15 @@ impl PeerActor {
             clock,
             my_node_info,
             peer_addr,
-            outbound_handshake: outbound_handshake.map(|config| HandshakeState {
-                partial_edge_info: network_state.propose_edge(&config.peer_id,None),
-                protocol_version: PROTOCOL_VERSION, 
-                config,
+            peer_type: match outbound_config {
+                Some(_) => PeerType::Outbound,
+                None => PeerType::Inbound,
+            },
+            handshake_spec: outbound_config.map(|cfg| HandshakeSpec {
+                partial_edge_info: network_state.propose_edge(&cfg.peer_id,None),
+                protocol_version: PROTOCOL_VERSION,
+                peer_id: cfg.peer_id,
+                is_tier1: cfg.is_tier1,
             }),
             peer_status: PeerStatus::Connecting,
             framed,
@@ -294,13 +302,13 @@ impl PeerActor {
         Ok(())
     }
 
-    fn send_handshake(&mut self, state:&HandshakeState) {
+    fn send_handshake(&mut self,spec:HandshakeSpec) {
         let chain_info = self.network_state.chain_info.load();
         let msg = PeerMessage::Handshake(Handshake {
-            protocol_version: state.protocol_version,
+            protocol_version: spec.protocol_version,
             oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
             sender_peer_id: self.my_node_id().clone(),
-            target_peer_id: state.config.peer_id.clone(),
+            target_peer_id: spec.peer_id.clone(),
             sender_listen_port: self.my_node_info.addr_port(),
             sender_chain_info: PeerChainInfoV2 {
                 genesis_id: self.network_state.genesis_id.clone(),
@@ -308,8 +316,8 @@ impl PeerActor {
                 tracked_shards: chain_info.tracked_shards.clone(),
                 archival: self.network_state.config.archive,
             },
-            partial_edge_info: state.partial_edge_info.clone(),
-            is_tier1: state.config.is_tier1,
+            partial_edge_info: spec.partial_edge_info,
+            is_tier1: spec.is_tier1,
         });
         self.send_message_or_log(&msg);
     }
@@ -319,13 +327,6 @@ impl PeerActor {
         self.peer_status = PeerStatus::Banned(ban_reason);
         // On stopping Banned signal will be sent to PeerManager
         ctx.stop();
-    }
-
-    fn peer_type(&self) -> PeerType {
-        match self.outbound_handshake {
-            Some(_) => PeerType::Outbound,
-            None => PeerType::Inbound,
-        }
     }
 
     /// `PeerId` of the current node.
@@ -630,7 +631,7 @@ impl Actor for PeerActor {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         metrics::PEER_CONNECTIONS_TOTAL.inc();
-        debug!(target: "network", "{:?}: Peer {:?} {:?} started", self.my_node_info.id, self.peer_addr, self.peer_type());
+        debug!(target: "network", "{:?}: Peer {:?} {:?} started", self.my_node_info.id, self.peer_addr, self.peer_type);
         // Set Handshake timeout for stopping actor if peer is not ready after given period of time.
 
         near_performance_metrics::actix::run_later(
@@ -645,8 +646,8 @@ impl Actor for PeerActor {
         );
 
         // If outbound peer, initiate handshake.
-        if let Some(oh) = self.outbound_handshake.clone() {
-            self.send_handshake(&oh);
+        if self.peer_type==PeerType::Outbound {
+            self.send_handshake(self.handshake_spec.clone().unwrap());
         }
     }
 
@@ -663,7 +664,7 @@ impl Actor for PeerActor {
             } else {
                 let _ = self.peer_manager_addr.do_send(PeerToManagerMsg::Unregister(Unregister {
                     peer_id: peer_info.id.clone(),
-                    peer_type: self.peer_type(),
+                    peer_type: self.peer_type,
                     // If the PeerActor is no longer in the Connecting state this means
                     // that the connection was consolidated at some point in the past.
                     // Only if the connection was consolidated try to remove this peer from the
@@ -747,13 +748,10 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
 
         match (self.peer_status, peer_msg.clone()) {
             (PeerStatus::Connecting, PeerMessage::HandshakeFailure(peer_info, reason)) => {
-                let mut oh = match &mut self.outbound_handshake {
-                    Some(cfg) => cfg,
-                    None => {
-                        warn!(target: "network", "Received unexpected HandshakeFailure on an outbound connection, disconnecting");
-                        ctx.stop();
-                        return;
-                    }
+                if self.peer_type==PeerType::Inbound {
+                    warn!(target: "network", "Received unexpected HandshakeFailure on an inbound connection, disconnecting");
+                    ctx.stop();
+                    return;
                 };
                 match reason {
                     HandshakeFailureReason::GenesisMismatch(genesis) => {
@@ -766,13 +764,18 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         oldest_supported_version,
                     } => {
                         // Retry the handshake with the common protocol version.
-                        oh.protocol_version = std::cmp::min(version, PROTOCOL_VERSION);
-                        if oh.protocol_version < oldest_supported_version {
+                        let common_version = std::cmp::min(version, PROTOCOL_VERSION);
+                        if common_version < oldest_supported_version || common_version < PEER_MIN_ALLOWED_PROTOCOL_VERSION {
                             warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {:?}, their: {:?}", peer_info, (PROTOCOL_VERSION, PEER_MIN_ALLOWED_PROTOCOL_VERSION), (version, oldest_supported_version));
                             ctx.stop();
                             return;
                         }
-                        self.send_handshake(&oh);
+                        let spec = {
+                            let spec = self.handshake_spec.as_mut().unwrap();
+                            spec.protocol_version = common_version;
+                            spec.clone()
+                        };
+                        self.send_handshake(spec);
                     }
                     HandshakeFailureReason::InvalidTarget => {
                         debug!(target: "network", "Peer found was not what expected. Updating peer info with {:?}", peer_info);
@@ -786,14 +789,11 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             // Clean this up (you don't have to modify the proto, just the translation layer).
             (PeerStatus::Connecting, PeerMessage::LastEdge(edge)) => {
                 // This message will be received only if we started the connection.
-                let mut oh = match self.outbound_handshake {
-                    Some(oh) => oh,
-                    None => {
-                        info!(target: "network", "{:?}: Inbound peer {:?} sent invalid message. Disconnect.", self.my_node_id(), self.peer_addr);
-                        ctx.stop();
-                        return;
-                    }
-                };
+                if self.peer_type==PeerType::Inbound {
+                    info!(target: "network", "{:?}: Inbound peer {:?} sent invalid message. Disconnect.", self.my_node_id(), self.peer_addr);
+                    ctx.stop();
+                    return;
+                }
 
                 // Disconnect if neighbor proposed an invalid edge.
                 if !edge.verify() {
@@ -802,8 +802,12 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     return;
                 }
                 // Recreate the edge with a newer nonce.
-                oh.partial_edge_info = self.network_state.propose_edge(&oh.config.peer_id,Some(edge.next()));
-                self.send_handshake(&oh);
+                let spec = {
+                    let spec = self.handshake_spec.as_mut().unwrap();
+                    spec.partial_edge_info = self.network_state.propose_edge(&spec.peer_id,Some(edge.next()));
+                    spec.clone()
+                };
+                self.send_handshake(spec);
             }
             (PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
@@ -826,13 +830,14 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     return;
                 }
 
-                if let Some(oh) = self.outbound_handshake {
-                    if handshake.is_tier1 != oh.config.is_tier1 {
+                if self.peer_type==PeerType::Outbound {
+                    let spec = self.handshake_spec.as_ref().unwrap();
+                    if handshake.is_tier1 != spec.is_tier1 {
                         warn!(target: "network", "Connection TIER mismatch. Disconnecting peer {}", handshake.sender_peer_id);
                         ctx.stop();
                         return;
                     }
-                    if handshake.protocol_version != oh.protocol_version {
+                    if handshake.protocol_version != spec.protocol_version {
                         warn!(target: "network", "Protocol version mismatch. Disconnecting peer {}", handshake.sender_peer_id);
                         ctx.stop();
                         return;
@@ -875,15 +880,16 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
 
                 // Try to merge partial edges.
                 let nonce = handshake.partial_edge_info.nonce; 
-                let partial_edge_info = self.outbound_handshake
-                    .map(|oh|oh.partial_edge_info)
-                    .unwrap_or_else(||self.network_state.propose_edge(&handshake.sender_peer_id,Some(nonce)));
+                let partial_edge_info = match self.peer_type {
+                    PeerType::Outbound => self.handshake_spec.as_ref().unwrap().partial_edge_info.clone(),
+                    PeerType::Inbound => self.network_state.propose_edge(&handshake.sender_peer_id,Some(nonce)),
+                };
                 let edge = match merge_edges(
                     &self.clock,
                     self.my_node_id().clone(),
-                    handshake.sender_peer_id,
-                    handshake.partial_edge_info,
-                    partial_edge_info,
+                    handshake.sender_peer_id.clone(),
+                    handshake.partial_edge_info.clone(),
+                    partial_edge_info.clone(),
                 ) {
                     Ok(edge) => edge,
                     Err(MergeEdgesError::InvalidSignature) => {
@@ -924,7 +930,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     initial_chain_info: handshake.sender_chain_info.clone(),
                     chain_height: AtomicU64::new(handshake.sender_chain_info.height),
                     edge,
-                    peer_type: self.peer_type(),
+                    peer_type: self.peer_type,
                     stats: ArcSwap::new(Arc::new(Stats {
                         sent_bytes_per_sec: 0,
                         received_bytes_per_sec: 0,
@@ -945,28 +951,31 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     self.network_state.config.peer_stats_period.try_into().unwrap(),
                 );
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                ctx.spawn(async move {
-                    loop {
-                        interval.tick().await;
-                        let sent = tracker.lock().sent_bytes.minute_stats(&clock);
-                        let received = tracker.lock().received_bytes.minute_stats(&clock);
-                        connection_state.stats.store(Arc::new(Stats {
-                            received_bytes_per_sec: received.bytes_per_min / 60,
-                            sent_bytes_per_sec: sent.bytes_per_min / 60,
-                        }));
-                        // Whether the peer is considered abusive due to sending too many messages.
-                        // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
-                        // some day be less than `u64::MAX`.
-                        let is_abusive = received.count_per_min > MAX_PEER_MSG_PER_MIN
-                            || sent.count_per_min > MAX_PEER_MSG_PER_MIN;
-                        if is_abusive {
-                            trace!(target: "network", peer_id=?connection_state.peer_info.id, sent = sent.count_per_min, recv = received.count_per_min, "Banning peer for abuse");
-                            // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
-                            //  network traffic that flags honest peers.
-                            // Send ban signal to peer instance. It should send ban signal back and stop the instance.
-                            // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
-                            //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
-                            // }
+                ctx.spawn({
+                    let connection_state = connection_state.clone();
+                    async move {
+                        loop {
+                            interval.tick().await;
+                            let sent = tracker.lock().sent_bytes.minute_stats(&clock);
+                            let received = tracker.lock().received_bytes.minute_stats(&clock);
+                            connection_state.stats.store(Arc::new(Stats {
+                                received_bytes_per_sec: received.bytes_per_min / 60,
+                                sent_bytes_per_sec: sent.bytes_per_min / 60,
+                            }));
+                            // Whether the peer is considered abusive due to sending too many messages.
+                            // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
+                            // some day be less than `u64::MAX`.
+                            let is_abusive = received.count_per_min > MAX_PEER_MSG_PER_MIN
+                                || sent.count_per_min > MAX_PEER_MSG_PER_MIN;
+                            if is_abusive {
+                                trace!(target: "network", peer_id=?connection_state.peer_info.id, sent = sent.count_per_min, recv = received.count_per_min, "Banning peer for abuse");
+                                // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
+                                //  network traffic that flags honest peers.
+                                // Send ban signal to peer instance. It should send ban signal back and stop the instance.
+                                // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
+                                //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
+                                // }
+                            }
                         }
                     }
                 }.into_actor(self));
@@ -982,14 +991,12 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                                 act.peer_info = Some(peer_info).into();
                                 act.peer_status = PeerStatus::Ready;
                                 // Respond to handshake if it's inbound and connection was consolidated.
-                                if act.peer_type() == PeerType::Inbound {
-                                    act.send_handshake(&HandshakeState{
-                                        config: HandshakeConfig {
-                                            peer_id: handshake.sender_peer_id.clone(),
-                                            is_tier1: handshake.is_tier1,
-                                        },
-                                        partial_edge_info: partial_edge_info,
+                                if act.peer_type == PeerType::Inbound {
+                                    act.send_handshake(HandshakeSpec{
+                                        peer_id: handshake.sender_peer_id.clone(),
+                                        is_tier1: handshake.is_tier1,
                                         protocol_version: handshake.protocol_version,
+                                        partial_edge_info: partial_edge_info,
                                     });
                                 } else {
                                     if !connection_state.is_tier1 {
@@ -1167,7 +1174,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 self.receive_message(ctx, msg);
             }
             (_, msg) => {
-                warn!(target: "network", "Received {} while {:?} from {:?} connection.", msg, self.peer_status, self.peer_type());
+                warn!(target: "network", "Received {} while {:?} from {:?} connection.", msg, self.peer_status, self.peer_type);
             }
         }
     }

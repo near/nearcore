@@ -3,7 +3,7 @@ use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::{AccountData, SyncAccountsData};
 use crate::peer::codec::Codec;
-use crate::peer::peer_actor::{Event as PeerEvent, PeerActor, HandshakeConfig};
+use crate::peer::peer_actor::{Event as PeerEvent, PeerActor, OutboundConfig};
 use crate::peer_manager::connected_peers::{ConnectedPeer, ConnectedPeers};
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
@@ -794,7 +794,7 @@ impl PeerManagerActor {
         &self,
         recipient: Addr<Self>,
         stream: TcpStream,
-        outbound_handshake: Option<HandshakeConfig>,
+        outbound_handshake: Option<OutboundConfig>,
     ) {
         let my_peer_id = self.my_peer_id.clone();
         let account_id = self.config.validator.as_ref().map(|v| v.account_id());
@@ -1688,7 +1688,7 @@ impl PeerManagerActor {
                             act.try_connect_peer(
                                 ctx.address(),
                                 stream,
-                                Some(HandshakeConfig{
+                                Some(OutboundConfig{
                                     peer_id: msg.peer_info.id,
                                     is_tier1: false,
                                 }),
@@ -1743,7 +1743,7 @@ impl PeerManagerActor {
             // Allow for inbound TIER1 connections only directly from a TIER1 peers
             // (not from TIER1 proxies).
             if msg.connection_state.is_tier1 {
-                if self.state.accounts_data.load().accounts_by_tier1_peer.iter_once_at(peer_info.id).count()==0 {
+                if self.state.accounts_data.load().accounts_by_tier1_peer.iter_once_at(peer_info.id.clone()).count()==0 {
                     return RegisterPeerResponse::Reject;
                 }
             }
@@ -1764,7 +1764,7 @@ impl PeerManagerActor {
                 return RegisterPeerResponse::Reject;
             }
         }
-        self.register_peer(msg.connection_state, ctx);
+        self.register_peer(msg.connection_state.clone(), ctx);
         self.event_sink.push(Event::PeerRegistered(peer_info.clone()));
         RegisterPeerResponse::Accept
     }
