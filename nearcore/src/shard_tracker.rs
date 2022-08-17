@@ -131,25 +131,23 @@ impl ShardTracker {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
+    use super::{account_id_to_shard_id, ShardTracker};
+    use crate::shard_tracker::TrackedConfig;
     use near_crypto::{KeyType, PublicKey};
+    use near_epoch_manager::test_utils::hash_range;
     use near_epoch_manager::{EpochManager, EpochManagerHandle, RewardCalculator};
     use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardConfig};
     use near_primitives::hash::CryptoHash;
+    use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::{BlockHeight, EpochId, NumShards, ProtocolVersion, ShardId};
-    use near_store::test_utils::create_test_store;
-    use super::{account_id_to_shard_id, ShardTracker};
-    use near_primitives::shard_layout::ShardLayout;
-
-    use crate::shard_tracker::TrackedConfig;
-    use near_epoch_manager::test_utils::hash_range;
     use near_primitives::utils::get_num_seats_per_shard;
     use near_primitives::version::ProtocolFeature::SimpleNightshade;
     use near_primitives::version::PROTOCOL_VERSION;
+    use near_store::test_utils::create_test_store;
     use num_rational::Ratio;
+    use std::collections::HashSet;
 
     const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
 
