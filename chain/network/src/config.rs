@@ -118,10 +118,6 @@ pub struct NetworkConfig {
 }
 
 impl NetworkConfig {
-    // Constructs and validates the config.
-    // TODO(gprusak): make the output immutable, to enforce the invariants
-    // checked during validation: either make it return an Arc, or add an Inner type,
-    // so that NetworkConfig dereferences to Inner.
     pub fn new(
         cfg: crate::config_json::Config,
         node_key: SecretKey,

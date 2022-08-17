@@ -10,7 +10,7 @@ use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::private_actix::{
     PeersRequest, RegisterPeer, RegisterPeerResponse, SendMessage, Unregister,
 };
-use crate::routing::edge::{merge_edges,MergeEdgesError,EDGE_NONCE_MAX_TIME_DELTA};
+use crate::routing::edge::{verify_nonce};
 use crate::sink::Sink;
 use crate::stats::metrics;
 use crate::types::{
@@ -29,13 +29,14 @@ use near_network_primitives::types::{
     PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType, ReasonForBan,
     RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
 };
-use near_network_primitives::types::{PartialEdgeInfo};
+use near_network_primitives::types::{Edge,PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
 use near_primitives::logging;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::utils::DisplayOption;
+use near_primitives::block::GenesisId;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
@@ -85,6 +86,8 @@ pub enum Event {
     // actually complete. Currently this event is reported only for some message types,
     // feel free to add support for more.
     MessageProcessed(PeerMessage),
+    // Reported when the actix actor has been stopped.
+    ActorStopped,
 }
 
 pub(crate) struct PeerActor {
@@ -168,6 +171,7 @@ pub(crate) struct OutboundConfig {
 #[derive(Clone)]
 struct HandshakeSpec {
     peer_id: PeerId,
+    genesis_id: GenesisId,
     is_tier1: bool,
     protocol_version: ProtocolVersion,
     partial_edge_info: PartialEdgeInfo,
@@ -203,6 +207,7 @@ impl PeerActor {
                 partial_edge_info: network_state.propose_edge(&cfg.peer_id,None),
                 protocol_version: PROTOCOL_VERSION,
                 peer_id: cfg.peer_id,
+                genesis_id: network_state.genesis_id.clone(),
                 is_tier1: cfg.is_tier1,
             }),
             peer_status: PeerStatus::Connecting,
@@ -311,7 +316,7 @@ impl PeerActor {
             target_peer_id: spec.peer_id.clone(),
             sender_listen_port: self.my_node_info.addr_port(),
             sender_chain_info: PeerChainInfoV2 {
-                genesis_id: self.network_state.genesis_id.clone(),
+                genesis_id: spec.genesis_id,
                 height: chain_info.height,
                 tracked_shards: chain_info.tracked_shards.clone(),
                 archival: self.network_state.config.archive,
@@ -680,6 +685,7 @@ impl Actor for PeerActor {
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
         Arbiter::current().stop();
+        self.event_sink.push(Event::ActorStopped)
     }
 }
 
@@ -834,6 +840,11 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         ctx.stop();
                         return;
                     }
+                    if handshake.partial_edge_info.nonce != spec.partial_edge_info.nonce {
+                        warn!(target: "network", "Nonce mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                        ctx.stop();
+                        return;
+                    }
                 } else {
                     if PEER_MIN_ALLOWED_PROTOCOL_VERSION > handshake.protocol_version
                         || handshake.protocol_version > PROTOCOL_VERSION
@@ -868,6 +879,12 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         ));
                         return;
                     }
+                    // Verify if nonce is sane.
+                    if let Err(err) = verify_nonce(&self.clock, handshake.partial_edge_info.nonce) {
+                        debug!(target: "network", nonce=?handshake.partial_edge_info.nonce, my_node_id = ?self.my_node_id(), peer_id=?handshake.sender_peer_id, "bad nonce, disconnecting: {err}");
+                        ctx.stop();
+                        return;
+                    }
                     // Check that the received nonce is greater than the current nonce of this connection.
                     // If not (and this is an inbound connection) propose a new nonce.
                     if let Some(last_edge) = self.network_state.routing_table_view.get_local_edge(&handshake.sender_peer_id) {
@@ -877,9 +894,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                             return;
                         }
                     }
-                }
-
-                
+                    
+                } 
 
                 if handshake.sender_peer_id == self.my_node_info.id {
                     metrics::RECEIVED_INFO_ABOUT_ITSELF.inc();
@@ -888,42 +904,29 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     return;
                 }
 
-                // Try to merge partial edges.
+                // Verify that the received partial edge is valid.
+                // WARNING: signature is verified against the 2nd argument.
+                if !Edge::partial_verify(&self.my_node_id(),&handshake.sender_peer_id,&handshake.partial_edge_info) {
+                    warn!(target: "network", "partial edge with invalid signature, disconnecting");
+                    self.ban_peer(ctx, ReasonForBan::InvalidSignature);
+                    ctx.stop();
+                    return;
+                }
+
+                // Merge partial edges.
                 let nonce = handshake.partial_edge_info.nonce; 
                 let partial_edge_info = match self.peer_type {
                     PeerType::Outbound => self.handshake_spec.as_ref().unwrap().partial_edge_info.clone(),
                     PeerType::Inbound => self.network_state.propose_edge(&handshake.sender_peer_id,Some(nonce)),
                 };
-                let edge = match merge_edges(
-                    &self.clock,
+                let edge = Edge::new(
                     self.my_node_id().clone(),
                     handshake.sender_peer_id.clone(),
-                    handshake.partial_edge_info.clone(),
-                    partial_edge_info.clone(),
-                ) {
-                    Ok(edge) => edge,
-                    Err(MergeEdgesError::InvalidSignature) => {
-                        warn!(target: "network", "partial edge with invalid signature, disconnecting");
-                        self.ban_peer(ctx, ReasonForBan::InvalidSignature);
-                        ctx.stop();
-                        return;
-                    }
-                    Err(MergeEdgesError::NonceMismatch) => {
-                        warn!(target: "network", "received a mismatching nonce, disconnecting");
-                        ctx.stop();
-                        return;
-                    }
-                    Err(MergeEdgesError::InvalidNonce) => {
-                        tracing::debug!(target: "network", ?nonce, clock=self.clock.now_utc().unix_timestamp(), ?EDGE_NONCE_MAX_TIME_DELTA, my_node_id = ?self.my_node_id(), peer_id=?handshake.sender_peer_id, "Nonce is overflowing i64.");
-                        ctx.stop();
-                        return;
-                    }
-                    Err(MergeEdgesError::NonceTooOld) => {
-                        tracing::debug!(target: "network", ?nonce, clock=self.clock.now_utc().unix_timestamp(), ?EDGE_NONCE_MAX_TIME_DELTA, my_node_id = ?self.my_node_id(), peer_id=?handshake.sender_peer_id, "Nonce too much into the future/past.");
-                        ctx.stop();
-                        return;
-                    }
-                };
+                    nonce,
+                    partial_edge_info.signature.clone(),
+                    handshake.partial_edge_info.signature.clone(),
+                );
+                debug_assert!(edge.verify());
 
                 let peer_info = PeerInfo {
                     id: handshake.sender_peer_id.clone(),
@@ -1004,6 +1007,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                                 if act.peer_type == PeerType::Inbound {
                                     act.send_handshake(HandshakeSpec{
                                         peer_id: handshake.sender_peer_id.clone(),
+                                        genesis_id: act.network_state.genesis_id.clone(),
                                         is_tier1: handshake.is_tier1,
                                         protocol_version: handshake.protocol_version,
                                         partial_edge_info: partial_edge_info,

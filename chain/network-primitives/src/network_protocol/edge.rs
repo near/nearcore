@@ -36,7 +36,9 @@ impl PartialEdgeInfo {
     }
 }
 
+#[derive(thiserror::Error,Debug)]
 pub enum InvalidNonceError {
+    #[error("nonce is overflowing i64")]
     NonceOutOfBoundsError,
 }
 

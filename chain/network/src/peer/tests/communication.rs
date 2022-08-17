@@ -27,16 +27,16 @@ async fn test_peer_communication(
 
     let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
     let inbound_cfg = PeerConfig {
-        signer: data::make_signer(&mut rng),
         chain: chain.clone(),
+        network: Arc::new(chain.make_config(&mut rng).verify().unwrap()), 
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: inbound_encoding,
         start_handshake_with: None,
         nonce: None,
     };
     let outbound_cfg = PeerConfig {
-        signer: data::make_signer(&mut rng),
         chain: chain.clone(),
+        network: Arc::new(chain.make_config(&mut rng).verify().unwrap()), 
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: outbound_encoding,
         start_handshake_with: Some(inbound_cfg.id()),
@@ -45,9 +45,9 @@ async fn test_peer_communication(
 
     let (outbound_stream, inbound_stream) = PeerHandle::start_connection().await;
     let mut inbound =
-        PeerHandle::start_endpoint(clock.clock(), &mut rng, inbound_cfg, inbound_stream).await;
+        PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
     let mut outbound =
-        PeerHandle::start_endpoint(clock.clock(), &mut rng, outbound_cfg, outbound_stream).await;
+        PeerHandle::start_endpoint(clock.clock(), outbound_cfg, outbound_stream).await;
 
     outbound.complete_handshake().await;
     inbound.complete_handshake().await;
@@ -194,7 +194,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
 
     let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
     let inbound_cfg = PeerConfig {
-        signer: data::make_signer(&mut rng),
+        network: Arc::new(chain.make_config(&mut rng).verify().unwrap()), 
         chain: chain.clone(),
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: inbound_encoding,
@@ -202,7 +202,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         nonce: None,
     };
     let outbound_cfg = PeerConfig {
-        signer: data::make_signer(&mut rng),
+        network: Arc::new(chain.make_config(&mut rng).verify().unwrap()), 
         chain: chain.clone(),
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: outbound_encoding,
@@ -211,10 +211,10 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
     };
     let (outbound_stream, inbound_stream) = PeerHandle::start_connection().await;
     let inbound =
-        PeerHandle::start_endpoint(clock.clock(), &mut rng, inbound_cfg, inbound_stream).await;
+        PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
     let mut outbound = Stream::new(outbound_encoding, outbound_stream);
 
-    tracing::debug!("sending too old PROTOCOL_VERSION, expect ProtocolVersionMismatch");
+    // Send too old PROTOCOL_VERSION, expect ProtocolVersionMismatch
     let mut handshake = Handshake {
         protocol_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION - 1,
         oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION - 1,
@@ -223,7 +223,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         sender_listen_port: Some(outbound.local_addr.port()),
         sender_chain_info: outbound_cfg.chain.get_peer_chain_info(),
         partial_edge_info: outbound_cfg.partial_edge_info(&inbound.cfg.id(), 1),
-        is_tier1: false,
+        is_tier1: true,
     };
     // We will also introduce chain_id mismatch, but ProtocolVersionMismatch is expected to take priority.
     handshake.sender_chain_info.genesis_id.chain_id = "unknown_chain".to_string();
@@ -234,7 +234,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         PeerMessage::HandshakeFailure(_, HandshakeFailureReason::ProtocolVersionMismatch { .. })
     );
 
-    tracing::debug!("sending too new PROTOCOL_VERSION, expect ProtocolVersionMismatch");
+    // Send too new PROTOCOL_VERSION, expect ProtocolVersionMismatch
     handshake.protocol_version = PROTOCOL_VERSION + 1;
     handshake.oldest_supported_version = PROTOCOL_VERSION + 1;
     outbound.write(&PeerMessage::Handshake(handshake.clone())).await;
@@ -244,7 +244,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         PeerMessage::HandshakeFailure(_, HandshakeFailureReason::ProtocolVersionMismatch { .. })
     );
 
-    tracing::debug!("sending mismatching chain_id, expect ProtocolVersionMismatch");
+    // Send mismatching chain_id, expect GenesisMismatch.
     // We fix protocol_version, but chain_id is still mismatching.
     handshake.protocol_version = PROTOCOL_VERSION;
     handshake.oldest_supported_version = PROTOCOL_VERSION;
