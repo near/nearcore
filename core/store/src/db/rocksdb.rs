@@ -411,7 +411,7 @@ fn rocksdb_block_based_options(
 
     if col == DBCol::ProcessedBlockHeights {
         // Since we user little endian for heights and this column doesn't have any
-        // values all keys end up in the same SST file. The latter leads to bloom
+        // values all keys end up in the same SST file. This leads to bloom
         // filter growing huge and we need to make sure we don't reread it every time.
         // Estimated size if this extra cache would be: (`h` * `10` / 8)MB,
         // where `h` is the current chain height and `10` is the number of bits
