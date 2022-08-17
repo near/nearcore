@@ -391,10 +391,6 @@ impl TxMirror {
                 let replacement =
                     crate::key_mapping::map_key(&delete_key.public_key, self.secret.as_ref());
                 let public_key = replacement.public_key();
-                self.db.delete_cf(
-                    self.db.cf_handle(DBCol::Nonces.name()).unwrap(),
-                    &nonce_col_key(receiver_id, &public_key),
-                )?;
 
                 Ok(Some(Action::DeleteKey(DeleteKeyAction { public_key })))
             }
