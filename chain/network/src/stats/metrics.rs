@@ -100,13 +100,6 @@ pub(crate) static PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Laz
     )
     .unwrap()
 });
-pub(crate) static PEER_CLIENT_MESSAGE_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter(
-        "near_peer_client_message_received_total",
-        "Number of messages for client received from peers",
-    )
-    .unwrap()
-});
 pub(crate) static PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> =
     Lazy::new(|| {
         try_create_int_counter_vec(

@@ -286,7 +286,7 @@ pub static PRODUCE_CHUNK_TIME: Lazy<near_metrics::HistogramVec> = Lazy::new(|| {
 
 pub static VIEW_CLIENT_MESSAGE_TIME: Lazy<near_metrics::HistogramVec> = Lazy::new(|| {
     near_metrics::try_create_histogram_vec(
-        "near_view_client_messages_time",
+        "near_view_client_messages_processing_time",
         "Time that view client takes to handle different messages",
         &["message"],
         Some(exponential_buckets(0.001, 2.0, 16).unwrap()),
