@@ -1068,8 +1068,8 @@ impl JsonRpcHandler {
     async fn adv_set_sync_info(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let height = crate::api::parse_params::<u64>(params)?;
         actix::spawn(
-            self.view_client_addr
-                .send(near_network_primitives::types::NetworkViewClientMessages::Adversarial(
+            self.client_addr
+                .send(near_network::types::NetworkClientMessages::Adversarial(
                     near_network_primitives::types::NetworkAdversarialMessage::AdvSetSyncInfo(
                         height,
                     ),
