@@ -19,7 +19,7 @@ use near_primitives::sharding::{
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, StateRoot};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version;
 use rand::distributions::Standard;
 use rand::Rng;
 use std::collections::HashMap;
@@ -28,7 +28,7 @@ use std::sync::Arc;
 
 pub fn make_genesis_block(_clock: &time::Clock, chunks: Vec<ShardChunk>) -> Block {
     Block::genesis(
-        PROTOCOL_VERSION,
+        version::PROTOCOL_VERSION,
         chunks.into_iter().map(|c| c.take_header()).collect(),
         // TODO: this should be clock.now(), but Block::genesis has to be migrated
         // from chrono to time first.
@@ -47,8 +47,8 @@ pub fn make_block(
     chunks: Vec<ShardChunk>,
 ) -> Block {
     Block::produce(
-        PROTOCOL_VERSION,                                      // this_epoch_protocol_version
-        PROTOCOL_VERSION,                                      // next_epoch_protocol_version
+        version::PROTOCOL_VERSION,                                      // this_epoch_protocol_version
+        version::PROTOCOL_VERSION,                                      // next_epoch_protocol_version
         prev.header(),                                         // prev
         prev.header().height() + 5,                            // height
         prev.header().block_ordinal() + 1,                     // block_ordinal
@@ -223,7 +223,7 @@ impl ChunkSet {
             4,                      // num_shards
             1000,                   // initial_gas_limit
             0,                      // genesis_height
-            PROTOCOL_VERSION,
+            version::PROTOCOL_VERSION,
         );
         self.chunks.extend(chunks.iter().map(|c| (c.chunk_hash(), c.clone())));
         chunks
@@ -342,14 +342,16 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
     let b = make_signer(rng);
     let a_id = PeerId::new(a.public_key);
     let b_id = PeerId::new(b.public_key);
-    Handshake::new(
-        PROTOCOL_VERSION,
-        a_id,
-        b_id,
-        Some(rng.gen()),
-        chain.get_peer_chain_info(),
-        make_partial_edge(rng),
-    )
+    Handshake {
+        protocol_version: version::PROTOCOL_VERSION,
+        oldest_supported_version: version::PEER_MIN_ALLOWED_PROTOCOL_VERSION,
+        sender_peer_id: a_id,
+        target_peer_id: b_id,
+        sender_listen_port: Some(rng.gen()),
+        sender_chain_info: chain.get_peer_chain_info(),
+        partial_edge_info: make_partial_edge(rng),
+        is_tier1: false,
+    }
 }
 
 pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> Box<RoutedMessageV2> {

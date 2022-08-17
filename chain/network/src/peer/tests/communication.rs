@@ -214,7 +214,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         PeerHandle::start_endpoint(clock.clock(), &mut rng, inbound_cfg, inbound_stream).await;
     let mut outbound = Stream::new(outbound_encoding, outbound_stream);
 
-    // Send too old PROTOCOL_VERSION, expect ProtocolVersionMismatch
+    tracing::debug!("sending too old PROTOCOL_VERSION, expect ProtocolVersionMismatch");
     let mut handshake = Handshake {
         protocol_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION - 1,
         oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION - 1,
@@ -223,6 +223,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         sender_listen_port: Some(outbound.local_addr.port()),
         sender_chain_info: outbound_cfg.chain.get_peer_chain_info(),
         partial_edge_info: outbound_cfg.partial_edge_info(&inbound.cfg.id(), 1),
+        is_tier1: false,
     };
     // We will also introduce chain_id mismatch, but ProtocolVersionMismatch is expected to take priority.
     handshake.sender_chain_info.genesis_id.chain_id = "unknown_chain".to_string();
@@ -233,7 +234,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         PeerMessage::HandshakeFailure(_, HandshakeFailureReason::ProtocolVersionMismatch { .. })
     );
 
-    // Send too new PROTOCOL_VERSION, expect ProtocolVersionMismatch
+    tracing::debug!("sending too new PROTOCOL_VERSION, expect ProtocolVersionMismatch");
     handshake.protocol_version = PROTOCOL_VERSION + 1;
     handshake.oldest_supported_version = PROTOCOL_VERSION + 1;
     outbound.write(&PeerMessage::Handshake(handshake.clone())).await;
@@ -243,7 +244,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         PeerMessage::HandshakeFailure(_, HandshakeFailureReason::ProtocolVersionMismatch { .. })
     );
 
-    // Send mismatching chain_id, expect GenesisMismatch.
+    tracing::debug!("sending mismatching chain_id, expect ProtocolVersionMismatch");
     // We fix protocol_version, but chain_id is still mismatching.
     handshake.protocol_version = PROTOCOL_VERSION;
     handshake.oldest_supported_version = PROTOCOL_VERSION;

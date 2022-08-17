@@ -654,7 +654,7 @@ impl Actor for PeerActor {
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
         self.peer_counter.fetch_sub(1, Ordering::SeqCst);
         metrics::PEER_CONNECTIONS_TOTAL.dec();
-        debug!(target: "network", "{:?}: Peer {} disconnected. {:?}", self.my_node_info.id, self.peer_info, self.peer_status);
+        debug!(target: "network", "{:?}: [status = {:?}] Peer {} disconnected.", self.my_node_info.id, self.peer_status, self.peer_info);
         if let Some(peer_info) = self.peer_info.as_ref() {
             if let PeerStatus::Banned(ban_reason) = self.peer_status {
                 let _ = self.peer_manager_addr.do_send(PeerToManagerMsg::Ban(Ban {
@@ -811,34 +811,26 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             }
             (PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
-
-                let genesis_id = self.network_state.genesis_id.clone();
-                if handshake.sender_chain_info.genesis_id != genesis_id {
-                    debug!(target: "network", "Received connection from node with different genesis.");
-                    self.send_message_or_log(&PeerMessage::HandshakeFailure(
-                        self.my_node_info.clone(),
-                        HandshakeFailureReason::GenesisMismatch(genesis_id),
-                    ));
-                    ctx.stop();
-                    return;
-                }
-
-                if handshake.sender_peer_id == self.my_node_info.id {
-                    metrics::RECEIVED_INFO_ABOUT_ITSELF.inc();
-                    debug!(target: "network", "Received info about itself. Disconnecting this peer.");
-                    ctx.stop();
-                    return;
-                }
-
+                
                 if self.peer_type==PeerType::Outbound {
-                    let spec = self.handshake_spec.as_ref().unwrap();
-                    if handshake.is_tier1 != spec.is_tier1 {
-                        warn!(target: "network", "Connection TIER mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                    let spec = self.handshake_spec.as_ref().unwrap(); 
+                    if handshake.protocol_version != spec.protocol_version {
+                        warn!(target: "network", "Protocol version mismatch. Disconnecting peer {}", handshake.sender_peer_id);
                         ctx.stop();
                         return;
                     }
-                    if handshake.protocol_version != spec.protocol_version {
-                        warn!(target: "network", "Protocol version mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                    if handshake.sender_chain_info.genesis_id != spec.genesis_id {
+                        warn!(target: "network", "Genesis mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                        ctx.stop();
+                        return;
+                    }
+                    if handshake.sender_peer_id != spec.peer_id {
+                        warn!(target: "network", "PeerId mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                        ctx.stop();
+                        return;
+                    }
+                    if handshake.is_tier1 != spec.is_tier1 {
+                        warn!(target: "network", "Connection TIER mismatch. Disconnecting peer {}", handshake.sender_peer_id);
                         ctx.stop();
                         return;
                     }
@@ -859,6 +851,15 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         ));
                         return;
                     }
+                    let genesis_id = self.network_state.genesis_id.clone();
+                    if handshake.sender_chain_info.genesis_id != genesis_id {
+                        debug!(target: "network", "Received connection from node with different genesis.");
+                        self.send_message_or_log(&PeerMessage::HandshakeFailure(
+                            self.my_node_info.clone(),
+                            HandshakeFailureReason::GenesisMismatch(genesis_id),
+                        ));
+                        return;
+                    }
                     if handshake.target_peer_id != self.my_node_info.id {
                         debug!(target: "network", "Received handshake from {:?} to {:?} but I am {:?}", handshake.sender_peer_id, handshake.target_peer_id, self.my_node_info.id);
                         self.send_message_or_log(&PeerMessage::HandshakeFailure(
@@ -876,6 +877,15 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                             return;
                         }
                     }
+                }
+
+                
+
+                if handshake.sender_peer_id == self.my_node_info.id {
+                    metrics::RECEIVED_INFO_ABOUT_ITSELF.inc();
+                    debug!(target: "network", "Received info about itself. Disconnecting this peer.");
+                    ctx.stop();
+                    return;
                 }
 
                 // Try to merge partial edges.
