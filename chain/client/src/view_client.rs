@@ -56,7 +56,7 @@ use near_primitives::views::{
 };
 
 use crate::{
-    sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
+    metrics, sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
 
@@ -510,6 +510,7 @@ impl Handler<Query> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: Query, _: &mut Self::Context) -> Self::Result {
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["Query"]).start_timer();
         self.handle_query(msg)
     }
 }
@@ -520,6 +521,8 @@ impl Handler<GetBlock> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetBlock, _: &mut Self::Context) -> Self::Result {
+        let _timer =
+            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetBlock"]).start_timer();
         let block = match msg.0 {
             BlockReference::Finality(finality) => {
                 let block_hash = self.get_block_hash_by_finality(&finality)?;
@@ -553,6 +556,9 @@ impl Handler<GetBlockWithMerkleTree> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetBlockWithMerkleTree, ctx: &mut Self::Context) -> Self::Result {
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetBlockWithMerkleTree"])
+            .start_timer();
         let block_view = self.handle(GetBlock(msg.0), ctx)?;
         self.chain
             .store()
@@ -567,6 +573,8 @@ impl Handler<GetChunk> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetChunk, _: &mut Self::Context) -> Self::Result {
+        let _timer =
+            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetChunk"]).start_timer();
         let get_chunk_from_block = |block: Block,
                                     shard_id: ShardId,
                                     chain: &Chain|
@@ -620,6 +628,8 @@ impl Handler<TxStatus> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: TxStatus, _: &mut Self::Context) -> Self::Result {
+        let _timer =
+            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatus"]).start_timer();
         self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt)
     }
 }
@@ -629,6 +639,9 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetValidatorInfo, _: &mut Self::Context) -> Self::Result {
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetValidatorInfo"])
+            .start_timer();
         let epoch_identifier = match msg.epoch_reference {
             EpochReference::EpochId(id) => {
                 // By `EpochId` we can get only cached epochs.
@@ -673,6 +686,9 @@ impl Handler<GetValidatorOrdered> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetValidatorOrdered, _: &mut Self::Context) -> Self::Result {
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetValidatorOrdered"])
+            .start_timer();
         Ok(self.maybe_block_id_to_block_header(msg.block_id).and_then(|header| {
             get_epoch_block_producers_view(
                 header.epoch_id(),
@@ -688,6 +704,9 @@ impl Handler<GetStateChangesInBlock> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetStateChangesInBlock, _: &mut Self::Context) -> Self::Result {
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetStateChangesInBlock"])
+            .start_timer();
         Ok(self
             .chain
             .store()
@@ -704,6 +723,8 @@ impl Handler<GetStateChanges> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetStateChanges, _: &mut Self::Context) -> Self::Result {
+        let _timer =
+            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetStateChanges"]).start_timer();
         Ok(self
             .chain
             .store()
@@ -724,6 +745,9 @@ impl Handler<GetStateChangesWithCauseInBlock> for ViewClientActor {
         msg: GetStateChangesWithCauseInBlock,
         _: &mut Self::Context,
     ) -> Self::Result {
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetStateChangesWithCauseInBlock"])
+            .start_timer();
         Ok(self
             .chain
             .store()
@@ -745,6 +769,9 @@ impl Handler<GetStateChangesWithCauseInBlockForTrackedShards> for ViewClientActo
         msg: GetStateChangesWithCauseInBlockForTrackedShards,
         _: &mut Self::Context,
     ) -> Self::Result {
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetStateChangesWithCauseInBlockForTrackedShards"])
+            .start_timer();
         let state_changes_with_cause_in_block =
             self.chain.store().get_state_changes_with_cause_in_block(&msg.block_hash)?;
 
@@ -784,6 +811,9 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetNextLightClientBlock, _: &mut Self::Context) -> Self::Result {
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetNextLightClientBlock"])
+            .start_timer();
         let last_block_header = self.chain.get_block_header(&msg.last_block_hash)?;
         let last_epoch_id = last_block_header.epoch_id().clone();
         let last_next_epoch_id = last_block_header.next_epoch_id().clone();
@@ -823,6 +853,9 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetExecutionOutcome, _: &mut Self::Context) -> Self::Result {
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetExecutionOutcome"])
+            .start_timer();
         let (id, account_id) = match msg.id {
             TransactionOrReceiptId::Transaction { transaction_hash, sender_id } => {
                 (transaction_hash, sender_id)
@@ -906,6 +939,9 @@ impl Handler<GetExecutionOutcomesForBlock> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetExecutionOutcomesForBlock, _: &mut Self::Context) -> Self::Result {
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetExecutionOutcomesForBlock"])
+            .start_timer();
         Ok(self
             .chain
             .get_block_execution_outcomes(&msg.block_hash)
@@ -921,6 +957,8 @@ impl Handler<GetReceipt> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetReceipt, _: &mut Self::Context) -> Self::Result {
+        let _timer =
+            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetReceipt"]).start_timer();
         Ok(self
             .chain
             .store()
@@ -934,6 +972,8 @@ impl Handler<GetBlockProof> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetBlockProof, _: &mut Self::Context) -> Self::Result {
+        let _timer =
+            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetBlockProof"]).start_timer();
         self.chain.check_block_final_and_canonical(&msg.block_hash)?;
         self.chain.check_block_final_and_canonical(&msg.head_block_hash)?;
         let block_header_lite = self.chain.get_block_header(&msg.block_hash)?.into();
@@ -947,6 +987,9 @@ impl Handler<GetProtocolConfig> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetProtocolConfig, _: &mut Self::Context) -> Self::Result {
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["GetProtocolConfig"])
+            .start_timer();
         let block_header = match msg.0 {
             BlockReference::Finality(finality) => {
                 let block_hash = self.get_block_hash_by_finality(&finality)?;
@@ -979,6 +1022,8 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
 
     #[perf_with_debug]
     fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Self::Context) -> Self::Result {
+        let _timer =
+            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&[(&msg).into()]).start_timer();
         match msg {
             #[cfg(feature = "test_features")]
             NetworkViewClientMessages::Adversarial(adversarial_msg) => {
@@ -1281,6 +1326,8 @@ impl Handler<GetGasPrice> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetGasPrice, _ctx: &mut Self::Context) -> Self::Result {
+        let _timer =
+            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetGasPrice"]).start_timer();
         let header = self.maybe_block_id_to_block_header(msg.block_id);
         Ok(GasPriceView { gas_price: header?.gas_price() })
     }
