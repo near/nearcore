@@ -2794,9 +2794,14 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     ///
-    /// read_memory can be either `read_memory_base + read_memory_bytes` if chunk of memory is bigger
-    /// than u64::MAX, otherwise it's `read_register_base + read_register_byte`
-    /// `read_memory * (num_bytes_signature + num_bytes_message, num_bytes_public_key) +
+    /// Each input can either be in memory or in a register. Set the length of the input to `u64::MAX`
+    /// to declare that the input is a register number and not a pointer.
+    /// Each input has a gas cost input_cost(num_bytes) that depends on whether it is from memory
+    /// or from a register. It is either read_memory_base + num_bytes * read_memory_byte in the
+    /// former case or read_register_base + num_bytes * read_register_byte in the latter. This function
+    /// is labeled as `input_cost` below.
+    ///
+    /// `input_cost(num_bytes_signature + num_bytes_message, num_bytes_public_key) +
     ///  ed25519_verify_base + ed25519_verify_byte * (num_bytes_signature + num_bytes_message)`
     #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub fn ed25519_verify(

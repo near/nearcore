@@ -36,8 +36,8 @@ Keccak512Byte                                      12_216_567
 Ripemd160Base                                     284_558_362
 Ripemd160Block                                    226_702_528
 EcrecoverBase                                  92_940_662_819
-Ed25519VerifyBase                           3_365_369_625_000
-Ed25519VerifyByte                                 291_580_479
+Ed25519VerifyBase                              40_311_888_867
+Ed25519VerifyByte                                 423_978_605
 LogBase                                         1_181_104_350
 LogByte                                             4_399_597
 StorageWriteBase                               21_398_912_000
