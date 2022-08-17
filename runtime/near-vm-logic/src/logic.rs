@@ -2801,7 +2801,7 @@ impl<'a> VMLogic<'a> {
     /// former case or read_register_base + num_bytes * read_register_byte in the latter. This function
     /// is labeled as `input_cost` below.
     ///
-    /// `input_cost(num_bytes_signature + num_bytes_message, num_bytes_public_key) +
+    /// `input_cost(num_bytes_signature) + input_cost(num_bytes_message) + input_cost(num_bytes_public_key) +
     ///  ed25519_verify_base + ed25519_verify_byte * (num_bytes_signature + num_bytes_message)`
     #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub fn ed25519_verify(
