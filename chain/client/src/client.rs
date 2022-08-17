@@ -2049,10 +2049,9 @@ impl Client {
             (0..num_shards).collect()
         };
         let tier1_accounts = self.get_tier1_accounts(&tip)?;
-        #[cfg(not(feature = "test_features"))]
         let height = tip.height;
         #[cfg(feature = "test_features")]
-        let height = self.adv_sync_height.unwrap_or(tip.height);
+        let height = self.adv_sync_height.unwrap_or(height);
         self.network_adapter.do_send(SetChainInfo(ChainInfo {
             height,
             tracked_shards,
