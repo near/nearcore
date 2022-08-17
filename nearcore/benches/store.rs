@@ -4,7 +4,7 @@ extern crate bencher;
 use bencher::Bencher;
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_chain_configs::GenesisValidationMode;
-use near_logger_utils::init_integration_logger;
+use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::StateRoot;
 use near_store::{Mode, Temperature};
 use nearcore::{get_default_home, load_config, NightshadeRuntime};
