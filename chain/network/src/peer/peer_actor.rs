@@ -340,6 +340,9 @@ impl PeerActor {
     }
 
     fn receive_view_client_message(&self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
+        metrics::PEER_VIEW_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL
+            .with_label_values(&[msg.msg_variant()])
+            .inc();
         let mut msg_hash = None;
         let view_client_message = match msg {
             PeerMessage::Routed(message) => {

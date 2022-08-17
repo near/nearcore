@@ -116,6 +116,15 @@ pub(crate) static PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec
         )
         .unwrap()
     });
+pub(crate) static PEER_VIEW_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> =
+    Lazy::new(|| {
+        try_create_int_counter_vec(
+            "near_peer_view_client_message_received_by_type_total",
+            "Number of messages for view client received from peers, by message types",
+            &["type"],
+        )
+        .unwrap()
+    });
 pub(crate) static REQUEST_COUNT_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_requests_count_by_type_total",
