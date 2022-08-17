@@ -88,6 +88,11 @@ impl SyncTrieCache {
             self.deletions.push_back(key.clone());
         }
     }
+
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.cache.len()
+    }
 }
 
 /// Wrapper over LruCache to handle concurrent access.
