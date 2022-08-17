@@ -1,5 +1,5 @@
 use std::borrow::Borrow;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use near_primitives::hash::CryptoHash;
@@ -13,9 +13,86 @@ use near_primitives::types::{TrieCacheMode, TrieNodesCount};
 use std::cell::{Cell, RefCell};
 use std::io::ErrorKind;
 
-/// Wrapper over LruCache which doesn't hold too large elements.
+pub const DELETIONS_QUEUE_CAPACITY: usize = 100_000;
+
+/// In-memory cache for trie items - nodes and values. All nodes are stored in the LRU cache with three modifications.
+/// 1) Size of each value must not exceed `TRIE_LIMIT_CACHED_VALUE_SIZE`.
+/// Needed to avoid caching large values like contract codes.
+/// 2) Summary size of all values should not exceed `total_sizes_capacity`. If new value doesn't fit, LRU values are
+/// evicted until it fits.
+/// Needed to bound cache capacity more precisely, because value sizes generally vary from 1 B to 500 B.
+/// 3) If value is popped, it is put to the `deletions` queue with `DELETIONS_CACHE_CAPACITY` first. If popped value
+/// doesn't fit in the queue, the last value is removed from the queue and LRU cache, and newly popped value is inserted
+/// to the queue.
+/// Needed to delay deletions when we have forks. In such case, many blocks can share same parent, and we want to keep
+/// old nodes in cache for a while to process all new roots. For example, it helps to read old state root.
+pub struct SyncTrieCache {
+    /// LRU cache keeping mapping from keys to values.
+    cache: LruCache<CryptoHash, Arc<[u8]>>,
+    /// Queue of items which were popped, which postpones deletion of old nodes.
+    deletions: VecDeque<CryptoHash>,
+    /// Total size of all values in the cache.
+    total_size: u64,
+    /// Upper bound for the total size.
+    total_size_capacity: u64,
+}
+
+impl SyncTrieCache {
+    pub fn new(cap: usize) -> Self {
+        Self {
+            cache: LruCache::new(cap),
+            deletions: VecDeque::with_capacity(DELETIONS_QUEUE_CAPACITY),
+            total_size: 0,
+            total_size_capacity: 4_500_000_000,
+        }
+    }
+
+    pub fn get(&mut self, key: &CryptoHash) -> Option<Arc<[u8]>> {
+        self.cache.get(key).cloned()
+    }
+
+    pub fn clear(&mut self) {
+        self.total_size = 0;
+        self.deletions.clear();
+        self.cache.clear();
+    }
+
+    pub fn put(&mut self, key: CryptoHash, value: Arc<[u8]>) {
+        // We assume that value.len() is less than total size capacity.
+        // If adding new value exceeds capacity, we pop LRU values until it fits.
+        while self.total_size + value.len() as u64 > self.total_size_capacity {
+            let (_, evicted_value) =
+                self.cache.pop_lru().expect("Cannot fail because cap_lengths is > 0");
+            self.total_size -= evicted_value.len() as u64;
+        }
+        // Add value to the cache.
+        self.total_size += value.len() as u64;
+        self.cache.put(key, value);
+    }
+
+    pub fn pop(&mut self, key: &CryptoHash) {
+        // Do nothing if key was removed before.
+        if self.cache.contains(key) {
+            // Put key to the queue of deletions. If it exceeds queue capacity, key from queue tail is popped and the
+            // value from the LRU cache is removed.
+            if self.deletions.len() == DELETIONS_QUEUE_CAPACITY {
+                let key_to_remove = self.deletions.pop_front().expect("Deletions cannot be empty");
+                match self.cache.pop(&key_to_remove) {
+                    Some(evicted_value) => {
+                        self.total_size -= evicted_value.len() as u64;
+                    }
+                    None => {}
+                }
+            }
+
+            self.deletions.push_back(key.clone());
+        }
+    }
+}
+
+/// Wrapper over LruCache to handle concurrent access.
 #[derive(Clone)]
-pub struct TrieCache(Arc<Mutex<LruCache<CryptoHash, Arc<[u8]>>>>);
+pub struct TrieCache(Arc<Mutex<SyncTrieCache>>);
 
 impl TrieCache {
     pub fn new() -> Self {
@@ -23,11 +100,11 @@ impl TrieCache {
     }
 
     pub fn with_capacity(cap: usize) -> Self {
-        Self(Arc::new(Mutex::new(LruCache::new(cap))))
+        Self(Arc::new(Mutex::new(SyncTrieCache::new(cap))))
     }
 
     pub fn get(&self, key: &CryptoHash) -> Option<Arc<[u8]>> {
-        self.0.lock().expect(POISONED_LOCK_ERR).get(key).cloned()
+        self.0.lock().expect(POISONED_LOCK_ERR).get(key)
     }
 
     pub fn clear(&self) {
