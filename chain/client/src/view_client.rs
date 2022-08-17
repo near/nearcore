@@ -927,11 +927,6 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         self.chain.adv_disable_doomslug();
                         NetworkViewClientResponses::NoResponse
                     }
-                    NetworkAdversarialMessage::AdvSetSyncInfo(height) => {
-                        info!(target: "adversary", "Setting adversarial sync height: {}", height);
-                        self.adv.set_sync_height(height);
-                        NetworkViewClientResponses::NoResponse
-                    }
                     NetworkAdversarialMessage::AdvDisableHeaderSync => {
                         info!(target: "adversary", "Blocking header sync");
                         self.adv.set_disable_header_sync(true);
