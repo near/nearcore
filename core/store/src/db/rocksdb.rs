@@ -414,8 +414,8 @@ fn rocksdb_block_based_options(
         // values all keys end up in the same SST file. The latter leads to bloom
         // filter growing huge and we need to make sure we don't reread it every time.
         // Estimated size if this extra cache would be: (`h` * `10` / 8)MB,
-        //   where `h` is the current chain height and `10` is the number of bits
-        //   we use in bloom filters for a single key.
+        // where `h` is the current chain height and `10` is the number of bits
+        // we use in bloom filters for a single key.
         // Since explicit rocksdb cache doesn't user sharding we don't need to
         // specify num_shard_bits = 1 as for other height-indexed columns (see above).
         block_opts.set_cache_index_and_filter_blocks(false);
