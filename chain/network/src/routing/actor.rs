@@ -230,7 +230,7 @@ impl actix::Handler<StopMsg> for Actor {
 }
 
 /// Messages for `RoutingTableActor`
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, strum::IntoStaticStr)]
 #[rtype(result = "Response")]
 pub enum Message {
     /// Gets list of edges to validate from another peer.
@@ -271,6 +271,8 @@ impl actix::Handler<Message> for Actor {
 
     #[perf]
     fn handle(&mut self, msg: Message, ctx: &mut Self::Context) -> Self::Result {
+        let _timer =
+            metrics::ROUTING_TABLE_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         match msg {
             // Schedules edges for validation.
             Message::ValidateEdgeList(mut msg) => {
