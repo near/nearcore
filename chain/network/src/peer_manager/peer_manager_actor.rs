@@ -386,7 +386,6 @@ impl PeerManagerActor {
         let routing_table_view = RoutingTableView::new(store, my_peer_id.clone());
 
         let txns_since_last_block = Arc::new(AtomicUsize::new(0));
-
         let whitelist_nodes = {
             let mut v = vec![];
             for wn in &config.whitelist_nodes {
@@ -493,6 +492,9 @@ impl PeerManagerActor {
     ///   waiting to have their signatures checked.
     /// - edge pruning may be disabled for unit testing.
     fn update_routing_table_trigger(&self, ctx: &mut Context<Self>, interval: time::Duration) {
+        let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
+            .with_label_values(&["update_routing_table"])
+            .start_timer();
         self.update_routing_table(
             ctx,
             self.clock.now().checked_sub(PRUNE_UNREACHABLE_PEERS_AFTER),
@@ -510,6 +512,9 @@ impl PeerManagerActor {
 
     /// Periodically prints bandwidth stats for each peer.
     fn report_bandwidth_stats_trigger(&mut self, ctx: &mut Context<Self>, every: time::Duration) {
+        let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
+            .with_label_values(&["report_bandwidth_stats"])
+            .start_timer();
         let mut total_bandwidth_used_by_all_peers: usize = 0;
         let mut total_msg_received_count: usize = 0;
         let mut max_max_record_num_messages_in_progress: usize = 0;
@@ -563,6 +568,9 @@ impl PeerManagerActor {
     ) {
         let _span =
             tracing::trace_span!(target: "network", "broadcast_validated_edges_trigger").entered();
+        let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
+            .with_label_values(&["broadcast_validated_edges"])
+            .start_timer();
         let start = self.clock.now();
         let mut new_edges = Vec::new();
         while let Some(edge) = self.routing_table_exchange_helper.edges_to_add_receiver.pop() {
@@ -1140,6 +1148,8 @@ impl PeerManagerActor {
         (default_interval, max_interval): (time::Duration, time::Duration),
     ) {
         let _span = tracing::trace_span!(target: "network", "monitor_peers_trigger").entered();
+        let _timer =
+            metrics::PEER_MANAGER_TRIGGER_TIME.with_label_values(&["monitor_peers"]).start_timer();
         let mut to_unban = vec![];
         for (peer_id, peer_state) in self.peer_store.iter() {
             if let KnownPeerStatus::Banned(_, last_banned) = peer_state.status {
@@ -1421,6 +1431,9 @@ impl PeerManagerActor {
 
     fn push_network_info_trigger(&self, ctx: &mut Context<Self>, interval: time::Duration) {
         let network_info = self.get_network_info();
+        let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
+            .with_label_values(&["push_network_info"])
+            .start_timer();
 
         let _ = self.state.client_addr.do_send(NetworkClientMessages::NetworkInfo(network_info));
 
@@ -2108,6 +2121,9 @@ impl PeerManagerActor {
 impl Handler<GetNetworkInfo> for PeerManagerActor {
     type Result = NetworkInfo;
     fn handle(&mut self, _: GetNetworkInfo, _ctx: &mut Self::Context) -> NetworkInfo {
+        let _timer = metrics::PEER_MANAGER_MESSAGES_TIME
+            .with_label_values(&["GetNetworkInfo"])
+            .start_timer();
         let _span =
             tracing::trace_span!(target: "network", "handle", handler = "GetNetworkInfo").entered();
         self.get_network_info()
@@ -2117,6 +2133,8 @@ impl Handler<GetNetworkInfo> for PeerManagerActor {
 impl Handler<SetChainInfo> for PeerManagerActor {
     type Result = ();
     fn handle(&mut self, info: SetChainInfo, _ctx: &mut Self::Context) {
+        let _timer =
+            metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&["SetChainInfo"]).start_timer();
         let _span =
             tracing::trace_span!(target: "network", "handle", handler = "SetChainInfo").entered();
         let now = self.clock.now_utc();
@@ -2212,10 +2230,12 @@ impl Handler<ActixMessageWrapper<PeerToManagerMsg>> for PeerManagerActor {
         msg: ActixMessageWrapper<PeerToManagerMsg>,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        let _span = tracing::trace_span!(target: "network", "handle", handler = "PeerToManagerMsg")
-            .entered();
         // Unpack throttle controller
         let (msg, throttle_token) = msg.take();
+        let _timer =
+            metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
+        let _span = tracing::trace_span!(target: "network", "handle", handler = "PeerToManagerMsg")
+            .entered();
 
         let throttle_controller = throttle_token.throttle_controller().cloned();
         let result = self.handle_peer_to_manager_msg(msg, ctx, throttle_controller);
@@ -2231,6 +2251,8 @@ impl Handler<ActixMessageWrapper<PeerToManagerMsg>> for PeerManagerActor {
 impl Handler<PeerToManagerMsg> for PeerManagerActor {
     type Result = PeerToManagerMsgResp;
     fn handle(&mut self, msg: PeerToManagerMsg, ctx: &mut Self::Context) -> Self::Result {
+        let _timer =
+            metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         let _span = tracing::trace_span!(target: "network", "handle", handler = "PeerToManagerMsg")
             .entered();
         self.handle_peer_to_manager_msg(msg, ctx, None)
@@ -2240,6 +2262,8 @@ impl Handler<PeerToManagerMsg> for PeerManagerActor {
 impl Handler<PeerManagerMessageRequest> for PeerManagerActor {
     type Result = PeerManagerMessageResponse;
     fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
+        let _timer =
+            metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         let _span = tracing::trace_span!(target: "network", "handle", handler = "PeerManagerMessageRequest").entered();
         self.handle_peer_manager_message(msg, ctx, None)
     }
