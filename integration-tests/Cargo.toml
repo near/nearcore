@@ -35,7 +35,7 @@ near-chunks = { path = "../chain/chunks" }
 near-client = { path = "../chain/client" }
 near-client-primitives = { path = "../chain/client-primitives" }
 near-crypto = { path = "../core/crypto" }
-near-epoch-manager = { path = "../chain/epoch_manager"}
+near-epoch-manager = { path = "../chain/epoch-manager"}
 near-jsonrpc = { path = "../chain/jsonrpc" }
 near-jsonrpc-client = { path = "../chain/jsonrpc/client" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
