@@ -44,7 +44,6 @@ impl KeyFile {
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use super::*;
