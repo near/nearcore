@@ -24,7 +24,7 @@ redis = "0.21.5"
 near-chain = { path = "../../chain/chain" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
-near-epoch-manager = { path = "../../chain/epoch_manager" }
+near-epoch-manager = { path = "../../chain/epoch-manager" }
 near-logger-utils = {path = "../../test-utils/logger" }
 near-network = { path = "../../chain/network" }
 near-primitives = { path = "../../core/primitives" }

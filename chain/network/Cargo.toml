@@ -46,7 +46,7 @@ tracing = "0.1.13"
 tracing-opentelemetry = { version = "0.17" }
 assert_matches = "1.3"
 
-delay-detector = { path = "../../tools/delay_detector" }
+delay-detector = { path = "../../tools/delay-detector" }
 near-o11y = { path = "../../core/o11y" }
 near-crypto = { path = "../../core/crypto" }
 near-metrics = { path = "../../core/metrics" }
