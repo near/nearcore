@@ -858,6 +858,17 @@ impl Serialize for EpochReference {
     }
 }
 
+/// Either an epoch id or latest block hash.  When `EpochId` variant is used it
+/// must be an identifier of a past epoch.  When `BlockHeight` is used it must
+/// be hash of the latest block in the current epoch.  Using current epoch id
+/// with `EpochId` or arbitrary block hash in past or present epochs will result
+/// in errors.
+#[derive(Debug)]
+pub enum ValidatorInfoIdentifier {
+    EpochId(EpochId),
+    BlockHash(CryptoHash),
+}
+
 /// Reasons for removing a validator from the validator set.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]

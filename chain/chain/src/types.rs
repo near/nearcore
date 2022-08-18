@@ -30,6 +30,7 @@ use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, Gas,
     MerkleHash, NumBlocks, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
+    ValidatorInfoIdentifier,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
@@ -794,17 +795,6 @@ pub trait RuntimeAdapter: Send + Sync {
 pub struct LatestKnown {
     pub height: BlockHeight,
     pub seen: u64,
-}
-
-/// Either an epoch id or latest block hash.  When `EpochId` variant is used it
-/// must be an identifier of a past epoch.  When `BlockHeight` is used it must
-/// be hash of the latest block in the current epoch.  Using current epoch id
-/// with `EpochId` or arbitrary block hash in past or present epochs will result
-/// in errors.
-#[derive(Debug)]
-pub enum ValidatorInfoIdentifier {
-    EpochId(EpochId),
-    BlockHash(CryptoHash),
 }
 
 #[cfg(test)]

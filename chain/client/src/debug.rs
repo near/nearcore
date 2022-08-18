@@ -4,7 +4,6 @@ use crate::ClientActor;
 use actix::{Context, Handler};
 use borsh::BorshSerialize;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
-use near_chain::types::ValidatorInfoIdentifier;
 use near_chain::{near_chain_primitives, ChainStoreAccess, RuntimeAdapter};
 use near_client_primitives::debug::{
     ApprovalAtHeightStatus, BlockProduction, ChunkCollection, DebugStatus, DebugStatusResponse,
@@ -18,7 +17,7 @@ use near_client_primitives::{
 use near_o11y::log_assert;
 use near_performance_metrics_macros::perf;
 use near_primitives::syncing::get_num_state_parts;
-use near_primitives::types::{AccountId, BlockHeight, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, ShardId, ValidatorInfoIdentifier};
 use near_primitives::{
     hash::CryptoHash,
     syncing::{ShardStateSyncResponseHeader, StateHeaderKey},

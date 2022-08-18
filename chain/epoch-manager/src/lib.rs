@@ -18,7 +18,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId,
-    EpochInfoProvider, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStats,
+    EpochInfoProvider, ShardId, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
+    ValidatorStats,
 };
 use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
 use near_primitives::views::{
@@ -32,7 +33,6 @@ use crate::types::EpochInfoAggregator;
 pub use crate::types::RngSeed;
 
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
-use near_chain::types::ValidatorInfoIdentifier;
 use near_chain_configs::GenesisConfig;
 use near_primitives::shard_layout::ShardLayout;
 
