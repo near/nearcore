@@ -13,15 +13,45 @@ use near_primitives::types::{TrieCacheMode, TrieNodesCount};
 use std::cell::{Cell, RefCell};
 use std::io::ErrorKind;
 
-pub const DELETIONS_QUEUE_CAPACITY: usize = 100_000;
+pub struct TrieDeletionsQueue {
+    queue: VecDeque<CryptoHash>,
+    /// Upper bound for the deletions queue size.
+    capacity: usize,
+}
+
+impl TrieDeletionsQueue {
+    pub fn new(capacity: usize) -> Self {
+        Self { queue: VecDeque::with_capacity(capacity), capacity }
+    }
+
+    pub fn clear(&mut self) {
+        self.queue.clear();
+    }
+
+    pub fn pop(&mut self) -> Option<CryptoHash> {
+        self.queue.pop_front()
+    }
+
+    pub fn put(&mut self, key: CryptoHash) -> Option<CryptoHash> {
+        let result = if self.queue.len() == self.capacity {
+            let key_to_remove = self.pop().expect("Queue cannot be empty");
+            Some(key_to_remove)
+        } else {
+            None
+        };
+        self.queue.push_back(key);
+        result
+    }
+}
 
 /// In-memory cache for trie items - nodes and values. All nodes are stored in the LRU cache with three modifications.
-/// 1) Size of each value must not exceed `TRIE_LIMIT_CACHED_VALUE_SIZE`.
+/// 1) Size of each value must not exceed `SHARD_CACHE_VALUE_SIZE_LIMIT`.
 /// Needed to avoid caching large values like contract codes.
-/// 2) Summary size of all values should not exceed `total_sizes_capacity`. If new value doesn't fit, LRU values are
-/// evicted until it fits.
-/// Needed to bound cache capacity more precisely, because value sizes generally vary from 1 B to 500 B.
-/// 3) If value is popped, it is put to the `deletions` queue with `DELETIONS_CACHE_CAPACITY` first. If popped value
+/// 2) If we put new value to LRU cache and total size of existing values exceeds `total_sizes_capacity`, we evict
+/// values from it until that is no longer the case. So the actual total size should never exceed
+/// `total_size_limit` + `SHARD_CACHE_VALUE_SIZE_LIMIT`.
+/// Needed because value sizes generally vary from 1 B to 500 B and we want to count cache size precisely.
+/// 3) If value is popped, it is put to the `deletions` queue with `deletions_queue_capacity` first. If popped value
 /// doesn't fit in the queue, the last value is removed from the queue and LRU cache, and newly popped value is inserted
 /// to the queue.
 /// Needed to delay deletions when we have forks. In such case, many blocks can share same parent, and we want to keep
@@ -30,20 +60,24 @@ pub struct SyncTrieCache {
     /// LRU cache keeping mapping from keys to values.
     cache: LruCache<CryptoHash, Arc<[u8]>>,
     /// Queue of items which were popped, which postpones deletion of old nodes.
-    deletions: VecDeque<CryptoHash>,
-    /// Total size of all values in the cache.
+    deletions: TrieDeletionsQueue,
+    /// Current total size of all values in the cache.
     total_size: u64,
     /// Upper bound for the total size.
-    total_size_capacity: u64,
+    total_size_limit: u64,
 }
 
 impl SyncTrieCache {
-    pub fn new(cap: usize) -> Self {
+    pub fn new(
+        cache_capacity: usize,
+        deletions_queue_capacity: usize,
+        total_size_limit: u64,
+    ) -> Self {
         Self {
-            cache: LruCache::new(cap),
-            deletions: VecDeque::with_capacity(DELETIONS_QUEUE_CAPACITY),
+            cache: LruCache::new(cache_capacity),
+            deletions: TrieDeletionsQueue::new(deletions_queue_capacity),
             total_size: 0,
-            total_size_capacity: 4_500_000_000,
+            total_size_limit,
         }
     }
 
@@ -58,34 +92,45 @@ impl SyncTrieCache {
     }
 
     pub fn put(&mut self, key: CryptoHash, value: Arc<[u8]>) {
-        // We assume that value.len() is less than total size capacity.
-        // If adding new value exceeds capacity, we pop LRU values until it fits.
-        while self.total_size + value.len() as u64 > self.total_size_capacity {
-            let (_, evicted_value) =
-                self.cache.pop_lru().expect("Cannot fail because cap_lengths is > 0");
-            self.total_size -= evicted_value.len() as u64;
+        while self.total_size > self.total_size_limit {
+            let evicted_value = match self.deletions.pop() {
+                // First, try to evict value using the key from deletions queue.
+                Some(key) => self.cache.pop(&key),
+                // Second, pop LRU value.
+                None => Some(
+                    self.cache.pop_lru().expect("Cannot fail because total size capacity is > 0").1,
+                ),
+            };
+            match evicted_value {
+                Some(value) => {
+                    self.total_size -= value.len() as u64;
+                }
+                None => {}
+            };
         }
         // Add value to the cache.
         self.total_size += value.len() as u64;
-        self.cache.put(key, value);
+        match self.cache.push(key, value) {
+            Some((_, evicted_value)) => {
+                self.total_size -= evicted_value.len() as u64;
+            }
+            None => {}
+        };
     }
 
     pub fn pop(&mut self, key: &CryptoHash) {
         // Do nothing if key was removed before.
         if self.cache.contains(key) {
-            // Put key to the queue of deletions. If it exceeds queue capacity, key from queue tail is popped and the
-            // value from the LRU cache is removed.
-            if self.deletions.len() == DELETIONS_QUEUE_CAPACITY {
-                let key_to_remove = self.deletions.pop_front().expect("Deletions cannot be empty");
-                match self.cache.pop(&key_to_remove) {
+            // Put key to the queue of deletions and possibly remove another key we have to delete.
+            match self.deletions.put(key.clone()) {
+                Some(key_to_delete) => match self.cache.pop(&key_to_delete) {
                     Some(evicted_value) => {
                         self.total_size -= evicted_value.len() as u64;
                     }
                     None => {}
-                }
+                },
+                None => {}
             }
-
-            self.deletions.push_back(key.clone());
         }
     }
 
@@ -101,11 +146,15 @@ pub struct TrieCache(Arc<Mutex<SyncTrieCache>>);
 
 impl TrieCache {
     pub fn new() -> Self {
-        Self::with_capacity(TRIE_DEFAULT_SHARD_CACHE_SIZE)
+        Self::with_capacities(DEFAULT_SHARD_CACHE_CAPACITY)
     }
 
-    pub fn with_capacity(cap: usize) -> Self {
-        Self(Arc::new(Mutex::new(SyncTrieCache::new(cap))))
+    pub fn with_capacities(cap: usize) -> Self {
+        Self(Arc::new(Mutex::new(SyncTrieCache::new(
+            cap,
+            DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY,
+            DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
+        ))))
     }
 
     pub fn get(&self, key: &CryptoHash) -> Option<Arc<[u8]>> {
@@ -121,7 +170,7 @@ impl TrieCache {
         for (hash, opt_value_rc) in ops {
             if let Some(value_rc) = opt_value_rc {
                 if let (Some(value), _rc) = decode_value_with_rc(&value_rc) {
-                    if value.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
+                    if value.len() < SHARD_CACHE_VALUE_SIZE_LIMIT {
                         guard.put(hash, value.into());
                     }
                 } else {
@@ -227,18 +276,28 @@ impl TrieStorage for TrieMemoryPartialStorage {
 
 /// Default number of cache entries.
 /// It was chosen to fit into RAM well. RAM spend on trie cache should not exceed 50_000 * 4 (number of shards) *
-/// TRIE_LIMIT_CACHED_VALUE_SIZE * 2 (number of caches - for regular and view client) = 0.4 GB.
+/// SHARD_CACHE_VALUE_SIZE_LIMIT * 2 (number of caches - for regular and view client) = 0.4 GB.
 /// In our tests on a single shard, it barely occupied 40 MB, which is dominated by state cache size
 /// with 512 MB limit. The total RAM usage for a single shard was 1 GB.
 #[cfg(not(feature = "no_cache"))]
-const TRIE_DEFAULT_SHARD_CACHE_SIZE: usize = 50000;
-
+const DEFAULT_SHARD_CACHE_CAPACITY: usize = 50_000;
 #[cfg(feature = "no_cache")]
-const TRIE_DEFAULT_SHARD_CACHE_SIZE: usize = 1;
+const DEFAULT_SHARD_CACHE_CAPACITY: usize = 1;
+
+#[cfg(not(feature = "no_cache"))]
+const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: u64 = 50_000_000; // consider 4_500_000_000
+#[cfg(feature = "no_cache")]
+const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: u64 = 1;
+
+/// Capacity for the deletions queue.
+#[cfg(feature = "cache")]
+pub const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize = 100_000;
+#[cfg(feature = "no_cache")]
+pub const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize = 1;
 
 /// Values above this size (in bytes) are never cached.
 /// Note that most of Trie inner nodes are smaller than this - e.g. branches use around 32 * 16 = 512 bytes.
-pub(crate) const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 1000;
+pub(crate) const SHARD_CACHE_VALUE_SIZE_LIMIT: usize = 1000;
 
 pub struct TrieCachingStorage {
     pub(crate) store: Store,
@@ -344,7 +403,7 @@ impl TrieStorage for TrieCachingStorage {
                 // It is fine to have a size limit for shard cache and **not** have a limit for chunk cache, because key
                 // is always a value hash, so for each key there could be only one value, and it is impossible to have
                 // **different** values for the given key in shard and chunk caches.
-                if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
+                if val.len() < SHARD_CACHE_VALUE_SIZE_LIMIT {
                     guard.put(*hash, val.clone());
                 } else {
                     near_o11y::io_trace!(count: "shard_cache_too_large");

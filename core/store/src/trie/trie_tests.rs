@@ -204,7 +204,7 @@ mod nodes_counter_tests {
 mod caching_storage_tests {
     use super::*;
     use crate::test_utils::{create_test_store, create_tries};
-    use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TRIE_LIMIT_CACHED_VALUE_SIZE};
+    use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, SHARD_CACHE_VALUE_SIZE_LIMIT};
     use crate::trie::TrieRefcountChange;
     use crate::{Store, TrieChanges};
     use assert_matches::assert_matches;
@@ -266,7 +266,7 @@ mod caching_storage_tests {
     /// Check that large values does not fall into shard cache, but fall into chunk cache.
     #[test]
     fn test_large_value() {
-        let value = vec![1u8].repeat(TRIE_LIMIT_CACHED_VALUE_SIZE + 1);
+        let value = vec![1u8].repeat(SHARD_CACHE_VALUE_SIZE_LIMIT + 1);
         let values = vec![value.clone()];
         let shard_uid = ShardUId::single_shard();
         let store = create_store_with_values(&values, shard_uid);
@@ -340,7 +340,7 @@ mod caching_storage_tests {
         let values: Vec<Vec<u8>> = (0..shard_cache_size as u8 + 1).map(|i| vec![i]).collect();
         let shard_uid = ShardUId::single_shard();
         let store = create_store_with_values(&values, shard_uid);
-        let trie_cache = TrieCache::with_capacity(shard_cache_size);
+        let trie_cache = TrieCache::with_capacities(shard_cache_size);
         let trie_caching_storage = TrieCachingStorage::new(store, trie_cache.clone(), shard_uid);
 
         let value = &values[0];
