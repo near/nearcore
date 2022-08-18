@@ -955,9 +955,11 @@ impl EpochManager {
         &self,
         epoch_id: &EpochId,
         account_id: &AccountId,
-    ) -> Result<Option<ValidatorStake>, EpochError> {
+    ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
-        Ok(epoch_info.get_validator_by_account(account_id))
+        epoch_info
+            .get_validator_by_account(account_id)
+            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))
     }
 
     /// Returns fisherman for given account id for given epoch.
@@ -965,9 +967,11 @@ impl EpochManager {
         &self,
         epoch_id: &EpochId,
         account_id: &AccountId,
-    ) -> Result<Option<ValidatorStake>, EpochError> {
+    ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
-        Ok(epoch_info.get_fisherman_by_account(account_id))
+        epoch_info
+            .get_fisherman_by_account(account_id)
+            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))
     }
 
     pub fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
