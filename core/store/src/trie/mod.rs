@@ -927,21 +927,10 @@ mod tests {
                     }
 
                     if key.is_empty() {
-                        let maybe_value = value;
-                        let maybe_expected_value = maybe_expected_value
-                            .map(|value| (value.len(), CryptoHash::hash_bytes(value)));
-                        return match (maybe_expected_value, maybe_value) {
-                            (
-                                Some((expected_length, expected_value)),
-                                Some((maybe_length, value)),
-                            ) => {
-                                *maybe_length as usize == expected_length
-                                    && expected_value == *value
-                            }
-                            (None, Some(_)) => false,
-                            (Some(_), None) => false,
-                            (None, None) => true,
-                        };
+                        return *value
+                            == maybe_expected_value.map(|value| {
+                                (value.len().try_into().unwrap(), CryptoHash::hash_bytes(&value))
+                            });
                     }
                     let index = key.at(0);
                     match &children[index as usize] {
