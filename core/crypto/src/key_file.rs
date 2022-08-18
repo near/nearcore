@@ -22,8 +22,8 @@ pub struct KeyFile {
 
 impl KeyFile {
     pub fn write_to_file(&self, path: &Path) -> io::Result<()> {
-        let mut file = Self::create(path)?;
         let data = serde_json::to_string_pretty(self)?;
+        let mut file = Self::create(path)?;
         file.write_all(data.as_bytes())
     }
 
