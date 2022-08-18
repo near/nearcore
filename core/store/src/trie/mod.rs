@@ -885,7 +885,7 @@ mod tests {
         }
         for node in levels.iter() {
             match &node.node {
-                RawTrieNode::Leaf(node_key, _, value_hash) => {
+                RawTrieNode::Leaf(node_key, value_length, value_hash) => {
                     hash = hash_node(&node);
                     if hash != expected_hash {
                         return false;
@@ -897,6 +897,9 @@ mod tests {
                     }
 
                     return if let Some(value) = maybe_expected_value {
+                        if *value_length as usize != value.len() {
+                            return false;
+                        }
                         CryptoHash::hash_bytes(value) == *value_hash
                     } else {
                         false
@@ -924,11 +927,17 @@ mod tests {
                     }
 
                     if key.is_empty() {
-                        // TODO: validate value size?
-                        let maybe_value = value.map(|x| x.1);
-                        let maybe_expected_value = maybe_expected_value.map(CryptoHash::hash_bytes);
+                        let maybe_value = value;
+                        let maybe_expected_value = maybe_expected_value
+                            .map(|value| (value.len(), CryptoHash::hash_bytes(value)));
                         return match (maybe_expected_value, maybe_value) {
-                            (Some(expected_value), Some(value)) => expected_value == value,
+                            (
+                                Some((expected_length, expected_value)),
+                                Some((maybe_length, value)),
+                            ) => {
+                                *maybe_length as usize == expected_length
+                                    && expected_value == *value
+                            }
                             (None, Some(_)) => false,
                             (Some(_), None) => false,
                             (None, None) => true,
