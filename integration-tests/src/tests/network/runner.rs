@@ -262,6 +262,7 @@ impl StateMachine {
                     debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
                     let pm = info.get_node(from)?.addr.clone();
                     let peer_info = info.runner.test_config[to].peer_info();
+                    tracing::debug!(target: "dupa", "{from} -> {to} ({} -> {})",info.runner.test_config[from].peer_info().id,peer_info.id);
                     let peer_id = peer_info.id.clone();
                     pm.send(PeerManagerMessageRequest::OutboundTcpConnect(
                         OutboundTcpConnect { peer_info },
@@ -628,7 +629,7 @@ pub fn start_test(runner: Runner) -> anyhow::Result<()> {
         let step = tokio::time::Duration::from_millis(10);
         let start = tokio::time::Instant::now();
         for (i, a) in actions.into_iter().enumerate() {
-            debug!("[starting action {i}]");
+            debug!(target:"dupa", "[starting action {i}]");
             loop {
                 let done =
                     tokio::time::timeout_at(start + timeout, a(&mut info)).await.with_context(
@@ -704,6 +705,7 @@ pub fn check_expected_connections(
             debug!(target: "network", node_id, expected_connections_lo, ?expected_connections_hi, "runner.rs: check_expected_connections");
             let pm = &info.get_node(node_id)?.addr;
             let res = pm.send(GetInfo {}).await?;
+            //debug!(target: "dupa", "check_expected_connections: {:?}",res.connected_peers.iter().map(|info|info.full_peer_info.peer_info.id.clone()).collect::<Vec<_>>());
             if expected_connections_lo.map_or(false, |l| l > res.num_connected_peers) {
                 return Ok(ControlFlow::Continue(()));
             }

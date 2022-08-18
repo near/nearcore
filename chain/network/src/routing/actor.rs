@@ -232,7 +232,7 @@ impl actix::Handler<StopMsg> for Actor {
 /// Messages for `RoutingTableActor`
 #[derive(actix::Message, Debug, strum::IntoStaticStr)]
 #[rtype(result = "Response")]
-pub enum Message {
+pub(crate) enum Message {
     /// Gets list of edges to validate from another peer.
     /// Those edges will be filtered, by removing existing edges, and then
     /// those edges will be sent to `EdgeValidatorActor`.
@@ -247,8 +247,6 @@ pub enum Message {
         prune_unreachable_since: Option<time::Instant>,
         prune_edges_older_than: Option<time::Utc>,
     },
-    /// TEST-ONLY Remove edges.
-    AdvRemoveEdges(Vec<Edge>),
 }
 
 #[derive(actix::MessageResponse, Debug)]
@@ -308,13 +306,6 @@ impl actix::Handler<Message> for Actor {
                     next_hops,
                     peers_to_ban: std::mem::take(&mut self.peers_to_ban),
                 }
-            }
-            // TEST-ONLY
-            Message::AdvRemoveEdges(edges) => {
-                for edge in edges {
-                    self.graph.write().remove_edge(edge.key());
-                }
-                Response::Empty
             }
         }
     }

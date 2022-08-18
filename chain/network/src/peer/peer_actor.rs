@@ -2,6 +2,7 @@ use crate::accounts_data;
 use crate::concurrency::demux;
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
 use crate::peer::codec::Codec;
+use crate::instance_set::Instance;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connected_peers::{AtomicCell, ConnectedPeer, Stats};
 use crate::peer_manager::peer_manager_actor::NetworkState;
@@ -163,6 +164,7 @@ pub enum IOError {
     Send { tid: usize, message_type: String, size: usize },
 }
 
+#[derive(Debug)]
 pub(crate) struct OutboundConfig {
     pub peer_id: PeerId,
     pub is_tier1: bool,
@@ -195,6 +197,7 @@ impl PeerActor {
         network_state: Arc<NetworkState>,
         event_sink: Sink<Event>,
     ) -> Self {
+        tracing::debug!(target:"dupa", "starting PeerActor {} -> {outbound_config:?}",my_node_info.id);
         PeerActor {
             clock,
             my_node_info,
@@ -203,6 +206,9 @@ impl PeerActor {
                 Some(_) => PeerType::Outbound,
                 None => PeerType::Inbound,
             },
+            peer_status: PeerStatus::Connecting(outbound_config.as_ref().map(|cfg|
+                network_state.outbound_connecting_peers.insert(&cfg.peer_id)
+            )),
             handshake_spec: outbound_config.map(|cfg| HandshakeSpec {
                 partial_edge_info: network_state.propose_edge(&cfg.peer_id,None),
                 protocol_version: PROTOCOL_VERSION,
@@ -210,7 +216,6 @@ impl PeerActor {
                 genesis_id: network_state.genesis_id.clone(),
                 is_tier1: cfg.is_tier1,
             }),
-            peer_status: PeerStatus::Connecting,
             framed,
             handshake_timeout,
             peer_manager_addr,
@@ -240,10 +245,10 @@ impl PeerActor {
         if self.protocol_buffers_supported {
             return Some(Encoding::Proto);
         }
-        if self.peer_status == PeerStatus::Connecting {
-            return None;
+        match &self.peer_status {
+            PeerStatus::Connecting(_) => None,
+            _ => Some(Encoding::Borsh),
         }
-        return Some(Encoding::Borsh);
     }
 
     fn parse_message(&mut self, msg: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
@@ -657,9 +662,12 @@ impl Actor for PeerActor {
             ctx,
             self.handshake_timeout.try_into().unwrap(),
             move |act, ctx| {
-                if act.peer_status != PeerStatus::Ready {
-                    info!(target: "network", "Handshake timeout expired for {}", act.peer_info);
-                    ctx.stop();
+                match &act.peer_status {
+                    PeerStatus::Connecting(_) => {
+                        info!(target: "network", "Handshake timeout expired for {}", act.peer_info);
+                        ctx.stop();
+                    }
+                    _ => {},
                 }
             },
         );
@@ -690,7 +698,10 @@ impl Actor for PeerActor {
                     // peer store. This avoids a situation in which both peers are connecting to
                     // each other, and after resolving the tie, a peer tries to remove the other
                     // peer from the active connection if it was added in the parallel connection.
-                    remove_from_peer_store: self.peer_status != PeerStatus::Connecting,
+                    remove_from_peer_store: match &self.peer_status {
+                        PeerStatus::Connecting(_) => false,
+                        _ => true,
+                    },
                 }));
             }
         }
@@ -699,6 +710,7 @@ impl Actor for PeerActor {
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
         Arbiter::current().stop();
+        //tracing::debug!(target:"dupa", "stopping PeerActor {} -> ...",self.my_node_info.id);
         self.event_sink.push(Event::ActorStopped)
     }
 }
@@ -766,8 +778,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 .inc_by(msg.len() as u64);
         }
 
-        match (self.peer_status, peer_msg.clone()) {
-            (PeerStatus::Connecting, PeerMessage::HandshakeFailure(peer_info, reason)) => {
+        match (&self.peer_status, peer_msg.clone()) {
+            (PeerStatus::Connecting(_), PeerMessage::HandshakeFailure(peer_info, reason)) => {
                 if self.peer_type==PeerType::Inbound {
                     warn!(target: "network", "Received unexpected HandshakeFailure on an inbound connection, disconnecting");
                     ctx.stop();
@@ -807,7 +819,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             }
             // TODO(gprusak): LastEdge should rather be a variant of HandshakeFailure.
             // Clean this up (you don't have to modify the proto, just the translation layer).
-            (PeerStatus::Connecting, PeerMessage::LastEdge(edge)) => {
+            (PeerStatus::Connecting(_), PeerMessage::LastEdge(edge)) => {
                 // This message will be received only if we started the connection.
                 if self.peer_type==PeerType::Inbound {
                     info!(target: "network", "{:?}: Inbound peer {:?} sent invalid message. Disconnect.", self.my_node_id(), self.peer_addr);
@@ -829,7 +841,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 };
                 self.send_handshake(spec);
             }
-            (PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
+            (PeerStatus::Connecting(_), PeerMessage::Handshake(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
                 
                 if self.peer_type==PeerType::Outbound {
@@ -1024,6 +1036,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     .then(move |res, act, ctx| {
                         match res.map(|r|r.unwrap_consolidate_response()) {
                             Ok(RegisterPeerResponse::Accept) => {
+                                //tracing::debug!(target:"dupa", "conn accepted {} -> ...",act.my_node_id());
                                 act.peer_info = Some(peer_info).into();
                                 act.peer_status = PeerStatus::Ready;
                                 // Respond to handshake if it's inbound and connection was consolidated.
@@ -1048,8 +1061,9 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                                 }
                                 actix::fut::ready(())
                             },
-                            _ => {
-                                info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting.", act.my_node_id(), handshake);
+                            err => {
+                                //tracing::debug!(target:"dupa", "conn rejected {} -> ...: {err:?}",act.my_node_id());
+                                info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting: {err:?}", act.my_node_id(), handshake);
                                 ctx.stop();
                                 actix::fut::ready(())
                             }
@@ -1262,10 +1276,10 @@ impl Handler<PeerManagerRequestWithContext> for PeerActor {
 }
 
 /// Peer status.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Debug)]
 enum PeerStatus {
     /// Waiting for handshake.
-    Connecting,
+    Connecting(Option<Instance<PeerId>>),
     /// Ready to go.
     Ready,
     /// Banned, should shutdown this peer.
