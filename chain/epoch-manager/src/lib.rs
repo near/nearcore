@@ -1,12 +1,7 @@
-use num_rational::Rational64;
-use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
-
+use crate::proposals::proposals_to_epoch_info;
+use crate::types::EpochInfoAggregator;
 use near_cache::SyncLruCache;
-use primitive_types::U256;
-use tracing::{debug, warn};
-
+use near_chain_configs::GenesisConfig;
 use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
@@ -15,6 +10,7 @@ use near_primitives::epoch_manager::{
 };
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId,
@@ -26,15 +22,16 @@ use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
 use near_store::{DBCol, Store, StoreUpdate};
+use num_rational::Rational64;
+use primitive_types::U256;
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use tracing::{debug, warn};
 
-use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
-use crate::types::EpochInfoAggregator;
-pub use crate::types::RngSeed;
-
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
-use near_chain_configs::GenesisConfig;
-use near_primitives::shard_layout::ShardLayout;
+pub use crate::types::RngSeed;
 
 mod proposals;
 mod reward_calculator;
