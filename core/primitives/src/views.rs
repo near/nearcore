@@ -207,28 +207,29 @@ pub struct StateItem {
     pub proof: TrieProofPath,
 }
 
-/// A proof can be present or absent both on a result of a function but also on [ViewStateResult]. This
-/// enum encodes these different states.
+/// A value can be present or absent on the state trie. [ProofPresence] encodes these different states.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, BorshSerialize, BorshDeserialize)]
-pub enum ProofState {
+pub enum ProofPresence {
     Present,
     Absent,
 }
 
-impl From<bool> for ProofState {
-    fn from(b: bool) -> Self {
-        match b {
-            true => ProofState::Present,
-            false => ProofState::Absent,
+impl ProofPresence {
+    pub fn from_found(is_present: bool) -> Self {
+        if is_present {
+            Self::Present
+        } else {
+            Self::Absent
         }
     }
 }
+
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ViewStateResult {
     pub values: Vec<StateItem>,
-    pub proof: Option<(ProofState, Vec<String>)>,
+    pub proof: Option<(ProofPresence, Vec<String>)>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]

@@ -11,7 +11,7 @@ use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{StateRoot, StateRootNode};
-use near_primitives::views::ProofState;
+use near_primitives::views::ProofPresence;
 
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
@@ -752,11 +752,11 @@ impl Trie {
         &self,
         root: &CryptoHash,
         key: &[u8],
-    ) -> Result<(ProofState, Vec<Arc<Vec<u8>>>), StorageError> {
+    ) -> Result<(ProofPresence, Vec<Arc<Vec<u8>>>), StorageError> {
         let mut key = NibbleSlice::new(key);
         let mut hash = *root;
         if hash == Trie::EMPTY_ROOT {
-            return Ok((ProofState::from(key.is_empty()), vec![]));
+            return Ok((ProofPresence::from_found(key.is_empty()), vec![]));
         }
 
         let mut levels: Vec<Arc<Vec<u8>>> = vec![];
@@ -778,7 +778,7 @@ impl Trie {
                     }
                     .encode_into(&mut encoded_node);
                     levels.push(encoded_node.into());
-                    return Ok((ProofState::from(found), levels));
+                    return Ok((ProofPresence::from_found(found), levels));
                 }
                 RawTrieNode::Extension(existing_key, child_hash) => {
                     let existing_key_nibble = NibbleSlice::from_encoded(&existing_key).0;
@@ -794,7 +794,7 @@ impl Trie {
                     .encode_into(&mut encoded_node);
                     levels.push(encoded_node.into());
                     if !found {
-                        return Ok((ProofState::Absent, levels));
+                        return Ok((ProofPresence::Absent, levels));
                     }
                 }
                 RawTrieNode::Branch(children, value) => {
@@ -807,7 +807,7 @@ impl Trie {
                     levels.push(encoded_node.into());
 
                     if key.is_empty() {
-                        return Ok((ProofState::from(value.is_some()), levels));
+                        return Ok((ProofPresence::from_found(value.is_some()), levels));
                     }
 
                     let idx = key.at(0) as usize;
@@ -816,7 +816,7 @@ impl Trie {
                             hash = child;
                             key = key.mid(1);
                         }
-                        None => return Ok((ProofState::Absent, levels)),
+                        None => return Ok((ProofPresence::Absent, levels)),
                     }
                 }
             };
@@ -1365,7 +1365,7 @@ mod tests {
             let (found, raw_proof) = trie.get_proof(&root, &k).unwrap();
             let proof = raw_proof.iter().map(|p| RawTrieNodeWithSize::decode(p).unwrap()).collect();
 
-            assert_eq!(found, ProofState::Present);
+            assert_eq!(found, ProofPresence::Present);
             dbg!(&k);
             assert!(verify_proof(&k, proof, v.as_deref(), root));
         }
@@ -1377,7 +1377,7 @@ mod tests {
             let (found, raw_proof) = trie.get_proof(&root, non_existing_key).unwrap();
             let proof = raw_proof.iter().map(|p| RawTrieNodeWithSize::decode(p).unwrap()).collect();
             assert!(verify_proof(non_existing_key, proof, None, root));
-            assert_eq!(found, ProofState::Absent);
+            assert_eq!(found, ProofPresence::Absent);
         }
 
         for non_existing_key in non_existing_keys {
@@ -1385,7 +1385,7 @@ mod tests {
             let proof = raw_proof.iter().map(|p| RawTrieNodeWithSize::decode(p).unwrap()).collect();
             // duplicating this because RawTrieNodeWithSize does not implement Clone
             assert!(!verify_proof(non_existing_key, proof, Some(b"0_value"), root));
-            assert_eq!(found, ProofState::Absent);
+            assert_eq!(found, ProofPresence::Absent);
         }
     }
 }
