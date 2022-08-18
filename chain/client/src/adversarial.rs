@@ -1,15 +1,11 @@
 #[cfg(feature = "test_features")]
 mod adv {
-    use std::sync::atomic::{AtomicI64, Ordering};
+    use std::sync::atomic::Ordering;
 
     #[derive(Default)]
     struct Inner {
         disable_header_sync: std::sync::atomic::AtomicBool,
         disable_doomslug: std::sync::atomic::AtomicBool,
-        // Negative values mean None, non-negative values mean Some(sync_height
-        // as u64).  This is only for testig so we can live with not supporting
-        // values over i64::MAX.
-        sync_height: AtomicI64,
         is_archival: bool,
     }
 
@@ -18,11 +14,7 @@ mod adv {
 
     impl Controls {
         pub fn new(is_archival: bool) -> Self {
-            Self(std::sync::Arc::new(Inner {
-                is_archival,
-                sync_height: AtomicI64::from(-1),
-                ..Inner::default()
-            }))
+            Self(std::sync::Arc::new(Inner { is_archival, ..Inner::default() }))
         }
 
         pub fn disable_header_sync(&self) -> bool {
@@ -39,20 +31,6 @@ mod adv {
 
         pub fn set_disable_doomslug(&self, value: bool) {
             self.0.disable_doomslug.store(value, Ordering::SeqCst);
-        }
-
-        pub fn sync_height(&self) -> Option<u64> {
-            let value = self.0.sync_height.load(Ordering::SeqCst);
-            if value < 0 {
-                None
-            } else {
-                Some(value as u64)
-            }
-        }
-
-        pub fn set_sync_height(&self, height: u64) {
-            let value: i64 = height.try_into().unwrap();
-            self.0.sync_height.store(value, Ordering::SeqCst);
         }
 
         pub fn is_archival(&self) -> bool {
@@ -77,10 +55,6 @@ mod adv {
 
         pub const fn disable_doomslug(&self) -> bool {
             false
-        }
-
-        pub const fn sync_height(&self) -> Option<u64> {
-            None
         }
     }
 }
