@@ -907,17 +907,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
     ) -> Result<bool, Error> {
         let epoch_manager = self.epoch_manager.read();
-        if let Ok(chunk_producer) =
-            epoch_manager.get_chunk_producer_info(epoch_id, height_created, shard_id)
-        {
-            let block_info = epoch_manager.get_block_info(last_known_hash)?;
-            if block_info.slashed().contains_key(chunk_producer.account_id()) {
-                return Ok(false);
-            }
-            Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
-        } else {
-            Err(Error::NotAValidator)
+        let chunk_producer =
+            epoch_manager.get_chunk_producer_info(epoch_id, height_created, shard_id)?;
+        let block_info = epoch_manager.get_block_info(last_known_hash)?;
+        if block_info.slashed().contains_key(chunk_producer.account_id()) {
+            return Ok(false);
         }
+        Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
     }
 
     fn verify_approvals_and_threshold_orphan(
