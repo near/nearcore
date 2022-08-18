@@ -24,7 +24,7 @@ thiserror = "1.0"
 tracing = "0.1.13"
 crossbeam-channel = "0.5"
 
-delay-detector = { path = "../../tools/delay_detector"}
+delay-detector = { path = "../../tools/delay-detector"}
 near-chain-configs = { path = "../../core/chain-configs" }
 near-chain-primitives = { path = "../chain-primitives" }
 near-crypto = { path = "../../core/crypto" }
