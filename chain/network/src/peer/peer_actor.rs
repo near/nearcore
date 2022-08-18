@@ -49,7 +49,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
@@ -285,6 +285,12 @@ impl PeerActor {
         msg: &PeerMessage,
         enc: Encoding,
     ) -> Result<(), IOError> {
+        let msg_type: &str = msg.into();
+        let _span = tracing::trace_span!(
+            target: "network",
+            "send_message_with_encoding",
+            msg_type)
+        .entered();
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
         match msg {
@@ -296,12 +302,13 @@ impl PeerActor {
         let bytes = msg.serialize(enc);
         self.tracker.lock().increment_sent(&self.clock, bytes.len() as u64);
         let bytes_len = bytes.len();
+        tracing::trace!(target: "network", msg_len = bytes_len);
+        metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
         if !self.framed.write(bytes) {
             #[cfg(feature = "performance_stats")]
             let tid = near_rust_allocator_proxy::get_tid();
             #[cfg(not(feature = "performance_stats"))]
             let tid = 0;
-            let msg_type: &str = msg.into();
             return Err(IOError::Send { tid, message_type: msg_type.to_string(), size: bytes_len });
         }
         Ok(())
@@ -345,8 +352,14 @@ impl PeerActor {
 
     fn receive_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
         if msg.is_view_client_message() {
+            metrics::PEER_VIEW_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL
+                .with_label_values(&[msg.msg_variant()])
+                .inc();
             self.receive_view_client_message(ctx, msg);
         } else if msg.is_client_message() {
+            metrics::PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL
+                .with_label_values(&[msg.msg_variant()])
+                .inc();
             self.receive_client_message(ctx, msg);
         } else {
             debug_assert!(false, "expected (view) client message, got: {}", msg.msg_variant());
@@ -368,8 +381,12 @@ impl PeerActor {
                     RoutedMessageBody::TxStatusResponse(tx_result) => {
                         NetworkViewClientMessages::TxStatusResponse(Box::new(tx_result))
                     }
-                    RoutedMessageBody::ReceiptOutcomeRequest(receipt_id) => {
-                        NetworkViewClientMessages::ReceiptOutcomeRequest(receipt_id)
+                    RoutedMessageBody::ReceiptOutcomeRequest(_receipt_id) => {
+                        // Silently ignore for the time being.  We’ve been still
+                        // sending those messages at protocol version 56 so we
+                        // need to wait until 59 before we can remove the
+                        // variant completely.
+                        return;
                     }
                     RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
                         NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash }
@@ -459,13 +476,9 @@ impl PeerActor {
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
         let _span = tracing::trace_span!(target: "network", "receive_client_message").entered();
-        metrics::PEER_CLIENT_MESSAGE_RECEIVED_TOTAL.inc();
         let peer_id =
             if let Some(peer_id) = self.other_peer_id() { peer_id.clone() } else { return };
 
-        metrics::PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL
-            .with_label_values(&[msg.msg_variant()])
-            .inc();
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
@@ -534,12 +547,12 @@ impl PeerActor {
                     | RoutedMessageBody::Pong(_)
                     | RoutedMessageBody::TxStatusRequest(_, _)
                     | RoutedMessageBody::TxStatusResponse(_)
-                    | RoutedMessageBody::_UnusedQueryRequest { .. }
-                    | RoutedMessageBody::_UnusedQueryResponse { .. }
+                    | RoutedMessageBody::_UnusedQueryRequest
+                    | RoutedMessageBody::_UnusedQueryResponse
                     | RoutedMessageBody::ReceiptOutcomeRequest(_)
+                    | RoutedMessageBody::_UnusedReceiptOutcomeResponse
                     | RoutedMessageBody::StateRequestHeader(_, _)
-                    | RoutedMessageBody::StateRequestPart(_, _, _)
-                    | RoutedMessageBody::Unused => {
+                    | RoutedMessageBody::StateRequestPart(_, _, _) => {
                         error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", routed_message);
                         return;
                     }
@@ -610,6 +623,7 @@ impl PeerActor {
     fn update_stats_on_receiving_message(&mut self, msg_len: usize) {
         metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg_len as u64);
         metrics::PEER_MESSAGE_RECEIVED_TOTAL.inc();
+        tracing::trace!(target: "network", msg_len);
         self.tracker.lock().increment_received(&self.clock, msg_len as u64);
     }
 
@@ -740,7 +754,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             self.txns_since_last_block.store(0, Ordering::Release);
         }
 
-        trace!(target: "network", "Received message: {}", peer_msg);
+        tracing::trace!(target: "network", "Received message: {}", peer_msg);
 
         self.on_receive_message();
 
@@ -948,6 +962,9 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         sent_bytes_per_sec: 0,
                         received_bytes_per_sec: 0,
                     })),
+                    _peer_connections_metric: metrics::PEER_CONNECTIONS.new_point(
+                        &metrics::Connection { type_: self.peer_type, encoding: self.encoding() },
+                    ),
                     last_time_peer_requested: AtomicCell::new(self.clock.now()),
                     last_time_received_message: AtomicCell::new(self.clock.now()),
                     connection_established_time: self.clock.now(),
@@ -981,7 +998,12 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                             let is_abusive = received.count_per_min > MAX_PEER_MSG_PER_MIN
                                 || sent.count_per_min > MAX_PEER_MSG_PER_MIN;
                             if is_abusive {
-                                trace!(target: "network", peer_id=?connection_state.peer_info.id, sent = sent.count_per_min, recv = received.count_per_min, "Banning peer for abuse");
+                                tracing::trace!(
+                                target: "network",
+                                peer_id = ?connection_state.peer_info.id,
+                                sent = sent.count_per_min,
+                                recv = received.count_per_min,
+                                "Banning peer for abuse");
                                 // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
                                 //  network traffic that flags honest peers.
                                 // Send ban signal to peer instance. It should send ban signal back and stop the instance.
@@ -991,7 +1013,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                             }
                         }
                     }
-                }.into_actor(self));
+                    .into_actor(self)
+                });
 
                 self.peer_manager_addr
                     .send(PeerToManagerMsg::RegisterPeer(RegisterPeer {
@@ -1157,7 +1180,11 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 .spawn(ctx);
             }
             (PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
-                trace!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.msg.target);
+                tracing::trace!(
+                    target: "network",
+                    "Received routed message from {} to {:?}.",
+                    self.peer_info,
+                    routed_message.msg.target);
 
                 // Receive invalid routed message from peer.
                 if !routed_message.verify() {
@@ -1200,7 +1227,7 @@ impl Handler<SendMessage> for PeerActor {
     #[perf]
     fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
         let span =
-            tracing::trace_span!(target: "network", "handle", handler="SendMessage").entered();
+            tracing::trace_span!(target: "network", "handle", handler = "SendMessage").entered();
         span.set_parent(msg.context);
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
         self.send_message_or_log(&msg.message);
@@ -1216,8 +1243,9 @@ impl Handler<PeerManagerRequestWithContext> for PeerActor {
         msg: PeerManagerRequestWithContext,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        let span = tracing::trace_span!(target: "network", "handle", handler="PeerManagerRequest")
-            .entered();
+        let span =
+            tracing::trace_span!(target: "network", "handle", handler = "PeerManagerRequest")
+                .entered();
         span.set_parent(msg.context);
         let msg = msg.msg;
         let _d =

@@ -45,7 +45,6 @@ use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
-use near_chain::types::ValidatorInfoIdentifier;
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
 use near_network_primitives::types::{
@@ -74,6 +73,9 @@ pub struct Client {
     pub adv_produce_blocks: bool,
     #[cfg(feature = "test_features")]
     pub adv_produce_blocks_only_valid: bool,
+    /// Controls the height which is broadcasted to other peers.
+    #[cfg(feature = "test_features")]
+    pub adv_sync_height: Option<BlockHeight>,
 
     /// Fast Forward accrued delta height used to calculate fast forwarded timestamps for each block.
     #[cfg(feature = "sandbox")]
@@ -119,6 +121,10 @@ pub struct Client {
     pub block_production_info: BlockProductionTracker,
     /// Chunk production timing information. Used only for debug purposes.
     pub chunk_production_info: lru::LruCache<(BlockHeight, ShardId), ChunkProduction>,
+
+    /// Cached precomputed set of TIER1 accounts.
+    /// See send_network_chain_info().
+    tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
 }
 
 // Debug information about the upcoming block.
@@ -217,6 +223,8 @@ impl Client {
             adv_produce_blocks: false,
             #[cfg(feature = "test_features")]
             adv_produce_blocks_only_valid: false,
+            #[cfg(feature = "test_features")]
+            adv_sync_height: None,
             #[cfg(feature = "sandbox")]
             accrued_fastforward_delta: 0,
             config,
@@ -239,6 +247,7 @@ impl Client {
             last_time_head_progress_made: Clock::instant(),
             block_production_info: BlockProductionTracker::new(),
             chunk_production_info: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
+            tier1_accounts_cache: None,
         })
     }
 
@@ -1492,7 +1501,7 @@ impl Client {
         let parent_hash = match inner {
             ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {
-                match self.chain.get_header_by_height(*parent_height) {
+                match self.chain.get_block_header_by_height(*parent_height) {
                     Ok(header) => *header.hash(),
                     Err(e) => {
                         self.handle_process_approval_error(approval, approval_type, true, e);
@@ -1958,25 +1967,57 @@ impl Client {
     /// and the next epoch, so that the PeerManager can establish the priority connections
     /// in advance (before the epoch starts and they are actually needed).
     ///
-    /// get_tier1_accounts() is expected to be called for each new chain head.
-    /// evaluation cost of this call is negligible to block processing time, so there is no
-    /// need to cache it.
+    /// The result of the last call to get_tier1_accounts() is cached, so that it is not recomputed
+    /// if the current epoch didn't change since the last call. In particular SetChainInfo is being
+    /// send after processing each block (order of seconds), while the epoch changes way less
+    /// frequently (order of hours).
     fn get_tier1_accounts(&mut self, tip: &Tip) -> Result<Arc<AccountKeys>, Error> {
-        let info = self
-            .runtime_adapter
-            .get_validator_info(ValidatorInfoIdentifier::BlockHash(tip.last_block_hash))?;
+        match &self.tier1_accounts_cache {
+            Some(it) if it.0 == tip.epoch_id => return Ok(it.1.clone()),
+            _ => {}
+        }
+
+        let _guard =
+            tracing::debug_span!(target: "client", "get_tier1_accounts(): recomputing").entered();
+
+        // What we really need are: chunk producers, block producers and block approvers for
+        // this epoch and the beginnig of the next epoch (so that all required connections are
+        // established in advance). Note that block producers and block approvers are not
+        // exactly the same - last blocks of this epoch will also need to be signed by the
+        // block producers of the next epoch. On the other hand, block approvers
+        // of the next epoch will also include block producers of the N+2 epoch (which we
+        // definitely don't need to connect to right now). Still, as long as there is no big churn
+        // in the set of block producers, it doesn't make much difference.
+        //
+        // With the current implementation we just fetch chunk producers and block producers
+        // of this and the next epoch (which covers what we need, as described above), but may
+        // require some tuning in the future. In particular, if we decide that connecting to
+        // block & chunk producers of the next expoch is too expensive, we can postpone it
+        // till almost the end of this epoch.
         let mut accounts = HashMap::new();
-        accounts.extend(
-            info.current_validators
-                .into_iter()
-                .map(|v| ((tip.epoch_id.clone(), v.account_id), v.public_key)),
-        );
-        accounts.extend(
-            info.next_validators
-                .into_iter()
-                .map(|v| ((tip.next_epoch_id.clone(), v.account_id), v.public_key)),
-        );
-        Ok(Arc::new(accounts))
+        for epoch_id in [&tip.epoch_id, &tip.next_epoch_id] {
+            // We assume here that calls to get_epoch_chunk_producers and get_epoch_block_producers_ordered
+            // are cheaper than block processing (and that they will work with both this and
+            // the next epoch). The caching on top of that (in tier1_accounts_cache field) is just
+            // a defence in depth, based on the previous experience with expensive
+            // RuntimeAdapter::get_validators_info call.
+            accounts.extend(
+                self.runtime_adapter.get_epoch_chunk_producers(epoch_id)?.iter().map(|it| {
+                    ((epoch_id.clone(), it.account_id().clone()), it.public_key().clone())
+                }),
+            );
+            accounts.extend(
+                self.runtime_adapter
+                    .get_epoch_block_producers_ordered(epoch_id, &tip.last_block_hash)?
+                    .iter()
+                    .map(|(it, _)| {
+                        ((epoch_id.clone(), it.account_id().clone()), it.public_key().clone())
+                    }),
+            );
+        }
+        let accounts = Arc::new(accounts);
+        self.tier1_accounts_cache = Some((tip.epoch_id.clone(), accounts.clone()));
+        Ok(accounts)
     }
 
     /// send_network_chain_info sends ChainInfo to PeerManagerActor.
@@ -1996,7 +2037,7 @@ impl Client {
     /// send_network_chain_info() call site would be ugly (we just log the error).
     /// In theory we should already have the tip at the call-site, eg from
     /// check_And_update_doomslug_tip, but that would require a bigger refactor.
-    fn send_network_chain_info(&mut self) -> Result<(), Error> {
+    pub(crate) fn send_network_chain_info(&mut self) -> Result<(), Error> {
         let tip = self.chain.head()?;
         // convert config tracked shards
         // runtime will track all shards if config tracked shards is not empty
@@ -2008,8 +2049,11 @@ impl Client {
             (0..num_shards).collect()
         };
         let tier1_accounts = self.get_tier1_accounts(&tip)?;
+        let height = tip.height;
+        #[cfg(feature = "test_features")]
+        let height = self.adv_sync_height.unwrap_or(height);
         self.network_adapter.do_send(SetChainInfo(ChainInfo {
-            height: tip.height,
+            height,
             tracked_shards,
             tier1_accounts,
         }));

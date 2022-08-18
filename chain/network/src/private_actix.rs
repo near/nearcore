@@ -20,7 +20,7 @@ pub struct PeersResponse {
     pub(crate) peers: Vec<PeerInfo>,
 }
 
-#[derive(actix::Message, Debug, strum::IntoStaticStr)]
+#[derive(actix::Message, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
 #[rtype(result = "PeerToManagerMsgResp")]
 pub(crate) enum PeerToManagerMsg {
     RoutedMessageFrom(RoutedMessageFrom),

@@ -44,6 +44,17 @@ fn default_peer_stats_period() -> Duration {
     Duration::from_secs(5)
 }
 
+// If non-zero - we'll skip sending tombstones during initial sync and for that many seconds after start.
+fn default_skip_tombstones() -> i64 {
+    // Enable by default in shardnet only.
+    if cfg!(feature = "shardnet") {
+        // Skip sending tombstones during sync and 240 seconds after start.
+        240
+    } else {
+        0
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Config {
     /// Local address to listen for incoming connections.
@@ -139,6 +150,35 @@ pub struct Config {
     /// TODO: unskip, once the functionality is implemented.
     #[serde(skip)] // TODO: add a default list.
     pub trusted_stun_servers: Vec<String>,
+    // Experimental part of the JSON config. Regular users/validators should not have to set any values there.
+    // Field names in here can change/disappear at any moment without warning.
+    #[serde(default)]
+    pub experimental: ExperimentalConfig,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ExperimentalConfig {
+    // If true - don't allow any inbound connections.
+    #[serde(default)]
+    pub inbound_disabled: bool,
+    // If true - connect only to the boot nodes.
+    #[serde(default)]
+    pub connect_only_to_boot_nodes: bool,
+
+    // If greater than 0, then system will no longer send tombstones during sync and during that many seconds
+    // after startup.
+    #[serde(default = "default_skip_tombstones")]
+    pub skip_sending_tombstones_seconds: i64,
+}
+
+impl Default for ExperimentalConfig {
+    fn default() -> Self {
+        ExperimentalConfig {
+            inbound_disabled: false,
+            connect_only_to_boot_nodes: false,
+            skip_sending_tombstones_seconds: default_skip_tombstones(),
+        }
+    }
 }
 
 impl Default for Config {
@@ -163,6 +203,7 @@ impl Default for Config {
             peer_stats_period: default_peer_stats_period(),
             public_addrs: vec![],
             trusted_stun_servers: vec![],
+            experimental: Default::default(),
         }
     }
 }

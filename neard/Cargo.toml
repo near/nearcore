@@ -70,6 +70,7 @@ nightly_protocol = ["nearcore/nightly_protocol"]
 # Shardnet is the experimental network that we deploy for chunk-only producer testing.
 shardnet = [
   "near-primitives/shardnet",
+  "nearcore/shardnet",
 ]
 
 # Compile with option to emit a detailed trace of IO operations and their

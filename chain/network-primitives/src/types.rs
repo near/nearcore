@@ -16,7 +16,6 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 use serde::Serialize;
@@ -294,10 +293,6 @@ pub enum NetworkViewClientMessages {
     TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
     /// Transaction status response
     TxStatusResponse(Box<FinalExecutionOutcomeView>),
-    /// Request for receipt outcome
-    ReceiptOutcomeRequest(CryptoHash),
-    /// Receipt outcome response
-    ReceiptOutcomeResponse(Box<ExecutionOutcomeWithIdAndProof>),
     /// Request a block.
     BlockRequest(CryptoHash),
     /// Request headers.
@@ -320,8 +315,6 @@ pub enum NetworkViewClientMessages {
 pub enum NetworkViewClientResponses {
     /// Transaction execution outcome
     TxStatus(Box<FinalExecutionOutcomeView>),
-    /// Receipt outcome response
-    ReceiptOutcomeResponse(Box<ExecutionOutcomeWithIdAndProof>),
     /// Block response.
     Block(Box<Block>),
     /// Headers response.
