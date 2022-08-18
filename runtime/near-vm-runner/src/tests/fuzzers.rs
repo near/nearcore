@@ -2,15 +2,18 @@ use arbitrary::Arbitrary;
 use bolero::check;
 use core::fmt;
 use near_primitives::contract::ContractCode;
+use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_errors::{FunctionCallError, VMError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext};
+use wasmer_engine::Executable;
 
 use crate::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
 use crate::internal::VMKind;
 use crate::VMResult;
+use crate::wasmer2_runner::Wasmer2VM;
 
 /// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
 pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
@@ -166,4 +169,32 @@ fn wasmer2_and_wasmtime_agree() {
         let wasmtime = run_fuzz(&code, VMKind::Wasmtime);
         assert_eq!(wasmer2, wasmtime);
     });
+}
+
+#[test]
+fn wasmer2_is_reproducible() {
+    bolero::check!().for_each(|data: &[u8]| {
+        if let Ok(module) = ArbitraryModule::arbitrary(&mut arbitrary::Unstructured::new(data)) {
+            let code = ContractCode::new(module.0.module.to_bytes(), None);
+            let config = VMConfig::test();
+            let mut first_hash = None;
+            for _ in 0..3 {
+                let vm = Wasmer2VM::new(config.clone());
+                let prepared_code = match crate::prepare::prepare_contract(code.code(), &config) {
+                    Ok(c) => c,
+                    Err(_) => return,
+                };
+                let exec = match vm.compile_uncached(&prepared_code) {
+                    Ok(e) => e,
+                    Err(_) => return,
+                };
+                let code = exec.serialize().unwrap();
+                let hash = CryptoHash::hash_bytes(&code);
+                match first_hash {
+                    None => first_hash = Some(hash),
+                    Some(h) => assert_eq!(h, hash),
+                }
+            }
+        }
+    })
 }
