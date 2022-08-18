@@ -124,7 +124,7 @@ impl<'c> Testbed<'c> {
     pub(crate) fn trie_caching_storage(&mut self) -> TrieCachingStorage {
         let store = self.inner.store();
         let caching_storage =
-            TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
+            TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard(), false);
         caching_storage
     }
 
