@@ -378,15 +378,6 @@ impl RawTrieNode {
             _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type")),
         }
     }
-
-    #[cfg(test)]
-    pub(crate) fn get_key(&self) -> Option<&[u8]> {
-        match self {
-            RawTrieNode::Leaf(key, _, _) => Some(key),
-            RawTrieNode::Extension(key, _) => Some(key),
-            RawTrieNode::Branch(_, _) => None,
-        }
-    }
 }
 
 impl RawTrieNodeWithSize {
@@ -777,7 +768,6 @@ impl Trie {
                     err.to_string()
                 ))
             })?;
-
             match node.node {
                 RawTrieNode::Leaf(existing_key, value_length, value_hash) => {
                     let found = NibbleSlice::from_encoded(&existing_key).0 == key;
@@ -894,14 +884,13 @@ mod tests {
             return false;
         }
         for node in levels.iter() {
-            match node {
-                RawTrieNodeWithSize { node: RawTrieNode::Leaf(_, _, value_hash), .. } => {
+            match &node.node {
+                RawTrieNode::Leaf(node_key, _, value_hash) => {
                     hash = hash_node(&node);
                     if hash != expected_hash {
                         return false;
                     }
 
-                    let node_key = node.node.get_key().expect("we've just wrapped the value; qed");
                     let nib = &NibbleSlice::from_encoded(&node_key).0;
                     if &key != nib {
                         return maybe_expected_value.is_none();
@@ -913,7 +902,8 @@ mod tests {
                         false
                     };
                 }
-                RawTrieNodeWithSize { node: RawTrieNode::Extension(_, child_hash), .. } => {
+
+                RawTrieNode::Extension(node_key, child_hash) => {
                     hash = hash_node(&node);
                     if hash != expected_hash {
                         return false;
@@ -921,14 +911,13 @@ mod tests {
                     expected_hash = *child_hash;
 
                     // To avoid unnecessary copy
-                    let node_key = node.node.get_key().expect("we've just wrapped the value; qed");
                     let nib = NibbleSlice::from_encoded(&node_key).0;
                     if !key.starts_with(&nib) {
                         return maybe_expected_value.is_none();
                     }
                     key = key.mid(nib.len());
                 }
-                RawTrieNodeWithSize { node: RawTrieNode::Branch(children, value), .. } => {
+                RawTrieNode::Branch(children, value) => {
                     hash = hash_node(&node);
                     if hash != expected_hash {
                         return false;
