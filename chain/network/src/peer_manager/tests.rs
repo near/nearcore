@@ -502,8 +502,13 @@ async fn accounts_data_rate_limiting() {
         let mut cfg = chain.make_config(rng);
         cfg.accounts_data_broadcast_rate_limit = demux::RateLimit { qps: 0.5, burst: 1 };
         pms.push(
-            peer_manager::testonly::start(clock.clock(), create_test_node_storage(), cfg, chain.clone())
-                .await,
+            peer_manager::testonly::start(
+                clock.clock(),
+                create_test_node_storage(),
+                cfg,
+                chain.clone(),
+            )
+            .await,
         );
     }
     // Construct a 4-layer bipartite graph.
