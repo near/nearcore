@@ -53,7 +53,7 @@ pub static SHARD_CACHE_MISSES: Lazy<IntCounterVec> = Lazy::new(|| {
 pub static SHARD_CACHE_TOO_LARGE: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_shard_cache_too_large",
-        "Shard cache too large",
+        "Number of values to be inserted into shard cache is too large",
         &["shard_id", "is_view"],
     )
     .unwrap()
