@@ -476,7 +476,6 @@ mod bounded_queue_tests {
 mod trie_cache_tests {
     use crate::trie::trie_storage::SyncTrieCache;
     use near_primitives::hash::hash;
-    use std::sync::Arc;
 
     fn put_value(cache: &mut SyncTrieCache, value: &[u8]) {
         cache.put(hash(value), value.into());
