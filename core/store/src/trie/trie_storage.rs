@@ -476,6 +476,7 @@ mod bounded_queue_tests {
 mod trie_cache_tests {
     use crate::trie::trie_storage::SyncTrieCache;
     use near_primitives::hash::hash;
+    use std::sync::Arc;
 
     fn put_value(cache: &mut SyncTrieCache, value: &[u8]) {
         cache.put(hash(value), value.into());
@@ -484,15 +485,25 @@ mod trie_cache_tests {
     #[test]
     fn test_size_limit() {
         let mut cache = SyncTrieCache::new(100, 100, 5);
+        // Add three values. Before each put, condition on total size should not be triggered.
         put_value(&mut cache, &[1, 1]);
         assert_eq!(cache.total_size, 2);
         put_value(&mut cache, &[1, 1, 1]);
         assert_eq!(cache.total_size, 5);
         put_value(&mut cache, &[1]);
         assert_eq!(cache.total_size, 6);
-        put_value(&mut cache, &[1, 1]);
-        assert_eq!(cache.total_size, 6);
-        put_value(&mut cache, &[2]);
+
+        // Add one of previous values. LRU value should be evicted.
+        put_value(&mut cache, &[1, 1, 1]);
         assert_eq!(cache.total_size, 4);
+        assert_eq!(cache.cache.pop_lru(), Some((hash(&[1]), vec![1].into())));
+        assert_eq!(cache.cache.pop_lru(), Some((hash(&[1, 1, 1]), vec![1, 1, 1].into())));
+    }
+
+    #[test]
+    fn test_deletions_queue() {
+        let mut cache = SyncTrieCache::new(100, 100, 5);
+        // Add three values. Before each put, condition on total size should not be triggered.
+        put_value(&mut cache, &[1, 1]);
     }
 }
