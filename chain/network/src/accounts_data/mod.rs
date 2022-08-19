@@ -35,8 +35,8 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use crate::multimap::OrdMultiMap;
 use crate::concurrency::arc_mutex::ArcMutex;
+use near_crypto::PublicKey;
 
 #[cfg(test)]
 mod tests;
@@ -122,13 +122,27 @@ pub struct Snapshot {
     /// It will be used to verify new incoming versions of SignedAccountData
     /// for this account.
     pub data: im::HashMap<(EpochId, AccountId), Arc<SignedAccountData>>,
-    /// Indices on data.
-    pub proxy_peers_by_account: OrdMultiMap<AccountId,PeerId>,
-    pub accounts_by_proxy_peer: OrdMultiMap<PeerId,AccountId>,
-    pub accounts_by_tier1_peer: OrdMultiMap<PeerId,AccountId>,
 }
 
 impl Snapshot {
+    /// Finds all `epoch_id` for which the given account key is registered.
+    /// Complexity: O(keys.len()).
+    pub fn epochs(&self, account_id:&AccountId, key:&PublicKey) -> Vec<EpochId> {
+        self.keys.iter().filter_map(move |((e,a),k)| if a==account_id && k==key { Some(e) } else { None }).cloned().collect()
+    }
+
+    /// Checks if the key set contains the given account key.
+    /// Complexity: O(keys.len()).
+    pub fn contains_account_key(&self, account_id:&AccountId,key:&PublicKey) -> bool {
+        self.epochs(account_id,key).len()>0
+    }
+
+    /// Finds if peer_id is currently a TIER1 peer, according to the collected account data.
+    /// Complexity: O(data.len()).
+    pub fn is_tier1_peer(&self, peer_id: &PeerId) -> bool {
+        self.data.values().filter(|d|d.peer_id.as_ref()==Some(peer_id)).count()>0
+    }
+    
     fn is_new(&self, d: &SignedAccountData) -> bool {
         let id = (d.epoch_id.clone(), d.account_id.clone());
         self.keys.contains_key(&id)
@@ -137,24 +151,12 @@ impl Snapshot {
                 _ => true,
             }
     }
-    fn add_to_index(&mut self, d:&SignedAccountData, n:i64) {
-        if let Some(peer_id) = &d.peer_id {
-            self.accounts_by_tier1_peer.add(peer_id.clone(),d.account_id.clone(),n);
-        }
-        for p in &d.peers {
-            self.proxy_peers_by_account.add(d.account_id.clone(),p.peer_id.clone(),n);
-            self.accounts_by_proxy_peer.add(p.peer_id.clone(),d.account_id.clone(),n);
-        }
-    }
     fn try_insert(&mut self, d: Arc<SignedAccountData>) -> Option<Arc<SignedAccountData>> {
         if !self.is_new(&d) {
             return None;
         }
         let id = (d.epoch_id.clone(), d.account_id.clone());
-        self.add_to_index(&*d,1); 
-        if let Some(old) = self.data.insert(id, d.clone()) {
-            self.add_to_index(&*old,-1);
-        }
+        self.data.insert(id, d.clone());
         Some(d)
     }
 }
@@ -166,9 +168,6 @@ impl Cache {
         Self(ArcMutex::new(Snapshot {
             keys: Arc::new(AccountKeys::default()),
             data: im::HashMap::new(),
-            proxy_peers_by_account: OrdMultiMap::default(),
-            accounts_by_proxy_peer: OrdMultiMap::default(),
-            accounts_by_tier1_peer: OrdMultiMap::default(),
         }))
     }
 
@@ -185,8 +184,6 @@ impl Cache {
             for (k,v) in std::mem::take(&mut inner.data) {
                 if keys.contains_key(&k) {
                     inner.data.insert(k,v);
-                } else {
-                    inner.add_to_index(&*v,-1);
                 }
             }
             inner.keys = keys;

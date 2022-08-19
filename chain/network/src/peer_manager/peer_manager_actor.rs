@@ -22,6 +22,7 @@ use crate::types::{
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
     PeerMessage, RoutingTableUpdate, SetChainInfo,
 };
+use rand::seq::SliceRandom;
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, WrapFuture,
@@ -208,6 +209,90 @@ impl NetworkState {
         });
         PartialEdgeInfo::new(&self.config.node_id(), peer1, nonce, &self.config.node_key)
     }
+
+    pub fn tier1_daemon_tick(&self, cfg: &config::Tier1) {
+        let accounts_data = self.accounts_data.load();
+        // Check if our node is currently a TIER1 validator.
+        // If so, it should establish TIER1 connections.
+        let is_tier1_validator = match &self.config.validator {
+            Some(v) => accounts_data.contains_account_key(v.signer.validator_id(),&v.signer.public_key()),
+            None => false,
+        };
+        let mut accounts_by_peer = HashMap::<_,Vec<_>>::new();
+        let mut accounts_by_proxy = HashMap::<_,Vec<_>>::new();
+        let mut proxies_by_account = HashMap::<_,Vec<_>>::new();
+        for d in accounts_data.data.values() {
+            proxies_by_account.entry(&d.account_id).or_default().extend(d.peers.iter());
+            if let Some(peer_id) = &d.peer_id {
+                accounts_by_peer.entry(peer_id).or_default().push(&d.account_id);
+            }
+            for p in &d.peers {
+                accounts_by_proxy.entry(&p.peer_id).or_default().push(&d.account_id);
+            }
+        }
+
+        let tier1 = self.tier1.load();
+        let mut ready : Vec<_> = tier1.ready.values().collect();
+
+        // Browse the connections from oldest to newest.
+        ready.sort_unstable_by_key(|c|c.connection_established_time);
+        ready.reverse();
+        let ready : Vec<&PeerId> = ready.into_iter().map(|c|&c.peer_info.id).collect();
+
+        // Select the oldest TIER1 connection for each account.
+        let mut safe = HashMap::<&AccountId,&PeerId>::new();
+        // Direct TIER1 connections have priority.
+        for peer_id in &ready {
+            for account_id in accounts_by_peer.get(peer_id).into_iter().flatten() {
+                safe.insert(account_id,peer_id);
+            }
+        }
+        if is_tier1_validator {
+            // TIER1 nodes can also connect to TIER1 proxies.
+            for peer_id in &ready {
+                for account_id in accounts_by_proxy.get(peer_id).into_iter().flatten() {
+                    safe.insert(account_id,peer_id);
+                }
+            }
+        }
+        // Close all other connections, as they are redundant or are not longer TIER1.
+        let safe_set : HashSet<_> = safe.values().copied().collect();
+        for conn in tier1.ready.values() {
+            if !safe_set.contains(&conn.peer_info.id) {
+                conn.unregister();
+            }
+        }
+        if is_tier1_validator {
+            let mut rng = rand::thread_rng();
+            // Try to establish new TIER1 connections to accounts in random order.
+            let mut account_ids : Vec<_> = proxies_by_account.keys().copied().collect();
+            account_ids.shuffle(&mut rng);
+            let mut new_connections = 0;
+            for account_id in account_ids {
+                if new_connections >= cfg.new_connections_per_tick {
+                    break;
+                }
+                if safe.contains_key(account_id) {
+                    continue;
+                }
+                let mut peers = proxies_by_account.get(account_id).into_iter().flatten();
+                if peers.any(|p|tier1.started_outbound.contains(&p.peer_id)) {
+                    continue;
+                }
+                // Start a new connection to one of the proxies of the account A, if
+                // we are not already connected/connecting to any proxy of A.
+                if let Some(_peer_addr) = peers.choose(&mut rng) {
+                    new_connections += 1;
+                    /*let token = state.tier1.start_outbound(peer_addr.peer_id.clone());
+                    // TODO: direct call here.
+                    ctx.notify(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect {
+                        peer_addr,
+                        tier1: true,
+                    }));*/
+                }
+            }
+        }
+    }
 }
 
 /// Actor that manages peers connections.
@@ -303,66 +388,20 @@ impl Actor for PeerManagerActor {
             );
         }
 
-        /*
-        // TIER1 daemon, which closes/initiates TIER1 connections.
-        ctx.spawn(async move {
-            let mut interval = tokio::time::interval(
-                state.config.tier1.daemon_period.try_into().unwrap(),
-            );
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            loop {
-                interval.tick().await;
-                let accounts_data = state.accounts_data.load();
-                let mut conns = state.tier1.load().values().collect();
-
-                // Browse the connections from oldest to newest.
-                conns.sort_unstable_by_key(|c|c.connection_established_time);
-                conns.reverse();
-                // Select a connection for each account.
-                let mut by_account = HashMap::new();
-                // Direct TIER1 connections have priority.
-                for conn in &conns {
-                    for account_id in accounts_data.accounts_by_tier1_peer.iter_once_at(conn.peer_info.id.clone()) {
-                        by_account.insert(account_id,conn);
-                    }
-                }
-                if i_am_a_tier1_node {
-                    // TIER1 nodes can also connect to TIER1 proxies.
-                    for conn in &conns {
-                        for account_id in accounts_data.accounts_by_proxy_peer.iter_once_at(conn.peer_info.id.clone()) {
-                            by_account.insert(account_id,conn);
-                        }
-                    }
-                }
-                // TODO: Close all other connections, as they are redundant/are not longer TIER1
-                // connections.
-                
-                if i_am_a_tier1_node {
-                    // Try to establish new tier1 connections.
-                    for _ in 0..state.config.tier1.new_connections_per_period {
-                        // TODO: avoid banned peers?
-                        // TODO: round robin?
-                        // TODO: round robin for each peer in accounts_data?
-                        for (_,accound_id),data in accounts_data.data {
-                            if by_account.contains_key(account_id) {
-                                continue
-                            }
-                            let peer_addr = match data.peers.choose() {
-                                Some(it) => it,
-                                None => continue,
-                            };
-                            // TODO: direct call here.
-                            ctx.notify(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect {
-                                peer_addr,
-                                tier1: true,
-                            }));
-                        }
-                    }
-                }
-            }
-        }.into_actor(self));
-        */
-
+        if let Some(cfg) = self.state.config.features.tier1.clone() {
+            // TIER1 daemon, which closes/initiates TIER1 connections.
+            let state = self.state.clone();
+            ctx.spawn(async move {
+                let mut interval = tokio::time::interval(
+                    cfg.daemon_tick_interval.try_into().unwrap(),
+                );
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    interval.tick().await;
+                    state.tier1_daemon_tick(&cfg);
+                } 
+            }.into_actor(self));
+        }
             
         // Periodically push network information to client.
         self.push_network_info_trigger(ctx, self.config.push_info_period);
@@ -1777,7 +1816,7 @@ impl PeerManagerActor {
             if msg.connection_state.peer_type == PeerType::Inbound {
                 // Allow for inbound TIER1 connections only directly from a TIER1 peers
                 // (not from TIER1 proxies).
-                if self.state.accounts_data.load().accounts_by_tier1_peer.iter_once_at(peer_info.id.clone()).count()==0 {
+                if !self.state.accounts_data.load().is_tier1_peer(&peer_info.id) {
                     return RegisterPeerResponse::Reject(RegisterPeerError::NotTier1Peer);
                 }
             }
@@ -2118,10 +2157,10 @@ impl Handler<SetChainInfo> for PeerManagerActor {
         // on the handler.
         state.chain_info.store(Arc::new(info.clone()));
 
-        // If enable_tier1 is false, we skip set_keys() call.
+        // If tier1 is not enabled, we skip set_keys() call.
         // This way self.state.accounts_data is always empty, hence no data
         // will be collected or broadcasted.
-        if !state.config.features.enable_tier1 {
+        if state.config.features.tier1.is_none() {
             return;
         }
         // If the key set didn't change, early exit.
@@ -2150,23 +2189,16 @@ impl Handler<SetChainInfo> for PeerManagerActor {
                     config::ValidatorEndpoints::TrustedStunServers(_) => vec![],
                     config::ValidatorEndpoints::PublicAddrs(peer_addrs) => peer_addrs.clone(),
                 };
-                let my_data = info.tier1_accounts.iter().filter_map(|((epoch_id,account_id),key)| {
-                    if account_id != my_account_id{
-                        return None;
-                    }
-                    if key != &my_public_key {
-                        warn!(target: "network", "node's account_id found in TIER1 accounts, but the public keys do not match");
-                        return None;
-                    }
+                let my_data = state.accounts_data.load().epochs(&my_account_id,&my_public_key).iter().map(|epoch_id| {
                     // This unwrap is safe, because we did signed a sample payload during
                     // config validation. See config::Config::new().
-                    Some(Arc::new(AccountData {
+                    Arc::new(AccountData {
                         peer_id: Some(state.config.node_id()),
                         epoch_id: epoch_id.clone(),
                         account_id: my_account_id.clone(),
                         timestamp: now,
                         peers: my_peers.clone(),
-                    }.sign(vc.signer.as_ref()).unwrap()))
+                    }.sign(vc.signer.as_ref()).unwrap())
                 }).collect();
                 // Insert node's own AccountData should never fail.
                 // We ignore the new data, because we trigger a full sync anyway.

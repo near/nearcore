@@ -49,7 +49,13 @@ impl ValidatorConfig {
 
 #[derive(Clone)]
 pub struct Features {
-    pub enable_tier1: bool,
+    pub tier1: Option<Tier1>,
+}
+
+#[derive(Clone)]
+pub struct Tier1 {
+    pub daemon_tick_interval: time::Duration,
+    pub new_connections_per_tick: usize,
 }
 
 /// Validated configuration for the peer-to-peer manager.
@@ -270,7 +276,12 @@ impl NetworkConfig {
             connect_only_to_boot_nodes: false,
             archive: false,
             accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 100., burst: 1000000 },
-            features: Features { enable_tier1: true },
+            features: Features {
+                tier1: Some(Tier1 {
+                    daemon_tick_interval: time::Duration::seconds(10),
+                    new_connections_per_tick: 100,
+                }),
+            },
             skip_sending_tombstones: None,
         }
     }
