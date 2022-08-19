@@ -768,16 +768,11 @@ impl Trie {
                     err.to_string()
                 ))
             })?;
+            levels.push(Arc::new(bytes.to_vec()));
+
             match node.node {
-                RawTrieNode::Leaf(existing_key, value_length, value_hash) => {
+                RawTrieNode::Leaf(existing_key, ..) => {
                     let found = NibbleSlice::from_encoded(&existing_key).0 == key;
-                    let mut encoded_node = vec![];
-                    RawTrieNodeWithSize {
-                        node: RawTrieNode::Leaf(existing_key, value_length, value_hash),
-                        memory_usage: node.memory_usage,
-                    }
-                    .encode_into(&mut encoded_node);
-                    levels.push(encoded_node.into());
                     return Ok((ProofPresence::from_found(found), levels));
                 }
                 RawTrieNode::Extension(existing_key, child_hash) => {
@@ -786,26 +781,11 @@ impl Trie {
 
                     key = key.mid(existing_key_nibble.len());
                     hash = child_hash;
-                    let mut encoded_node = vec![];
-                    RawTrieNodeWithSize {
-                        node: RawTrieNode::Extension(existing_key, child_hash),
-                        memory_usage: node.memory_usage,
-                    }
-                    .encode_into(&mut encoded_node);
-                    levels.push(encoded_node.into());
                     if !found {
                         return Ok((ProofPresence::Absent, levels));
                     }
                 }
                 RawTrieNode::Branch(children, value) => {
-                    let mut encoded_node = vec![];
-                    RawTrieNodeWithSize {
-                        node: RawTrieNode::Branch(children, value),
-                        memory_usage: node.memory_usage,
-                    }
-                    .encode_into(&mut encoded_node);
-                    levels.push(encoded_node.into());
-
                     if key.is_empty() {
                         return Ok((ProofPresence::from_found(value.is_some()), levels));
                     }
