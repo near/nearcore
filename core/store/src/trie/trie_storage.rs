@@ -440,7 +440,7 @@ impl TrieStorage for TrieCachingStorage {
 }
 
 #[cfg(test)]
-mod tests {
+mod bounded_queue_tests {
     use crate::trie::trie_storage::BoundedQueue;
 
     #[test]
@@ -471,3 +471,14 @@ mod tests {
         assert!(queue.queue.is_empty());
     }
 }
+
+// #[cfg(test)]
+// mod trie_cache_tests {
+//     use crate::trie::trie_storage::SyncTrieCache;
+//
+//     #[test]
+//     fn test_put_pop() {
+//         let mut queue = SyncTrieCache::new()
+//         assert_eq!(queue.put(1), None);
+//     }
+// }
