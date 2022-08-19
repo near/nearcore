@@ -57,8 +57,7 @@ impl<'a> TrieIterator<'a> {
             trail: Vec::with_capacity(8),
             key_nibbles: Vec::with_capacity(64),
         };
-        let node = trie.retrieve_node(&trie.root)?;
-        r.descend_into_node(node);
+        r.descend_into_node(&trie.root)?;
         Ok(r)
     }
 
@@ -76,8 +75,7 @@ impl<'a> TrieIterator<'a> {
         self.key_nibbles.clear();
         let mut hash = self.trie.root;
         loop {
-            let node = self.trie.retrieve_node(&hash)?;
-            self.trail.push(Crumb { status: CrumbStatus::Entering, node });
+            self.descend_into_node(&hash)?;
             let Crumb { status, node } = self.trail.last_mut().unwrap();
             match &node.node {
                 TrieNode::Empty => break,
@@ -124,8 +122,10 @@ impl<'a> TrieIterator<'a> {
         Ok(hash)
     }
 
-    fn descend_into_node(&mut self, node: TrieNodeWithSize) {
+    fn descend_into_node(&mut self, hash: &CryptoHash) -> Result<(), StorageError> {
+        let node = self.trie.retrieve_node(hash)?;
         self.trail.push(Crumb { status: CrumbStatus::Entering, node });
+        Ok(())
     }
 
     fn key(&self) -> Vec<u8> {
@@ -277,8 +277,7 @@ impl<'a> TrieIterator<'a> {
                     if self.key_nibbles[prefix..] >= path_end[prefix..] {
                         break;
                     }
-                    let node = self.trie.retrieve_node(&hash)?;
-                    self.descend_into_node(node);
+                    self.descend_into_node(&hash)?;
                     nodes_list.push(TrieTraversalItem { hash, key: None });
                 }
                 IterStep::Continue => {}
@@ -312,9 +311,9 @@ impl<'a> Iterator for TrieIterator<'a> {
                 IterStep::PopTrail => {
                     self.trail.pop();
                 }
-                IterStep::Descend(hash) => match self.trie.retrieve_node(&hash) {
-                    Ok(node) => self.descend_into_node(node),
-                    Err(e) => return Some(Err(e)),
+                IterStep::Descend(hash) => match self.descend_into_node(&hash) {
+                    Ok(_) => (),
+                    Err(err) => return Some(Err(err)),
                 },
                 IterStep::Continue => {}
                 IterStep::Value(hash) => {
@@ -457,10 +456,7 @@ mod tests {
                     IterStep::PopTrail => {
                         iterator.trail.pop();
                     }
-                    IterStep::Descend(hash) => match iterator.trie.retrieve_node(&hash) {
-                        Ok(node) => iterator.descend_into_node(node),
-                        Err(e) => panic!("Unexpected error: {}", e),
-                    },
+                    IterStep::Descend(hash) => iterator.descend_into_node(&hash).unwrap(),
                     _ => {}
                 }
             }
