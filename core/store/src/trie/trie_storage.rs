@@ -117,7 +117,9 @@ impl SyncTrieCache {
         };
     }
 
-    pub(crate) fn pop(&mut self, key: &CryptoHash) {
+    // Adds key to the deletions queue if it is present in cache.
+    // Returns key-value pair which are popped if deletions queue is full.
+    pub(crate) fn pop(&mut self, key: &CryptoHash) -> Option<(CryptoHash, Arc<[u8]>)> {
         // Do nothing if key was removed before.
         if self.cache.contains(key) {
             // Put key to the queue of deletions and possibly remove another key we have to delete.
@@ -125,11 +127,14 @@ impl SyncTrieCache {
                 Some(key_to_delete) => match self.cache.pop(&key_to_delete) {
                     Some(evicted_value) => {
                         self.total_size -= evicted_value.len() as u64;
+                        Some((key_to_delete, evicted_value))
                     }
-                    None => {}
+                    None => None,
                 },
-                None => {}
+                None => None,
             }
+        } else {
+            None
         }
     }
 
@@ -495,14 +500,23 @@ mod trie_cache_tests {
         // Add one of previous values. LRU value should be evicted.
         put_value(&mut cache, &[1, 1, 1]);
         assert_eq!(cache.total_size, 4);
-        assert_eq!(cache.cache.pop_lru(), Some((hash(&[1]), vec![1].into())));
+        assert_eq!(cache.cache.pop_lru(), Some((hash(&[1, /* */ 1]), vec![1].into())));
         assert_eq!(cache.cache.pop_lru(), Some((hash(&[1, 1, 1]), vec![1, 1, 1].into())));
     }
 
     #[test]
     fn test_deletions_queue() {
-        let mut cache = SyncTrieCache::new(100, 100, 5);
-        // Add three values. Before each put, condition on total size should not be triggered.
+        let mut cache = SyncTrieCache::new(100, 2, 100);
+        // Add two values to the cache.
+        put_value(&mut cache, &[1]);
         put_value(&mut cache, &[1, 1]);
+
+        // Call pop for inserted values. Because deletions queue is not full, no elements should be deleted.
+        assert_eq!(cache.pop(&hash(&[1, 1])), None);
+        assert_eq!(cache.pop(&hash(&[1])), None);
+
+        // Call pop two times for a value existing in cache. Because queue is full, both elements should be deleted.
+        assert_eq!(cache.pop(&hash(&[1])), Some((hash(&[1, 1]), vec![1, 1].into())));
+        assert_eq!(cache.pop(&hash(&[1])), Some((hash(&[1]), vec![1].into())));
     }
 }
