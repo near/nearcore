@@ -42,20 +42,24 @@ impl TrieCacheFactory {
     }
 
     /// Create new cache for the given shard uid.
-    pub fn create_cache(&self, shard_uid: &ShardUId) -> TrieCache {
-        match self.capacities.get(shard_uid) {
-            Some(capacity) => TrieCache::with_capacities(*capacity),
-            None => TrieCache::new(),
+    pub fn create_cache(&self, shard_uid: &ShardUId, is_view: bool) -> TrieCache {
+        let capacity = if is_view { None } else { self.capacities.get(shard_uid) };
+        match capacity {
+            Some(capacity) => TrieCache::with_capacities(*capacity, shard_uid.shard_id, is_view),
+            None => TrieCache::new(shard_uid.shard_id, is_view),
         }
     }
 
     /// Create caches on the initialization of storage structures.
-    pub fn create_initial_caches(&self) -> HashMap<ShardUId, TrieCache> {
+    pub fn create_initial_caches(&self, is_view: bool) -> HashMap<ShardUId, TrieCache> {
         assert_ne!(self.num_shards, 0);
         let shards: Vec<_> = (0..self.num_shards)
             .map(|shard_id| ShardUId { version: self.shard_version, shard_id: shard_id as u32 })
             .collect();
-        shards.iter().map(|&shard_uid| (shard_uid, self.create_cache(&shard_uid))).collect()
+        shards
+            .iter()
+            .map(|&shard_uid| (shard_uid, self.create_cache(&shard_uid, is_view)))
+            .collect()
     }
 }
 
@@ -73,8 +77,8 @@ pub struct ShardTries(Arc<ShardTriesInner>);
 
 impl ShardTries {
     pub fn new(store: Store, trie_cache_factory: TrieCacheFactory) -> Self {
-        let caches = trie_cache_factory.create_initial_caches();
-        let view_caches = trie_cache_factory.create_initial_caches();
+        let caches = trie_cache_factory.create_initial_caches(false);
+        let view_caches = trie_cache_factory.create_initial_caches(true);
         ShardTries(Arc::new(ShardTriesInner {
             store,
             trie_cache_factory,
@@ -112,11 +116,10 @@ impl ShardTries {
             let mut caches = caches_to_use.write().expect(POISONED_LOCK_ERR);
             caches
                 .entry(shard_uid)
-                .or_insert_with(|| self.0.trie_cache_factory.create_cache(&shard_uid))
+                .or_insert_with(|| self.0.trie_cache_factory.create_cache(&shard_uid, is_view))
                 .clone()
         };
-        let storage =
-            Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid, is_view));
+        let storage = Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid));
         let flat_state = {
             #[cfg(feature = "protocol_feature_flat_state")]
             if use_flat_state {
@@ -178,7 +181,7 @@ impl ShardTries {
         for (shard_uid, ops) in shards {
             let cache = caches
                 .entry(shard_uid)
-                .or_insert_with(|| self.0.trie_cache_factory.create_cache(&shard_uid))
+                .or_insert_with(|| self.0.trie_cache_factory.create_cache(&shard_uid, false))
                 .clone();
             cache.update_cache(ops, shard_uid);
         }

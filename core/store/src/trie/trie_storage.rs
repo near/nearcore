@@ -64,6 +64,10 @@ pub struct SyncTrieCache {
     total_size: u64,
     /// Upper bound for the total size.
     total_size_limit: u64,
+    /// Shard id of the nodes being cached.
+    pub shard_id: u32,
+    /// Whether cache is used for view calls execution.
+    pub is_view: bool,
 }
 
 impl SyncTrieCache {
@@ -71,12 +75,16 @@ impl SyncTrieCache {
         cache_capacity: usize,
         deletions_queue_capacity: usize,
         total_size_limit: u64,
+        shard_id: u32,
+        is_view: bool,
     ) -> Self {
         Self {
             cache: LruCache::new(cache_capacity),
             deletions: BoundedQueue::new(deletions_queue_capacity),
             total_size: 0,
             total_size_limit,
+            shard_id,
+            is_view,
         }
     }
 
@@ -138,7 +146,6 @@ impl SyncTrieCache {
         }
     }
 
-    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.cache.len()
     }
@@ -149,15 +156,17 @@ impl SyncTrieCache {
 pub struct TrieCache(Arc<Mutex<SyncTrieCache>>);
 
 impl TrieCache {
-    pub fn new() -> Self {
-        Self::with_capacities(TRIE_DEFAULT_SHARD_CACHE_SIZE)
+    pub fn new(shard_id: u32, is_view: bool) -> Self {
+        Self::with_capacities(TRIE_DEFAULT_SHARD_CACHE_SIZE, shard_id, is_view)
     }
 
-    pub fn with_capacities(cap: usize) -> Self {
+    pub fn with_capacities(cap: usize, shard_id: u32, is_view: bool) -> Self {
         Self(Arc::new(Mutex::new(SyncTrieCache::new(
             cap,
             DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY,
             DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
+            shard_id,
+            is_view,
         ))))
     }
 
@@ -339,17 +348,10 @@ pub struct TrieCachingStorage {
     pub(crate) db_read_nodes: Cell<u64>,
     /// Counts trie nodes retrieved from the chunk cache.
     pub(crate) mem_read_nodes: Cell<u64>,
-    /// Boolean for determining if the cache is a view cache or not
-    is_view: bool,
 }
 
 impl TrieCachingStorage {
-    pub fn new(
-        store: Store,
-        shard_cache: TrieCache,
-        shard_uid: ShardUId,
-        is_view: bool,
-    ) -> TrieCachingStorage {
+    pub fn new(store: Store, shard_cache: TrieCache, shard_uid: ShardUId) -> TrieCachingStorage {
         TrieCachingStorage {
             store,
             shard_uid,
@@ -358,7 +360,6 @@ impl TrieCachingStorage {
             chunk_cache: RefCell::new(Default::default()),
             db_read_nodes: Cell::new(0),
             mem_read_nodes: Cell::new(0),
-            is_view,
         }
     }
 
@@ -395,45 +396,37 @@ impl TrieCachingStorage {
     pub fn set_mode(&self, state: TrieCacheMode) {
         self.cache_mode.set(state);
     }
-
-    fn update_cache_size_metrics(&self, labels: [&str; 2]) {
-        {
-            metrics::CHUNK_CACHE_SIZE
-                .with_label_values(&labels)
-                .set(self.chunk_cache.borrow().len() as i64);
-            metrics::SHARD_CACHE_SIZE
-                .with_label_values(&labels)
-                .set(self.shard_cache.0.lock().expect(POISONED_LOCK_ERR).len() as i64);
-        }
-    }
 }
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let shard_id_str = format!("{}", self.shard_uid.shard_id);
-        let is_view_str = format!("{}", self.is_view as u8);
-        let labels: [&str; 2] = [&shard_id_str, &is_view_str];
+        let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
 
-        self.update_cache_size_metrics(labels);
+        let metrics_labels: [&str; 2] =
+            [&format!("{}", self.shard_uid.shard_id), &format!("{}", guard.is_view as u8)];
+        metrics::CHUNK_CACHE_SIZE
+            .with_label_values(&metrics_labels)
+            .set(self.chunk_cache.borrow().len() as i64);
+        metrics::SHARD_CACHE_SIZE.with_label_values(&metrics_labels).set(guard.len() as i64);
+
         // Try to get value from chunk cache containing nodes with cheaper access. We can do it for any `TrieCacheMode`,
         // because we charge for reading nodes only when `CachingChunk` mode is enabled anyway.
         if let Some(val) = self.chunk_cache.borrow_mut().get(hash) {
-            metrics::CHUNK_CACHE_HITS.with_label_values(&labels).inc();
+            metrics::CHUNK_CACHE_HITS.with_label_values(&metrics_labels).inc();
             self.inc_mem_read_nodes();
             return Ok(val.clone());
         }
-        metrics::CHUNK_CACHE_MISSES.with_label_values(&labels).inc();
+        metrics::CHUNK_CACHE_MISSES.with_label_values(&metrics_labels).inc();
 
         // Try to get value from shard cache containing most recently touched nodes.
-        let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
         let val = match guard.get(hash) {
             Some(val) => {
-                metrics::SHARD_CACHE_HITS.with_label_values(&labels).inc();
+                metrics::SHARD_CACHE_HITS.with_label_values(&metrics_labels).inc();
                 near_o11y::io_trace!(count: "shard_cache_hit");
                 val.clone()
             }
             None => {
-                metrics::SHARD_CACHE_MISSES.with_label_values(&labels).inc();
+                metrics::SHARD_CACHE_MISSES.with_label_values(&metrics_labels).inc();
                 near_o11y::io_trace!(count: "shard_cache_miss");
                 // If value is not present in cache, get it from the storage.
                 let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
@@ -453,7 +446,7 @@ impl TrieStorage for TrieCachingStorage {
                 if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
                     guard.put(*hash, val.clone());
                 } else {
-                    metrics::SHARD_CACHE_TOO_LARGE.with_label_values(&labels).inc();
+                    metrics::SHARD_CACHE_TOO_LARGE.with_label_values(&metrics_labels).inc();
                     near_o11y::io_trace!(count: "shard_cache_too_large");
                 }
 
@@ -532,7 +525,7 @@ mod trie_cache_tests {
 
     #[test]
     fn test_size_limit() {
-        let mut cache = SyncTrieCache::new(100, 100, 5);
+        let mut cache = SyncTrieCache::new(100, 100, 5, 0, false);
         // Add three values. Before each put, condition on total size should not be triggered.
         put_value(&mut cache, &[1, 1]);
         assert_eq!(cache.total_size, 2);
@@ -550,7 +543,7 @@ mod trie_cache_tests {
 
     #[test]
     fn test_deletions_queue() {
-        let mut cache = SyncTrieCache::new(100, 2, 100);
+        let mut cache = SyncTrieCache::new(100, 2, 100, 0, false);
         // Add two values to the cache.
         put_value(&mut cache, &[1]);
         put_value(&mut cache, &[1, 1]);
@@ -566,7 +559,7 @@ mod trie_cache_tests {
 
     #[test]
     fn test_cache_capacity() {
-        let mut cache = SyncTrieCache::new(2, 100, 100);
+        let mut cache = SyncTrieCache::new(2, 100, 100, 0, false);
         put_value(&mut cache, &[1]);
         put_value(&mut cache, &[2]);
         put_value(&mut cache, &[3]);
