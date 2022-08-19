@@ -331,8 +331,14 @@ impl PeerActor {
 
     fn receive_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
         if msg.is_view_client_message() {
+            metrics::PEER_VIEW_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL
+                .with_label_values(&[msg.msg_variant()])
+                .inc();
             self.receive_view_client_message(ctx, msg);
         } else if msg.is_client_message() {
+            metrics::PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL
+                .with_label_values(&[msg.msg_variant()])
+                .inc();
             self.receive_client_message(ctx, msg);
         } else {
             debug_assert!(false, "expected (view) client message, got: {}", msg.msg_variant());
@@ -449,13 +455,9 @@ impl PeerActor {
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
         let _span = tracing::trace_span!(target: "network", "receive_client_message").entered();
-        metrics::PEER_CLIENT_MESSAGE_RECEIVED_TOTAL.inc();
         let peer_id =
             if let Some(peer_id) = self.other_peer_id() { peer_id.clone() } else { return };
 
-        metrics::PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL
-            .with_label_values(&[msg.msg_variant()])
-            .inc();
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
