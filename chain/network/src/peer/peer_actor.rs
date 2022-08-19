@@ -4,7 +4,7 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
-use crate::peer_manager::connected_peers::{ConnectedPeer, Stats, StartedOutboundToken};
+use crate::peer_manager::connection::{Connection, Stats, StartedOutboundToken};
 use crate::peer_manager::peer_manager_actor::NetworkState;
 use crate::private_actix::PeersResponse;
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
@@ -142,7 +142,7 @@ pub(crate) struct PeerActor {
     /// Peer id and info. Present when ready.
     peer_info: DisplayOption<PeerInfo>,
     /// Shared state of the connection. Present when ready.
-    connection_state: Option<Arc<ConnectedPeer>>,
+    connection_state: Option<Arc<Connection>>,
 
     /// test-only.
     event_sink: Sink<Event>,
@@ -959,7 +959,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     account_id: None,
                 };
 
-                let connection_state = Arc::new(ConnectedPeer {
+                let connection_state = Arc::new(Connection {
                     is_tier1: handshake.is_tier1,
                     addr: ctx.address(),
                     peer_info: peer_info.clone(),
@@ -1166,7 +1166,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     // datasets. See accounts_data::Cache documentation for details.
                     if new_data.len() > 0 {
                         let handles: Vec<_> = pms
-                            .connected_peers
+                            .tier2
                             .load()
                             .ready
                             .values()

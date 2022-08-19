@@ -1,7 +1,7 @@
 /// This file is contains all types used for communication between `Actors` within this crate.
 /// They are not meant to be used outside.
 use crate::network_protocol::{PeerMessage, RoutingTableUpdate};
-use crate::peer_manager::connected_peers::{ConnectedPeer,PoolError};
+use crate::peer_manager::connection::{Connection,PoolError};
 use conqueue::QueueSender;
 use near_network_primitives::types::{
     Ban, Edge, InboundTcpConnect, PartialEdgeInfo, PeerInfo, PeerType, ReasonForBan,
@@ -64,7 +64,7 @@ pub(crate) enum PeerToManagerMsgResp {
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "RegisterPeerResponse")]
 pub(crate) struct RegisterPeer {
-    pub connection_state: Arc<ConnectedPeer>,
+    pub connection_state: Arc<Connection>,
 }
 
 #[derive(Debug)]

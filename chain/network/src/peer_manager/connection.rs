@@ -31,13 +31,13 @@ pub(crate) struct Stats {
 }
 
 /// Contains information relevant to a connected peer.
-pub(crate) struct ConnectedPeer {
+pub(crate) struct Connection {
     // TODO(gprusak): TIER1 connections should minimize the communication:
     // routed messages only, no broadcasts, edge not broadcasted,
     // no routing table sync. We expect ~500 TIER1 connections and that's
     // too many to advertise.
     pub is_tier1: bool,
-    // TODO(gprusak): addr should be internal, so that ConnectedPeer will become an API of the
+    // TODO(gprusak): addr should be internal, so that Connection will become an API of the
     // PeerActor.
     pub addr: actix::Addr<PeerActor>,
 
@@ -65,9 +65,9 @@ pub(crate) struct ConnectedPeer {
     pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
 }
 
-impl fmt::Debug for ConnectedPeer {
+impl fmt::Debug for Connection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.debug_struct("ConnectedPeer")
+        f.debug_struct("Connection")
             .field("peer_info", &self.peer_info)
             .field("edge", &self.edge)
             .field("peer_type", &self.peer_type)
@@ -76,7 +76,7 @@ impl fmt::Debug for ConnectedPeer {
     }
 }
 
-impl ConnectedPeer {
+impl Connection {
     pub fn full_peer_info(&self) -> FullPeerInfo {
         let mut chain_info = self.initial_chain_info.clone();
         chain_info.height = self.chain_height.load(Ordering::Relaxed);
@@ -162,12 +162,12 @@ impl ConnectedPeer {
 #[derive(Clone)]
 pub(crate) struct PoolSnapshot {
     pub me: PeerId,
-    pub ready: im::HashMap<PeerId, Arc<ConnectedPeer>>,
+    pub ready: im::HashMap<PeerId, Arc<Connection>>,
     /// Set of started outbound connections, which are not ready yet.
     pub started_outbound: im::HashSet<PeerId>,
 }
 
-pub(crate) struct StartedOutboundToken(PeerId,ConnectedPeers);
+pub(crate) struct StartedOutboundToken(PeerId,Pool);
 
 impl StartedOutboundToken {
     pub fn peer_id(&self) -> &PeerId { &self.0 }
@@ -188,7 +188,7 @@ impl Drop for StartedOutboundToken {
 }
 
 #[derive(Clone)]
-pub(crate) struct ConnectedPeers(Arc<ArcMutex<PoolSnapshot>>);
+pub(crate) struct Pool(Arc<ArcMutex<PoolSnapshot>>);
 
 #[derive(Debug)]
 pub(crate) enum PoolError {
@@ -196,8 +196,8 @@ pub(crate) enum PoolError {
     AlreadyStartedConnecting,
 }
 
-impl ConnectedPeers {
-    pub fn new(me:PeerId) -> ConnectedPeers {
+impl Pool {
+    pub fn new(me:PeerId) -> Pool {
         Self(Arc::new(ArcMutex::new(PoolSnapshot{
             me,
             ready: im::HashMap::new(),
@@ -209,7 +209,7 @@ impl ConnectedPeers {
         self.0.load()
     }
 
-    pub fn insert_ready(&self, peer: Arc<ConnectedPeer>) -> Result<(),PoolError> {
+    pub fn insert_ready(&self, peer: Arc<Connection>) -> Result<(),PoolError> {
         self.0.update(move|pool|{
             let id = &peer.peer_info.id;
             if pool.ready.contains_key(id) {

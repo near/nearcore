@@ -243,7 +243,7 @@ impl PeerHandle {
                     PeerInfo { id: cfg.id(), addr: Some(my_addr), account_id: None },
                     peer_addr.clone(),
                     cfg.start_handshake_with.as_ref().map(|id| OutboundConfig {
-                        token: network_state.connected_peers.start_outbound(id.clone()).unwrap(),
+                        token: network_state.tier2.start_outbound(id.clone()).unwrap(),
                         is_tier1: false,
                     }),
                     FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
