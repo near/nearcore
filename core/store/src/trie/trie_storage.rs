@@ -13,6 +13,12 @@ use near_primitives::types::{TrieCacheMode, TrieNodesCount};
 use std::cell::{Cell, RefCell};
 use std::io::ErrorKind;
 
+/// Capacity for the deletions queue.
+#[cfg(feature = "cache")]
+const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize = 100_000;
+#[cfg(feature = "no_cache")]
+const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize = 1;
+
 pub(crate) struct BoundedQueue<T> {
     queue: VecDeque<T>,
     /// If queue size exceeds capacity, item from the tail is removed.
@@ -287,12 +293,6 @@ const TRIE_DEFAULT_SHARD_CACHE_SIZE: usize = 1;
 const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: u64 = 50_000_000; // consider 4_500_000_000
 #[cfg(feature = "no_cache")]
 const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: u64 = 1;
-
-/// Capacity for the deletions queue.
-#[cfg(feature = "cache")]
-const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize = 100_000;
-#[cfg(feature = "no_cache")]
-const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize = 1;
 
 /// Values above this size (in bytes) are never cached.
 /// Note that most of Trie inner nodes are smaller than this - e.g. branches use around 32 * 16 = 512 bytes.
