@@ -1,11 +1,10 @@
 use crate::accounts_data;
 use crate::concurrency::demux;
 use crate::config;
-use crate::instance_set::InstanceSet;
 use crate::network_protocol::{AccountData, SyncAccountsData};
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::{Event as PeerEvent, PeerActor, OutboundConfig};
-use crate::peer_manager::connected_peers::{ConnectedPeer, ConnectedPeers};
+use crate::peer_manager::connected_peers::{ConnectedPeer, ConnectedPeers, PoolError};
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, RegisterPeerError, StopMsg, Unregister,
@@ -32,8 +31,9 @@ use anyhow::Context as _;
 use arc_swap::ArcSwap;
 use near_network_primitives::time;
 use near_network_primitives::types::{
+    OutboundTcpConnect,
     AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect, KnownPeerStatus, KnownProducer,
-    NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash,
+    NetworkViewClientMessages, NetworkViewClientResponses, PeerIdOrHash,
     PeerInfo, PeerType, Ping, Pong, RawRoutedMessage, ReasonForBan, RoutedMessageBody,
     RoutedMessageFrom, RoutedMessageV2, StateResponseInfo,
 };
@@ -157,9 +157,6 @@ pub(crate) struct NetworkState {
     /// Connected peers (inbound and outbound) with their full peer information.
     pub connected_peers: ConnectedPeers,
     pub tier1_connections: ConnectedPeers,
-    /// Set of outbound connections that were not consolidated yet.
-    /// Modified only be PeerActor.
-    pub outbound_connecting_peers: InstanceSet<PeerId>,
     
     /// View of the Routing table. It keeps:
     /// - routing information - how to route messages
@@ -179,17 +176,16 @@ impl NetworkState {
         send_accounts_data_rl: demux::RateLimit,
     ) -> Self {
         Self {
-            config,
             genesis_id,
             client_addr,
             view_client_addr,
             chain_info: Default::default(),
-            connected_peers: ConnectedPeers::default(),
-            tier1_connections: ConnectedPeers::default(),
-            outbound_connecting_peers: InstanceSet::new(),
+            connected_peers: ConnectedPeers::new(config.node_id()),
+            tier1_connections: ConnectedPeers::new(config.node_id()),
             accounts_data: Arc::new(accounts_data::Cache::new()),
             routing_table_view,
             send_accounts_data_rl,
+            config,
         }
     }
 
@@ -197,7 +193,7 @@ impl NetworkState {
     pub fn ask_for_more_peers(&self, clock: &time::Clock) {
         let now = clock.now();
         let msg = Arc::new(PeerMessage::PeersRequest);
-        for peer in self.connected_peers.read().values() {
+        for peer in self.connected_peers.load().ready.values() {
             if now > peer.last_time_peer_requested.load() + REQUEST_PEERS_INTERVAL {
                 peer.send_message(msg.clone());
             }
@@ -591,7 +587,7 @@ impl PeerManagerActor {
         let mut total_bandwidth_used_by_all_peers: usize = 0;
         let mut total_msg_received_count: usize = 0;
         let mut max_max_record_num_messages_in_progress: usize = 0;
-        for (peer_id, connected_peer) in &*self.state.connected_peers.read() {
+        for (peer_id, connected_peer) in &self.state.connected_peers.load().ready {
             // consume methods of the throttle_controller require &mut self,
             // but in fact they modify internal Arc<Atomic...> values,
             // so if we clone the throttle_controller we can call them. This doesn't make
@@ -660,13 +656,14 @@ impl PeerManagerActor {
             //
             // Also check whenever there is an edge indicating that we should be disconnected
             // from a peer, but we are connected. And try to resolve the inconsistency.
+            let connected_peers = self.state.connected_peers.load();
             for edge in new_edges.iter() {
                 if let Some(other_peer) = edge.other(&self.my_peer_id) {
                     if !self.state.routing_table_view.is_local_edge_newer(other_peer, edge.nonce()) {
                         continue;
                     }
                     // Check whether we belong to this edge.
-                    if self.state.connected_peers.read().contains_key(other_peer) {
+                    if connected_peers.ready.contains_key(other_peer) {
                         // This is an active connection.
                         if edge.edge_type() == EdgeState::Removed {
                             self.maybe_remove_connected_peer(ctx, edge, other_peer);
@@ -737,22 +734,22 @@ impl PeerManagerActor {
         &mut self,
         connection_state: Arc<ConnectedPeer>,
         ctx: &mut Context<Self>,
-    ) {
+    ) -> Result<(),PoolError> {
         let peer_info = &connection_state.peer_info;
         let _span = tracing::trace_span!(target: "network", "register_peer").entered();
         debug!(target: "network", ?peer_info, "Consolidated connection");
-
-        if let Err(err) = self.peer_store.peer_connected(&self.clock, peer_info) {
-            error!(target: "network", ?err, "Failed to save peer data");
-            return;
-        };
         if connection_state.is_tier1 {
-            self.state.tier1_connections.insert(connection_state.clone());
+            self.state.tier1_connections.insert_ready(connection_state.clone())?;
         } else {
-            self.state.connected_peers.insert(connection_state.clone());
+            self.state.connected_peers.insert_ready(connection_state.clone())?;
+            if let Err(err) = self.peer_store.peer_connected(&self.clock, peer_info) {
+                error!(target: "network", ?err, "Failed to save peer data");
+            }
             self.add_verified_edges_to_routing_table(vec![connection_state.edge.clone()]);
-            self.sync_after_handshake(connection_state, ctx);
+            self.sync_after_handshake(connection_state.clone(), ctx);
         }
+
+        Ok(())
     }
 
     fn sync_after_handshake(
@@ -801,9 +798,9 @@ impl PeerManagerActor {
     /// If peer_type is None, remove anyway disregarding who started the connection.
     fn remove_connected_peer(&mut self, peer_id: &PeerId, peer_type: Option<PeerType>) {
         let state = self.state.clone();
-        let connected_peers = state.connected_peers.read();
+        let connected_peers = state.connected_peers.load();
         if let Some(peer_type) = peer_type {
-            if let Some(peer) = connected_peers.get(peer_id) {
+            if let Some(peer) = connected_peers.ready.get(peer_id) {
                 if peer.peer_type != peer_type {
                     // Don't remove the peer
                     return;
@@ -844,7 +841,7 @@ impl PeerManagerActor {
     /// and then mark peer as banned in the peer store.
     pub(crate) fn try_ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan) {
         let state = self.state.clone();
-        if let Some(peer) = state.connected_peers.read().get(peer_id) {
+        if let Some(peer) = state.connected_peers.load().ready.get(peer_id) {
             peer.ban(ban_reason);
         } else {
             warn!(target: "network", ?ban_reason, ?peer_id, "Try to ban a disconnected peer for");
@@ -939,18 +936,17 @@ impl PeerManagerActor {
     /// (the number of outgoing connections is less than `minimum_outbound_peers`
     ///     and the total connections is less than `max_num_peers`)
     fn is_outbound_bootstrap_needed(&self) -> bool {
-        let connected_peers = self.state.connected_peers.read();
-        let outgoing_peers = self.state.outbound_connecting_peers.load();
-        let total_connections = connected_peers.len() + outgoing_peers.len();
-        let potential_outgoing_connections = connected_peers
+        let tier2 = self.state.connected_peers.load();
+        let total_connections = tier2.ready.len() + tier2.started_outbound.len();
+        let potential_outbound_connections = tier2.ready
             .values()
-            .filter(|connected_peer| connected_peer.peer_type == PeerType::Outbound)
+            .filter(|peer| peer.peer_type == PeerType::Outbound)
             .count()
-            + outgoing_peers.len();
+            + tier2.started_outbound.len();
 
         (total_connections < self.config.ideal_connections_lo as usize
             || (total_connections < self.max_num_peers as usize
-                && potential_outgoing_connections < self.config.minimum_outbound_peers as usize))
+                && potential_outbound_connections < self.config.minimum_outbound_peers as usize))
             && !self.config.outbound_disabled
     }
 
@@ -964,8 +960,9 @@ impl PeerManagerActor {
 
     // predicate checking whether we should allow an inbound connection from peer_info.
     fn is_inbound_allowed(&self, peer_info: &PeerInfo) -> bool {
-        // Check if we have spare inbound connections capacity. 
-        if self.state.connected_peers.read().len() + self.state.outbound_connecting_peers.load().len() < self.max_num_peers as usize && !self.config.inbound_disabled {
+        // Check if we have spare inbound connections capacity.
+        let tier2 = self.state.connected_peers.load();
+        if tier2.ready.len() + tier2.started_outbound.len() < self.max_num_peers as usize && !self.config.inbound_disabled {
             return true;
         }
         // Whitelisted nodes are allowed to connect, even if the inbound connections limit has
@@ -979,7 +976,7 @@ impl PeerManagerActor {
     /// Returns peers close to the highest height
     fn highest_height_peers(&self) -> Vec<FullPeerInfo> {
         let infos: Vec<_> =
-            self.state.connected_peers.read().values().map(|p| p.full_peer_info()).collect();
+            self.state.connected_peers.load().ready.values().map(|p| p.full_peer_info()).collect();
 
         // This finds max height among peers, and returns one peer close to such height.
         let max_height = match infos.iter().map(|i| i.chain_info.height).max() {
@@ -1002,7 +999,8 @@ impl PeerManagerActor {
         // Find all peers whose height is below `highest_peer_horizon` from max height peer(s).
         self.state
             .connected_peers
-            .read()
+            .load()
+            .ready
             .values()
             .filter(|p| {
                 p.chain_height.load(Ordering::Relaxed).saturating_add(UNRELIABLE_PEER_HORIZON)
@@ -1020,7 +1018,7 @@ impl PeerManagerActor {
             WAIT_PEER_BEFORE_REMOVE.try_into().unwrap(),
             move |act, _ctx| {
                 let other = edge.other(&act.my_peer_id).unwrap();
-                if act.state.connected_peers.read().contains_key(other) {
+                if act.state.connected_peers.load().ready.contains_key(other) {
                     return;
                 }
                 // Peer is still not connected after waiting a timeout.
@@ -1070,7 +1068,7 @@ impl PeerManagerActor {
             move |act, _ctx| {
                 if let Some(cur_nonce) = act.local_peer_pending_update_nonce_request.get(&other) {
                     if *cur_nonce == nonce {
-                        if let Some(peer) = act.state.connected_peers.read().get(&other) {
+                        if let Some(peer) = act.state.connected_peers.load().ready.get(&other) {
                             // Send disconnect signal to this peer if we haven't edge update.
                             peer.unregister();
                         }
@@ -1093,9 +1091,9 @@ impl PeerManagerActor {
     ///    and add them one by one to the safe_set (starting from earliest connection time)
     ///    until safe set has safe_set_size elements.
     fn maybe_stop_active_connection(&self) {
-        let connected_peers = self.state.connected_peers.read();
+        let tier2 = self.state.connected_peers.load();
         let filter_peers = |predicate: &dyn Fn(&ConnectedPeer) -> bool| -> Vec<_> {
-            connected_peers
+            tier2.ready
                 .values()
                 .filter(|peer| predicate(&*peer))
                 .map(|peer| peer.peer_info.id.clone())
@@ -1110,14 +1108,13 @@ impl PeerManagerActor {
         safe_set.extend(whitelisted_peers);
         
         // If there is not enough non-whitelisted peers, return without disconnecting anyone.
-        if connected_peers.len() - safe_set.len() <= self.config.ideal_connections_hi as usize {
+        if tier2.ready.len() - safe_set.len() <= self.config.ideal_connections_hi as usize {
             return;
         }
 
         // If there is not enough outbound peers, add them to the safe set.
         let outbound_peers = filter_peers(&|p| p.peer_type == PeerType::Outbound);
-        let outgoing_peers = self.state.outbound_connecting_peers.load();
-        if outbound_peers.len() + outgoing_peers.len()
+        if outbound_peers.len() + tier2.started_outbound.len()
             <= self.config.minimum_outbound_peers as usize
         {
             safe_set.extend(outbound_peers);
@@ -1133,7 +1130,7 @@ impl PeerManagerActor {
 
         // Find all recently active peers.
         let now = self.clock.now();
-        let mut active_peers: Vec<Arc<ConnectedPeer>> = connected_peers
+        let mut active_peers: Vec<Arc<ConnectedPeer>> = tier2.ready
             .values()
             .filter(|p| {
                 now - p.last_time_received_message.load() < self.config.peer_recent_time_window
@@ -1153,10 +1150,10 @@ impl PeerManagerActor {
         }
 
         // Build valid candidate list to choose the peer to be removed. All peers outside the safe set.
-        let candidates = connected_peers.values().filter(|p| !safe_set.contains(&p.peer_info.id));
+        let candidates = tier2.ready.values().filter(|p| !safe_set.contains(&p.peer_info.id));
         if let Some(p) = candidates.choose(&mut rand::thread_rng()) {
             debug!(target: "network", id = ?p.peer_info.id,
-                connected_peers_len = connected_peers.len(),
+                connected_peers_len = tier2.ready.len(),
                 ideal_connections_hi = self.config.ideal_connections_hi,
                 "Stop active connection"
             );
@@ -1203,12 +1200,13 @@ impl PeerManagerActor {
         }
 
         if self.is_outbound_bootstrap_needed() {
+            let tier2 = self.state.connected_peers.load();
             if let Some(peer_info) = self.peer_store.unconnected_peer(|peer_state| {
                 // Ignore connecting to ourself
                 self.my_peer_id == peer_state.peer_info.id
                     || self.config.node_addr == peer_state.peer_info.addr
                     // Or to peers we are currently trying to connect to
-                    || self.state.outbound_connecting_peers.load().contains_key(&peer_state.peer_info.id)
+                    || tier2.started_outbound.contains(&peer_state.peer_info.id)
             }) {
                 // Start monitor_peers_attempts from start after we discover the first healthy peer
                 if !self.started_connect_attempts {
@@ -1396,9 +1394,9 @@ impl PeerManagerActor {
     }
 
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
-        let connected_peers = self.state.connected_peers.read();
+        let tier2 = self.state.connected_peers.load();
         NetworkInfo {
-            connected_peers: connected_peers
+            connected_peers: tier2.ready
                 .values()
                 .map(|cp| {
                     let stats = cp.stats.load();
@@ -1413,14 +1411,14 @@ impl PeerManagerActor {
                     }
                 })
                 .collect(),
-            num_connected_peers: connected_peers.len(),
+            num_connected_peers: tier2.ready.len(),
             peer_max_count: self.max_num_peers,
             highest_height_peers: self.highest_height_peers(),
-            sent_bytes_per_sec: connected_peers
+            sent_bytes_per_sec: tier2.ready
                 .values()
                 .map(|x| x.stats.load().sent_bytes_per_sec)
                 .sum(),
-            received_bytes_per_sec: connected_peers
+            received_bytes_per_sec: tier2.ready
                 .values()
                 .map(|x| x.stats.load().received_bytes_per_sec)
                 .sum(),
@@ -1596,7 +1594,7 @@ impl PeerManagerActor {
                         }
                     } else {
                         let mut matching_peers = vec![];
-                        for (peer_id, peer) in self.state.connected_peers.read().iter() {
+                        for (peer_id, peer) in &self.state.connected_peers.load().ready {
                             if (peer.initial_chain_info.archival || !target.only_archival)
                                 && peer.chain_height.load(Ordering::Relaxed) >= target.min_height
                                 && peer.initial_chain_info.tracked_shards.contains(&target.shard_id)
@@ -1705,44 +1703,54 @@ impl PeerManagerActor {
     fn handle_msg_outbound_tcp_connect(&self, msg: OutboundTcpConnect, ctx: &mut Context<Self>) {
         let _d = delay_detector::DelayDetector::new(|| "outbound tcp connect".into());
         debug!(target: "network", to = ?msg.peer_info, "Trying to connect");
-        if let Some(addr) = msg.peer_info.addr {
-            // The `connect` may take several minutes. This happens when the
-            // `SYN` packet for establishing a TCP connection gets silently
-            // dropped, in which case the default TCP timeout is applied. That's
-            // too long for us, so we shorten it to one second.
-            //
-            // Why exactly a second? It was hard-coded in a library we used
-            // before, so we keep it to preserve behavior. Removing the timeout
-            // completely was observed to break stuff for real on the testnet.
-            tokio::time::timeout(std::time::Duration::from_secs(1), TcpStream::connect(addr))
-                .into_actor(self)
-                .then(move |res, act, ctx| {
-                    let stream = match res {
-                        Ok(Ok(it)) => it,
-                        Ok(Err(err)) => {
-                            info!(target: "network", ?addr, ?err, "Error connecting to");
-                            return actix::fut::ready(());
-                        }
-                        Err(err) => {
-                            info!(target: "network", ?addr, ?err, "Error connecting to");
-                            return actix::fut::ready(());
-                        }
-                    };
-                    debug!(target: "network", peer_info = ?msg.peer_info, "Connecting");
-                    act.try_connect_peer(
-                        ctx.address(),
-                        stream,
-                        Some(OutboundConfig{
-                            peer_id: msg.peer_info.id,
-                            is_tier1: false,
-                        }),
-                    );
-                    actix::fut::ready(())
-                })
-                .wait(ctx);
-        } else {
-            warn!(target: "network", peer_info = ?msg.peer_info, "Trying to connect to peer with no public address");
-        }
+        let addr = match msg.peer_info.addr {
+            Some(addr) => addr,
+            None => {
+                warn!(target: "network", peer_info = ?msg.peer_info, "Trying to connect to peer with no public address");
+                return;
+            }
+        };
+        let token = match self.state.connected_peers.start_outbound(msg.peer_info.id.clone()) {
+            Ok(token) => token,
+            Err(err) => {
+                warn!(target: "network", peer_info = ?msg.peer_info, "Cannot start an outbound connection: {err:?}");
+                return;
+            }
+        };
+        // The `connect` may take several minutes. This happens when the
+        // `SYN` packet for establishing a TCP connection gets silently
+        // dropped, in which case the default TCP timeout is applied. That's
+        // too long for us, so we shorten it to one second.
+        //
+        // Why exactly a second? It was hard-coded in a library we used
+        // before, so we keep it to preserve behavior. Removing the timeout
+        // completely was observed to break stuff for real on the testnet.
+        tokio::time::timeout(std::time::Duration::from_secs(1), TcpStream::connect(addr))
+            .into_actor(self)
+            .then(move |res, act, ctx| {
+                let stream = match res {
+                    Ok(Ok(it)) => it,
+                    Ok(Err(err)) => {
+                        info!(target: "network", ?addr, ?err, "Error connecting to");
+                        return actix::fut::ready(());
+                    }
+                    Err(err) => {
+                        info!(target: "network", ?addr, ?err, "Error connecting to");
+                        return actix::fut::ready(());
+                    }
+                };
+                debug!(target: "network", peer_info = ?msg.peer_info, "Connecting");
+                act.try_connect_peer(
+                    ctx.address(),
+                    stream,
+                    Some(OutboundConfig{
+                        token,
+                        is_tier1: false,
+                    }),
+                );
+                actix::fut::ready(())
+            })
+            .wait(ctx); 
     }
 
     #[perf]
@@ -1764,14 +1772,8 @@ impl PeerManagerActor {
             debug!(target: "network", id = ?peer_info.id, "Dropping connection from banned peer");
             return RegisterPeerResponse::Reject(RegisterPeerError::Banned);
         }
-
         
         if msg.connection_state.is_tier1 {
-            // We already connected to this peer.
-            if self.state.tier1_connections.read().contains_key(&peer_info.id) {
-                debug!(target: "network", peer_info = ?self.my_peer_id, id = ?peer_info.id, "Dropping handshake (Active Peer).");
-                return RegisterPeerResponse::Reject(RegisterPeerError::AlreadyConnected);
-            }
             if msg.connection_state.peer_type == PeerType::Inbound {
                 // Allow for inbound TIER1 connections only directly from a TIER1 peers
                 // (not from TIER1 proxies).
@@ -1780,25 +1782,12 @@ impl PeerManagerActor {
                 }
             }
         } else {
-            // We already connected to this peer.
-            if self.state.connected_peers.read().contains_key(&peer_info.id) {
-                debug!(target: "network", peer_info = ?self.my_peer_id, id = ?peer_info.id, "Dropping handshake (Active Peer).");
-                return RegisterPeerResponse::Reject(RegisterPeerError::AlreadyConnected);
-            }
-
             if msg.connection_state.peer_type == PeerType::Inbound {
-                // This is incoming connection but we have this peer already in outgoing.
-                // This only happens when both of us connect at the same time, break tie using peer id.
-                // Connection with the lower peer_id of the outbound peer wins.
-                let outgoing_peers = self.state.outbound_connecting_peers.load();
-                if outgoing_peers.contains_key(&peer_info.id) && peer_info.id > self.my_peer_id {
-                    debug!(target: "network", my_peer_id = ?self.my_peer_id, id = ?peer_info.id, "Dropping handshake (Tied).");
-                    return RegisterPeerResponse::Reject(RegisterPeerError::TiedWithOutboundConnection);
-                }
                 if !self.is_inbound_allowed(&peer_info) {
                     // TODO(1896): Gracefully drop inbound connection for other peer.
+                    let tier2 = self.state.connected_peers.load();
                     debug!(target: "network",
-                        connected_peers = self.state.connected_peers.read().len(), outgoing_peers = outgoing_peers.len(),
+                        connected_peers = tier2.ready.len(), outgoing_peers = tier2.started_outbound.len(),
                         max_num_peers = self.max_num_peers,
                         "Dropping handshake (network at max capacity)."
                     );
@@ -1806,7 +1795,9 @@ impl PeerManagerActor {
                 }
             }
         }
-        self.register_peer(msg.connection_state.clone(), ctx);
+        if let Err(err) = self.register_peer(msg.connection_state.clone(), ctx) {
+            return RegisterPeerResponse::Reject(RegisterPeerError::PoolError(err));
+        }
         self.event_sink.push(Event::PeerRegistered(peer_info.clone()));
         RegisterPeerResponse::Accept
     }

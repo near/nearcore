@@ -1,10 +1,10 @@
 use crate::accounts_data;
 use crate::concurrency::demux;
+use crate::concurrency::atomic_cell::AtomicCell;
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
 use crate::peer::codec::Codec;
-use crate::instance_set::Instance;
 use crate::peer::tracker::Tracker;
-use crate::peer_manager::connected_peers::{AtomicCell, ConnectedPeer, Stats};
+use crate::peer_manager::connected_peers::{ConnectedPeer, Stats, StartedOutboundToken};
 use crate::peer_manager::peer_manager_actor::NetworkState;
 use crate::private_actix::PeersResponse;
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
@@ -21,7 +21,6 @@ use actix::{
     Actor, ActorContext, ActorFutureExt, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
-use arc_swap::ArcSwap;
 use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::time;
@@ -166,7 +165,7 @@ pub enum IOError {
 
 #[derive(Debug)]
 pub(crate) struct OutboundConfig {
-    pub peer_id: PeerId,
+    pub token: StartedOutboundToken,
     pub is_tier1: bool,
 }
 
@@ -206,16 +205,14 @@ impl PeerActor {
                 Some(_) => PeerType::Outbound,
                 None => PeerType::Inbound,
             },
-            peer_status: PeerStatus::Connecting(outbound_config.as_ref().map(|cfg|
-                network_state.outbound_connecting_peers.insert(&cfg.peer_id)
-            )),
-            handshake_spec: outbound_config.map(|cfg| HandshakeSpec {
-                partial_edge_info: network_state.propose_edge(&cfg.peer_id,None),
+            handshake_spec: outbound_config.as_ref().map(|cfg| HandshakeSpec {
+                partial_edge_info: network_state.propose_edge(cfg.token.peer_id(),None),
                 protocol_version: PROTOCOL_VERSION,
-                peer_id: cfg.peer_id,
+                peer_id: cfg.token.peer_id().clone(),
                 genesis_id: network_state.genesis_id.clone(),
                 is_tier1: cfg.is_tier1,
             }),
+            peer_status: PeerStatus::Connecting(outbound_config.map(|cfg|cfg.token)),
             framed,
             handshake_timeout,
             peer_manager_addr,
@@ -970,10 +967,10 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     chain_height: AtomicU64::new(handshake.sender_chain_info.height),
                     edge,
                     peer_type: self.peer_type,
-                    stats: ArcSwap::new(Arc::new(Stats {
+                    stats: AtomicCell::new(Stats {
                         sent_bytes_per_sec: 0,
                         received_bytes_per_sec: 0,
-                    })),
+                    }),
                     _peer_connections_metric: metrics::PEER_CONNECTIONS.new_point(
                         &metrics::Connection { type_: self.peer_type, encoding: self.encoding() },
                     ),
@@ -1000,10 +997,10 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                             interval.tick().await;
                             let sent = tracker.lock().sent_bytes.minute_stats(&clock);
                             let received = tracker.lock().received_bytes.minute_stats(&clock);
-                            connection_state.stats.store(Arc::new(Stats {
+                            connection_state.stats.store(Stats {
                                 received_bytes_per_sec: received.bytes_per_min / 60,
                                 sent_bytes_per_sec: sent.bytes_per_min / 60,
-                            }));
+                            });
                             // Whether the peer is considered abusive due to sending too many messages.
                             // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
                             // some day be less than `u64::MAX`.
@@ -1170,7 +1167,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     if new_data.len() > 0 {
                         let handles: Vec<_> = pms
                             .connected_peers
-                            .read()
+                            .load()
+                            .ready
                             .values()
                             // Do not send the data back.
                             .filter(|p| peer_id != p.peer_info.id)
@@ -1279,7 +1277,7 @@ impl Handler<PeerManagerRequestWithContext> for PeerActor {
 #[derive(Debug)]
 enum PeerStatus {
     /// Waiting for handshake.
-    Connecting(Option<Instance<PeerId>>),
+    Connecting(Option<StartedOutboundToken>),
     /// Ready to go.
     Ready,
     /// Banned, should shutdown this peer.

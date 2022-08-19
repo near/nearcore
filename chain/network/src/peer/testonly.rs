@@ -228,6 +228,14 @@ impl PeerHandle {
                     Signature::default(),
                 ));
             }
+            let network_state = Arc::new(NetworkState::new(
+                cfg.network.clone(),
+                cfg.chain.genesis_id.clone(),
+                fc.clone().recipient(),
+                fc.clone().recipient(),
+                routing_table_view,
+                demux::RateLimit { qps: 100., burst: 1 },
+            ));
             PeerActor::create(move |ctx| {
                 PeerActor::add_stream(read, ctx);
                 PeerActor::new(
@@ -235,7 +243,7 @@ impl PeerHandle {
                     PeerInfo { id: cfg.id(), addr: Some(my_addr), account_id: None },
                     peer_addr.clone(),
                     cfg.start_handshake_with.as_ref().map(|id| OutboundConfig {
-                        peer_id: id.clone(),
+                        token: network_state.connected_peers.start_outbound(id.clone()).unwrap(),
                         is_tier1: false,
                     }),
                     FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
@@ -246,14 +254,7 @@ impl PeerHandle {
                     Arc::new(AtomicUsize::new(0)),
                     rate_limiter,
                     cfg.force_encoding,
-                    Arc::new(NetworkState::new(
-                        cfg.network.clone(),
-                        cfg.chain.genesis_id.clone(),
-                        fc.clone().recipient(),
-                        fc.clone().recipient(),
-                        routing_table_view,
-                        demux::RateLimit { qps: 100., burst: 1 },
-                    )),
+                    network_state,
                     send.sink().compose(Event::Peer),
                 )
             })

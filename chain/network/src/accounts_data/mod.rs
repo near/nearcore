@@ -36,8 +36,7 @@ use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use crate::multimap::OrdMultiMap;
-use arc_swap::ArcSwap;
-use std::sync::Mutex;
+use crate::concurrency::arc_mutex::ArcMutex;
 
 #[cfg(test)]
 mod tests;
@@ -160,32 +159,11 @@ impl Snapshot {
     }
 }
 
-/// Mutex which only synchronizes on writes.
-/// Reads always succeed and return the latest written version. 
-pub struct WriteMutex<T> {
-    value: ArcSwap<T>,
-    mutex: Mutex<()>,
-}
-
-impl<T:Clone> WriteMutex<T> {
-    pub fn new(v:T) -> Self { Self { value: ArcSwap::new(Arc::new(v)), mutex: Mutex::new(()) } }
-    // non-blocking
-    pub fn load(&self) -> Arc<T> { self.value.load_full() }
-    // blocking
-    pub fn update<R>(&self, f:impl FnOnce(&mut T) -> R) -> R {
-        let _guard = self.mutex.lock().unwrap();
-        let mut value = self.value.load().as_ref().clone();
-        let res = f(&mut value);
-        self.value.store(Arc::new(value));
-        res
-    }
-}
-
-pub(crate) struct Cache(WriteMutex<Snapshot>);
+pub(crate) struct Cache(ArcMutex<Snapshot>);
 
 impl Cache {
     pub fn new() -> Self {
-        Self(WriteMutex::new(Snapshot {
+        Self(ArcMutex::new(Snapshot {
             keys: Arc::new(AccountKeys::default()),
             data: im::HashMap::new(),
             proxy_peers_by_account: OrdMultiMap::default(),

@@ -1,7 +1,7 @@
 /// This file is contains all types used for communication between `Actors` within this crate.
 /// They are not meant to be used outside.
 use crate::network_protocol::{PeerMessage, RoutingTableUpdate};
-use crate::peer_manager::connected_peers::ConnectedPeer;
+use crate::peer_manager::connected_peers::{ConnectedPeer,PoolError};
 use conqueue::QueueSender;
 use near_network_primitives::types::{
     Ban, Edge, InboundTcpConnect, PartialEdgeInfo, PeerInfo, PeerType, ReasonForBan,
@@ -71,8 +71,7 @@ pub(crate) struct RegisterPeer {
 pub(crate) enum RegisterPeerError {
     Blacklisted,
     Banned,
-    AlreadyConnected,
-    TiedWithOutboundConnection,
+    PoolError(PoolError),
     ConnectionLimitExceeded,
     NotTier1Peer,
 }
