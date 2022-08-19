@@ -74,6 +74,7 @@ pub(crate) enum RegisterPeerError {
     AlreadyConnected,
     TiedWithOutboundConnection,
     ConnectionLimitExceeded,
+    NotTier1Peer,
 }
 
 #[derive(actix::MessageResponse, Debug)]

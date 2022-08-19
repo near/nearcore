@@ -156,6 +156,7 @@ pub(crate) struct NetworkState {
     pub accounts_data: Arc<accounts_data::Cache>,
     /// Connected peers (inbound and outbound) with their full peer information.
     pub connected_peers: ConnectedPeers,
+    pub tier1_connections: ConnectedPeers,
     /// Set of outbound connections that were not consolidated yet.
     /// Modified only be PeerActor.
     pub outbound_connecting_peers: InstanceSet<PeerId>,
@@ -184,6 +185,7 @@ impl NetworkState {
             view_client_addr,
             chain_info: Default::default(),
             connected_peers: ConnectedPeers::default(),
+            tier1_connections: ConnectedPeers::default(),
             outbound_connecting_peers: InstanceSet::new(),
             accounts_data: Arc::new(accounts_data::Cache::new()),
             routing_table_view,
@@ -305,6 +307,67 @@ impl Actor for PeerManagerActor {
             );
         }
 
+        /*
+        // TIER1 daemon, which closes/initiates TIER1 connections.
+        ctx.spawn(async move {
+            let mut interval = tokio::time::interval(
+                state.config.tier1.daemon_period.try_into().unwrap(),
+            );
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                let accounts_data = state.accounts_data.load();
+                let mut conns = state.tier1_connections.load().values().collect();
+
+                // Browse the connections from oldest to newest.
+                conns.sort_unstable_by_key(|c|c.connection_established_time);
+                conns.reverse();
+                // Select a connection for each account.
+                let mut by_account = HashMap::new();
+                // Direct TIER1 connections have priority.
+                for conn in &conns {
+                    for account_id in accounts_data.accounts_by_tier1_peer.iter_once_at(conn.peer_info.id.clone()) {
+                        by_account.insert(account_id,conn);
+                    }
+                }
+                if i_am_a_tier1_node {
+                    // TIER1 nodes can also connect to TIER1 proxies.
+                    for conn in &conns {
+                        for account_id in accounts_data.accounts_by_proxy_peer.iter_once_at(conn.peer_info.id.clone()) {
+                            by_account.insert(account_id,conn);
+                        }
+                    }
+                }
+                // TODO: Close all other connections, as they are redundant/are not longer TIER1
+                // connections.
+                
+                if i_am_a_tier1_node {
+                    // Try to establish new tier1 connections.
+                    for _ in 0..state.config.tier1.new_connections_per_period {
+                        // TODO: avoid banned peers?
+                        // TODO: round robin?
+                        // TODO: round robin for each peer in accounts_data?
+                        for (_,accound_id),data in accounts_data.data {
+                            if by_account.contains_key(account_id) {
+                                continue
+                            }
+                            let peer_addr = match data.peers.choose() {
+                                Some(it) => it,
+                                None => continue,
+                            };
+                            // TODO: direct call here.
+                            ctx.notify(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect {
+                                peer_addr,
+                                tier1: true,
+                            }));
+                        }
+                    }
+                }
+            }
+        }.into_actor(self));
+        */
+
+            
         // Periodically push network information to client.
         self.push_network_info_trigger(ctx, self.config.push_info_period);
 
@@ -683,8 +746,10 @@ impl PeerManagerActor {
             error!(target: "network", ?err, "Failed to save peer data");
             return;
         };
-        self.state.connected_peers.insert(connection_state.clone());
-        if !connection_state.is_tier1 {
+        if connection_state.is_tier1 {
+            self.state.tier1_connections.insert(connection_state.clone());
+        } else {
+            self.state.connected_peers.insert(connection_state.clone());
             self.add_verified_edges_to_routing_table(vec![connection_state.edge.clone()]);
             self.sync_after_handshake(connection_state, ctx);
         }
@@ -907,14 +972,7 @@ impl PeerManagerActor {
         // been reached.
         if self.is_peer_whitelisted(peer_info) {
             return true;
-        }
-        // TIER1 peers are allowed to connect, no matter what the connection limit is.
-        // TODO(gprusak): with the current constraints it is theoretically possible
-        // to have >1 peer per tier1 account. In such a case we allow for multiple inbound
-        // connections. Consider making this condition more precise. 
-        // if self.state.accounts_data.load().accounts_by_tier1_peer.iter_once_at(peer_info.id.clone()).count()>0 {
-        //    return true;
-        // }
+        } 
         false
     }
 
@@ -1036,7 +1094,6 @@ impl PeerManagerActor {
     ///    until safe set has safe_set_size elements.
     fn maybe_stop_active_connection(&self) {
         let connected_peers = self.state.connected_peers.read();
-        let accounts_data = self.state.accounts_data.load();
         let filter_peers = |predicate: &dyn Fn(&ConnectedPeer) -> bool| -> Vec<_> {
             connected_peers
                 .values()
@@ -1047,27 +1104,7 @@ impl PeerManagerActor {
 
         // Build safe set
         let mut safe_set = HashSet::new();
-
-        /*// TIER1 connections.
-        let mut tier1_conns = HashMap::new();
-        // Browse the connections from the oldest.
-        let mut conns: Vec<_> = connected_peers.values().collect();
-        conns.sort_unstable_by_key(|c|c.connection_established_time);
-        conns.reverse();
-        // Direct TIER1 connections.
-        for conn in &conns {
-            for account_id in accounts_data.accounts_by_tier1_peer.iter_once_at(conn.peer_info.id.clone()) {
-                tier1_conns.insert(account_id,conn);
-            }
-        }
-        // Proxy TIER1 connections.
-        for conn in &conns {
-            for account_id in accounts_data.accounts_by_proxy_peer.iter_once_at(conn.peer_info.id.clone()) {
-                tier1_conns.insert(account_id,conn);
-            }
-        }
-        safe_set.extend(tier1_conns.into_values().map(|conn|conn.peer_info.id.clone()));
-        */
+ 
         // Add whitelisted nodes to the safe set.
         let whitelisted_peers = filter_peers(&|p| self.is_peer_whitelisted(&p.peer_info));
         safe_set.extend(whitelisted_peers);
@@ -1160,7 +1197,6 @@ impl PeerManagerActor {
         }
 
         for peer_id in to_unban {
-            //tracing::debug!(target: "dupa", "unbanning {peer_id}");
             if let Err(err) = self.peer_store.peer_unban(&peer_id) {
                 error!(target: "network", ?err, "Failed to unban a peer");
             }
@@ -1729,37 +1765,45 @@ impl PeerManagerActor {
             return RegisterPeerResponse::Reject(RegisterPeerError::Banned);
         }
 
-        // We already connected to this peer.
-        if self.state.connected_peers.read().contains_key(&peer_info.id) {
-            debug!(target: "network", peer_info = ?self.my_peer_id, id = ?peer_info.id, "Dropping handshake (Active Peer).");
-            return RegisterPeerResponse::Reject(RegisterPeerError::AlreadyConnected);
-        }
-
-        if msg.connection_state.peer_type == PeerType::Inbound {
-            // Allow for inbound TIER1 connections only directly from a TIER1 peers
-            // (not from TIER1 proxies).
-            // if msg.connection_state.is_tier1 {
-            //    if self.state.accounts_data.load().accounts_by_tier1_peer.iter_once_at(peer_info.id.clone()).count()==0 {
-            //        return RegisterPeerResponse::Reject;
-            //    }
-            // }
-
-            // This is incoming connection but we have this peer already in outgoing.
-            // This only happens when both of us connect at the same time, break tie using peer id.
-            // Connection with the lower peer_id of the outbound peer wins.
-            let outgoing_peers = self.state.outbound_connecting_peers.load();
-            if outgoing_peers.contains_key(&peer_info.id) && peer_info.id > self.my_peer_id {
-                debug!(target: "network", my_peer_id = ?self.my_peer_id, id = ?peer_info.id, "Dropping handshake (Tied).");
-                return RegisterPeerResponse::Reject(RegisterPeerError::TiedWithOutboundConnection);
+        
+        if msg.connection_state.is_tier1 {
+            // We already connected to this peer.
+            if self.state.tier1_connections.read().contains_key(&peer_info.id) {
+                debug!(target: "network", peer_info = ?self.my_peer_id, id = ?peer_info.id, "Dropping handshake (Active Peer).");
+                return RegisterPeerResponse::Reject(RegisterPeerError::AlreadyConnected);
             }
-            if !self.is_inbound_allowed(&peer_info) {
-                // TODO(1896): Gracefully drop inbound connection for other peer.
-                debug!(target: "network",
-                    connected_peers = self.state.connected_peers.read().len(), outgoing_peers = outgoing_peers.len(),
-                    max_num_peers = self.max_num_peers,
-                    "Dropping handshake (network at max capacity)."
-                );
-                return RegisterPeerResponse::Reject(RegisterPeerError::ConnectionLimitExceeded);
+            if msg.connection_state.peer_type == PeerType::Inbound {
+                // Allow for inbound TIER1 connections only directly from a TIER1 peers
+                // (not from TIER1 proxies).
+                if self.state.accounts_data.load().accounts_by_tier1_peer.iter_once_at(peer_info.id.clone()).count()==0 {
+                    return RegisterPeerResponse::Reject(RegisterPeerError::NotTier1Peer);
+                }
+            }
+        } else {
+            // We already connected to this peer.
+            if self.state.connected_peers.read().contains_key(&peer_info.id) {
+                debug!(target: "network", peer_info = ?self.my_peer_id, id = ?peer_info.id, "Dropping handshake (Active Peer).");
+                return RegisterPeerResponse::Reject(RegisterPeerError::AlreadyConnected);
+            }
+
+            if msg.connection_state.peer_type == PeerType::Inbound {
+                // This is incoming connection but we have this peer already in outgoing.
+                // This only happens when both of us connect at the same time, break tie using peer id.
+                // Connection with the lower peer_id of the outbound peer wins.
+                let outgoing_peers = self.state.outbound_connecting_peers.load();
+                if outgoing_peers.contains_key(&peer_info.id) && peer_info.id > self.my_peer_id {
+                    debug!(target: "network", my_peer_id = ?self.my_peer_id, id = ?peer_info.id, "Dropping handshake (Tied).");
+                    return RegisterPeerResponse::Reject(RegisterPeerError::TiedWithOutboundConnection);
+                }
+                if !self.is_inbound_allowed(&peer_info) {
+                    // TODO(1896): Gracefully drop inbound connection for other peer.
+                    debug!(target: "network",
+                        connected_peers = self.state.connected_peers.read().len(), outgoing_peers = outgoing_peers.len(),
+                        max_num_peers = self.max_num_peers,
+                        "Dropping handshake (network at max capacity)."
+                    );
+                    return RegisterPeerResponse::Reject(RegisterPeerError::ConnectionLimitExceeded);
+                }
             }
         }
         self.register_peer(msg.connection_state.clone(), ctx);

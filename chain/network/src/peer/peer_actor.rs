@@ -1036,7 +1036,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     .then(move |res, act, ctx| {
                         match res.map(|r|r.unwrap_consolidate_response()) {
                             Ok(RegisterPeerResponse::Accept) => {
-                                //tracing::debug!(target:"dupa", "conn accepted {} -> ...",act.my_node_id());
+                                tracing::debug!(target:"dupa", "conn accepted {} -> ...",act.my_node_id());
                                 act.peer_info = Some(peer_info).into();
                                 act.peer_status = PeerStatus::Ready;
                                 // Respond to handshake if it's inbound and connection was consolidated.
@@ -1062,7 +1062,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                                 actix::fut::ready(())
                             },
                             err => {
-                                //tracing::debug!(target:"dupa", "conn rejected {} -> ...: {err:?}",act.my_node_id());
+                                tracing::debug!(target:"dupa", "conn rejected {} -> ...: {err:?}",act.my_node_id());
                                 info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting: {err:?}", act.my_node_id(), handshake);
                                 ctx.stop();
                                 actix::fut::ready(())
