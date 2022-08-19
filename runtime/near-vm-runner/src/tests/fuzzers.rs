@@ -12,8 +12,8 @@ use wasmer_engine::Executable;
 
 use crate::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
 use crate::internal::VMKind;
-use crate::VMResult;
 use crate::wasmer2_runner::Wasmer2VM;
+use crate::VMResult;
 
 /// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
 pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
