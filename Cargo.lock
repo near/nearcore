@@ -4870,6 +4870,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "borsh",
+ "bs58",
  "bytesize",
  "cfg-if 1.0.0",
  "chrono",
