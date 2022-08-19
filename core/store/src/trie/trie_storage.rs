@@ -500,7 +500,7 @@ mod trie_cache_tests {
         // Add one of previous values. LRU value should be evicted.
         put_value(&mut cache, &[1, 1, 1]);
         assert_eq!(cache.total_size, 4);
-        assert_eq!(cache.cache.pop_lru(), Some((hash(&[1, /* */ 1]), vec![1].into())));
+        assert_eq!(cache.cache.pop_lru(), Some((hash(&[1]), vec![1].into())));
         assert_eq!(cache.cache.pop_lru(), Some((hash(&[1, 1, 1]), vec![1, 1, 1].into())));
     }
 
@@ -518,5 +518,17 @@ mod trie_cache_tests {
         // Call pop two times for a value existing in cache. Because queue is full, both elements should be deleted.
         assert_eq!(cache.pop(&hash(&[1])), Some((hash(&[1, 1]), vec![1, 1].into())));
         assert_eq!(cache.pop(&hash(&[1])), Some((hash(&[1]), vec![1].into())));
+    }
+
+    #[test]
+    fn test_cache_capacity() {
+        let mut cache = SyncTrieCache::new(2, 100, 100);
+        put_value(&mut cache, &[1]);
+        put_value(&mut cache, &[2]);
+        put_value(&mut cache, &[3]);
+
+        assert!(!cache.cache.contains(&hash(&[1])));
+        assert!(cache.cache.contains(&hash(&[2])));
+        assert!(cache.cache.contains(&hash(&[3])));
     }
 }
