@@ -309,7 +309,12 @@ fn chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without
 fn chunks_recovered_from_others() {
     heavy_test(|| {
         run_actix(async {
-            chunks_produced_and_distributed_common(2, true, true, 4 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS);
+            chunks_produced_and_distributed_common(
+                2,
+                true,
+                true,
+                4 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
+            );
         });
     });
 }
@@ -324,7 +329,12 @@ fn chunks_recovered_from_others() {
 fn chunks_recovered_from_full_timeout_too_short() {
     heavy_test(|| {
         run_actix(async {
-            chunks_produced_and_distributed_common(4, true, true, 2 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS);
+            chunks_produced_and_distributed_common(
+                4,
+                true,
+                true,
+                2 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
+            );
         });
     });
 }
