@@ -1749,13 +1749,6 @@ impl PeerManagerActor {
                 return;
             }
         };
-        let token = match self.state.tier2.start_outbound(msg.peer_info.id.clone()) {
-            Ok(token) => token,
-            Err(err) => {
-                warn!(target: "network", peer_info = ?msg.peer_info, "Cannot start an outbound connection: {err:?}");
-                return;
-            }
-        };
         // The `connect` may take several minutes. This happens when the
         // `SYN` packet for establishing a TCP connection gets silently
         // dropped, in which case the default TCP timeout is applied. That's
@@ -1783,7 +1776,7 @@ impl PeerManagerActor {
                     ctx.address(),
                     stream,
                     Some(OutboundConfig{
-                        token,
+                        peer_id: msg.peer_info.id,
                         is_tier1: false,
                     }),
                 );

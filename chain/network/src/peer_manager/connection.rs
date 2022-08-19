@@ -190,9 +190,11 @@ impl Drop for StartedOutboundToken {
 #[derive(Clone)]
 pub(crate) struct Pool(Arc<ArcMutex<PoolSnapshot>>);
 
-#[derive(Debug)]
+#[derive(thiserror::Error,Debug)]
 pub(crate) enum PoolError {
+    #[error("already connected to this peer")]
     AlreadyConnected,
+    #[error("already started another outbound connection to this peer")]
     AlreadyStartedConnecting,
 }
 

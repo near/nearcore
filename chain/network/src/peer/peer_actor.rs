@@ -165,7 +165,7 @@ pub enum IOError {
 
 #[derive(Debug)]
 pub(crate) struct OutboundConfig {
-    pub token: StartedOutboundToken,
+    pub peer_id: PeerId,
     pub is_tier1: bool,
 }
 
@@ -195,9 +195,9 @@ impl PeerActor {
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
         event_sink: Sink<Event>,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         tracing::debug!(target:"dupa", "starting PeerActor {} -> {outbound_config:?}",my_node_info.id);
-        PeerActor {
+        Ok(PeerActor {
             clock,
             my_node_info,
             peer_addr,
@@ -206,13 +206,20 @@ impl PeerActor {
                 None => PeerType::Inbound,
             },
             handshake_spec: outbound_config.as_ref().map(|cfg| HandshakeSpec {
-                partial_edge_info: network_state.propose_edge(cfg.token.peer_id(),None),
+                partial_edge_info: network_state.propose_edge(&cfg.peer_id,None),
                 protocol_version: PROTOCOL_VERSION,
-                peer_id: cfg.token.peer_id().clone(),
+                peer_id: cfg.peer_id.clone(),
                 genesis_id: network_state.genesis_id.clone(),
                 is_tier1: cfg.is_tier1,
             }),
-            peer_status: PeerStatus::Connecting(outbound_config.map(|cfg|cfg.token)),
+            peer_status: PeerStatus::Connecting(match outbound_config {
+                None => None,
+                Some(cfg) => Some(if cfg.is_tier1 {
+                    network_state.tier1.start_outbound(cfg.peer_id)?
+                } else {
+                    network_state.tier2.start_outbound(cfg.peer_id)?
+                }),
+            }),
             framed,
             handshake_timeout,
             peer_manager_addr,
@@ -228,7 +235,7 @@ impl PeerActor {
             peer_info: None.into(),
             network_state,
             event_sink,
-        }
+        })
     }
 
     // Determines the encoding to use for communication with the peer.
