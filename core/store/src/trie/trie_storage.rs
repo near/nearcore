@@ -472,13 +472,27 @@ mod bounded_queue_tests {
     }
 }
 
-// #[cfg(test)]
-// mod trie_cache_tests {
-//     use crate::trie::trie_storage::SyncTrieCache;
-//
-//     #[test]
-//     fn test_put_pop() {
-//         let mut queue = SyncTrieCache::new()
-//         assert_eq!(queue.put(1), None);
-//     }
-// }
+#[cfg(test)]
+mod trie_cache_tests {
+    use crate::trie::trie_storage::SyncTrieCache;
+    use near_primitives::hash::hash;
+
+    fn put_value(cache: &mut SyncTrieCache, value: &[u8]) {
+        cache.put(hash(value), value.into());
+    }
+
+    #[test]
+    fn test_size_limit() {
+        let mut cache = SyncTrieCache::new(100, 100, 5);
+        put_value(&mut cache, &[1, 1]);
+        assert_eq!(cache.total_size, 2);
+        put_value(&mut cache, &[1, 1, 1]);
+        assert_eq!(cache.total_size, 5);
+        put_value(&mut cache, &[1]);
+        assert_eq!(cache.total_size, 6);
+        put_value(&mut cache, &[1, 1]);
+        assert_eq!(cache.total_size, 6);
+        put_value(&mut cache, &[2]);
+        assert_eq!(cache.total_size, 4);
+    }
+}
