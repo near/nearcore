@@ -290,9 +290,9 @@ const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: u64 = 1;
 
 /// Capacity for the deletions queue.
 #[cfg(feature = "cache")]
-pub const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize = 100_000;
+const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize = 100_000;
 #[cfg(feature = "no_cache")]
-pub const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize = 1;
+const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize = 1;
 
 /// Values above this size (in bytes) are never cached.
 /// Note that most of Trie inner nodes are smaller than this - e.g. branches use around 32 * 16 = 512 bytes.
