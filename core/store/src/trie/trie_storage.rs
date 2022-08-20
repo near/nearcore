@@ -112,6 +112,7 @@ impl SyncTrieCache {
                     Some(value) => {
                         metrics::SHARD_CACHE_POP_HITS.with_label_values(&metrics_labels).inc();
                         self.total_size -= value.len() as u64;
+                        continue;
                     }
                     None => {}
                 },
