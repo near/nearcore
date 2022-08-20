@@ -324,7 +324,7 @@ const TRIE_DEFAULT_SHARD_CACHE_SIZE: usize = 50000;
 const TRIE_DEFAULT_SHARD_CACHE_SIZE: usize = 1;
 
 #[cfg(not(feature = "no_cache"))]
-const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: u64 = 50_000_000; // consider 4_500_000_000
+const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: u64 = 3_000_000_000;
 #[cfg(feature = "no_cache")]
 const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: u64 = 1;
 
