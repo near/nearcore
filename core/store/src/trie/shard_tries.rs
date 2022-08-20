@@ -119,7 +119,8 @@ impl ShardTries {
                 .or_insert_with(|| self.0.trie_cache_factory.create_cache(&shard_uid, is_view))
                 .clone()
         };
-        let storage = Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid));
+        let storage =
+            Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid, is_view));
         let flat_state = {
             #[cfg(feature = "protocol_feature_flat_state")]
             if use_flat_state {

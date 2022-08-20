@@ -330,6 +330,7 @@ pub(crate) const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 1000;
 pub struct TrieCachingStorage {
     pub(crate) store: Store,
     pub(crate) shard_uid: ShardUId,
+    is_view: bool,
 
     /// Caches ever requested items for the shard `shard_uid`. Used to speed up DB operations, presence of any item is
     /// not guaranteed.
@@ -351,10 +352,16 @@ pub struct TrieCachingStorage {
 }
 
 impl TrieCachingStorage {
-    pub fn new(store: Store, shard_cache: TrieCache, shard_uid: ShardUId) -> TrieCachingStorage {
+    pub fn new(
+        store: Store,
+        shard_cache: TrieCache,
+        shard_uid: ShardUId,
+        is_view: bool,
+    ) -> TrieCachingStorage {
         TrieCachingStorage {
             store,
             shard_uid,
+            is_view,
             shard_cache,
             cache_mode: Cell::new(TrieCacheMode::CachingShard),
             chunk_cache: RefCell::new(Default::default()),
@@ -400,15 +407,12 @@ impl TrieCachingStorage {
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
-
         let metrics_labels: [&str; 2] =
-            [&format!("{}", self.shard_uid.shard_id), &format!("{}", guard.is_view as u8)];
+            [&format!("{}", self.shard_uid.shard_id), &format!("{}", self.is_view as u8)];
+
         metrics::CHUNK_CACHE_SIZE
             .with_label_values(&metrics_labels)
             .set(self.chunk_cache.borrow().len() as i64);
-        metrics::SHARD_CACHE_SIZE.with_label_values(&metrics_labels).set(guard.len() as i64);
-
         // Try to get value from chunk cache containing nodes with cheaper access. We can do it for any `TrieCacheMode`,
         // because we charge for reading nodes only when `CachingChunk` mode is enabled anyway.
         if let Some(val) = self.chunk_cache.borrow_mut().get(hash) {
@@ -419,6 +423,8 @@ impl TrieStorage for TrieCachingStorage {
         metrics::CHUNK_CACHE_MISSES.with_label_values(&metrics_labels).inc();
 
         // Try to get value from shard cache containing most recently touched nodes.
+        let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
+        metrics::SHARD_CACHE_SIZE.with_label_values(&metrics_labels).set(guard.len() as i64);
         let val = match guard.get(hash) {
             Some(val) => {
                 metrics::SHARD_CACHE_HITS.with_label_values(&metrics_labels).inc();
