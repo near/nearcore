@@ -41,6 +41,10 @@ impl<T> BoundedQueue<T> {
             None
         }
     }
+
+    pub(crate) fn len(&self) -> usize {
+        self.queue.len()
+    }
 }
 
 /// In-memory cache for trie items - nodes and values. All nodes are stored in the LRU cache with three modifications.
@@ -99,26 +103,34 @@ impl SyncTrieCache {
     }
 
     pub(crate) fn put(&mut self, key: CryptoHash, value: Arc<[u8]>) {
-        while self.total_size > self.total_size_limit {
-            let evicted_value = match self.deletions.pop() {
-                // First, try to evict value using the key from deletions queue.
-                Some(key) => self.cache.pop(&key),
-                // Second, pop LRU value.
-                None => Some(
-                    self.cache.pop_lru().expect("Cannot fail because total size capacity is > 0").1,
-                ),
-            };
-            match evicted_value {
-                Some(value) => {
-                    self.total_size -= value.len() as u64;
+        let metrics_labels: [&str; 2] =
+            [&format!("{}", self.shard_id), &format!("{}", self.is_view as u8)];
+        while self.total_size > self.total_size_limit || self.cache.len() == self.cache.cap() {
+            // First, try to evict value using the key from deletions queue.
+            match self.deletions.pop() {
+                Some(key) => match self.cache.pop(&key) {
+                    Some(value) => {
+                        metrics::SHARD_CACHE_POP_HITS.with_label_values(&metrics_labels).inc();
+                        self.total_size -= value.len() as u64;
+                    }
+                    None => {}
+                },
+                None => {
+                    metrics::SHARD_CACHE_POP_MISSES.with_label_values(&metrics_labels).inc();
                 }
-                None => {}
-            };
+            }
+
+            // Second, pop LRU value.
+            let (_, value) =
+                self.cache.pop_lru().expect("Cannot fail because total size capacity is > 0");
+            self.total_size -= value.len() as u64;
         }
+
         // Add value to the cache.
         self.total_size += value.len() as u64;
         match self.cache.push(key, value) {
             Some((_, evicted_value)) => {
+                // TODO: warn that it should never happen
                 self.total_size -= evicted_value.len() as u64;
             }
             None => {}
@@ -128,20 +140,30 @@ impl SyncTrieCache {
     // Adds key to the deletions queue if it is present in cache.
     // Returns key-value pair which are popped if deletions queue is full.
     pub(crate) fn pop(&mut self, key: &CryptoHash) -> Option<(CryptoHash, Arc<[u8]>)> {
+        let metrics_labels: [&str; 2] =
+            [&format!("{}", self.shard_id), &format!("{}", self.is_view as u8)];
+        metrics::SHARD_CACHE_DELETIONS_SIZE
+            .with_label_values(&metrics_labels)
+            .set(self.deletions.len() as i64);
         // Do nothing if key was removed before.
         if self.cache.contains(key) {
             // Put key to the queue of deletions and possibly remove another key we have to delete.
             match self.deletions.put(key.clone()) {
                 Some(key_to_delete) => match self.cache.pop(&key_to_delete) {
                     Some(evicted_value) => {
+                        metrics::SHARD_CACHE_POP_HITS.with_label_values(&metrics_labels).inc();
                         self.total_size -= evicted_value.len() as u64;
                         Some((key_to_delete, evicted_value))
                     }
-                    None => None,
+                    None => {
+                        metrics::SHARD_CACHE_POP_MISSES.with_label_values(&metrics_labels).inc();
+                        None
+                    }
                 },
                 None => None,
             }
         } else {
+            metrics::SHARD_CACHE_GC_POP_MISSES.with_label_values(&metrics_labels).inc();
             None
         }
     }
@@ -178,34 +200,23 @@ impl TrieCache {
         self.0.lock().expect(POISONED_LOCK_ERR).clear()
     }
 
-    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<&Vec<u8>>)>, shard_uid: ShardUId) {
-        let shard_id_str = format!("{}", shard_uid.shard_id);
-        let labels: [&str; 1] = [&shard_id_str];
-
+    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<&Vec<u8>>)>) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
+        let metrics_labels: [&str; 2] =
+            [&format!("{}", guard.shard_id), &format!("{}", guard.is_view as u8)];
         for (hash, opt_value_rc) in ops {
             if let Some(value_rc) = opt_value_rc {
                 if let (Some(value), _rc) = decode_value_with_rc(&value_rc) {
                     if value.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
                         guard.put(hash, value.into());
                     } else {
-                        metrics::SHARD_CACHE_TOO_LARGE.with_label_values(&labels).inc();
+                        metrics::SHARD_CACHE_TOO_LARGE.with_label_values(&metrics_labels).inc();
                     }
                 } else {
-                    match guard.pop(&hash) {
-                        Some(_) => {
-                            metrics::SHARD_CACHE_POPS.with_label_values(&labels).inc();
-                        }
-                        _ => {}
-                    };
+                    guard.pop(&hash);
                 }
             } else {
-                match guard.pop(&hash) {
-                    Some(_) => {
-                        metrics::SHARD_CACHE_POPS.with_label_values(&labels).inc();
-                    }
-                    _ => {}
-                };
+                guard.pop(&hash);
             }
         }
     }

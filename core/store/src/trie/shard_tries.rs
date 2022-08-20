@@ -21,7 +21,7 @@ use near_primitives::state_record::is_delayed_receipt_key;
 use crate::flat_state::FlatState;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
-use crate::{DBCol, DBOp, DBTransaction};
+use crate::{metrics, DBCol, DBOp, DBTransaction};
 use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 
 /// Responsible for creation of trie caches, stores necessary configuration for it.
@@ -184,7 +184,7 @@ impl ShardTries {
                 .entry(shard_uid)
                 .or_insert_with(|| self.0.trie_cache_factory.create_cache(&shard_uid, false))
                 .clone();
-            cache.update_cache(ops, shard_uid);
+            cache.update_cache(ops);
         }
         Ok(())
     }
@@ -243,6 +243,9 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
+        metrics::APPLIED_TRIE_INSERTIONS
+            .with_label_values(&[&format!("{}", shard_uid.shard_id)])
+            .inc_by(trie_changes.insertions.len() as u64);
         self.apply_insertions_inner(&trie_changes.insertions, shard_uid, store_update)
     }
 
@@ -252,6 +255,9 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
+        metrics::APPLIED_TRIE_DELETIONS
+            .with_label_values(&[&format!("{}", shard_uid.shard_id)])
+            .inc_by(trie_changes.deletions.len() as u64);
         self.apply_deletions_inner(&trie_changes.deletions, shard_uid, store_update)
     }
 
