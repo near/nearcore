@@ -101,20 +101,34 @@ impl Serialize for CryptoHash {
     }
 }
 
+/// Serde visitor for [`CryptoHash`].
+///
+/// The visitor expects a string which is then base58-decoded into a crypto
+/// hash.
+struct Visitor;
+
+impl<'de> serde::de::Visitor<'de> for Visitor {
+    type Value = CryptoHash;
+
+    fn expecting(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt.write_str("base58-encoded 256-bit hash")
+    }
+
+    fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<Self::Value, E> {
+        match CryptoHash::from_base58_impl(s) {
+            Decode58Result::Ok(result) => Ok(result),
+            Decode58Result::BadLength => Err(E::invalid_length(s.len(), &self)),
+            Decode58Result::Err(err) => Err(E::custom(err)),
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for CryptoHash {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
     where
         D: Deserializer<'de>,
     {
-        use serde::de::Error;
-        let encoded = <&str>::deserialize(deserializer)?;
-        match CryptoHash::from_base58_impl(encoded) {
-            Decode58Result::Ok(result) => Ok(result),
-            Decode58Result::BadLength => {
-                Err(D::Error::invalid_length(encoded.len(), &"base58-encoded 32-byte hash"))
-            }
-            Decode58Result::Err(err) => Err(D::Error::custom(err)),
-        }
+        deserializer.deserialize_str(Visitor)
     }
 }
 
