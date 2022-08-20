@@ -240,6 +240,12 @@ external crates. The surprise factor for derivations sharing a name with the sta
 library traits (`Display`) is reduced and it also acts as natural mechanism to tell apart names
 prone to collision (`Serialize`), all without needing to look up the list of imports.
 
+## Standard Naming
+
+Use `-` rather than `_` in crate names and in corresponding folder names.
+
+**Rationale:** Consistency.
+
 ## Documentation
 
 When writing documentation in `.md` files, wrap lines at approximately 80
