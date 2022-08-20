@@ -102,7 +102,7 @@ impl Default for StoreConfig {
             // we use it since then.
             block_size: bytesize::ByteSize::kib(16),
 
-            trie_cache_capacities: Default::default(),
+            trie_cache_capacities: vec![(ShardUId { version: 1, shard_id: 3 }, 2_000_000)],
         }
     }
 }
