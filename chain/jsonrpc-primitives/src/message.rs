@@ -10,9 +10,7 @@
 //! The main entrypoint here is the [Message](enum.Message.html). The others are just building
 //! blocks and you should generally work with `Message` instead.
 
-use std::fmt::{Formatter, Result as FmtResult};
-
-use serde::de::{Deserializer, Error, Unexpected, Visitor};
+use serde::de::{Deserializer, Error, Unexpected};
 use serde::ser::{SerializeStruct, Serializer};
 use serde::{Deserialize, Serialize};
 use serde_json::{Result as JsonResult, Value};
@@ -31,22 +29,10 @@ impl Serialize for Version {
 
 impl<'de> Deserialize<'de> for Version {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct VersionVisitor;
-        impl<'de> Visitor<'de> for VersionVisitor {
-            type Value = Version;
-
-            fn expecting(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-                formatter.write_str("a version string")
-            }
-
-            fn visit_str<E: Error>(self, value: &str) -> Result<Version, E> {
-                match value {
-                    "2.0" => Ok(Version),
-                    _ => Err(E::invalid_value(Unexpected::Str(value), &"value 2.0")),
-                }
-            }
+        match <&str>::deserialize(deserializer)? {
+            "2.0" => Ok(Version),
+            value => Err(D::Error::invalid_value(Unexpected::Str(value), &"a string \"2.0\"")),
         }
-        deserializer.deserialize_str(VersionVisitor)
     }
 }
 
