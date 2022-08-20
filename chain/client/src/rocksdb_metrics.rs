@@ -35,8 +35,7 @@ pub(crate) struct RocksDBMetrics {
 
 /// Returns column's name as name in the DBCol enum without '_' prefix for deprecated columns.
 fn col_verbose_name(col: near_store::DBCol) -> &'static str {
-    let name: &str = col.into();
-    name.strip_prefix("_").unwrap_or(name)
+    <&str>::from(col)
 }
 
 impl RocksDBMetrics {

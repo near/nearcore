@@ -688,10 +688,7 @@ fn col_name(col: DBCol) -> &'static str {
         // If you’re adding a new column, do *not* create a new case for it.
         // All new columns are handled by this default case:
         #[allow(unreachable_patterns)]
-        _ => {
-            let name = <&str>::from(col);
-            name.strip_prefix("_").unwrap_or(name)
-        }
+        _ => <&str>::from(col),
     }
 }
 

@@ -11,10 +11,11 @@ use std::fmt;
 /// name of the RocksDB column families.  As such, it is *not* safe to rename
 /// a variant.
 ///
-/// The only exception is adding an underscore at the beginning of the name.
-/// Underscore is a prefix indicating that the column has been deprecated.
-/// Deprecated columns are not used except for the database migration code which
-/// needs to deal with the deprecation.
+/// The only exception is adding an underscore at the beginning of the name to
+/// indicate that the column has been deprecated.  Deprecated columns are not
+/// used except for the database migration code which needs to deal with the
+/// deprecation.  Make sure to add `#[strum(serialize = "OriginalName")]`
+/// attribute in front of the variant when you deprecate a column.
 #[derive(
     PartialEq,
     Copy,
@@ -145,8 +146,10 @@ pub enum DBCol {
     /// - *Content type*: Shard Id || ref_count (u64 || u64)
     ReceiptIdToShardId,
     // Deprecated.
+    #[strum(serialize = "NextBlockWithNewChunk")]
     _NextBlockWithNewChunk,
     // Deprecated.
+    #[strum(serialize = "LastBlockWithNewChunk")]
     _LastBlockWithNewChunk,
     /// Network storage:
     ///   When given edge is removed (or we didn't get any ping from it for a while), we remove it from our 'in memory'
@@ -221,6 +224,7 @@ pub enum DBCol {
     /// - *Column type*: Vec <OutcomeId (CryptoHash)>
     OutcomeIds,
     /// Deprecated
+    #[strum(serialize = "TransactionRefCount")]
     _TransactionRefCount,
     /// Heights of blocks that have been processed.
     /// - *Rows*: height (u64)
