@@ -73,6 +73,9 @@ pub struct Client {
     pub adv_produce_blocks: bool,
     #[cfg(feature = "test_features")]
     pub adv_produce_blocks_only_valid: bool,
+    /// Controls the height which is broadcasted to other peers.
+    #[cfg(feature = "test_features")]
+    pub adv_sync_height: Option<BlockHeight>,
 
     /// Fast Forward accrued delta height used to calculate fast forwarded timestamps for each block.
     #[cfg(feature = "sandbox")]
@@ -220,6 +223,8 @@ impl Client {
             adv_produce_blocks: false,
             #[cfg(feature = "test_features")]
             adv_produce_blocks_only_valid: false,
+            #[cfg(feature = "test_features")]
+            adv_sync_height: None,
             #[cfg(feature = "sandbox")]
             accrued_fastforward_delta: 0,
             config,
@@ -2032,7 +2037,7 @@ impl Client {
     /// send_network_chain_info() call site would be ugly (we just log the error).
     /// In theory we should already have the tip at the call-site, eg from
     /// check_And_update_doomslug_tip, but that would require a bigger refactor.
-    fn send_network_chain_info(&mut self) -> Result<(), Error> {
+    pub(crate) fn send_network_chain_info(&mut self) -> Result<(), Error> {
         let tip = self.chain.head()?;
         // convert config tracked shards
         // runtime will track all shards if config tracked shards is not empty
@@ -2044,8 +2049,11 @@ impl Client {
             (0..num_shards).collect()
         };
         let tier1_accounts = self.get_tier1_accounts(&tip)?;
+        let height = tip.height;
+        #[cfg(feature = "test_features")]
+        let height = self.adv_sync_height.unwrap_or(height);
         self.network_adapter.do_send(SetChainInfo(ChainInfo {
-            height: tip.height,
+            height,
             tracked_shards,
             tier1_accounts,
         }));

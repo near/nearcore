@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.62.1"
+rust-version = "1.63.0"
 edition = "2021"
 default-run = "neard"
 
@@ -70,6 +70,7 @@ nightly_protocol = ["nearcore/nightly_protocol"]
 # Shardnet is the experimental network that we deploy for chunk-only producer testing.
 shardnet = [
   "near-primitives/shardnet",
+  "nearcore/shardnet",
 ]
 
 # Compile with option to emit a detailed trace of IO operations and their

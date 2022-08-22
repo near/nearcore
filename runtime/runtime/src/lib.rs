@@ -1165,7 +1165,6 @@ impl Runtime {
         .entered();
 
         let trie = Rc::new(trie);
-        let initial_state = TrieUpdate::new(trie.clone());
         let mut state_update = TrieUpdate::new(trie.clone());
 
         let mut stats = ApplyStats::default();
@@ -1339,7 +1338,6 @@ impl Runtime {
 
         check_balance(
             &apply_state.config.transaction_costs,
-            &initial_state,
             &state_update,
             validator_accounts_update,
             incoming_receipts,
@@ -1437,6 +1435,19 @@ impl Runtime {
     ) -> HashMap<AccountId, u64> {
         let mut storage_computer = StorageComputer::new(config);
         storage_computer.process_records(records);
+        storage_computer.finalize()
+    }
+
+    /// Compute the expected storage per account for genesis records.
+    pub fn compute_genesis_storage_usage(
+        &self,
+        genesis: &Genesis,
+        config: &RuntimeConfig,
+    ) -> HashMap<AccountId, u64> {
+        let mut storage_computer = StorageComputer::new(config);
+        genesis.for_each_record(|record| {
+            storage_computer.process_record(record);
+        });
         storage_computer.finalize()
     }
 

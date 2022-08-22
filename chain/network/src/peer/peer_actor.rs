@@ -273,6 +273,7 @@ impl PeerActor {
         self.tracker.lock().increment_sent(&self.clock, bytes.len() as u64);
         let bytes_len = bytes.len();
         tracing::trace!(target: "network", msg_len = bytes_len);
+        metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
         if !self.framed.write(bytes) {
             #[cfg(feature = "performance_stats")]
             let tid = near_rust_allocator_proxy::get_tid();
@@ -330,8 +331,14 @@ impl PeerActor {
 
     fn receive_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
         if msg.is_view_client_message() {
+            metrics::PEER_VIEW_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL
+                .with_label_values(&[msg.msg_variant()])
+                .inc();
             self.receive_view_client_message(ctx, msg);
         } else if msg.is_client_message() {
+            metrics::PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL
+                .with_label_values(&[msg.msg_variant()])
+                .inc();
             self.receive_client_message(ctx, msg);
         } else {
             debug_assert!(false, "expected (view) client message, got: {}", msg.msg_variant());
@@ -353,8 +360,12 @@ impl PeerActor {
                     RoutedMessageBody::TxStatusResponse(tx_result) => {
                         NetworkViewClientMessages::TxStatusResponse(Box::new(tx_result))
                     }
-                    RoutedMessageBody::ReceiptOutcomeRequest(receipt_id) => {
-                        NetworkViewClientMessages::ReceiptOutcomeRequest(receipt_id)
+                    RoutedMessageBody::ReceiptOutcomeRequest(_receipt_id) => {
+                        // Silently ignore for the time being.  We’ve been still
+                        // sending those messages at protocol version 56 so we
+                        // need to wait until 59 before we can remove the
+                        // variant completely.
+                        return;
                     }
                     RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
                         NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash }
@@ -444,13 +455,9 @@ impl PeerActor {
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
         let _span = tracing::trace_span!(target: "network", "receive_client_message").entered();
-        metrics::PEER_CLIENT_MESSAGE_RECEIVED_TOTAL.inc();
         let peer_id =
             if let Some(peer_id) = self.other_peer_id() { peer_id.clone() } else { return };
 
-        metrics::PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL
-            .with_label_values(&[msg.msg_variant()])
-            .inc();
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
@@ -519,12 +526,12 @@ impl PeerActor {
                     | RoutedMessageBody::Pong(_)
                     | RoutedMessageBody::TxStatusRequest(_, _)
                     | RoutedMessageBody::TxStatusResponse(_)
-                    | RoutedMessageBody::_UnusedQueryRequest { .. }
-                    | RoutedMessageBody::_UnusedQueryResponse { .. }
+                    | RoutedMessageBody::_UnusedQueryRequest
+                    | RoutedMessageBody::_UnusedQueryResponse
                     | RoutedMessageBody::ReceiptOutcomeRequest(_)
+                    | RoutedMessageBody::_UnusedReceiptOutcomeResponse
                     | RoutedMessageBody::StateRequestHeader(_, _)
-                    | RoutedMessageBody::StateRequestPart(_, _, _)
-                    | RoutedMessageBody::Unused => {
+                    | RoutedMessageBody::StateRequestPart(_, _, _) => {
                         error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", routed_message);
                         return;
                     }

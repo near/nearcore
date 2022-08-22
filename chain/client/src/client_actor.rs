@@ -250,6 +250,8 @@ impl Actor for ClientActor {
 
         // Start catchup job.
         self.catchup(ctx);
+
+        self.client.send_network_chain_info().unwrap();
     }
 }
 
@@ -339,6 +341,12 @@ impl ClientActor {
                         chain_store_update.commit().expect("adv method should not fail");
                         NetworkClientResponses::NoResponse
                     }
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvSetSyncInfo(height) => {
+                        info!(target: "adversary", %height, "AdvSetSyncInfo");
+                        self.client.adv_sync_height = Some(height);
+                        self.client.send_network_chain_info().expect("adv method should not fail");
+                        NetworkClientResponses::NoResponse
+                    }
                     near_network_primitives::types::NetworkAdversarialMessage::AdvGetSavedBlocks => {
                         info!(target: "adversary", "Requested number of saved blocks");
                         let store = self.client.chain.store().store();
@@ -370,7 +378,6 @@ impl ClientActor {
                             NetworkClientResponses::AdvResult(store_validator.tests_done())
                         }
                     }
-                    _ => panic!("invalid adversary message"),
                 };
             }
             NetworkClientMessages::Transaction { transaction, is_forwarded, check_only } => {
@@ -1643,7 +1650,7 @@ impl ClientActor {
                 {
                     unwrap_or_run_later!(self.client.block_sync.run(
                         &mut self.client.sync_status,
-                        &mut self.client.chain,
+                        &self.client.chain,
                         highest_height,
                         &self.network_info.highest_height_peers
                     ))

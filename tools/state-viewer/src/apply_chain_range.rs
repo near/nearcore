@@ -288,8 +288,8 @@ fn apply_block_from_range(
 
     let state_update =
         runtime_adapter.get_tries().new_trie_update(shard_uid, *chunk_extra.state_root());
-    let delayed_indices =
-        get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
+    let delayed_indices: Option<DelayedReceiptIndices> =
+        get(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
 
     match existing_chunk_extra {
         Some(existing_chunk_extra) => {

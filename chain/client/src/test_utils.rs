@@ -158,7 +158,7 @@ impl Client {
     /// This function finishes processing block with hash `hash`, if the procesing of that block
     /// has started.
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
-        if let Ok(_) = wait_for_block_in_processing(&mut self.chain, hash) {
+        if let Ok(()) = wait_for_block_in_processing(&mut self.chain, hash) {
             let (accepted_blocks, errors) = self.postprocess_ready_blocks(Arc::new(|_| {}), true);
             assert!(errors.is_empty());
             return accepted_blocks;
@@ -1012,8 +1012,7 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::ForwardTx(_, _)
                         | NetworkRequests::BanPeer { .. }
                         | NetworkRequests::TxStatus(_, _, _)
-                        | NetworkRequests::Challenge(_)
-                        | NetworkRequests::ReceiptOutComeRequest(_, _) => {}
+                        | NetworkRequests::Challenge(_) => {}
                     };
                 }
                 resp

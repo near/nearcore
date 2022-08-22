@@ -344,24 +344,15 @@ pub struct OrphanMissingChunks {
     pub ancestor_hash: CryptoHash,
 }
 
-/// Provides view on the current chain state
-/// Both Chain and ChainUpdate implement this trait,
-/// to avoid duplicate functions
-pub trait ChainAccess {
-    fn orphans(&self) -> &OrphanBlockPool;
-    fn blocks_with_missing_chunks(&self) -> &MissingChunksPool<Orphan>;
-    fn chain_store(&self) -> &dyn ChainStoreAccess;
-}
-
 /// Check if block header is known
 /// Returns Err(Error) if any error occurs when checking store
 ///         Ok(Err(BlockKnownError)) if the block header is known
 ///         Ok(Ok()) otherwise
 pub fn check_header_known(
-    chain: &dyn ChainAccess,
+    chain: &Chain,
     header: &BlockHeader,
 ) -> Result<Result<(), BlockKnownError>, Error> {
-    let header_head = chain.chain_store().header_head()?;
+    let header_head = chain.store().header_head()?;
     if header.hash() == &header_head.last_block_hash
         || header.hash() == &header_head.prev_block_hash
     {
@@ -375,10 +366,10 @@ pub fn check_header_known(
 ///         Ok(Err(BlockKnownError)) if the block is in the store
 ///         Ok(Ok()) otherwise
 fn check_known_store(
-    chain: &dyn ChainAccess,
+    chain: &Chain,
     block_hash: &CryptoHash,
 ) -> Result<Result<(), BlockKnownError>, Error> {
-    if chain.chain_store().block_exists(block_hash)? {
+    if chain.store().block_exists(block_hash)? {
         Ok(Err(BlockKnownError::KnownInStore))
     } else {
         // Not yet processed this block, we can proceed.
@@ -391,19 +382,19 @@ fn check_known_store(
 ///         Ok(Err(BlockKnownError)) if the block is known
 ///         Ok(Ok()) otherwise
 pub fn check_known(
-    chain: &dyn ChainAccess,
+    chain: &Chain,
     block_hash: &CryptoHash,
 ) -> Result<Result<(), BlockKnownError>, Error> {
-    let head = chain.chain_store().head()?;
+    let head = chain.store().head()?;
     // Quick in-memory check for fast-reject any block handled recently.
     if block_hash == &head.last_block_hash || block_hash == &head.prev_block_hash {
         return Ok(Err(BlockKnownError::KnownInHead));
     }
     // Check if this block is in the set of known orphans.
-    if chain.orphans().contains(block_hash) {
+    if chain.orphans.contains(block_hash) {
         return Ok(Err(BlockKnownError::KnownInOrphan));
     }
-    if chain.blocks_with_missing_chunks().contains(block_hash) {
+    if chain.blocks_with_missing_chunks.contains(block_hash) {
         return Ok(Err(BlockKnownError::KnownInMissingChunks));
     }
     check_known_store(chain, block_hash)
@@ -450,20 +441,6 @@ pub struct Chain {
     /// was empty and could not hold any records (which it cannot).  It’s
     /// impossible to have non-empty state patch on non-sandbox builds.
     pending_state_patch: SandboxStatePatch,
-}
-
-impl ChainAccess for Chain {
-    fn orphans(&self) -> &OrphanBlockPool {
-        &self.orphans
-    }
-
-    fn blocks_with_missing_chunks(&self) -> &MissingChunksPool<Orphan> {
-        &self.blocks_with_missing_chunks
-    }
-
-    fn chain_store(&self) -> &dyn ChainStoreAccess {
-        &self.store
-    }
 }
 
 impl Drop for Chain {
@@ -3741,8 +3718,6 @@ impl Chain {
         ChainUpdate::new(
             &mut self.store,
             self.runtime_adapter.clone(),
-            &self.orphans,
-            &self.blocks_with_missing_chunks,
             self.doomslug_threshold_mode,
             self.transaction_validity_period,
         )
@@ -4316,25 +4291,9 @@ impl Chain {
 pub struct ChainUpdate<'a> {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a>,
-    orphans: &'a OrphanBlockPool,
-    blocks_with_missing_chunks: &'a MissingChunksPool<Orphan>,
     doomslug_threshold_mode: DoomslugThresholdMode,
     #[allow(unused)]
     transaction_validity_period: BlockHeightDelta,
-}
-
-impl<'a> ChainAccess for ChainUpdate<'a> {
-    fn orphans(&self) -> &'a OrphanBlockPool {
-        &self.orphans
-    }
-
-    fn blocks_with_missing_chunks(&self) -> &'a MissingChunksPool<Orphan> {
-        &self.blocks_with_missing_chunks
-    }
-
-    fn chain_store(&self) -> &dyn ChainStoreAccess {
-        &self.chain_store_update
-    }
 }
 
 pub struct SameHeightResult {
@@ -4366,16 +4325,12 @@ impl<'a> ChainUpdate<'a> {
     pub fn new(
         store: &'a mut ChainStore,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-        orphans: &'a OrphanBlockPool,
-        blocks_with_missing_chunks: &'a MissingChunksPool<Orphan>,
         doomslug_threshold_mode: DoomslugThresholdMode,
         transaction_validity_period: BlockHeightDelta,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
         Self::new_impl(
             runtime_adapter,
-            orphans,
-            blocks_with_missing_chunks,
             doomslug_threshold_mode,
             transaction_validity_period,
             chain_store_update,
@@ -4384,8 +4339,6 @@ impl<'a> ChainUpdate<'a> {
 
     fn new_impl(
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-        orphans: &'a OrphanBlockPool,
-        blocks_with_missing_chunks: &'a MissingChunksPool<Orphan>,
         doomslug_threshold_mode: DoomslugThresholdMode,
         transaction_validity_period: BlockHeightDelta,
         chain_store_update: ChainStoreUpdate<'a>,
@@ -4393,8 +4346,6 @@ impl<'a> ChainUpdate<'a> {
         ChainUpdate {
             runtime_adapter,
             chain_store_update,
-            orphans,
-            blocks_with_missing_chunks,
             doomslug_threshold_mode,
             transaction_validity_period,
         }
