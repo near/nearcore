@@ -95,6 +95,9 @@ impl TransactionBuilder {
         self.accounts[account_index].clone()
     }
     pub(crate) fn random_unused_account(&mut self) -> AccountId {
+        if self.used_accounts.len() == self.accounts.len() {
+            panic!("All accounts used. Try running with a higher value for the parameter `--accounts-num <NUM>`.")
+        }
         loop {
             let account = self.random_account();
             if self.used_accounts.insert(account.clone()) {

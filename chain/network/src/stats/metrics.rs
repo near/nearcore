@@ -100,18 +100,20 @@ pub(crate) static PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Laz
     )
     .unwrap()
 });
-pub(crate) static PEER_CLIENT_MESSAGE_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter(
-        "near_peer_client_message_received_total",
-        "Number of messages for client received from peers",
-    )
-    .unwrap()
-});
 pub(crate) static PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> =
     Lazy::new(|| {
         try_create_int_counter_vec(
             "near_peer_client_message_received_by_type_total",
             "Number of messages for client received from peers, by message types",
+            &["type"],
+        )
+        .unwrap()
+    });
+pub(crate) static PEER_VIEW_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> =
+    Lazy::new(|| {
+        try_create_int_counter_vec(
+            "near_peer_view_client_message_received_by_type_total",
+            "Number of messages for view client received from peers, by message types",
             &["type"],
         )
         .unwrap()
@@ -168,7 +170,33 @@ pub(crate) static PEER_UNRELIABLE: Lazy<IntGauge> = Lazy::new(|| {
     )
     .unwrap()
 });
-
+pub(crate) static PEER_MANAGER_TRIGGER_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_peer_manager_trigger_time",
+        "Time that PeerManagerActor spends on different types of triggers",
+        &["trigger"],
+        Some(exponential_buckets(0.0001, 2., 15).unwrap()),
+    )
+    .unwrap()
+});
+pub(crate) static PEER_MANAGER_MESSAGES_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_peer_manager_messages_time",
+        "Time that PeerManagerActor spends on handling different types of messages",
+        &["message"],
+        Some(exponential_buckets(0.0001, 2., 15).unwrap()),
+    )
+    .unwrap()
+});
+pub(crate) static ROUTING_TABLE_MESSAGES_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_routing_actor_messages_time",
+        "Time that routing table actor spends on handling different types of messages",
+        &["message"],
+        Some(exponential_buckets(0.0001, 2., 15).unwrap()),
+    )
+    .unwrap()
+});
 pub(crate) static PEER_REACHABLE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_peer_reachable",

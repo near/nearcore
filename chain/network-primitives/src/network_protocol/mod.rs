@@ -198,8 +198,15 @@ pub enum RoutedMessageBody {
     /// Not used, but needed for borsh backward compatibility.
     _UnusedQueryResponse,
 
+    /// Not used any longer and ignored when received.
+    ///
+    /// We’ve been still sending those messages at protocol version 56 so we
+    /// need to wait until 59 before we can remove the variant completely.
+    /// Until then we need to be able to decode those messages (even though we
+    /// will ignore them).
     ReceiptOutcomeRequest(CryptoHash),
-    /// Not used, but needed for borsh backward compatibility.
+
+    /// Not used, but needed to borsh backward compatibility.
     _UnusedReceiptOutcomeResponse,
 
     StateRequestHeader(ShardId, CryptoHash),
@@ -263,7 +270,7 @@ impl Debug for RoutedMessageBody {
             RoutedMessageBody::_UnusedQueryRequest => write!(f, "QueryRequest"),
             RoutedMessageBody::_UnusedQueryResponse => write!(f, "QueryResponse"),
             RoutedMessageBody::ReceiptOutcomeRequest(hash) => write!(f, "ReceiptRequest({})", hash),
-            RoutedMessageBody::_UnusedReceiptOutcomeResponse => write!(f, "ReceiptOutcomeResponse"),
+            RoutedMessageBody::_UnusedReceiptOutcomeResponse => write!(f, "ReceiptResponse"),
             RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
                 write!(f, "StateRequestHeader({}, {})", shard_id, sync_hash)
             }
