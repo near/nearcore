@@ -843,7 +843,6 @@ impl PeerManagerActor {
         stream: TcpStream,
         peer_type: PeerType,
         peer_info: Option<PeerInfo>,
-        partial_edge_info: Option<PartialEdgeInfo>,
     ) {
         let my_peer_id = self.my_peer_id.clone();
         let account_id = self.config.validator.as_ref().map(|v| v.account_id());
@@ -901,7 +900,6 @@ impl PeerManagerActor {
                 FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
                 recipient.clone().recipient(),
                 recipient.clone().recipient(),
-                partial_edge_info,
                 peer_counter,
                 rate_limiter,
                 None,
@@ -1675,7 +1673,7 @@ impl PeerManagerActor {
                 .map(|addr| self.is_ip_whitelisted(&addr.ip()))
                 .unwrap_or(false)
         {
-            self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
+            self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None);
         } else {
             // TODO(1896): Gracefully drop inbound connection for other peer.
             debug!(target: "network", "Inbound connection dropped (network at max capacity).");
@@ -1701,14 +1699,11 @@ impl PeerManagerActor {
                     Ok(res) => match res {
                         Ok(stream) => {
                             debug!(target: "network", peer_info = ?msg.peer_info, "Connecting");
-                            let edge_info = act.state.propose_edge(&msg.peer_info.id, None);
-
                             act.try_connect_peer(
                                 ctx.address(),
                                 stream,
                                 PeerType::Outbound,
                                 Some(msg.peer_info),
-                                Some(edge_info),
                             );
                             actix::fut::ready(())
                         }

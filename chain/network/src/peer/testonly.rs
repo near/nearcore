@@ -272,9 +272,6 @@ impl PeerHandle {
                     FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
                     fpm.clone().recipient(),
                     fpm.clone().recipient(),
-                    cfg.start_handshake_with
-                        .as_ref()
-                        .map(|id| cfg.partial_edge_info(id, cfg.nonce.unwrap_or(1))),
                     Arc::new(AtomicUsize::new(0)),
                     rate_limiter,
                     cfg.force_encoding,
