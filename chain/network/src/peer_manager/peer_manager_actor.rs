@@ -693,12 +693,7 @@ impl PeerManagerActor {
         self.event_sink.push(Event::PeerRegistered(peer_info));
     }
 
-    fn sync_after_handshake(
-        &self,
-        peer: Arc<Connection>,
-        ctx: &mut Context<Self>,
-        new_edge: Edge,
-    ) {
+    fn sync_after_handshake(&self, peer: Arc<Connection>, ctx: &mut Context<Self>, new_edge: Edge) {
         let run_later_span = tracing::trace_span!(target: "network", "sync_after_handshake");
         // The full sync is delayed, so that handshake is completed before the sync starts.
         near_performance_metrics::actix::run_later(
@@ -725,11 +720,9 @@ impl PeerManagerActor {
                 if peer.peer_type == PeerType::Outbound {
                     // Only broadcast new message from the outbound endpoint.
                     // Wait a time out before broadcasting this new edge to let the other party finish handshake.
-                    act.state.tier2.broadcast_message(Arc::new(
-                        PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(vec![
-                            new_edge,
-                        ])),
-                    ));
+                    act.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                        RoutingTableUpdate::from_edges(vec![new_edge]),
+                    )));
                 }
             },
         );
@@ -758,11 +751,9 @@ impl PeerManagerActor {
             if edge.edge_type() == EdgeState::Active {
                 let edge_update = edge.remove_edge(self.my_peer_id.clone(), &self.config.node_key);
                 self.add_verified_edges_to_routing_table(vec![edge_update.clone()]);
-                self.state.tier2.broadcast_message(Arc::new(
-                    PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(vec![
-                        edge_update,
-                    ])),
-                ));
+                self.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                    RoutingTableUpdate::from_edges(vec![edge_update]),
+                )));
             }
         }
     }
@@ -917,8 +908,7 @@ impl PeerManagerActor {
     }
 
     fn is_inbound_allowed(&self) -> bool {
-        self.state.tier2.read().len() + self.outgoing_peers.len()
-            < self.max_num_peers as usize
+        self.state.tier2.read().len() + self.outgoing_peers.len() < self.max_num_peers as usize
             && !self.config.inbound_disabled
     }
 
@@ -944,8 +934,7 @@ impl PeerManagerActor {
 
     /// Returns peers close to the highest height
     fn highest_height_peers(&self) -> Vec<FullPeerInfo> {
-        let infos: Vec<_> =
-            self.state.tier2.read().values().map(|p| p.full_peer_info()).collect();
+        let infos: Vec<_> = self.state.tier2.read().values().map(|p| p.full_peer_info()).collect();
 
         // This finds max height among peers, and returns one peer close to such height.
         let max_height = match infos.iter().map(|i| i.chain_info.height).max() {
@@ -991,9 +980,9 @@ impl PeerManagerActor {
                 }
                 // Peer is still not connected after waiting a timeout.
                 let new_edge = edge.remove_edge(act.my_peer_id.clone(), &act.config.node_key);
-                act.state.tier2.broadcast_message(Arc::new(
-                    PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(vec![new_edge])),
-                ));
+                act.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                    RoutingTableUpdate::from_edges(vec![new_edge]),
+                )));
             },
         );
     }
@@ -1073,9 +1062,7 @@ impl PeerManagerActor {
 
         // If there is not enough non-whitelisted peers, return without disconnecting anyone.
         let whitelisted_peers = filter_peers(&|p| self.is_peer_whitelisted(&p.peer_info));
-        if tier2.len() - whitelisted_peers.len()
-            <= self.config.ideal_connections_hi as usize
-        {
+        if tier2.len() - whitelisted_peers.len() <= self.config.ideal_connections_hi as usize {
             return;
         }
         // Add whitelisted nodes to the safe set.
@@ -1402,10 +1389,7 @@ impl PeerManagerActor {
             num_connected_peers: tier2.len(),
             peer_max_count: self.max_num_peers,
             highest_height_peers: self.highest_height_peers(),
-            sent_bytes_per_sec: tier2
-                .values()
-                .map(|x| x.stats.load().sent_bytes_per_sec)
-                .sum(),
+            sent_bytes_per_sec: tier2.values().map(|x| x.stats.load().sent_bytes_per_sec).sum(),
             received_bytes_per_sec: tier2
                 .values()
                 .map(|x| x.stats.load().received_bytes_per_sec)
@@ -1472,10 +1456,7 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BlockRequest { hash, peer_id } => {
-                if self
-                    .state
-                    .tier2
-                    .send_message(peer_id, Arc::new(PeerMessage::BlockRequest(hash)))
+                if self.state.tier2.send_message(peer_id, Arc::new(PeerMessage::BlockRequest(hash)))
                 {
                     NetworkResponses::NoResponse
                 } else {
@@ -1659,9 +1640,7 @@ impl PeerManagerActor {
             }
             NetworkRequests::Challenge(challenge) => {
                 // TODO(illia): smarter routing?
-                self.state
-                    .tier2
-                    .broadcast_message(Arc::new(PeerMessage::Challenge(challenge)));
+                self.state.tier2.broadcast_message(Arc::new(PeerMessage::Challenge(challenge)));
                 NetworkResponses::NoResponse
             }
         }
