@@ -209,7 +209,12 @@ impl NetworkState {
         PartialEdgeInfo::new(&self.config.node_id(), peer1, nonce, &self.config.node_key)
     }
 
-    pub fn tier1_daemon_tick(&self, cfg: &config::Tier1) {
+    pub async fn tier1_daemon_tick(
+        self: &Arc<Self>,
+        clock: &time::Clock, 
+        peer_manager_addr: Addr<PeerManagerActor>,
+        cfg: &config::Tier1,
+    ) {
         let accounts_data = self.accounts_data.load();
         // Check if our node is currently a TIER1 validator.
         // If so, it should establish TIER1 connections.
@@ -280,14 +285,13 @@ impl NetworkState {
                 }
                 // Start a new connection to one of the proxies of the account A, if
                 // we are not already connected/connecting to any proxy of A.
-                if let Some(_peer_addr) = peers.choose(&mut rng) {
+                if let Some(peer_addr) = peers.choose(&mut rng) {
                     new_connections += 1;
-                    /*let token = state.tier1.start_outbound(peer_addr.peer_id.clone());
-                    // TODO: direct call here.
-                    ctx.notify(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect {
-                        peer_addr,
-                        tier1: true,
-                    }));*/
+                    self.clone().try_connect_to(clock.clone(),peer_manager_addr.clone(),PeerInfo{
+                        id: peer_addr.peer_id.clone(),
+                        addr: Some(peer_addr.addr),
+                        account_id: None,
+                    },true).await;
                 }
             }
         }
@@ -322,13 +326,13 @@ impl NetworkState {
             ctx,
             peer_cfg,
             peer_manager_addr.clone().recipient(),
-            peer_manager_addr.clone().recipient(),
         ));
     }
 
     pub async fn try_connect_to(self:Arc<Self>, clock: time::Clock, 
         peer_manager_addr: Addr<PeerManagerActor>,
         peer_info: PeerInfo,
+        is_tier1: bool,
     ) {
         let addr = match peer_info.addr {
             Some(addr) => addr,
@@ -363,7 +367,7 @@ impl NetworkState {
             stream,
             StreamConfig::Outbound {
                 peer_id: peer_info.id,
-                is_tier1: false,
+                is_tier1,
             },
         );
     }
@@ -478,7 +482,9 @@ impl Actor for PeerManagerActor {
 
         if let Some(cfg) = self.state.config.features.tier1.clone() {
             // TIER1 daemon, which closes/initiates TIER1 connections.
+            let clock = self.clock.clone();
             let state = self.state.clone();
+            let self_addr = ctx.address();
             ctx.spawn(async move {
                 let mut interval = tokio::time::interval(
                     cfg.daemon_tick_interval.try_into().unwrap(),
@@ -486,7 +492,7 @@ impl Actor for PeerManagerActor {
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
                     interval.tick().await;
-                    state.tier1_daemon_tick(&cfg);
+                    state.tier1_daemon_tick(&clock,self_addr.clone(),&cfg).await;
                 } 
             }.into_actor(self));
         }
@@ -1809,7 +1815,7 @@ impl PeerManagerActor {
             }
             // TEST-ONLY
             PeerManagerMessageRequest::OutboundTcpConnect(msg) => {
-                ctx.spawn(self.state.clone().try_connect_to(self.clock.clone(),ctx.address(),msg.peer_info).into_actor(self));
+                ctx.spawn(self.state.clone().try_connect_to(self.clock.clone(),ctx.address(),msg.peer_info,/*is_tier1=*/false).into_actor(self));
                 PeerManagerMessageResponse::OutboundTcpConnect
             }
             // TEST-ONLY

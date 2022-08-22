@@ -30,8 +30,7 @@ use near_network_primitives::types::{
     PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType, ReasonForBan,
     RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
 };
-use near_rate_limiter::{
-    ActixMessageWrapper, ThrottleController, ThrottleFramedRead,
+use near_rate_limiter::{ThrottleController, ThrottleFramedRead,
 };
 use near_network_primitives::types::{Edge,PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
@@ -101,7 +100,6 @@ pub(crate) struct PeerActor {
     /// to inject a fake PeerManager in tests, we need a separate
     /// recipient address for each message type.
     peer_manager_addr: Recipient<PeerToManagerMsg>,
-    peer_manager_wrapper_addr: Recipient<ActixMessageWrapper<PeerToManagerMsg>>,
     /// Tracker for requests and responses.
     tracker: Arc<Mutex<Tracker>>,
      
@@ -204,7 +202,6 @@ impl PeerActor {
         ctx: &mut <PeerActor as actix::Actor>::Context,
         cfg: Config,
         peer_manager_addr: Recipient<PeerToManagerMsg>,
-        peer_manager_wrapper_addr: Recipient<ActixMessageWrapper<PeerToManagerMsg>>,
     ) -> PeerActor {
         let my_node_info = PeerInfo {
             id: cfg.network_state.config.node_id(),
@@ -247,7 +244,6 @@ impl PeerActor {
             
             framed: FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
             peer_manager_addr,
-            peer_manager_wrapper_addr,
             tracker: Default::default(),
             routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
             throttle_controller: rate_limiter,
@@ -1104,11 +1100,9 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
             }
             (PeerStatus::Ready, PeerMessage::PeersRequest) => {
-                self.peer_manager_wrapper_addr.send(ActixMessageWrapper::new_without_size(PeerToManagerMsg::PeersRequest(PeersRequest {}),
-                                                                     Some(self.throttle_controller.clone()),
-
-                )).into_actor(self).then(|res, act, _ctx| {
-                    if let Ok(peers) = res.map(|f|f.into_inner().unwrap_peers_request_result()) {
+                self.peer_manager_addr.send(PeerToManagerMsg::PeersRequest(PeersRequest {}))
+                .into_actor(self).then(|res, act, _ctx| {
+                    if let Ok(peers) = res.map(|f|f.unwrap_peers_request_result()) {
                         if !peers.peers.is_empty() {
                             debug!(target: "network", "Peers request from {}: sending {} peers.", act.peer_info, peers.peers.len());
                             act.send_message_or_log(&PeerMessage::PeersResponse(peers.peers));
@@ -1119,11 +1113,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             }
             (PeerStatus::Ready, PeerMessage::PeersResponse(peers)) => {
                 debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
-                let _ =
-                    self.peer_manager_wrapper_addr.do_send(ActixMessageWrapper::new_without_size(
-                        PeerToManagerMsg::PeersResponse(PeersResponse { peers }),
-                        Some(self.throttle_controller.clone()),
-                    ));
+                self.peer_manager_addr.do_send(PeerToManagerMsg::PeersResponse(PeersResponse { peers }));
             }
             (PeerStatus::Ready, PeerMessage::RequestUpdateNonce(edge_info)) => self
                 .peer_manager_addr
@@ -1160,14 +1150,10 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 })
                 .spawn(ctx),
             (PeerStatus::Ready, PeerMessage::SyncRoutingTable(routing_table_update)) => {
-                let _ =
-                    self.peer_manager_wrapper_addr.do_send(ActixMessageWrapper::new_without_size(
-                        PeerToManagerMsg::SyncRoutingTable {
-                            peer_id: self.other_peer_id().unwrap().clone(),
-                            routing_table_update,
-                        },
-                        Some(self.throttle_controller.clone()),
-                    ));
+                self.peer_manager_addr.do_send(PeerToManagerMsg::SyncRoutingTable {
+                    peer_id: self.other_peer_id().unwrap().clone(),
+                    routing_table_update,
+                });
             }
             (PeerStatus::Ready, PeerMessage::SyncAccountsData(msg)) => {
                 let peer_id = self.other_peer_id().unwrap().clone();
@@ -1229,18 +1215,15 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 if !routed_message.verify() {
                     self.ban_peer(ctx, ReasonForBan::InvalidSignature);
                 } else {
-                    self.peer_manager_wrapper_addr
-                        .send(ActixMessageWrapper::new_without_size(
-                            PeerToManagerMsg::RoutedMessageFrom(RoutedMessageFrom {
-                                msg: routed_message.clone(),
-                                from: self.other_peer_id().unwrap().clone(),
-                            }),
-                            Some(self.throttle_controller.clone()),
-                        ))
+                    self.peer_manager_addr
+                        .send(PeerToManagerMsg::RoutedMessageFrom(RoutedMessageFrom {
+                            msg: routed_message.clone(),
+                            from: self.other_peer_id().unwrap().clone(),
+                        }))
                         .into_actor(self)
                         .then(move |res, act, ctx| {
                             if res
-                                .map(|f| f.into_inner().unwrap_routed_message_from())
+                                .map(|f| f.unwrap_routed_message_from())
                                 .unwrap_or(false)
                             {
                                 act.receive_message(ctx, PeerMessage::Routed(routed_message));
