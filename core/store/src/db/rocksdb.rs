@@ -16,7 +16,7 @@ use crate::config::Mode;
 use crate::db::{refcount, DBIterator, DBOp, DBTransaction, Database, StatsValue};
 use crate::{metrics, DBCol, StoreConfig, StoreStatistics};
 
-mod instance_counter;
+mod instance_tracker;
 
 /// List of integer RocskDB properties we’re reading when collecting statistics.
 ///
@@ -40,7 +40,7 @@ pub struct RocksDB {
 
     // RAII-style of keeping track of the number of instances of RocksDB and
     // counting total sum of max_open_files.
-    _instance_counter: instance_counter::InstanceCounter,
+    _instance_tracker: instance_tracker::InstanceTracker,
 }
 
 // DB was already Send+Sync. cf and read_options are const pointers using only functions in
@@ -52,7 +52,7 @@ impl RocksDB {
     /// Opens the database either in read only or in read/write mode depending
     /// on the `mode` parameter specified in the store_config.
     pub fn open(path: &Path, store_config: &StoreConfig, mode: Mode) -> io::Result<RocksDB> {
-        let counter = instance_counter::InstanceCounter::try_new(store_config.max_open_files)
+        let counter = instance_tracker::InstanceTracker::try_new(store_config.max_open_files)
             .map_err(other_error)?;
         let (db, db_opt) = Self::open_db(path, store_config, mode)?;
         let cf_handles = Self::get_cf_handles(&db);
@@ -64,7 +64,7 @@ impl RocksDB {
             check_free_space_interval: 256,
             check_free_space_counter: std::sync::atomic::AtomicU16::new(0),
             free_space_threshold: bytesize::ByteSize::mb(16),
-            _instance_counter: counter,
+            _instance_tracker: counter,
         })
     }
 
@@ -412,7 +412,7 @@ fn set_compression_options(opts: &mut Options) {
 impl RocksDB {
     /// Blocks until all RocksDB instances (usually 0 or 1) gracefully shutdown.
     pub fn block_until_all_instances_are_dropped() {
-        instance_counter::block_until_all_instances_are_dropped();
+        instance_tracker::block_until_all_instances_are_dropped();
     }
 
     /// Returns version of the database state on disk.

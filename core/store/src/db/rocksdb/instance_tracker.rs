@@ -5,8 +5,8 @@ use tracing::info;
 
 /// Describes number of RocksDB instances and sum of their max_open_files.
 ///
-/// This is modified by [`InstanceCounter`] which uses RAII to automatically
-/// update the counters when new RocksDB instances are created and dropped.
+/// This is modified by [`InstanceTracker`] which uses RAII to automatically
+/// update the trackers when new RocksDB instances are created and dropped.
 #[derive(Default)]
 struct Inner {
     /// Number of RocksDB instances open.
@@ -84,17 +84,17 @@ pub(super) fn block_until_all_instances_are_dropped() {
     STATE.block_until_all_instances_are_dropped();
 }
 
-/// RAII style object which updates the instance counter stats.
+/// RAII style object which updates the instance tracker stats.
 ///
-/// We’ve seen problems with RocksDB corruptions.  InstanceCounter lets us
+/// We’ve seen problems with RocksDB corruptions.  InstanceTracker lets us
 /// gracefully shutdown the process letting RocksDB to finish all operations and
 /// leaving the instances in a valid non-corrupted state.
-pub(super) struct InstanceCounter {
+pub(super) struct InstanceTracker {
     /// max_open_files configuration of given RocksDB instance.
     max_open_files: u32,
 }
 
-impl InstanceCounter {
+impl InstanceTracker {
     /// Registers a new RocksDB instance and checks if limits are enough for
     /// given max_open_files configuration option.
     ///
@@ -111,7 +111,7 @@ impl InstanceCounter {
     }
 }
 
-impl Drop for InstanceCounter {
+impl Drop for InstanceTracker {
     /// Deregisters a RocksDB instance and frees its reserved NOFILE limit.
     ///
     /// Returns an error if process’ resource limits are too low to allow
