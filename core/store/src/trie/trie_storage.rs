@@ -69,9 +69,9 @@ pub struct SyncTrieCache {
     /// Upper bound for the total size.
     total_size_limit: u64,
     /// Shard id of the nodes being cached.
-    pub shard_id: u32,
+    shard_id: u32,
     /// Whether cache is used for view calls execution.
-    pub is_view: bool,
+    is_view: bool,
 }
 
 impl SyncTrieCache {
@@ -171,6 +171,10 @@ impl SyncTrieCache {
 
     pub fn len(&self) -> usize {
         self.cache.len()
+    }
+
+    pub fn current_total_size(&self) -> u64 {
+        self.total_size
     }
 }
 
@@ -437,6 +441,9 @@ impl TrieStorage for TrieCachingStorage {
         // Try to get value from shard cache containing most recently touched nodes.
         let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
         metrics::SHARD_CACHE_SIZE.with_label_values(&metrics_labels).set(guard.len() as i64);
+        metrics::SHARD_CACHE_CURRENT_TOTAL_SIZE
+            .with_label_values(&metrics_labels)
+            .set(self.shard_cache.0.lock().expect(POISONED_LOCK_ERR).current_total_size() as i64);
         let val = match guard.get(hash) {
             Some(val) => {
                 metrics::SHARD_CACHE_HITS.with_label_values(&metrics_labels).inc();

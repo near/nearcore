@@ -69,6 +69,15 @@ pub static CHUNK_CACHE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
         .unwrap()
 });
 
+pub static SHARD_CACHE_CURRENT_TOTAL_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_shard_cache_current_total_size",
+        "Shard cache current total size",
+        &["shard_id", "is_view"],
+    )
+    .unwrap()
+});
+
 pub static SHARD_CACHE_POP_HITS: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_shard_cache_pop_hits",
