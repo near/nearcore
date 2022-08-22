@@ -33,7 +33,7 @@ async fn repeated_data_in_sync_routing_table() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let pm = peer_manager::testonly::start(
         clock.clock(),
-        create_test_store(),
+        create_test_store().into_inner(),
         chain.make_config(rng),
         chain.clone(),
     )
@@ -110,7 +110,7 @@ async fn no_edge_broadcast_after_restart() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let mut total_edges = vec![];
-    let store = create_test_store();
+    let store = create_test_store().into_inner();
 
     for i in 0..3 {
         println!("iteration {i}");
@@ -186,7 +186,7 @@ async fn test_nonces() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     //let mut total_edges = vec![];
-    let store = create_test_store();
+    let store = create_test_store().into_inner();
 
     // Start a PeerManager and connect a peer to it.
     let pm = peer_manager::testonly::start(
@@ -249,7 +249,7 @@ async fn ttl() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let mut pm = peer_manager::testonly::start(
         clock.clock(),
-        create_test_store(),
+        create_test_store().into_inner(),
         chain.make_config(rng),
         chain.clone(),
     )
@@ -348,7 +348,7 @@ async fn accounts_data_broadcast() {
 
     let mut pm = peer_manager::testonly::start(
         clock.clone(),
-        create_test_store(),
+        create_test_store().into_inner(),
         chain.make_config(rng),
         chain.clone(),
     )
@@ -431,7 +431,7 @@ async fn accounts_data_gradual_epoch_change() {
         pms.push(
             peer_manager::testonly::start(
                 clock.clock(),
-                create_test_store(),
+                create_test_store().into_inner(),
                 chain.make_config(rng),
                 chain.clone(),
             )
@@ -503,8 +503,13 @@ async fn accounts_data_rate_limiting() {
         let mut cfg = chain.make_config(rng);
         cfg.accounts_data_broadcast_rate_limit = demux::RateLimit { qps: 0.5, burst: 1 };
         pms.push(
-            peer_manager::testonly::start(clock.clock(), create_test_store(), cfg, chain.clone())
-                .await,
+            peer_manager::testonly::start(
+                clock.clock(),
+                create_test_store().into_inner(),
+                cfg,
+                chain.clone(),
+            )
+            .await,
         );
     }
     // Construct a 4-layer bipartite graph.

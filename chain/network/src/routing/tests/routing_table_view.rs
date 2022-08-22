@@ -14,8 +14,7 @@ fn find_route() {
     let mut rng = make_rng(385305732);
     let clock = time::FakeClock::default();
     let rng = &mut rng;
-    let store = create_test_store();
-    let store = store::Store::from(&store);
+    let store = store::Store::from(create_test_store());
 
     // Create a sample NextHopTable.
     let peers: Vec<_> = (0..10).map(|_| data::make_peer_id(rng)).collect();

@@ -288,7 +288,7 @@ pub fn start_with_config_and_synchronization(
         let view_client = view_client.clone();
         move |_ctx| {
             PeerManagerActor::new(
-                store,
+                store.into_inner(),
                 config.network_config,
                 client_actor.recipient(),
                 view_client.recipient(),

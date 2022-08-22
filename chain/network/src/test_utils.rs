@@ -313,7 +313,6 @@ pub mod test_features {
     use actix::Actor;
     use near_network_primitives::types::{NetworkViewClientMessages, NetworkViewClientResponses};
     use near_primitives::block::GenesisId;
-    use near_store::Store;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
@@ -324,7 +323,7 @@ pub mod test_features {
 
     // Make peer manager for unit tests
     pub fn make_peer_manager(
-        store: Store,
+        store: Arc<dyn near_store::db::Database>,
         mut config: config::NetworkConfig,
         boot_nodes: Vec<(&str, u16)>,
         peer_max_count: u32,

@@ -36,8 +36,6 @@ fn genesis_hash(chain_id: &str) -> CryptoHash {
 }
 
 pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<Arc<Network>> {
-    let store = create_test_store();
-
     let network_adapter = Arc::new(NetworkRecipient::default());
     let network = Network::new(&config, network_adapter.clone(), qps_limit);
     let client_actor = FakeClientActor::start_in_arbiter(&Arbiter::new().handle(), {
@@ -47,7 +45,7 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
 
     let network_actor = PeerManagerActor::start_in_arbiter(&Arbiter::new().handle(), move |_ctx| {
         PeerManagerActor::new(
-            store,
+            create_test_store().into_inner(),
             config.network_config,
             client_actor.clone().recipient(),
             client_actor.clone().recipient(),

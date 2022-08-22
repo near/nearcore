@@ -5,6 +5,7 @@ use near_network_primitives::types::{Edge, KnownPeerState};
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use std::collections::HashSet;
+use std::sync::Arc;
 use tracing::debug;
 
 mod schema;
@@ -146,12 +147,12 @@ impl Store {
 
 impl From<near_store::Store> for Store {
     fn from(store: near_store::Store) -> Self {
-        Self(schema::Store::new(store.into_inner()))
+        Self(schema::Store::from(store.into_inner()))
     }
 }
 
-impl From<&near_store::Store> for Store {
-    fn from(store: &near_store::Store) -> Self {
-        Self::from(store.clone())
+impl From<Arc<dyn near_store::db::Database>> for Store {
+    fn from(store: Arc<dyn near_store::db::Database>) -> Self {
+        Self(schema::Store::from(store))
     }
 }

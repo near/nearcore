@@ -25,7 +25,6 @@ type ClientMock = Mocker<ClientActor>;
 type ViewClientMock = Mocker<ViewClientActor>;
 
 fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> PeerManagerActor {
-    let store = create_test_store();
     let mut config = config::NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
     let client_addr = ClientMock::mock(Box::new(move |_msg, _ctx| {
@@ -37,7 +36,7 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
     }))
     .start();
     PeerManagerActor::new(
-        store,
+        create_test_store().into_inner(),
         config,
         client_addr.recipient(),
         view_client_addr.recipient(),
