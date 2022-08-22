@@ -857,8 +857,13 @@ pub fn init_configs(
     match chain_id.as_ref() {
         "mainnet" => {
             if test_seed.is_some() {
-                bail!("Test seed is not supported for MainNet");
+                bail!("Test seed is not supported for {chain_id}");
             }
+
+            // Make sure node tracks all shards, see
+            // https://github.com/near/nearcore/issues/7388
+            config.tracked_shards = vec![0];
+
             config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
             config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
@@ -874,8 +879,13 @@ pub fn init_configs(
         }
         "testnet" | "betanet" | "shardnet" => {
             if test_seed.is_some() {
-                bail!("Test seed is not supported for official testnet");
+                bail!("Test seed is not supported for {chain_id}");
             }
+
+            // Make sure node tracks all shards, see
+            // https://github.com/near/nearcore/issues/7388
+            config.tracked_shards = vec![0];
+
             config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
             config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
@@ -1240,20 +1250,21 @@ pub fn load_config(
         format!("Failed reading node key file from {}", node_key_path.display())
     })?;
 
-    let genesis_records_file = config.genesis_records_file.clone();
-    NearConfig::new(
-        config,
-        match genesis_records_file {
-            Some(genesis_records_file) => Genesis::from_files(
-                &genesis_file,
-                &dir.join(genesis_records_file),
-                genesis_validation,
-            ),
-            None => Genesis::from_file(&genesis_file, genesis_validation),
-        },
-        network_signer.into(),
-        validator_signer,
-    )
+    let genesis = match &config.genesis_records_file {
+        Some(records_file) => {
+            Genesis::from_files(&genesis_file, &dir.join(records_file), genesis_validation)
+        }
+        None => Genesis::from_file(&genesis_file, genesis_validation),
+    };
+
+    if matches!(genesis.config.chain_id.as_ref(), "mainnet" | "testnet" | "betanet" | "shardnet") {
+        // Make sure validators tracks all shards, see
+        // https://github.com/near/nearcore/issues/7388
+        anyhow::ensure!(!config.tracked_shards.is_empty(),
+                        "Validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
+    }
+
+    NearConfig::new(config, genesis, network_signer.into(), validator_signer)
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
