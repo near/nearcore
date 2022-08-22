@@ -2,7 +2,7 @@ use crate::accounts_data;
 use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::{AccountData, SyncAccountsData};
-use crate::peer::codec::Codec;
+use crate::peer::peer_actor;
 use crate::peer::peer_actor::{Event as PeerEvent, PeerActor, OutboundConfig};
 use crate::peer_manager::connection::{Connection, Pool, PoolError};
 use crate::peer_manager::peer_store::PeerStore;
@@ -25,7 +25,7 @@ use crate::types::{
 use rand::seq::SliceRandom;
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
-    Recipient, Running, StreamHandler, WrapFuture,
+    Recipient, Running, WrapFuture,
 };
 use anyhow::bail;
 use anyhow::Context as _;
@@ -39,14 +39,13 @@ use near_network_primitives::types::{
     RoutedMessageFrom, RoutedMessageV2, StateResponseInfo,
 };
 use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
-use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{AccountId, EpochId};
 use near_rate_limiter::{
-    ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleFramedRead,
+    ActixMessageResponse, ActixMessageWrapper, ThrottleController,
     ThrottleToken,
 };
 use parking_lot::RwLock;
@@ -59,7 +58,6 @@ use std::ops::Sub;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
-use tokio_stream::StreamExt;
 use tracing::{debug, error, info, trace, warn, Instrument};
 
 /// How often to request peers from active peers.
@@ -91,12 +89,6 @@ const UPDATE_ROUTING_TABLE_INTERVAL: time::Duration = time::Duration::millisecon
 const REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL: time::Duration =
     time::Duration::milliseconds(60_000);
 
-/// Max number of messages we received from peer, and they are in progress, before we start throttling.
-/// Disabled for now (TODO PUT UNDER FEATURE FLAG)
-const MAX_MESSAGES_COUNT: usize = usize::MAX;
-/// Max total size of all messages that are in progress, before we start throttling.
-/// Disabled for now (TODO PUT UNDER FEATURE FLAG)
-const MAX_MESSAGES_TOTAL_SIZE: usize = usize::MAX;
 /// If we received more than `REPORT_BANDWIDTH_THRESHOLD_BYTES` of data from given peer it's bandwidth stats will be reported.
 const REPORT_BANDWIDTH_THRESHOLD_BYTES: usize = 10_000_000;
 /// If we received more than REPORT_BANDWIDTH_THRESHOLD_COUNT` of messages from given peer it's bandwidth stats will be reported.
@@ -896,78 +888,36 @@ impl PeerManagerActor {
         &self,
         recipient: Addr<Self>,
         stream: TcpStream,
-        outbound_handshake: Option<OutboundConfig>,
+        outbound_cfg: Option<OutboundConfig>,
     ) {
-        let my_peer_id = self.my_peer_id.clone();
-        let account_id = self.config.validator.as_ref().map(|v| v.account_id());
-        let server_addr = self.config.node_addr;
-        let handshake_timeout = self.config.handshake_timeout;
-
-        let server_addr = match server_addr {
-            Some(server_addr) => server_addr,
-            // TODO(gprusak): this code pretends that the TCP connection port is the port
-            // on which this node is listening. Fix that.
-            None => match stream.local_addr() {
-                Ok(server_addr) => server_addr,
-                _ => {
-                    warn!(target: "network", "Cannot resolve the TcpStream local address");
-                    return;
-                }
-            },
-        };
-
-        let remote_addr = match stream.peer_addr() {
-            Ok(remote_addr) => remote_addr,
-            _ => {
-                warn!(target: "network", "Cannot resolve the TcpStream peer address");
+        // Start every peer actor on separate thread.
+        let arbiter = Arbiter::new();
+        let peer_cfg = match peer_actor::Config::new(
+            outbound_cfg,
+            stream,
+            None,
+            self.state.clone(),
+        ) {
+            Ok(cfg) => cfg,
+            Err(err) => {
+                warn!("peer_actor::Config::new(): {err}");
                 return;
             }
         };
-
-        let txns_since_last_block = Arc::clone(&self.txns_since_last_block);
-
-        // Start every peer actor on separate thread.
-        let arbiter = Arbiter::new();
-        let peer_counter = self.peer_counter.clone();
-        peer_counter.fetch_add(1, Ordering::SeqCst);
         let clock = self.clock.clone();
-        let state = self.state.clone();
+        let txns_since_last_block = self.txns_since_last_block.clone();
+        let peer_counter = self.peer_counter.clone();
         let event_sink = self.event_sink.clone();
-        PeerActor::start_in_arbiter(&arbiter.handle(), move |ctx| {
-            let (read, write) = tokio::io::split(stream);
-
-            // TODO: check if peer is banned or known based on IP address and port.
-            let rate_limiter = ThrottleController::new(MAX_MESSAGES_COUNT, MAX_MESSAGES_TOTAL_SIZE);
-            PeerActor::add_stream(
-                ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone()).map_while(
-                    |x| match x {
-                        Ok(x) => Some(x),
-                        Err(err) => {
-                            warn!(target: "network", ?err, "Peer stream error");
-                            None
-                        }
-                    },
-                ),
-                ctx,
-            );
-
-            PeerActor::new(
-                clock,
-                PeerInfo { id: my_peer_id, addr: Some(server_addr), account_id },
-                remote_addr,
-                outbound_handshake,
-                FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
-                handshake_timeout,
-                recipient.clone().recipient(),
-                recipient.clone().recipient(),
-                txns_since_last_block,
-                peer_counter,
-                rate_limiter,
-                None,
-                state,
-                event_sink.compose(Event::Peer),
-            )
-        });
+        PeerActor::start_in_arbiter(&arbiter.handle(), move |ctx| PeerActor::new(
+            clock,
+            ctx,
+            peer_cfg,
+            txns_since_last_block,
+            peer_counter,
+            recipient.clone().recipient(),
+            recipient.clone().recipient(),
+            event_sink.compose(Event::Peer),
+        ));
     }
 
     /// Check if it is needed to create a new outbound connection.

@@ -1,4 +1,5 @@
 use crate::accounts_data;
+use anyhow::{Context as _};
 use crate::concurrency::demux;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
@@ -11,6 +12,7 @@ use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::private_actix::{
     PeersRequest, RegisterPeer, RegisterPeerResponse, SendMessage, Unregister,
 };
+use tokio_stream::StreamExt;
 use crate::routing::edge::{verify_nonce};
 use crate::sink::Sink;
 use crate::stats::metrics;
@@ -29,6 +31,9 @@ use near_network_primitives::types::{
     PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType, ReasonForBan,
     RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
 };
+use near_rate_limiter::{
+    ActixMessageWrapper, ThrottleController, ThrottleFramedRead,
+};
 use near_network_primitives::types::{Edge,PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
@@ -40,7 +45,6 @@ use near_primitives::block::GenesisId;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
-use near_rate_limiter::{ActixMessageWrapper, ThrottleController};
 use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::io;
@@ -51,6 +55,13 @@ use std::sync::Arc;
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+/// Max number of messages we received from peer, and they are in progress, before we start throttling.
+/// Disabled for now (TODO PUT UNDER FEATURE FLAG)
+const MAX_MESSAGES_COUNT: usize = usize::MAX;
+/// Max total size of all messages that are in progress, before we start throttling.
+/// Disabled for now (TODO PUT UNDER FEATURE FLAG)
+const MAX_MESSAGES_TOTAL_SIZE: usize = usize::MAX;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
@@ -108,9 +119,6 @@ pub(crate) struct PeerActor {
     
     /// Framed wrapper to send messages through the TCP connection.
     framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
-    
-    /// Handshake timeout.
-    handshake_timeout: time::Duration,
     
     /// Peer manager recipient to break the dependency loop.
     /// PeerManager is a recipient of 2 types of messages, therefore
@@ -178,64 +186,105 @@ struct HandshakeSpec {
     partial_edge_info: PartialEdgeInfo,
 }
 
-impl PeerActor {
+pub struct Config {
+    peer_addr: SocketAddr,
+    stream: tokio::net::TcpStream,
+    outbound: Option<OutboundConfig>,
+    peer_status: PeerStatus,
+    network_state: Arc<NetworkState>,
+    force_encoding: Option<Encoding>,
+}
+
+impl Config {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
-        clock: time::Clock,
-        my_node_info: PeerInfo,
-        peer_addr: SocketAddr,
-        outbound_config: Option<OutboundConfig>,
-        framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
-        handshake_timeout: time::Duration,
-        peer_manager_addr: Recipient<PeerToManagerMsg>,
-        peer_manager_wrapper_addr: Recipient<ActixMessageWrapper<PeerToManagerMsg>>,
-        txns_since_last_block: Arc<AtomicUsize>,
-        peer_counter: Arc<AtomicUsize>,
-        throttle_controller: ThrottleController,
+        outbound: Option<OutboundConfig>,
+        stream: tokio::net::TcpStream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
-        event_sink: Sink<Event>,
     ) -> anyhow::Result<Self> {
-        tracing::debug!(target:"dupa", "starting PeerActor {} -> {outbound_config:?}",my_node_info.id);
-        Ok(PeerActor {
+        Ok(Self {
+            peer_addr: stream.peer_addr().context("stream.peer_addr()")?, 
+            peer_status: PeerStatus::Connecting(match &outbound {
+                None => None,
+                Some(cfg) => Some(if cfg.is_tier1 {
+                    network_state.tier1.start_outbound(cfg.peer_id.clone()).context("tier1.start_outbound()")?
+                } else {
+                    network_state.tier2.start_outbound(cfg.peer_id.clone()).context("tier2.start_outbound()")?
+                }),
+            }),
+            stream,
+            outbound,
+            network_state,
+            force_encoding,
+        })
+    }
+}
+
+impl PeerActor {
+    pub fn new(
+        clock: time::Clock,
+        ctx: &mut <PeerActor as actix::Actor>::Context,
+        cfg: Config,
+        txns_since_last_block: Arc<AtomicUsize>,
+        peer_counter: Arc<AtomicUsize>,
+        peer_manager_addr: Recipient<PeerToManagerMsg>,
+        peer_manager_wrapper_addr: Recipient<ActixMessageWrapper<PeerToManagerMsg>>,
+        event_sink: Sink<Event>,
+    ) -> PeerActor {
+        peer_counter.fetch_add(1, Ordering::SeqCst);
+        let my_node_info = PeerInfo {
+            id: cfg.network_state.config.node_id(),
+            addr: cfg.network_state.config.node_addr.clone(),
+            account_id: cfg.network_state.config.validator.as_ref().map(|v| v.account_id()),
+        };
+        tracing::debug!(target:"dupa", "starting PeerActor {} -> {:?}",my_node_info.id,cfg.outbound);
+        let (read, write) = tokio::io::split(cfg.stream);
+        let rate_limiter = ThrottleController::new(MAX_MESSAGES_COUNT, MAX_MESSAGES_TOTAL_SIZE);
+        PeerActor::add_stream(
+            ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone()).map_while(
+                |x| match x {
+                    Ok(x) => Some(x),
+                    Err(err) => {
+                        warn!(target: "network", ?err, "Peer stream error");
+                        None
+                    }
+                },
+            ),
+            ctx,
+        );
+        PeerActor {
             clock,
             my_node_info,
-            peer_addr,
-            peer_type: match outbound_config {
+            peer_addr: cfg.peer_addr,
+            peer_status: cfg.peer_status,
+            peer_type: match cfg.outbound {
                 Some(_) => PeerType::Outbound,
                 None => PeerType::Inbound,
             },
-            handshake_spec: outbound_config.as_ref().map(|cfg| HandshakeSpec {
-                partial_edge_info: network_state.propose_edge(&cfg.peer_id,None),
+            handshake_spec: cfg.outbound.as_ref().map(|oc| HandshakeSpec {
+                partial_edge_info: cfg.network_state.propose_edge(&oc.peer_id,None),
                 protocol_version: PROTOCOL_VERSION,
-                peer_id: cfg.peer_id.clone(),
-                genesis_id: network_state.genesis_id.clone(),
-                is_tier1: cfg.is_tier1,
+                peer_id: oc.peer_id.clone(),
+                genesis_id: cfg.network_state.genesis_id.clone(),
+                is_tier1: oc.is_tier1,
             }),
-            peer_status: PeerStatus::Connecting(match outbound_config {
-                None => None,
-                Some(cfg) => Some(if cfg.is_tier1 {
-                    network_state.tier1.start_outbound(cfg.peer_id)?
-                } else {
-                    network_state.tier2.start_outbound(cfg.peer_id)?
-                }),
-            }),
-            framed,
-            handshake_timeout,
+            
+            framed: FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
             peer_manager_addr,
             peer_manager_wrapper_addr,
             tracker: Default::default(),
             txns_since_last_block,
             peer_counter,
             routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
-            throttle_controller,
+            throttle_controller: rate_limiter,
             protocol_buffers_supported: false,
-            force_encoding,
+            force_encoding: cfg.force_encoding,
             connection_state: None,
             peer_info: None.into(),
-            network_state,
+            network_state: cfg.network_state,
             event_sink,
-        })
+        }
     }
 
     // Determines the encoding to use for communication with the peer.
@@ -664,7 +713,7 @@ impl Actor for PeerActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            self.handshake_timeout.try_into().unwrap(),
+            self.network_state.config.handshake_timeout.try_into().unwrap(),
             move |act, ctx| {
                 match &act.peer_status {
                     PeerStatus::Connecting(_) => {
