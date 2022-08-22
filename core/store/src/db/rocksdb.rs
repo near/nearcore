@@ -148,7 +148,7 @@ impl RocksDB {
         }
         cf_handles.map(|col, ptr| {
             ptr.unwrap_or_else(|| {
-                panic!("Missing cf handle for {}", col.variant_name());
+                panic!("Missing cf handle for {col}");
             })
         })
     }
