@@ -4,7 +4,7 @@ use crate::concurrency::demux;
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
-use crate::peer_manager::connected_peers::{ConnectedPeer, Stats};
+use crate::peer_manager::connection::{Connection, Stats};
 use crate::peer_manager::peer_manager_actor::NetworkState;
 use crate::private_actix::PeersResponse;
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
@@ -130,7 +130,7 @@ pub(crate) struct PeerActor {
     force_encoding: Option<Encoding>,
 
     /// Shared state of the connection. Populated once the connection is established.
-    connection_state: Option<Arc<ConnectedPeer>>,
+    connection_state: Option<Arc<Connection>>,
     /// Shared state of the network module.
     network_state: Arc<NetworkState>,
 
@@ -861,7 +861,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         .map(|port| SocketAddr::new(self.peer_addr.ip(), port)),
                     account_id: None,
                 };
-                let connection_state = Arc::new(ConnectedPeer {
+                let connection_state = Arc::new(Connection {
                     addr: ctx.address(),
                     peer_info: peer_info.clone(),
                     initial_chain_info: handshake.sender_chain_info.clone(),
@@ -919,7 +919,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                                 // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
                                 //  network traffic that flags honest peers.
                                 // Send ban signal to peer instance. It should send ban signal back and stop the instance.
-                                // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
+                                // if let Some(connected_peer) = act.tier2.get(&peer_id1) {
                                 //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
                                 // }
                             }
@@ -1102,7 +1102,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     // datasets. See accounts_data::Cache documentation for details.
                     if new_data.len() > 0 {
                         let handles: Vec<_> = pms
-                            .connected_peers
+                            .tier2
                             .read()
                             .values()
                             // Do not send the data back.
