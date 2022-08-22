@@ -143,8 +143,8 @@ fn ensure_max_open_files_limit(max_open_files: u64) -> Result<(), String> {
     let required = max_open_files.saturating_add(1000);
     if required > i64::MAX as u64 {
         return Err(format!(
-            "Unable to get limit for the number of open files (NOFILE): \
-                            Required limit of {required} is too high"
+            "Unable to change limit for the number of open files (NOFILE): \
+             Required limit of {required} is too high"
         ));
     };
     let (soft, hard) = rlimit::Resource::NOFILE.get().map_err(|err| {
