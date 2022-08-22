@@ -1,12 +1,14 @@
 use crate::broadcast;
 use crate::config;
-use crate::peer;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Encoding, PeerAddr, PeerMessage, SignedAccountData, SyncAccountsData};
+use crate::network_protocol::{
+    Encoding, PeerAddr, PeerMessage, SignedAccountData, SyncAccountsData,
+};
+use crate::peer;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
-use crate::testonly::{Rng};
+use crate::testonly::Rng;
 use crate::types::{ChainInfo, GetNetworkInfo, PeerManagerMessageRequest, SetChainInfo};
 use crate::PeerManagerActor;
 use actix::Actor;
@@ -59,7 +61,10 @@ pub(crate) struct RawConnection {
 }
 
 impl RawConnection {
-    pub async fn handshake(self, clock: &time::Clock) -> (peer::testonly::PeerHandle, SyncAccountsData) {
+    pub async fn handshake(
+        self,
+        clock: &time::Clock,
+    ) -> (peer::testonly::PeerHandle, SyncAccountsData) {
         let mut peer =
             peer::testonly::PeerHandle::start_endpoint(clock.clone(), self.cfg, self.stream).await;
         peer.complete_handshake().await;
@@ -99,21 +104,13 @@ impl ActorHandler {
             .unwrap();
         self.events
             .recv_until(|ev| match &ev {
-                Event::PeerManager(PME::PeerRegistered(info))
-                    if peer_info == info =>
-                {
-                    Some(())
-                }
+                Event::PeerManager(PME::PeerRegistered(info)) if peer_info == info => Some(()),
                 _ => None,
             })
             .await;
     }
 
-    pub async fn start_connection(
-        &self,
-        rng: &mut Rng,
-        chain: Arc<data::Chain>,
-    ) -> RawConnection {
+    pub async fn start_connection(&self, rng: &mut Rng, chain: Arc<data::Chain>) -> RawConnection {
         RawConnection {
             stream: tokio::net::TcpStream::connect(self.cfg.node_addr.unwrap()).await.unwrap(),
             cfg: peer::testonly::PeerConfig {
@@ -123,7 +120,7 @@ impl ActorHandler {
                 start_handshake_with: Some(PeerId::new(self.cfg.node_key.public_key())),
                 force_encoding: Some(Encoding::Proto),
                 nonce: None,
-            }
+            },
         }
     }
 

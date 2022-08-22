@@ -1,3 +1,5 @@
+use crate::concurrency::arc_mutex::ArcMutex;
+use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::PeerMessage;
 use crate::network_protocol::{SignedAccountData, SyncAccountsData};
@@ -5,11 +7,10 @@ use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
 use crate::stats::metrics;
 use crate::types::FullPeerInfo;
-use std::sync::Arc;
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    PartialEdgeInfo, Edge, PeerChainInfoV2, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext,
-    PeerType, ReasonForBan,
+    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest,
+    PeerManagerRequestWithContext, PeerType, ReasonForBan,
 };
 use near_primitives::network::PeerId;
 use near_rate_limiter::ThrottleController;
@@ -17,8 +18,7 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
-use crate::concurrency::atomic_cell::AtomicCell;
-use crate::concurrency::arc_mutex::ArcMutex;
+use std::sync::Arc;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -89,8 +89,8 @@ impl Connection {
                     self.edge.signature0().clone()
                 } else {
                     self.edge.signature1().clone()
-                }
-            }
+                },
+            },
         }
     }
 
@@ -167,21 +167,23 @@ pub(crate) struct PoolSnapshot {
     pub outbound_handshakes: im::HashSet<PeerId>,
 }
 
-pub(crate) struct OutboundHandshakePermit(PeerId,Pool);
+pub(crate) struct OutboundHandshakePermit(PeerId, Pool);
 
 impl OutboundHandshakePermit {
-    pub fn peer_id(&self) -> &PeerId { &self.0 }
+    pub fn peer_id(&self) -> &PeerId {
+        &self.0
+    }
 }
 
 impl fmt::Debug for OutboundHandshakePermit {
-    fn fmt(&self, f:&mut fmt::Formatter<'_>) -> Result<(),fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         self.peer_id().fmt(f)
     }
 }
 
 impl Drop for OutboundHandshakePermit {
     fn drop(&mut self) {
-        self.1.0.update(|pool|{
+        self.1 .0.update(|pool| {
             pool.outbound_handshakes.remove(&self.0);
         });
     }
@@ -190,7 +192,7 @@ impl Drop for OutboundHandshakePermit {
 #[derive(Clone)]
 pub(crate) struct Pool(Arc<ArcMutex<PoolSnapshot>>);
 
-#[derive(thiserror::Error,Debug)]
+#[derive(thiserror::Error, Debug)]
 pub(crate) enum PoolError {
     #[error("already connected to this peer")]
     AlreadyConnected,
@@ -199,8 +201,8 @@ pub(crate) enum PoolError {
 }
 
 impl Pool {
-    pub fn new(me:PeerId) -> Pool {
-        Self(Arc::new(ArcMutex::new(PoolSnapshot{
+    pub fn new(me: PeerId) -> Pool {
+        Self(Arc::new(ArcMutex::new(PoolSnapshot {
             me,
             ready: im::HashMap::new(),
             outbound_handshakes: im::HashSet::new(),
@@ -211,24 +213,24 @@ impl Pool {
         self.0.load()
     }
 
-    pub fn insert_ready(&self, peer: Arc<Connection>) -> Result<(),PoolError> {
-        self.0.update(move|pool|{
+    pub fn insert_ready(&self, peer: Arc<Connection>) -> Result<(), PoolError> {
+        self.0.update(move |pool| {
             let id = &peer.peer_info.id;
             if pool.ready.contains_key(id) {
                 return Err(PoolError::AlreadyConnected);
             }
-            if peer.peer_type==PeerType::Inbound {
+            if peer.peer_type == PeerType::Inbound {
                 if pool.outbound_handshakes.contains(id) && id < &pool.me {
                     return Err(PoolError::AlreadyStartedConnecting);
                 }
             }
-            pool.ready.insert(id.clone(),peer);
+            pool.ready.insert(id.clone(), peer);
             Ok(())
         })
     }
 
-    pub fn start_outbound(&self, peer_id:PeerId) -> Result<OutboundHandshakePermit,PoolError> {
-        self.0.update(move|pool|{
+    pub fn start_outbound(&self, peer_id: PeerId) -> Result<OutboundHandshakePermit, PoolError> {
+        self.0.update(move |pool| {
             if pool.ready.contains_key(&peer_id) {
                 return Err(PoolError::AlreadyConnected);
             }
@@ -236,7 +238,7 @@ impl Pool {
                 return Err(PoolError::AlreadyStartedConnecting);
             }
             pool.outbound_handshakes.insert(peer_id.clone());
-            Ok(OutboundHandshakePermit(peer_id,self.clone()))
+            Ok(OutboundHandshakePermit(peer_id, self.clone()))
         })
     }
 

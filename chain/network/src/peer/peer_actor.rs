@@ -1,19 +1,17 @@
 use crate::accounts_data;
-use anyhow::{Context as _};
-use crate::concurrency::demux;
 use crate::concurrency::atomic_cell::AtomicCell;
+use crate::concurrency::demux;
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
-use crate::peer_manager::connection::{Connection, Stats, OutboundHandshakePermit};
-use crate::peer_manager::peer_manager_actor::{NetworkState,Event};
+use crate::peer_manager::connection::{Connection, OutboundHandshakePermit, Stats};
+use crate::peer_manager::peer_manager_actor::{Event, NetworkState};
 use crate::private_actix::PeersResponse;
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::private_actix::{
     PeersRequest, RegisterPeer, RegisterPeerResponse, SendMessage, Unregister,
 };
-use tokio_stream::StreamExt;
-use crate::routing::edge::{verify_nonce};
+use crate::routing::edge::verify_nonce;
 use crate::stats::metrics;
 use crate::types::{
     Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses, PeerMessage,
@@ -22,6 +20,7 @@ use actix::{
     Actor, ActorContext, ActorFutureExt, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
+use anyhow::Context as _;
 use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::time;
@@ -30,19 +29,18 @@ use near_network_primitives::types::{
     PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType, ReasonForBan,
     RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
 };
-use near_rate_limiter::{ThrottleController, ThrottleFramedRead,
-};
-use near_network_primitives::types::{Edge,PartialEdgeInfo};
+use near_network_primitives::types::{Edge, PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
+use near_primitives::block::GenesisId;
 use near_primitives::logging;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::utils::DisplayOption;
-use near_primitives::block::GenesisId;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
+use near_rate_limiter::{ThrottleController, ThrottleFramedRead};
 use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::io;
@@ -50,6 +48,7 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
+use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -75,26 +74,25 @@ const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
 const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
 
-
 pub(crate) struct PeerActor {
     clock: time::Clock,
-    
+
     /// Shared state of the network module.
     network_state: Arc<NetworkState>,
     /// This node's id and address (either listening or socket address).
     my_node_info: PeerInfo,
-    
+
     /// Peer address from connection.
-    peer_addr: SocketAddr,   
+    peer_addr: SocketAddr,
     peer_type: PeerType,
     /// OUTBOUND-ONLY: Handshake specification. For outbound connections it is initialized
     /// in constructor and then can change as HandshakeFailure and LastEdge messages
-    /// are received. For inbound connections, handshake is stateless. 
+    /// are received. For inbound connections, handshake is stateless.
     handshake_spec: Option<HandshakeSpec>,
-    
+
     /// Framed wrapper to send messages through the TCP connection.
     framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
-    
+
     /// Peer manager recipient to break the dependency loop.
     /// PeerManager is a recipient of 2 types of messages, therefore
     /// to inject a fake PeerManager in tests, we need a separate
@@ -102,12 +100,12 @@ pub(crate) struct PeerActor {
     peer_manager_addr: Recipient<PeerToManagerMsg>,
     /// Tracker for requests and responses.
     tracker: Arc<Mutex<Tracker>>,
-     
+
     /// Cache of recently routed messages, this allows us to drop duplicates
     routed_message_cache: LruCache<(PeerId, PeerIdOrHash, Signature), time::Instant>,
     /// A helper data structure for limiting reading
     throttle_controller: ThrottleController,
-    
+
     /// Whether we detected support for protocol buffers during handshake.
     protocol_buffers_supported: bool,
     /// Whether the PeerActor should skip protobuf support detection and use
@@ -140,10 +138,7 @@ pub enum IOError {
 #[derive(Debug)]
 pub(crate) enum StreamConfig {
     Inbound,
-    Outbound {
-        peer_id: PeerId,
-        is_tier1: bool,
-    },
+    Outbound { peer_id: PeerId, is_tier1: bool },
 }
 
 #[derive(Clone)]
@@ -175,18 +170,28 @@ impl Config {
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
-            peer_addr: stream.peer_addr().context("stream.peer_addr()")?, 
+            peer_addr: stream.peer_addr().context("stream.peer_addr()")?,
             connecting_status: match &stream_config {
                 StreamConfig::Inbound => ConnectingStatus::Inbound(
-                    network_state.inbound_handshake_permits.clone().try_acquire_owned().context("too many connections in Connecting state")?,
+                    network_state
+                        .inbound_handshake_permits
+                        .clone()
+                        .try_acquire_owned()
+                        .context("too many connections in Connecting state")?,
                 ),
-                StreamConfig::Outbound{is_tier1,peer_id} => ConnectingStatus::Outbound(
-                    if *is_tier1 {
-                        network_state.tier1.start_outbound(peer_id.clone()).context("tier1.start_outbound()")?
+                StreamConfig::Outbound { is_tier1, peer_id } => {
+                    ConnectingStatus::Outbound(if *is_tier1 {
+                        network_state
+                            .tier1
+                            .start_outbound(peer_id.clone())
+                            .context("tier1.start_outbound()")?
                     } else {
-                        network_state.tier2.start_outbound(peer_id.clone()).context("tier2.start_outbound()")?
-                    },
-                )
+                        network_state
+                            .tier2
+                            .start_outbound(peer_id.clone())
+                            .context("tier2.start_outbound()")?
+                    })
+                }
             },
             stream,
             stream_config,
@@ -211,15 +216,15 @@ impl PeerActor {
         let (read, write) = tokio::io::split(cfg.stream);
         let rate_limiter = ThrottleController::new(MAX_MESSAGES_COUNT, MAX_MESSAGES_TOTAL_SIZE);
         PeerActor::add_stream(
-            ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone()).map_while(
-                |x| match x {
+            ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone()).map_while(|x| {
+                match x {
                     Ok(x) => Some(x),
                     Err(err) => {
                         warn!(target: "network", ?err, "Peer stream error");
                         None
                     }
-                },
-            ),
+                }
+            }),
             ctx,
         );
         PeerActor {
@@ -228,12 +233,12 @@ impl PeerActor {
             peer_addr: cfg.peer_addr,
             peer_type: match &cfg.stream_config {
                 StreamConfig::Inbound => PeerType::Inbound,
-                StreamConfig::Outbound{..} => PeerType::Outbound,
+                StreamConfig::Outbound { .. } => PeerType::Outbound,
             },
             handshake_spec: match &cfg.stream_config {
                 StreamConfig::Inbound => None,
-                StreamConfig::Outbound{is_tier1,peer_id} => Some(HandshakeSpec {
-                    partial_edge_info: cfg.network_state.propose_edge(peer_id,None),
+                StreamConfig::Outbound { is_tier1, peer_id } => Some(HandshakeSpec {
+                    partial_edge_info: cfg.network_state.propose_edge(peer_id, None),
                     protocol_version: PROTOCOL_VERSION,
                     peer_id: peer_id.clone(),
                     genesis_id: cfg.network_state.genesis_id.clone(),
@@ -241,7 +246,7 @@ impl PeerActor {
                 }),
             },
             peer_status: PeerStatus::Connecting(cfg.connecting_status),
-            
+
             framed: FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
             peer_manager_addr,
             tracker: Default::default(),
@@ -267,7 +272,7 @@ impl PeerActor {
             return Some(Encoding::Proto);
         }
         match &self.peer_status {
-            PeerStatus::Connecting{..} => None,
+            PeerStatus::Connecting { .. } => None,
             _ => Some(Encoding::Borsh),
         }
     }
@@ -340,7 +345,7 @@ impl PeerActor {
         Ok(())
     }
 
-    fn send_handshake(&mut self,spec:HandshakeSpec) {
+    fn send_handshake(&mut self, spec: HandshakeSpec) {
         let chain_info = self.network_state.chain_info.load();
         let msg = PeerMessage::Handshake(Handshake {
             protocol_version: spec.protocol_version,
@@ -682,19 +687,17 @@ impl Actor for PeerActor {
         near_performance_metrics::actix::run_later(
             ctx,
             self.network_state.config.handshake_timeout.try_into().unwrap(),
-            move |act, ctx| {
-                match &act.peer_status {
-                    PeerStatus::Connecting{..} => {
-                        info!(target: "network", "Handshake timeout expired for {}", act.peer_info);
-                        ctx.stop();
-                    }
-                    _ => {},
+            move |act, ctx| match &act.peer_status {
+                PeerStatus::Connecting { .. } => {
+                    info!(target: "network", "Handshake timeout expired for {}", act.peer_info);
+                    ctx.stop();
                 }
+                _ => {}
             },
         );
 
         // If outbound peer, initiate handshake.
-        if self.peer_type==PeerType::Outbound {
+        if self.peer_type == PeerType::Outbound {
             self.send_handshake(self.handshake_spec.clone().unwrap());
         }
     }
@@ -719,7 +722,7 @@ impl Actor for PeerActor {
                     // each other, and after resolving the tie, a peer tries to remove the other
                     // peer from the active connection if it was added in the parallel connection.
                     remove_from_peer_store: match &self.peer_status {
-                        PeerStatus::Connecting{..} => false,
+                        PeerStatus::Connecting { .. } => false,
                         _ => true,
                     },
                 }));
@@ -799,8 +802,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
         }
 
         match (&self.peer_status, peer_msg.clone()) {
-            (PeerStatus::Connecting{..}, PeerMessage::HandshakeFailure(peer_info, reason)) => {
-                if self.peer_type==PeerType::Inbound {
+            (PeerStatus::Connecting { .. }, PeerMessage::HandshakeFailure(peer_info, reason)) => {
+                if self.peer_type == PeerType::Inbound {
                     warn!(target: "network", "Received unexpected HandshakeFailure on an inbound connection, disconnecting");
                     ctx.stop();
                     return;
@@ -817,7 +820,9 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     } => {
                         // Retry the handshake with the common protocol version.
                         let common_version = std::cmp::min(version, PROTOCOL_VERSION);
-                        if common_version < oldest_supported_version || common_version < PEER_MIN_ALLOWED_PROTOCOL_VERSION {
+                        if common_version < oldest_supported_version
+                            || common_version < PEER_MIN_ALLOWED_PROTOCOL_VERSION
+                        {
                             warn!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {:?}, their: {:?}", peer_info, (PROTOCOL_VERSION, PEER_MIN_ALLOWED_PROTOCOL_VERSION), (version, oldest_supported_version));
                             ctx.stop();
                             return;
@@ -839,9 +844,9 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             }
             // TODO(gprusak): LastEdge should rather be a variant of HandshakeFailure.
             // Clean this up (you don't have to modify the proto, just the translation layer).
-            (PeerStatus::Connecting{..}, PeerMessage::LastEdge(edge)) => {
+            (PeerStatus::Connecting { .. }, PeerMessage::LastEdge(edge)) => {
                 // This message will be received only if we started the connection.
-                if self.peer_type==PeerType::Inbound {
+                if self.peer_type == PeerType::Inbound {
                     info!(target: "network", "{:?}: Inbound peer {:?} sent invalid message. Disconnect.", self.my_node_id(), self.peer_addr);
                     ctx.stop();
                     return;
@@ -856,16 +861,17 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 // Recreate the edge with a newer nonce.
                 let spec = {
                     let spec = self.handshake_spec.as_mut().unwrap();
-                    spec.partial_edge_info = self.network_state.propose_edge(&spec.peer_id,Some(edge.next()));
+                    spec.partial_edge_info =
+                        self.network_state.propose_edge(&spec.peer_id, Some(edge.next()));
                     spec.clone()
                 };
                 self.send_handshake(spec);
             }
-            (PeerStatus::Connecting{..}, PeerMessage::Handshake(handshake)) => {
+            (PeerStatus::Connecting { .. }, PeerMessage::Handshake(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
-                
-                if self.peer_type==PeerType::Outbound {
-                    let spec = self.handshake_spec.as_ref().unwrap(); 
+
+                if self.peer_type == PeerType::Outbound {
+                    let spec = self.handshake_spec.as_ref().unwrap();
                     if handshake.protocol_version != spec.protocol_version {
                         warn!(target: "network", "Protocol version mismatch. Disconnecting peer {}", handshake.sender_peer_id);
                         ctx.stop();
@@ -933,15 +939,18 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     }
                     // Check that the received nonce is greater than the current nonce of this connection.
                     // If not (and this is an inbound connection) propose a new nonce.
-                    if let Some(last_edge) = self.network_state.routing_table_view.get_local_edge(&handshake.sender_peer_id) {
+                    if let Some(last_edge) = self
+                        .network_state
+                        .routing_table_view
+                        .get_local_edge(&handshake.sender_peer_id)
+                    {
                         if last_edge.nonce() >= handshake.partial_edge_info.nonce {
                             debug!(target: "network", "{:?}: Received too low nonce from peer {:?} sending evidence.", self.my_node_id(), self.peer_addr);
                             self.send_message_or_log(&PeerMessage::LastEdge(last_edge));
                             return;
                         }
                     }
-                    
-                } 
+                }
 
                 if handshake.sender_peer_id == self.my_node_info.id {
                     metrics::RECEIVED_INFO_ABOUT_ITSELF.inc();
@@ -952,7 +961,11 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
 
                 // Verify that the received partial edge is valid.
                 // WARNING: signature is verified against the 2nd argument.
-                if !Edge::partial_verify(&self.my_node_id(),&handshake.sender_peer_id,&handshake.partial_edge_info) {
+                if !Edge::partial_verify(
+                    &self.my_node_id(),
+                    &handshake.sender_peer_id,
+                    &handshake.partial_edge_info,
+                ) {
                     warn!(target: "network", "partial edge with invalid signature, disconnecting");
                     self.ban_peer(ctx, ReasonForBan::InvalidSignature);
                     ctx.stop();
@@ -960,10 +973,14 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 }
 
                 // Merge partial edges.
-                let nonce = handshake.partial_edge_info.nonce; 
+                let nonce = handshake.partial_edge_info.nonce;
                 let partial_edge_info = match self.peer_type {
-                    PeerType::Outbound => self.handshake_spec.as_ref().unwrap().partial_edge_info.clone(),
-                    PeerType::Inbound => self.network_state.propose_edge(&handshake.sender_peer_id,Some(nonce)),
+                    PeerType::Outbound => {
+                        self.handshake_spec.as_ref().unwrap().partial_edge_info.clone()
+                    }
+                    PeerType::Inbound => {
+                        self.network_state.propose_edge(&handshake.sender_peer_id, Some(nonce))
+                    }
                 };
                 let edge = Edge::new(
                     self.my_node_id().clone(),
@@ -1090,7 +1107,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         }
                     })
                     .wait(ctx);
-            } 
+            }
             (PeerStatus::Ready, PeerMessage::Disconnect) => {
                 debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
                 ctx.stop();
@@ -1113,7 +1130,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             }
             (PeerStatus::Ready, PeerMessage::PeersResponse(peers)) => {
                 debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
-                self.peer_manager_addr.do_send(PeerToManagerMsg::PeersResponse(PeersResponse { peers }));
+                self.peer_manager_addr
+                    .do_send(PeerToManagerMsg::PeersResponse(PeersResponse { peers }));
             }
             (PeerStatus::Ready, PeerMessage::RequestUpdateNonce(edge_info)) => self
                 .peer_manager_addr
@@ -1222,10 +1240,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         }))
                         .into_actor(self)
                         .then(move |res, act, ctx| {
-                            if res
-                                .map(|f| f.unwrap_routed_message_from())
-                                .unwrap_or(false)
-                            {
+                            if res.map(|f| f.unwrap_routed_message_from()).unwrap_or(false) {
                                 act.receive_message(ctx, PeerMessage::Routed(routed_message));
                             }
                             actix::fut::ready(())

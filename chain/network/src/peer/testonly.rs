@@ -1,26 +1,26 @@
 use crate::broadcast;
 use crate::concurrency::demux;
+use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::peer::peer_actor;
-use crate::config::NetworkConfig;
-use crate::peer::peer_actor::{PeerActor,StreamConfig};
-use crate::peer_manager::peer_manager_actor::NetworkState;
+use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::peer_manager_actor;
+use crate::peer_manager::peer_manager_actor::NetworkState;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage, Unregister};
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
+use crate::routing::routing_table_view::RoutingTableView;
+use crate::store;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
-use crate::store;
-use near_crypto::{InMemorySigner,Signature};
 use crate::types::{PeerMessage, RoutingTableUpdate};
-use crate::routing::routing_table_view::RoutingTableView;
 use actix::{Actor, Context, Handler};
-use near_store::test_utils::create_test_store;
+use near_crypto::{InMemorySigner, Signature};
 use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage,
-    RoutedMessageBody, RoutedMessageV2,
+    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
+    RoutedMessageV2,
 };
 use near_primitives::network::PeerId;
+use near_store::test_utils::create_test_store;
 
 use near_network_primitives::time;
 use std::sync::Arc;
@@ -184,11 +184,11 @@ impl PeerHandle {
             let store = store::Store::from(create_test_store());
             let routing_table_view = RoutingTableView::new(store, cfg.id());
             // WARNING: this is a hack to make PeerActor use a specific nonce
-            if let (Some(nonce),Some(peer_id)) = (&cfg.nonce,&cfg.start_handshake_with) {
+            if let (Some(nonce), Some(peer_id)) = (&cfg.nonce, &cfg.start_handshake_with) {
                 routing_table_view.add_local_edge(Edge::new(
                     cfg.id(),
                     peer_id.clone(),
-                    nonce-1,
+                    nonce - 1,
                     Signature::default(),
                     Signature::default(),
                 ));
@@ -211,14 +211,14 @@ impl PeerHandle {
                         stream,
                         match &cfg.start_handshake_with {
                             None => StreamConfig::Inbound,
-                            Some(id) => StreamConfig::Outbound {
-                                peer_id: id.clone(),
-                                is_tier1: false,
-                            },
+                            Some(id) => {
+                                StreamConfig::Outbound { peer_id: id.clone(), is_tier1: false }
+                            }
                         },
                         cfg.force_encoding,
                         network_state,
-                    ).unwrap(),
+                    )
+                    .unwrap(),
                     fpm.clone().recipient(),
                 )
             })

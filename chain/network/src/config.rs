@@ -1,8 +1,8 @@
 use crate::concurrency::demux;
 use crate::network_protocol::PeerAddr;
-use anyhow::Context;
-use crate::sink::Sink;
 use crate::peer_manager::peer_manager_actor::Event;
+use crate::sink::Sink;
+use anyhow::Context;
 use near_crypto::{KeyType, SecretKey};
 use near_network_primitives::time;
 use near_network_primitives::types::{Blacklist, PeerInfo, ROUTED_MESSAGE_TTL};

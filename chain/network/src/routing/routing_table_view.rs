@@ -7,9 +7,9 @@ use near_network_primitives::types::{Edge, PeerIdOrHash};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::Mutex;
 use tracing::warn;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
@@ -41,9 +41,7 @@ struct Inner {
 
 impl Inner {
     /// Get announce accounts on cache.
-    fn get_announce_accounts(
-        &self,
-    ) -> impl Iterator<Item = &AnnounceAccount> + ExactSizeIterator {
+    fn get_announce_accounts(&self) -> impl Iterator<Item = &AnnounceAccount> + ExactSizeIterator {
         self.account_peers.iter().map(|(_k, v)| v)
     }
 
@@ -99,7 +97,7 @@ pub(crate) enum FindRouteError {
 
 impl RoutingTableView {
     pub fn new(store: store::Store, my_peer_id: PeerId) -> Self {
-        Self(Mutex::new(Inner{
+        Self(Mutex::new(Inner {
             my_peer_id,
             account_peers: LruCache::new(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             next_hops: Default::default(),
@@ -114,8 +112,8 @@ impl RoutingTableView {
     /// Checks whenever edge is newer than the one we already have.
     /// Works only for local edges.
     pub(crate) fn is_local_edge_newer(&self, other_peer: &PeerId, nonce: u64) -> bool {
-        self.0.lock().is_local_edge_newer(other_peer,nonce)
-    } 
+        self.0.lock().is_local_edge_newer(other_peer, nonce)
+    }
 
     pub(crate) fn set_next_hops(&self, routing_table: Arc<routing::NextHopTable>) {
         self.0.lock().next_hops = routing_table;
@@ -147,11 +145,10 @@ impl RoutingTableView {
     }
 
     /// Find peer that owns this AccountId.
-    pub(crate) fn account_owner(
-        &self,
-        account_id: &AccountId,
-    ) -> Result<PeerId, FindRouteError> {
-        self.0.lock().get_announce(account_id)
+    pub(crate) fn account_owner(&self, account_id: &AccountId) -> Result<PeerId, FindRouteError> {
+        self.0
+            .lock()
+            .get_announce(account_id)
             .map(|announce_account| announce_account.peer_id)
             .ok_or(FindRouteError::AccountNotFound)
     }
@@ -170,17 +167,15 @@ impl RoutingTableView {
 
     // TODO(MarX, #1694): Allow one account id to be routed to several peer id.
     pub(crate) fn contains_account(&self, announce_account: &AnnounceAccount) -> bool {
-        self.0.lock().get_announce(&announce_account.account_id).map_or(false, |current_announce_account| {
-            current_announce_account.epoch_id == announce_account.epoch_id
-        })
+        self.0.lock().get_announce(&announce_account.account_id).map_or(
+            false,
+            |current_announce_account| {
+                current_announce_account.epoch_id == announce_account.epoch_id
+            },
+        )
     }
 
-    pub(crate) fn add_route_back(
-        &self,
-        clock: &time::Clock,
-        hash: CryptoHash,
-        peer_id: PeerId,
-    ) {
+    pub(crate) fn add_route_back(&self, clock: &time::Clock, hash: CryptoHash, peer_id: PeerId) {
         self.0.lock().route_back.insert(clock, hash, peer_id);
     }
 
@@ -206,10 +201,8 @@ impl RoutingTableView {
     }
 
     /// Get announce accounts on cache.
-    pub(crate) fn get_announce_accounts(
-        &self,
-    ) -> Vec<AnnounceAccount> {
-        return self.0.lock().get_announce_accounts().cloned().collect()
+    pub(crate) fn get_announce_accounts(&self) -> Vec<AnnounceAccount> {
+        return self.0.lock().get_announce_accounts().cloned().collect();
     }
 
     /// Get AnnounceAccount for the given AccountId.

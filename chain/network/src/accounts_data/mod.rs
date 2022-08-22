@@ -24,19 +24,19 @@
 //!       discarding the progress
 //!     - banning a peer wouldn't help since peers are anonymous, so a single attacker can act as a
 //!       lot of peers
+use crate::concurrency::arc_mutex::ArcMutex;
 use crate::network_protocol;
 use crate::network_protocol::SignedAccountData;
 use crate::types::AccountKeys;
+use near_crypto::PublicKey;
 use near_o11y::log_assert;
-use near_primitives::network::{PeerId};
+use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, EpochId};
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use crate::concurrency::arc_mutex::ArcMutex;
-use near_crypto::PublicKey;
 
 #[cfg(test)]
 mod tests;
@@ -127,22 +127,26 @@ pub struct Snapshot {
 impl Snapshot {
     /// Finds all `epoch_id` for which the given account key is registered.
     /// Complexity: O(keys.len()).
-    pub fn epochs(&self, account_id:&AccountId, key:&PublicKey) -> Vec<EpochId> {
-        self.keys.iter().filter_map(move |((e,a),k)| if a==account_id && k==key { Some(e) } else { None }).cloned().collect()
+    pub fn epochs(&self, account_id: &AccountId, key: &PublicKey) -> Vec<EpochId> {
+        self.keys
+            .iter()
+            .filter_map(move |((e, a), k)| if a == account_id && k == key { Some(e) } else { None })
+            .cloned()
+            .collect()
     }
 
     /// Checks if the key set contains the given account key.
     /// Complexity: O(keys.len()).
-    pub fn contains_account_key(&self, account_id:&AccountId,key:&PublicKey) -> bool {
-        self.epochs(account_id,key).len()>0
+    pub fn contains_account_key(&self, account_id: &AccountId, key: &PublicKey) -> bool {
+        self.epochs(account_id, key).len() > 0
     }
 
     /// Finds if peer_id is currently a TIER1 peer, according to the collected account data.
     /// Complexity: O(data.len()).
     pub fn is_tier1_peer(&self, peer_id: &PeerId) -> bool {
-        self.data.values().filter(|d|d.peer_id.as_ref()==Some(peer_id)).count()>0
+        self.data.values().filter(|d| d.peer_id.as_ref() == Some(peer_id)).count() > 0
     }
-    
+
     fn is_new(&self, d: &SignedAccountData) -> bool {
         let id = (d.epoch_id.clone(), d.account_id.clone());
         self.keys.contains_key(&id)
@@ -178,12 +182,12 @@ impl Cache {
         self.0.update(|inner| {
             // Skip further processing if the key set didn't change.
             // NOTE: if T implements Eq, then Arc<T> short circuits equality for x == x.
-            if keys==inner.keys {
+            if keys == inner.keys {
                 return false;
             }
-            for (k,v) in std::mem::take(&mut inner.data) {
+            for (k, v) in std::mem::take(&mut inner.data) {
                 if keys.contains_key(&k) {
-                    inner.data.insert(k,v);
+                    inner.data.insert(k, v);
                 }
             }
             inner.keys = keys;
@@ -254,13 +258,14 @@ impl Cache {
         // Execute verification on the rayon threadpool.
         let (data, err) = rayon_spawn(move || this.verify(data)).await;
         // Insert the successfully verified data, even if an error has been encountered.
-        let inserted = self.0.update(|inner| {
-            data.into_iter().filter_map(|d| inner.try_insert(d)).collect()
-        });
+        let inserted =
+            self.0.update(|inner| data.into_iter().filter_map(|d| inner.try_insert(d)).collect());
         // Return the inserted data.
         (inserted, err)
     }
 
-    /// Loads the current cache snapshot. 
-    pub fn load(&self) -> Arc<Snapshot> { self.0.load() }
+    /// Loads the current cache snapshot.
+    pub fn load(&self) -> Arc<Snapshot> {
+        self.0.load()
+    }
 }

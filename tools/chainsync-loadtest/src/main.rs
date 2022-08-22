@@ -13,10 +13,10 @@ use openssl_probe;
 use concurrency::{Ctx, Scope};
 use network::{FakeClientActor, Network};
 
-use near_network_primitives::time;
 use near_chain_configs::Genesis;
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
+use near_network_primitives::time;
 use near_o11y::tracing::{error, info};
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;

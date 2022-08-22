@@ -7,8 +7,8 @@ use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::connection::{Connection, Pool, PoolError};
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
-    PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, RegisterPeerError, StopMsg, Unregister,
-    ValidateEdgeList,
+    PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerError, RegisterPeerResponse,
+    StopMsg, Unregister, ValidateEdgeList,
 };
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp, PeersResponse};
 use crate::routing;
@@ -21,7 +21,6 @@ use crate::types::{
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
     PeerMessage, RoutingTableUpdate, SetChainInfo,
 };
-use rand::seq::SliceRandom;
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, WrapFuture,
@@ -31,11 +30,10 @@ use anyhow::Context as _;
 use arc_swap::ArcSwap;
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    OutboundTcpConnect,
-    AccountOrPeerIdOrHash, Ban, Edge, KnownPeerStatus, KnownProducer,
-    NetworkViewClientMessages, NetworkViewClientResponses, PeerIdOrHash,
-    PeerInfo, PeerType, Ping, Pong, RawRoutedMessage, ReasonForBan, RoutedMessageBody,
-    RoutedMessageFrom, RoutedMessageV2, StateResponseInfo,
+    AccountOrPeerIdOrHash, Ban, Edge, KnownPeerStatus, KnownProducer, NetworkViewClientMessages,
+    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerInfo, PeerType, Ping, Pong,
+    RawRoutedMessage, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, RoutedMessageV2,
+    StateResponseInfo,
 };
 use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics_macros::perf;
@@ -44,15 +42,15 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{AccountId, EpochId};
 use near_rate_limiter::{
-    ActixMessageResponse, ActixMessageWrapper, ThrottleController,
-    ThrottleToken,
+    ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleToken,
 };
 use parking_lot::RwLock;
 use rand::seq::IteratorRandom;
+use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
-use std::net::{SocketAddr};
+use std::net::SocketAddr;
 use std::ops::Sub;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -149,7 +147,7 @@ pub(crate) struct NetworkState {
     /// Connected peers (inbound and outbound) with their full peer information.
     pub tier2: Pool,
     pub tier1: Pool,
-    
+
     /// View of the Routing table. It keeps:
     /// - routing information - how to route messages
     /// - edges adjacent to my_peer_id
@@ -161,7 +159,7 @@ pub(crate) struct NetworkState {
     /// messages sincce last block.
     pub txns_since_last_block: AtomicUsize,
     /// Semaphore limiting inflight inbound handshakes.
-    pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>, 
+    pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
 }
 
 impl NetworkState {
@@ -211,7 +209,7 @@ impl NetworkState {
 
     pub async fn tier1_daemon_tick(
         self: &Arc<Self>,
-        clock: &time::Clock, 
+        clock: &time::Clock,
         peer_manager_addr: Addr<PeerManagerActor>,
         cfg: &config::Tier1,
     ) {
@@ -219,12 +217,14 @@ impl NetworkState {
         // Check if our node is currently a TIER1 validator.
         // If so, it should establish TIER1 connections.
         let is_tier1_validator = match &self.config.validator {
-            Some(v) => accounts_data.contains_account_key(v.signer.validator_id(),&v.signer.public_key()),
+            Some(v) => {
+                accounts_data.contains_account_key(v.signer.validator_id(), &v.signer.public_key())
+            }
             None => false,
         };
-        let mut accounts_by_peer = HashMap::<_,Vec<_>>::new();
-        let mut accounts_by_proxy = HashMap::<_,Vec<_>>::new();
-        let mut proxies_by_account = HashMap::<_,Vec<_>>::new();
+        let mut accounts_by_peer = HashMap::<_, Vec<_>>::new();
+        let mut accounts_by_proxy = HashMap::<_, Vec<_>>::new();
+        let mut proxies_by_account = HashMap::<_, Vec<_>>::new();
         for d in accounts_data.data.values() {
             proxies_by_account.entry(&d.account_id).or_default().extend(d.peers.iter());
             if let Some(peer_id) = &d.peer_id {
@@ -236,31 +236,31 @@ impl NetworkState {
         }
 
         let tier1 = self.tier1.load();
-        let mut ready : Vec<_> = tier1.ready.values().collect();
+        let mut ready: Vec<_> = tier1.ready.values().collect();
 
         // Browse the connections from oldest to newest.
-        ready.sort_unstable_by_key(|c|c.connection_established_time);
+        ready.sort_unstable_by_key(|c| c.connection_established_time);
         ready.reverse();
-        let ready : Vec<&PeerId> = ready.into_iter().map(|c|&c.peer_info.id).collect();
+        let ready: Vec<&PeerId> = ready.into_iter().map(|c| &c.peer_info.id).collect();
 
         // Select the oldest TIER1 connection for each account.
-        let mut safe = HashMap::<&AccountId,&PeerId>::new();
+        let mut safe = HashMap::<&AccountId, &PeerId>::new();
         // Direct TIER1 connections have priority.
         for peer_id in &ready {
             for account_id in accounts_by_peer.get(peer_id).into_iter().flatten() {
-                safe.insert(account_id,peer_id);
+                safe.insert(account_id, peer_id);
             }
         }
         if is_tier1_validator {
             // TIER1 nodes can also connect to TIER1 proxies.
             for peer_id in &ready {
                 for account_id in accounts_by_proxy.get(peer_id).into_iter().flatten() {
-                    safe.insert(account_id,peer_id);
+                    safe.insert(account_id, peer_id);
                 }
             }
         }
         // Close all other connections, as they are redundant or are not longer TIER1.
-        let safe_set : HashSet<_> = safe.values().copied().collect();
+        let safe_set: HashSet<_> = safe.values().copied().collect();
         for conn in tier1.ready.values() {
             if !safe_set.contains(&conn.peer_info.id) {
                 conn.unregister();
@@ -269,7 +269,7 @@ impl NetworkState {
         if is_tier1_validator {
             let mut rng = rand::thread_rng();
             // Try to establish new TIER1 connections to accounts in random order.
-            let mut account_ids : Vec<_> = proxies_by_account.keys().copied().collect();
+            let mut account_ids: Vec<_> = proxies_by_account.keys().copied().collect();
             account_ids.shuffle(&mut rng);
             let mut new_connections = 0;
             for account_id in account_ids {
@@ -280,18 +280,25 @@ impl NetworkState {
                     continue;
                 }
                 let mut peers = proxies_by_account.get(account_id).into_iter().flatten();
-                if peers.any(|p|tier1.outbound_handshakes.contains(&p.peer_id)) {
+                if peers.any(|p| tier1.outbound_handshakes.contains(&p.peer_id)) {
                     continue;
                 }
                 // Start a new connection to one of the proxies of the account A, if
                 // we are not already connected/connecting to any proxy of A.
                 if let Some(peer_addr) = peers.choose(&mut rng) {
                     new_connections += 1;
-                    self.clone().try_connect_to(clock.clone(),peer_manager_addr.clone(),PeerInfo{
-                        id: peer_addr.peer_id.clone(),
-                        addr: Some(peer_addr.addr),
-                        account_id: None,
-                    },true).await;
+                    self.clone()
+                        .try_connect_to(
+                            clock.clone(),
+                            peer_manager_addr.clone(),
+                            PeerInfo {
+                                id: peer_addr.peer_id.clone(),
+                                addr: Some(peer_addr.addr),
+                                account_id: None,
+                            },
+                            true,
+                        )
+                        .await;
                 }
             }
         }
@@ -308,12 +315,7 @@ impl NetworkState {
     ) {
         // Start every peer actor on separate thread.
         let arbiter = Arbiter::new();
-        let peer_cfg = match peer_actor::Config::new(
-            stream,
-            stream_cfg,
-            None,
-            self.clone(),
-        ) {
+        let peer_cfg = match peer_actor::Config::new(stream, stream_cfg, None, self.clone()) {
             Ok(cfg) => cfg,
             Err(err) => {
                 warn!("peer_actor::Config::new(): {err}");
@@ -321,15 +323,14 @@ impl NetworkState {
             }
         };
         let clock = clock.clone();
-        PeerActor::start_in_arbiter(&arbiter.handle(), move |ctx| PeerActor::new(
-            clock,
-            ctx,
-            peer_cfg,
-            peer_manager_addr.clone().recipient(),
-        ));
+        PeerActor::start_in_arbiter(&arbiter.handle(), move |ctx| {
+            PeerActor::new(clock, ctx, peer_cfg, peer_manager_addr.clone().recipient())
+        });
     }
 
-    pub async fn try_connect_to(self:Arc<Self>, clock: time::Clock, 
+    pub async fn try_connect_to(
+        self: Arc<Self>,
+        clock: time::Clock,
         peer_manager_addr: Addr<PeerManagerActor>,
         peer_info: PeerInfo,
         is_tier1: bool,
@@ -349,26 +350,26 @@ impl NetworkState {
         // Why exactly a second? It was hard-coded in a library we used
         // before, so we keep it to preserve behavior. Removing the timeout
         // completely was observed to break stuff for real on the testnet.
-        let stream = match tokio::time::timeout(std::time::Duration::from_secs(1), TcpStream::connect(addr)).await {
-            Ok(Ok(it)) => it,
-            Ok(Err(err)) => {
-                info!(target: "network", ?addr, ?err, "Error connecting to");
-                return;
-            }
-            Err(err) => {
-                info!(target: "network", ?addr, ?err, "Error connecting to");
-                return;
-            }
-        };
+        let stream =
+            match tokio::time::timeout(std::time::Duration::from_secs(1), TcpStream::connect(addr))
+                .await
+            {
+                Ok(Ok(it)) => it,
+                Ok(Err(err)) => {
+                    info!(target: "network", ?addr, ?err, "Error connecting to");
+                    return;
+                }
+                Err(err) => {
+                    info!(target: "network", ?addr, ?err, "Error connecting to");
+                    return;
+                }
+            };
         debug!(target: "network", ?peer_info, "Connecting");
         self.try_connect_stream(
             &clock,
             peer_manager_addr,
             stream,
-            StreamConfig::Outbound {
-                peer_id: peer_info.id,
-                is_tier1,
-            },
+            StreamConfig::Outbound { peer_id: peer_info.id, is_tier1 },
         );
     }
 }
@@ -389,7 +390,7 @@ pub struct PeerManagerActor {
     /// Peer information for this node.
     my_peer_id: PeerId,
     /// Peer store that provides read/write access to peers.
-    peer_store: PeerStore, 
+    peer_store: PeerStore,
     /// A graph of the whole NEAR network, shared between routing::Actor
     /// and PeerManagerActor. PeerManagerActor should have read-only access to the graph.
     /// TODO: this is an intermediate step towards replacing actix runtime with a
@@ -403,7 +404,7 @@ pub struct PeerManagerActor {
     /// Connected peers we have sent new edge update, but we haven't received response so far.
     local_peer_pending_update_nonce_request: HashMap<PeerId, u64>,
     /// RoutingTableActor, responsible for computing routing table, routing table exchange, etc.
-    routing_table_addr: Addr<routing::Actor>, 
+    routing_table_addr: Addr<routing::Actor>,
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
     /// reached.
     whitelist_nodes: Vec<WhitelistNode>,
@@ -472,7 +473,12 @@ impl Actor for PeerManagerActor {
                             // we would like to exchange set of connected peers even without establishing
                             // a proper connection.
                             debug!(target: "network", from = ?client_addr, "got new connection");
-                            state.try_connect_stream(&clock, self_addr.clone(), conn, StreamConfig::Inbound);
+                            state.try_connect_stream(
+                                &clock,
+                                self_addr.clone(),
+                                conn,
+                                StreamConfig::Inbound,
+                            );
                         }
                     }
                 }
@@ -485,18 +491,20 @@ impl Actor for PeerManagerActor {
             let clock = self.clock.clone();
             let state = self.state.clone();
             let self_addr = ctx.address();
-            ctx.spawn(async move {
-                let mut interval = tokio::time::interval(
-                    cfg.daemon_tick_interval.try_into().unwrap(),
-                );
-                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                loop {
-                    interval.tick().await;
-                    state.tier1_daemon_tick(&clock,self_addr.clone(),&cfg).await;
-                } 
-            }.into_actor(self));
+            ctx.spawn(
+                async move {
+                    let mut interval =
+                        tokio::time::interval(cfg.daemon_tick_interval.try_into().unwrap());
+                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                    loop {
+                        interval.tick().await;
+                        state.tier1_daemon_tick(&clock, self_addr.clone(), &cfg).await;
+                    }
+                }
+                .into_actor(self),
+            );
         }
-            
+
         // Periodically push network information to client.
         self.push_network_info_trigger(ctx, self.config.push_info_period);
 
@@ -764,7 +772,8 @@ impl PeerManagerActor {
             let tier2 = self.state.tier2.load();
             for edge in new_edges.iter() {
                 if let Some(other_peer) = edge.other(&self.my_peer_id) {
-                    if !self.state.routing_table_view.is_local_edge_newer(other_peer, edge.nonce()) {
+                    if !self.state.routing_table_view.is_local_edge_newer(other_peer, edge.nonce())
+                    {
                         continue;
                     }
                     // Check whether we belong to this edge.
@@ -839,7 +848,7 @@ impl PeerManagerActor {
         &mut self,
         connection_state: Arc<Connection>,
         ctx: &mut Context<Self>,
-    ) -> Result<(),PoolError> {
+    ) -> Result<(), PoolError> {
         let peer_info = &connection_state.peer_info;
         let _span = tracing::trace_span!(target: "network", "register_peer").entered();
         debug!(target: "network", ?peer_info, "Consolidated connection");
@@ -857,11 +866,7 @@ impl PeerManagerActor {
         Ok(())
     }
 
-    fn sync_after_handshake(
-        &self,
-        peer: Arc<Connection>,
-        ctx: &mut Context<Self>,
-    ) {
+    fn sync_after_handshake(&self, peer: Arc<Connection>, ctx: &mut Context<Self>) {
         let run_later_span = tracing::trace_span!(target: "network", "sync_after_handshake");
         // The full sync is delayed, so that handshake is completed before the sync starts.
         near_performance_metrics::actix::run_later(
@@ -888,11 +893,9 @@ impl PeerManagerActor {
                 if peer.peer_type == PeerType::Outbound {
                     // Only broadcast new message from the outbound endpoint.
                     // Wait a time out before broadcasting this new edge to let the other party finish handshake.
-                    act.state.tier2.broadcast_message(Arc::new(
-                        PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(vec![
-                            peer.edge.clone(),
-                        ])),
-                    ));
+                    act.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                        RoutingTableUpdate::from_edges(vec![peer.edge.clone()]),
+                    )));
                 }
             },
         );
@@ -921,11 +924,9 @@ impl PeerManagerActor {
             if edge.edge_type() == EdgeState::Active {
                 let edge_update = edge.remove_edge(self.my_peer_id.clone(), &self.config.node_key);
                 self.add_verified_edges_to_routing_table(vec![edge_update.clone()]);
-                self.state.tier2.broadcast_message(Arc::new(
-                    PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(vec![
-                        edge_update,
-                    ])),
-                ));
+                self.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                    RoutingTableUpdate::from_edges(vec![edge_update]),
+                )));
             }
         }
     }
@@ -963,11 +964,9 @@ impl PeerManagerActor {
     fn is_outbound_bootstrap_needed(&self) -> bool {
         let tier2 = self.state.tier2.load();
         let total_connections = tier2.ready.len() + tier2.outbound_handshakes.len();
-        let potential_outbound_connections = tier2.ready
-            .values()
-            .filter(|peer| peer.peer_type == PeerType::Outbound)
-            .count()
-            + tier2.outbound_handshakes.len();
+        let potential_outbound_connections =
+            tier2.ready.values().filter(|peer| peer.peer_type == PeerType::Outbound).count()
+                + tier2.outbound_handshakes.len();
 
         (total_connections < self.config.ideal_connections_lo as usize
             || (total_connections < self.max_num_peers as usize
@@ -975,7 +974,7 @@ impl PeerManagerActor {
             && !self.config.outbound_disabled
     }
 
-    fn is_peer_whitelisted(&self, peer_info:&PeerInfo) -> bool {
+    fn is_peer_whitelisted(&self, peer_info: &PeerInfo) -> bool {
         self.whitelist_nodes
             .iter()
             .filter(|wn| wn.id == peer_info.id)
@@ -987,14 +986,16 @@ impl PeerManagerActor {
     fn is_inbound_allowed(&self, peer_info: &PeerInfo) -> bool {
         // Check if we have spare inbound connections capacity.
         let tier2 = self.state.tier2.load();
-        if tier2.ready.len() + tier2.outbound_handshakes.len() < self.max_num_peers as usize && !self.config.inbound_disabled {
+        if tier2.ready.len() + tier2.outbound_handshakes.len() < self.max_num_peers as usize
+            && !self.config.inbound_disabled
+        {
             return true;
         }
         // Whitelisted nodes are allowed to connect, even if the inbound connections limit has
         // been reached.
         if self.is_peer_whitelisted(peer_info) {
             return true;
-        } 
+        }
         false
     }
 
@@ -1048,9 +1049,9 @@ impl PeerManagerActor {
                 }
                 // Peer is still not connected after waiting a timeout.
                 let new_edge = edge.remove_edge(act.my_peer_id.clone(), &act.config.node_key);
-                act.state.tier2.broadcast_message(Arc::new(
-                    PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(vec![new_edge])),
-                ));
+                act.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                    RoutingTableUpdate::from_edges(vec![new_edge]),
+                )));
             },
         );
     }
@@ -1118,7 +1119,8 @@ impl PeerManagerActor {
     fn maybe_stop_active_connection(&self) {
         let tier2 = self.state.tier2.load();
         let filter_peers = |predicate: &dyn Fn(&Connection) -> bool| -> Vec<_> {
-            tier2.ready
+            tier2
+                .ready
                 .values()
                 .filter(|peer| predicate(&*peer))
                 .map(|peer| peer.peer_info.id.clone())
@@ -1127,11 +1129,11 @@ impl PeerManagerActor {
 
         // Build safe set
         let mut safe_set = HashSet::new();
- 
+
         // Add whitelisted nodes to the safe set.
         let whitelisted_peers = filter_peers(&|p| self.is_peer_whitelisted(&p.peer_info));
         safe_set.extend(whitelisted_peers);
-        
+
         // If there is not enough non-whitelisted peers, return without disconnecting anyone.
         if tier2.ready.len() - safe_set.len() <= self.config.ideal_connections_hi as usize {
             return;
@@ -1155,7 +1157,8 @@ impl PeerManagerActor {
 
         // Find all recently active peers.
         let now = self.clock.now();
-        let mut active_peers: Vec<Arc<Connection>> = tier2.ready
+        let mut active_peers: Vec<Arc<Connection>> = tier2
+            .ready
             .values()
             .filter(|p| {
                 now - p.last_time_received_message.load() < self.config.peer_recent_time_window
@@ -1395,13 +1398,12 @@ impl PeerManagerActor {
     }
 
     // Determine if the given target is referring to us.
-    fn message_for_me(
-        &self,
-        target: &PeerIdOrHash,
-    ) -> bool {
+    fn message_for_me(&self, target: &PeerIdOrHash) -> bool {
         match target {
             PeerIdOrHash::PeerId(peer_id) => &self.my_peer_id == peer_id,
-            PeerIdOrHash::Hash(hash) => self.state.routing_table_view.compare_route_back(*hash, &self.my_peer_id),
+            PeerIdOrHash::Hash(hash) => {
+                self.state.routing_table_view.compare_route_back(*hash, &self.my_peer_id)
+            }
         }
     }
 
@@ -1421,7 +1423,8 @@ impl PeerManagerActor {
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
         let tier2 = self.state.tier2.load();
         NetworkInfo {
-            connected_peers: tier2.ready
+            connected_peers: tier2
+                .ready
                 .values()
                 .map(|cp| {
                     let stats = cp.stats.load();
@@ -1439,11 +1442,13 @@ impl PeerManagerActor {
             num_connected_peers: tier2.ready.len(),
             peer_max_count: self.max_num_peers,
             highest_height_peers: self.highest_height_peers(),
-            sent_bytes_per_sec: tier2.ready
+            sent_bytes_per_sec: tier2
+                .ready
                 .values()
                 .map(|x| x.stats.load().sent_bytes_per_sec)
                 .sum(),
-            received_bytes_per_sec: tier2.ready
+            received_bytes_per_sec: tier2
+                .ready
                 .values()
                 .map(|x| x.stats.load().received_bytes_per_sec)
                 .sum(),
@@ -1457,10 +1462,7 @@ impl PeerManagerActor {
                     peer_id: announce_account.peer_id.clone(),
                     // TODO: fill in the address.
                     addr: None,
-                    next_hops: self
-                        .state
-                        .routing_table_view
-                        .view_route(&announce_account.peer_id)
+                    next_hops: self.state.routing_table_view.view_route(&announce_account.peer_id),
                 })
                 .collect(),
             tier1_accounts: self.state.accounts_data.load().data.values().cloned().collect(),
@@ -1510,10 +1512,7 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BlockRequest { hash, peer_id } => {
-                if self
-                    .state
-                    .tier2
-                    .send_message(peer_id, Arc::new(PeerMessage::BlockRequest(hash)))
+                if self.state.tier2.send_message(peer_id, Arc::new(PeerMessage::BlockRequest(hash)))
                 {
                     NetworkResponses::NoResponse
                 } else {
@@ -1697,9 +1696,7 @@ impl PeerManagerActor {
             }
             NetworkRequests::Challenge(challenge) => {
                 // TODO(illia): smarter routing?
-                self.state
-                    .tier2
-                    .broadcast_message(Arc::new(PeerMessage::Challenge(challenge)));
+                self.state.tier2.broadcast_message(Arc::new(PeerMessage::Challenge(challenge)));
                 NetworkResponses::NoResponse
             }
         }
@@ -1719,7 +1716,7 @@ impl PeerManagerActor {
         ctx: &mut Context<Self>,
     ) -> RegisterPeerResponse {
         let _d = delay_detector::DelayDetector::new(|| "consolidate".into());
-        
+
         let peer_info = &msg.connection_state.peer_info;
         // Check if this is a blacklisted peer.
         if peer_info.addr.as_ref().map_or(true, |addr| self.peer_store.is_blacklisted(addr)) {
@@ -1731,7 +1728,7 @@ impl PeerManagerActor {
             debug!(target: "network", id = ?peer_info.id, "Dropping connection from banned peer");
             return RegisterPeerResponse::Reject(RegisterPeerError::Banned);
         }
-        
+
         if msg.connection_state.is_tier1 {
             if msg.connection_state.peer_type == PeerType::Inbound {
                 // Allow for inbound TIER1 connections only directly from a TIER1 peers
@@ -1750,7 +1747,9 @@ impl PeerManagerActor {
                         max_num_peers = self.max_num_peers,
                         "Dropping handshake (network at max capacity)."
                     );
-                    return RegisterPeerResponse::Reject(RegisterPeerError::ConnectionLimitExceeded);
+                    return RegisterPeerResponse::Reject(
+                        RegisterPeerError::ConnectionLimitExceeded,
+                    );
                 }
             }
         }
@@ -1815,7 +1814,17 @@ impl PeerManagerActor {
             }
             // TEST-ONLY
             PeerManagerMessageRequest::OutboundTcpConnect(msg) => {
-                ctx.spawn(self.state.clone().try_connect_to(self.clock.clone(),ctx.address(),msg.peer_info,/*is_tier1=*/false).into_actor(self));
+                ctx.spawn(
+                    self.state
+                        .clone()
+                        .try_connect_to(
+                            self.clock.clone(),
+                            ctx.address(),
+                            msg.peer_info,
+                            /*is_tier1=*/ false,
+                        )
+                        .into_actor(self),
+                );
                 PeerManagerMessageResponse::OutboundTcpConnect
             }
             // TEST-ONLY
@@ -1907,7 +1916,11 @@ impl PeerManagerActor {
                         // This happens in case, we get an edge, in `RoutingTableActor`,
                         // which says that we shouldn't be connected to local peer, but we are.
                         // This is a part of logic used to ask peer, if he really want to be disconnected.
-                        if self.state.routing_table_view.is_local_edge_newer(other_peer, edge.nonce()) {
+                        if self
+                            .state
+                            .routing_table_view
+                            .is_local_edge_newer(other_peer, edge.nonce())
+                        {
                             if let Some(nonce) =
                                 self.local_peer_pending_update_nonce_request.get(other_peer)
                             {
@@ -2101,17 +2114,27 @@ impl Handler<SetChainInfo> for PeerManagerActor {
                     config::ValidatorEndpoints::TrustedStunServers(_) => vec![],
                     config::ValidatorEndpoints::PublicAddrs(peer_addrs) => peer_addrs.clone(),
                 };
-                let my_data = state.accounts_data.load().epochs(&my_account_id,&my_public_key).iter().map(|epoch_id| {
-                    // This unwrap is safe, because we did signed a sample payload during
-                    // config validation. See config::Config::new().
-                    Arc::new(AccountData {
-                        peer_id: Some(state.config.node_id()),
-                        epoch_id: epoch_id.clone(),
-                        account_id: my_account_id.clone(),
-                        timestamp: now,
-                        peers: my_peers.clone(),
-                    }.sign(vc.signer.as_ref()).unwrap())
-                }).collect();
+                let my_data = state
+                    .accounts_data
+                    .load()
+                    .epochs(&my_account_id, &my_public_key)
+                    .iter()
+                    .map(|epoch_id| {
+                        // This unwrap is safe, because we did signed a sample payload during
+                        // config validation. See config::Config::new().
+                        Arc::new(
+                            AccountData {
+                                peer_id: Some(state.config.node_id()),
+                                epoch_id: epoch_id.clone(),
+                                account_id: my_account_id.clone(),
+                                timestamp: now,
+                                peers: my_peers.clone(),
+                            }
+                            .sign(vc.signer.as_ref())
+                            .unwrap(),
+                        )
+                    })
+                    .collect();
                 // Insert node's own AccountData should never fail.
                 // We ignore the new data, because we trigger a full sync anyway.
                 if let (_, Some(err)) = state.accounts_data.insert(my_data).await {

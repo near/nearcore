@@ -1,11 +1,11 @@
 use crate::tests::network::runner::*;
 use near_network_primitives::time;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc};
+use std::sync::Arc;
 
 use actix::actors::mocker::Mocker;
+use actix::Actor;
 use actix::System;
-use actix::{Actor};
 use futures::{future, FutureExt};
 use near_primitives::block::GenesisId;
 

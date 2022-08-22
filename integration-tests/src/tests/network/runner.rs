@@ -45,7 +45,6 @@ fn setup_network_node(
     chain_genesis: ChainGenesis,
     config: config::NetworkConfig,
 ) -> Addr<PeerManagerActor> {
-
     let store = create_test_store();
 
     let num_validators = validators.len() as ValidatorId;
@@ -572,7 +571,6 @@ impl Runner {
             network_config.minimum_outbound_peers = mop;
         });
 
-        
         let (send_pm, recv_pm) = tokio::sync::oneshot::channel();
         let (send_stop, recv_stop) = tokio::sync::oneshot::channel();
         let handle = std::thread::spawn({

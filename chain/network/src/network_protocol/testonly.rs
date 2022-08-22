@@ -47,22 +47,22 @@ pub fn make_block(
     chunks: Vec<ShardChunk>,
 ) -> Block {
     Block::produce(
-        version::PROTOCOL_VERSION,                                      // this_epoch_protocol_version
-        version::PROTOCOL_VERSION,                                      // next_epoch_protocol_version
-        prev.header(),                                         // prev
-        prev.header().height() + 5,                            // height
-        prev.header().block_ordinal() + 1,                     // block_ordinal
+        version::PROTOCOL_VERSION,         // this_epoch_protocol_version
+        version::PROTOCOL_VERSION,         // next_epoch_protocol_version
+        prev.header(),                     // prev
+        prev.header().height() + 5,        // height
+        prev.header().block_ordinal() + 1, // block_ordinal
         chunks.into_iter().map(|c| c.take_header()).collect(), // chunks
-        EpochId::default(),                                    // epoch_id
-        EpochId::default(),                                    // next_epoch_id
-        None,                                                  // epoch_sync_data_hash
-        vec![],                                                // approvals
-        Ratio::from_integer(0),                                // gas_price_adjustment_rate
-        0,                                                     // min_gas_price
-        0,                                                     // max_gas_price
-        Some(0),                                               // minted_amount
-        vec![],                                                // challenges_result
-        vec![],                                                // challenges
+        EpochId::default(),                // epoch_id
+        EpochId::default(),                // next_epoch_id
+        None,                              // epoch_sync_data_hash
+        vec![],                            // approvals
+        Ratio::from_integer(0),            // gas_price_adjustment_rate
+        0,                                 // min_gas_price
+        0,                                 // max_gas_price
+        Some(0),                           // minted_amount
+        vec![],                            // challenges_result
+        vec![],                            // challenges
         signer,
         CryptoHash::default(), // next_bp_hash
         CryptoHash::default(), // block_merkle_root

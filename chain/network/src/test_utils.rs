@@ -310,12 +310,12 @@ pub mod test_features {
     use crate::PeerManagerActor;
     use actix::actors::mocker::Mocker;
     use actix::Actor;
+    use near_network_primitives::time;
     use near_network_primitives::types::{NetworkViewClientMessages, NetworkViewClientResponses};
     use near_primitives::block::GenesisId;
     use near_store::Store;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
-    use near_network_primitives::time;
 
     /// Mock for `ClientActor`
     type ClientMock = Mocker<NetworkClientMessages>;

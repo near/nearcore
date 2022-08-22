@@ -4,13 +4,13 @@ pub use crate::runtime::NightshadeRuntime;
 pub use crate::shard_tracker::TrackedConfig;
 use actix::{Actor, Addr, Arbiter};
 use actix_rt::ArbiterHandle;
-use near_network_primitives::time;
 use actix_web;
 use anyhow::Context;
 use near_chain::{Chain, ChainGenesis};
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
+use near_network_primitives::time;
 use near_primitives::block::GenesisId;
 use near_primitives::version::DbVersion;
 #[cfg(feature = "performance_stats")]
