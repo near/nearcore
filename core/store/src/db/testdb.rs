@@ -14,7 +14,7 @@ pub struct TestDB {
 }
 
 impl TestDB {
-    pub fn new() -> Arc<Self> {
+    pub fn new() -> Arc<dyn Database> {
         Arc::new(Self { db: Default::default() })
     }
 }

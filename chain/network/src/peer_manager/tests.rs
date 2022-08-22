@@ -184,13 +184,10 @@ async fn test_nonces() {
     let mut clock = time::FakeClock::new(*EDGE_MIN_TIMESTAMP_NONCE + time::Duration::days(2));
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    //let mut total_edges = vec![];
-    let store = near_store::db::TestDB::new();
-
     // Start a PeerManager and connect a peer to it.
     let pm = peer_manager::testonly::start(
         clock.clock(),
-        store.clone(),
+        near_store::db::TestDB::new(),
         chain.make_config(rng),
         chain.clone(),
     )
