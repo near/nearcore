@@ -1,6 +1,8 @@
 use crate::concurrency::demux;
 use crate::network_protocol::PeerAddr;
 use anyhow::Context;
+use crate::sink::Sink;
+use crate::peer_manager::peer_manager_actor::Event;
 use near_crypto::{KeyType, SecretKey};
 use near_network_primitives::time;
 use near_network_primitives::types::{Blacklist, PeerInfo, ROUTED_MESSAGE_TTL};
@@ -123,11 +125,16 @@ pub struct NetworkConfig {
     pub accounts_data_broadcast_rate_limit: demux::RateLimit,
     /// features
     pub features: Features,
-    // If true - connect only to the bootnodes.
+    /// If true - connect only to the bootnodes.
     pub connect_only_to_boot_nodes: bool,
 
-    // Whether to send tombstones at startup.
+    /// Whether to send tombstones at startup.
     pub skip_sending_tombstones: Option<time::Duration>,
+
+    /// TEST-ONLY
+    /// TODO(gprusak): make it pub(crate), once all integration tests
+    /// are merged into near_network.
+    pub event_sink: Sink<Event>,
 }
 
 impl NetworkConfig {
@@ -221,6 +228,7 @@ impl NetworkConfig {
             } else {
                 None
             },
+            event_sink: Sink::void(),
         };
         Ok(this)
     }
@@ -283,6 +291,7 @@ impl NetworkConfig {
                 }),
             },
             skip_sending_tombstones: None,
+            event_sink: Sink::void(),
         }
     }
 
