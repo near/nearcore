@@ -22,11 +22,11 @@ use near_network_primitives::types::{
 };
 use near_performance_metrics::framed_write::FramedWrite;
 use near_primitives::network::PeerId;
-use near_store::test_utils::create_test_store;
 use near_rate_limiter::{
     ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleFramedRead,
     ThrottleToken,
 };
+use near_store::test_utils::create_test_store;
 
 use near_network_primitives::time::Utc;
 use std::sync::atomic::AtomicUsize;

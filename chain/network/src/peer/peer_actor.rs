@@ -108,7 +108,7 @@ pub(crate) struct PeerActor {
     force_encoding: Option<Encoding>,
 
     /// Shared state of the connection. Populated once the connection is established.
-    connection_state: Option<Arc<ConnectedPeer>>, 
+    connection_state: Option<Arc<ConnectedPeer>>,
 }
 
 impl Debug for PeerActor {
@@ -153,7 +153,9 @@ impl PeerActor {
             peer_manager_addr,
             peer_manager_wrapper_addr,
             tracker: Default::default(),
-            partial_edge_info: peer_info.as_ref().map(|info|network_state.propose_edge(&info.id, None)),
+            partial_edge_info: peer_info
+                .as_ref()
+                .map(|info| network_state.propose_edge(&info.id, None)),
             peer_info: peer_info.into(),
             peer_counter,
             routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),

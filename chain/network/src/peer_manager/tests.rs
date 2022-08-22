@@ -46,8 +46,7 @@ async fn repeated_data_in_sync_routing_table() {
         nonce: None,
     };
     let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
-    let mut peer =
-        peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
+    let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
     let edge = peer.complete_handshake().await;
 
     let mut edges_got = HashSet::new();
@@ -130,8 +129,7 @@ async fn no_edge_broadcast_after_restart() {
             nonce: None,
         };
         let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
-        let mut peer =
-            peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
+        let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
         let edge = peer.complete_handshake().await;
 
         // Create a bunch of fresh unreachable edges, then send all the edges created so far.
@@ -228,8 +226,7 @@ async fn test_nonces() {
             nonce: test.0,
         };
         let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
-        let mut peer =
-            peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
+        let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
         if test.1 {
             peer.complete_handshake().await;
         } else {
@@ -262,8 +259,7 @@ async fn ttl() {
         nonce: None,
     };
     let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
-    let mut peer =
-        peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
+    let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
     peer.complete_handshake().await;
     // await for peer manager to compute the routing table.
     // TODO(gprusak): probably extract it to a separate function when migrating other tests from
@@ -327,9 +323,9 @@ async fn add_peer(
     peer.complete_handshake().await;
     // TODO(gprusak): this should be part of complete_handshake, once Borsh support is removed.
     let msg = match peer.events.recv().await {
-        peer::testonly::Event::Network(PME::MessageProcessed(
-            PeerMessage::SyncAccountsData(msg),
-        )) => msg,
+        peer::testonly::Event::Network(PME::MessageProcessed(PeerMessage::SyncAccountsData(
+            msg,
+        ))) => msg,
         ev => panic!("expected SyncAccountsData, got {ev:?}"),
     };
     (peer, msg)

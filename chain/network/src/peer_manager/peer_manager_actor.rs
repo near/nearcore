@@ -3,7 +3,7 @@ use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::{AccountData, SyncAccountsData};
 use crate::peer::codec::Codec;
-use crate::peer::peer_actor::{PeerActor};
+use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connected_peers::{ConnectedPeer, ConnectedPeers};
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
@@ -212,7 +212,6 @@ impl NetworkState {
         });
         PartialEdgeInfo::new(&self.config.node_id(), peer1, nonce, &self.config.node_key)
     }
-
 }
 
 /// Actor that manages peers connections.
