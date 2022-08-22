@@ -3,7 +3,7 @@ use crate::concurrency::demux;
 use crate::network_protocol::testonly as data;
 use crate::peer::peer_actor;
 use crate::config::NetworkConfig;
-use crate::peer::peer_actor::{PeerActor,OutboundConfig};
+use crate::peer::peer_actor::{PeerActor,StreamConfig};
 use crate::peer_manager::peer_manager_actor::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage, Unregister};
@@ -228,11 +228,14 @@ impl PeerHandle {
                     clock,
                     ctx,
                     peer_actor::Config::new(
-                        cfg.start_handshake_with.as_ref().map(|id| OutboundConfig {
-                            peer_id: id.clone(),
-                            is_tier1: false,
-                        }),
                         stream,
+                        match &cfg.start_handshake_with {
+                            None => StreamConfig::Inbound,
+                            Some(id) => StreamConfig::Outbound {
+                                peer_id: id.clone(),
+                                is_tier1: false,
+                            },
+                        },
                         cfg.force_encoding,
                         network_state,
                     ).unwrap(),

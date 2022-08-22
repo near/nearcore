@@ -3,7 +3,7 @@ use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::{AccountData, SyncAccountsData};
 use crate::peer::peer_actor;
-use crate::peer::peer_actor::{PeerActor, OutboundConfig};
+use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::connection::{Connection, Pool, PoolError};
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
@@ -160,8 +160,8 @@ pub(crate) struct NetworkState {
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
     /// messages sincce last block.
     pub txns_since_last_block: AtomicUsize,
-    /// Semaphore limiting inflight handshakes.
-    pub handshake_permits: Arc<tokio::sync::Semaphore>, 
+    /// Semaphore limiting inflight inbound handshakes.
+    pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>, 
 }
 
 impl NetworkState {
@@ -184,7 +184,7 @@ impl NetworkState {
             routing_table_view,
             send_accounts_data_rl,
             config,
-            handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
+            inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             txns_since_last_block: AtomicUsize::new(0),
         }
     }
@@ -275,7 +275,7 @@ impl NetworkState {
                     continue;
                 }
                 let mut peers = proxies_by_account.get(account_id).into_iter().flatten();
-                if peers.any(|p|tier1.started_outbound.contains(&p.peer_id)) {
+                if peers.any(|p|tier1.outbound_handshakes.contains(&p.peer_id)) {
                     continue;
                 }
                 // Start a new connection to one of the proxies of the account A, if
@@ -293,20 +293,20 @@ impl NetworkState {
         }
     }
 
-    /// Connects peer with given TcpStream and optional information if it's outbound.
+    /// Connects peer with given TcpStream.
     /// This might fail if the other peers drop listener at its endpoint while establishing connection.
-    pub fn try_connect_peer(
+    pub fn try_connect_stream(
         self: &Arc<Self>,
         clock: &time::Clock,
         peer_manager_addr: Addr<PeerManagerActor>,
         stream: TcpStream,
-        outbound_cfg: Option<OutboundConfig>,
+        stream_cfg: StreamConfig,
     ) {
         // Start every peer actor on separate thread.
         let arbiter = Arbiter::new();
         let peer_cfg = match peer_actor::Config::new(
-            outbound_cfg,
             stream,
+            stream_cfg,
             None,
             self.clone(),
         ) {
@@ -324,6 +324,48 @@ impl NetworkState {
             peer_manager_addr.clone().recipient(),
             peer_manager_addr.clone().recipient(),
         ));
+    }
+
+    pub async fn try_connect_to(self:Arc<Self>, clock: time::Clock, 
+        peer_manager_addr: Addr<PeerManagerActor>,
+        peer_info: PeerInfo,
+    ) {
+        let addr = match peer_info.addr {
+            Some(addr) => addr,
+            None => {
+                warn!(target: "network", ?peer_info, "Trying to connect to peer with no public address");
+                return;
+            }
+        };
+        // The `connect` may take several minutes. This happens when the
+        // `SYN` packet for establishing a TCP connection gets silently
+        // dropped, in which case the default TCP timeout is applied. That's
+        // too long for us, so we shorten it to one second.
+        //
+        // Why exactly a second? It was hard-coded in a library we used
+        // before, so we keep it to preserve behavior. Removing the timeout
+        // completely was observed to break stuff for real on the testnet.
+        let stream = match tokio::time::timeout(std::time::Duration::from_secs(1), TcpStream::connect(addr)).await {
+            Ok(Ok(it)) => it,
+            Ok(Err(err)) => {
+                info!(target: "network", ?addr, ?err, "Error connecting to");
+                return;
+            }
+            Err(err) => {
+                info!(target: "network", ?addr, ?err, "Error connecting to");
+                return;
+            }
+        };
+        debug!(target: "network", ?peer_info, "Connecting");
+        self.try_connect_stream(
+            &clock,
+            peer_manager_addr,
+            stream,
+            StreamConfig::Outbound {
+                peer_id: peer_info.id,
+                is_tier1: false,
+            },
+        );
     }
 }
 
@@ -426,7 +468,7 @@ impl Actor for PeerManagerActor {
                             // we would like to exchange set of connected peers even without establishing
                             // a proper connection.
                             debug!(target: "network", from = ?client_addr, "got new connection");
-                            state.try_connect_peer(&clock, self_addr.clone(), conn, None);
+                            state.try_connect_stream(&clock, self_addr.clone(), conn, StreamConfig::Inbound);
                         }
                     }
                 }
@@ -914,12 +956,12 @@ impl PeerManagerActor {
     ///     and the total connections is less than `max_num_peers`)
     fn is_outbound_bootstrap_needed(&self) -> bool {
         let tier2 = self.state.tier2.load();
-        let total_connections = tier2.ready.len() + tier2.started_outbound.len();
+        let total_connections = tier2.ready.len() + tier2.outbound_handshakes.len();
         let potential_outbound_connections = tier2.ready
             .values()
             .filter(|peer| peer.peer_type == PeerType::Outbound)
             .count()
-            + tier2.started_outbound.len();
+            + tier2.outbound_handshakes.len();
 
         (total_connections < self.config.ideal_connections_lo as usize
             || (total_connections < self.max_num_peers as usize
@@ -939,7 +981,7 @@ impl PeerManagerActor {
     fn is_inbound_allowed(&self, peer_info: &PeerInfo) -> bool {
         // Check if we have spare inbound connections capacity.
         let tier2 = self.state.tier2.load();
-        if tier2.ready.len() + tier2.started_outbound.len() < self.max_num_peers as usize && !self.config.inbound_disabled {
+        if tier2.ready.len() + tier2.outbound_handshakes.len() < self.max_num_peers as usize && !self.config.inbound_disabled {
             return true;
         }
         // Whitelisted nodes are allowed to connect, even if the inbound connections limit has
@@ -1091,7 +1133,7 @@ impl PeerManagerActor {
 
         // If there is not enough outbound peers, add them to the safe set.
         let outbound_peers = filter_peers(&|p| p.peer_type == PeerType::Outbound);
-        if outbound_peers.len() + tier2.started_outbound.len()
+        if outbound_peers.len() + tier2.outbound_handshakes.len()
             <= self.config.minimum_outbound_peers as usize
         {
             safe_set.extend(outbound_peers);
@@ -1183,7 +1225,7 @@ impl PeerManagerActor {
                 self.my_peer_id == peer_state.peer_info.id
                     || self.config.node_addr == peer_state.peer_info.addr
                     // Or to peers we are currently trying to connect to
-                    || tier2.started_outbound.contains(&peer_state.peer_info.id)
+                    || tier2.outbound_handshakes.contains(&peer_state.peer_info.id)
             }) {
                 // Start monitor_peers_attempts from start after we discover the first healthy peer
                 if !self.started_connect_attempts {
@@ -1667,54 +1709,6 @@ impl PeerManagerActor {
     }
 
     #[perf]
-    fn handle_msg_outbound_tcp_connect(&self, msg: OutboundTcpConnect, ctx: &mut Context<Self>) {
-        let _d = delay_detector::DelayDetector::new(|| "outbound tcp connect".into());
-        debug!(target: "network", to = ?msg.peer_info, "Trying to connect");
-        let addr = match msg.peer_info.addr {
-            Some(addr) => addr,
-            None => {
-                warn!(target: "network", peer_info = ?msg.peer_info, "Trying to connect to peer with no public address");
-                return;
-            }
-        };
-        // The `connect` may take several minutes. This happens when the
-        // `SYN` packet for establishing a TCP connection gets silently
-        // dropped, in which case the default TCP timeout is applied. That's
-        // too long for us, so we shorten it to one second.
-        //
-        // Why exactly a second? It was hard-coded in a library we used
-        // before, so we keep it to preserve behavior. Removing the timeout
-        // completely was observed to break stuff for real on the testnet.
-        tokio::time::timeout(std::time::Duration::from_secs(1), TcpStream::connect(addr))
-            .into_actor(self)
-            .then(move |res, act, ctx| {
-                let stream = match res {
-                    Ok(Ok(it)) => it,
-                    Ok(Err(err)) => {
-                        info!(target: "network", ?addr, ?err, "Error connecting to");
-                        return actix::fut::ready(());
-                    }
-                    Err(err) => {
-                        info!(target: "network", ?addr, ?err, "Error connecting to");
-                        return actix::fut::ready(());
-                    }
-                };
-                debug!(target: "network", peer_info = ?msg.peer_info, "Connecting");
-                act.state.try_connect_peer(
-                    &act.clock,
-                    ctx.address(),
-                    stream,
-                    Some(OutboundConfig{
-                        peer_id: msg.peer_info.id,
-                        is_tier1: false,
-                    }),
-                );
-                actix::fut::ready(())
-            })
-            .wait(ctx); 
-    }
-
-    #[perf]
     fn handle_msg_register_peer(
         &mut self,
         msg: RegisterPeer,
@@ -1748,7 +1742,7 @@ impl PeerManagerActor {
                     // TODO(1896): Gracefully drop inbound connection for other peer.
                     let tier2 = self.state.tier2.load();
                     debug!(target: "network",
-                        tier2 = tier2.ready.len(), outgoing_peers = tier2.started_outbound.len(),
+                        tier2 = tier2.ready.len(), outgoing_peers = tier2.outbound_handshakes.len(),
                         max_num_peers = self.max_num_peers,
                         "Dropping handshake (network at max capacity)."
                     );
@@ -1815,8 +1809,9 @@ impl PeerManagerActor {
                     throttle_controller,
                 ))
             }
+            // TEST-ONLY
             PeerManagerMessageRequest::OutboundTcpConnect(msg) => {
-                self.handle_msg_outbound_tcp_connect(msg, ctx);
+                ctx.spawn(self.state.clone().try_connect_to(self.clock.clone(),ctx.address(),msg.peer_info).into_actor(self));
                 PeerManagerMessageResponse::OutboundTcpConnect
             }
             // TEST-ONLY

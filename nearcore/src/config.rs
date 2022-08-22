@@ -6,6 +6,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use near_network_primitives::time;
 use anyhow::{anyhow, bail, Context};
 use near_primitives::time::Clock;
 use num_rational::Rational32;
@@ -596,10 +597,15 @@ impl NearConfig {
                 config.archive,
                 match genesis.config.chain_id.as_ref() {
                     "mainnet" | "testnet" | "betanet" => {
-                        near_network::config::Features { enable_tier1: false }
+                        near_network::config::Features { tier1: None }
                     }
                     // shardnet and all test setups.
-                    "shardnet" | _ => near_network::config::Features { enable_tier1: true },
+                    "shardnet" | _ => near_network::config::Features {
+                        tier1: Some(near_network::config::Tier1 {
+                            daemon_tick_interval: time::Duration::seconds(20),
+                            new_connections_per_tick: 5,
+                        }),
+                    },
                 },
             )?,
             telemetry_config: config.telemetry,

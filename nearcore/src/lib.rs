@@ -4,6 +4,7 @@ pub use crate::runtime::NightshadeRuntime;
 pub use crate::shard_tracker::TrackedConfig;
 use actix::{Actor, Addr, Arbiter};
 use actix_rt::ArbiterHandle;
+use near_network_primitives::time;
 use actix_web;
 use anyhow::Context;
 use near_chain::{Chain, ChainGenesis};
@@ -288,6 +289,7 @@ pub fn start_with_config_and_synchronization(
         let view_client = view_client.clone();
         move |_ctx| {
             PeerManagerActor::new(
+                time::Clock::real(),
                 store,
                 config.network_config,
                 client_actor.recipient(),

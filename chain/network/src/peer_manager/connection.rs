@@ -164,25 +164,25 @@ pub(crate) struct PoolSnapshot {
     pub me: PeerId,
     pub ready: im::HashMap<PeerId, Arc<Connection>>,
     /// Set of started outbound connections, which are not ready yet.
-    pub started_outbound: im::HashSet<PeerId>,
+    pub outbound_handshakes: im::HashSet<PeerId>,
 }
 
-pub(crate) struct StartedOutboundToken(PeerId,Pool);
+pub(crate) struct OutboundHandshakePermit(PeerId,Pool);
 
-impl StartedOutboundToken {
+impl OutboundHandshakePermit {
     pub fn peer_id(&self) -> &PeerId { &self.0 }
 }
 
-impl fmt::Debug for StartedOutboundToken {
+impl fmt::Debug for OutboundHandshakePermit {
     fn fmt(&self, f:&mut fmt::Formatter<'_>) -> Result<(),fmt::Error> {
         self.peer_id().fmt(f)
     }
 }
 
-impl Drop for StartedOutboundToken {
+impl Drop for OutboundHandshakePermit {
     fn drop(&mut self) {
         self.1.0.update(|pool|{
-            pool.started_outbound.remove(&self.0);
+            pool.outbound_handshakes.remove(&self.0);
         });
     }
 }
@@ -203,7 +203,7 @@ impl Pool {
         Self(Arc::new(ArcMutex::new(PoolSnapshot{
             me,
             ready: im::HashMap::new(),
-            started_outbound: im::HashSet::new(),
+            outbound_handshakes: im::HashSet::new(),
         })))
     }
 
@@ -218,7 +218,7 @@ impl Pool {
                 return Err(PoolError::AlreadyConnected);
             }
             if peer.peer_type==PeerType::Inbound {
-                if pool.started_outbound.contains(id) && id < &pool.me {
+                if pool.outbound_handshakes.contains(id) && id < &pool.me {
                     return Err(PoolError::AlreadyStartedConnecting);
                 }
             }
@@ -227,16 +227,16 @@ impl Pool {
         })
     }
 
-    pub fn start_outbound(&self, peer_id:PeerId) -> Result<StartedOutboundToken,PoolError> {
+    pub fn start_outbound(&self, peer_id:PeerId) -> Result<OutboundHandshakePermit,PoolError> {
         self.0.update(move|pool|{
             if pool.ready.contains_key(&peer_id) {
                 return Err(PoolError::AlreadyConnected);
             }
-            if pool.started_outbound.contains(&peer_id) {
+            if pool.outbound_handshakes.contains(&peer_id) {
                 return Err(PoolError::AlreadyStartedConnecting);
             }
-            pool.started_outbound.insert(peer_id.clone());
-            Ok(StartedOutboundToken(peer_id,self.clone()))
+            pool.outbound_handshakes.insert(peer_id.clone());
+            Ok(OutboundHandshakePermit(peer_id,self.clone()))
         })
     }
 

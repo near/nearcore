@@ -5,7 +5,7 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
-use crate::peer_manager::connection::{Connection, Stats, StartedOutboundToken};
+use crate::peer_manager::connection::{Connection, Stats, OutboundHandshakePermit};
 use crate::peer_manager::peer_manager_actor::{NetworkState,Event};
 use crate::private_actix::PeersResponse;
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
@@ -140,9 +140,12 @@ pub enum IOError {
 }
 
 #[derive(Debug)]
-pub(crate) struct OutboundConfig {
-    pub peer_id: PeerId,
-    pub is_tier1: bool,
+pub(crate) enum StreamConfig {
+    Inbound,
+    Outbound {
+        peer_id: PeerId,
+        is_tier1: bool,
+    },
 }
 
 #[derive(Clone)]
@@ -154,39 +157,41 @@ struct HandshakeSpec {
     partial_edge_info: PartialEdgeInfo,
 }
 
-pub struct Config {
+/// PeerActor config, whose constructor may return an error.
+/// We need it because of actix which doesn't allow us
+/// to make PeerActor::new return an error.
+pub(crate) struct Config {
     peer_addr: SocketAddr,
     stream: tokio::net::TcpStream,
-    outbound: Option<OutboundConfig>,
-    peer_status: PeerStatus,
+    stream_config: StreamConfig,
+    connecting_status: ConnectingStatus,
     network_state: Arc<NetworkState>,
     force_encoding: Option<Encoding>,
 }
 
 impl Config {
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
-        outbound: Option<OutboundConfig>,
+    pub fn new(
         stream: tokio::net::TcpStream,
+        stream_config: StreamConfig,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             peer_addr: stream.peer_addr().context("stream.peer_addr()")?, 
-            peer_status: PeerStatus::Connecting{
-                _handshake_permit: network_state.handshake_permits.clone().try_acquire_owned().context("too many connections in Connecting state")?,
-                _outbound_permit: match &outbound {
-                    None => None,
-                    Some(cfg) => Some(
-                        if cfg.is_tier1 {
-                        network_state.tier1.start_outbound(cfg.peer_id.clone()).context("tier1.start_outbound()")?
+            connecting_status: match &stream_config {
+                StreamConfig::Inbound => ConnectingStatus::Inbound(
+                    network_state.inbound_handshake_permits.clone().try_acquire_owned().context("too many connections in Connecting state")?,
+                ),
+                StreamConfig::Outbound{is_tier1,peer_id} => ConnectingStatus::Outbound(
+                    if *is_tier1 {
+                        network_state.tier1.start_outbound(peer_id.clone()).context("tier1.start_outbound()")?
                     } else {
-                        network_state.tier2.start_outbound(cfg.peer_id.clone()).context("tier2.start_outbound()")?
-                    }),
-                },
+                        network_state.tier2.start_outbound(peer_id.clone()).context("tier2.start_outbound()")?
+                    },
+                )
             },
             stream,
-            outbound,
+            stream_config,
             network_state,
             force_encoding,
         })
@@ -206,7 +211,6 @@ impl PeerActor {
             addr: cfg.network_state.config.node_addr.clone(),
             account_id: cfg.network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
-        tracing::debug!(target:"dupa", "starting PeerActor {} -> {:?}",my_node_info.id,cfg.outbound);
         let (read, write) = tokio::io::split(cfg.stream);
         let rate_limiter = ThrottleController::new(MAX_MESSAGES_COUNT, MAX_MESSAGES_TOTAL_SIZE);
         PeerActor::add_stream(
@@ -225,18 +229,21 @@ impl PeerActor {
             clock,
             my_node_info,
             peer_addr: cfg.peer_addr,
-            peer_status: cfg.peer_status,
-            peer_type: match cfg.outbound {
-                Some(_) => PeerType::Outbound,
-                None => PeerType::Inbound,
+            peer_type: match &cfg.stream_config {
+                StreamConfig::Inbound => PeerType::Inbound,
+                StreamConfig::Outbound{..} => PeerType::Outbound,
             },
-            handshake_spec: cfg.outbound.as_ref().map(|oc| HandshakeSpec {
-                partial_edge_info: cfg.network_state.propose_edge(&oc.peer_id,None),
-                protocol_version: PROTOCOL_VERSION,
-                peer_id: oc.peer_id.clone(),
-                genesis_id: cfg.network_state.genesis_id.clone(),
-                is_tier1: oc.is_tier1,
-            }),
+            handshake_spec: match &cfg.stream_config {
+                StreamConfig::Inbound => None,
+                StreamConfig::Outbound{is_tier1,peer_id} => Some(HandshakeSpec {
+                    partial_edge_info: cfg.network_state.propose_edge(peer_id,None),
+                    protocol_version: PROTOCOL_VERSION,
+                    peer_id: peer_id.clone(),
+                    genesis_id: cfg.network_state.genesis_id.clone(),
+                    is_tier1: *is_tier1,
+                }),
+            },
+            peer_status: PeerStatus::Connecting(cfg.connecting_status),
             
             framed: FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
             peer_manager_addr,
@@ -1293,14 +1300,18 @@ impl Handler<PeerManagerRequestWithContext> for PeerActor {
     }
 }
 
-/// Peer status.
+type InboundHandshakePermit = tokio::sync::OwnedSemaphorePermit;
+
+#[derive(Debug)]
+enum ConnectingStatus {
+    Inbound(InboundHandshakePermit),
+    Outbound(OutboundHandshakePermit),
+}
+
 #[derive(Debug)]
 enum PeerStatus {
-    /// Waiting for handshake.
-    Connecting{
-        _handshake_permit: tokio::sync::OwnedSemaphorePermit, 
-        _outbound_permit: Option<StartedOutboundToken>,
-    },
+    /// Handshake in progress.
+    Connecting(ConnectingStatus),
     /// Ready to go.
     Ready,
     /// Banned, should shutdown this peer.
