@@ -443,7 +443,7 @@ impl TrieStorage for TrieCachingStorage {
         metrics::SHARD_CACHE_SIZE.with_label_values(&metrics_labels).set(guard.len() as i64);
         metrics::SHARD_CACHE_CURRENT_TOTAL_SIZE
             .with_label_values(&metrics_labels)
-            .set(self.shard_cache.0.lock().expect(POISONED_LOCK_ERR).current_total_size() as i64);
+            .set(guard.current_total_size() as i64);
         let val = match guard.get(hash) {
             Some(val) => {
                 metrics::SHARD_CACHE_HITS.with_label_values(&metrics_labels).inc();
