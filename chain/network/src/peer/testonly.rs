@@ -245,7 +245,6 @@ impl PeerHandle {
                     FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
                     handshake_timeout,
                     fpm.clone().recipient(),
-                    fpm.clone().recipient(),
                     cfg.start_handshake_with
                         .as_ref()
                         .map(|id| cfg.partial_edge_info(id, cfg.nonce.unwrap_or(1))),

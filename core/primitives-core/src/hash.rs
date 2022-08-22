@@ -6,7 +6,6 @@ use sha2::Digest;
 
 use crate::borsh::BorshSerialize;
 use crate::logging::pretty_hash;
-use crate::serialize::from_base;
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, derive_more::AsRef, derive_more::AsMut)]
@@ -47,6 +46,31 @@ impl CryptoHash {
         let value = std::str::from_utf8(&buffer[..len]).unwrap();
         visitor(value)
     }
+
+    /// Decodes base58-encoded string into a 32-byte hash.
+    ///
+    /// Returns one of three results: success with the decoded CryptoHash,
+    /// invalid length error indicating that the encoded value was too short or
+    /// too long or other decoding error (e.g. invalid character).
+    fn from_base58_impl(encoded: &str) -> Decode58Result {
+        let mut result = Self::new();
+        match bs58::decode(encoded).into(&mut result.0) {
+            Ok(len) if len == result.0.len() => Decode58Result::Ok(result),
+            Ok(_) | Err(bs58::decode::Error::BufferTooSmall) => Decode58Result::BadLength,
+            Err(err) => Decode58Result::Err(err),
+        }
+    }
+}
+
+/// Result of decoding base58-encoded crypto hash.
+enum Decode58Result {
+    /// Decoding succeeded.
+    Ok(CryptoHash),
+    /// The decoded data has incorrect length; either too short or too long.
+    BadLength,
+    /// There have been other decoding errors; e.g. an invalid character in the
+    /// input buffer.
+    Err(bs58::decode::Error),
 }
 
 impl Default for CryptoHash {
@@ -77,29 +101,47 @@ impl Serialize for CryptoHash {
     }
 }
 
+/// Serde visitor for [`CryptoHash`].
+///
+/// The visitor expects a string which is then base58-decoded into a crypto
+/// hash.
+struct Visitor;
+
+impl<'de> serde::de::Visitor<'de> for Visitor {
+    type Value = CryptoHash;
+
+    fn expecting(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt.write_str("base58-encoded 256-bit hash")
+    }
+
+    fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<Self::Value, E> {
+        match CryptoHash::from_base58_impl(s) {
+            Decode58Result::Ok(result) => Ok(result),
+            Decode58Result::BadLength => Err(E::invalid_length(s.len(), &self)),
+            Decode58Result::Err(err) => Err(E::custom(err)),
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for CryptoHash {
     fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
     where
         D: Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
-        // base58-encoded string is at most 1.4 longer than the binary sequence, but factor of 2 is
-        // good enough to prevent DoS.
-        if s.len() > std::mem::size_of::<CryptoHash>() * 2 {
-            return Err(serde::de::Error::custom("incorrect length for hash"));
-        }
-        from_base(&s)
-            .and_then(|f| CryptoHash::try_from(f.as_slice()))
-            .map_err(|err| serde::de::Error::custom(err.to_string()))
+        deserializer.deserialize_str(Visitor)
     }
 }
 
 impl std::str::FromStr for CryptoHash {
     type Err = Box<dyn std::error::Error + Send + Sync>;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let bytes = from_base(s).map_err::<Self::Err, _>(|e| e.to_string().into())?;
-        Self::try_from(bytes.as_slice())
+    /// Decodes base58-encoded string into a 32-byte crypto hash.
+    fn from_str(encoded: &str) -> Result<Self, Self::Err> {
+        match Self::from_base58_impl(encoded) {
+            Decode58Result::Ok(result) => Ok(result),
+            Decode58Result::BadLength => Err("incorrect length for hash".into()),
+            Decode58Result::Err(err) => Err(err.into()),
+        }
     }
 }
 
@@ -188,16 +230,44 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_not_base58() {
-        let encoded = "\"---\"";
-        match serde_json::from_str(encoded) {
-            Ok(CryptoHash(_)) => assert!(false, "should have failed"),
-            Err(_) => (),
+    fn test_from_str_failures() {
+        fn test(input: &str, want_err: &str) {
+            match CryptoHash::from_str(input) {
+                Ok(got) => panic!("‘{input}’ should have failed; got ‘{got}’"),
+                Err(err) => {
+                    assert!(err.to_string().starts_with(want_err), "input: ‘{input}’; err: {err}")
+                }
+            }
+        }
+
+        // Invalid characters
+        test("foo-bar-baz", "provided string contained invalid character '-' at byte 3");
+
+        // Wrong length
+        for encoded in &[
+            "CjNSmWXTWhC3ELhRmWMTkRbU96wUACqxMtV1uGf".to_string(),
+            "".to_string(),
+            "1".repeat(31),
+            "1".repeat(33),
+            "1".repeat(1000),
+        ] {
+            test(&encoded, "incorrect length for hash");
         }
     }
 
     #[test]
-    fn test_deserialize_not_crypto_hash() {
+    fn test_serde_deserialise_failures() {
+        fn test(input: &str, want_err: &str) {
+            match serde_json::from_str::<CryptoHash>(input) {
+                Ok(got) => panic!("‘{input}’ should have failed; got ‘{got}’"),
+                Err(err) => {
+                    assert!(err.to_string().starts_with(want_err), "input: ‘{input}’; err: {err}")
+                }
+            }
+        }
+
+        test("\"foo-bar-baz\"", "provided string contained invalid character");
+        // Wrong length
         for encoded in &[
             "\"CjNSmWXTWhC3ELhRmWMTkRbU96wUACqxMtV1uGf\"".to_string(),
             "\"\"".to_string(),
@@ -205,10 +275,7 @@ mod tests {
             format!("\"{}\"", "1".repeat(33)),
             format!("\"{}\"", "1".repeat(1000)),
         ] {
-            match serde_json::from_str::<CryptoHash>(encoded) {
-                Err(e) => if e.to_string() == "could not convert slice to array" {},
-                res => assert!(false, "should have failed with incorrect length error: {:?}", res),
-            };
+            test(&encoded, "invalid length");
         }
     }
 }
