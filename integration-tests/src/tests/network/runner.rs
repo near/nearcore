@@ -44,7 +44,6 @@ fn setup_network_node(
     validators: Vec<AccountId>,
     chain_genesis: ChainGenesis,
     config: config::NetworkConfig,
-    send_events: broadcast::Sender<Event>,
 ) -> Addr<PeerManagerActor> {
     let store = create_test_store();
 
@@ -101,7 +100,6 @@ fn setup_network_node(
             genesis_id,
         )
         .unwrap()
-        .with_event_sink(send_events.sink())
     });
 
     peer_manager
@@ -557,6 +555,8 @@ impl Runner {
         network_config.outbound_disabled = config.outbound_disabled;
         network_config.boot_nodes = boot_nodes;
         network_config.archive = config.archive;
+        let (send_events, recv_events) = broadcast::unbounded_channel();
+        network_config.event_sink = send_events.sink();
 
         config.ideal_connections.map(|(lo, hi)| {
             network_config.ideal_connections_lo = lo;
@@ -569,7 +569,6 @@ impl Runner {
             network_config.minimum_outbound_peers = mop;
         });
 
-        let (send_events, recv_events) = broadcast::unbounded_channel();
         let (send_pm, recv_pm) = tokio::sync::oneshot::channel();
         let (send_stop, recv_stop) = tokio::sync::oneshot::channel();
         let handle = std::thread::spawn({
@@ -584,7 +583,6 @@ impl Runner {
                             validators,
                             chain_genesis,
                             network_config,
-                            send_events,
                         ))
                         .map_err(|_| anyhow!("send failed"))?;
                     // recv_stop is expected to get closed.
