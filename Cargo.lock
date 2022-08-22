@@ -2459,6 +2459,7 @@ dependencies = [
  "glob",
  "libc",
  "libz-sys",
+ "tikv-jemalloc-sys",
  "zstd-sys",
 ]
 
