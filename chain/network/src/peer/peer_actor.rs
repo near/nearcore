@@ -1,9 +1,10 @@
 use crate::accounts_data;
+use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
-use crate::peer_manager::connected_peers::{AtomicCell, ConnectedPeer, Stats};
+use crate::peer_manager::connected_peers::{ConnectedPeer, Stats};
 use crate::peer_manager::peer_manager_actor::NetworkState;
 use crate::private_actix::PeersResponse;
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
@@ -19,7 +20,6 @@ use actix::{
     Actor, ActorContext, ActorFutureExt, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
-use arc_swap::ArcSwap;
 use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::time;
@@ -868,10 +868,10 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     chain_height: AtomicU64::new(handshake.sender_chain_info.height),
                     partial_edge_info: handshake.partial_edge_info.clone(),
                     peer_type: self.peer_type,
-                    stats: ArcSwap::new(Arc::new(Stats {
+                    stats: AtomicCell::new(Stats {
                         sent_bytes_per_sec: 0,
                         received_bytes_per_sec: 0,
-                    })),
+                    }),
                     _peer_connections_metric: metrics::PEER_CONNECTIONS.new_point(
                         &metrics::Connection { type_: self.peer_type, encoding: self.encoding() },
                     ),
@@ -900,10 +900,10 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                             // TODO(gprusak): this stuff requires cleanup: only chain_info.height is
                             // expected to change. Rest of the content of chain_info is not relevant
                             // after handshake.
-                            connection_state.stats.store(Arc::new(Stats {
+                            connection_state.stats.store(Stats {
                                 received_bytes_per_sec: received.bytes_per_min / 60,
                                 sent_bytes_per_sec: sent.bytes_per_min / 60,
-                            }));
+                            });
                             // Whether the peer is considered abusive due to sending too many messages.
                             // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
                             // some day be less than `u64::MAX`.
