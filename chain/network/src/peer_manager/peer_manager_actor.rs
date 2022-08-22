@@ -898,7 +898,6 @@ impl PeerManagerActor {
                 peer_type,
                 FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
                 recipient.clone().recipient(),
-                recipient.clone().recipient(),
                 peer_counter,
                 rate_limiter,
                 None,

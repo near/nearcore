@@ -271,7 +271,6 @@ impl PeerHandle {
                     cfg.peer_type(),
                     FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
                     fpm.clone().recipient(),
-                    fpm.clone().recipient(),
                     Arc::new(AtomicUsize::new(0)),
                     rate_limiter,
                     cfg.force_encoding,
