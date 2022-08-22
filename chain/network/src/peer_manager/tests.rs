@@ -3,7 +3,6 @@ use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Encoding, PeerAddr, SyncAccountsData};
 use crate::peer;
-use crate::peer::peer_actor;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::{Event, NormalAccountData};
@@ -39,7 +38,7 @@ async fn repeated_data_in_sync_routing_table() {
     )
     .await;
     let cfg = peer::testonly::PeerConfig {
-        network: Arc::new(chain.make_config(rng).verify().unwrap()), 
+        network: chain.make_config(rng), 
         chain,
         peers: vec![],
         start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
@@ -123,7 +122,7 @@ async fn no_edge_broadcast_after_restart() {
         )
         .await;
         let cfg = peer::testonly::PeerConfig {
-            network: Arc::new(chain.make_config(rng).verify().unwrap()), 
+            network: chain.make_config(rng), 
             chain: chain.clone(),
             peers: vec![],
             start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
@@ -220,7 +219,7 @@ async fn test_nonces() {
     for test in test_cases {
         println!("Running test {:?}", test.2);
         let cfg = peer::testonly::PeerConfig {
-            network: Arc::new(chain.make_config(rng).verify().unwrap()), 
+            network: chain.make_config(rng), 
             chain: chain.clone(),
             peers: vec![],
             start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
@@ -255,7 +254,7 @@ async fn ttl() {
     )
     .await;
     let cfg = peer::testonly::PeerConfig {
-        network: Arc::new(chain.make_config(rng).verify().unwrap()), 
+        network: chain.make_config(rng), 
         chain,
         peers: vec![],
         start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
@@ -315,7 +314,7 @@ async fn add_peer(
     cfg: &config::NetworkConfig,
 ) -> (peer::testonly::PeerHandle, SyncAccountsData) {
     let peer_cfg = peer::testonly::PeerConfig {
-        network: Arc::new(chain.make_config(rng).verify().unwrap()), 
+        network: chain.make_config(rng), 
         chain,
         peers: vec![],
         start_handshake_with: Some(PeerId::new(cfg.node_key.public_key())),
@@ -328,7 +327,7 @@ async fn add_peer(
     peer.complete_handshake().await;
     // TODO(gprusak): this should be part of complete_handshake, once Borsh support is removed.
     let msg = match peer.events.recv().await {
-        peer::testonly::Event::Peer(peer_actor::Event::MessageProcessed(
+        peer::testonly::Event::Network(PME::MessageProcessed(
             PeerMessage::SyncAccountsData(msg),
         )) => msg,
         ev => panic!("expected SyncAccountsData, got {ev:?}"),
@@ -355,7 +354,7 @@ async fn accounts_data_broadcast() {
     .await;
 
     let take_sync = |ev| match ev {
-        peer::testonly::Event::Peer(peer_actor::Event::MessageProcessed(
+        peer::testonly::Event::Network(PME::MessageProcessed(
             PeerMessage::SyncAccountsData(msg),
         )) => Some(msg),
         _ => None,

@@ -1,6 +1,6 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::Encoding;
-use crate::peer::peer_actor;
+use crate::peer_manager::peer_manager_actor;
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
 use crate::testonly::fake_client::Event as CE;
 use crate::testonly::make_rng;
@@ -28,7 +28,7 @@ async fn test_peer_communication(
     let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
     let inbound_cfg = PeerConfig {
         chain: chain.clone(),
-        network: Arc::new(chain.make_config(&mut rng).verify().unwrap()), 
+        network: chain.make_config(&mut rng), 
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: inbound_encoding,
         start_handshake_with: None,
@@ -36,7 +36,7 @@ async fn test_peer_communication(
     };
     let outbound_cfg = PeerConfig {
         chain: chain.clone(),
-        network: Arc::new(chain.make_config(&mut rng).verify().unwrap()), 
+        network: chain.make_config(&mut rng), 
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: outbound_encoding,
         start_handshake_with: Some(inbound_cfg.id()),
@@ -57,7 +57,7 @@ async fn test_peer_communication(
     // Once borsh support is removed, the initial SyncAccountsData should be consumed in
     // complete_handshake.
     let filter = |ev| match ev {
-        Event::Peer(peer_actor::Event::MessageProcessed(PeerMessage::SyncAccountsData(_))) => None,
+        Event::Network(peer_manager_actor::Event::MessageProcessed(PeerMessage::SyncAccountsData(_))) => None,
         Event::RoutingTable(_) => None,
         ev => Some(ev),
     };
@@ -194,7 +194,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
 
     let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
     let inbound_cfg = PeerConfig {
-        network: Arc::new(chain.make_config(&mut rng).verify().unwrap()), 
+        network: chain.make_config(&mut rng), 
         chain: chain.clone(),
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: inbound_encoding,
@@ -202,7 +202,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         nonce: None,
     };
     let outbound_cfg = PeerConfig {
-        network: Arc::new(chain.make_config(&mut rng).verify().unwrap()), 
+        network: chain.make_config(&mut rng), 
         chain: chain.clone(),
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: outbound_encoding,

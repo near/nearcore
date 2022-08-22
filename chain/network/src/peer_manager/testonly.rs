@@ -2,8 +2,6 @@ use crate::broadcast;
 use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{PeerAddr, PeerMessage, SignedAccountData, SyncAccountsData};
-use crate::peer::peer_actor;
-use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
@@ -20,7 +18,7 @@ use std::sync::Arc;
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Event {
     Client(fake_client::Event),
-    PeerManager(peer_manager_actor::Event),
+    PeerManager(PME),
 }
 
 pub struct ActorHandler {
@@ -31,9 +29,7 @@ pub struct ActorHandler {
 
 pub fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData> {
     match ev {
-        Event::PeerManager(peer_manager_actor::Event::Peer(
-            peer_actor::Event::MessageProcessed(PeerMessage::SyncAccountsData(msg)),
-        )) => Some(msg),
+        Event::PeerManager(PME::MessageProcessed(PeerMessage::SyncAccountsData(msg))) => Some(msg),
         _ => None,
     }
 }
@@ -73,7 +69,7 @@ impl ActorHandler {
             .unwrap();
         self.events
             .recv_until(|ev| match &ev {
-                Event::PeerManager(peer_manager_actor::Event::PeerRegistered(info))
+                Event::PeerManager(PME::PeerRegistered(info))
                     if peer_info == info =>
                 {
                     Some(())
@@ -87,7 +83,7 @@ impl ActorHandler {
         self.actix.addr.send(SetChainInfo(chain_info)).await.unwrap();
         self.events
             .recv_until(|ev| match ev {
-                Event::PeerManager(peer_manager_actor::Event::SetChainInfo) => Some(()),
+                Event::PeerManager(PME::SetChainInfo) => Some(()),
                 _ => None,
             })
             .await;
@@ -116,12 +112,13 @@ pub async fn start(
 ) -> ActorHandler {
     let (send, recv) = broadcast::unbounded_channel();
     let actix = ActixSystem::spawn({
-        let cfg = cfg.clone();
+        let mut cfg = cfg.clone();
         let chain = chain.clone();
         move || {
             let genesis_id = chain.genesis_id.clone();
             let fc = fake_client::start(send.sink().compose(Event::Client));
-            PeerManagerActor::new_with_clock(
+            cfg.event_sink = send.sink().compose(Event::PeerManager);
+            PeerManagerActor::new(
                 clock,
                 store,
                 cfg,
@@ -130,7 +127,6 @@ pub async fn start(
                 genesis_id,
             )
             .unwrap()
-            .with_event_sink(send.sink().compose(Event::PeerManager))
             .start()
         }
     })

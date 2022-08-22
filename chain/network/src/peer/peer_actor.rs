@@ -6,7 +6,7 @@ use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData}
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection::{Connection, Stats, StartedOutboundToken};
-use crate::peer_manager::peer_manager_actor::{NetworkState,Event as PMEvent};
+use crate::peer_manager::peer_manager_actor::{NetworkState,Event};
 use crate::private_actix::PeersResponse;
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::private_actix::{
@@ -14,7 +14,6 @@ use crate::private_actix::{
 };
 use tokio_stream::StreamExt;
 use crate::routing::edge::{verify_nonce};
-use crate::sink::Sink;
 use crate::stats::metrics;
 use crate::types::{
     Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses, PeerMessage,
@@ -77,28 +76,6 @@ const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
 const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
 
-/// A generic set of events (observable in tests) that a PeerActor may generate.
-/// Ideally the tests should observe only public API properties, but until
-/// we are at that stage, feel free to add any events that you need to observe.
-/// In particular prefer emitting a new event to polling for a state change.
-// TEST-ONLY
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum Event {
-    // Reported once a message has been processed.
-    // In contrast to typical RPC protocols, many P2P messages do not trigger
-    // sending a response at the end of processing.
-    // However, for precise instrumentation in tests it is useful to know when
-    // processing has been finished. We simulate the "RPC response" by reporting
-    // an event MessageProcessed.
-    //
-    // Given that processing is asynchronous and unstructured as of now,
-    // it is hard to pinpoint all the places when the processing of a message is
-    // actually complete. Currently this event is reported only for some message types,
-    // feel free to add support for more.
-    MessageProcessed(PeerMessage),
-    // Reported when the actix actor has been stopped.
-    ActorStopped,
-}
 
 pub(crate) struct PeerActor {
     clock: time::Clock,
@@ -145,9 +122,6 @@ pub(crate) struct PeerActor {
     peer_info: DisplayOption<PeerInfo>,
     /// Shared state of the connection. Present when ready.
     connection_state: Option<Arc<Connection>>,
-
-    /// test-only.
-    event_sink: Sink<Event>,
 }
 
 impl Debug for PeerActor {
@@ -274,7 +248,6 @@ impl PeerActor {
             force_encoding: cfg.force_encoding,
             connection_state: None,
             peer_info: None.into(),
-            event_sink: cfg.network_state.config.event_sink.clone().compose(PMEvent::Peer),
             network_state: cfg.network_state,
         }
     }
@@ -755,7 +728,7 @@ impl Actor for PeerActor {
     fn stopped(&mut self, _ctx: &mut Self::Context) {
         Arbiter::current().stop();
         //tracing::debug!(target:"dupa", "stopping PeerActor {} -> ...",self.my_node_info.id);
-        self.event_sink.push(Event::ActorStopped)
+        self.network_state.config.event_sink.push(Event::PeerActorStopped)
     }
 }
 
@@ -1234,7 +1207,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     if let Some(ban_reason) = ban_reason {
                         act.ban_peer(ctx, ban_reason);
                     }
-                    act.event_sink.push(Event::MessageProcessed(peer_msg));
+                    act.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
                 })
                 .spawn(ctx);
             }

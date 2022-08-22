@@ -3,7 +3,7 @@ use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::{AccountData, SyncAccountsData};
 use crate::peer::peer_actor;
-use crate::peer::peer_actor::{Event as PeerEvent, PeerActor, OutboundConfig};
+use crate::peer::peer_actor::{PeerActor, OutboundConfig};
 use crate::peer_manager::connection::{Connection, Pool, PoolError};
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
@@ -365,17 +365,34 @@ pub struct PeerManagerActor {
     pub(crate) state: Arc<NetworkState>,
 }
 
-// test-only
+/// TEST-ONLY
+/// A generic set of events (observable in tests) that the Network may generate.
+/// Ideally the tests should observe only public API properties, but until
+/// we are at that stage, feel free to add any events that you need to observe.
+/// In particular prefer emitting a new event to polling for a state change.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Event {
     ServerStarted,
     RoutedMessageDropped,
     RoutingTableUpdate(Arc<routing::NextHopTable>),
     PeerRegistered(PeerInfo),
-    Peer(PeerEvent),
     Ping(Ping),
     Pong(Pong),
     SetChainInfo,
+    // Reported once a message has been processed.
+    // In contrast to typical RPC protocols, many P2P messages do not trigger
+    // sending a response at the end of processing.
+    // However, for precise instrumentation in tests it is useful to know when
+    // processing has been finished. We simulate the "RPC response" by reporting
+    // an event MessageProcessed.
+    //
+    // Given that processing is asynchronous and unstructured as of now,
+    // it is hard to pinpoint all the places when the processing of a message is
+    // actually complete. Currently this event is reported only for some message types,
+    // feel free to add support for more.
+    MessageProcessed(PeerMessage),
+    // Reported when the actix actor has been stopped.
+    PeerActorStopped,
 }
 
 impl Actor for PeerManagerActor {
