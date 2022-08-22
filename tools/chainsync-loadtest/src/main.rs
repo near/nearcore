@@ -7,7 +7,6 @@ use std::sync::Arc;
 use actix::{Actor, Arbiter};
 use anyhow::{anyhow, Context};
 use clap::Parser;
-use near_store::test_utils::create_test_store;
 use openssl_probe;
 
 use concurrency::{Ctx, Scope};
@@ -45,7 +44,7 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
 
     let network_actor = PeerManagerActor::start_in_arbiter(&Arbiter::new().handle(), move |_ctx| {
         PeerManagerActor::new(
-            create_test_store().into_inner(),
+            near_store::db::TestDB::new(),
             config.network_config,
             client_actor.clone().recipient(),
             client_actor.clone().recipient(),

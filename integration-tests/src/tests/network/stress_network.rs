@@ -19,7 +19,6 @@ use near_network::test_utils::{
 use near_network::types::NetworkClientResponses;
 use near_network::PeerManagerActor;
 use near_network_primitives::types::NetworkViewClientResponses;
-use near_store::test_utils::create_test_store;
 
 type ClientMock = Mocker<ClientActor>;
 type ViewClientMock = Mocker<ViewClientActor>;
@@ -36,7 +35,7 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
     }))
     .start();
     PeerManagerActor::new(
-        create_test_store().into_inner(),
+        near_store::db::TestDB::new(),
         config,
         client_addr.recipient(),
         view_client_addr.recipient(),

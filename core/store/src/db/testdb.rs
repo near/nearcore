@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::io;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use crate::db::{refcount, DBIterator, DBOp, DBTransaction, Database};
 use crate::{DBCol, StoreStatistics};
@@ -14,8 +14,8 @@ pub struct TestDB {
 }
 
 impl TestDB {
-    pub fn new() -> Self {
-        Self { db: Default::default() }
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self { db: Default::default() })
     }
 }
 

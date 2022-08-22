@@ -8,7 +8,6 @@ use near_network_primitives::time;
 use near_network_primitives::types::Edge;
 use near_network_primitives::types::EDGE_MIN_TIMESTAMP_NONCE;
 use near_primitives::network::PeerId;
-use near_store::test_utils::create_test_store;
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -47,7 +46,7 @@ impl RoutingTableTest {
         let mut rng = make_rng(87927345);
         let clock = time::FakeClock::default();
         let me = data::make_peer_id(&mut rng);
-        let db = create_test_store().into_inner();
+        let db = near_store::db::TestDB::new();
 
         let graph = Arc::new(RwLock::new(routing::GraphWithCache::new(me.clone())));
         Self { rng, clock, graph, db, _system: actix::System::new() }

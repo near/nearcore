@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use rand::seq::SliceRandom;
 use rand::Rng;
@@ -15,8 +14,7 @@ use std::str::from_utf8;
 
 /// Creates an in-memory database.
 pub fn create_test_store() -> Store {
-    let db = Arc::new(TestDB::new());
-    Store::new(db)
+    Store::new(TestDB::new())
 }
 
 /// Creates a Trie using an in-memory database.
