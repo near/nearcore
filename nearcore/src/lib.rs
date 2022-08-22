@@ -364,18 +364,6 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         skip_columns.push(DBCol::TrieChanges);
     }
 
-    // Make sure we can open at least two databases and have some file
-    // descriptors to spare.
-    let required = 2 * (config.store.max_open_files as u64) + 512;
-    let (soft, hard) = rlimit::Resource::NOFILE
-        .get()
-        .map_err(|err| anyhow::anyhow!("getrlimit: NOFILE: {}", err))?;
-    if soft < required {
-        rlimit::Resource::NOFILE
-            .set(required, hard)
-            .map_err(|err| anyhow::anyhow!("setrlimit: NOFILE: {}", err))?;
-    }
-
     let src_opener = Store::opener(home_dir, &config.store).mode(Mode::ReadOnly);
     let src_path = src_opener.get_path();
     if let Some(db_version) = src_opener.get_version_if_exists()? {
