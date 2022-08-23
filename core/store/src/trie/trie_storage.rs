@@ -83,6 +83,7 @@ impl TrieCacheInner {
         shard_id: u32,
         is_view: bool,
     ) -> Self {
+        assert!(cache_capacity > 0 && total_size_limit > 0);
         Self {
             cache: LruCache::new(cache_capacity),
             deletions: BoundedQueue::new(deletions_queue_capacity),
