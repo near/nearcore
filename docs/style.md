@@ -242,7 +242,24 @@ prone to collision (`Serialize`), all without needing to look up the list of imp
 
 ## Standard Naming
 
-Use `-` rather than `_` in crate names and in corresponding folder names.
+* Use `-` rather than `_` in crate names and in corresponding folder names.
+* Avoid single-letter variable names especially in long functions.  Common `i`,
+  `j` etc. loop variables are somewhat of an exception but since Rust encourages
+  use of iterators those cases aren’t that common anyway.
+* Follow common Rust naming patterns such as:
+  * Don’t use `get_` prefix for getter methods.  A getter method is one which
+    returns (reference to) a field of an object.
+  * Use `set_` prefix for setter methods.  An exception are builder objects
+    which may use different naming style.
+  * Use `into_` prefix for methods which consume `self` and `to_` prefix for
+    methods which don’t.
+* Use `get_block_header` rather than `get_header` for methods which return
+  a block header.
+* Don’t use `_by_hash` suffix for methods which lookup chain objects (blocks,
+  chunks, block headers etc.) by their hash (i.e. their primary identifier).
+* Use `_by_height` and similar suffixes for methods which lookup chain objects
+  (blocks, chunks, block headers etc.) by their height or other property which
+  is not their hash.
 
 **Rationale:** Consistency.
 
