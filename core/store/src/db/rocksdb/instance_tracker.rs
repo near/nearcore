@@ -21,13 +21,22 @@ struct Inner {
     /// RocksDB instances with max_open_files set to 512 the second open should
     /// fail since the limit is too low to accommodate both databases and other
     /// file descriptor node is opening.
+    ///
+    /// Note that there is a bit of shenanigans around types.  We’re using `u64`
+    /// here but the `u32` in [`crate::config::StoreConfig`].  The latter uses
+    /// `u32` because we don’t want to deal with `-1` having special meaning in
+    /// RocksDB so we opted to for unsigned type but then needed to limit it
+    /// since RocksDB doesn’t accept full unsigned range.  Here, we’re using
+    /// `u64` because that’s what ends up passed to setrlimit so we would need
+    /// to cast anyway and it allows us not to worry about summing multiple
+    /// limits from StoreConfig.
     max_open_files: u64,
 }
 
 /// Synchronisation wrapper for accessing [`Inner`] singleton.
 #[derive(Default)]
 struct State {
-    mutex: Mutex<Inner>,
+    inner: Mutex<Inner>,
     zero_cvar: Condvar,
 }
 
@@ -39,7 +48,7 @@ impl State {
     /// max_open_files open file descriptors for the new database instance.
     fn try_new_instance(&self, max_open_files: u32) -> Result<(), String> {
         let num_instances = {
-            let mut inner = self.mutex.lock().unwrap();
+            let mut inner = self.inner.lock().unwrap();
             let max_open_files = inner.max_open_files + u64::from(max_open_files);
             ensure_max_open_files_limit(max_open_files)?;
             inner.max_open_files = max_open_files;
@@ -52,7 +61,7 @@ impl State {
 
     fn drop_instance(&self, max_open_files: u32) {
         let num_instances = {
-            let mut inner = self.mutex.lock().unwrap();
+            let mut inner = self.inner.lock().unwrap();
             inner.max_open_files = inner.max_open_files.saturating_sub(max_open_files.into());
             inner.count = inner.count.saturating_sub(1);
             if inner.count == 0 {
@@ -65,7 +74,7 @@ impl State {
 
     /// Blocks until all RocksDB instances (usually 0 or 1) shut down.
     fn block_until_all_instances_are_dropped(&self) {
-        let mut inner = self.mutex.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap();
         while inner.count != 0 {
             info!(target: "db", num_instances=inner.count,
                   "Waiting for remaining RocksDB instances to shut down");
