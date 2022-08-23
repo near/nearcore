@@ -331,12 +331,15 @@ const TRIE_DEFAULT_SHARD_CACHE_SIZE: usize = 50000;
 #[cfg(feature = "no_cache")]
 const TRIE_DEFAULT_SHARD_CACHE_SIZE: usize = 1;
 
+/// Default total size of values which may simultaneously exist the cache.
+/// It is chosen by the estimation of the largest contract storage size we are aware as of 23/08/2022.
 #[cfg(not(feature = "no_cache"))]
 const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: u64 = 3_000_000_000;
 #[cfg(feature = "no_cache")]
 const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: u64 = 1;
 
 /// Capacity for the deletions queue.
+/// It is chosen to fit all hashes of deleted nodes for 3 completely full blocks.
 #[cfg(not(feature = "no_cache"))]
 const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize = 100_000;
 #[cfg(feature = "no_cache")]
