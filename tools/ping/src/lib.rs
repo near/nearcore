@@ -238,6 +238,7 @@ impl Peer {
         app_info.ping_sent(target, nonce);
         let account_id = app_info.peer_id_to_account_id(&target);
         crate::metrics::PING_SENT.with_label_values(&[&format_id(account_id, target)]).inc();
+        app_info.push_metrics();
         Ok(())
     }
 
@@ -373,6 +374,7 @@ struct AppInfo {
     requests: BTreeMap<PingTarget, HashMap<Nonce, PingTimes>>,
     timeouts: BTreeSet<PingTimeout>,
     account_filter: Option<HashSet<AccountId>>,
+    metrics_gateway_address: Option<String>,
 }
 
 impl AppInfo {
@@ -381,6 +383,7 @@ impl AppInfo {
         genesis_hash: CryptoHash,
         head_height: BlockHeight,
         account_filter: Option<HashSet<AccountId>>,
+        metrics_gateway_address: Option<String>,
     ) -> Self {
         let secret_key = SecretKey::from_random(KeyType::ED25519);
         let my_peer_id = PeerId::new(secret_key.public_key());
@@ -398,6 +401,7 @@ impl AppInfo {
             requests: BTreeMap::new(),
             timeouts: BTreeSet::new(),
             account_filter,
+            metrics_gateway_address,
         }
     }
 
@@ -574,6 +578,21 @@ impl AppInfo {
     fn peer_id_to_account_id(&self, peer_id: &PeerId) -> Option<&AccountId> {
         self.stats.get(peer_id).and_then(|s| s.account_id.as_ref())
     }
+
+    fn push_metrics(&self) {
+        let metric_families = prometheus::gather();
+        if let Some(metrics_gateway_address) = &self.metrics_gateway_address {
+            prometheus::push_metrics(
+                "near_ping",
+                prometheus::labels! {},
+                &metrics_gateway_address,
+                metric_families,
+                None,
+            )
+            .unwrap_or_else(|err| tracing::error!("Failed to push metrics: {:#?}", err));
+            tracing::debug!("Pushed metrics to {}", metrics_gateway_address);
+        }
+    }
 }
 
 fn handle_message(
@@ -597,6 +616,7 @@ fn handle_message(
                                 .context("Failed writing to CSV file")?;
                         }
                     }
+                    app_info.push_metrics();
                 }
                 _ => {}
             };
@@ -652,8 +672,10 @@ pub async fn ping_via_node(
     ping_frequency_millis: u64,
     account_filter: Option<HashSet<AccountId>>,
     mut latencies_csv: Option<crate::csv::LatenciesCsv>,
+    metrics_gateway_address: Option<String>,
 ) -> Vec<(PeerIdentifier, PingStats)> {
-    let mut app_info = AppInfo::new(chain_id, genesis_hash, head_height, account_filter);
+    let mut app_info =
+        AppInfo::new(chain_id, genesis_hash, head_height, account_filter, metrics_gateway_address);
 
     app_info.add_peer(&peer_id, None);
 
@@ -734,6 +756,7 @@ pub async fn ping_via_node(
                 if let Some(csv) = latencies_csv.as_mut() {
                     let account_id = app_info.peer_id_to_account_id(&t.peer_id);
                     crate::metrics::PONG_TIMEOUTS.with_label_values(&[&format_id(account_id, &t.peer_id)]).inc();
+                        app_info.push_metrics();
                     if let Err(e) = csv.write_timeout(&t.peer_id, account_id) {
                         tracing::error!("Failed writing to CSV file: {}", e);
                         break;

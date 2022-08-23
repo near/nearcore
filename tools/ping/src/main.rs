@@ -40,6 +40,9 @@ struct Cli {
     /// filename to append CSV data to
     #[clap(long)]
     latencies_csv_file: Option<PathBuf>,
+    /// Pushgateway address, e.g. http://127.0.0.1:9091
+    #[clap(long)]
+    metrics_gateway_address: Option<String>,
 }
 
 fn display_stats(stats: &mut [(ping::PeerIdentifier, ping::PingStats)], peer_id: &PeerId) {
@@ -219,6 +222,7 @@ async fn main() -> anyhow::Result<()> {
         args.ping_frequency_millis,
         filter,
         csv,
+        args.metrics_gateway_address,
     )
     .await;
     display_stats(&mut stats, &peer.id);

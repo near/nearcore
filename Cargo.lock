@@ -4193,6 +4193,7 @@ dependencies = [
  "near-store",
  "nearcore",
  "once_cell",
+ "prometheus",
  "tokio",
  "tracing",
 ]
@@ -4322,9 +4323,11 @@ dependencies = [
  "cfg-if 1.0.0",
  "fnv",
  "lazy_static",
+ "libc",
  "memchr",
  "parking_lot 0.12.1",
  "protobuf 2.27.1",
+ "reqwest",
  "thiserror",
 ]
 
