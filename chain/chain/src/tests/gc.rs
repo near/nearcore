@@ -137,7 +137,7 @@ fn do_fork(
                 Default::default(),
                 *block.hash(),
             );
-            store_update.save_trie_changes(wrapped_trie_changes).unwrap();
+            store_update.save_trie_changes(wrapped_trie_changes);
 
             prev_state_roots[shard_id as usize] = new_root;
             trie_changes_shards.push(trie_changes_data);

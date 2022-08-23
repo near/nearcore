@@ -1818,16 +1818,8 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update.outcome_ids.insert((*block_hash, shard_id), outcome_ids);
     }
 
-    // fix me: catch error everywhere
-    pub fn save_trie_changes(&mut self, trie_changes: WrappedTrieChanges) -> Result<(), Error> {
-        // Pop deleted trie nodes from the shard cache.
-        // TODO: get rid of creating `StoreUpdate`
-        let mut store_update = self.store().store_update();
-        trie_changes.deletions_into(&mut store_update);
-        store_update.update_cache()?;
-
+    pub fn save_trie_changes(&mut self, trie_changes: WrappedTrieChanges) {
         self.trie_changes.push(trie_changes);
-        Ok(())
     }
 
     pub fn add_state_changes_for_split_states(
@@ -2785,6 +2777,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         for mut wrapped_trie_changes in self.trie_changes.drain(..) {
             wrapped_trie_changes.insertions_into(&mut store_update);
+            wrapped_trie_changes.deletions_into(&mut store_update);
             wrapped_trie_changes.state_changes_into(&mut store_update);
 
             if self.chain_store.save_trie_changes {

@@ -4533,7 +4533,7 @@ impl<'a> ChainUpdate<'a> {
                         &result.shard_uid,
                         new_chunk_extra,
                     );
-                    self.chain_store_update.save_trie_changes(result.trie_changes)?;
+                    self.chain_store_update.save_trie_changes(result.trie_changes);
                 }
                 assert_eq!(sum_gas_used, total_gas_used);
                 assert_eq!(sum_balance_burnt, total_balance_burnt);
@@ -4580,7 +4580,7 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.total_balance_burnt,
                     ),
                 );
-                self.chain_store_update.save_trie_changes(apply_result.trie_changes)?;
+                self.chain_store_update.save_trie_changes(apply_result.trie_changes);
                 self.chain_store_update.save_outgoing_receipt(
                     &block_hash,
                     shard_id,
@@ -4614,7 +4614,7 @@ impl<'a> ChainUpdate<'a> {
                 *new_extra.state_root_mut() = apply_result.new_root;
 
                 self.chain_store_update.save_chunk_extra(&block_hash, &shard_uid, new_extra);
-                self.chain_store_update.save_trie_changes(apply_result.trie_changes)?;
+                self.chain_store_update.save_trie_changes(apply_result.trie_changes);
 
                 if let Some(apply_results_or_state_changes) = apply_split_result_or_state_changes {
                     self.process_split_state(
@@ -4966,7 +4966,7 @@ impl<'a> ChainUpdate<'a> {
 
         self.chain_store_update.save_chunk(chunk);
 
-        self.chain_store_update.save_trie_changes(apply_result.trie_changes)?;
+        self.chain_store_update.save_trie_changes(apply_result.trie_changes);
         let chunk_extra = ChunkExtra::new(
             &apply_result.new_root,
             outcome_root,
@@ -5045,7 +5045,7 @@ impl<'a> ChainUpdate<'a> {
             Default::default(),
         )?;
 
-        self.chain_store_update.save_trie_changes(apply_result.trie_changes)?;
+        self.chain_store_update.save_trie_changes(apply_result.trie_changes);
 
         let mut new_chunk_extra = ChunkExtra::clone(&chunk_extra);
         *new_chunk_extra.state_root_mut() = apply_result.new_root;
