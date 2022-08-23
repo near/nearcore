@@ -54,12 +54,11 @@ fn ban_store() {
 #[test]
 fn test_unconnected_peer() {
     let clock = time::FakeClock::default();
-    let (_tmp_dir, opener) = Store::test_opener();
     let peer_info_a = gen_peer_info(0);
     let peer_info_to_ban = gen_peer_info(1);
     let boot_nodes = vec![peer_info_a, peer_info_to_ban];
     {
-        let store = store::Store::from(opener.open());
+        let store = store::Store::from(near_store::db::TestDB::new());
         let peer_store =
             PeerStore::new(&clock.clock(), store, &boot_nodes, Default::default(), false).unwrap();
         assert!(peer_store.unconnected_peer(|_| false).is_some());
@@ -78,8 +77,7 @@ fn test_unconnected_peer_only_boot_nodes() {
     // 1 non-boot (peer_in_store) node peer that is in the store.
     // we should connect to peer_in_store
     {
-        let (_tmp_dir, opener) = Store::test_opener();
-        let store = store::Store::from(opener.open());
+        let store = store::Store::from(near_store::db::TestDB::new());
         let mut peer_store =
             PeerStore::new(&clock.clock(), store, &boot_nodes, Default::default(), false).unwrap();
         peer_store.add_peer(&clock.clock(), peer_in_store.clone(), TrustLevel::Direct).unwrap();
@@ -91,8 +89,7 @@ fn test_unconnected_peer_only_boot_nodes() {
     // 1 non-boot (peer_in_store) node peer that is in the store.
     // connect to only boot nodes is enabled - we should not find any peer to connect to.
     {
-        let (_tmp_dir, opener) = Store::test_opener();
-        let store = store::Store::from(opener.open());
+        let store = store::Store::from(near_store::db::TestDB::new());
         let mut peer_store =
             PeerStore::new(&clock.clock(), store, &boot_nodes, Default::default(), true).unwrap();
         peer_store.add_peer(&clock.clock(), peer_in_store.clone(), TrustLevel::Direct).unwrap();
@@ -103,8 +100,7 @@ fn test_unconnected_peer_only_boot_nodes() {
     // 1 boot node (peer_info_a) is in the store.
     // we should connect to it - no matter what the setting is.
     for connect_to_boot_nodes in [true, false] {
-        let (_tmp_dir, opener) = Store::test_opener();
-        let store = store::Store::from(opener.open());
+        let store = store::Store::from(near_store::db::TestDB::new());
         let mut peer_store = PeerStore::new(
             &clock.clock(),
             store,
