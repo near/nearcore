@@ -8,6 +8,7 @@ use crate::db::refcount::decode_value_with_rc;
 use crate::trie::POISONED_LOCK_ERR;
 use crate::{metrics, DBCol, StorageError, Store};
 use lru::LruCache;
+use near_o11y::log_assert;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{TrieCacheMode, TrieNodesCount};
 use std::cell::{Cell, RefCell};
@@ -59,7 +60,7 @@ impl<T> BoundedQueue<T> {
 /// to the queue.
 /// Needed to delay deletions when we have forks. In such case, many blocks can share same parent, and we want to keep
 /// old nodes in cache for a while to process all new roots. For example, it helps to read old state root.
-pub struct SyncTrieCache {
+pub struct TrieCacheInner {
     /// LRU cache keeping mapping from keys to values.
     cache: LruCache<CryptoHash, Arc<[u8]>>,
     /// Queue of items which were popped, which postpones deletion of old nodes.
@@ -74,7 +75,7 @@ pub struct SyncTrieCache {
     is_view: bool,
 }
 
-impl SyncTrieCache {
+impl TrieCacheInner {
     pub(crate) fn new(
         cache_capacity: usize,
         deletions_queue_capacity: usize,
@@ -131,7 +132,7 @@ impl SyncTrieCache {
         self.total_size += value.len() as u64;
         match self.cache.push(key, value) {
             Some((_, evicted_value)) => {
-                // TODO: warn that it should never happen
+                log_assert!(false, "LRU cache with shard_id = {}, is_view = {} can't be full before inserting key {}", self.shard_id, self.is_view, key);
                 self.total_size -= evicted_value.len() as u64;
             }
             None => {}
@@ -180,7 +181,7 @@ impl SyncTrieCache {
 
 /// Wrapper over LruCache to handle concurrent access.
 #[derive(Clone)]
-pub struct TrieCache(Arc<Mutex<SyncTrieCache>>);
+pub struct TrieCache(Arc<Mutex<TrieCacheInner>>);
 
 impl TrieCache {
     pub fn new(shard_id: u32, is_view: bool) -> Self {
@@ -188,7 +189,7 @@ impl TrieCache {
     }
 
     pub fn with_capacities(cap: usize, shard_id: u32, is_view: bool) -> Self {
-        Self(Arc::new(Mutex::new(SyncTrieCache::new(
+        Self(Arc::new(Mutex::new(TrieCacheInner::new(
             cap,
             DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY,
             DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
@@ -541,16 +542,16 @@ mod bounded_queue_tests {
 
 #[cfg(test)]
 mod trie_cache_tests {
-    use crate::trie::trie_storage::SyncTrieCache;
+    use crate::trie::trie_storage::TrieCacheInner;
     use near_primitives::hash::hash;
 
-    fn put_value(cache: &mut SyncTrieCache, value: &[u8]) {
+    fn put_value(cache: &mut TrieCacheInner, value: &[u8]) {
         cache.put(hash(value), value.into());
     }
 
     #[test]
     fn test_size_limit() {
-        let mut cache = SyncTrieCache::new(100, 100, 5, 0, false);
+        let mut cache = TrieCacheInner::new(100, 100, 5, 0, false);
         // Add three values. Before each put, condition on total size should not be triggered.
         put_value(&mut cache, &[1, 1]);
         assert_eq!(cache.total_size, 2);
@@ -568,7 +569,7 @@ mod trie_cache_tests {
 
     #[test]
     fn test_deletions_queue() {
-        let mut cache = SyncTrieCache::new(100, 2, 100, 0, false);
+        let mut cache = TrieCacheInner::new(100, 2, 100, 0, false);
         // Add two values to the cache.
         put_value(&mut cache, &[1]);
         put_value(&mut cache, &[1, 1]);
@@ -584,7 +585,7 @@ mod trie_cache_tests {
 
     #[test]
     fn test_cache_capacity() {
-        let mut cache = SyncTrieCache::new(2, 100, 100, 0, false);
+        let mut cache = TrieCacheInner::new(2, 100, 100, 0, false);
         put_value(&mut cache, &[1]);
         put_value(&mut cache, &[2]);
         put_value(&mut cache, &[3]);
