@@ -246,7 +246,7 @@ prone to collision (`Serialize`), all without needing to look up the list of imp
 * Avoid single-letter variable names especially in long functions.  Common `i`,
   `j` etc. loop variables are somewhat of an exception but since Rust encourages
   use of iterators those cases aren’t that common anyway.
-* Follow common Rust naming patterns such as:
+* Follow standard [Rust naming patterns](https://rust-lang.github.io/api-guidelines/naming.html) such as:
   * Don’t use `get_` prefix for getter methods.  A getter method is one which
     returns (reference to) a field of an object.
   * Use `set_` prefix for setter methods.  An exception are builder objects
