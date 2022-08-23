@@ -1,3 +1,5 @@
+use std::io;
+
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::version::DbVersion;
 
@@ -161,7 +163,7 @@ impl<'a> StoreOpener<'a> {
     }
 
     /// Returns version of the database; or `None` if it does not exist.
-    pub fn get_version_if_exists(&self) -> std::io::Result<Option<DbVersion>> {
+    pub fn get_version_if_exists(&self) -> io::Result<Option<DbVersion>> {
         if self.check_if_exists() {
             Some(crate::RocksDB::get_version(&self.path, &self.config)).transpose()
         } else {
@@ -170,11 +172,11 @@ impl<'a> StoreOpener<'a> {
     }
 
     /// Opens the RocksDB database.
-    pub fn open(&self) -> std::io::Result<crate::Store> {
+    pub fn open(&self) -> io::Result<crate::Store> {
         let exists = self.check_if_exists();
         if !exists && matches!(self.mode, Mode::ReadOnly) {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
                 "Cannot open non-existent database for reading",
             ));
         }
