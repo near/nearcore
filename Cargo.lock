@@ -2303,6 +2303,7 @@ dependencies = [
  "near-logger-utils",
  "near-network",
  "near-network-primitives",
+ "near-o11y",
  "near-performance-metrics",
  "near-primitives",
  "near-primitives-core",
