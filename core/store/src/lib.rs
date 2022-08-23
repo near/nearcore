@@ -686,7 +686,7 @@ mod tests {
     #[test]
     fn clear_column_rocksdb() {
         let (_tmp_dir, opener) = Store::test_opener();
-        test_clear_column(opener.open());
+        test_clear_column(opener.open().unwrap());
     }
 
     #[test]
@@ -757,7 +757,7 @@ mod tests {
 
     #[test]
     fn rocksdb_iter_order() {
-        test_iter_order_impl(Store::test_opener().1.open());
+        test_iter_order_impl(Store::test_opener().1.open().unwrap());
     }
 
     #[test]
