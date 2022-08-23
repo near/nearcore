@@ -465,7 +465,6 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 
     use crate::account::{AccessKeyPermission, FunctionCallPermission};
-    use crate::serialize::to_base;
 
     use super::*;
 
@@ -537,7 +536,7 @@ mod tests {
             SignedTransaction::try_from_slice(&signed_tx.try_to_vec().unwrap()).unwrap();
 
         assert_eq!(
-            to_base(&new_signed_tx.get_hash()),
+            new_signed_tx.get_hash().to_string(),
             "4GXvjMFN6wSxnU9jEVT8HbXP5Yk6yELX9faRSKp6n9fX"
         );
     }
