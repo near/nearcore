@@ -13,7 +13,7 @@ use near_jsonrpc_primitives::errors::ServerError;
 use near_jsonrpc_primitives::types::query::RpcQueryResponse;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::serialize::{to_base, to_base64};
+use near_primitives::serialize::{to_base58, to_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, MaybeBlockId, ShardId,
@@ -51,7 +51,7 @@ impl RpcUser {
     }
 
     pub fn query(&self, path: String, data: &[u8]) -> Result<RpcQueryResponse, String> {
-        let data = to_base(data);
+        let data = to_base58(data);
         self.actix(move |client| client.query_by_path(path, data).map_err(|err| err.to_string()))
     }
 
