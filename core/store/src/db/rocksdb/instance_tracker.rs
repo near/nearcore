@@ -1,5 +1,5 @@
-use std::sync::{Condvar, Mutex};
 use once_cell::sync::Lazy;
+use std::sync::{Condvar, Mutex};
 use tracing::info;
 
 /// Describes number of RocksDB instances and sum of their max_open_files.
