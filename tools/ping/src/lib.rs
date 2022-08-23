@@ -584,7 +584,9 @@ impl AppInfo {
         if let Some(metrics_gateway_address) = &self.metrics_gateway_address {
             prometheus::push_metrics(
                 "near_ping",
-                prometheus::labels! {},
+                prometheus::labels! {
+                    "chain_id".to_owned() => self.chain_info.genesis_id.chain_id.clone(),
+                },
                 &metrics_gateway_address,
                 metric_families,
                 None,
@@ -616,7 +618,7 @@ fn handle_message(
                                 .context("Failed writing to CSV file")?;
                         }
                     }
-                    app_info.push_metrics();
+                    // app_info.push_metrics();
                 }
                 _ => {}
             };
@@ -756,7 +758,7 @@ pub async fn ping_via_node(
                 if let Some(csv) = latencies_csv.as_mut() {
                     let account_id = app_info.peer_id_to_account_id(&t.peer_id);
                     crate::metrics::PONG_TIMEOUTS.with_label_values(&[&format_id(account_id, &t.peer_id)]).inc();
-                        app_info.push_metrics();
+                    // app_info.push_metrics();
                     if let Err(e) = csv.write_timeout(&t.peer_id, account_id) {
                         tracing::error!("Failed writing to CSV file: {}", e);
                         break;
