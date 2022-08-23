@@ -122,7 +122,7 @@ impl Serialize for Base58String {
     where
         S: Serializer,
     {
-        let serialised = near_primitives::serialize::to_base(&self.0);
+        let serialised = near_primitives::serialize::to_base58(&self.0);
         serializer.serialize_newtype_struct("Base58String", &serialised)
     }
 }
