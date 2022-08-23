@@ -26,6 +26,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 pub mod csv;
+pub mod metrics;
 
 // TODO: also log number of bytes/other messages (like Blocks) received?
 #[derive(Debug, Default)]
@@ -235,6 +236,8 @@ impl Peer {
 
         self.write_message(&PeerMessage::Routed(msg)).await?;
         app_info.ping_sent(target, nonce);
+        let account_id = app_info.peer_id_to_account_id(&target);
+        crate::metrics::PING_SENT.with_label_values(&[&format_id(account_id, target)]).inc();
         Ok(())
     }
 
@@ -283,6 +286,10 @@ impl Peer {
         }
         Ok(stop)
     }
+}
+
+fn format_id(account_id: Option<&AccountId>, peer_id: &PeerId) -> String {
+    account_id.map_or_else(|| format!("{}", peer_id), |a| format!("{}", a))
 }
 
 type Nonce = u64;
@@ -582,6 +589,9 @@ fn handle_message(
                     if let Some((latency, account_id)) =
                         app_info.pong_received(&p.source, p.nonce, received_at)
                     {
+                        crate::metrics::PONG_RECEIVED
+                            .with_label_values(&[&format_id(account_id, &p.source)])
+                            .observe(latency.as_secs_f64());
                         if let Some(csv) = latencies_csv {
                             csv.write(&p.source, account_id, latency)
                                 .context("Failed writing to CSV file")?;
@@ -722,8 +732,9 @@ pub async fn ping_via_node(
                 let t = pending_timeout.unwrap();
                 app_info.pop_timeout(&t);
                 if let Some(csv) = latencies_csv.as_mut() {
-                    if let Err(e) =
-                    csv.write_timeout(&t.peer_id, app_info.peer_id_to_account_id(&t.peer_id)) {
+                    let account_id = app_info.peer_id_to_account_id(&t.peer_id);
+                    crate::metrics::PONG_TIMEOUTS.with_label_values(&[&format_id(account_id, &t.peer_id)]).inc();
+                    if let Err(e) = csv.write_timeout(&t.peer_id, account_id) {
                         tracing::error!("Failed writing to CSV file: {}", e);
                         break;
                     }
