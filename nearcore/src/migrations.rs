@@ -9,7 +9,7 @@ use near_store::DBCol;
 /// Fix an issue with block ordinal (#5761)
 // This migration takes at least 3 hours to complete on mainnet
 pub fn migrate_30_to_31(store_opener: &near_store::StoreOpener, near_config: &crate::NearConfig) {
-    let store = store_opener.open();
+    let store = store_opener.open().unwrap();
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let chain_store = ChainStore::new(store.clone(), genesis_height, false);
@@ -68,14 +68,12 @@ mod tests {
     use near_mainnet_res::mainnet_restored_receipts;
     use near_mainnet_res::mainnet_storage_usage_delta;
     use near_primitives::hash::hash;
-    use near_primitives::serialize::to_base;
 
     #[test]
     fn test_migration_data() {
         assert_eq!(
-            to_base(&hash(
-                serde_json::to_string(&mainnet_storage_usage_delta()).unwrap().as_bytes()
-            )),
+            hash(serde_json::to_string(&mainnet_storage_usage_delta()).unwrap().as_bytes())
+                .to_string(),
             "2fEgaLFBBJZqgLQEvHPsck4NS3sFzsgyKaMDqTw5HVvQ"
         );
         let mainnet_migration_data = load_migration_data("mainnet");
@@ -87,7 +85,8 @@ mod tests {
     #[test]
     fn test_restored_receipts_data() {
         assert_eq!(
-            to_base(&hash(serde_json::to_string(&mainnet_restored_receipts()).unwrap().as_bytes())),
+            hash(serde_json::to_string(&mainnet_restored_receipts()).unwrap().as_bytes())
+                .to_string(),
             "48ZMJukN7RzvyJSW9MJ5XmyQkQFfjy2ZxPRaDMMHqUcT"
         );
         let mainnet_migration_data = load_migration_data("mainnet");

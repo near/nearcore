@@ -1304,21 +1304,22 @@ mod test {
     use std::thread;
 
     use near_chain::test_utils::{
-        process_block_sync, setup, setup_with_validators, ValidatorSchedule,
+        process_block_sync, setup, setup_with_validators, wait_for_all_blocks_in_processing,
+        ValidatorSchedule,
     };
     use near_chain::{BlockProcessingArtifact, ChainGenesis, Provenance};
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
+    use near_o11y::TracingCapture;
     use near_primitives::block::{Approval, Block, GenesisId};
     use near_primitives::network::PeerId;
+    use near_primitives::utils::MaybeValidated;
 
     use super::*;
     use crate::test_utils::TestEnv;
-    use near_logger_utils::init_test_logger;
     use near_network_primitives::types::{PartialEdgeInfo, PeerInfo};
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
-    use near_primitives::utils::MaybeValidated;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
@@ -1614,7 +1615,7 @@ mod test {
 
     #[test]
     fn test_block_sync() {
-        init_test_logger();
+        let mut capture = TracingCapture::enable();
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
         let mut block_sync = BlockSync::new(network_adapter.clone(), block_fetch_horizon, false);
@@ -1673,12 +1674,21 @@ mod test {
                 .collect(),
         );
 
-        // Receive all blocks. Should not request more.
+        // Receive all blocks. Should not request more. As an extra
+        // complication, pause the processing of one block.
+        env.pause_block_processing(&mut capture, blocks[4 * MAX_BLOCK_REQUESTS - 1].hash());
         for i in 3 * MAX_BLOCK_REQUESTS..5 * MAX_BLOCK_REQUESTS {
             let _ = env.clients[1]
                 .process_block_test(MaybeValidated::from(blocks[i].clone()), Provenance::NONE);
         }
         block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+        let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
+        assert!(requested_block_hashes.is_empty(), "{:?}", requested_block_hashes);
+
+        // Now finish paused processing processing and sanity check that we
+        // still are fully synced.
+        env.resume_block_processing(blocks[4 * MAX_BLOCK_REQUESTS - 1].hash());
+        wait_for_all_blocks_in_processing(&mut env.clients[1].chain);
         let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
         assert!(requested_block_hashes.is_empty(), "{:?}", requested_block_hashes);
     }
