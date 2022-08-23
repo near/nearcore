@@ -348,14 +348,6 @@ impl DBCol {
             _ => false,
         }
     }
-
-    /// Returns variant’s name as a static string.
-    ///
-    /// This is equivalent to [`Into::into`] but often makes the call site
-    /// simpler since there is no need to ascribe the type.
-    pub fn variant_name(&self) -> &'static str {
-        self.into()
-    }
 }
 
 impl fmt::Display for DBCol {

@@ -6,7 +6,6 @@ use near_primitives::time::Utc;
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::errors::{EpochError, StorageError};
-use near_primitives::serialize::to_base;
 use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
@@ -299,7 +298,7 @@ impl From<EpochError> for Error {
     fn from(error: EpochError) -> Self {
         match error {
             EpochError::EpochOutOfBounds(epoch_id) => Error::EpochOutOfBounds(epoch_id),
-            EpochError::MissingBlock(h) => Error::DBNotFoundErr(to_base(&h)),
+            EpochError::MissingBlock(h) => Error::DBNotFoundErr(h.to_string()),
             err => Error::ValidatorError(err.to_string()),
         }
     }
