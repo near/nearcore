@@ -156,7 +156,7 @@ impl<'a> StoreOpener<'a> {
     /// Returns path to the underlying RocksDB database.
     ///
     /// Does not check whether the database actually exists.
-    pub fn get_path(&self) -> &std::path::Path {
+    pub fn path(&self) -> &std::path::Path {
         &self.path
     }
 
@@ -170,20 +170,19 @@ impl<'a> StoreOpener<'a> {
     }
 
     /// Opens the RocksDB database.
-    ///
-    /// Panics on failure.
-    // TODO(mina86): Change it to return Result.
-    pub fn open(&self) -> crate::Store {
-        if self.check_if_exists() {
-            tracing::info!(target: "near", path=%self.path.display(), "Opening RocksDB database");
-        } else if matches!(self.mode, Mode::ReadOnly) {
-            tracing::error!(target: "near", path=%self.path.display(), "Database does not exist");
-            panic!("Failed to open non-existent database for reading");
-        } else {
-            tracing::info!(target: "near", path=%self.path.display(), "Creating new RocksDB database");
+    pub fn open(&self) -> std::io::Result<crate::Store> {
+        let exists = self.check_if_exists();
+        if !exists && matches!(self.mode, Mode::ReadOnly) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Cannot open non-existent database for reading",
+            ));
         }
-        let db = crate::RocksDB::open(&self.path, &self.config, self.mode)
-            .expect("Failed to open the database");
-        crate::Store::new(std::sync::Arc::new(db))
+
+        tracing::info!(target: "near", path=%self.path.display(),
+                       "{} RocksDB database",
+                       if exists { "Opening" } else { "Creating a new" });
+        crate::RocksDB::open(&self.path, &self.config, self.mode)
+            .map(|db| crate::Store::new(std::sync::Arc::new(db)))
     }
 }
