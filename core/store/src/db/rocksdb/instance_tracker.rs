@@ -23,8 +23,8 @@ struct Inner {
     /// file descriptor node is opening.
     ///
     /// Note that there is a bit of shenanigans around types.  We’re using `u64`
-    /// here but the `u32` in [`crate::config::StoreConfig`].  The latter uses
-    /// `u32` because we don’t want to deal with `-1` having special meaning in
+    /// here but `u32` in [`crate::config::StoreConfig`].  The latter uses `u32`
+    /// because we don’t want to deal with `-1` having special meaning in
     /// RocksDB so we opted to for unsigned type but then needed to limit it
     /// since RocksDB doesn’t accept full unsigned range.  Here, we’re using
     /// `u64` because that’s what ends up passed to setrlimit so we would need
