@@ -122,6 +122,9 @@ impl<'a> TrieIterator<'a> {
         Ok(hash)
     }
 
+    /// Fetches block by its hash and adds it to the trail.
+    ///
+    /// The node is stored as the last [`Crumb`] in the trail.
     fn descend_into_node(&mut self, hash: &CryptoHash) -> Result<(), StorageError> {
         let node = self.trie.retrieve_node(hash)?;
         self.trail.push(Crumb { status: CrumbStatus::Entering, node });
