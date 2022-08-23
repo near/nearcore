@@ -116,14 +116,15 @@ impl TrieCacheInner {
                         self.total_size -= value.len() as u64;
                         continue;
                     }
-                    None => {}
+                    None => {
+                        metrics::SHARD_CACHE_POP_MISSES.with_label_values(&metrics_labels).inc();
+                    }
                 },
-                None => {
-                    metrics::SHARD_CACHE_POP_MISSES.with_label_values(&metrics_labels).inc();
-                }
+                None => {}
             }
 
             // Second, pop LRU value.
+            metrics::SHARD_CACHE_POP_LRU.with_label_values(&metrics_labels).inc();
             let (_, value) =
                 self.cache.pop_lru().expect("Cannot fail because total size capacity is > 0");
             self.total_size -= value.len() as u64;
@@ -132,8 +133,8 @@ impl TrieCacheInner {
         // Add value to the cache.
         self.total_size += value.len() as u64;
         match self.cache.push(key, value) {
-            Some((_, evicted_value)) => {
-                log_assert!(false, "LRU cache with shard_id = {}, is_view = {} can't be full before inserting key {}", self.shard_id, self.is_view, key);
+            Some((evicted_key, evicted_value)) => {
+                log_assert!(key != evicted_key, "LRU cache with shard_id = {}, is_view = {} can't be full before inserting key {}", self.shard_id, self.is_view, key);
                 self.total_size -= evicted_value.len() as u64;
             }
             None => {}

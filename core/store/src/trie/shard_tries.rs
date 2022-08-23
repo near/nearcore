@@ -332,10 +332,12 @@ impl WrappedTrieChanges {
         &self.state_changes
     }
 
+    /// Save insertions of trie nodes into Store.
     pub fn insertions_into(&self, store_update: &mut StoreUpdate) {
         self.tries.apply_insertions(&self.trie_changes, self.shard_uid, store_update)
     }
 
+    /// Save deletions of trie nodes into Store.
     pub fn deletions_into(&self, store_update: &mut StoreUpdate) {
         self.tries.apply_deletions(&self.trie_changes, self.shard_uid, store_update)
     }

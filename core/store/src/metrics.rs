@@ -94,6 +94,14 @@ pub static SHARD_CACHE_POP_MISSES: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static SHARD_CACHE_POP_LRU: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_shard_cache_pop_lru",
+        "Shard cache LRU pops",
+        &["shard_id", "is_view"],
+    )
+    .unwrap()
+});
 pub static SHARD_CACHE_GC_POP_MISSES: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_shard_cache_gc_pop_misses",
