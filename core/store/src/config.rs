@@ -187,4 +187,11 @@ impl<'a> StoreOpener<'a> {
         crate::RocksDB::open(&self.path, &self.config, self.mode)
             .map(|db| crate::Store::new(std::sync::Arc::new(db)))
     }
+
+    pub fn new_migration_snapshot(
+        &self,
+        snapshot_path: std::path::PathBuf,
+    ) -> Result<crate::Snapshot, crate::SnapshotError> {
+        crate::Snapshot::new(&self.path, self.config, snapshot_path)
+    }
 }
