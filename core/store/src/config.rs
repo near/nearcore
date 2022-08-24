@@ -50,9 +50,13 @@ pub struct StoreConfig {
 }
 
 /// Mode in which to open the storage.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum Mode {
+    /// Open an existing database in read-only mode.  Fail if it doesn’t exist.
     ReadOnly,
+    /// Open an existing database in read-write mode.  Fail if it doesn’t exist.
+    ReadWriteExisting,
+    /// Open a database in read-write mode.  create if it doesn’t exist.
     ReadWrite,
 }
 
