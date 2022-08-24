@@ -10,6 +10,7 @@ use near_chain::{Chain, ChainGenesis};
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
+use near_network_primitives::time;
 use near_primitives::block::GenesisId;
 use near_primitives::version::DbVersion;
 #[cfg(feature = "performance_stats")]
@@ -277,6 +278,7 @@ pub fn start_with_config_and_synchronization(
         let view_client = view_client.clone();
         move |_ctx| {
             PeerManagerActor::new(
+                time::Clock::real(),
                 store,
                 config.network_config,
                 client_actor.recipient(),
