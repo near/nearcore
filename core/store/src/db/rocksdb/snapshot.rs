@@ -15,7 +15,6 @@ use ::rocksdb::checkpoint::Checkpoint;
 /// checkpoint is not deleted, this type’s Drop implementation will log
 /// informational messages pointing where the snapshot resides and how to
 /// recover data from it.
-#[repr(transparent)]
 #[derive(Debug)]
 pub struct Snapshot(std::path::PathBuf);
 
@@ -73,10 +72,9 @@ impl Snapshot {
     ///
     /// If the deletion fails, error is logged but the function does not fail.
     pub fn remove(self) {
-        // SAFETY: Self is a repr(transparent) containing PathBuf so this
-        // transmute is guaranteed to be safe.  We’re doing this to avoid
-        // Snapshot::drop call.
-        let path: std::path::PathBuf = unsafe { core::mem::transmute(self) };
+        // We’re doing this to avoid Snapshot::drop call.
+        let mut me = std::mem::ManuallyDrop::new(self);
+        let path = std::mem::take(&mut me.0);
 
         tracing::info!(target: "db", snapshot_path=%path.display(),
                        "Deleting the database snapshot");
@@ -156,7 +154,6 @@ fn test_snapshot_recovery() {
     }
 
     // Create snapshot
-    std::thread::sleep(std::time::Duration::from_millis(5_000));
     let snapshot = opener.new_migration_snapshot(path.clone()).unwrap();
 
     // Delete the data from the database.
