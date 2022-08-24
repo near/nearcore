@@ -144,12 +144,11 @@ message Handshake {
   // connection has been established.
   // In case receiver accepts the Handshake, it sends back back a Handshake
   // containing his signature in this field.
+  // WARNING: this field contains a signature of (sender_peer_id,target_peer_id,nonce) tuple,
+  // which currently the only thing that we have as a substitute for a real authentication.
+  // TODO(gprusak): for TIER1 authentication is way more important than for TIER2, so this
+  // thing should be replaced with sth better.
   PartialEdgeInfo partial_edge_info = 7;
-
-  // Set if this is a TIER1 connection.
-  // Can only be initiated by a TIER1 peer.
-  // Both ends have to have TIER1 support enabled to establish a TIER1 connections.
-  bool is_tier1 = 8;
 }
 
 // Response to Handshake, in case the Handshake was rejected.
@@ -366,7 +365,18 @@ message PeerMessage {
   reserved 24;
 
   oneof message_type {
-    Handshake handshake = 4;
+    // Handshakes for TIER1 and TIER2 networks are considered separate,
+    // so that a node binary which doesn't support TIER1 connection won't
+    // be even able to PARSE the handshake. This way we avoid accidental
+    // connections, such that one end thinks it is a TIER2 connection and the
+    // other thinks it is a TIER1 connection. As currently both TIER1 and TIER2
+    // connections are handled by the same PeerActor, both fields use the same
+    // underlying message type. Uf we ever decide to separate the handshake
+    // implementations, we can copy the Handshake message type defition and
+    // make it evolve differently for TIER1 and TIER2.
+    Handshake tier1_handshake = 26;
+    Handshake tier2_handshake = 4;
+
     HandshakeFailure handshake_failure = 5;
     LastEdge last_edge = 6;
     RoutingTableUpdate sync_routing_table = 7;

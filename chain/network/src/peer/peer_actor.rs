@@ -343,7 +343,7 @@ impl PeerActor {
 
     fn send_handshake(&mut self, spec: HandshakeSpec) {
         let chain_info = self.network_state.chain_info.load();
-        let msg = PeerMessage::Handshake(Handshake {
+        let msg = Handshake {
             protocol_version: spec.protocol_version,
             oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
             sender_peer_id: self.my_node_id().clone(),
@@ -356,8 +356,12 @@ impl PeerActor {
                 archival: self.network_state.config.archive,
             },
             partial_edge_info: spec.partial_edge_info,
-            is_tier1: spec.is_tier1,
-        });
+        };
+        let msg = if spec.is_tier1 {
+            PeerMessage::Tier1Handshake(msg)
+        } else {
+            PeerMessage::Tier2Handshake(msg)
+        };
         self.send_message_or_log(&msg);
     }
 
@@ -592,7 +596,8 @@ impl PeerActor {
             PeerMessage::EpochSyncFinalizationResponse(response) => {
                 NetworkClientMessages::EpochSyncFinalizationResponse(peer_id, response)
             }
-            PeerMessage::Handshake(_)
+            PeerMessage::Tier1Handshake(_)
+            | PeerMessage::Tier2Handshake(_)
             | PeerMessage::HandshakeFailure(_, _)
             | PeerMessage::PeersRequest
             | PeerMessage::PeersResponse(_)
@@ -669,6 +674,242 @@ impl PeerActor {
         };
         let r = self.network_state.txns_since_last_block.load(Ordering::Acquire);
         r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE
+    }
+
+    fn process_handshake(
+        &mut self,
+        ctx: &mut <PeerActor as actix::Actor>::Context,
+        is_tier1: bool,
+        handshake: Handshake,
+    ) {
+        debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
+
+        if self.peer_type == PeerType::Outbound {
+            let spec = self.handshake_spec.as_ref().unwrap();
+            if handshake.protocol_version != spec.protocol_version {
+                warn!(target: "network", "Protocol version mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                ctx.stop();
+                return;
+            }
+            if handshake.sender_chain_info.genesis_id != spec.genesis_id {
+                warn!(target: "network", "Genesis mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                ctx.stop();
+                return;
+            }
+            if handshake.sender_peer_id != spec.peer_id {
+                warn!(target: "network", "PeerId mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                ctx.stop();
+                return;
+            }
+            if is_tier1 != spec.is_tier1 {
+                warn!(target: "network", "Connection TIER mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                ctx.stop();
+                return;
+            }
+            if handshake.partial_edge_info.nonce != spec.partial_edge_info.nonce {
+                warn!(target: "network", "Nonce mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                ctx.stop();
+                return;
+            }
+        } else {
+            if PEER_MIN_ALLOWED_PROTOCOL_VERSION > handshake.protocol_version
+                || handshake.protocol_version > PROTOCOL_VERSION
+            {
+                debug!(
+                    target: "network",
+                    version = handshake.protocol_version,
+                    "Received connection from node with unsupported PROTOCOL_VERSION.");
+                self.send_message_or_log(&PeerMessage::HandshakeFailure(
+                    self.my_node_info.clone(),
+                    HandshakeFailureReason::ProtocolVersionMismatch {
+                        version: PROTOCOL_VERSION,
+                        oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
+                    },
+                ));
+                return;
+            }
+            let genesis_id = self.network_state.genesis_id.clone();
+            if handshake.sender_chain_info.genesis_id != genesis_id {
+                debug!(target: "network", "Received connection from node with different genesis.");
+                self.send_message_or_log(&PeerMessage::HandshakeFailure(
+                    self.my_node_info.clone(),
+                    HandshakeFailureReason::GenesisMismatch(genesis_id),
+                ));
+                return;
+            }
+            if handshake.target_peer_id != self.my_node_info.id {
+                debug!(target: "network", "Received handshake from {:?} to {:?} but I am {:?}", handshake.sender_peer_id, handshake.target_peer_id, self.my_node_info.id);
+                self.send_message_or_log(&PeerMessage::HandshakeFailure(
+                    self.my_node_info.clone(),
+                    HandshakeFailureReason::InvalidTarget,
+                ));
+                return;
+            }
+            // Verify if nonce is sane.
+            if let Err(err) = verify_nonce(&self.clock, handshake.partial_edge_info.nonce) {
+                debug!(target: "network", nonce=?handshake.partial_edge_info.nonce, my_node_id = ?self.my_node_id(), peer_id=?handshake.sender_peer_id, "bad nonce, disconnecting: {err}");
+                ctx.stop();
+                return;
+            }
+            // Check that the received nonce is greater than the current nonce of this connection.
+            // If not (and this is an inbound connection) propose a new nonce.
+            if let Some(last_edge) =
+                self.network_state.routing_table_view.get_local_edge(&handshake.sender_peer_id)
+            {
+                if last_edge.nonce() >= handshake.partial_edge_info.nonce {
+                    debug!(target: "network", "{:?}: Received too low nonce from peer {:?} sending evidence.", self.my_node_id(), self.peer_addr);
+                    self.send_message_or_log(&PeerMessage::LastEdge(last_edge));
+                    return;
+                }
+            }
+        }
+
+        if handshake.sender_peer_id == self.my_node_info.id {
+            metrics::RECEIVED_INFO_ABOUT_ITSELF.inc();
+            debug!(target: "network", "Received info about itself. Disconnecting this peer.");
+            ctx.stop();
+            return;
+        }
+
+        // Verify that the received partial edge is valid.
+        // WARNING: signature is verified against the 2nd argument.
+        if !Edge::partial_verify(
+            &self.my_node_id(),
+            &handshake.sender_peer_id,
+            &handshake.partial_edge_info,
+        ) {
+            warn!(target: "network", "partial edge with invalid signature, disconnecting");
+            self.ban_peer(ctx, ReasonForBan::InvalidSignature);
+            ctx.stop();
+            return;
+        }
+
+        // Merge partial edges.
+        let nonce = handshake.partial_edge_info.nonce;
+        let partial_edge_info = match self.peer_type {
+            PeerType::Outbound => self.handshake_spec.as_ref().unwrap().partial_edge_info.clone(),
+            PeerType::Inbound => {
+                self.network_state.propose_edge(&handshake.sender_peer_id, Some(nonce))
+            }
+        };
+        let edge = Edge::new(
+            self.my_node_id().clone(),
+            handshake.sender_peer_id.clone(),
+            nonce,
+            partial_edge_info.signature.clone(),
+            handshake.partial_edge_info.signature.clone(),
+        );
+        debug_assert!(edge.verify());
+
+        let peer_info = PeerInfo {
+            id: handshake.sender_peer_id.clone(),
+            addr: handshake
+                .sender_listen_port
+                .map(|port| SocketAddr::new(self.peer_addr.ip(), port)),
+            account_id: None,
+        };
+
+        let connection = Arc::new(Connection {
+            is_tier1,
+            addr: ctx.address(),
+            peer_info: peer_info.clone(),
+            initial_chain_info: handshake.sender_chain_info.clone(),
+            chain_height: AtomicU64::new(handshake.sender_chain_info.height),
+            edge,
+            peer_type: self.peer_type,
+            stats: AtomicCell::new(Stats { sent_bytes_per_sec: 0, received_bytes_per_sec: 0 }),
+            _peer_connections_metric: metrics::PEER_CONNECTIONS.new_point(&metrics::Connection {
+                type_: self.peer_type,
+                encoding: self.encoding(),
+            }),
+            last_time_peer_requested: AtomicCell::new(self.clock.now()),
+            last_time_received_message: AtomicCell::new(self.clock.now()),
+            connection_established_time: self.clock.now(),
+            throttle_controller: self.throttle_controller.clone(),
+            send_accounts_data_demux: demux::Demux::new(self.network_state.send_accounts_data_rl),
+        });
+        self.connection = Some(connection.clone());
+
+        let tracker = self.tracker.clone();
+        let clock = self.clock.clone();
+        let mut interval =
+            tokio::time::interval(self.network_state.config.peer_stats_period.try_into().unwrap());
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        ctx.spawn({
+            let connection = connection.clone();
+            async move {
+                loop {
+                    interval.tick().await;
+                    let sent = tracker.lock().sent_bytes.minute_stats(&clock);
+                    let received = tracker.lock().received_bytes.minute_stats(&clock);
+                    connection.stats.store(Stats {
+                        received_bytes_per_sec: received.bytes_per_min / 60,
+                        sent_bytes_per_sec: sent.bytes_per_min / 60,
+                    });
+                    // Whether the peer is considered abusive due to sending too many messages.
+                    // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
+                    // some day be less than `u64::MAX`.
+                    let is_abusive = received.count_per_min > MAX_PEER_MSG_PER_MIN
+                        || sent.count_per_min > MAX_PEER_MSG_PER_MIN;
+                    if is_abusive {
+                        tracing::trace!(
+                        target: "network",
+                        peer_id = ?connection.peer_info.id,
+                        sent = sent.count_per_min,
+                        recv = received.count_per_min,
+                        "Banning peer for abuse");
+                        // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
+                        //  network traffic that flags honest peers.
+                        // Send ban signal to peer instance. It should send ban signal back and stop the instance.
+                        // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
+                        //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
+                        // }
+                    }
+                }
+            }
+            .into_actor(self)
+        });
+
+        self.peer_manager_addr
+            .send(PeerToManagerMsg::RegisterPeer(RegisterPeer {
+                connection: connection.clone(),
+            }))
+            .into_actor(self)
+            .then(move |res, act, ctx| {
+                match res.map(|r|r.unwrap_consolidate_response()) {
+                    Ok(RegisterPeerResponse::Accept) => {
+                        tracing::debug!(target:"dupa", "conn accepted {} -> ...",act.my_node_id());
+                        act.peer_info = Some(peer_info).into();
+                        act.peer_status = PeerStatus::Ready;
+                        // Respond to handshake if it's inbound and connection was consolidated.
+                        if act.peer_type == PeerType::Inbound {
+                            act.send_handshake(HandshakeSpec{
+                                peer_id: handshake.sender_peer_id.clone(),
+                                genesis_id: act.network_state.genesis_id.clone(),
+                                is_tier1,
+                                protocol_version: handshake.protocol_version,
+                                partial_edge_info: partial_edge_info,
+                            });
+                        } else if !is_tier1 {
+                            // Outbound peer triggers the inital full accounts data sync.
+                            // TODO(gprusak): implement triggering the periodic full sync.
+                            act.send_message_or_log(&PeerMessage::SyncAccountsData(SyncAccountsData{
+                                accounts_data: act.network_state.accounts_data.load().data.values().cloned().collect(),
+                                incremental: false,
+                                requesting_full_sync: true,
+                            }));
+                        }
+                        actix::fut::ready(())
+                    },
+                    err => {
+                        tracing::debug!(target:"dupa", "conn rejected {} -> ...: {err:?}",act.my_node_id());
+                        info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting: {err:?}", act.my_node_id(), handshake);
+                        ctx.stop();
+                        actix::fut::ready(())
+                    }
+                }
+            })
+            .wait(ctx);
     }
 }
 
@@ -863,252 +1104,18 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 };
                 self.send_handshake(spec);
             }
-            (PeerStatus::Connecting { .. }, PeerMessage::Handshake(handshake)) => {
-                debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
-
-                if self.peer_type == PeerType::Outbound {
-                    let spec = self.handshake_spec.as_ref().unwrap();
-                    if handshake.protocol_version != spec.protocol_version {
-                        warn!(target: "network", "Protocol version mismatch. Disconnecting peer {}", handshake.sender_peer_id);
-                        ctx.stop();
-                        return;
-                    }
-                    if handshake.sender_chain_info.genesis_id != spec.genesis_id {
-                        warn!(target: "network", "Genesis mismatch. Disconnecting peer {}", handshake.sender_peer_id);
-                        ctx.stop();
-                        return;
-                    }
-                    if handshake.sender_peer_id != spec.peer_id {
-                        warn!(target: "network", "PeerId mismatch. Disconnecting peer {}", handshake.sender_peer_id);
-                        ctx.stop();
-                        return;
-                    }
-                    if handshake.is_tier1 != spec.is_tier1 {
-                        warn!(target: "network", "Connection TIER mismatch. Disconnecting peer {}", handshake.sender_peer_id);
-                        ctx.stop();
-                        return;
-                    }
-                    if handshake.partial_edge_info.nonce != spec.partial_edge_info.nonce {
-                        warn!(target: "network", "Nonce mismatch. Disconnecting peer {}", handshake.sender_peer_id);
-                        ctx.stop();
-                        return;
-                    }
-                } else {
-                    if PEER_MIN_ALLOWED_PROTOCOL_VERSION > handshake.protocol_version
-                        || handshake.protocol_version > PROTOCOL_VERSION
-                    {
-                        debug!(
-                            target: "network",
-                            version = handshake.protocol_version,
-                            "Received connection from node with unsupported PROTOCOL_VERSION.");
-                        self.send_message_or_log(&PeerMessage::HandshakeFailure(
-                            self.my_node_info.clone(),
-                            HandshakeFailureReason::ProtocolVersionMismatch {
-                                version: PROTOCOL_VERSION,
-                                oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
-                            },
-                        ));
-                        return;
-                    }
-                    let genesis_id = self.network_state.genesis_id.clone();
-                    if handshake.sender_chain_info.genesis_id != genesis_id {
-                        debug!(target: "network", "Received connection from node with different genesis.");
-                        self.send_message_or_log(&PeerMessage::HandshakeFailure(
-                            self.my_node_info.clone(),
-                            HandshakeFailureReason::GenesisMismatch(genesis_id),
-                        ));
-                        return;
-                    }
-                    if handshake.target_peer_id != self.my_node_info.id {
-                        debug!(target: "network", "Received handshake from {:?} to {:?} but I am {:?}", handshake.sender_peer_id, handshake.target_peer_id, self.my_node_info.id);
-                        self.send_message_or_log(&PeerMessage::HandshakeFailure(
-                            self.my_node_info.clone(),
-                            HandshakeFailureReason::InvalidTarget,
-                        ));
-                        return;
-                    }
-                    // Verify if nonce is sane.
-                    if let Err(err) = verify_nonce(&self.clock, handshake.partial_edge_info.nonce) {
-                        debug!(target: "network", nonce=?handshake.partial_edge_info.nonce, my_node_id = ?self.my_node_id(), peer_id=?handshake.sender_peer_id, "bad nonce, disconnecting: {err}");
-                        ctx.stop();
-                        return;
-                    }
-                    // Check that the received nonce is greater than the current nonce of this connection.
-                    // If not (and this is an inbound connection) propose a new nonce.
-                    if let Some(last_edge) = self
-                        .network_state
-                        .routing_table_view
-                        .get_local_edge(&handshake.sender_peer_id)
-                    {
-                        if last_edge.nonce() >= handshake.partial_edge_info.nonce {
-                            debug!(target: "network", "{:?}: Received too low nonce from peer {:?} sending evidence.", self.my_node_id(), self.peer_addr);
-                            self.send_message_or_log(&PeerMessage::LastEdge(last_edge));
-                            return;
-                        }
-                    }
-                }
-
-                if handshake.sender_peer_id == self.my_node_info.id {
-                    metrics::RECEIVED_INFO_ABOUT_ITSELF.inc();
-                    debug!(target: "network", "Received info about itself. Disconnecting this peer.");
-                    ctx.stop();
-                    return;
-                }
-
-                // Verify that the received partial edge is valid.
-                // WARNING: signature is verified against the 2nd argument.
-                if !Edge::partial_verify(
-                    &self.my_node_id(),
-                    &handshake.sender_peer_id,
-                    &handshake.partial_edge_info,
-                ) {
-                    warn!(target: "network", "partial edge with invalid signature, disconnecting");
-                    self.ban_peer(ctx, ReasonForBan::InvalidSignature);
-                    ctx.stop();
-                    return;
-                }
-
-                // Merge partial edges.
-                let nonce = handshake.partial_edge_info.nonce;
-                let partial_edge_info = match self.peer_type {
-                    PeerType::Outbound => {
-                        self.handshake_spec.as_ref().unwrap().partial_edge_info.clone()
-                    }
-                    PeerType::Inbound => {
-                        self.network_state.propose_edge(&handshake.sender_peer_id, Some(nonce))
-                    }
-                };
-                let edge = Edge::new(
-                    self.my_node_id().clone(),
-                    handshake.sender_peer_id.clone(),
-                    nonce,
-                    partial_edge_info.signature.clone(),
-                    handshake.partial_edge_info.signature.clone(),
-                );
-                debug_assert!(edge.verify());
-
-                let peer_info = PeerInfo {
-                    id: handshake.sender_peer_id.clone(),
-                    addr: handshake
-                        .sender_listen_port
-                        .map(|port| SocketAddr::new(self.peer_addr.ip(), port)),
-                    account_id: None,
-                };
-
-                let connection = Arc::new(Connection {
-                    is_tier1: handshake.is_tier1,
-                    addr: ctx.address(),
-                    peer_info: peer_info.clone(),
-                    initial_chain_info: handshake.sender_chain_info.clone(),
-                    chain_height: AtomicU64::new(handshake.sender_chain_info.height),
-                    edge,
-                    peer_type: self.peer_type,
-                    stats: AtomicCell::new(Stats {
-                        sent_bytes_per_sec: 0,
-                        received_bytes_per_sec: 0,
-                    }),
-                    _peer_connections_metric: metrics::PEER_CONNECTIONS.new_point(
-                        &metrics::Connection { type_: self.peer_type, encoding: self.encoding() },
-                    ),
-                    last_time_peer_requested: AtomicCell::new(self.clock.now()),
-                    last_time_received_message: AtomicCell::new(self.clock.now()),
-                    connection_established_time: self.clock.now(),
-                    throttle_controller: self.throttle_controller.clone(),
-                    send_accounts_data_demux: demux::Demux::new(
-                        self.network_state.send_accounts_data_rl,
-                    ),
-                });
-                self.connection = Some(connection.clone());
-
-                let tracker = self.tracker.clone();
-                let clock = self.clock.clone();
-                let mut interval = tokio::time::interval(
-                    self.network_state.config.peer_stats_period.try_into().unwrap(),
-                );
-                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                ctx.spawn({
-                    let connection = connection.clone();
-                    async move {
-                        loop {
-                            interval.tick().await;
-                            let sent = tracker.lock().sent_bytes.minute_stats(&clock);
-                            let received = tracker.lock().received_bytes.minute_stats(&clock);
-                            connection.stats.store(Stats {
-                                received_bytes_per_sec: received.bytes_per_min / 60,
-                                sent_bytes_per_sec: sent.bytes_per_min / 60,
-                            });
-                            // Whether the peer is considered abusive due to sending too many messages.
-                            // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
-                            // some day be less than `u64::MAX`.
-                            let is_abusive = received.count_per_min > MAX_PEER_MSG_PER_MIN
-                                || sent.count_per_min > MAX_PEER_MSG_PER_MIN;
-                            if is_abusive {
-                                tracing::trace!(
-                                target: "network",
-                                peer_id = ?connection.peer_info.id,
-                                sent = sent.count_per_min,
-                                recv = received.count_per_min,
-                                "Banning peer for abuse");
-                                // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
-                                //  network traffic that flags honest peers.
-                                // Send ban signal to peer instance. It should send ban signal back and stop the instance.
-                                // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
-                                //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
-                                // }
-                            }
-                        }
-                    }
-                    .into_actor(self)
-                });
-
-                self.peer_manager_addr
-                    .send(PeerToManagerMsg::RegisterPeer(RegisterPeer {
-                        connection: connection.clone(),
-                    }))
-                    .into_actor(self)
-                    .then(move |res, act, ctx| {
-                        match res.map(|r|r.unwrap_consolidate_response()) {
-                            Ok(RegisterPeerResponse::Accept) => {
-                                tracing::debug!(target:"dupa", "conn accepted {} -> ...",act.my_node_id());
-                                act.peer_info = Some(peer_info).into();
-                                act.peer_status = PeerStatus::Ready;
-                                // Respond to handshake if it's inbound and connection was consolidated.
-                                if act.peer_type == PeerType::Inbound {
-                                    act.send_handshake(HandshakeSpec{
-                                        peer_id: handshake.sender_peer_id.clone(),
-                                        genesis_id: act.network_state.genesis_id.clone(),
-                                        is_tier1: handshake.is_tier1,
-                                        protocol_version: handshake.protocol_version,
-                                        partial_edge_info: partial_edge_info,
-                                    });
-                                } else {
-                                    if !connection.is_tier1 {
-                                        // Outbound peer triggers the inital full accounts data sync.
-                                        // TODO(gprusak): implement triggering the periodic full sync.
-                                        act.send_message_or_log(&PeerMessage::SyncAccountsData(SyncAccountsData{
-                                            accounts_data: act.network_state.accounts_data.load().data.values().cloned().collect(),
-                                            incremental: false,
-                                            requesting_full_sync: true,
-                                        }));
-                                    }
-                                }
-                                actix::fut::ready(())
-                            },
-                            err => {
-                                tracing::debug!(target:"dupa", "conn rejected {} -> ...: {err:?}",act.my_node_id());
-                                info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting: {err:?}", act.my_node_id(), handshake);
-                                ctx.stop();
-                                actix::fut::ready(())
-                            }
-                        }
-                    })
-                    .wait(ctx);
+            (PeerStatus::Connecting { .. }, PeerMessage::Tier1Handshake(msg)) => {
+                self.process_handshake(ctx, /*is_tier1=*/ true, msg)
+            }
+            (PeerStatus::Connecting { .. }, PeerMessage::Tier2Handshake(msg)) => {
+                self.process_handshake(ctx, /*is_tier1=*/ false, msg)
             }
             (PeerStatus::Ready, PeerMessage::Disconnect) => {
                 debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
                 ctx.stop();
             }
-            (PeerStatus::Ready, PeerMessage::Handshake(_)) => {
+            (PeerStatus::Ready, PeerMessage::Tier1Handshake(_))
+            | (PeerStatus::Ready, PeerMessage::Tier2Handshake(_)) => {
                 // Received handshake after already have seen handshake from this peer.
                 debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
             }

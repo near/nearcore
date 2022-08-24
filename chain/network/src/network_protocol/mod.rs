@@ -200,8 +200,6 @@ pub struct Handshake {
     pub(crate) sender_chain_info: PeerChainInfoV2,
     /// Represents new `edge`. Contains only `none` and `Signature` from the sender.
     pub(crate) partial_edge_info: PartialEdgeInfo,
-    /// Indicates whether this is a TIER1 connection.
-    pub(crate) is_tier1: bool,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr)]
@@ -222,7 +220,8 @@ pub struct SyncAccountsData {
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
-    Handshake(Handshake),
+    Tier1Handshake(Handshake),
+    Tier2Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),

@@ -178,9 +178,8 @@ mod test {
                 archival: false,
             },
             partial_edge_info: PartialEdgeInfo::default(),
-            is_tier1: false,
         };
-        let msg = PeerMessage::Handshake(fake_handshake);
+        let msg = PeerMessage::Tier2Handshake(fake_handshake);
         test_codec(msg);
     }
 

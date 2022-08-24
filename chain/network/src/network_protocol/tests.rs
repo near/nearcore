@@ -36,14 +36,18 @@ fn bad_account_data_size() {
 #[test]
 fn serialize_deserialize_protobuf_only() {
     let mut rng = make_rng(39521947542);
-    let clock = time::FakeClock::default();
-    let msgs = [PeerMessage::SyncAccountsData(SyncAccountsData {
-        accounts_data: (0..4)
-            .map(|_| Arc::new(data::make_signed_account_data(&mut rng, &clock.clock())))
-            .collect(),
-        incremental: true,
-        requesting_full_sync: true,
-    })];
+    let mut clock = time::FakeClock::default();
+    let chain = data::Chain::make(&mut clock, &mut rng, 12);
+    let msgs = [
+        PeerMessage::Tier1Handshake(data::make_handshake(&mut rng, &chain)),
+        PeerMessage::SyncAccountsData(SyncAccountsData {
+            accounts_data: (0..4)
+                .map(|_| Arc::new(data::make_signed_account_data(&mut rng, &clock.clock())))
+                .collect(),
+            incremental: true,
+            requesting_full_sync: true,
+        }),
+    ];
     for m in msgs {
         let m2 = PeerMessage::deserialize(Encoding::Proto, &m.serialize(Encoding::Proto))
             .with_context(|| m.to_string())
@@ -81,7 +85,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         }),
     );
     let msgs = [
-        PeerMessage::Handshake(data::make_handshake(&mut rng, &chain)),
+        PeerMessage::Tier2Handshake(data::make_handshake(&mut rng, &chain)),
         PeerMessage::HandshakeFailure(
             data::make_peer_info(&mut rng),
             HandshakeFailureReason::InvalidTarget,
