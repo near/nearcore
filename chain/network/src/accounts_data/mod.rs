@@ -115,7 +115,7 @@ pub(crate) enum Error {
 }
 
 #[derive(Clone)]
-pub struct Snapshot {
+pub struct CacheSnapshot {
     pub keys: Arc<AccountKeys>,
     /// Current state of knowledge about an account.
     /// key is the public key of the account in the given epoch.
@@ -124,7 +124,7 @@ pub struct Snapshot {
     pub data: im::HashMap<(EpochId, AccountId), Arc<SignedAccountData>>,
 }
 
-impl Snapshot {
+impl CacheSnapshot {
     /// Finds all `epoch_id` for which the given account key is registered.
     /// Complexity: O(keys.len()).
     pub fn epochs(&self, account_id: &AccountId, key: &PublicKey) -> Vec<EpochId> {
@@ -165,11 +165,11 @@ impl Snapshot {
     }
 }
 
-pub(crate) struct Cache(ArcMutex<Snapshot>);
+pub(crate) struct Cache(ArcMutex<CacheSnapshot>);
 
 impl Cache {
     pub fn new() -> Self {
-        Self(ArcMutex::new(Snapshot {
+        Self(ArcMutex::new(CacheSnapshot {
             keys: Arc::new(AccountKeys::default()),
             data: im::HashMap::new(),
         }))
@@ -265,7 +265,7 @@ impl Cache {
     }
 
     /// Loads the current cache snapshot.
-    pub fn load(&self) -> Arc<Snapshot> {
+    pub fn load(&self) -> Arc<CacheSnapshot> {
         self.0.load()
     }
 }
