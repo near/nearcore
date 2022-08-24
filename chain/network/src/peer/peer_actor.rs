@@ -1077,7 +1077,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     if new_data.len() > 0 {
                         let handles: Vec<_> = pms
                             .tier2
-                            .read()
+                            .load()
+                            .ready
                             .values()
                             // Do not send the data back.
                             .filter(|p| peer_id != p.peer_info.id)
