@@ -3,7 +3,7 @@ use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::{AccountData, SyncAccountsData};
 use crate::peer::codec::Codec;
-use crate::peer::peer_actor::{Event as PeerEvent, PeerActor};
+use crate::peer::peer_actor::{ConnectingStatus, Event as PeerEvent, PeerActor};
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
@@ -209,8 +209,6 @@ pub struct PeerManagerActor {
     my_peer_id: PeerId,
     /// Peer store that provides read/write access to peers.
     peer_store: PeerStore,
-    /// Set of outbound connections that were not consolidated yet.
-    outgoing_peers: HashSet<PeerId>,
     /// View of the Routing table. It keeps:
     /// - routing information - how to route messages
     /// - edges adjacent to my_peer_id
@@ -383,7 +381,6 @@ impl PeerManagerActor {
             config: config.clone(),
             max_num_peers: config.max_num_peers,
             peer_store,
-            outgoing_peers: HashSet::default(),
             routing_table_view,
             network_graph,
             routing_table_exchange_helper: Default::default(),
@@ -648,16 +645,10 @@ impl PeerManagerActor {
         connection: Arc<connection::Connection>,
         partial_edge_info: PartialEdgeInfo,
         ctx: &mut Context<Self>,
-    ) {
+    ) -> Result<(), connection::PoolError> {
         let peer_info = &connection.peer_info;
         let _span = tracing::trace_span!(target: "network", "register_peer").entered();
         debug!(target: "network", ?peer_info, "Consolidated connection");
-
-        self.outgoing_peers.remove(&peer_info.id);
-        if let Err(err) = self.peer_store.peer_connected(&self.clock, peer_info) {
-            error!(target: "network", ?err, "Failed to save peer data");
-            return;
-        };
 
         let target_peer_id = peer_info.id.clone();
 
@@ -668,12 +659,16 @@ impl PeerManagerActor {
             partial_edge_info.signature,
             connection.partial_edge_info.signature.clone(),
         );
-        let peer_info = peer_info.clone();
 
-        self.state.tier2.insert_ready(connection.clone());
+        self.state.tier2.insert_ready(connection.clone())?;
         self.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
-        self.sync_after_handshake(connection, ctx, new_edge);
-        self.event_sink.push(Event::PeerRegistered(peer_info));
+        self.sync_after_handshake(connection.clone(), ctx, new_edge);
+        self.event_sink.push(Event::PeerRegistered(peer_info.clone()));
+        // Best effort write to DB.
+        if let Err(err) = self.peer_store.peer_connected(&self.clock, peer_info) {
+            error!(target: "network", ?err, "Failed to save peer data");
+        }
+        Ok(())
     }
 
     fn sync_after_handshake(
@@ -755,12 +750,6 @@ impl PeerManagerActor {
         remove_from_peer_store: bool,
     ) {
         debug!(target: "network", ?peer_id, ?peer_type, "Unregister peer");
-        // If this is an unconsolidated peer because failed / connected inbound, just delete it.
-        if peer_type == PeerType::Outbound && self.outgoing_peers.contains(&peer_id) {
-            self.outgoing_peers.remove(&peer_id);
-            return;
-        }
-
         if remove_from_peer_store {
             self.remove_connected_peer(&peer_id, Some(peer_type));
             if let Err(err) = self.peer_store.peer_disconnected(&self.clock, &peer_id) {
@@ -800,7 +789,7 @@ impl PeerManagerActor {
         &self,
         recipient: Addr<Self>,
         stream: TcpStream,
-        peer_type: PeerType,
+        connecting_status: ConnectingStatus,
         peer_info: Option<PeerInfo>,
         partial_edge_info: Option<PartialEdgeInfo>,
     ) {
@@ -860,7 +849,7 @@ impl PeerManagerActor {
                 PeerInfo { id: my_peer_id, addr: Some(server_addr), account_id },
                 remote_addr,
                 peer_info,
-                peer_type,
+                connecting_status,
                 FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
                 handshake_timeout,
                 recipient.clone().recipient(),
@@ -1051,7 +1040,8 @@ impl PeerManagerActor {
 
         // If there is not enough non-whitelisted peers, return without disconnecting anyone.
         let whitelisted_peers = filter_peers(&|p| self.is_peer_whitelisted(&p.peer_info));
-        if tier2.ready.len() - whitelisted_peers.len() <= self.config.ideal_connections_hi as usize {
+        if tier2.ready.len() - whitelisted_peers.len() <= self.config.ideal_connections_hi as usize
+        {
             return;
         }
         // Add whitelisted nodes to the safe set.
@@ -1059,7 +1049,7 @@ impl PeerManagerActor {
 
         // If there is not enough outbound peers, add them to the safe set.
         let outbound_peers = filter_peers(&|p| p.peer_type == PeerType::Outbound);
-        if outbound_peers.len() + self.outgoing_peers.len()
+        if outbound_peers.len() + tier2.outbound_handshakes.len()
             <= self.config.minimum_outbound_peers as usize
         {
             safe_set.extend(outbound_peers);
@@ -1659,7 +1649,7 @@ impl PeerManagerActor {
                 .map(|addr| self.is_ip_whitelisted(&addr.ip()))
                 .unwrap_or(false)
         {
-            self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
+            self.try_connect_peer(ctx.address(), msg.stream, ConnectingStatus::Inbound, None, None);
         } else {
             // TODO(1896): Gracefully drop inbound connection for other peer.
             debug!(target: "network", "Inbound connection dropped (network at max capacity).");
@@ -1669,6 +1659,14 @@ impl PeerManagerActor {
     #[perf]
     fn handle_msg_outbound_tcp_connect(&self, msg: OutboundTcpConnect, ctx: &mut Context<Self>) {
         let _d = delay_detector::DelayDetector::new(|| "outbound tcp connect".into());
+        let handshake_permit = match self.state.tier2.start_outbound(msg.peer_info.id.clone()) {
+            Ok(it) => it,
+            Err(err) => {
+                tracing::warn!(target: "network", peer_info = ?msg.peer_info, "cannot connect: {err}");
+                return;
+            }
+        };
+
         debug!(target: "network", to = ?msg.peer_info, "Trying to connect");
         if let Some(addr) = msg.peer_info.addr {
             // The `connect` may take several minutes. This happens when the
@@ -1690,7 +1688,7 @@ impl PeerManagerActor {
                             act.try_connect_peer(
                                 ctx.address(),
                                 stream,
-                                PeerType::Outbound,
+                                ConnectingStatus::Outbound(handshake_permit),
                                 Some(msg.peer_info),
                                 Some(edge_info),
                             );
@@ -1698,13 +1696,11 @@ impl PeerManagerActor {
                         }
                         Err(err) => {
                             info!(target: "network", ?addr, ?err, "Error connecting to");
-                            act.outgoing_peers.remove(&msg.peer_info.id);
                             actix::fut::ready(())
                         }
                     },
                     Err(err) => {
                         info!(target: "network", ?addr, ?err, "Error connecting to");
-                        act.outgoing_peers.remove(&msg.peer_info.id);
                         actix::fut::ready(())
                     }
                 })
@@ -1744,7 +1740,7 @@ impl PeerManagerActor {
         // This is incoming connection but we have this peer already in outgoing.
         // This only happens when both of us connect at the same time, break tie using higher peer id.
         if msg.connection.peer_type == PeerType::Inbound
-            && self.outgoing_peers.contains(&peer_info.id)
+            && tier2.outbound_handshakes.contains(&peer_info.id)
         {
             // We pick connection that has lower id.
             if peer_info.id > self.my_peer_id {
@@ -1798,7 +1794,6 @@ impl PeerManagerActor {
             debug!(target: "network", nonce = other_edge_info.nonce, clock=self.clock.now_utc().unix_timestamp(), ?EDGE_NONCE_MAX_TIME_DELTA, ?self.my_peer_id, ?peer_info.id, "Nonce is overflowing i64.");
             return RegisterPeerResponse::Reject;
         }
-
         let require_response = msg.this_edge_info.is_none();
 
         let edge_info = msg
@@ -1808,8 +1803,10 @@ impl PeerManagerActor {
 
         let edge_info_response = if require_response { Some(edge_info.clone()) } else { None };
 
-        // TODO: double check that address is connectable and add account id.
-        self.register_peer(msg.connection, edge_info, ctx);
+        if let Err(err) = self.register_peer(msg.connection.clone(), edge_info, ctx) {
+            debug!(target: "network", nonce = other_edge_info.nonce, clock=self.clock.now_utc().unix_timestamp(), ?EDGE_NONCE_MAX_TIME_DELTA, ?self.my_peer_id, ?peer_info.id, ?err, "state.register_peer()");
+            return RegisterPeerResponse::Reject;
+        }
 
         RegisterPeerResponse::Accept(edge_info_response)
     }
