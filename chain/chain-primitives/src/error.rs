@@ -214,16 +214,6 @@ pub enum Error {
     Other(String),
 }
 
-impl std::convert::From<Error> for io::Error {
-    fn from(err: Error) -> io::Error {
-        match err {
-            Error::IOErr(err) => err,
-            Error::Other(msg) => io::Error::new(io::ErrorKind::Other, msg),
-            err => io::Error::new(io::ErrorKind::Other, err),
-        }
-    }
-}
-
 /// For now StorageError can happen at any time from ViewClient because of
 /// the used isolation level + running ViewClient in a separate thread.
 pub trait LogTransientStorageError {

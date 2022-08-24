@@ -11,18 +11,19 @@ use near_store::DBCol;
 pub fn migrate_30_to_31(
     store_opener: &near_store::StoreOpener,
     near_config: &crate::NearConfig,
-) -> std::io::Result<()> {
+) -> anyhow::Result<()> {
     let store = store_opener.open()?;
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         do_migrate_30_to_31(&store, &near_config.genesis.config)?;
     }
-    set_store_version(&store, 31)
+    set_store_version(&store, 31)?;
+    Ok(())
 }
 
 pub fn do_migrate_30_to_31(
     store: &near_store::Store,
     genesis_config: &near_chain_configs::GenesisConfig,
-) -> std::io::Result<()> {
+) -> anyhow::Result<()> {
     let genesis_height = genesis_config.genesis_height;
     let chain_store = ChainStore::new(store.clone(), genesis_height, false);
     let head = chain_store.head()?;
@@ -47,7 +48,8 @@ pub fn do_migrate_30_to_31(
         }
     }
     println!("total inconsistency count: {}", count);
-    store_update.finish()
+    store_update.finish()?;
+    Ok(())
 }
 
 /// In test runs reads and writes here used 442 TGas, but in test on live net migration take

@@ -78,17 +78,18 @@ where
     store_update.finish()
 }
 
-pub fn migrate_28_to_29(store_opener: &StoreOpener) -> std::io::Result<()> {
+pub fn migrate_28_to_29(store_opener: &StoreOpener) -> anyhow::Result<()> {
     let store = store_opener.open()?;
     let mut store_update = store.store_update();
     store_update.delete_all(DBCol::_NextBlockWithNewChunk);
     store_update.delete_all(DBCol::_LastBlockWithNewChunk);
     store_update.commit()?;
 
-    set_store_version(&store, 29)
+    set_store_version(&store, 29)?;
+    Ok(())
 }
 
-pub fn migrate_29_to_30(store_opener: &StoreOpener) -> std::io::Result<()> {
+pub fn migrate_29_to_30(store_opener: &StoreOpener) -> anyhow::Result<()> {
     use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::epoch_manager::epoch_info::EpochSummary;
     use near_primitives::epoch_manager::AGGREGATOR_KEY;
@@ -176,5 +177,6 @@ pub fn migrate_29_to_30(store_opener: &StoreOpener) -> std::io::Result<()> {
 
     store_update.finish()?;
 
-    set_store_version(&store, 30)
+    set_store_version(&store, 30)?;
+    Ok(())
 }
