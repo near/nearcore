@@ -133,9 +133,9 @@ fn apply_store_migrations_if_exists(
     // the migration fails, the snapshot can be used to restore the database to
     // its original state.
     let snapshot = if near_config.config.use_db_migration_snapshot {
-        Some(create_db_checkpoint(store_opener, near_config)?)
+        create_db_checkpoint(store_opener, near_config)?
     } else {
-        None
+        near_store::Snapshot::no_snapshot()
     };
 
     // Add migrations here based on `db_version`.
@@ -182,7 +182,7 @@ fn apply_store_migrations_if_exists(
 
     // DB migration was successful, remove the snapshot to avoid it taking up
     // precious disk space.
-    snapshot.map(near_store::Snapshot::remove);
+    snapshot.remove();
 
     Ok(true)
 }

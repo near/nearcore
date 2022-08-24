@@ -16,7 +16,7 @@ use ::rocksdb::checkpoint::Checkpoint;
 /// informational messages pointing where the snapshot resides and how to
 /// recover data from it.
 #[derive(Debug)]
-pub struct Snapshot(std::path::PathBuf);
+pub struct Snapshot(Option<std::path::PathBuf>);
 
 /// Possible errors when creating a checkpoint.
 #[derive(Debug)]
@@ -44,6 +44,11 @@ impl std::convert::From<::rocksdb::Error> for SnapshotError {
 }
 
 impl Snapshot {
+    /// Creates a Snapshot object which represents lack of a snapshot.
+    pub const fn no_snapshot() -> Self {
+        Self(None)
+    }
+
     /// Creates a new snapshot for given database.
     ///
     /// If the snapshot already exists, returns [`SnapshotError::AlreadyExists`]
@@ -65,24 +70,23 @@ impl Snapshot {
         let cp = Checkpoint::new(&db.db).map_err(super::into_other)?;
         cp.create_checkpoint(&snapshot_path)?;
 
-        Ok(Self(snapshot_path))
+        Ok(Self(Some(snapshot_path)))
     }
 
     /// Deletes the checkpoint from the file system.
     ///
+    /// Does nothing if the object has been created via [`Self::no_snapshot`].
     /// If the deletion fails, error is logged but the function does not fail.
-    pub fn remove(self) {
-        // We’re doing this to avoid Snapshot::drop call.
-        let mut me = std::mem::ManuallyDrop::new(self);
-        let path = std::mem::take(&mut me.0);
-
-        tracing::info!(target: "db", snapshot_path=%path.display(),
-                       "Deleting the database snapshot");
-        if let Err(err) = std::fs::remove_dir_all(&path) {
-            tracing::error!(target: "db", snapshot_path=%path.display(), ?err,
-                            "Failed to delete the database snapshot");
-            tracing::error!(target: "db", snapshot_path=%path.display(),
-                            "Please delete the snapshot manually before");
+    pub fn remove(mut self) {
+        if let Some(path) = self.0.take() {
+            tracing::info!(target: "db", snapshot_path=%path.display(),
+                           "Deleting the database snapshot");
+            if let Err(err) = std::fs::remove_dir_all(&path) {
+                tracing::error!(target: "db", snapshot_path=%path.display(), ?err,
+                                "Failed to delete the database snapshot");
+                tracing::error!(target: "db", snapshot_path=%path.display(),
+                                "Please delete the snapshot manually before");
+            }
         }
     }
 }
@@ -94,13 +98,15 @@ impl std::ops::Drop for Snapshot {
     /// will log information about where the checkpoint resides in the file
     /// system and how to recover data from it.
     fn drop(&mut self) {
-        tracing::info!(target: "db", snapshot_path=%self.0.display(),
-                       "In case of issues, the database can be recovered \
-                        from the database snapshot");
-        tracing::info!(target: "db", snapshot_path=%self.0.display(),
-                       "To recover from the snapshot, delete files in the \
-                        database directory and replace them with contents \
-                        of the snapshot directory");
+        if let Some(path) = &self.0 {
+            tracing::info!(target: "db", snapshot_path=%path.display(),
+                           "In case of issues, the database can be recovered \
+                            from the database snapshot");
+            tracing::info!(target: "db", snapshot_path=%path.display(),
+                           "To recover from the snapshot, delete files in the \
+                            database directory and replace them with contents \
+                            of the snapshot directory");
+        }
     }
 }
 
