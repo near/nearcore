@@ -1,3 +1,4 @@
+use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::demux;
 
 #[tokio::test]
@@ -48,4 +49,23 @@ fn demux_runtime_dropped_during_call() {
     // Drop the demux runtime.
     drop(r1);
     assert_eq!(Err(demux::ServiceStoppedError), r2.block_on(call).unwrap());
+}
+
+#[test]
+fn test_arc_mutex() {
+    let v = 5;
+    let v2 = 10;
+    let m = ArcMutex::new(v);
+    // Loaded value should be the same as constructor argument.
+    assert_eq!(v, *m.load());
+    m.update(|x| {
+        // Initial content of x should be the same as before update.
+        assert_eq!(v, *x);
+        // Concurrent load() should be possible and should return the value from before the update.
+        assert_eq!(v, *m.load());
+        *x = v2;
+        assert_eq!(v, *m.load());
+    });
+    // After update, load() should return the new value.
+    assert_eq!(v2, *m.load());
 }
