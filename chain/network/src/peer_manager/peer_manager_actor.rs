@@ -4,7 +4,7 @@ use crate::config;
 use crate::network_protocol::{AccountData, SyncAccountsData};
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::{Event as PeerEvent, PeerActor};
-use crate::peer_manager::connection::{Connection, Pool};
+use crate::peer_manager::connection;
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, StopMsg, Unregister,
@@ -157,7 +157,7 @@ pub(crate) struct NetworkState {
     /// AccountsData for TIER1 accounts.
     pub accounts_data: Arc<accounts_data::Cache>,
     /// Connected peers (inbound and outbound) with their full peer information.
-    pub tier2: Pool,
+    pub tier2: connection::Pool,
 }
 
 impl NetworkState {
@@ -174,7 +174,7 @@ impl NetworkState {
             client_addr,
             view_client_addr,
             chain_info: Default::default(),
-            tier2: Pool::default(),
+            tier2: connection::Pool::default(),
             accounts_data: Arc::new(accounts_data::Cache::new()),
             send_accounts_data_rl,
         }
@@ -662,7 +662,7 @@ impl PeerManagerActor {
     /// Signature from the other node is passed in `full_peer_info.edge_info`.
     fn register_peer(
         &mut self,
-        connection: Arc<Connection>,
+        connection: Arc<connection::Connection>,
         partial_edge_info: PartialEdgeInfo,
         ctx: &mut Context<Self>,
     ) {
@@ -693,7 +693,12 @@ impl PeerManagerActor {
         self.event_sink.push(Event::PeerRegistered(peer_info));
     }
 
-    fn sync_after_handshake(&self, peer: Arc<Connection>, ctx: &mut Context<Self>, new_edge: Edge) {
+    fn sync_after_handshake(
+        &self,
+        peer: Arc<connection::Connection>,
+        ctx: &mut Context<Self>,
+        new_edge: Edge,
+    ) {
         let run_later_span = tracing::trace_span!(target: "network", "sync_after_handshake");
         // The full sync is delayed, so that handshake is completed before the sync starts.
         near_performance_metrics::actix::run_later(
@@ -1049,7 +1054,7 @@ impl PeerManagerActor {
     ///    until safe set has safe_set_size elements.
     fn maybe_stop_active_connection(&self) {
         let tier2 = self.state.tier2.read();
-        let filter_peers = |predicate: &dyn Fn(&Connection) -> bool| -> Vec<_> {
+        let filter_peers = |predicate: &dyn Fn(&connection::Connection) -> bool| -> Vec<_> {
             tier2
                 .values()
                 .filter(|peer| predicate(&*peer))
@@ -1086,7 +1091,7 @@ impl PeerManagerActor {
 
         // Find all recently active peers.
         let now = self.clock.now();
-        let mut active_peers: Vec<Arc<Connection>> = tier2
+        let mut active_peers: Vec<Arc<connection::Connection>> = tier2
             .values()
             .filter(|p| {
                 now - p.last_time_received_message.load() < self.config.peer_recent_time_window

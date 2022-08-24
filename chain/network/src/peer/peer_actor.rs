@@ -4,7 +4,7 @@ use crate::concurrency::demux;
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
-use crate::peer_manager::connection::{Connection, Stats};
+use crate::peer_manager::connection;
 use crate::peer_manager::peer_manager_actor::NetworkState;
 use crate::private_actix::PeersResponse;
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
@@ -130,7 +130,7 @@ pub(crate) struct PeerActor {
     force_encoding: Option<Encoding>,
 
     /// Shared state of the connection. Populated once the connection is established.
-    connection: Option<Arc<Connection>>,
+    connection: Option<Arc<connection::Connection>>,
     /// Shared state of the network module.
     network_state: Arc<NetworkState>,
 
@@ -857,14 +857,14 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         .map(|port| SocketAddr::new(self.peer_addr.ip(), port)),
                     account_id: None,
                 };
-                let connection = Arc::new(Connection {
+                let connection = Arc::new(connection::Connection {
                     addr: ctx.address(),
                     peer_info: peer_info.clone(),
                     initial_chain_info: handshake.sender_chain_info.clone(),
                     chain_height: AtomicU64::new(handshake.sender_chain_info.height),
                     partial_edge_info: handshake.partial_edge_info.clone(),
                     peer_type: self.peer_type,
-                    stats: AtomicCell::new(Stats {
+                    stats: AtomicCell::new(connection::Stats {
                         sent_bytes_per_sec: 0,
                         received_bytes_per_sec: 0,
                     }),
@@ -896,7 +896,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                             // TODO(gprusak): this stuff requires cleanup: only chain_info.height is
                             // expected to change. Rest of the content of chain_info is not relevant
                             // after handshake.
-                            connection.stats.store(Stats {
+                            connection.stats.store(connection::Stats {
                                 received_bytes_per_sec: received.bytes_per_min / 60,
                                 sent_bytes_per_sec: sent.bytes_per_min / 60,
                             });
