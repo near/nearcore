@@ -31,6 +31,7 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
         let store = near_store::NodeStorage::opener(&home_dir, &near_config.config.store)
             .mode(mode)
             .open()
+            .unwrap()
             .get_store(Temperature::Hot);
 
         let chain_store =

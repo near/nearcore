@@ -2107,7 +2107,7 @@ mod test {
             minimum_stake_divisor: Option<u64>,
         ) -> Self {
             let (dir, opener) = NodeStorage::test_opener();
-            let store = opener.open().get_store(Temperature::Hot);
+            let store = opener.open().unwrap().get_store(Temperature::Hot);
             let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
                 acc.union(&x.iter().cloned().collect()).cloned().collect()
             });

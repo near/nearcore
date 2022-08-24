@@ -133,6 +133,7 @@ fn main() -> anyhow::Result<()> {
             .context("Error loading config")?;
         let store = near_store::NodeStorage::opener(&state_dump_path, &near_config.config.store)
             .open()
+            .unwrap()
             .get_store(near_store::Temperature::Hot);
         GenesisBuilder::from_config_and_store(&state_dump_path, near_config, store)
             .add_additional_accounts(cli_args.additional_accounts_num)

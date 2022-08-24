@@ -15,6 +15,7 @@ use network::{FakeClientActor, Network};
 use near_chain_configs::Genesis;
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
+use near_network_primitives::time;
 use near_o11y::tracing::{error, info};
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -44,6 +45,7 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
 
     let network_actor = PeerManagerActor::start_in_arbiter(&Arbiter::new().handle(), move |_ctx| {
         PeerManagerActor::new(
+            time::Clock::real(),
             near_store::test_utils::create_test_node_storage(),
             config.network_config,
             client_actor.clone().recipient(),

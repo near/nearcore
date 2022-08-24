@@ -10,6 +10,7 @@ use tracing::info;
 use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_test_logger_allow_panic;
+use near_network_primitives::time;
 use near_primitives::block::GenesisId;
 
 use near_network::config;
@@ -36,6 +37,7 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
     }))
     .start();
     PeerManagerActor::new(
+        time::Clock::real(),
         store,
         config,
         client_addr.recipient(),

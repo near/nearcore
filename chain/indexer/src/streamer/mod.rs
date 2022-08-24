@@ -288,7 +288,7 @@ pub(crate) async fn start(
 ) {
     info!(target: INDEXER, "Starting Streamer...");
     let indexer_db_path = near_store::NodeStorage::opener(&indexer_config.home_dir, &store_config)
-        .get_path()
+        .path()
         .join("indexer");
 
     // TODO: implement proper error handling

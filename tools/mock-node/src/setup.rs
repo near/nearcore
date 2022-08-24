@@ -35,6 +35,7 @@ fn setup_runtime(
     } else {
         near_store::NodeStorage::opener(home_dir, &config.config.store)
             .open()
+            .unwrap()
             .get_store(near_store::Temperature::Hot)
     };
 

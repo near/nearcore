@@ -32,6 +32,7 @@ fn main() {
 
     let store = near_store::NodeStorage::opener(home_dir, &near_config.config.store)
         .open()
+        .unwrap()
         .get_store(near_store::Temperature::Hot);
     let runtime_adapter: Arc<dyn RuntimeAdapter> =
         Arc::new(nearcore::NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));

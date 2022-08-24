@@ -27,6 +27,7 @@ fn main() {
 
     let store = near_store::NodeStorage::opener(home_dir, &near_config.config.store)
         .open()
+        .unwrap()
         .get_store(near_store::Temperature::Hot);
     GenesisBuilder::from_config_and_store(home_dir, near_config, store)
         .add_additional_accounts(additional_accounts_num)

@@ -19,7 +19,7 @@ use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
-use near_primitives::serialize::to_base;
+use near_primitives::serialize::to_base58;
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
@@ -174,7 +174,7 @@ impl Store {
             target: "store",
             db_op = "get",
             col = %column,
-            key = %to_base(key),
+            key = %to_base58(key),
             size = value.as_ref().map(Vec::len)
         );
         Ok(value)
@@ -471,16 +471,16 @@ impl StoreUpdate {
         for op in &self.transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "insert", col = %col, key =  %to_base(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %to_base58(key), size = value.len())
                 }
                 DBOp::Set { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "set", col = %col, key =  %to_base(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %to_base58(key), size = value.len())
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key =  %to_base(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %to_base58(key), size = value.len())
                 }
                 DBOp::Delete { col, key } => {
-                    tracing::trace!(target: "store", db_op = "delete", col = %col, key =  %to_base(key))
+                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %to_base58(key))
                 }
                 DBOp::DeleteAll { col } => {
                     tracing::trace!(target: "store", db_op = "delete_all", col = %col)
@@ -496,10 +496,12 @@ impl fmt::Debug for StoreUpdate {
         writeln!(f, "Store Update {{")?;
         for op in self.transaction.ops.iter() {
             match op {
-                DBOp::Insert { col, key, .. } => writeln!(f, "  + {col} {}", to_base(key))?,
-                DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", to_base(key))?,
-                DBOp::UpdateRefcount { col, key, .. } => writeln!(f, "  ± {col} {}", to_base(key))?,
-                DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", to_base(key))?,
+                DBOp::Insert { col, key, .. } => writeln!(f, "  + {col} {}", to_base58(key))?,
+                DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", to_base58(key))?,
+                DBOp::UpdateRefcount { col, key, .. } => {
+                    writeln!(f, "  ± {col} {}", to_base58(key))?
+                }
+                DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", to_base58(key))?,
                 DBOp::DeleteAll { col } => writeln!(f, "  - {col} (all)")?,
             }
         }
@@ -768,7 +770,7 @@ mod tests {
     #[test]
     fn clear_column_rocksdb() {
         let (_tmp_dir, opener) = NodeStorage::test_opener();
-        test_clear_column(opener.open().get_store(Temperature::Hot));
+        test_clear_column(opener.open().unwrap().get_store(Temperature::Hot));
     }
 
     #[test]
@@ -840,7 +842,7 @@ mod tests {
     #[test]
     fn rocksdb_iter_order() {
         let (_tempdir, opener) = NodeStorage::test_opener();
-        test_iter_order_impl(opener.open().get_store(Temperature::Hot));
+        test_iter_order_impl(opener.open().unwrap().get_store(Temperature::Hot));
     }
 
     #[test]

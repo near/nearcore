@@ -17,6 +17,7 @@ impl StateDump {
     pub fn from_dir(dir: &Path, store_home_dir: &Path) -> Self {
         let store = near_store::NodeStorage::opener(store_home_dir, &Default::default())
             .open()
+            .unwrap()
             .get_store(Temperature::Hot);
         let state_file = dir.join(STATE_DUMP_FILE);
         store

@@ -377,7 +377,7 @@ fn check_known_store(
     }
 }
 
-/// Check if block is known: head, orphan or in store.
+/// Check if block is known: head, orphan, in processing or in store.
 /// Returns Err(Error) if any error occurs when checking store
 ///         Ok(Err(BlockKnownError)) if the block is known
 ///         Ok(Ok()) otherwise
@@ -389,6 +389,9 @@ pub fn check_known(
     // Quick in-memory check for fast-reject any block handled recently.
     if block_hash == &head.last_block_hash || block_hash == &head.prev_block_hash {
         return Ok(Err(BlockKnownError::KnownInHead));
+    }
+    if chain.blocks_in_processing.contains(block_hash) {
+        return Ok(Err(BlockKnownError::KnownInProcessing));
     }
     // Check if this block is in the set of known orphans.
     if chain.orphans.contains(block_hash) {
