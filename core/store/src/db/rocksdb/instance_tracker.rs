@@ -27,8 +27,8 @@ struct Inner {
     /// because we don’t want to deal with `-1` having special meaning in
     /// RocksDB so we opted to for unsigned type but then needed to limit it
     /// since RocksDB doesn’t accept full unsigned range.  Here, we’re using
-    /// `u64` because that’s what ends up passed to setrlimit so we would need
-    /// to cast anyway and it allows us not to worry about summing multiple
+    /// `u64` because that’s what ends up being passed to setrlimit so we would
+    /// need to cast anyway and it allows us not to worry about summing multiple
     /// limits from StoreConfig.
     max_open_files: u64,
 }
