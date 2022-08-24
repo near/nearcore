@@ -846,21 +846,21 @@ impl PeerManagerActor {
     /// Signature from the other node is passed in `full_peer_info.edge_info`.
     fn register_peer(
         &mut self,
-        connection_state: Arc<Connection>,
+        connection: Arc<Connection>,
         ctx: &mut Context<Self>,
     ) -> Result<(), PoolError> {
-        let peer_info = &connection_state.peer_info;
+        let peer_info = &connection.peer_info;
         let _span = tracing::trace_span!(target: "network", "register_peer").entered();
         debug!(target: "network", ?peer_info, "Consolidated connection");
-        if connection_state.is_tier1 {
-            self.state.tier1.insert_ready(connection_state.clone())?;
+        if connection.is_tier1 {
+            self.state.tier1.insert_ready(connection.clone())?;
         } else {
-            self.state.tier2.insert_ready(connection_state.clone())?;
+            self.state.tier2.insert_ready(connection.clone())?;
             if let Err(err) = self.peer_store.peer_connected(&self.clock, peer_info) {
                 error!(target: "network", ?err, "Failed to save peer data");
             }
-            self.add_verified_edges_to_routing_table(vec![connection_state.edge.clone()]);
-            self.sync_after_handshake(connection_state.clone(), ctx);
+            self.add_verified_edges_to_routing_table(vec![connection.edge.clone()]);
+            self.sync_after_handshake(connection.clone(), ctx);
         }
 
         Ok(())
@@ -1717,7 +1717,7 @@ impl PeerManagerActor {
     ) -> RegisterPeerResponse {
         let _d = delay_detector::DelayDetector::new(|| "consolidate".into());
 
-        let peer_info = &msg.connection_state.peer_info;
+        let peer_info = &msg.connection.peer_info;
         // Check if this is a blacklisted peer.
         if peer_info.addr.as_ref().map_or(true, |addr| self.peer_store.is_blacklisted(addr)) {
             debug!(target: "network", peer_info = ?peer_info, "Dropping connection from blacklisted peer or unknown address");
@@ -1729,8 +1729,8 @@ impl PeerManagerActor {
             return RegisterPeerResponse::Reject(RegisterPeerError::Banned);
         }
 
-        if msg.connection_state.is_tier1 {
-            if msg.connection_state.peer_type == PeerType::Inbound {
+        if msg.connection.is_tier1 {
+            if msg.connection.peer_type == PeerType::Inbound {
                 // Allow for inbound TIER1 connections only directly from a TIER1 peers
                 // (not from TIER1 proxies).
                 if !self.state.accounts_data.load().is_tier1_peer(&peer_info.id) {
@@ -1738,7 +1738,7 @@ impl PeerManagerActor {
                 }
             }
         } else {
-            if msg.connection_state.peer_type == PeerType::Inbound {
+            if msg.connection.peer_type == PeerType::Inbound {
                 if !self.is_inbound_allowed(&peer_info) {
                     // TODO(1896): Gracefully drop inbound connection for other peer.
                     let tier2 = self.state.tier2.load();
@@ -1753,7 +1753,7 @@ impl PeerManagerActor {
                 }
             }
         }
-        if let Err(err) = self.register_peer(msg.connection_state.clone(), ctx) {
+        if let Err(err) = self.register_peer(msg.connection.clone(), ctx) {
             return RegisterPeerResponse::Reject(RegisterPeerError::PoolError(err));
         }
         self.config.event_sink.push(Event::PeerRegistered(peer_info.clone()));

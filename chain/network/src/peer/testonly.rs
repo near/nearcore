@@ -87,7 +87,7 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
         println!("{}: PeerManager message {}", self.cfg.id(), msg_type);
         match msg {
             PeerToManagerMsg::RegisterPeer(msg) => {
-                self.event_sink.push(Event::HandshakeDone(msg.connection_state.edge.clone()));
+                self.event_sink.push(Event::HandshakeDone(msg.connection.edge.clone()));
                 PeerToManagerMsgResp::RegisterPeer(RegisterPeerResponse::Accept)
             }
             PeerToManagerMsg::RoutedMessageFrom(rmf) => {

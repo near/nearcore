@@ -117,7 +117,7 @@ pub(crate) struct PeerActor {
     /// Peer id and info. Present when ready.
     peer_info: DisplayOption<PeerInfo>,
     /// Shared state of the connection. Present when ready.
-    connection_state: Option<Arc<Connection>>,
+    connection: Option<Arc<Connection>>,
 }
 
 impl Debug for PeerActor {
@@ -254,7 +254,7 @@ impl PeerActor {
             throttle_controller: rate_limiter,
             protocol_buffers_supported: false,
             force_encoding: cfg.force_encoding,
-            connection_state: None,
+            connection: None,
             peer_info: None.into(),
             network_state: cfg.network_state,
         }
@@ -297,11 +297,7 @@ impl PeerActor {
 
     fn send_message(&mut self, msg: &PeerMessage) -> Result<(), IOError> {
         if let PeerMessage::PeersRequest = msg {
-            self.connection_state
-                .as_mut()
-                .unwrap()
-                .last_time_peer_requested
-                .store(self.clock.now());
+            self.connection.as_mut().unwrap().last_time_peer_requested.store(self.clock.now());
         }
         if let Some(enc) = self.encoding() {
             return self.send_message_with_encoding(msg, enc);
@@ -515,7 +511,7 @@ impl PeerActor {
             PeerMessage::Block(block) => {
                 let block_hash = *block.hash();
                 self.tracker.lock().push_received(block_hash);
-                if let Some(cs) = &self.connection_state {
+                if let Some(cs) = &self.connection {
                     cs.chain_height.fetch_max(block.header().height(), Ordering::Relaxed);
                 }
                 NetworkClientMessages::Block(
@@ -645,7 +641,7 @@ impl PeerActor {
 
     /// Hook called on every valid message received from this peer from the network.
     fn on_receive_message(&mut self) {
-        if let Some(cs) = &self.connection_state {
+        if let Some(cs) = &self.connection {
             cs.last_time_received_message.store(self.clock.now());
         }
     }
@@ -999,7 +995,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     account_id: None,
                 };
 
-                let connection_state = Arc::new(Connection {
+                let connection = Arc::new(Connection {
                     is_tier1: handshake.is_tier1,
                     addr: ctx.address(),
                     peer_info: peer_info.clone(),
@@ -1022,7 +1018,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         self.network_state.send_accounts_data_rl,
                     ),
                 });
-                self.connection_state = Some(connection_state.clone());
+                self.connection = Some(connection.clone());
 
                 let tracker = self.tracker.clone();
                 let clock = self.clock.clone();
@@ -1031,13 +1027,13 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 );
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 ctx.spawn({
-                    let connection_state = connection_state.clone();
+                    let connection = connection.clone();
                     async move {
                         loop {
                             interval.tick().await;
                             let sent = tracker.lock().sent_bytes.minute_stats(&clock);
                             let received = tracker.lock().received_bytes.minute_stats(&clock);
-                            connection_state.stats.store(Stats {
+                            connection.stats.store(Stats {
                                 received_bytes_per_sec: received.bytes_per_min / 60,
                                 sent_bytes_per_sec: sent.bytes_per_min / 60,
                             });
@@ -1049,7 +1045,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                             if is_abusive {
                                 tracing::trace!(
                                 target: "network",
-                                peer_id = ?connection_state.peer_info.id,
+                                peer_id = ?connection.peer_info.id,
                                 sent = sent.count_per_min,
                                 recv = received.count_per_min,
                                 "Banning peer for abuse");
@@ -1067,7 +1063,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
 
                 self.peer_manager_addr
                     .send(PeerToManagerMsg::RegisterPeer(RegisterPeer {
-                        connection_state: connection_state.clone(),
+                        connection: connection.clone(),
                     }))
                     .into_actor(self)
                     .then(move |res, act, ctx| {
@@ -1086,7 +1082,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                                         partial_edge_info: partial_edge_info,
                                     });
                                 } else {
-                                    if !connection_state.is_tier1 {
+                                    if !connection.is_tier1 {
                                         // Outbound peer triggers the inital full accounts data sync.
                                         // TODO(gprusak): implement triggering the periodic full sync.
                                         act.send_message_or_log(&PeerMessage::SyncAccountsData(SyncAccountsData{

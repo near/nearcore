@@ -63,7 +63,7 @@ pub(crate) enum PeerToManagerMsgResp {
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "RegisterPeerResponse")]
 pub(crate) struct RegisterPeer {
-    pub connection_state: Arc<Connection>,
+    pub connection: Arc<Connection>,
 }
 
 #[derive(Debug)]
