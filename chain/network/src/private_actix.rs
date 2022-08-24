@@ -67,7 +67,7 @@ pub enum PeerToManagerMsgResp {
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "RegisterPeerResponse")]
 pub(crate) struct RegisterPeer {
-    pub connection_state: Arc<Connection>,
+    pub connection: Arc<Connection>,
     /// Edge information from this node.
     /// If this is None it implies we are outbound connection, so we need to create our
     /// EdgeInfo part and send it to the other peer.

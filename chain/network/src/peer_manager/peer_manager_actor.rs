@@ -662,11 +662,11 @@ impl PeerManagerActor {
     /// Signature from the other node is passed in `full_peer_info.edge_info`.
     fn register_peer(
         &mut self,
-        connection_state: Arc<Connection>,
+        connection: Arc<Connection>,
         partial_edge_info: PartialEdgeInfo,
         ctx: &mut Context<Self>,
     ) {
-        let peer_info = &connection_state.peer_info;
+        let peer_info = &connection.peer_info;
         let _span = tracing::trace_span!(target: "network", "register_peer").entered();
         debug!(target: "network", ?peer_info, "Consolidated connection");
 
@@ -683,13 +683,13 @@ impl PeerManagerActor {
             target_peer_id.clone(),
             partial_edge_info.nonce,
             partial_edge_info.signature,
-            connection_state.partial_edge_info.signature.clone(),
+            connection.partial_edge_info.signature.clone(),
         );
         let peer_info = peer_info.clone();
 
-        self.state.tier2.insert(connection_state.clone());
+        self.state.tier2.insert(connection.clone());
         self.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
-        self.sync_after_handshake(connection_state, ctx, new_edge);
+        self.sync_after_handshake(connection, ctx, new_edge);
         self.event_sink.push(Event::PeerRegistered(peer_info));
     }
 
@@ -1726,7 +1726,7 @@ impl PeerManagerActor {
     ) -> RegisterPeerResponse {
         let _d = delay_detector::DelayDetector::new(|| "consolidate".into());
 
-        let peer_info = &msg.connection_state.peer_info;
+        let peer_info = &msg.connection.peer_info;
         // Check if this is a blacklisted peer.
         if peer_info.addr.as_ref().map_or(true, |addr| self.peer_store.is_blacklisted(addr)) {
             debug!(target: "network", peer_info = ?peer_info, "Dropping connection from blacklisted peer or unknown address");
@@ -1746,7 +1746,7 @@ impl PeerManagerActor {
 
         // This is incoming connection but we have this peer already in outgoing.
         // This only happens when both of us connect at the same time, break tie using higher peer id.
-        if msg.connection_state.peer_type == PeerType::Inbound
+        if msg.connection.peer_type == PeerType::Inbound
             && self.outgoing_peers.contains(&peer_info.id)
         {
             // We pick connection that has lower id.
@@ -1756,7 +1756,7 @@ impl PeerManagerActor {
             }
         }
 
-        if msg.connection_state.peer_type == PeerType::Inbound
+        if msg.connection.peer_type == PeerType::Inbound
             && !self.is_inbound_allowed()
             && !self.is_peer_whitelisted(&peer_info)
         {
@@ -1769,7 +1769,7 @@ impl PeerManagerActor {
             return RegisterPeerResponse::Reject;
         }
 
-        let other_edge_info = &msg.connection_state.partial_edge_info;
+        let other_edge_info = &msg.connection.partial_edge_info;
         if other_edge_info.nonce == 0 {
             debug!(target: "network", nonce = other_edge_info.nonce, "Invalid nonce. It must be greater than 0.");
             return RegisterPeerResponse::Reject;
@@ -1812,7 +1812,7 @@ impl PeerManagerActor {
         let edge_info_response = if require_response { Some(edge_info.clone()) } else { None };
 
         // TODO: double check that address is connectable and add account id.
-        self.register_peer(msg.connection_state, edge_info, ctx);
+        self.register_peer(msg.connection, edge_info, ctx);
 
         RegisterPeerResponse::Accept(edge_info_response)
     }
