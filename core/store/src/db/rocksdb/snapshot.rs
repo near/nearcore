@@ -62,7 +62,7 @@ impl Snapshot {
             return Err(SnapshotError::AlreadyExists(snapshot_path));
         }
 
-        let db = super::RocksDB::open(db_path, config, crate::Mode::ReadOnly)?;
+        let db = super::RocksDB::open(db_path, config, crate::Mode::ReadWrite)?;
         let cp = Checkpoint::new(&db.db).map_err(super::into_other)?;
         cp.create_checkpoint(&snapshot_path)?;
 
@@ -139,4 +139,47 @@ fn test_snapshot() {
         opener.new_migration_snapshot(path.clone()),
         Err(SnapshotError::AlreadyExists(_))
     );
+}
+
+/// Tests that reading data from a snapshot is possible.
+#[test]
+fn test_snapshot_recovery() {
+    const KEY: &[u8] = b"key";
+    const COL: crate::DBCol = crate::DBCol::BlockMisc;
+
+    let (tmpdir, opener) = crate::Store::test_opener();
+    let path = tmpdir.path().join("cp");
+
+    // Populate some data
+    {
+        let store = opener.open().unwrap();
+        let mut update = store.store_update();
+        update.set_raw_bytes(COL, KEY, b"value");
+        update.commit().unwrap();
+    }
+
+    // Create snapshot
+    std::thread::sleep(std::time::Duration::from_millis(5_000));
+    let snapshot = opener.new_migration_snapshot(path.clone()).unwrap();
+
+    // Delete the data from the database.
+    {
+        let store = opener.open().unwrap();
+        let mut update = store.store_update();
+        update.delete(COL, KEY);
+        update.commit().unwrap();
+
+        assert_eq!(None, store.get(COL, KEY).unwrap());
+    }
+
+    // Open snapshot.  Deleted data should be there.
+    {
+        let mut config = opener.config().clone();
+        config.path = Some(path);
+        let opener = crate::StoreOpener::new(tmpdir.path(), &config);
+        let store = opener.open().unwrap();
+        assert_eq!(Some(b"value".to_vec()), store.get(COL, KEY).unwrap());
+    }
+
+    snapshot.remove();
 }

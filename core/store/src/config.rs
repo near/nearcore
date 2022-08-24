@@ -162,6 +162,11 @@ impl<'a> StoreOpener<'a> {
         &self.path
     }
 
+    #[cfg(test)]
+    pub(crate) fn config(&self) -> &StoreConfig {
+        self.config
+    }
+
     /// Returns version of the database; or `None` if it does not exist.
     pub fn get_version_if_exists(&self) -> io::Result<Option<DbVersion>> {
         if self.check_if_exists() {
