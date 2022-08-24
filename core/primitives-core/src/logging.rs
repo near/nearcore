@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::serialize::to_base;
+use crate::serialize::to_base58;
 
 const VECTOR_MAX_LENGTH: usize = 5;
 const STRING_PRINT_LEN: usize = 128;
@@ -37,7 +37,7 @@ pub fn pretty_utf8(buf: &[u8]) -> String {
         Ok(s) => pretty_hash(s),
         Err(_) => {
             if buf.len() <= STRING_PRINT_LEN {
-                pretty_hash(&to_base(buf))
+                pretty_hash(&to_base58(buf))
             } else {
                 pretty_vec(buf)
             }

@@ -75,7 +75,7 @@ impl StateViewerSubCommand {
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
         let store_opener =
             near_store::Store::opener(home_dir, &near_config.config.store).mode(mode);
-        let store = store_opener.open();
+        let store = store_opener.open().unwrap();
         match self {
             StateViewerSubCommand::Peers => peers(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
@@ -91,7 +91,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(&store_opener.get_path()),
+            StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(&store_opener.path()),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),

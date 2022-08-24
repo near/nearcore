@@ -1,3 +1,4 @@
+use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::PeerMessage;
 use crate::network_protocol::{SignedAccountData, SyncAccountsData};
@@ -18,7 +19,6 @@ use std::fmt;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::sync::Mutex;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -30,26 +30,12 @@ fn update<T: Clone>(p: &ArcSwap<T>, mut f: impl FnMut(&mut T)) {
     });
 }
 
+#[derive(Clone)]
 pub(crate) struct Stats {
     /// Number of bytes we've received from the peer.
     pub received_bytes_per_sec: u64,
     /// Number of bytes we've sent to the peer.
     pub sent_bytes_per_sec: u64,
-}
-
-// AtomicCell narrows down a Mutex API to load/store calls.
-pub(crate) struct AtomicCell<T>(Mutex<T>);
-
-impl<T: Clone> AtomicCell<T> {
-    pub fn new(v: T) -> Self {
-        Self(Mutex::new(v))
-    }
-    pub fn load(&self) -> T {
-        self.0.lock().unwrap().clone()
-    }
-    pub fn store(&self, v: T) {
-        *self.0.lock().unwrap() = v;
-    }
 }
 
 /// Contains information relevant to a connected peer.
@@ -73,7 +59,7 @@ pub(crate) struct ConnectedPeer {
     /// Last time we received a message from this peer.
     pub last_time_received_message: AtomicCell<time::Instant>,
     /// Connection stats
-    pub stats: ArcSwap<Stats>,
+    pub stats: AtomicCell<Stats>,
     /// prometheus gauge point guard.
     pub _peer_connections_metric: metrics::GaugePoint,
 

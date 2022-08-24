@@ -358,7 +358,7 @@ impl StoreValidator {
             }
             if let Some(timeout) = self.timeout {
                 if self.start_time.elapsed() > Duration::from_millis(timeout) {
-                    warn!(target: "adversary", "Store validator hit timeout at {} ({}/{})", col.variant_name(), col.into_usize(), DBCol::LENGTH);
+                    warn!(target: "adversary", "Store validator hit timeout at {col} ({}/{})", col.into_usize(), DBCol::LENGTH);
                     return;
                 }
             }

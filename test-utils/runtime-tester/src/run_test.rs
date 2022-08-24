@@ -48,7 +48,7 @@ impl Scenario {
             (None, create_test_store())
         } else {
             let (tempdir, opener) = near_store::Store::test_opener();
-            (Some(tempdir), opener.open())
+            (Some(tempdir), opener.open().unwrap())
         };
 
         let mut env = TestEnv::builder(ChainGenesis::new(&genesis))

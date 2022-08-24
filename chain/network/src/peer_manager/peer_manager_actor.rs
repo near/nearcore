@@ -885,7 +885,6 @@ impl PeerManagerActor {
                 FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
                 handshake_timeout,
                 recipient.clone().recipient(),
-                recipient.clone().recipient(),
                 partial_edge_info,
                 txns_since_last_block,
                 peer_counter,
