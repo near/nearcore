@@ -10,6 +10,7 @@ use near_chain::{Chain, ChainGenesis};
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
+use near_network_primitives::time;
 use near_primitives::block::GenesisId;
 use near_primitives::version::DbVersion;
 #[cfg(feature = "performance_stats")]
@@ -293,6 +294,7 @@ pub fn start_with_config_and_synchronization(
         let view_client = view_client.clone();
         move |_ctx| {
             PeerManagerActor::new(
+                time::Clock::real(),
                 store,
                 config.network_config,
                 client_actor.recipient(),
@@ -367,18 +369,6 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     }
     if archive && !opts.keep_trie_changes {
         skip_columns.push(DBCol::TrieChanges);
-    }
-
-    // Make sure we can open at least two databases and have some file
-    // descriptors to spare.
-    let required = 2 * (config.store.max_open_files as u64) + 512;
-    let (soft, hard) = rlimit::Resource::NOFILE
-        .get()
-        .map_err(|err| anyhow::anyhow!("getrlimit: NOFILE: {}", err))?;
-    if soft < required {
-        rlimit::Resource::NOFILE
-            .set(required, hard)
-            .map_err(|err| anyhow::anyhow!("setrlimit: NOFILE: {}", err))?;
     }
 
     let src_opener = Store::opener(home_dir, &config.store).mode(Mode::ReadOnly);
