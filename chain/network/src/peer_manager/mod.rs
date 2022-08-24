@@ -1,4 +1,4 @@
-pub(crate) mod connected_peers;
+pub(crate) mod connection;
 pub(crate) mod peer_manager_actor;
 pub(crate) mod peer_store;
 
