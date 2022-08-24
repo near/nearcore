@@ -1412,7 +1412,7 @@ impl PeerManagerActor {
                         .map(|it| it.clone()),
                 })
                 .collect(),
-            tier1_accounts: self.state.accounts_data.dump().iter().map(|d| (*d).clone()).collect(),
+            tier1_accounts: self.state.accounts_data.load().data.values().cloned().collect(),
             peer_counter: self.peer_counter.load(Ordering::SeqCst),
         }
     }
@@ -2197,7 +2197,7 @@ impl Handler<SetChainInfo> for PeerManagerActor {
                 SyncAccountsData {
                     incremental: false,
                     requesting_full_sync: true,
-                    accounts_data: state.accounts_data.dump(),
+                    accounts_data: state.accounts_data.load().data.values().cloned().collect(),
                 },
             )));
             event_sink.push(Event::SetChainInfo);

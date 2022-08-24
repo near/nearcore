@@ -84,16 +84,16 @@ async fn happy_path() {
     let e1 = make_account_keys(&signers[2..7]);
 
     let cache = Arc::new(Cache::new());
-    assert_eq!(cache.dump(), vec![]); // initially empty
+    assert_eq!(cache.load().data.values().count(), 0); // initially empty
     assert!(cache.set_keys(e0.clone()));
-    assert_eq!(cache.dump(), vec![]); // empty after initial set_keys.
+    assert_eq!(cache.load().data.values().count(), 0); // empty after initial set_keys.
 
     // initial insert
     let a0 = Arc::new(signers[0].make_account_data(rng, now));
     let a1 = Arc::new(signers[1].make_account_data(rng, now));
     let res = cache.clone().insert(vec![a0.clone(), a1.clone()]).await;
     assert_eq!([&a0, &a1].as_set(), unwrap(&res).as_set());
-    assert_eq!([&a0, &a1].as_set(), cache.dump().as_set());
+    assert_eq!([&a0, &a1].as_set(), cache.load().data.values().collect());
 
     // entries of various types
     let a0new = Arc::new(signers[0].make_account_data(rng, now + time::Duration::seconds(1)));
@@ -110,15 +110,15 @@ async fn happy_path() {
         ])
         .await;
     assert_eq!([&a2, &a0new].as_set(), unwrap(&res).as_set());
-    assert_eq!([&a0new, &a1, &a2].as_set(), cache.dump().as_set());
+    assert_eq!([&a0new, &a1, &a2].as_set(), cache.load().data.values().collect());
 
     // try setting the same key set again, should be a noop.
     assert!(!cache.set_keys(e0));
-    assert_eq!([&a0new, &a1, &a2].as_set(), cache.dump().as_set());
+    assert_eq!([&a0new, &a1, &a2].as_set(), cache.load().data.values().collect());
 
     // set_keys again. Data for accounts which are not in the new set should be dropped.
     assert!(cache.set_keys(e1));
-    assert_eq!([&a2].as_set(), cache.dump().as_set());
+    assert_eq!([&a2].as_set(), cache.load().data.values().collect());
     // insert some entries again.
     let res = cache
         .clone()
@@ -128,7 +128,7 @@ async fn happy_path() {
         ])
         .await;
     assert_eq!([&a5].as_set(), unwrap(&res).as_set());
-    assert_eq!([&a2, &a5].as_set(), cache.dump().as_set());
+    assert_eq!([&a2, &a5].as_set(), cache.load().data.values().collect());
 }
 
 #[tokio::test]
@@ -163,7 +163,7 @@ async fn data_too_large() {
     // Partial update is allowed, in case an error is encountered.
     assert_is_superset(&[&a0, &a1].as_set(), &res.0.as_set());
     // Partial update should match the state.
-    assert_eq!(res.0.as_set(), cache.dump().as_set());
+    assert_eq!(res.0.as_set(), cache.load().data.values().collect());
 }
 
 #[tokio::test]
@@ -198,7 +198,7 @@ async fn invalid_signature() {
     // Partial update is allowed, in case an error is encountered.
     assert_is_superset(&[&a0, &a1].as_set(), &res.0.as_set());
     // Partial update should match the state.
-    assert_eq!(res.0.as_set(), cache.dump().as_set());
+    assert_eq!(res.0.as_set(), cache.load().data.values().collect());
 }
 
 #[tokio::test]
@@ -226,5 +226,5 @@ async fn single_account_multiple_data() {
     assert_is_superset(&[&a0, &a1, &a2old, &a2new].as_set(), &res.0.as_set());
     // Partial update should match the state, this also verifies that only 1 of the competing
     // entries has been applied.
-    assert_eq!(res.0.as_set(), cache.dump().as_set());
+    assert_eq!(res.0.as_set(), cache.load().data.values().collect());
 }
