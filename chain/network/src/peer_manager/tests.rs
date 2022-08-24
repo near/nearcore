@@ -5,9 +5,9 @@ use crate::network_protocol::{Encoding, PeerAddr, SyncAccountsData};
 use crate::peer;
 use crate::peer::peer_actor;
 use crate::peer_manager;
-use crate::peer_manager::peer_manager_actor::Event as PME;
+use crate::peer_manager::peer_manager_actor::{Event as PME, LIMIT_PENDING_PEERS};
 use crate::peer_manager::testonly::{Event, NormalAccountData};
-use crate::testonly::{assert_is_superset, make_rng, AsSet as _, Rng};
+use crate::testonly::{assert_is_superset, make_rng, AsSet as _};
 use crate::types::{PeerMessage, RoutingTableUpdate};
 use itertools::Itertools;
 use near_logger_utils::init_test_logger;
@@ -39,7 +39,7 @@ async fn repeated_data_in_sync_routing_table() {
     )
     .await;
     let cfg = peer::testonly::PeerConfig {
-        signer: data::make_signer(rng),
+        network: chain.make_config(rng),
         chain,
         peers: vec![],
         start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
@@ -47,8 +47,7 @@ async fn repeated_data_in_sync_routing_table() {
         nonce: None,
     };
     let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
-    let mut peer =
-        peer::testonly::PeerHandle::start_endpoint(clock.clock(), rng, cfg, stream).await;
+    let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
     let edge = peer.complete_handshake().await;
 
     let mut edges_got = HashSet::new();
@@ -86,7 +85,7 @@ async fn repeated_data_in_sync_routing_table() {
         }
         // Add more data.
         let signer = data::make_signer(rng);
-        edges_want.insert(data::make_edge(&peer.cfg.signer, &signer));
+        edges_want.insert(data::make_edge(&peer.cfg.signer(), &signer));
         accounts_want.insert(data::make_announce_account(rng));
         // Send all the data created so far. PeerManager is expected to discard the duplicates.
         peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
@@ -123,7 +122,7 @@ async fn no_edge_broadcast_after_restart() {
         )
         .await;
         let cfg = peer::testonly::PeerConfig {
-            signer: data::make_signer(rng),
+            network: chain.make_config(rng),
             chain: chain.clone(),
             peers: vec![],
             start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
@@ -131,8 +130,7 @@ async fn no_edge_broadcast_after_restart() {
             nonce: None,
         };
         let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
-        let mut peer =
-            peer::testonly::PeerHandle::start_endpoint(clock.clock(), rng, cfg, stream).await;
+        let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
         let edge = peer.complete_handshake().await;
 
         // Create a bunch of fresh unreachable edges, then send all the edges created so far.
@@ -220,7 +218,7 @@ async fn test_nonces() {
     for test in test_cases {
         println!("Running test {:?}", test.2);
         let cfg = peer::testonly::PeerConfig {
-            signer: data::make_signer(rng),
+            network: chain.make_config(rng),
             chain: chain.clone(),
             peers: vec![],
             start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
@@ -229,8 +227,7 @@ async fn test_nonces() {
             nonce: test.0,
         };
         let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
-        let mut peer =
-            peer::testonly::PeerHandle::start_endpoint(clock.clock(), rng, cfg, stream).await;
+        let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
         if test.1 {
             peer.complete_handshake().await;
         } else {
@@ -255,7 +252,7 @@ async fn ttl() {
     )
     .await;
     let cfg = peer::testonly::PeerConfig {
-        signer: data::make_signer(rng),
+        network: chain.make_config(rng),
         chain,
         peers: vec![],
         start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
@@ -263,8 +260,7 @@ async fn ttl() {
         nonce: None,
     };
     let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
-    let mut peer =
-        peer::testonly::PeerHandle::start_endpoint(clock.clock(), rng, cfg, stream).await;
+    let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
     peer.complete_handshake().await;
     // await for peer manager to compute the routing table.
     // TODO(gprusak): probably extract it to a separate function when migrating other tests from
@@ -308,34 +304,6 @@ async fn ttl() {
     }
 }
 
-async fn add_peer(
-    clock: &time::Clock,
-    rng: &mut Rng,
-    chain: Arc<data::Chain>,
-    cfg: &config::NetworkConfig,
-) -> (peer::testonly::PeerHandle, SyncAccountsData) {
-    let peer_cfg = peer::testonly::PeerConfig {
-        signer: data::make_signer(rng),
-        chain,
-        peers: vec![],
-        start_handshake_with: Some(PeerId::new(cfg.node_key.public_key())),
-        force_encoding: Some(Encoding::Proto),
-        nonce: None,
-    };
-    let stream = TcpStream::connect(cfg.node_addr.unwrap()).await.unwrap();
-    let mut peer =
-        peer::testonly::PeerHandle::start_endpoint(clock.clone(), rng, peer_cfg, stream).await;
-    peer.complete_handshake().await;
-    // TODO(gprusak): this should be part of complete_handshake, once Borsh support is removed.
-    let msg = match peer.events.recv().await {
-        peer::testonly::Event::Peer(peer_actor::Event::MessageProcessed(
-            PeerMessage::SyncAccountsData(msg),
-        )) => msg,
-        ev => panic!("expected SyncAccountsData, got {ev:?}"),
-    };
-    (peer, msg)
-}
-
 #[tokio::test]
 async fn accounts_data_broadcast() {
     init_test_logger();
@@ -364,7 +332,7 @@ async fn accounts_data_broadcast() {
     let data = chain.make_tier1_data(rng, clock);
 
     // Connect peer, expect initial sync to be empty.
-    let (mut peer1, got1) = add_peer(clock, rng, chain.clone(), &pm.cfg).await;
+    let (mut peer1, got1) = pm.start_connection(rng, chain.clone()).await.handshake(clock).await;
     assert_eq!(got1.accounts_data, vec![]);
 
     // Send some data. It won't be broadcasted back.
@@ -378,7 +346,7 @@ async fn accounts_data_broadcast() {
     pm.wait_for_accounts_data(&want.iter().map(|d| d.into()).collect()).await;
 
     // Connect another peer and perform initial full sync.
-    let (mut peer2, got2) = add_peer(clock, rng, chain.clone(), &pm.cfg).await;
+    let (mut peer2, got2) = pm.start_connection(rng, chain.clone()).await.handshake(clock).await;
     assert_eq!(got2.accounts_data.as_set(), want.as_set());
 
     // Send a mix of new and old data. Only new data should be broadcasted.
@@ -573,4 +541,33 @@ async fn accounts_data_rate_limiting() {
     let want_max = connections * 12;
     println!("got {msgs}, want <= {want_max}");
     assert!(msgs <= want_max, "got {msgs} messages, want at most {want_max}");
+}
+
+#[tokio::test]
+async fn connection_spam_security_test() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let mut cfg = chain.make_config(rng);
+    // Make sure that connections will never get dropped.
+    cfg.handshake_timeout = time::Duration::hours(1);
+    let pm =
+        peer_manager::testonly::start(clock.clock(), create_test_store(), cfg, chain.clone()).await;
+
+    // Saturate the pending connections limit.
+    let mut conns = vec![];
+    for _ in 0..LIMIT_PENDING_PEERS {
+        conns.push(pm.start_connection(rng, chain.clone()).await);
+    }
+    // Try to establish additional connections. Should fail.
+    for _ in 0..10 {
+        pm.start_connection(rng, chain.clone()).await.fail_handshake(&clock.clock()).await;
+    }
+    // Terminate the pending connections. Should succeed.
+    for c in conns {
+        c.handshake(&clock.clock()).await;
+    }
 }

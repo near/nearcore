@@ -27,16 +27,16 @@ async fn test_peer_communication(
 
     let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
     let inbound_cfg = PeerConfig {
-        signer: data::make_signer(&mut rng),
         chain: chain.clone(),
+        network: chain.make_config(&mut rng),
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: inbound_encoding,
         start_handshake_with: None,
         nonce: None,
     };
     let outbound_cfg = PeerConfig {
-        signer: data::make_signer(&mut rng),
         chain: chain.clone(),
+        network: chain.make_config(&mut rng),
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: outbound_encoding,
         start_handshake_with: Some(inbound_cfg.id()),
@@ -44,10 +44,9 @@ async fn test_peer_communication(
     };
 
     let (outbound_stream, inbound_stream) = PeerHandle::start_connection().await;
-    let mut inbound =
-        PeerHandle::start_endpoint(clock.clock(), &mut rng, inbound_cfg, inbound_stream).await;
+    let mut inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
     let mut outbound =
-        PeerHandle::start_endpoint(clock.clock(), &mut rng, outbound_cfg, outbound_stream).await;
+        PeerHandle::start_endpoint(clock.clock(), outbound_cfg, outbound_stream).await;
 
     outbound.complete_handshake().await;
     inbound.complete_handshake().await;
@@ -194,7 +193,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
 
     let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
     let inbound_cfg = PeerConfig {
-        signer: data::make_signer(&mut rng),
+        network: chain.make_config(&mut rng),
         chain: chain.clone(),
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: inbound_encoding,
@@ -202,7 +201,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         nonce: None,
     };
     let outbound_cfg = PeerConfig {
-        signer: data::make_signer(&mut rng),
+        network: chain.make_config(&mut rng),
         chain: chain.clone(),
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: outbound_encoding,
@@ -210,8 +209,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         nonce: None,
     };
     let (outbound_stream, inbound_stream) = PeerHandle::start_connection().await;
-    let inbound =
-        PeerHandle::start_endpoint(clock.clock(), &mut rng, inbound_cfg, inbound_stream).await;
+    let inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
     let mut outbound = Stream::new(outbound_encoding, outbound_stream);
 
     // Send too old PROTOCOL_VERSION, expect ProtocolVersionMismatch

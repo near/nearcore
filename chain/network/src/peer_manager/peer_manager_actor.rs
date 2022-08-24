@@ -3,7 +3,7 @@ use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::{AccountData, SyncAccountsData};
 use crate::peer::codec::Codec;
-use crate::peer::peer_actor::{Event as PeerEvent, PeerActor};
+use crate::peer::peer_actor::{ConnectingStatus, Event as PeerEvent, PeerActor};
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
@@ -76,7 +76,7 @@ const MONITOR_PEERS_MAX_DURATION: time::Duration = time::Duration::milliseconds(
 /// The initial waiting time between consecutive attempts to establish connection
 const MONITOR_PEERS_INITIAL_DURATION: time::Duration = time::Duration::milliseconds(10);
 /// Limit number of pending Peer actors to avoid OOM.
-const LIMIT_PENDING_PEERS: usize = 60;
+pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 /// How ofter should we broadcast edges.
 const BROADCAST_VALIDATED_EDGES_INTERVAL: time::Duration = time::Duration::milliseconds(50);
 /// Maximum amount of time spend processing edges.
@@ -158,6 +158,8 @@ pub(crate) struct NetworkState {
     pub accounts_data: Arc<accounts_data::Cache>,
     /// Connected peers (inbound and outbound) with their full peer information.
     pub tier2: connection::Pool,
+    /// Semaphore limiting inflight inbound handshakes.
+    pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
 }
 
 impl NetworkState {
@@ -177,6 +179,7 @@ impl NetworkState {
             tier2: connection::Pool::default(),
             accounts_data: Arc::new(accounts_data::Cache::new()),
             send_accounts_data_rl,
+            inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
         }
     }
 
@@ -234,8 +237,6 @@ pub struct PeerManagerActor {
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
     /// messages sincce last block.
     txns_since_last_block: Arc<AtomicUsize>,
-    /// Number of active peers, used for rate limiting.
-    peer_counter: Arc<AtomicUsize>,
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
     /// reached.
     whitelist_nodes: Vec<WhitelistNode>,
@@ -391,7 +392,6 @@ impl PeerManagerActor {
             local_peer_pending_update_nonce_request: HashMap::new(),
             routing_table_addr,
             txns_since_last_block,
-            peer_counter: Arc::new(AtomicUsize::new(0)),
             whitelist_nodes,
             event_sink: Sink::void(),
             state: Arc::new(NetworkState::new(
@@ -799,7 +799,7 @@ impl PeerManagerActor {
         &self,
         recipient: Addr<Self>,
         stream: TcpStream,
-        peer_type: PeerType,
+        connecting_status: ConnectingStatus,
         peer_info: Option<PeerInfo>,
         partial_edge_info: Option<PartialEdgeInfo>,
     ) {
@@ -831,8 +831,6 @@ impl PeerManagerActor {
 
         // Start every peer actor on separate thread.
         let arbiter = Arbiter::new();
-        let peer_counter = self.peer_counter.clone();
-        peer_counter.fetch_add(1, Ordering::SeqCst);
         let clock = self.clock.clone();
         let state = self.state.clone();
         let event_sink = self.event_sink.clone();
@@ -859,13 +857,12 @@ impl PeerManagerActor {
                 PeerInfo { id: my_peer_id, addr: Some(server_addr), account_id },
                 remote_addr,
                 peer_info,
-                peer_type,
+                connecting_status,
                 FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
                 handshake_timeout,
                 recipient.clone().recipient(),
                 partial_edge_info,
                 txns_since_last_block,
-                peer_counter,
                 rate_limiter,
                 None,
                 state,
@@ -1395,7 +1392,6 @@ impl PeerManagerActor {
                 })
                 .collect(),
             tier1_accounts: self.state.accounts_data.load().data.values().cloned().collect(),
-            peer_counter: self.peer_counter.load(Ordering::SeqCst),
         }
     }
 
@@ -1642,6 +1638,18 @@ impl PeerManagerActor {
     #[perf]
     fn handle_msg_inbound_tcp_connect(&self, msg: InboundTcpConnect, ctx: &mut Context<Self>) {
         let _d = delay_detector::DelayDetector::new(|| "inbound tcp connect".into());
+        let handshake_permit = match self
+            .state
+            .inbound_handshake_permits
+            .clone()
+            .try_acquire_owned()
+        {
+            Ok(it) => it,
+            Err(_) => {
+                debug!(target: "network", "Inbound connection dropped (too many ongoing inbound handshakes");
+                return;
+            }
+        };
         if self.is_inbound_allowed()
             || msg
                 .stream
@@ -1649,7 +1657,13 @@ impl PeerManagerActor {
                 .map(|addr| self.is_ip_whitelisted(&addr.ip()))
                 .unwrap_or(false)
         {
-            self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
+            self.try_connect_peer(
+                ctx.address(),
+                msg.stream,
+                ConnectingStatus::Inbound(handshake_permit),
+                None,
+                None,
+            );
         } else {
             // TODO(1896): Gracefully drop inbound connection for other peer.
             debug!(target: "network", "Inbound connection dropped (network at max capacity).");
@@ -1680,7 +1694,7 @@ impl PeerManagerActor {
                             act.try_connect_peer(
                                 ctx.address(),
                                 stream,
-                                PeerType::Outbound,
+                                ConnectingStatus::Outbound,
                                 Some(msg.peer_info),
                                 Some(edge_info),
                             );
@@ -1908,11 +1922,7 @@ impl PeerManagerActor {
                 PeerToManagerMsgResp::Empty
             }
             PeerToManagerMsg::InboundTcpConnect(msg) => {
-                if self.peer_counter.load(Ordering::SeqCst)
-                    < self.max_num_peers as usize + LIMIT_PENDING_PEERS
-                {
-                    self.handle_msg_inbound_tcp_connect(msg, ctx);
-                }
+                self.handle_msg_inbound_tcp_connect(msg, ctx);
                 PeerToManagerMsgResp::Empty
             }
             PeerToManagerMsg::Unregister(msg) => {
