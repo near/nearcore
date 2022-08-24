@@ -940,7 +940,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                                     // Outbound peer triggers the inital full accounts data sync.
                                     // TODO(gprusak): implement triggering the periodic full sync.
                                     act.send_message_or_log(&PeerMessage::SyncAccountsData(SyncAccountsData{
-                                        accounts_data: act.network_state.accounts_data.dump(),
+                                        accounts_data: act.network_state.accounts_data.load().data.values().cloned().collect(),
                                         incremental: false,
                                         requesting_full_sync: true,
                                     }));
@@ -1065,7 +1065,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     self.send_message_or_log(&PeerMessage::SyncAccountsData(SyncAccountsData {
                         requesting_full_sync: false,
                         incremental: false,
-                        accounts_data: pms.accounts_data.dump(),
+                        accounts_data: pms.accounts_data.load().data.values().cloned().collect(),
                     }));
                 }
                 async move {
