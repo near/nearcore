@@ -107,14 +107,11 @@ impl std::ops::Drop for Snapshot {
 }
 
 #[test]
-fn test_snapshot() {
+fn test_snapshot_creation() {
     use assert_matches::assert_matches;
 
     let (tmpdir, opener) = crate::Store::test_opener();
     let path = tmpdir.path().join("cp");
-
-    // Database doesn’t exist so cannot create a snapshot.
-    assert_matches!(opener.new_migration_snapshot(path.clone()), Err(SnapshotError::IOError(_)));
 
     // Create the database
     core::mem::drop(opener.open());

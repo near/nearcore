@@ -193,6 +193,14 @@ impl<'a> StoreOpener<'a> {
             .map(|db| crate::Store::new(std::sync::Arc::new(db)))
     }
 
+    /// Creates a new snapshot which can be used to recover the database state.
+    ///
+    /// The snapshot is used during database migration to allow users to roll
+    /// back failed migrations.
+    ///
+    /// Note that due to RocksDB being weird, this will create an empty database
+    /// if it does not already exist.  This might not be what you want so make
+    /// sure the database already exists.
     pub fn new_migration_snapshot(
         &self,
         snapshot_path: std::path::PathBuf,
