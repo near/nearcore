@@ -7,6 +7,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 
 use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
+use near_primitives::errors::NotANodeError;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
@@ -139,7 +140,6 @@ impl TrieNode {
         }
     }
 
-    #[cfg(test)]
     fn print(
         &self,
         f: &mut dyn std::fmt::Write,
@@ -201,7 +201,6 @@ impl TrieNode {
         Ok(())
     }
 
-    #[cfg(test)]
     fn deep_to_string(&self, memory: &NodesStorage) -> String {
         let mut buf = String::new();
         self.print(&mut buf, memory, &mut "".to_string()).expect("printing failed");
@@ -482,6 +481,7 @@ pub struct ApplyStatePartResult {
     pub contract_codes: Vec<ContractCode>,
 }
 
+
 impl Trie {
     pub const EMPTY_ROOT: StateRoot = StateRoot::new();
 
@@ -586,6 +586,22 @@ impl Trie {
         Ok(())
     }
 
+    pub fn print(&self, hash: &CryptoHash) {
+
+        let mut memory = NodesStorage::new();
+
+        match self.move_node_to_mutable(&mut memory, hash) {
+            Ok(handle) => {
+                println!("got it");
+                println!("{}", memory.node_ref(handle).node.deep_to_string(&memory));
+            },
+            Err(err) => {
+                println!("Failed to parse {:?}", err);
+            },
+        }
+
+    }
+
     fn retrieve_raw_node(
         &self,
         hash: &CryptoHash,
@@ -595,10 +611,38 @@ impl Trie {
         }
         let bytes = self.storage.retrieve_raw_bytes(hash)?;
         let node = RawTrieNodeWithSize::decode(&bytes).map_err(|err| {
-            StorageError::StorageInconsistentState(format!("Failed to decode node {hash}: {err}"))
+            StorageError::NotANode(NotANodeError {
+                hash: hash.clone(),
+                len: bytes.len(),
+                data_prefix: format!("{:?}", &bytes[..10]),
+                error: format!("Failed to decode node {hash}.: {err}"),
+            })
         })?;
         Ok(Some((bytes, node)))
     }
+/* 
+    pub fn foo(
+        &self,
+        hash: &CryptoHash,
+        memory: &mut NodesStorage,
+        depth: u32,
+    ) -> Result<(), StorageError> {
+        if depth == 0 {
+            return;
+        }
+    }
+*/
+/* 
+    pub fn debug_retrieve_raw_node(
+        &self,
+        hash: &CryptoHash,
+    ) -> Result<TrieDebugResponse, StorageError> {
+        let bytes = self.storage.retrieve_raw_bytes(hash)?;
+        match RawTrieNodeWithSize::decode(&bytes) {
+            Ok(raw_trie_node) => Ok(TrieDebugResponse::RawTrieNodeWithSize(raw_trie_node)),
+            _ => Ok(TrieDebugResponse::RawBytes()),
+        }
+    }*/
 
     fn move_node_to_mutable(
         &self,
