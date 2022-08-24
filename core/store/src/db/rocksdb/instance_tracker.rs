@@ -1,4 +1,3 @@
-use once_cell::sync::Lazy;
 use std::sync::{Condvar, Mutex};
 use tracing::info;
 
@@ -34,13 +33,18 @@ struct Inner {
 }
 
 /// Synchronisation wrapper for accessing [`Inner`] singleton.
-#[derive(Default)]
 struct State {
     inner: Mutex<Inner>,
     zero_cvar: Condvar,
 }
 
 impl State {
+    /// Creates a new instance with counts initialised to zero.
+    const fn new() -> Self {
+        let inner = Inner { count: 0, max_open_files: 0 };
+        Self { inner: Mutex::new(inner), zero_cvar: Condvar::new() }
+    }
+
     /// Registers a new RocksDB instance and checks if limits are enough for
     /// given max_open_files configuration option.
     ///
@@ -50,7 +54,7 @@ impl State {
         let num_instances = {
             let mut inner = self.inner.lock().unwrap();
             let max_open_files = inner.max_open_files + u64::from(max_open_files);
-            ensure_max_open_files_limit(max_open_files)?;
+            ensure_max_open_files_limit(RealNoFile, max_open_files)?;
             inner.max_open_files = max_open_files;
             inner.count += 1;
             inner.count
@@ -85,7 +89,7 @@ impl State {
 }
 
 /// The [`State`] singleton tracking all opened RocksDB instances.
-static STATE: Lazy<State> = Lazy::new(Default::default);
+static STATE: State = State::new();
 
 /// Blocks until all RocksDB instances (usually 0 or 1) shut down.
 pub(super) fn block_until_all_instances_are_dropped() {
@@ -147,7 +151,7 @@ impl Drop for InstanceTracker {
 /// Returns error if NOFILE limit could not be read or set.  In practice the
 /// only thing that can happen is hard limit being too low such that soft limit
 /// cannot be increased to required value.
-fn ensure_max_open_files_limit(max_open_files: u64) -> Result<(), String> {
+fn ensure_max_open_files_limit(mut nofile: impl NoFile, max_open_files: u64) -> Result<(), String> {
     let required = max_open_files.saturating_add(1000);
     if required > i64::MAX as u64 {
         return Err(format!(
@@ -155,25 +159,108 @@ fn ensure_max_open_files_limit(max_open_files: u64) -> Result<(), String> {
              Required limit of {required} is too high"
         ));
     };
-    let (soft, hard) = rlimit::Resource::NOFILE.get().map_err(|err| {
+    let (soft, hard) = nofile.get().map_err(|err| {
         format!("Unable to get limit for the number of open files (NOFILE): {err}")
     })?;
     if required <= soft {
         Ok(())
     } else if required <= hard {
-        rlimit::Resource::NOFILE.set(required, hard).map_err(|err| {
+        nofile.set(required, hard).map_err(|err| {
             format!(
                 "Unable to change limit for the number of open files (NOFILE) \
-                 from ({soft}, {hard}) to ({required}, {hard}) (for configured \
-                 max_open_files={max_open_files}): {err}"
+                 from ({soft}, {hard}) to ({required}, {hard}): {err}"
             )
         })
     } else {
         Err(format!(
             "Hard limit for the number of open files (NOFILE) is too low \
-             ({hard}).  At least {required} is required (for configured \
-             max_open_files={max_open_files}).  Set ‘ulimit -Hn’ accordingly \
-             and restart the node."
+             ({hard}).  At least {required} is required.  Set ‘ulimit -Hn’ \
+             accordingly and restart the node."
         ))
     }
+}
+
+/// Interface for accessing the NOFILE resource limit.
+///
+/// The essentially trait exists for testing only.  It allows
+/// [`ensure_max_open_files_limit`] to be parameterised such
+/// that it access mock limits rather than real ones.
+trait NoFile {
+    fn get(&self) -> std::io::Result<(u64, u64)>;
+    fn set(&mut self, soft: u64, hard: u64) -> std::io::Result<()>;
+}
+
+/// Access to the real process NOFILE resource limit.
+struct RealNoFile;
+
+impl NoFile for RealNoFile {
+    fn get(&self) -> std::io::Result<(u64, u64)> {
+        rlimit::Resource::NOFILE.get()
+    }
+
+    fn set(&mut self, soft: u64, hard: u64) -> std::io::Result<()> {
+        rlimit::Resource::NOFILE.set(soft, hard)
+    }
+}
+
+#[test]
+fn test_ensure_max_open_files_limit() {
+    fn other_error(msg: &str) -> std::io::Error {
+        super::other_error(msg.to_string())
+    }
+
+    /// Mock implementation of NoFile interface.
+    struct MockNoFile<'a>(&'a mut (u64, u64));
+
+    impl<'a> NoFile for MockNoFile<'a> {
+        fn get(&self) -> std::io::Result<(u64, u64)> {
+            if self.0 .0 == 666 {
+                Err(other_error("error"))
+            } else {
+                Ok(self.0.clone())
+            }
+        }
+
+        fn set(&mut self, soft: u64, hard: u64) -> std::io::Result<()> {
+            let (old_soft, old_hard) = self.get().unwrap();
+            if old_hard == 666000 {
+                Err(other_error("error"))
+            } else {
+                assert!(soft != old_soft, "Pointless call to set");
+                *self.0 = (soft, hard);
+                Ok(())
+            }
+        }
+    }
+
+    // We impose limit at i64::MAX and don’t even talk to the system if
+    // number above that is requested.
+    let msg = ensure_max_open_files_limit(MockNoFile(&mut (666, 666)), u64::MAX).unwrap_err();
+    assert!(msg.contains("is too high"), "{msg}");
+
+    // Error on get
+    let msg = ensure_max_open_files_limit(MockNoFile(&mut (666, 666)), 1024).unwrap_err();
+    assert!(msg.starts_with("Unable to get"), "{msg}");
+
+    // Everything’s fine, soft limit should stay as it is.
+    let mut state = (2048, 666000);
+    ensure_max_open_files_limit(MockNoFile(&mut state), 1024).unwrap();
+    assert_eq!((2048, 666000), state);
+
+    // Should rise the soft limit.
+    let mut state = (1024, 10000);
+    ensure_max_open_files_limit(MockNoFile(&mut state), 1024).unwrap();
+    assert_eq!((2024, 10000), state);
+
+    // Should recognise trying to rise is futile because hard limit is too low.
+    let mut state = (1024, 2000);
+    let msg = ensure_max_open_files_limit(MockNoFile(&mut state), 1024).unwrap_err();
+    assert!(msg.starts_with("Hard limit"), "{msg}");
+    assert_eq!((1024, 2000), state);
+
+    // Error trying to change the limit.
+    let mut state = (1024, 666000);
+    let msg = ensure_max_open_files_limit(MockNoFile(&mut state), 1024).unwrap_err();
+    assert!(msg.starts_with("Unable to change"), "{msg}");
+    assert_eq!((1024, 666000), state);
 }
