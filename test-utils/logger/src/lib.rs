@@ -1,8 +1,4 @@
-mod tracing_capture;
-
 use near_o11y::tracing_subscriber::{fmt as subscriber_fmt, EnvFilter};
-
-pub use tracing_capture::TracingCapture;
 
 fn setup_subscriber_from_filter(mut env_filter: EnvFilter) {
     if let Ok(rust_log) = std::env::var("RUST_LOG") {

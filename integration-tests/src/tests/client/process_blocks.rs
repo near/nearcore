@@ -2085,7 +2085,7 @@ fn test_block_height_processed_orphan() {
 
 #[test]
 fn test_validate_chunk_extra() {
-    let mut capture = near_logger_utils::TracingCapture::enable();
+    let mut capture = near_o11y::TracingCapture::enable();
 
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -2176,18 +2176,7 @@ fn test_validate_chunk_extra() {
     // to try to produce chunks on top of block1, so we force the reorg case
     // using `capture`
 
-    let barrier = Arc::new(std::sync::Barrier::new(2));
-    capture.set_callback({
-        let block2_hash = *block2.hash();
-        let barrier = Arc::clone(&barrier);
-        move |msg| {
-            if msg.starts_with("do_apply_chunks")
-                && msg.contains(&format!("block_hash={block2_hash}"))
-            {
-                barrier.wait();
-            }
-        }
-    });
+    env.pause_block_processing(&mut capture, block2.hash());
 
     let mut chain_store =
         ChainStore::new(env.clients[0].chain.store().store().clone(), genesis_height, true);
@@ -2200,7 +2189,7 @@ fn test_validate_chunk_extra() {
     env.clients[0].process_blocks_with_missing_chunks(Arc::new(|_| {}));
     let accepted_blocks = env.clients[0].finish_block_in_processing(block1.hash());
     assert_eq!(accepted_blocks.len(), 1);
-    barrier.wait();
+    env.resume_block_processing(block2.hash());
     let accepted_blocks = env.clients[0].finish_block_in_processing(block2.hash());
     assert_eq!(accepted_blocks.len(), 1);
 
@@ -2550,7 +2539,7 @@ fn test_refund_receipts_processing() {
 
 #[test]
 fn test_wasmer2_upgrade() {
-    let mut capture = near_logger_utils::TracingCapture::enable();
+    let mut capture = near_o11y::TracingCapture::enable();
 
     let old_protocol_version =
         near_primitives::version::ProtocolFeature::Wasmer2.protocol_version() - 1;
