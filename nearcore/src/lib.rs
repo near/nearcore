@@ -10,6 +10,7 @@ use near_chain::{Chain, ChainGenesis};
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
+use near_network_primitives::time;
 use near_primitives::block::GenesisId;
 use near_primitives::version::DbVersion;
 #[cfg(feature = "performance_stats")]
@@ -123,7 +124,7 @@ fn apply_store_migrations_if_exists(
     // Before starting a DB migration, create a consistent snapshot of the database. If a migration
     // fails, it can be used to quickly restore the database to its original state.
     let checkpoint_path = if near_config.config.use_db_migration_snapshot {
-        let checkpoint_path = create_db_checkpoint(&store_opener.get_path(), near_config).context(
+        let checkpoint_path = create_db_checkpoint(&store_opener.path(), near_config).context(
             "Failed to create a database migration snapshot.\n\
              You can change the location of the snapshot by adjusting `config.json`:\n\
              \t\"db_migration_snapshot_path\": \"/absolute/path/to/existing/dir\",\n\
@@ -166,7 +167,9 @@ fn apply_store_migrations_if_exists(
     }
 
     if cfg!(feature = "nightly") || cfg!(feature = "nightly_protocol") {
-        let store = store_opener.open();
+        let store = store_opener
+            .open()
+            .with_context(|| format!("Opening database at {}", store_opener.path().display()))?;
         // set some dummy value to avoid conflict with other migrations from nightly features
         set_store_version(&store, 10000);
     } else {
@@ -202,7 +205,9 @@ fn apply_store_migrations_if_exists(
 fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Store> {
     let opener = Store::opener(home_dir, &near_config.config.store);
     let exists = apply_store_migrations_if_exists(&opener, near_config)?;
-    let store = opener.open();
+    let store = opener
+        .open()
+        .with_context(|| format!("Opening database at {}", opener.path().display()))?;
     if !exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
     }
@@ -288,6 +293,7 @@ pub fn start_with_config_and_synchronization(
         let view_client = view_client.clone();
         move |_ctx| {
             PeerManagerActor::new(
+                time::Clock::real(),
                 store.into_inner(),
                 config.network_config,
                 client_actor.recipient(),
@@ -364,20 +370,8 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         skip_columns.push(DBCol::TrieChanges);
     }
 
-    // Make sure we can open at least two databases and have some file
-    // descriptors to spare.
-    let required = 2 * (config.store.max_open_files as u64) + 512;
-    let (soft, hard) = rlimit::Resource::NOFILE
-        .get()
-        .map_err(|err| anyhow::anyhow!("getrlimit: NOFILE: {}", err))?;
-    if soft < required {
-        rlimit::Resource::NOFILE
-            .set(required, hard)
-            .map_err(|err| anyhow::anyhow!("setrlimit: NOFILE: {}", err))?;
-    }
-
     let src_opener = Store::opener(home_dir, &config.store).mode(Mode::ReadOnly);
-    let src_path = src_opener.get_path();
+    let src_path = src_opener.path();
     if let Some(db_version) = src_opener.get_version_if_exists()? {
         anyhow::ensure!(
             db_version == near_primitives::version::DB_VERSION,
@@ -396,7 +390,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     // (since it’s a command line option) which is why we set home to cwd.
     let cwd = std::env::current_dir()?;
     let dst_opener = Store::opener(&cwd, &dst_config);
-    let dst_path = dst_opener.get_path();
+    let dst_path = dst_opener.path();
     anyhow::ensure!(
         !dst_opener.check_if_exists(),
         "{}: directory already exists",
@@ -407,7 +401,9 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
           src = %src_path.display(), dest = %dst_path.display(),
           "Recompressing database");
 
-    let src_store = src_opener.open();
+    let src_store = src_opener
+        .open()
+        .with_context(|| format!("Opening database at {}", src_opener.path().display()))?;
 
     let final_head_height = if skip_columns.contains(&DBCol::PartialChunks) {
         let tip: Option<near_primitives::block::Tip> =
@@ -423,7 +419,9 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         None
     };
 
-    let dst_store = dst_opener.open();
+    let dst_store = dst_opener
+        .open()
+        .with_context(|| format!("Opening database at {}", dst_opener.path().display()))?;
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
 

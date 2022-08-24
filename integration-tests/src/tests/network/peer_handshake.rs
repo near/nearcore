@@ -47,6 +47,7 @@ fn make_peer_manager(
     .start();
 
     PeerManagerActor::new(
+        time::Clock::real(),
         near_store::db::TestDB::new(),
         config,
         client_addr.recipient(),

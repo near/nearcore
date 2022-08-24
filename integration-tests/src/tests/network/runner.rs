@@ -95,6 +95,7 @@ fn setup_network_node(
         );
 
         PeerManagerActor::new(
+            time::Clock::real(),
             db.clone(),
             config,
             client_actor.recipient(),
