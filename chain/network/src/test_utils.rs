@@ -372,7 +372,7 @@ pub struct SetAdvOptions {
 }
 
 /// Creates an in-memory storage.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn create_test_peer_store() -> crate::store::Store {
     let storage = near_store::test_utils::create_test_node_storage();
     crate::store::Store::from(storage)
