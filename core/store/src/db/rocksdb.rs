@@ -148,7 +148,7 @@ impl RocksDB {
         }
         cf_handles.map(|col, ptr| {
             ptr.unwrap_or_else(|| {
-                panic!("Missing cf handle for {}", col.variant_name());
+                panic!("Missing cf handle for {col}");
             })
         })
     }
@@ -654,7 +654,7 @@ mod tests {
     #[test]
     fn rocksdb_merge_sanity() {
         let (_tmp_dir, opener) = Store::test_opener();
-        let store = opener.open();
+        let store = opener.open().unwrap();
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);

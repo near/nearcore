@@ -1,3 +1,5 @@
+use std::io;
+
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::version::DbVersion;
 
@@ -156,12 +158,12 @@ impl<'a> StoreOpener<'a> {
     /// Returns path to the underlying RocksDB database.
     ///
     /// Does not check whether the database actually exists.
-    pub fn get_path(&self) -> &std::path::Path {
+    pub fn path(&self) -> &std::path::Path {
         &self.path
     }
 
     /// Returns version of the database; or `None` if it does not exist.
-    pub fn get_version_if_exists(&self) -> std::io::Result<Option<DbVersion>> {
+    pub fn get_version_if_exists(&self) -> io::Result<Option<DbVersion>> {
         if self.check_if_exists() {
             Some(crate::RocksDB::get_version(&self.path, &self.config)).transpose()
         } else {
@@ -170,20 +172,19 @@ impl<'a> StoreOpener<'a> {
     }
 
     /// Opens the RocksDB database.
-    ///
-    /// Panics on failure.
-    // TODO(mina86): Change it to return Result.
-    pub fn open(&self) -> crate::Store {
-        if self.check_if_exists() {
-            tracing::info!(target: "near", path=%self.path.display(), "Opening RocksDB database");
-        } else if matches!(self.mode, Mode::ReadOnly) {
-            tracing::error!(target: "near", path=%self.path.display(), "Database does not exist");
-            panic!("Failed to open non-existent database for reading");
-        } else {
-            tracing::info!(target: "near", path=%self.path.display(), "Creating new RocksDB database");
+    pub fn open(&self) -> io::Result<crate::Store> {
+        let exists = self.check_if_exists();
+        if !exists && matches!(self.mode, Mode::ReadOnly) {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "Cannot open non-existent database for reading",
+            ));
         }
-        let db = crate::RocksDB::open(&self.path, &self.config, self.mode)
-            .expect("Failed to open the database");
-        crate::Store::new(std::sync::Arc::new(db))
+
+        tracing::info!(target: "near", path=%self.path.display(),
+                       "{} RocksDB database",
+                       if exists { "Opening" } else { "Creating a new" });
+        crate::RocksDB::open(&self.path, &self.config, self.mode)
+            .map(|db| crate::Store::new(std::sync::Arc::new(db)))
     }
 }
