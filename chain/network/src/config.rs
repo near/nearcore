@@ -222,7 +222,7 @@ impl NetworkConfig {
             } else {
                 None
             },
-            event_sink: Sink::void(),
+            event_sink: Sink::null(),
         };
         Ok(this)
     }
@@ -280,7 +280,7 @@ impl NetworkConfig {
             accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 100., burst: 1000000 },
             features: Features { enable_tier1: true },
             skip_sending_tombstones: None,
-            event_sink: Sink::void(),
+            event_sink: Sink::null(),
         }
     }
 

@@ -30,14 +30,16 @@ fn announcement_same_epoch() {
         signature: Signature::default(),
     };
 
-    routing_table.add_account(announce0.clone());
-    assert!(routing_table.contains_account(&announce0));
-    assert!(routing_table.contains_account(&announce1));
-    assert_eq!(routing_table.get_announce_accounts().len(), 1);
+    // Adding multiple announcements for the same account_id and epoch_id.
+    // The first one should win.
+    assert_eq!(routing_table.add_accounts(vec![announce0.clone(),announce1.clone()]),vec![announce0.clone()]);
+    assert_eq!(routing_table.get_announce_accounts(), vec![announce0.clone()]);
     assert_eq!(routing_table.account_owner(&announce0.account_id).unwrap(), peer_id0);
-    routing_table.add_account(announce1.clone());
-    assert_eq!(routing_table.get_announce_accounts().len(), 1);
-    assert_eq!(routing_table.account_owner(&announce1.account_id).unwrap(), peer_id1);
+
+    // Adding a conflicting announcement later. Should be a noop.
+    assert_eq!(routing_table.add_accounts(vec![announce1.clone()]),vec![]);
+    assert_eq!(routing_table.get_announce_accounts(), vec![announce0.clone()]);
+    assert_eq!(routing_table.account_owner(&announce0.account_id).unwrap(), peer_id0);
 }
 
 #[test]
@@ -66,8 +68,8 @@ fn dont_load_on_build() {
         signature: Signature::default(),
     };
 
-    routing_table.add_account(announce0.clone());
-    routing_table.add_account(announce1.clone());
+    routing_table.add_accounts(vec![announce0.clone()]);
+    routing_table.add_accounts(vec![announce1.clone()]);
     let accounts: Vec<AnnounceAccount> = routing_table.get_announce_accounts();
     assert!(vec![announce0, announce1].iter().all(|announce| { accounts.contains(&announce) }));
     assert_eq!(accounts.len(), 2);
@@ -94,7 +96,7 @@ fn load_from_disk() {
     };
 
     // Announcement is added to cache of the first routing table and to disk
-    routing_table.add_account(announce0.clone());
+    routing_table.add_accounts(vec![announce0.clone()]);
     assert_eq!(routing_table.get_announce_accounts().len(), 1);
     // Cache of second routing table is empty
     assert_eq!(routing_table1.get_announce_accounts().len(), 0);
