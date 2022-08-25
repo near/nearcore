@@ -150,9 +150,13 @@ impl TrieNode {
             TrieNode::Empty => {
                 write!(f, "{}Empty", spaces)?;
             }
-            TrieNode::Leaf(key, _value) => {
+            TrieNode::Leaf(key, value) => {
                 let slice = NibbleSlice::from_encoded(key);
-                write!(f, "{}Leaf({:?}, val)", spaces, slice.0)?;
+                let value_info = match value {
+                    ValueHandle::InMemory(handle) => format!("In memory, size: {}", memory.value_ref(*handle).len()),
+                    ValueHandle::HashAndSize(value_size, value_hash) => format!("{:?} size: {}", value_hash, value_size),
+                };
+                write!(f, "{}Leaf({:?}, {})", spaces, slice.0, value_info)?;
             }
             TrieNode::Branch(children, value) => {
                 writeln!(
@@ -586,18 +590,60 @@ impl Trie {
         Ok(())
     }
 
-    pub fn print(&self, hash: &CryptoHash) {
+
+
+
+    fn fetch_recursive(&self, hash: &CryptoHash, max_depth: u32, memory: &mut NodesStorage) -> Option<StorageHandle>{
+        if max_depth == 0 {
+            return None
+        }
+
+        match self.move_node_to_mutable(memory, hash) {
+            Ok(handle) => {
+                let trie_node = &memory.node_ref(handle).node;
+                match trie_node {
+                    TrieNode::Empty => (),
+                    TrieNode::Leaf(_, _) => (),
+                    TrieNode::Branch(children, _) => {
+                        for entry in children.clone().iter().cloned() {
+                            if let Some(entry) = entry {
+                                match entry {
+                                    NodeHandle::InMemory(_) => (),
+                                    NodeHandle::Hash(child_hash) => {
+                                        self.fetch_recursive(&child_hash.clone(), max_depth - 1, memory);
+                                        ()
+                                    },
+                                }
+                            }
+                            
+                        }
+                    },
+                    TrieNode::Extension(_, handle) => {
+                        if let NodeHandle::Hash(child_hash) = handle {
+                            self.fetch_recursive(&child_hash.clone(), max_depth-1 , memory);
+                        }
+                    },
+                };
+                Some(handle)
+                
+                //println!("{}", memory.node_ref(handle).node.deep_to_string(&memory));
+            },
+            Err(err) => {
+                println!("Failed to parse - probably a value:  {:?}", err);
+                None
+            },
+        }
+
+    }
+
+    pub fn print(&self, hash: &CryptoHash, max_depth: u32) {
 
         let mut memory = NodesStorage::new();
 
-        match self.move_node_to_mutable(&mut memory, hash) {
-            Ok(handle) => {
-                println!("got it");
-                println!("{}", memory.node_ref(handle).node.deep_to_string(&memory));
-            },
-            Err(err) => {
-                println!("Failed to parse {:?}", err);
-            },
+        if let Some(handle) = self.fetch_recursive(hash, max_depth, &mut memory) {
+            println!("{}", memory.node_ref(handle).node.deep_to_string(&memory));
+        } else {
+            println!("Failed to parse");
         }
 
     }

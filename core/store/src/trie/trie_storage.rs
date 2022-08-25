@@ -1,7 +1,9 @@
 use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
+use near_o11y::backtrace::Backtrace;
 use near_primitives::hash::CryptoHash;
 
 use crate::db::refcount::decode_value_with_rc;
@@ -228,6 +230,12 @@ impl TrieCachingStorage {
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
+        if hash == &CryptoHash::from_str("mKoEHQ8dpPndZtLkicWhs8zjtrW1gHMTfQ97HuokEBM").unwrap() {
+            let bt = Backtrace::new();
+            tracing::error!("Found it.. {:?}", bt);
+            
+
+        }
         // Try to get value from chunk cache containing nodes with cheaper access. We can do it for any `TrieCacheMode`,
         // because we charge for reading nodes only when `CachingChunk` mode is enabled anyway.
         if let Some(val) = self.chunk_cache.borrow_mut().get(hash) {

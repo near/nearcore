@@ -457,11 +457,13 @@ pub struct ViewTrieCmd {
     hash: String,
     #[clap(long)]
     shard_id: u32,
+    #[clap(long)]
+    max_depth: u32,
 }
 
 impl ViewTrieCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
-        view_trie(home_dir, near_config, store, hash, self.shard_id).unwrap();
+        view_trie(home_dir, near_config, store, hash, self.shard_id, self.max_depth).unwrap();
     }
 }
