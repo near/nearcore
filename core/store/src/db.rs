@@ -3,7 +3,7 @@ use std::io;
 use crate::DBCol;
 
 pub mod refcount;
-mod rocksdb;
+pub(crate) mod rocksdb;
 mod testdb;
 
 pub use self::rocksdb::RocksDB;
