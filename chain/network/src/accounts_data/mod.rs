@@ -28,6 +28,7 @@ use crate::concurrency::arc_mutex::ArcMutex;
 use crate::network_protocol;
 use crate::network_protocol::SignedAccountData;
 use crate::types::AccountKeys;
+use crate::multimap::OrdMultiMap;
 use near_crypto::PublicKey;
 use near_o11y::log_assert;
 use near_primitives::network::PeerId;
@@ -122,6 +123,9 @@ pub struct CacheSnapshot {
     /// It will be used to verify new incoming versions of SignedAccountData
     /// for this account.
     pub data: im::HashMap<(EpochId, AccountId), Arc<SignedAccountData>>,
+    /// Indices on data.
+    pub tier1_peers: OrdMultiMap<AccountId,PeerId>,
+    pub proxy_peers: OrdMultiMap<AccountId,PeerId>,
 }
 
 impl CacheSnapshot {
@@ -155,12 +159,25 @@ impl CacheSnapshot {
                 _ => true,
             }
     }
+
+    fn update_indices(&mut self, d: &SignedAccountData, delta: i64) {
+        if let Some(peer_id) = &d.peer_id {
+            self.tier1_peers.add(d.account_id.clone(),peer_id.clone(),delta);
+        }
+        for peer_addr in &d.peers {
+            self.proxy_peers.add(d.account_id.clone(),peer_addr.peer_id.clone(),delta);
+        }
+    }
+
     fn try_insert(&mut self, d: Arc<SignedAccountData>) -> Option<Arc<SignedAccountData>> {
         if !self.is_new(&d) {
             return None;
         }
         let id = (d.epoch_id.clone(), d.account_id.clone());
-        self.data.insert(id, d.clone());
+        self.update_indices(d.as_ref(),1);
+        if let Some(d) = self.data.insert(id, d.clone()) {
+            self.update_indices(&d,-1);
+        }
         Some(d)
     }
 }
@@ -172,6 +189,8 @@ impl Cache {
         Self(ArcMutex::new(CacheSnapshot {
             keys: Arc::new(AccountKeys::default()),
             data: im::HashMap::new(),
+            tier1_peers: OrdMultiMap::default(),
+            proxy_peers: OrdMultiMap::default(),
         }))
     }
 
@@ -188,6 +207,8 @@ impl Cache {
             for (k, v) in std::mem::take(&mut inner.data) {
                 if keys.contains_key(&k) {
                     inner.data.insert(k, v);
+                } else {
+                    inner.update_indices(&v,-1);
                 }
             }
             inner.keys = keys;

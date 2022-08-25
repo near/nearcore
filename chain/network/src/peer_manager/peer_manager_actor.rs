@@ -1369,6 +1369,22 @@ impl PeerManagerActor {
     /// Send message to specific account.
     /// Return whether the message is sent or not.
     fn send_message_to_account(&mut self, account_id: &AccountId, msg: RoutedMessageBody) -> bool {
+        let tier1_conn = (||{
+            let accounts_data = self.state.accounts_data.load();
+            let tier1 = self.state.tier1.load();
+            for peer_id in accounts_data.tier1_peers.iter_once_at(account_id.clone()) {
+                if let Some(conn) = tier1.ready.get(peer_id) {
+                    return Some(conn.clone());
+                }
+            }
+            for peer_id in accounts_data.proxy_peers.iter_once_at(account_id.clone()) {
+                if let Some(conn) = tier1.ready.get(peer_id) {
+                    return Some(conn.clone());
+                }
+            }
+            None
+        })();
+
         let target = match self.state.routing_table_view.account_owner(account_id) {
             Ok(peer_id) => peer_id,
             Err(find_route_error) => {
