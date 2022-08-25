@@ -18,7 +18,7 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -61,7 +61,7 @@ pub(crate) struct Connection {
 }
 
 impl fmt::Debug for Connection {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Connection")
             .field("peer_info", &self.peer_info)
             .field("partial_edge_info", &self.partial_edge_info)
@@ -155,7 +155,7 @@ pub(crate) struct PoolSnapshot {
     pub outbound_handshakes: im::HashSet<PeerId>,
 }
 
-pub(crate) struct OutboundHandshakePermit(PeerId, Pool);
+pub(crate) struct OutboundHandshakePermit(PeerId, Weak<ArcMutex<PoolSnapshot>>);
 
 impl OutboundHandshakePermit {
     pub fn peer_id(&self) -> &PeerId {
@@ -164,14 +164,18 @@ impl OutboundHandshakePermit {
 }
 
 impl fmt::Debug for OutboundHandshakePermit {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.peer_id().fmt(f)
     }
 }
 
 impl Drop for OutboundHandshakePermit {
     fn drop(&mut self) {
-        self.1 .0.update(|pool| {
+        let pool = match self.1.upgrade() {
+            Some(pool) => pool,
+            None => return,
+        };
+        pool.update(|pool| {
             pool.outbound_handshakes.remove(&self.0);
         });
     }
@@ -226,7 +230,7 @@ impl Pool {
                 return Err(PoolError::AlreadyStartedConnecting);
             }
             pool.outbound_handshakes.insert(peer_id.clone());
-            Ok(OutboundHandshakePermit(peer_id, self.clone()))
+            Ok(OutboundHandshakePermit(peer_id, Arc::downgrade(&self.0)))
         })
     }
 
