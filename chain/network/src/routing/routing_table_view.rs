@@ -104,7 +104,11 @@ impl RoutingTableView {
         }))
     }
 
-    pub(crate) fn update(&self, local_edges_to_remove: &[PeerId], next_hops: Arc<routing::NextHopTable>) {
+    pub(crate) fn update(
+        &self,
+        local_edges_to_remove: &[PeerId],
+        next_hops: Arc<routing::NextHopTable>,
+    ) {
         let mut inner = self.0.lock();
         for peer_id in local_edges_to_remove {
             inner.local_edges.remove(peer_id);
@@ -160,8 +164,8 @@ impl RoutingTableView {
         let mut res = vec![];
         for aa in aas {
             match inner.get_announce(&aa.account_id) {
-                Some(old) if old.epoch_id==aa.epoch_id => continue,
-                _ => {},
+                Some(old) if old.epoch_id == aa.epoch_id => continue,
+                _ => {}
             }
             inner.account_peers.put(aa.account_id.clone(), aa.clone());
             // Add account to store. Best effort
@@ -183,11 +187,8 @@ impl RoutingTableView {
 
     pub(crate) fn info(&self) -> RoutingTableInfo {
         let inner = self.0.lock();
-        let account_peers = inner
-            .account_peers
-            .iter()
-            .map(|(id,aa)|(id.clone(), aa.peer_id.clone()))
-            .collect();
+        let account_peers =
+            inner.account_peers.iter().map(|(id, aa)| (id.clone(), aa.peer_id.clone())).collect();
         RoutingTableInfo { account_peers, next_hops: inner.next_hops.clone() }
     }
 
@@ -200,12 +201,15 @@ impl RoutingTableView {
     /// Get announce accounts on cache.
     pub(crate) fn get_announce_accounts(&self) -> Vec<AnnounceAccount> {
         self.0.lock().account_peers.iter().map(|(_, v)| v.clone()).collect()
-
     }
 
     /// Get AnnounceAccount for the given AccountId.
-    pub(crate) fn get_announce(&self, account_id: &AccountId) -> Option<AnnounceAccount> {
-        self.0.lock().get_announce(account_id)
+    pub(crate) fn get_announces<'a>(
+        &'a self,
+        account_ids: impl Iterator<Item = &'a AccountId>,
+    ) -> HashMap<AccountId, AnnounceAccount> {
+        let mut inner = self.0.lock();
+        account_ids.filter_map(|id| inner.get_announce(id).map(|a| (id.clone(), a))).collect()
     }
 
     pub(crate) fn get_local_edge(&self, other_peer: &PeerId) -> Option<Edge> {
@@ -221,7 +225,7 @@ impl RoutingTableView {
                 Some(other) => other,
                 None => continue,
             };
-            let old_nonce = inner.local_edges.get(other).map_or(0,|e|e.nonce());
+            let old_nonce = inner.local_edges.get(other).map_or(0, |e| e.nonce());
             if old_nonce >= edge.nonce() {
                 continue;
             }

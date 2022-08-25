@@ -32,12 +32,15 @@ fn announcement_same_epoch() {
 
     // Adding multiple announcements for the same account_id and epoch_id.
     // The first one should win.
-    assert_eq!(routing_table.add_accounts(vec![announce0.clone(),announce1.clone()]),vec![announce0.clone()]);
+    assert_eq!(
+        routing_table.add_accounts(vec![announce0.clone(), announce1.clone()]),
+        vec![announce0.clone()]
+    );
     assert_eq!(routing_table.get_announce_accounts(), vec![announce0.clone()]);
     assert_eq!(routing_table.account_owner(&announce0.account_id).unwrap(), peer_id0);
 
     // Adding a conflicting announcement later. Should be a noop.
-    assert_eq!(routing_table.add_accounts(vec![announce1.clone()]),vec![]);
+    assert_eq!(routing_table.add_accounts(vec![announce1.clone()]), vec![]);
     assert_eq!(routing_table.get_announce_accounts(), vec![announce0.clone()]);
     assert_eq!(routing_table.account_owner(&announce0.account_id).unwrap(), peer_id0);
 }

@@ -446,7 +446,7 @@ impl PeerManagerActor {
                     next_hops,
                     peers_to_ban,
                 }) => {
-                    act.state.routing_table_view.update(&local_edges_to_remove,next_hops.clone());
+                    act.state.routing_table_view.update(&local_edges_to_remove, next_hops.clone());
                     for peer in peers_to_ban {
                         act.ban_peer(&peer, ReasonForBan::InvalidEdge);
                     }
@@ -468,9 +468,11 @@ impl PeerManagerActor {
     fn broadcast_accounts(&mut self, accounts: Vec<AnnounceAccount>) {
         let new_accounts = self.state.routing_table_view.add_accounts(accounts);
         debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
-        self.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-            RoutingTableUpdate::from_accounts(new_accounts),
-        )));
+        if new_accounts.len() > 0 {
+            self.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                RoutingTableUpdate::from_accounts(new_accounts),
+            )));
+        }
     }
 
     /// `update_routing_table_trigger` schedule updating routing table to `RoutingTableActor`
@@ -577,15 +579,17 @@ impl PeerManagerActor {
             let tier2 = self.state.tier2.read();
             for edge in new_local_edges {
                 let other_peer = edge.other(&self.my_peer_id).unwrap();
-                match (tier2.contains_key(other_peer),edge.edge_type()) {
+                match (tier2.contains_key(other_peer), edge.edge_type()) {
                     // This is an active connection, while the edge indicates it shouldn't.
-                    (true, EdgeState::Removed) => self.maybe_remove_connected_peer(ctx, &edge, other_peer),
+                    (true, EdgeState::Removed) => {
+                        self.maybe_remove_connected_peer(ctx, &edge, other_peer)
+                    }
                     // We are not connected to this peer, but routing table contains
                     // information that we do. We should wait and remove that peer
                     // from routing table
                     (false, EdgeState::Active) => Self::wait_peer_or_remove(ctx, edge),
                     // OK
-                    _ => {},
+                    _ => {}
                 }
             }
             self.routing_table_addr
@@ -1949,20 +1953,15 @@ impl PeerManagerActor {
                 let accounts = routing_table_update.accounts;
 
                 // Filter known accounts before validating them.
+                let old = self
+                    .state
+                    .routing_table_view
+                    .get_announces(accounts.iter().map(|a| &a.account_id));
                 let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = accounts
                     .into_iter()
-                    .filter_map(|announce_account| {
-                        if let Some(current_announce_account) =
-                            self.state.routing_table_view.get_announce(&announce_account.account_id)
-                        {
-                            if announce_account.epoch_id == current_announce_account.epoch_id {
-                                None
-                            } else {
-                                Some((announce_account, Some(current_announce_account.epoch_id)))
-                            }
-                        } else {
-                            Some((announce_account, None))
-                        }
+                    .map(|aa| {
+                        let id = aa.account_id.clone();
+                        (aa, old.get(&id).map(|old| old.epoch_id.clone()))
                     })
                     .collect();
 
