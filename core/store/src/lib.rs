@@ -46,6 +46,7 @@ pub mod test_utils;
 mod trie;
 
 pub use crate::config::{Mode, StoreConfig, StoreOpener};
+pub use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError};
 
 /// Specifies temperature of a storage.
 ///
