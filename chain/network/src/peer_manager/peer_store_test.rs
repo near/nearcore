@@ -1,6 +1,5 @@
 use near_crypto::{KeyType, SecretKey};
 use near_network_primitives::types::{Blacklist, BlacklistEntry};
-use near_store::test_utils::create_test_store;
 use near_store::{Store, StoreOpener};
 use std::collections::HashSet;
 use std::net::{Ipv4Addr, SocketAddrV4};
@@ -156,7 +155,7 @@ fn check_integrity(peer_store: &PeerStore) -> bool {
 #[test]
 fn handle_peer_id_change() {
     let clock = time::FakeClock::default();
-    let store = store::Store::from(create_test_store());
+    let store = store::Store::from(near_store::db::TestDB::new());
     let mut peer_store =
         PeerStore::new(&clock.clock(), store, &[], Default::default(), false).unwrap();
 
@@ -181,7 +180,7 @@ fn handle_peer_id_change() {
 #[test]
 fn dont_handle_address_change() {
     let clock = time::FakeClock::default();
-    let store = store::Store::from(create_test_store());
+    let store = store::Store::from(near_store::db::TestDB::new());
     let mut peer_store =
         PeerStore::new(&clock.clock(), store, &[], Default::default(), false).unwrap();
 
@@ -201,7 +200,7 @@ fn dont_handle_address_change() {
 #[test]
 fn check_add_peers_overriding() {
     let clock = time::FakeClock::default();
-    let store = store::Store::from(create_test_store());
+    let store = store::Store::from(near_store::db::TestDB::new());
     let mut peer_store =
         PeerStore::new(&clock.clock(), store.clone(), &[], Default::default(), false).unwrap();
 
@@ -296,7 +295,7 @@ fn check_ignore_blacklisted_peers() {
     }
 
     let ids = (0..6).map(|ix| get_peer_id(format!("node{}", ix))).collect::<Vec<_>>();
-    let store = store::Store::from(create_test_store());
+    let store = store::Store::from(near_store::db::TestDB::new());
 
     // Populate store with three peers.
     {
