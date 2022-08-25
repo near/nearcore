@@ -37,20 +37,27 @@ impl TrieCache {
     }
 
     pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<&Vec<u8>>)>) {
+        tracing::error!("In update cache");
+        let mut pops = 0;
+        let mut puts = 0;
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
         for (hash, opt_value_rc) in ops {
             if let Some(value_rc) = opt_value_rc {
                 if let (Some(value), _rc) = decode_value_with_rc(&value_rc) {
                     if value.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
+                        puts += 1;
                         guard.put(hash, value.into());
                     }
                 } else {
                     guard.pop(&hash);
+                    pops += 1;
                 }
             } else {
                 guard.pop(&hash);
+                pops += 1;
             }
         }
+        tracing::error!("Finished in update cache: puts {} pops {}", puts, pops);
     }
 
     #[cfg(test)]
@@ -230,12 +237,21 @@ impl TrieCachingStorage {
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        if hash == &CryptoHash::from_str("mKoEHQ8dpPndZtLkicWhs8zjtrW1gHMTfQ97HuokEBM").unwrap() {
-            let bt = Backtrace::new();
-            tracing::error!("Found it.. {:?}", bt);
-            
-
+        /*if hash == &CryptoHash::from_str("mKoEHQ8dpPndZtLkicWhs8zjtrW1gHMTfQ97HuokEBM").unwrap() {
+            //let bt = Backtrace::new();
+            //tracing::error!("Found it.. {:?}", bt);
+            tracing::error!("Found it.. mK");
+        }*/
+        if hash == &CryptoHash::from_str("qe9utVQpNGkEARPSKbWYcUh1aV9ozbZ8LMncYpT8D3q").unwrap() {
+            tracing::error!("Found it.. qe");
         }
+        if hash == &CryptoHash::from_str("mKoEHQ8dpPndZtLkicWhs8zjtrW1gHMTfQ97HuokEBM").unwrap() {
+            tracing::error!("Found it.. mK");
+        }
+        if hash == &CryptoHash::from_str("e9s5kGzCF8XcrvF1SfcUqq27LU1mAEDh1uDEpwEECXr").unwrap() {
+            tracing::error!("Found it.. e9");
+        }
+        
         // Try to get value from chunk cache containing nodes with cheaper access. We can do it for any `TrieCacheMode`,
         // because we charge for reading nodes only when `CachingChunk` mode is enabled anyway.
         if let Some(val) = self.chunk_cache.borrow_mut().get(hash) {

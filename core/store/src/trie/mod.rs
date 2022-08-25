@@ -467,8 +467,8 @@ pub struct TrieRefcountChange {
 pub struct TrieChanges {
     pub old_root: StateRoot,
     pub new_root: StateRoot,
-    insertions: Vec<TrieRefcountChange>,
-    deletions: Vec<TrieRefcountChange>,
+    pub insertions: Vec<TrieRefcountChange>,
+    pub deletions: Vec<TrieRefcountChange>,
 }
 
 impl TrieChanges {

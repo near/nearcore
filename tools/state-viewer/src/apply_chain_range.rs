@@ -277,6 +277,10 @@ fn apply_block_from_range(
             .unwrap()
     };
 
+    tracing::error!("Summary (all shards): insertions {} deletions {}",
+    apply_result.trie_changes.trie_changes.insertions.len(),
+    apply_result.trie_changes.trie_changes.deletions.len());
+
     let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
     let chunk_extra = ChunkExtra::new(
         &apply_result.new_root,
