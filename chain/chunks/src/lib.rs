@@ -1452,6 +1452,7 @@ impl ShardsManager {
                         warn!(target: "chunks", "Received chunk part with part_ord greater than the the total number of chunks");
                         continue;
                     }
+                    existing_parts.insert(part_ord, part);
                 }
             }
         }
