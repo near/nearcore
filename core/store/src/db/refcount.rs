@@ -51,6 +51,27 @@ pub fn decode_value_with_rc(bytes: &[u8]) -> (Option<&[u8]>, i64) {
     }
 }
 
+/// Strips refcount from an owned buffer.
+///
+/// Works like [`decode_value_with_rc`] but rather than returning reference to
+/// subslice of the argument, adjusts given argument by removing the refcount
+/// from it.  This also means that if the refcount is zero or negative, the
+/// argument will be cleared.
+pub(crate) fn strip_refcount(bytes: &mut Vec<u8>) -> i64 {
+    match bytes.len().checked_sub(8) {
+        None => {
+            debug_assert!(bytes.is_empty());
+            bytes.clear();
+            0
+        }
+        Some(len) => {
+            let rc = i64::from_le_bytes(bytes[len..].try_into().unwrap());
+            bytes.truncate(if rc <= 0 { 0 } else { len });
+            rc
+        }
+    }
+}
+
 /// Encode a positive reference count into the value.
 pub(crate) fn add_positive_refcount(data: &[u8], rc: std::num::NonZeroU32) -> Vec<u8> {
     [data, &i64::from(rc.get()).to_le_bytes()].concat()
@@ -188,6 +209,10 @@ mod test {
         fn test(want_value: Option<&[u8]>, want_rc: i64, bytes: &[u8]) {
             let got = super::decode_value_with_rc(bytes);
             assert_eq!((want_value, want_rc), got);
+
+            let mut bytes = bytes.to_vec();
+            assert_eq!(want_rc, super::strip_refcount(&mut bytes));
+            assert_eq!(want_value.unwrap_or(&[]), bytes.as_slice());
         }
 
         test(None, -2, MINUS_TWO);

@@ -3446,6 +3446,7 @@ dependencies = [
  "elastic-array",
  "enum-map",
  "fs2",
+ "insta",
  "lru",
  "near-crypto",
  "near-metrics",
