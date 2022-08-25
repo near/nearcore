@@ -154,17 +154,17 @@ fn apply_store_migrations_if_exists(
     if db_version <= 28 {
         // version 28 => 29: delete ColNextBlockWithNewChunk, ColLastBlockWithNewChunk
         info!(target: "near", "Migrate DB from version 28 to 29");
-        migrate_28_to_29(store_opener);
+        migrate_28_to_29(store_opener)?;
     }
     if db_version <= 29 {
         // version 29 => 30: migrate all structures that use ValidatorStake to versionized version
         info!(target: "near", "Migrate DB from version 29 to 30");
-        migrate_29_to_30(store_opener);
+        migrate_29_to_30(store_opener)?;
     }
     if db_version <= 30 {
         // version 30 => 31: recompute block ordinal due to a bug fixed in #5761
         info!(target: "near", "Migrate DB from version 30 to 31");
-        migrate_30_to_31(store_opener, &near_config);
+        migrate_30_to_31(store_opener, &near_config)?;
     }
 
     if cfg!(feature = "nightly") || cfg!(feature = "nightly_protocol") {
@@ -172,7 +172,7 @@ fn apply_store_migrations_if_exists(
             .open()
             .with_context(|| format!("Opening database at {}", store_opener.path().display()))?;
         // set some dummy value to avoid conflict with other migrations from nightly features
-        set_store_version(&store, 10000);
+        set_store_version(&store, 10000)?;
     } else {
         debug_assert_eq!(
             Some(near_primitives::version::DB_VERSION),
@@ -194,7 +194,8 @@ fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::
         .open()
         .with_context(|| format!("Opening database at {}", opener.path().display()))?;
     if !exists {
-        set_store_version(&store, near_primitives::version::DB_VERSION);
+        set_store_version(&store, near_primitives::version::DB_VERSION)
+            .with_context(|| format!("Initialising database at {}", opener.path().display()))?;
     }
 
     // Check if the storage is an archive and if it is make sure we are too.
