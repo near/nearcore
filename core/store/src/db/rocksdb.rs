@@ -83,7 +83,11 @@ impl RocksDB {
             Mode::ReadOnly => {
                 DB::open_cf_descriptors_read_only(&options, path, cf_descriptors, false)
             }
-            Mode::ReadWrite => DB::open_cf_descriptors(&options, path, cf_descriptors),
+            Mode::ReadWriteExisting | Mode::ReadWrite => {
+                // Difference between the two read-write modes is captured in
+                // options.  See rocksdb_options.
+                DB::open_cf_descriptors(&options, path, cf_descriptors)
+            }
         }
         .map_err(into_other)?;
         if cfg!(feature = "single_thread_rocksdb") {
@@ -294,12 +298,11 @@ fn next_prefix(prefix: &[u8]) -> Option<Vec<u8>> {
 
 /// DB level options
 fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
-    let read_write = matches!(mode, Mode::ReadWrite);
     let mut opts = Options::default();
 
     set_compression_options(&mut opts);
-    opts.create_missing_column_families(true);
-    opts.create_if_missing(read_write);
+    opts.create_missing_column_families(mode != Mode::ReadOnly);
+    opts.create_if_missing(mode == Mode::ReadWrite);
     opts.set_use_fsync(false);
     opts.set_max_open_files(store_config.max_open_files.try_into().unwrap_or(i32::MAX));
     opts.set_keep_log_file_num(1);
@@ -320,7 +323,8 @@ fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
         opts.set_max_total_wal_size(bytesize::GIB);
     }
 
-    if read_write && store_config.enable_statistics {
+    // TODO(mina86): Perhaps enable statistics even in read-only mode?
+    if mode != Mode::ReadOnly && store_config.enable_statistics {
         // Rust API doesn't permit choosing stats level. The default stats level
         // is `kExceptDetailedTimers`, which is described as: "Collects all
         // stats except time inside mutex lock AND time spent on compression."
