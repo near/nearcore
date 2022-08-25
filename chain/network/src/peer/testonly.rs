@@ -107,16 +107,16 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
                 let this_edge_info = match &msg.this_edge_info {
                     Some(info) => info.clone(),
                     None => self.cfg.partial_edge_info(
-                        &msg.connection_state.peer_info.id,
-                        msg.connection_state.partial_edge_info.nonce,
+                        &msg.connection.peer_info.id,
+                        msg.connection.partial_edge_info.nonce,
                     ),
                 };
                 let edge = Edge::new(
                     self.cfg.id(),
-                    msg.connection_state.peer_info.id.clone(),
+                    msg.connection.peer_info.id.clone(),
                     this_edge_info.nonce,
                     this_edge_info.signature.clone(),
-                    msg.connection_state.partial_edge_info.signature.clone(),
+                    msg.connection.partial_edge_info.signature.clone(),
                 );
                 self.event_sink.push(Event::HandshakeDone(edge.clone()));
                 PeerToManagerMsgResp::RegisterPeer(RegisterPeerResponse::Accept(
@@ -244,7 +244,6 @@ impl PeerHandle {
                     cfg.peer_type(),
                     FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
                     handshake_timeout,
-                    fpm.clone().recipient(),
                     fpm.clone().recipient(),
                     cfg.start_handshake_with
                         .as_ref()

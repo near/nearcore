@@ -1438,6 +1438,19 @@ impl Runtime {
         storage_computer.finalize()
     }
 
+    /// Compute the expected storage per account for genesis records.
+    pub fn compute_genesis_storage_usage(
+        &self,
+        genesis: &Genesis,
+        config: &RuntimeConfig,
+    ) -> HashMap<AccountId, u64> {
+        let mut storage_computer = StorageComputer::new(config);
+        genesis.for_each_record(|record| {
+            storage_computer.process_record(record);
+        });
+        storage_computer.finalize()
+    }
+
     /// Balances are account, publickey, initial_balance, initial_tx_stake
     pub fn apply_genesis_state(
         &self,
