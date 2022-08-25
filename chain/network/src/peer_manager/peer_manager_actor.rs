@@ -305,7 +305,7 @@ impl Actor for PeerManagerActor {
             (MONITOR_PEERS_INITIAL_DURATION, max_interval),
         );
 
-        let skip_tombstones = self.config.skip_sending_tombstones.map(|it| self.clock.now() + it);
+        let skip_tombstones = self.config.skip_tombstones.map(|it| self.clock.now() + it);
 
         // Periodically reads valid edges from `EdgesVerifierActor` and broadcast.
         self.broadcast_validated_edges_trigger(
@@ -693,7 +693,7 @@ impl PeerManagerActor {
                 // sending messages.
                 let mut known_edges: Vec<Edge> =
                     act.network_graph.read().edges().values().cloned().collect();
-                if act.config.skip_sending_tombstones.is_some() {
+                if act.config.skip_tombstones.is_some() {
                     known_edges.retain(|edge| edge.removal_info().is_none());
                     metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
                 }
