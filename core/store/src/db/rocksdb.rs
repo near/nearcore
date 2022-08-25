@@ -2,7 +2,6 @@ use std::io;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 
-use ::rocksdb::checkpoint::Checkpoint;
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, Direction, Env, IteratorMode, Options, ReadOptions,
     WriteBatch, DB,
@@ -17,6 +16,7 @@ use crate::db::{refcount, DBIterator, DBOp, DBTransaction, Database, StatsValue}
 use crate::{metrics, DBCol, StoreConfig, StoreStatistics};
 
 mod instance_tracker;
+pub(crate) mod snapshot;
 
 /// List of integer RocskDB properties we’re reading when collecting statistics.
 ///
@@ -459,11 +459,6 @@ impl RocksDB {
         } else {
             Ok(())
         }
-    }
-
-    /// Creates a Checkpoint object that can be used to actually create a checkpoint on disk.
-    pub fn checkpoint(&self) -> io::Result<Checkpoint> {
-        Checkpoint::new(&self.db).map_err(into_other)
     }
 
     /// Gets every int property in CF_STAT_NAMES for every column in DBCol.
