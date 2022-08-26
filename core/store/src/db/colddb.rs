@@ -110,7 +110,7 @@ impl<D: Database> super::Database for ColdDatabase<D> {
     ///
     /// This is only implemented for StateChanges column and will panic if used
     /// for any other column.
-    fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> super::DBIterator<'a> {
+    fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
         // We only ever call iter_prefix on DBCol::StateChanges so we don’t need
         // to worry about implementing it for any other column.
         assert_eq!(
@@ -126,7 +126,7 @@ impl<D: Database> super::Database for ColdDatabase<D> {
     }
 
     /// Unimplemented; always panics.
-    fn iter_raw_bytes<'a>(&'a self, _column: DBCol) -> super::DBIterator<'a> {
+    fn iter_raw_bytes<'a>(&'a self, _column: DBCol) -> DBIterator<'a> {
         // We’re actually never call iter_raw_bytes on cold store.
         unreachable!();
     }
