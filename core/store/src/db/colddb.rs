@@ -42,23 +42,32 @@ struct ColdDatabase<D: Database = crate::db::RocksDB>(D);
 //     }
 // }
 
-impl<D: Database> super::Database for ColdDatabase<D> {
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<Vec<u8>>> {
+impl<D: Database> ColdDatabase<D> {
+    fn get_impl(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<Vec<u8>>> {
         let mut buffer = [0; 32];
         let key = get_cold_key(col, key, &mut buffer).unwrap_or(key);
-        let mut result = self.0.get_raw_bytes(col, key);
+        self.0.get_raw_bytes(col, key)
+    }
+}
+
+impl<D: Database> super::Database for ColdDatabase<D> {
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<Vec<u8>>> {
+        let mut result = self.get_impl(col, key);
         if let Ok(Some(ref mut value)) = result {
             // Since we’ve stripped the reference count from the data stored in
-            // the database, we need to reintroduce it.
-            //
-            // TODO(mina86): In most cases higher level will strip the refcount.
-            // It’s rather silly that we’re adding it here just to get rid of it
-            // later.  Figure out a way to avoid this.
+            // the database, we need to reintroduce it.  Note that in practice
+            // this should be never called in production since reading of
+            // reference counted columns is done by get_with_rc_stripped.
             if col.is_rc() {
                 value.extend_from_slice(&1i64.to_le_bytes());
             }
         }
         result
+    }
+
+    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<Vec<u8>>> {
+        assert!(col.is_rc());
+        self.get_impl(col, key)
     }
 
     /// Iterates over all values in a column.
@@ -315,18 +324,25 @@ mod test {
         // Fetch data
         let mut result = Vec::<String>::new();
         let mut fetch = |col, key: &[u8], raw_only: bool| {
+            result.push(format!("{col} {}", pretty_key(key)));
             let dbs: [(bool, &dyn Database); 2] = [(false, &db), (true, &db.0)];
             for (is_raw, db) in dbs {
                 if raw_only && !is_raw {
                     continue;
                 }
+
+                let name = if is_raw { "raw " } else { "cold" };
                 let value = db.get_raw_bytes(col, &key).unwrap();
                 // When fetching reference counted column ColdDatabase adds
                 // reference count to it.
                 let value = pretty_value(value.as_deref(), col.is_rc() && !is_raw);
-                let key = pretty_key(key);
-                let name = if is_raw { "raw " } else { "cold" };
-                result.push(format!("[{name}] {col}, {key} → {value}"));
+                result.push(format!("    [{name}] get_raw_bytes → {value}"));
+
+                if col.is_rc() && !is_raw {
+                    let value = db.get_with_rc_stripped(col, &key).unwrap();
+                    let value = pretty_value(value.as_deref(), false);
+                    result.push(format!("    [{name}] get_sans_rc   → {value}"));
+                }
             }
         };
 
@@ -344,35 +360,51 @@ mod test {
         //     cargo install cargo-insta
         //     cargo insta test --accept -p near-store  -- db::colddb
         insta::assert_display_snapshot!(result.join("\n"), @r###"
-        [cold] BlockHeight, le(42) → FooBar
-        [raw ] BlockHeight, le(42) → ∅
-        [cold] BlockHeight, be(42) → ∅
-        [raw ] BlockHeight, be(42) → FooBar
-        [cold] BlockPerHeight, le(42) → FooBar
-        [raw ] BlockPerHeight, le(42) → ∅
-        [cold] BlockPerHeight, be(42) → ∅
-        [raw ] BlockPerHeight, be(42) → FooBar
-        [cold] ChunkHashesByHeight, le(42) → FooBar
-        [raw ] ChunkHashesByHeight, le(42) → ∅
-        [cold] ChunkHashesByHeight, be(42) → ∅
-        [raw ] ChunkHashesByHeight, be(42) → FooBar
-        [cold] ProcessedBlockHeights, le(42) → FooBar
-        [raw ] ProcessedBlockHeights, le(42) → ∅
-        [cold] ProcessedBlockHeights, be(42) → ∅
-        [raw ] ProcessedBlockHeights, be(42) → FooBar
-        [cold] HeaderHashesByHeight, le(42) → FooBar
-        [raw ] HeaderHashesByHeight, le(42) → ∅
-        [cold] HeaderHashesByHeight, be(42) → ∅
-        [raw ] HeaderHashesByHeight, be(42) → FooBar
-        [cold] ChunkPerHeightShard, `le(42) || ShardUId` → FooBar
-        [raw ] ChunkPerHeightShard, `le(42) || ShardUId` → ∅
-        [cold] ChunkPerHeightShard, `be(42) || ShardUId` → ∅
-        [raw ] ChunkPerHeightShard, `be(42) || ShardUId` → FooBar
-        [cold] State, `ShardUId || 11111111111111111111111111111111` → FooBar; rc: 1
-        [raw ] State, `ShardUId || 11111111111111111111111111111111` → ∅
-        [raw ] State, 11111111111111111111111111111111 → FooBar
-        [cold] Block, 11111111111111111111111111111111 → FooBar
-        [raw ] Block, 11111111111111111111111111111111 → FooBar
+        BlockHeight le(42)
+            [cold] get_raw_bytes → FooBar
+            [raw ] get_raw_bytes → ∅
+        BlockHeight be(42)
+            [cold] get_raw_bytes → ∅
+            [raw ] get_raw_bytes → FooBar
+        BlockPerHeight le(42)
+            [cold] get_raw_bytes → FooBar
+            [raw ] get_raw_bytes → ∅
+        BlockPerHeight be(42)
+            [cold] get_raw_bytes → ∅
+            [raw ] get_raw_bytes → FooBar
+        ChunkHashesByHeight le(42)
+            [cold] get_raw_bytes → FooBar
+            [raw ] get_raw_bytes → ∅
+        ChunkHashesByHeight be(42)
+            [cold] get_raw_bytes → ∅
+            [raw ] get_raw_bytes → FooBar
+        ProcessedBlockHeights le(42)
+            [cold] get_raw_bytes → FooBar
+            [raw ] get_raw_bytes → ∅
+        ProcessedBlockHeights be(42)
+            [cold] get_raw_bytes → ∅
+            [raw ] get_raw_bytes → FooBar
+        HeaderHashesByHeight le(42)
+            [cold] get_raw_bytes → FooBar
+            [raw ] get_raw_bytes → ∅
+        HeaderHashesByHeight be(42)
+            [cold] get_raw_bytes → ∅
+            [raw ] get_raw_bytes → FooBar
+        ChunkPerHeightShard `le(42) || ShardUId`
+            [cold] get_raw_bytes → FooBar
+            [raw ] get_raw_bytes → ∅
+        ChunkPerHeightShard `be(42) || ShardUId`
+            [cold] get_raw_bytes → ∅
+            [raw ] get_raw_bytes → FooBar
+        State `ShardUId || 11111111111111111111111111111111`
+            [cold] get_raw_bytes → FooBar; rc: 1
+            [cold] get_sans_rc   → FooBar
+            [raw ] get_raw_bytes → ∅
+        State 11111111111111111111111111111111
+            [raw ] get_raw_bytes → FooBar
+        Block 11111111111111111111111111111111
+            [cold] get_raw_bytes → FooBar
+            [raw ] get_raw_bytes → FooBar
         "###);
     }
 
