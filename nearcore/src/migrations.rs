@@ -8,33 +8,48 @@ use near_store::DBCol;
 
 /// Fix an issue with block ordinal (#5761)
 // This migration takes at least 3 hours to complete on mainnet
-pub fn migrate_30_to_31(store_opener: &near_store::StoreOpener, near_config: &crate::NearConfig) {
-    let store = store_opener.open().unwrap();
+pub fn migrate_30_to_31(
+    store_opener: &near_store::StoreOpener,
+    near_config: &crate::NearConfig,
+) -> anyhow::Result<()> {
+    let store = store_opener.open()?;
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
-        let genesis_height = near_config.genesis.config.genesis_height;
-        let chain_store = ChainStore::new(store.clone(), genesis_height, false);
-        let head = chain_store.head().unwrap();
-        let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
-        let mut count = 0;
-        // we manually checked mainnet archival data and the first block where the discrepancy happened is `47443088`.
-        for height in 47443088..=head.height {
-            if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
-                let block_ordinal = chain_store.get_block_merkle_tree(&block_hash).unwrap().size();
-                let block_hash_from_block_ordinal =
-                    chain_store.get_block_hash_from_ordinal(block_ordinal).unwrap();
-                if block_hash_from_block_ordinal != block_hash {
-                    println!("Inconsistency in block ordinal to block hash mapping found at block height {}", height);
-                    count += 1;
-                    store_update
-                        .set_ser(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal), &block_hash)
-                        .expect("BorshSerialize should not fail");
-                }
+        do_migrate_30_to_31(&store, &near_config.genesis.config)?;
+    }
+    set_store_version(&store, 31)?;
+    Ok(())
+}
+
+pub fn do_migrate_30_to_31(
+    store: &near_store::Store,
+    genesis_config: &near_chain_configs::GenesisConfig,
+) -> anyhow::Result<()> {
+    let genesis_height = genesis_config.genesis_height;
+    let chain_store = ChainStore::new(store.clone(), genesis_height, false);
+    let head = chain_store.head()?;
+    let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
+    let mut count = 0;
+    // we manually checked mainnet archival data and the first block where the discrepancy happened is `47443088`.
+    for height in 47443088..=head.height {
+        if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
+            let block_ordinal = chain_store.get_block_merkle_tree(&block_hash)?.size();
+            let block_hash_from_block_ordinal =
+                chain_store.get_block_hash_from_ordinal(block_ordinal)?;
+            if block_hash_from_block_ordinal != block_hash {
+                println!(
+                    "Inconsistency in block ordinal to block hash mapping found at block height {}",
+                    height
+                );
+                count += 1;
+                store_update
+                    .set_ser(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal), &block_hash)
+                    .expect("BorshSerialize should not fail");
             }
         }
-        println!("total inconsistency count: {}", count);
-        store_update.finish().expect("Failed to migrate");
     }
-    set_store_version(&store, 31);
+    println!("total inconsistency count: {}", count);
+    store_update.finish()?;
+    Ok(())
 }
 
 /// In test runs reads and writes here used 442 TGas, but in test on live net migration take

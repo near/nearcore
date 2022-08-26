@@ -1,22 +1,22 @@
 use std::io;
 use std::path::Path;
 use std::sync::atomic::Ordering;
-use std::sync::{Condvar, Mutex};
 
-use ::rocksdb::checkpoint::Checkpoint;
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, Direction, Env, IteratorMode, Options, ReadOptions,
     WriteBatch, DB,
 };
-use once_cell::sync::Lazy;
 use strum::IntoEnumIterator;
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 
 use near_primitives::version::DbVersion;
 
 use crate::config::Mode;
 use crate::db::{refcount, DBIterator, DBOp, DBTransaction, Database, StatsValue};
 use crate::{metrics, DBCol, StoreConfig, StoreStatistics};
+
+mod instance_tracker;
+pub(crate) mod snapshot;
 
 /// List of integer RocskDB properties we’re reading when collecting statistics.
 ///
@@ -38,8 +38,9 @@ pub struct RocksDB {
     check_free_space_interval: u16,
     free_space_threshold: bytesize::ByteSize,
 
-    // RAII-style of keeping track of the number of instances of RocksDB in a global variable.
-    _instance_counter: InstanceCounter,
+    // RAII-style of keeping track of the number of instances of RocksDB and
+    // counting total sum of max_open_files.
+    _instance_tracker: instance_tracker::InstanceTracker,
 }
 
 // DB was already Send+Sync. cf and read_options are const pointers using only functions in
@@ -47,52 +48,12 @@ pub struct RocksDB {
 unsafe impl Send for RocksDB {}
 unsafe impl Sync for RocksDB {}
 
-/// Ensures that NOFILE limit can accommodate `max_open_files` plus some small margin
-/// of file descriptors.
-///
-/// A RocksDB instance can keep up to the configured `max_open_files` number of
-/// file descriptors.  In addition, we need handful more for other processing
-/// (such as network sockets to name just one example).  If NOFILE is too small
-/// opening files may start failing which would prevent us from operating
-/// correctly.
-///
-/// To avoid such failures, this method ensures that NOFILE limit is large
-/// enough to accommodate `max_open_file` plus another 1000 file descriptors.
-/// If current limit is too low, it will attempt to set it to a higher value.
-///
-/// Returns error if NOFILE limit could not be read or set.  In practice the
-/// only thing that can happen is hard limit being too low such that soft limit
-/// cannot be increased to required value.
-fn ensure_max_open_files_limit(max_open_files: u32) -> Result<(), String> {
-    let required = max_open_files as u64 + 1000;
-    let (soft, hard) = rlimit::Resource::NOFILE.get().map_err(|err| {
-        format!("Unable to get limit for the number of open files (NOFILE): {err}")
-    })?;
-    if required <= soft {
-        Ok(())
-    } else if required <= hard {
-        rlimit::Resource::NOFILE.set(required, hard).map_err(|err| {
-            format!(
-                "Unable to change limit for the number of open files (NOFILE) \
-                 from ({soft}, {hard}) to ({required}, {hard}) (for configured \
-                 max_open_files={max_open_files}): {err}"
-            )
-        })
-    } else {
-        Err(format!(
-            "Hard limit for the number of open files (NOFILE) is too low \
-             ({hard}).  At least {required} is required (for configured \
-             max_open_files={max_open_files}).  Set ‘ulimit -Hn’ accordingly \
-             and restart the node."
-        ))
-    }
-}
-
 impl RocksDB {
     /// Opens the database either in read only or in read/write mode depending
     /// on the `mode` parameter specified in the store_config.
     pub fn open(path: &Path, store_config: &StoreConfig, mode: Mode) -> io::Result<RocksDB> {
-        ensure_max_open_files_limit(store_config.max_open_files).map_err(other_error)?;
+        let counter = instance_tracker::InstanceTracker::try_new(store_config.max_open_files)
+            .map_err(other_error)?;
         let (db, db_opt) = Self::open_db(path, store_config, mode)?;
         let cf_handles = Self::get_cf_handles(&db);
 
@@ -103,7 +64,7 @@ impl RocksDB {
             check_free_space_interval: 256,
             check_free_space_counter: std::sync::atomic::AtomicU16::new(0),
             free_space_threshold: bytesize::ByteSize::mb(16),
-            _instance_counter: InstanceCounter::new(),
+            _instance_tracker: counter,
         })
     }
 
@@ -122,7 +83,11 @@ impl RocksDB {
             Mode::ReadOnly => {
                 DB::open_cf_descriptors_read_only(&options, path, cf_descriptors, false)
             }
-            Mode::ReadWrite => DB::open_cf_descriptors(&options, path, cf_descriptors),
+            Mode::ReadWriteExisting | Mode::ReadWrite => {
+                // Difference between the two read-write modes is captured in
+                // options.  See rocksdb_options.
+                DB::open_cf_descriptors(&options, path, cf_descriptors)
+            }
         }
         .map_err(into_other)?;
         if cfg!(feature = "single_thread_rocksdb") {
@@ -333,12 +298,11 @@ fn next_prefix(prefix: &[u8]) -> Option<Vec<u8>> {
 
 /// DB level options
 fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
-    let read_write = matches!(mode, Mode::ReadWrite);
     let mut opts = Options::default();
 
     set_compression_options(&mut opts);
-    opts.create_missing_column_families(true);
-    opts.create_if_missing(read_write);
+    opts.create_missing_column_families(mode != Mode::ReadOnly);
+    opts.create_if_missing(mode == Mode::ReadWrite);
     opts.set_use_fsync(false);
     opts.set_max_open_files(store_config.max_open_files.try_into().unwrap_or(i32::MAX));
     opts.set_keep_log_file_num(1);
@@ -359,7 +323,8 @@ fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
         opts.set_max_total_wal_size(bytesize::GIB);
     }
 
-    if read_write && store_config.enable_statistics {
+    // TODO(mina86): Perhaps enable statistics even in read-only mode?
+    if mode != Mode::ReadOnly && store_config.enable_statistics {
         // Rust API doesn't permit choosing stats level. The default stats level
         // is `kExceptDetailedTimers`, which is described as: "Collects all
         // stats except time inside mutex lock AND time spent on compression."
@@ -448,20 +413,10 @@ fn set_compression_options(opts: &mut Options) {
     opts.set_bottommost_zstd_max_train_bytes(max_train_bytes, true);
 }
 
-// Number of RocksDB instances in the process.
-pub(crate) static ROCKSDB_INSTANCES_COUNTER: Lazy<(Mutex<usize>, Condvar)> =
-    Lazy::new(|| (Mutex::new(0), Condvar::new()));
-
 impl RocksDB {
     /// Blocks until all RocksDB instances (usually 0 or 1) gracefully shutdown.
     pub fn block_until_all_instances_are_dropped() {
-        let (lock, cvar) = &*ROCKSDB_INSTANCES_COUNTER;
-        let mut num_instances = lock.lock().unwrap();
-        while *num_instances != 0 {
-            info!(target: "db", "Waiting for the {} remaining RocksDB instances to gracefully shutdown", *num_instances);
-            num_instances = cvar.wait(num_instances).unwrap();
-        }
-        info!(target: "db", "All RocksDB instances performed a graceful shutdown");
+        instance_tracker::block_until_all_instances_are_dropped();
     }
 
     /// Returns version of the database state on disk.
@@ -504,11 +459,6 @@ impl RocksDB {
         } else {
             Ok(())
         }
-    }
-
-    /// Creates a Checkpoint object that can be used to actually create a checkpoint on disk.
-    pub fn checkpoint(&self) -> io::Result<Checkpoint> {
-        Checkpoint::new(&self.db).map_err(into_other)
     }
 
     /// Gets every int property in CF_STAT_NAMES for every column in DBCol.
@@ -556,32 +506,6 @@ impl Drop for RocksDB {
             env.set_background_threads(4);
         }
         self.db.cancel_all_background_work(true);
-    }
-}
-
-// We've seen problems with RocksDB corruptions. InstanceCounter lets us gracefully shutdown the
-// process letting RocksDB to finish all operations and leaving the instances in a valid
-// non-corrupted state.
-struct InstanceCounter {}
-
-impl InstanceCounter {
-    fn new() -> Self {
-        let (lock, cvar) = &*ROCKSDB_INSTANCES_COUNTER;
-        let mut num_instances = lock.lock().unwrap();
-        *num_instances += 1;
-        info!(target: "db", num_instances=%*num_instances, "Created a new RocksDB instance.");
-        cvar.notify_all();
-        Self {}
-    }
-}
-
-impl Drop for InstanceCounter {
-    fn drop(&mut self) {
-        let (lock, cvar) = &*ROCKSDB_INSTANCES_COUNTER;
-        let mut num_instances = lock.lock().unwrap();
-        *num_instances -= 1;
-        info!(target: "db", num_instances=%*num_instances, "Dropped a RocksDB instance.");
-        cvar.notify_all();
     }
 }
 

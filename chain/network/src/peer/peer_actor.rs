@@ -23,9 +23,9 @@ use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfoV2, PeerIdOrHash,
-    PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType, ReasonForBan,
-    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+    Ban, EdgeState, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfoV2,
+    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType,
+    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
 };
 use near_network_primitives::types::{Edge, PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
@@ -660,7 +660,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
         // as long as it travels to PeerManager, etc.
 
         self.update_stats_on_receiving_message(msg.len());
-        let peer_msg = match self.parse_message(&msg) {
+        let mut peer_msg = match self.parse_message(&msg) {
             Ok(msg) => msg,
             Err(err) => {
                 debug!(target: "network", "Received invalid data {:?} from {}: {}", logging::pretty_vec(&msg), self.peer_info, err);
@@ -704,6 +704,22 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES
                 .with_label_values(&labels)
                 .inc_by(msg.len() as u64);
+        }
+
+        // Optionally, ignore any received tombstones after startup. This is to
+        // prevent overload from too much accumulated deleted edges.
+        //
+        // We have similar code to skip sending tombstones, here we handle the
+        // case when our peer doesn't use that logic yet.
+        if let Some(skip_tombstones) = self.network_state.config.skip_tombstones {
+            if let PeerMessage::SyncRoutingTable(routing_table) = &mut peer_msg {
+                if let Some(connection) = &self.connection {
+                    if connection.connection_established_time + skip_tombstones > self.clock.now() {
+                        routing_table.edges.retain(|edge| edge.edge_type() == EdgeState::Active);
+                        metrics::EDGE_TOMBSTONE_RECEIVING_SKIPPED.inc();
+                    }
+                }
+            }
         }
 
         match (self.peer_status, peer_msg.clone()) {

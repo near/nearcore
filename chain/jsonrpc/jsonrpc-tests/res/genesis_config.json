@@ -18,7 +18,7 @@
   "protocol_upgrade_num_epochs": 2,
   "epoch_length": 500,
   "gas_limit": 1000000000000000,
-  "min_gas_price": "1000000000",
+  "min_gas_price": "100000000",
   "max_gas_price": "10000000000000000000000",
   "block_producer_kickout_threshold": 90,
   "chunk_producer_kickout_threshold": 90,
