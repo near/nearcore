@@ -147,8 +147,6 @@ impl Default for StoreConfig {
 }
 
 impl MigrationSnapshot {
-    pub const DEFAULT_PATH: &'static str = "migration-snapshot";
-
     /// Returns path to the snapshot given path to the database.
     ///
     /// Returns `None` if migration snapshot is disabled.  Relative paths are
