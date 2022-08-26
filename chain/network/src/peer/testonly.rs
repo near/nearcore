@@ -22,7 +22,7 @@ use near_network::types::{
 use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
 
-use near_network::time;
+use crate::time;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tracing::Span;

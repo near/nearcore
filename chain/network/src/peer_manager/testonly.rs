@@ -12,7 +12,7 @@ use crate::testonly::Rng;
 use crate::types::{ChainInfo, GetNetworkInfo, PeerManagerMessageRequest, SetChainInfo};
 use crate::PeerManagerActor;
 use actix::Actor;
-use near_network::time;
+use crate::time;
 use near_network::types::{OutboundTcpConnect, PeerInfo};
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, EpochId};

@@ -10,7 +10,7 @@ use crate::testonly::{assert_is_superset, make_rng, AsSet as _};
 use crate::types::{PeerMessage, RoutingTableUpdate};
 use itertools::Itertools;
 use near_logger_utils::init_test_logger;
-use near_network::time;
+use crate::time;
 use near_network::types::{Ping, RoutedMessageBody, EDGE_MIN_TIMESTAMP_NONCE};
 use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;

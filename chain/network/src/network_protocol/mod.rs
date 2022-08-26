@@ -16,7 +16,7 @@ pub use _proto::network as proto;
 
 use ::borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_crypto::PublicKey;
-use near_network::time;
+use crate::time;
 use near_network::types::{
     Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessageBody, RoutedMessageV2,
 };
@@ -628,21 +628,6 @@ pub struct Ping {
 pub struct Pong {
     pub nonce: u64,
     pub source: PeerId,
-}
-
-/// Message for chunk part owners to forward their parts to validators tracking that shard.
-/// This reduces the number of requests a node tracking a shard needs to send to obtain enough
-/// parts to reconstruct the message (in the best case no such requests are needed).
-#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
-pub struct PartialEncodedChunkForwardMsg {
-    pub chunk_hash: ChunkHash,
-    pub inner_header_hash: CryptoHash,
-    pub merkle_root: CryptoHash,
-    pub signature: Signature,
-    pub prev_block_hash: CryptoHash,
-    pub height_created: BlockHeight,
-    pub shard_id: ShardId,
-    pub parts: Vec<PartialEncodedChunkPart>,
 }
 
 impl PartialEncodedChunkForwardMsg {

@@ -6,7 +6,7 @@ use crate::routing::routing_table_view::RoutingTableInfo;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use near_crypto::PublicKey;
-use near_network::time;
+use crate::time;
 use near_network::types::{
     AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, KnownProducer, OutboundTcpConnect,
     PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
@@ -379,9 +379,9 @@ impl From<&FullPeerInfo> for ConnectedPeerInfo {
             full_peer_info: full_peer_info.clone(),
             received_bytes_per_sec: 0,
             sent_bytes_per_sec: 0,
-            last_time_peer_requested: near_network::time::Instant::now(),
-            last_time_received_message: near_network::time::Instant::now(),
-            connection_established_time: near_network::time::Instant::now(),
+            last_time_peer_requested: crate::time::Instant::now(),
+            last_time_received_message: crate::time::Instant::now(),
+            connection_established_time: crate::time::Instant::now(),
             peer_type: PeerType::Outbound,
         }
     }
@@ -607,8 +607,8 @@ impl<M: actix::Message, T: MsgRecipient<M>> MsgRecipient<M> for NetworkRecipient
 #[cfg(test)]
 mod tests {
     use super::*;
+    use near_primitives::syncing::ShardStateSyncResponseV1;
 
-    // NOTE: this has it's counterpart in `near_network::types::tests`
     const ALLOWED_SIZE: usize = 1 << 20;
     const NOTIFY_SIZE: usize = 1024;
 
@@ -636,16 +636,6 @@ mod tests {
         assert_size!(FullPeerInfo);
         assert_size!(NetworkInfo);
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use near_primitives::syncing::ShardStateSyncResponseV1;
-
-    // NOTE: this has it's counterpart in `near_network::types::tests`
-    const ALLOWED_SIZE: usize = 1 << 20;
-    const NOTIFY_SIZE: usize = 1024;
 
     macro_rules! assert_size {
         ($type:ident) => {

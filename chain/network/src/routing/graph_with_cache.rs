@@ -1,6 +1,6 @@
 use crate::routing;
 use crate::stats::metrics;
-use near_network::time;
+use crate::time;
 use near_network::types::{Edge, EdgeState};
 use near_primitives::network::PeerId;
 use parking_lot::Mutex;

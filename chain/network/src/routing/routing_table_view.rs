@@ -2,7 +2,7 @@ use crate::routing;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::store;
 use lru::LruCache;
-use near_network::time;
+use crate::time;
 use near_network::types::{Edge, PeerIdOrHash};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};

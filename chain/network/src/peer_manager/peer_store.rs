@@ -1,7 +1,7 @@
 use crate::config;
 use crate::store;
 use anyhow::bail;
-use near_network::time;
+use crate::time;
 use near_network::types::{
     Blacklist, KnownPeerState, KnownPeerStatus, PeerInfo, ReasonForBan,
 };

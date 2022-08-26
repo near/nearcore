@@ -3,7 +3,7 @@ use crate::routing;
 use crate::routing::routing_table_view::*;
 use crate::store;
 use crate::testonly::make_rng;
-use near_network::time;
+use crate::time;
 use near_network::types::PeerIdOrHash;
 use near_store::test_utils::create_test_store;
 use rand::seq::SliceRandom;

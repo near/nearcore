@@ -28,7 +28,7 @@ use actix::{
 use anyhow::bail;
 use anyhow::Context as _;
 use arc_swap::ArcSwap;
-use near_network::time;
+use crate::time;
 use near_network::types::{
     AccountOrPeerIdOrHash, Ban, Edge, KnownPeerStatus, KnownProducer, NetworkViewClientMessages,
     NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerInfo, PeerType, Ping, Pong,

@@ -4,7 +4,7 @@ use crate::store;
 use crate::store::testonly::Component;
 use crate::testonly::make_rng;
 use near_crypto::Signature;
-use near_network::time;
+use crate::time;
 use near_network::types::Edge;
 use near_network::types::EDGE_MIN_TIMESTAMP_NONCE;
 use near_primitives::network::PeerId;

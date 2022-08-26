@@ -310,7 +310,7 @@ pub mod test_features {
     use crate::PeerManagerActor;
     use actix::actors::mocker::Mocker;
     use actix::Actor;
-    use near_network::time;
+    use crate::time;
     use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
     use near_primitives::block::GenesisId;
     use near_store::Store;

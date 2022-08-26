@@ -9,7 +9,7 @@ use crate::types::{Handshake, HandshakeFailureReason, PeerMessage};
 use anyhow::Context as _;
 use assert_matches::assert_matches;
 use near_logger_utils::init_test_logger;
-use near_network::time;
+use crate::time;
 use near_network::types::{
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, RoutedMessageBody,
 };

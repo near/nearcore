@@ -3,7 +3,7 @@ use crate::network_protocol::testonly as data;
 use crate::network_protocol::SignedAccountData;
 use crate::testonly::{assert_is_superset, make_rng, AsSet as _, Rng};
 use crate::types::AccountKeys;
-use near_network::time;
+use crate::time;
 use near_primitives::types::EpochId;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner as _};
 use pretty_assertions::assert_eq;

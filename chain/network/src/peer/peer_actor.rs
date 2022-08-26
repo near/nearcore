@@ -23,7 +23,7 @@ use actix::{
 use anyhow::Context as _;
 use lru::LruCache;
 use near_crypto::Signature;
-use near_network::time;
+use crate::time;
 use near_network::types::{
     Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfoV2, PeerIdOrHash,
     PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType, ReasonForBan,

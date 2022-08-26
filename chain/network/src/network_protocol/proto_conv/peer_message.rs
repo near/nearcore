@@ -5,7 +5,7 @@ use crate::network_protocol::proto;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::{PeerMessage, RoutingTableUpdate, SyncAccountsData};
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
-use near_network::time::error::ComponentRange;
+use crate::time::error::ComponentRange;
 use near_network::types::{RoutedMessage, RoutedMessageV2};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;

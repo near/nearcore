@@ -1,5 +1,5 @@
 use crate::stats::metrics;
-use near_network::time;
+use crate::time;
 use near_network::types::{Edge, InvalidNonceError};
 
 // Don't accept nonces (edges) that are more than this delta from current time.
