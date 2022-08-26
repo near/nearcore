@@ -52,21 +52,21 @@ fn create_db_checkpoint(
 ) -> anyhow::Result<near_store::Snapshot> {
     use near_store::config::MigrationSnapshot;
 
-    if near_config.config.use_db_migration_snapshot.is_some()
-        || near_config.config.db_migration_snapshot_path.is_some()
-    {
-        let example = match (
-            near_config.config.use_db_migration_snapshot,
-            near_config.config.db_migration_snapshot_path.as_ref(),
-        ) {
-            (Some(false), _) => MigrationSnapshot::Enabled(false),
-            (_, None) => MigrationSnapshot::Enabled(true),
-            (_, Some(path)) => MigrationSnapshot::Path(path.join("migration-snapshot")),
-        }
-        .format_example();
+    let example = match (
+        near_config.config.use_db_migration_snapshot,
+        near_config.config.db_migration_snapshot_path.as_ref(),
+    ) {
+        (None, None) => None,
+        (Some(false), _) => Some(MigrationSnapshot::Enabled(false)),
+        (_, None) => Some(MigrationSnapshot::Enabled(true)),
+        (_, Some(path)) => Some(MigrationSnapshot::Path(path.join("migration-snapshot"))),
+    };
+    if let Some(example) = example {
         anyhow::bail!(
-            "‘use_db_migration_snapshot’ and ‘db_migration_snapshot_path’ options are deprecated.\n\
-             Set ‘store.migration_snapshot’ to instead, e.g.:\n{example}"
+            "‘use_db_migration_snapshot’ and ‘db_migration_snapshot_path’ \
+             options are deprecated.\n\
+             Set ‘store.migration_snapshot’ to instead, e.g.:\n{}",
+            example.format_example()
         )
     }
 
