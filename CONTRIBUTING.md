@@ -73,7 +73,7 @@ for our testing guidelines and overview of the testing infrastructure.
 on the right track.
 3. A PR can contain any number of commits and when merged, the commits will be
 squashed into a single commit.
-4. The PR name should follow the template: `<type>: <name>`.  
+4. The PR name should follow the template: `<type>: <name>`.
 Where `type` is:
    - `fix` for bug fixes;
    - `feat` for new features;
@@ -81,15 +81,8 @@ Where `type` is:
    - `doc` for changes that change documentation or comments;
    - `test` for changes that introduce new tests;
    - `chore` for grunt tasks like updating dependencies.
-5. The PR description should follow the following template:
-
-```
-<description>
-
-Test plan
----------
-<test plan>
-```
+5. The PR should also contain a description when appropriate to provide
+additional information to help the reviewer inspect the proposed change.
 6. If your PR introduces a user-observable change (e.g. a new protocol
 feature, new configuration option, new Prometheus metric etc.) please
 document it in [CHANGELOG.md](CHANGELOG.md) in `[unreleased]` section.
