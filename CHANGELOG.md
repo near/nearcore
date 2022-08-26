@@ -24,6 +24,9 @@
 * Rosetta RPC account balance request now accepts public keys in
   metadata and returns corresponding nonces
   [#7186](https://github.com/near/nearcore/issues/7186)
+* Due to increasing state size, improved shard cache for Trie nodes to
+  put more nodes in memory. Requires 3 GB more RAM
+  [#7429](https://github.com/near/nearcore/pull/7429)
 
 ## 1.27.0 [2022-06-22]
 
