@@ -17,6 +17,7 @@ pub(crate) mod stats;
 pub(crate) mod store;
 pub mod test_utils;
 pub mod types;
+pub mod time;
 
 #[cfg(test)]
 pub(crate) mod testonly;

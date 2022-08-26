@@ -93,19 +93,32 @@ const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
 /// How long a peer has to be unreachable, until we prune it from the in-memory graph.
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
-// Remove the edges that were created more that this duration ago.
+/// Remove the edges that were created more that this duration ago.
 const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 
 /// Send important messages three times.
 /// We send these messages multiple times to reduce the chance that they are lost
 const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 
-// If a peer is more than these blocks behind (comparing to our current head) - don't route any messages through it.
-// We are updating the list of unreliable peers every MONITOR_PEER_MAX_DURATION (60 seconds) - so the current
-// horizon value is roughly matching this threshold (if the node is 60 blocks behind, it will take it a while to recover).
-// If we set this horizon too low (for example 2 blocks) - we're risking excluding a lot of peers in case of a short
-// network issue.
+/// If a peer is more than these blocks behind (comparing to our current head) - don't route any messages through it.
+/// We are updating the list of unreliable peers every MONITOR_PEER_MAX_DURATION (60 seconds) - so the current
+/// horizon value is roughly matching this threshold (if the node is 60 blocks behind, it will take it a while to recover).
+/// If we set this horizon too low (for example 2 blocks) - we're risking excluding a lot of peers in case of a short
+/// network issue.
 const UNRELIABLE_PEER_HORIZON: u64 = 60;
+
+/// Number of hops a message is allowed to travel before being dropped.
+/// This is used to avoid infinite loop because of inconsistent view of the network
+/// by different nodes.
+pub const ROUTED_MESSAGE_TTL: u8 = 100;
+/// On every message from peer don't update `last_time_received_message`
+/// but wait some "small" timeout between updates to avoid a lot of messages between
+/// Peer and PeerManager.
+pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: time::Duration = time::Duration::seconds(60);
+/// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
+pub const MAX_NUM_PEERS: usize = 128;
+
+
 
 #[derive(Clone, PartialEq, Eq)]
 struct WhitelistNode {
