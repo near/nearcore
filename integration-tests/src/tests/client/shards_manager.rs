@@ -3,7 +3,7 @@ use near_chunks::ShardsManager;
 use near_client::test_utils::TestEnv;
 use near_logger_utils::init_test_logger;
 
-use near_network_primitives::types::PartialEncodedChunkRequestMsg;
+use near_network::types::PartialEncodedChunkRequestMsg;
 
 /// Checks that various ways of preparing partial encode chunk request give the
 /// same result.

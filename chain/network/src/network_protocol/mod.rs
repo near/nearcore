@@ -16,8 +16,8 @@ pub use _proto::network as proto;
 
 use ::borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_crypto::PublicKey;
-use near_network_primitives::time;
-use near_network_primitives::types::{
+use near_network::time;
+use near_network::types::{
     Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessageBody, RoutedMessageV2,
 };
 use near_primitives::block::{Block, BlockHeader, GenesisId};

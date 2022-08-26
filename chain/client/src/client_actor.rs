@@ -34,7 +34,7 @@ use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_network_primitives::types::ReasonForBan;
+use near_network::types::ReasonForBan;
 use near_performance_metrics;
 use near_performance_metrics_macros::{perf, perf_with_debug};
 use near_primitives::block_header::ApprovalType;
@@ -287,19 +287,19 @@ impl ClientActor {
             #[cfg(feature = "test_features")]
             NetworkClientMessages::Adversarial(adversarial_msg) => {
                 return match adversarial_msg {
-                    near_network_primitives::types::NetworkAdversarialMessage::AdvDisableDoomslug => {
+                    near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug => {
                         info!(target: "adversary", "Turning Doomslug off");
                         self.adv.set_disable_doomslug(true);
                         self.client.doomslug.adv_disable();
                         self.client.chain.adv_disable_doomslug();
                         NetworkClientResponses::NoResponse
                     }
-                    near_network_primitives::types::NetworkAdversarialMessage::AdvDisableHeaderSync => {
+                    near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync => {
                         info!(target: "adversary", "Blocking header sync");
                         self.adv.set_disable_header_sync(true);
                         NetworkClientResponses::NoResponse
                     }
-                    near_network_primitives::types::NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid) => {
+                    near_network::types::NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid) => {
                         info!(target: "adversary", "Producing {} blocks", num_blocks);
                         self.client.adv_produce_blocks = true;
                         self.client.adv_produce_blocks_only_valid = only_valid;
@@ -330,7 +330,7 @@ impl ClientActor {
                         }
                         NetworkClientResponses::NoResponse
                     }
-                    near_network_primitives::types::NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
+                    near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
                         info!(target: "adversary", "Switching to height {:?}", height);
                         let mut chain_store_update = self.client.chain.mut_store().store_update();
                         chain_store_update.save_largest_target_height(height);
@@ -340,13 +340,13 @@ impl ClientActor {
                         chain_store_update.commit().expect("adv method should not fail");
                         NetworkClientResponses::NoResponse
                     }
-                    near_network_primitives::types::NetworkAdversarialMessage::AdvSetSyncInfo(height) => {
+                    near_network::types::NetworkAdversarialMessage::AdvSetSyncInfo(height) => {
                         info!(target: "adversary", %height, "AdvSetSyncInfo");
                         self.client.adv_sync_height = Some(height);
                         self.client.send_network_chain_info().expect("adv method should not fail");
                         NetworkClientResponses::NoResponse
                     }
-                    near_network_primitives::types::NetworkAdversarialMessage::AdvGetSavedBlocks => {
+                    near_network::types::NetworkAdversarialMessage::AdvGetSavedBlocks => {
                         info!(target: "adversary", "Requested number of saved blocks");
                         let store = self.client.chain.store().store();
                         let mut num_blocks = 0;
@@ -355,7 +355,7 @@ impl ClientActor {
                         }
                         NetworkClientResponses::AdvResult(num_blocks)
                     }
-                    near_network_primitives::types::NetworkAdversarialMessage::AdvCheckStorageConsistency => {
+                    near_network::types::NetworkAdversarialMessage::AdvCheckStorageConsistency => {
                         // timeout is set to 1.5 seconds to give some room as we wait in Nightly for 2 seconds
                         let timeout = 1500;
                         info!(target: "adversary", "Check Storage Consistency, timeout set to {:?} milliseconds", timeout);

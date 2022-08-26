@@ -16,7 +16,7 @@ use near_logger_utils::init_integration_logger;
 use near_network::types::{
     NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
 };
-use near_network_primitives::types::{
+use near_network::types::{
     AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, PeerInfo,
 };
 use near_primitives::hash::{hash as hash_func, CryptoHash};

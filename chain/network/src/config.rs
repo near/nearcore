@@ -4,8 +4,8 @@ use crate::peer_manager::peer_manager_actor::Event;
 use crate::sink::Sink;
 use anyhow::Context;
 use near_crypto::{KeyType, SecretKey};
-use near_network_primitives::time;
-use near_network_primitives::types::{Blacklist, PeerInfo, ROUTED_MESSAGE_TTL};
+use near_network::time;
+use near_network::types::{Blacklist, PeerInfo, ROUTED_MESSAGE_TTL};
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -354,8 +354,8 @@ mod test {
     use crate::network_protocol::testonly as data;
     use crate::network_protocol::AccountData;
     use crate::testonly::make_rng;
-    use near_network_primitives::time;
-    use near_network_primitives::types::UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
+    use near_network::time;
+    use near_network::types::UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
     use near_primitives::validator_signer::ValidatorSigner;
 
     #[test]

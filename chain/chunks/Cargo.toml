@@ -26,7 +26,7 @@ near-network = { path = "../network" }
 near-metrics = { path = "../../core/metrics" }
 near-chain = { path = "../chain" }
 near-pool = { path = "../pool" }
-near-network-primitives = { path = "../network-primitives" }
+near-network = { path = "../network" }
 
 [dev-dependencies]
 near-logger-utils = { path = "../../test-utils/logger" }

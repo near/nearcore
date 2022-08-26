@@ -3,8 +3,8 @@ use super::*;
 use crate::config;
 use crate::types::{AccountKeys, ChainInfo, Handshake, RoutingTableUpdate};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
-use near_network_primitives::time;
-use near_network_primitives::types::{
+use near_network::time;
+use near_network::types::{
     AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
 };
 use near_primitives::block::{genesis_chunks, Block, BlockHeader, GenesisId};

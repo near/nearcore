@@ -14,8 +14,8 @@ use near_network::test_utils::{
 };
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network::{Event, PeerManagerActor};
-use near_network_primitives::time;
-use near_network_primitives::types::{
+use near_network::time;
+use near_network::types::{
     Blacklist, BlacklistEntry, OutboundTcpConnect, PeerInfo, Ping as NetPing, Pong as NetPong,
     ROUTED_MESSAGE_TTL,
 };

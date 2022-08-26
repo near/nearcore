@@ -7,8 +7,8 @@ use actix::{
     ActorContext as _, ActorFutureExt, Addr, Context, ContextFutureSpawner as _, Running,
     WrapFuture as _,
 };
-use near_network_primitives::time;
-use near_network_primitives::types::Edge;
+use near_network::time;
+use near_network::types::Edge;
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
 use near_rate_limiter::{ActixMessageResponse, ActixMessageWrapper, ThrottleToken};

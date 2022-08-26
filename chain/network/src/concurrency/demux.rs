@@ -19,7 +19,7 @@
 //!
 use futures::future::BoxFuture;
 use futures::FutureExt;
-use near_network_primitives::time;
+use near_network::time;
 use std::future::Future;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;

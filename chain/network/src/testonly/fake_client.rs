@@ -1,7 +1,7 @@
 use crate::sink::Sink;
 use crate::types::{NetworkClientMessages, NetworkClientResponses};
 use actix::Actor as _;
-use near_network_primitives::types::{NetworkViewClientMessages, NetworkViewClientResponses};
+use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;

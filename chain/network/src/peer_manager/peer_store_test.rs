@@ -1,5 +1,5 @@
 use near_crypto::{KeyType, SecretKey};
-use near_network_primitives::types::{Blacklist, BlacklistEntry};
+use near_network::types::{Blacklist, BlacklistEntry};
 use near_store::test_utils::create_test_store;
 use near_store::{Store, StoreOpener};
 use std::collections::HashSet;

@@ -2,7 +2,7 @@ use near_client_primitives::types::NetworkInfoResponse;
 use near_jsonrpc_primitives::types::network_info::{
     RpcKnownProducer, RpcNetworkInfoError, RpcNetworkInfoResponse, RpcPeerInfo,
 };
-use near_network_primitives::types::{KnownProducer, PeerInfo};
+use near_network::types::{KnownProducer, PeerInfo};
 
 use super::{RpcFrom, RpcInto};
 

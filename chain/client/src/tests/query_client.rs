@@ -19,7 +19,7 @@ use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
-use near_network_primitives::types::{
+use near_network::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo,
 };
 use near_primitives::block::{Block, BlockHeader};

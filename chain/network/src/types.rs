@@ -6,8 +6,8 @@ use crate::routing::routing_table_view::RoutingTableInfo;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use near_crypto::PublicKey;
-use near_network_primitives::time;
-use near_network_primitives::types::{
+use near_network::time;
+use near_network::types::{
     AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, KnownProducer, OutboundTcpConnect,
     PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
     PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, PeerType, Ping, Pong, ReasonForBan,
@@ -379,9 +379,9 @@ impl From<&FullPeerInfo> for ConnectedPeerInfo {
             full_peer_info: full_peer_info.clone(),
             received_bytes_per_sec: 0,
             sent_bytes_per_sec: 0,
-            last_time_peer_requested: near_network_primitives::time::Instant::now(),
-            last_time_received_message: near_network_primitives::time::Instant::now(),
-            connection_established_time: near_network_primitives::time::Instant::now(),
+            last_time_peer_requested: near_network::time::Instant::now(),
+            last_time_received_message: near_network::time::Instant::now(),
+            connection_established_time: near_network::time::Instant::now(),
             peer_type: PeerType::Outbound,
         }
     }
@@ -489,7 +489,7 @@ pub enum NetworkResponses {
 #[rtype(result = "NetworkClientResponses")]
 pub enum NetworkClientMessages {
     #[cfg(feature = "test_features")]
-    Adversarial(near_network_primitives::types::NetworkAdversarialMessage),
+    Adversarial(near_network::types::NetworkAdversarialMessage),
 
     /// Received transaction.
     Transaction {
@@ -608,7 +608,7 @@ impl<M: actix::Message, T: MsgRecipient<M>> MsgRecipient<M> for NetworkRecipient
 mod tests {
     use super::*;
 
-    // NOTE: this has it's counterpart in `near_network_primitives::types::tests`
+    // NOTE: this has it's counterpart in `near_network::types::tests`
     const ALLOWED_SIZE: usize = 1 << 20;
     const NOTIFY_SIZE: usize = 1024;
 

@@ -9,8 +9,8 @@ use crate::types::{Handshake, HandshakeFailureReason, PeerMessage};
 use anyhow::Context as _;
 use assert_matches::assert_matches;
 use near_logger_utils::init_test_logger;
-use near_network_primitives::time;
-use near_network_primitives::types::{
+use near_network::time;
+use near_network::types::{
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, RoutedMessageBody,
 };
 use near_primitives::syncing::EpochSyncResponse;

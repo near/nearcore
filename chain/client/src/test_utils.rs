@@ -28,7 +28,7 @@ use near_network::types::{
     ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkClientResponses,
     NetworkRecipient, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
-use near_network_primitives::types::PartialEdgeInfo;
+use near_network::types::PartialEdgeInfo;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
@@ -54,7 +54,7 @@ use near_client_primitives::types::Error;
 use near_network::types::{
     NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
 };
-use near_network_primitives::types::{
+use near_network::types::{
     AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses,
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo,
     PeerType,
@@ -641,9 +641,9 @@ pub fn setup_mock_all_validators(
                             },
                                 received_bytes_per_sec: 0,
                                 sent_bytes_per_sec: 0,
-                                last_time_peer_requested: near_network_primitives::time::Instant::now(),
-                                last_time_received_message: near_network_primitives::time::Instant::now(),
-                                connection_established_time: near_network_primitives::time::Instant::now(),
+                                last_time_peer_requested: near_network::time::Instant::now(),
+                                last_time_received_message: near_network::time::Instant::now(),
+                                connection_established_time: near_network::time::Instant::now(),
                                 peer_type: PeerType::Outbound, })
                             .collect();
                         let peers2 = peers.iter().map(|it| it.full_peer_info.clone()).collect();

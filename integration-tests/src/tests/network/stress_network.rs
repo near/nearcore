@@ -10,7 +10,7 @@ use tracing::info;
 use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_test_logger_allow_panic;
-use near_network_primitives::time;
+use near_network::time;
 use near_primitives::block::GenesisId;
 
 use near_network::config;
@@ -19,7 +19,7 @@ use near_network::test_utils::{
 };
 use near_network::types::NetworkClientResponses;
 use near_network::PeerManagerActor;
-use near_network_primitives::types::NetworkViewClientResponses;
+use near_network::types::NetworkViewClientResponses;
 use near_store::test_utils::create_test_store;
 
 type ClientMock = Mocker<ClientActor>;

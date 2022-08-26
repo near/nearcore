@@ -4,7 +4,7 @@ use crate::test_utils::TestEnv;
 use near_chain::ChainGenesis;
 use near_logger_utils::init_integration_logger;
 use near_network::types::NetworkRequests;
-use near_network_primitives::types::PartialEncodedChunkRequestMsg;
+use near_network::types::PartialEncodedChunkRequestMsg;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ReedSolomonWrapper;
 

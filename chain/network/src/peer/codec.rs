@@ -8,7 +8,7 @@
 use crate::stats::metrics;
 use bytes::{Buf, BufMut, BytesMut};
 use bytesize::{GIB, MIB};
-use near_network_primitives::types::ReasonForBan;
+use near_network::types::ReasonForBan;
 use near_performance_metrics::framed_write::EncoderCallBack;
 use std::io::{Error, ErrorKind};
 use tokio_util::codec::{Decoder, Encoder};
@@ -111,7 +111,7 @@ mod test {
     use crate::types::{Handshake, PeerMessage, RoutingTableUpdate};
     use bytes::{BufMut, BytesMut};
     use near_crypto::{KeyType, SecretKey};
-    use near_network_primitives::types::{
+    use near_network::types::{
         PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, ReasonForBan, RoutedMessage,
         RoutedMessageBody, RoutedMessageV2,
     };

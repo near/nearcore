@@ -1,5 +1,5 @@
 use crate::tests::network::runner::*;
-use near_network_primitives::time;
+use near_network::time;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -19,7 +19,7 @@ use near_network::test_utils::{
 };
 use near_network::types::NetworkClientResponses;
 use near_network::PeerManagerActor;
-use near_network_primitives::types::NetworkViewClientResponses;
+use near_network::types::NetworkViewClientResponses;
 #[cfg(test)]
 use near_store::test_utils::create_test_store;
 

@@ -28,14 +28,14 @@ use actix::{
 use anyhow::bail;
 use anyhow::Context as _;
 use arc_swap::ArcSwap;
-use near_network_primitives::time;
-use near_network_primitives::types::{
+use near_network::time;
+use near_network::types::{
     AccountOrPeerIdOrHash, Ban, Edge, KnownPeerStatus, KnownProducer, NetworkViewClientMessages,
     NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerInfo, PeerType, Ping, Pong,
     RawRoutedMessage, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, RoutedMessageV2,
     StateResponseInfo,
 };
-use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
+use near_network::types::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;

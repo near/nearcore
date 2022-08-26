@@ -7,8 +7,8 @@ use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
 use crate::stats::metrics;
 use crate::types::FullPeerInfo;
-use near_network_primitives::time;
-use near_network_primitives::types::{
+use near_network::time;
+use near_network::types::{
     Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest,
     PeerManagerRequestWithContext, PeerType, ReasonForBan,
 };

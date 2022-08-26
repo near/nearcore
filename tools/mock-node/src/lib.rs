@@ -10,7 +10,7 @@ use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
     PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
 };
-use near_network_primitives::types::{
+use near_network::types::{
     PartialEdgeInfo, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
 };
 use near_performance_metrics::actix::run_later;
@@ -216,7 +216,7 @@ impl MockPeerManagerActor {
         // we will add more complicated network config in the future
         let peer = FullPeerInfo {
             peer_info: PeerInfo::random(),
-            chain_info: near_network_primitives::types::PeerChainInfoV2 {
+            chain_info: near_network::types::PeerChainInfoV2 {
                 genesis_id: GenesisId {
                     chain_id: genesis_config.chain_id.clone(),
                     hash: *chain.genesis().hash(),
@@ -470,7 +470,7 @@ mod test {
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_logger_utils::init_test_logger;
-    use near_network_primitives::types::PartialEncodedChunkRequestMsg;
+    use near_network::types::PartialEncodedChunkRequestMsg;
     use near_primitives::types::EpochId;
     use near_store::test_utils::create_test_store;
     use nearcore::config::GenesisExt;

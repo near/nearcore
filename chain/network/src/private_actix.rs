@@ -3,7 +3,7 @@
 use crate::network_protocol::{PeerMessage, RoutingTableUpdate};
 use crate::peer_manager::connection::{Connection, PoolError};
 use conqueue::QueueSender;
-use near_network_primitives::types::{
+use near_network::types::{
     Ban, Edge, PartialEdgeInfo, PeerInfo, PeerType, ReasonForBan, RoutedMessageBody,
     RoutedMessageFrom,
 };

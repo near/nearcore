@@ -18,7 +18,7 @@ use near_client::{ClientActor, GetBlock, ViewClientActor};
 use near_logger_utils::init_test_logger;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{NetworkClientMessages, NetworkRequests, NetworkResponses};
-use near_network_primitives::types::{AccountIdOrPeerTrackingShard, PeerInfo};
+use near_network::types::{AccountIdOrPeerTrackingShard, PeerInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;

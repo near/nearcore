@@ -4,7 +4,7 @@ use super::*;
 use crate::network_protocol::proto;
 use crate::network_protocol::PeerAddr;
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
-use near_network_primitives::types::{Edge, PartialEdgeInfo, PeerInfo};
+use near_network::types::{Edge, PartialEdgeInfo, PeerInfo};
 use near_primitives::network::AnnounceAccount;
 use protobuf::MessageField as MF;
 use std::net::{IpAddr, SocketAddr};

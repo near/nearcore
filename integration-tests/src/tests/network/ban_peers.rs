@@ -1,5 +1,5 @@
 use crate::tests::network::runner::*;
-use near_network_primitives::time;
+use near_network::time;
 
 /// Check we don't try to connect to a banned peer and we don't accept
 /// incoming connection from it.

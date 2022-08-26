@@ -1,5 +1,5 @@
 use crate::peer::transfer_stats::TransferStats;
-use near_network_primitives::time;
+use near_network::time;
 use near_primitives::hash::CryptoHash;
 
 /// Maximum number of requests and responses to track.

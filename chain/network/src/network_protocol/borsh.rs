@@ -4,7 +4,7 @@
 /// WARNING WARNING WARNING
 /// We need to maintain backwards compatibility, all changes to this file needs to be reviews.
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_network_primitives::types::{
+use near_network::types::{
     Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessage,
 };
 use near_primitives::block::{Block, BlockHeader, GenesisId};

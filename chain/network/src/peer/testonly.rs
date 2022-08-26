@@ -15,14 +15,14 @@ use crate::testonly::fake_client;
 use crate::types::{PeerMessage, RoutingTableUpdate};
 use actix::{Actor, Context, Handler};
 use near_crypto::{InMemorySigner, Signature};
-use near_network_primitives::types::{
+use near_network::types::{
     AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
     RoutedMessageV2,
 };
 use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
 
-use near_network_primitives::time;
+use near_network::time;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tracing::Span;

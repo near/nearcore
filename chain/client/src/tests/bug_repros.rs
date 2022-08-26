@@ -20,7 +20,7 @@ use near_network::types::{
     NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
 };
-use near_network_primitives::types::PeerInfo;
+use near_network::types::PeerInfo;
 use near_primitives::block::Block;
 use near_primitives::transaction::SignedTransaction;
 

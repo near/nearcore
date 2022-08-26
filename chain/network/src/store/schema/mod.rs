@@ -3,8 +3,8 @@
 /// of the DB columns. For high level access see store.rs.
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
-use near_network_primitives::time;
-use near_network_primitives::types as primitives;
+use near_network::time;
+use near_network::types as primitives;
 use near_primitives::account::id::AccountId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_store::DBCol;

@@ -15,7 +15,7 @@ use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkResponses, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
 };
-use near_network_primitives::types::PeerInfo;
+use near_network::types::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference};

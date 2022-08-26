@@ -10,7 +10,7 @@ use near_chain::{Chain, ChainGenesis};
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
-use near_network_primitives::time;
+use near_network::time;
 use near_primitives::block::GenesisId;
 use near_primitives::version::DbVersion;
 #[cfg(feature = "performance_stats")]
