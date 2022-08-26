@@ -1,12 +1,14 @@
 mod random_epochs;
 
+use assert_matches::assert_matches;
+
 use super::*;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::test_utils::{
     block_info, change_stake, default_reward_calculator, epoch_config, epoch_info,
     epoch_info_with_num_seats, hash_range, record_block, record_block_with_final_block_hash,
-    record_block_with_slashes, record_with_block_info, reward, setup_default_epoch_manager,
-    setup_epoch_manager, stake, DEFAULT_TOTAL_SUPPLY,
+    record_block_with_last_final_block, record_block_with_slashes, record_with_block_info, reward,
+    setup_default_epoch_manager, setup_epoch_manager, stake, DEFAULT_TOTAL_SUPPLY,
 };
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_manager::EpochConfig;
@@ -200,6 +202,7 @@ fn test_fork_finalization() {
 
     let build_branch = |epoch_manager: &mut EpochManager,
                         base_block: CryptoHash,
+                        base_block_height: BlockHeight,
                         hashes: &[CryptoHash],
                         validator_accounts: &[&str]|
      -> Vec<CryptoHash> {
@@ -212,8 +215,17 @@ fn test_fork_finalization() {
             let block_producer_id = EpochManager::block_producer_from_info(&epoch_info, height);
             let block_producer = epoch_info.get_validator(block_producer_id);
             let account_id = block_producer.account_id();
+            println!("height {} epoch id {:?} block {:?}", height,);
             if validator_accounts.iter().any(|v| *v == account_id.as_ref()) {
-                record_block(epoch_manager, prev_block, *curr_block, height, vec![]);
+                record_block_with_last_final_block(
+                    epoch_manager,
+                    prev_block,
+                    *curr_block,
+                    height,
+                    base_block,
+                    base_block_height,
+                    vec![],
+                );
                 prev_block = *curr_block;
                 branch_blocks.push(*curr_block);
             }
@@ -222,17 +234,19 @@ fn test_fork_finalization() {
     };
 
     // build test2/test4 fork
-    record_block(
+    record_block_with_last_final_block(
         &mut epoch_manager,
         h[0],
         h[1],
         1,
+        h[0],
+        0,
         vec![stake("test4".parse().unwrap(), amount_staked)],
     );
-    let blocks_test2 = build_branch(&mut epoch_manager, h[1], &h, &["test2", "test4"]);
+    let blocks_test2 = build_branch(&mut epoch_manager, h[1], 1, &h, &["test2", "test4"]);
 
     // build test1/test3 fork
-    let blocks_test1 = build_branch(&mut epoch_manager, h[0], &h2, &["test1", "test3"]);
+    let blocks_test1 = build_branch(&mut epoch_manager, h[0], 0, &h2, &["test1", "test3"]);
 
     let epoch1 = epoch_manager.get_epoch_id(&h[1]).unwrap();
     let mut bps = epoch_manager
@@ -278,7 +292,7 @@ fn test_fork_finalization() {
     // Check that if we have a different epoch manager and apply only second branch we get the same results.
     let mut epoch_manager2 = setup_default_epoch_manager(validators, epoch_length, 1, 3, 0, 90, 60);
     record_block(&mut epoch_manager2, CryptoHash::default(), h[0], 0, vec![]);
-    build_branch(&mut epoch_manager2, h[0], &h2, &["test1", "test3"]);
+    build_branch(&mut epoch_manager2, h[0], 0, &h2, &["test1", "test3"]);
     assert_eq!(epoch_manager.get_epoch_info(&epoch2_2), epoch_manager2.get_epoch_info(&epoch2_2));
 }
 
@@ -1687,6 +1701,30 @@ fn test_finalize_epoch_large_epoch_length() {
         epoch_manager.epoch_info_aggregator_loop_counter.load(std::sync::atomic::Ordering::SeqCst),
         "Expected every block to be visited exactly once"
     );
+}
+
+// Test that if we pass in an invalid block (not after the largest final block), the get_validator_info
+// function will return error instead of silently taking a long time
+#[test]
+fn test_get_validator_info_invalid_block() {
+    let stake_amount = 1_000;
+    let validators =
+        vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
+    let mut epoch_manager = setup_default_epoch_manager(validators, 100, 1, 2, 0, 90, 60);
+    let h = hash_range(100);
+    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+    for i in 1..100 {
+        record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+    }
+    assert!(epoch_manager.get_validator_info(ValidatorInfoIdentifier::BlockHash(h[99])).is_ok());
+    assert!(epoch_manager.get_validator_info(ValidatorInfoIdentifier::BlockHash(h[98])).is_ok());
+    assert!(epoch_manager.get_validator_info(ValidatorInfoIdentifier::BlockHash(h[97])).is_ok());
+    // h[97] is the final block and any block before that should return error
+    let hash = assert_matches!(
+        epoch_manager.get_validator_info(ValidatorInfoIdentifier::BlockHash(h[96])),
+        Err(EpochError::BlockOutOfBounds(hash))=>hash
+    );
+    assert_eq!(hash, h[96]);
 }
 
 #[test]

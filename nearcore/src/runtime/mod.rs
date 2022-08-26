@@ -1638,8 +1638,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    /// WARNING: this function calls EpochManager::get_epoch_info_aggregator_upto_last
-    /// underneath which can be very expensive.
+    /// Get detailed information for validators in current epoch and next epoch.
+    /// Note: this function is only implemented for RPC purposes. For regular chain code,
+    /// please use other functions.
+    /// Also note: the ValidatorInfoIdentifier here must be either epoch id of a previous epoch
+    /// or the latest block hash (chain header head instead of head). Otherwise, the function will
+    /// return error.
     fn get_validator_info(
         &self,
         epoch_id: ValidatorInfoIdentifier,

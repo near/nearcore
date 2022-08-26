@@ -292,6 +292,37 @@ pub fn record_block_with_final_block_hash(
         .unwrap();
 }
 
+pub fn record_block_with_last_final_block(
+    epoch_manager: &mut EpochManager,
+    prev_h: CryptoHash,
+    cur_h: CryptoHash,
+    height: BlockHeight,
+    last_final_block_hash: CryptoHash,
+    last_final_block_height: BlockHeight,
+    proposals: Vec<ValidatorStake>,
+) {
+    epoch_manager
+        .record_block_info(
+            BlockInfo::new(
+                cur_h,
+                height,
+                last_final_block_height,
+                last_final_block_hash,
+                prev_h,
+                proposals,
+                vec![],
+                vec![],
+                DEFAULT_TOTAL_SUPPLY,
+                PROTOCOL_VERSION,
+                height * NUM_NS_IN_SECOND,
+            ),
+            [0; 32],
+        )
+        .unwrap()
+        .commit()
+        .unwrap();
+}
+
 pub fn record_block_with_slashes(
     epoch_manager: &mut EpochManager,
     prev_h: CryptoHash,

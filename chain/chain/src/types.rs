@@ -699,7 +699,12 @@ pub trait RuntimeAdapter: Send + Sync {
         request: &QueryRequest,
     ) -> Result<QueryResponse, near_chain_primitives::error::QueryError>;
 
-    /// WARNING: this call may be expensive.
+    /// Get detailed information for validators in current epoch and next epoch.
+    /// Note: this function is only implemented for RPC purposes. For regular chain code,
+    /// please use other functions.
+    /// Also note: the ValidatorInfoIdentifier here must be either epoch id of a previous epoch
+    /// or the latest block hash (chain header head instead of head). Otherwise, the function will
+    /// return error.
     fn get_validator_info(
         &self,
         epoch_id: ValidatorInfoIdentifier,
@@ -797,10 +802,10 @@ pub struct LatestKnown {
 }
 
 /// Either an epoch id or latest block hash.  When `EpochId` variant is used it
-/// must be an identifier of a past epoch.  When `BlockHeight` is used it must
-/// be hash of the latest block in the current epoch.  Using current epoch id
-/// with `EpochId` or arbitrary block hash in past or present epochs will result
-/// in errors.
+/// must be an identifier of a past epoch.  When `BlockHash` is used it must
+/// be hash of the latest block in the current epoch, i.e., header head.  
+/// Using current epoch id with `EpochId` or arbitrary block hash in past or present epochs
+/// will result in errors.
 #[derive(Debug)]
 pub enum ValidatorInfoIdentifier {
     EpochId(EpochId),

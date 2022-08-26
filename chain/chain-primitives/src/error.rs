@@ -300,6 +300,9 @@ impl From<EpochError> for Error {
         match error {
             EpochError::EpochOutOfBounds(epoch_id) => Error::EpochOutOfBounds(epoch_id),
             EpochError::MissingBlock(h) => Error::DBNotFoundErr(to_base(&h)),
+            EpochError::BlockOutOfBounds(h) => {
+                Error::Other(format!("get_validator_info used invalid block hash {:?}", h))
+            }
             err => Error::ValidatorError(err.to_string()),
         }
     }

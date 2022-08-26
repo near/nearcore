@@ -2984,6 +2984,7 @@ dependencies = [
 name = "near-epoch-manager"
 version = "0.0.0"
 dependencies = [
+ "assert_matches",
  "borsh",
  "chrono",
  "near-cache",

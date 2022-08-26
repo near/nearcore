@@ -1114,9 +1114,7 @@ impl EpochManager {
         Ok(res)
     }
 
-    /// Get validators for current epoch and next epoch.
-    /// WARNING: this function calls EpochManager::get_epoch_info_aggregator_upto_last
-    /// underneath which can be very expensive.
+    /// Get detailed information for validators in current epoch and next epoch.
     pub fn get_validator_info(
         &self,
         epoch_identifier: ValidatorInfoIdentifier,
@@ -1606,22 +1604,15 @@ impl EpochManager {
             return Ok(None);
         }
 
-        if cfg!(debug) {
-            let agg_hash = self.epoch_info_aggregator.last_block_hash.clone();
-            let agg_height = self.get_block_info(&agg_hash)?.height();
-            let block_height = self.get_block_info(block_hash)?.height();
-            assert!(
-                agg_height < block_height,
-                "#{agg_hash} {agg_height} >= #{block_hash} {block_height}",
-            );
-        }
+        let agg_hash = self.epoch_info_aggregator.last_block_hash.clone();
+        let agg_height = self.get_block_info(&agg_hash)?.height();
 
         let epoch_id = self.get_block_info(block_hash)?.epoch_id().clone();
         let epoch_info = self.get_epoch_info(&epoch_id)?;
 
         let mut aggregator = EpochInfoAggregator::new(epoch_id.clone(), *block_hash);
         let mut cur_hash = *block_hash;
-        Ok(Some(loop {
+        loop {
             #[cfg(test)]
             {
                 self.epoch_info_aggregator_loop_counter
@@ -1632,6 +1623,11 @@ impl EpochManager {
             // current block, but then drop it so that we can call
             // get_block_info for previous block.
             let block_info = self.get_block_info(&cur_hash)?;
+            // We've reached before where the current aggregator is updated to, keep going backwards
+            // will
+            if block_info.height() < agg_height {
+                return Err(EpochError::BlockOutOfBounds(*block_hash));
+            }
             let prev_hash = *block_info.prev_hash();
             let different_epoch = &epoch_id != block_info.epoch_id();
 
@@ -1642,7 +1638,7 @@ impl EpochManager {
                 // belongs to different epoch or we’re on different fork (though
                 // the latter should never happen).  In either case, the
                 // aggregator contains full epoch information.
-                break (aggregator, true);
+                return Ok(Some((aggregator, true)));
             }
 
             let prev_info = self.get_block_info(&prev_hash)?;
@@ -1656,11 +1652,11 @@ impl EpochManager {
                 // We’ve reached sync point of the old aggregator.  If old
                 // aggregator was for a different epoch, we have full info in
                 // our aggregator; otherwise we don’t.
-                break (aggregator, epoch_id != prev_epoch);
+                return Ok(Some((aggregator, epoch_id != prev_epoch)));
             }
 
             cur_hash = prev_hash;
-        }))
+        }
     }
 
     pub fn get_protocol_upgrade_block_height(

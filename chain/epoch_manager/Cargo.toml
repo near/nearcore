@@ -27,6 +27,9 @@ near-store = { path = "../../core/store" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-cache = { path = "../../utils/near-cache" }
 
+[dev-dependencies]
+assert_matches = "1.5.0"
+
 [features]
 expensive_tests = []
 protocol_feature_fix_staking_threshold = ["near-primitives/protocol_feature_fix_staking_threshold"]

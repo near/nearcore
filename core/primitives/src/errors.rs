@@ -765,6 +765,9 @@ pub enum EpochError {
     },
     /// Requesting validators for an epoch that wasn't computed yet.
     EpochOutOfBounds(EpochId),
+    /// Requesting validator info for an invalid block. A valid block must be children of the last
+    /// final block
+    BlockOutOfBounds(CryptoHash),
     /// Missing block hash in the storage (means there is some structural issue).
     MissingBlock(CryptoHash),
     /// Error due to IO (DB read/write, serialization, etc.).
@@ -801,6 +804,9 @@ impl Display for EpochError {
             EpochError::NotEnoughValidators { num_shards, num_validators } => {
                 write!(f, "There were not enough validator proposals to fill all shards. num_proposals: {}, num_shards: {}", num_validators, num_shards)
             }
+            EpochError::BlockOutOfBounds(hash) => {
+                write!(f, "get_validator_info used invalid block hash {:?}", hash)
+            }
         }
     }
 }
@@ -820,6 +826,9 @@ impl Debug for EpochError {
             EpochError::ShardingError(err) => write!(f, "ShardingError({})", err),
             EpochError::NotEnoughValidators { num_shards, num_validators } => {
                 write!(f, "NotEnoughValidators({}, {})", num_validators, num_shards)
+            }
+            EpochError::BlockOutOfBounds(hash) => {
+                write!(f, "BlockOutOfBounds({:?})", hash)
             }
         }
     }
