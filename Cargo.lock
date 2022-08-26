@@ -2972,7 +2972,6 @@ dependencies = [
  "parity-secp256k1",
  "primitive-types",
  "rand 0.7.3",
- "rand_core 0.5.1",
  "serde",
  "serde_json",
  "sha2 0.10.2",
