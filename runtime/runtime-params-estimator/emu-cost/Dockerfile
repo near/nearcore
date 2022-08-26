@@ -1,7 +1,4 @@
 # our local base image
-# 
-# Whenever updating this, please also update the tag in 
-# runtime/runtime-params-estimator/src/main.rs.
 FROM rust:1.63.0
 
 LABEL description="Container for builds"
