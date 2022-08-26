@@ -95,7 +95,7 @@ feedback.
 3. A PR can contain any number of commits and when merged, the commits will be
 squashed into a single commit.
 4. The PR name should follow the template: `<type>: <name>`.  
-Where `type` is `fix` for fixesö `feat` for new features; `refactor` for changes
+Where `type` is `fix` for fixes; `feat` for new features; `refactor` for changes
 that primarily reorganize code; `doc` for changes that primarily change
 documentation or comments; `test` for changes that primarily introduce new
 tests; and `chore` for updating grunt tasks. Please note that `type` is case
