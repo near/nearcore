@@ -90,12 +90,13 @@ document it in [CHANGELOG.md](CHANGELOG.md) in `[unreleased]` section.
 ## After the PR is submitted
 
 1. We have a CI process configured to run various tests on each PR.  All tests
-need to pass before your PR can be merged.
+need to pass before a PR can be merged.
 2. When all the comments from the reviewer(s) have been addressed, they should
-approve the PR enabling you to merge it.
-3. You can use the `S-automerge` label to instruct Github to put the PR in the
-merge queue with other approved PRs so you do not have to manually look for a
-window to merge it.
+approve the PR allowing a PR to be merged.
+3. An approved PR can be merged by adding the `S-automerge` label to it.  The
+label can be added by the author if they have the appropriate access or by a
+reviewer otherwise.  PR authors can also apply label immediately after filing a
+PR: removing an additional round-trip after PR is approved.
 
 ## Code review process
 
@@ -103,7 +104,7 @@ We have two groups of code reviewers:  Super owners and normal owners.  When a
 PR is created:
 
 - a super owner will be automatically assigned to review.
-- they may choose to review the PR themself or they may delegate to someone else
+- they may choose to review the PR themselves or they may delegate to someone else
 who belongs either to the super owners or the normal owners group.
 - the delegate will perform the review and as needed engage other reviewers as
 well.  They will review your tests, and make sure that they can convince
