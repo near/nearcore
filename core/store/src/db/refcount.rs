@@ -53,23 +53,19 @@ pub fn decode_value_with_rc(bytes: &[u8]) -> (Option<&[u8]>, i64) {
 
 /// Strips refcount from an owned buffer.
 ///
-/// Works like [`decode_value_with_rc`] but rather than returning reference to
-/// subslice of the argument, adjusts given argument by removing the refcount
-/// from it.  This also means that if the refcount is zero or negative, the
-/// argument will be cleared.
-pub(crate) fn strip_refcount(bytes: &mut Vec<u8>) -> i64 {
-    match bytes.len().checked_sub(8) {
-        None => {
-            debug_assert!(bytes.is_empty());
-            bytes.clear();
-            0
+/// Works like [`decode_value_with_rc`] but operates on an owned vector thus
+/// potentially avoiding memory allocations.  Returns None if the refcount on
+/// the argument is non-positive.
+pub(crate) fn strip_refcount(mut bytes: Vec<u8>) -> Option<Vec<u8>> {
+    if let Some(len) = bytes.len().checked_sub(8) {
+        if i64::from_le_bytes(bytes[len..].try_into().unwrap()) > 0 {
+            bytes.truncate(len);
+            return Some(bytes);
         }
-        Some(len) => {
-            let rc = i64::from_le_bytes(bytes[len..].try_into().unwrap());
-            bytes.truncate(if rc <= 0 { 0 } else { len });
-            rc
-        }
+    } else {
+        debug_assert!(bytes.is_empty());
     }
+    None
 }
 
 /// Encode a positive reference count into the value.
@@ -125,12 +121,7 @@ pub(crate) fn iter_with_rc_logic<'a>(
         Box::new(iterator.filter_map(|item| match item {
             Err(err) => Some(Err(err)),
             Ok((key, value)) => {
-                let mut value = value.into_vec();
-                if strip_refcount(&mut value) <= 0 {
-                    None
-                } else {
-                    Some(Ok((key, value.into_boxed_slice())))
-                }
+                strip_refcount(value.into_vec()).map(|value| Ok((key, value.into_boxed_slice())))
             }
         }))
     } else {
@@ -193,9 +184,8 @@ mod test {
             let got = super::decode_value_with_rc(bytes);
             assert_eq!((want_value, want_rc), got);
 
-            let mut bytes = bytes.to_vec();
-            assert_eq!(want_rc, super::strip_refcount(&mut bytes));
-            assert_eq!(want_value.unwrap_or(&[]), bytes.as_slice());
+            let got = super::strip_refcount(bytes.to_vec());
+            assert_eq!(want_value, got.as_deref());
         }
 
         test(None, -2, MINUS_TWO);

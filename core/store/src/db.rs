@@ -96,13 +96,7 @@ pub trait Database: Sync + Send {
     /// **Panics** if the column is not reference counted.
     fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
         assert!(col.is_rc());
-        Ok(self.get_raw_bytes(col, key)?.and_then(|mut value| {
-            if crate::db::refcount::strip_refcount(&mut value) <= 0 {
-                None
-            } else {
-                Some(value)
-            }
-        }))
+        Ok(self.get_raw_bytes(col, key)?.and_then(crate::db::refcount::strip_refcount))
     }
 
     /// Iterate over all items in given column in lexicographical order sorted
