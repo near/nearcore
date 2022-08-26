@@ -1,5 +1,7 @@
 use crate::concurrency::demux;
 use crate::network_protocol::PeerAddr;
+use crate::peer_manager::peer_manager_actor::Event;
+use crate::sink::Sink;
 use anyhow::Context;
 use near_crypto::{KeyType, SecretKey};
 use near_network_primitives::time;
@@ -120,15 +122,20 @@ pub struct NetworkConfig {
     // If true - connect only to the bootnodes.
     pub connect_only_to_boot_nodes: bool,
 
-    // Whether to send tombstones at startup.
-    pub skip_sending_tombstones: Option<time::Duration>,
+    // Whether to ignore tombstones some time after startup.
+    //
+    // Ignoring tombstones means:
+    //   * not broadcasting deleted edges
+    //   * ignoring received deleted edges as well
+    pub skip_tombstones: Option<time::Duration>,
+
+    /// TEST-ONLY
+    /// TODO(gprusak): make it pub(crate), once all integration tests
+    /// are merged into near_network.
+    pub event_sink: Sink<Event>,
 }
 
 impl NetworkConfig {
-    // Constructs and validates the config.
-    // TODO(gprusak): make the output immutable, to enforce the invariants
-    // checked during validation: either make it return an Arc, or add an Inner type,
-    // so that NetworkConfig dereferences to Inner.
     pub fn new(
         cfg: crate::config_json::Config,
         node_key: SecretKey,
@@ -214,11 +221,12 @@ impl NetworkConfig {
             features,
             inbound_disabled: cfg.experimental.inbound_disabled,
             connect_only_to_boot_nodes: cfg.experimental.connect_only_to_boot_nodes,
-            skip_sending_tombstones: if cfg.experimental.skip_sending_tombstones_seconds > 0 {
+            skip_tombstones: if cfg.experimental.skip_sending_tombstones_seconds > 0 {
                 Some(time::Duration::seconds(cfg.experimental.skip_sending_tombstones_seconds))
             } else {
                 None
             },
+            event_sink: Sink::null(),
         };
         Ok(this)
     }
@@ -275,7 +283,8 @@ impl NetworkConfig {
             archive: false,
             accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 100., burst: 1000000 },
             features: Features { enable_tier1: true },
-            skip_sending_tombstones: None,
+            skip_tombstones: None,
+            event_sink: Sink::null(),
         }
     }
 
