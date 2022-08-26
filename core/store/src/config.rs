@@ -169,8 +169,10 @@ impl MigrationSnapshot {
     /// given value.
     pub fn format_example(&self) -> String {
         let value = serde_json::to_string(self).unwrap();
-        format!("    {{\n      \"store\": {{\n        \"migration_snapshot\": \
-                 {value}\n      }}\n    }}")
+        format!(
+            "    {{\n      \"store\": {{\n        \"migration_snapshot\": \
+                 {value}\n      }}\n    }}"
+        )
     }
 }
 

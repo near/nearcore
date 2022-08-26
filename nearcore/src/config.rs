@@ -199,10 +199,6 @@ fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
 }
 
-fn default_use_checkpoints_for_db_migration() -> Option<bool> {
-    None
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -326,10 +322,7 @@ pub struct Config {
     // For the time being, we’re failing inside of create_db_checkpoint if this
     // option is set.
     /// Deprecated; use `store.migration_snapshot` instead.
-    #[serde(
-        default = "default_use_checkpoints_for_db_migration",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub use_db_migration_snapshot: Option<bool>,
     /// Deprecated; use `store.migration_snapshot` instead.
     #[serde(skip_serializing_if = "Option::is_none")]
