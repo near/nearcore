@@ -64,11 +64,6 @@ Windows is not supported.
 `bindgen`, which requires `libclang`.  See [`bindgen`
 documentation](https://rust-lang.github.io/rust-bindgen/requirements.html#clang)
 for installation instructions.
-* At the moment, `nearcore` only supports compiling for x86_64 architecture (for
-technical reasons, we have to care about CPU architecture and supporting one is
-easier).  To compile to x86_64 on Apple silicon, use `rustup set default-host
-x86_64-apple-darwin` command.  That is, cross-compilation sadly doesn't work at
-the time of writing.
 * You can optionally use the system installations of `librocksdb`, `libsnappy`
 and `lz4` in order to speed up the compilation and reduce the build memory
 requirements by setting the `ROCKSDB_LIB_DIR`, `SNAPPY_LIB_DIR` and
