@@ -109,8 +109,9 @@ Test plan
 ---------
 <test plan>
 ```
-6. If your PR introduces a new protocol feature, please document it in
-[CHANGELOG.md](CHANGELOG.md) under `unreleased`.
+6. If your PR introduces a user-observable change (e.g. a new protocol
+feature, new configuration option, new Prometheus metric etc.) please
+document it in [CHANGELOG.md](CHANGELOG.md) in `[unreleased]` section.
 
 # After the PR is submitted
 
