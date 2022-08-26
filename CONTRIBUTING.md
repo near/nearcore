@@ -98,8 +98,8 @@ document it in [CHANGELOG.md](CHANGELOG.md) in `[unreleased]` section.
 
 1. We have a CI process configured to run various tests on each PR.  All tests
 need to pass before your PR can be merged.
-2. When the CI is green and comments from the reviewer(s) have been addressed,
-they should approve the PR enabling you to merge it.
+2. When all the comments from the reviewer(s) have been addressed, they should
+approve the PR enabling you to merge it.
 3. You can use the `S-automerge` label to instruct Github to put the PR in the
 merge queue with other approved PRs so you do not have to manually look for a
 window to merge it.
