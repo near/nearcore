@@ -8,7 +8,6 @@ mod concurrency;
 mod network_protocol;
 mod peer;
 mod peer_manager;
-mod multimap;
 
 pub mod config;
 pub mod config_json;

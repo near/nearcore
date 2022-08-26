@@ -236,6 +236,15 @@ impl RoutedMessageBody {
             _ => false,
         }
     }
+
+    pub fn is_tier1(&self) -> bool {
+        match self {
+            Self::BlockApproval(_) => true,
+            Self::PartialEncodedChunk(_) => true,
+            Self::ForwardTx(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl From<PartialEncodedChunkWithArcReceipts> for RoutedMessageBody {

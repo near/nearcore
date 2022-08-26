@@ -163,7 +163,6 @@ impl PeerHandle {
         utc: Option<time::Utc>,
     ) -> Box<RoutedMessageV2> {
         RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id), body }.sign(
-            self.cfg.id(),
             &self.cfg.network.node_key,
             ttl,
             utc,

@@ -312,11 +312,17 @@ impl PeerActor {
         msg: &PeerMessage,
         enc: Encoding,
     ) -> Result<(), IOError> {
-        let msg_type: &str = msg.into();
+        match self.connection.as_ref() {
+            Some(conn) if conn.is_tier1 && !msg.is_tier1() => {
+                panic!("trying to {} message over TIER1 connection.",msg.msg_variant())
+            }
+            _ => {}
+        }
+
         let _span = tracing::trace_span!(
             target: "network",
             "send_message_with_encoding",
-            msg_type)
+            msg_type= msg.msg_variant())
         .entered();
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
@@ -336,7 +342,7 @@ impl PeerActor {
             let tid = near_rust_allocator_proxy::get_tid();
             #[cfg(not(feature = "performance_stats"))]
             let tid = 0;
-            return Err(IOError::Send { tid, message_type: msg_type.to_string(), size: bytes_len });
+            return Err(IOError::Send { tid, message_type: msg.msg_variant().to_string(), size: bytes_len });
         }
         Ok(())
     }
@@ -1036,6 +1042,17 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES
                 .with_label_values(&labels)
                 .inc_by(msg.len() as u64);
+        }
+
+        // On TIER1 connections, check if the message type is allowed.
+        match (&self.peer_status, &self.connection) {
+            (PeerStatus::Ready, Some(conn)) if conn.is_tier1 && !peer_msg.is_tier1() => {
+                warn!(target: "network", "Received {} on TIER1 connection, disconnecting",peer_msg.msg_variant());
+                // TODO(gprusak): this is abusive behavior. Consider banning for it. 
+                ctx.stop();
+                return;
+            }
+            _ => {},
         }
 
         match (&self.peer_status, peer_msg.clone()) {

@@ -301,6 +301,16 @@ impl PeerMessage {
         })
     }
 
+    pub(crate) fn is_tier1(&self) -> bool {
+        match self {
+            Self::Tier1Handshake(_) => true,
+            Self::HandshakeFailure(_,_) => true,
+            Self::LastEdge(_) => true,
+            Self::Routed(msg) => msg.body.is_tier1(),
+            _ => false,
+        }
+    }
+
     pub(crate) fn msg_variant(&self) -> &'static str {
         match self {
             PeerMessage::Routed(routed_msg) => routed_msg.msg.body_variant(),
