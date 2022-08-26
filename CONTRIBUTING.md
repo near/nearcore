@@ -3,7 +3,7 @@ welcome contributions from everyone.  Below are various bits of information to
 help you get started.  If you require additional help, please reach out to us on
 our [zulip channel](https://near.zulipchat.com/).
 
-# Getting started
+## Getting started
 
 - For non-technical contributions, such as e.g. content or events, see [this
 document](https://docs.nearprotocol.com/docs/contribution/contribution-overview).
@@ -33,7 +33,7 @@ can follow the process below to begin work on it.
 small code change, please feel free to submit a PR directly addressing the issue
 without opening an issue.
 
-# Build Process
+## Build Process
 
 Nearcore is a reasonably standard Rust project, so `cargo test` most likely will
 just work.  There are couple of specifics though:
@@ -58,7 +58,7 @@ installation.
 If your setup does not involve `rustup`, the required version of the rust
 toolchain can be found in the `rust-toolchain` file.
 
-# Pull Requests
+## Pull Requests
 
 All the contributions to `nearcore` happen via Pull Requests.  To create a Pull
 Request, fork `nearcore`, create a new branch, do the work there, and then send
@@ -94,7 +94,7 @@ Test plan
 feature, new configuration option, new Prometheus metric etc.) please
 document it in [CHANGELOG.md](CHANGELOG.md) in `[unreleased]` section.
 
-# After the PR is submitted
+## After the PR is submitted
 
 1. We have a CI process configured to run various tests on each PR.  All tests
 need to pass before your PR can be merged.
@@ -104,7 +104,7 @@ they should approve the PR enabling you to merge it.
 merge queue with other approved PRs so you do not have to manually look for a
 window to merge it.
 
-# Code review process
+## Code review process
 
 We have two groups of code reviewers:  Super owners and normal owners.  When a
 PR is created:
@@ -126,7 +126,7 @@ selected reviewer is sufficient or additional reviewers are needed.
 If you are interested in becoming a code reviewer, please get in touch with us
 on zulip.
 
-# Release Schedule
+## Release Schedule
 
 Once your change ends up in master, it will be released with the rest of the
 changes by other contributors on the regular release schedules.
