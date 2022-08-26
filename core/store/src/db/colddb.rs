@@ -10,9 +10,11 @@ use crate::DBCol;
 ///   storage, reference counts are not preserved and when fetching data are
 ///   always assumed to be one.
 ///
-/// - Keys of DBCol::State column are not prefixed by ShardUId.  It is not
-///   necessary to disambiguate the value and is used on hot storage to but
-///   different shards in different ranges of keys.
+/// - Keys of DBCol::State column are not prefixed by ShardUId.  The prefix
+///   isn’t needed to disambiguate the value.  It is used on hot storage to
+///   provide some isolation by putting data of different shards in different
+///   ranges of keys.  This is not beneficial is cold storage so we’re not using
+///   the prefix to reduce space usage.
 ///
 /// - Keys of columns which include block height are encoded using big-endian
 ///   rather than little-endian as in hot storage.  Big-endian has the advantage
@@ -398,14 +400,14 @@ mod test {
             DBCol::ChunkHashesByHeight,
         ] {
             let dbs: [(bool, &dyn Database); 2] = [(false, &db), (true, &db.0)];
+            result.push(format!("{col}"));
             for (is_raw, db) in dbs {
                 let name = if is_raw { "raw " } else { "cold" };
-                result.push(format!("[{name}] {col}"));
                 for item in db.iter(col) {
                     let (key, value) = item.unwrap();
                     let value = pretty_value(Some(value.into_vec()), false);
                     let key = pretty_key(&key);
-                    result.push(format!("{key} → {value}"));
+                    result.push(format!("[{name}] ({key}, {value})"));
                 }
             }
         }
@@ -414,26 +416,21 @@ mod test {
         //     cargo install cargo-insta
         //     cargo insta test --accept -p near-store  -- db::colddb
         insta::assert_display_snapshot!(result.join("\n"), @r###"
-        [cold] StateDlInfos
-        11111111111111111111111111111111 → FooBar
-        [raw ] StateDlInfos
-        11111111111111111111111111111111 → FooBar
-        [cold] BlockHeader
-        11111111111111111111111111111111 → FooBar
-        [raw ] BlockHeader
-        11111111111111111111111111111111 → FooBar
-        [cold] Block
-        11111111111111111111111111111111 → FooBar
-        [raw ] Block
-        11111111111111111111111111111111 → FooBar
-        [cold] EpochInfo
-        11111111111111111111111111111111 → FooBar
-        [raw ] EpochInfo
-        11111111111111111111111111111111 → FooBar
-        [cold] ChunkHashesByHeight
-        le(42) → FooBar
-        [raw ] ChunkHashesByHeight
-        be(42) → FooBar
+        StateDlInfos
+        [cold] (11111111111111111111111111111111, FooBar)
+        [raw ] (11111111111111111111111111111111, FooBar)
+        BlockHeader
+        [cold] (11111111111111111111111111111111, FooBar)
+        [raw ] (11111111111111111111111111111111, FooBar)
+        Block
+        [cold] (11111111111111111111111111111111, FooBar)
+        [raw ] (11111111111111111111111111111111, FooBar)
+        EpochInfo
+        [cold] (11111111111111111111111111111111, FooBar)
+        [raw ] (11111111111111111111111111111111, FooBar)
+        ChunkHashesByHeight
+        [cold] (le(42), FooBar)
+        [raw ] (be(42), FooBar)
         "###);
     }
 
