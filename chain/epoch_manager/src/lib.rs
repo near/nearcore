@@ -1519,9 +1519,8 @@ impl EpochManager {
     ///
     /// The block hash passed as argument should be a final block so that the
     /// method can perform efficient incremental updates.  Calling this method
-    /// on a block which has not been finalised yet is likely to result in
-    /// performance issues since handling forks will force it to traverse the
-    /// entire epoch from scratch.
+    /// on a block which has not been finalised will cause this function to return
+    /// errors or future calls of this function return errors.
     ///
     /// The result of the aggregation is stored in `self.epoch_info_aggregator`.
     ///
@@ -1557,9 +1556,8 @@ impl EpochManager {
     /// Returns epoch info aggregate with state up to `last_block_hash`.
     ///
     /// The block hash passed as argument should be the latest block belonging
-    /// to current epoch.  Calling this method on any other block is likely to
-    /// result in performance issues since handling something which is not past
-    /// the final block will force it to traverse the entire epoch from scratch.
+    /// to current epoch.  Calling this method on any other block will cause this function
+    /// to return error.
     ///
     /// This method does not change `self.epoch_info_aggregator`.
     pub fn get_epoch_info_aggregator_upto_last(
@@ -1585,9 +1583,8 @@ impl EpochManager {
     /// start of epoch `block_hash` belongs to.
     ///
     /// The block hash passed as argument should be a latest final block or
-    /// a descendant of a latest final block. Calling this method on any other
-    /// block is likely to result in performance issues since handling forks
-    /// will force it to traverse the entire epoch from scratch.
+    /// a descendant of a latest final block. The function will return error
+    /// if calling this method on any other block
     ///
     /// If `block_hash` equals `self.epoch_info_aggregator.last_block_hash`
     /// returns None.  Otherwise returns `Some((aggregator, full_info))` tuple.
@@ -1623,8 +1620,8 @@ impl EpochManager {
             // current block, but then drop it so that we can call
             // get_block_info for previous block.
             let block_info = self.get_block_info(&cur_hash)?;
-            // We've reached before where the current aggregator is updated to, keep going backwards
-            // will
+            // We've reached before where the current aggregator is updated to, stop going backwards
+            // because we will risk going until epoch start and this function will take too long
             if block_info.height() < agg_height {
                 return Err(EpochError::BlockOutOfBounds(*block_hash));
             }

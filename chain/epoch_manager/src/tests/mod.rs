@@ -202,7 +202,6 @@ fn test_fork_finalization() {
 
     let build_branch = |epoch_manager: &mut EpochManager,
                         base_block: CryptoHash,
-                        base_block_height: BlockHeight,
                         hashes: &[CryptoHash],
                         validator_accounts: &[&str]|
      -> Vec<CryptoHash> {
@@ -215,15 +214,18 @@ fn test_fork_finalization() {
             let block_producer_id = EpochManager::block_producer_from_info(&epoch_info, height);
             let block_producer = epoch_info.get_validator(block_producer_id);
             let account_id = block_producer.account_id();
-            println!("height {} epoch id {:?} block {:?}", height,);
             if validator_accounts.iter().any(|v| *v == account_id.as_ref()) {
+                println!(
+                    "height {} epoch id {:?} block {:?} prev_block {:?}",
+                    height, epoch_id, curr_block, prev_block
+                );
                 record_block_with_last_final_block(
                     epoch_manager,
                     prev_block,
                     *curr_block,
                     height,
-                    base_block,
-                    base_block_height,
+                    CryptoHash::default(),
+                    0,
                     vec![],
                 );
                 prev_block = *curr_block;
@@ -243,10 +245,10 @@ fn test_fork_finalization() {
         0,
         vec![stake("test4".parse().unwrap(), amount_staked)],
     );
-    let blocks_test2 = build_branch(&mut epoch_manager, h[1], 1, &h, &["test2", "test4"]);
+    let blocks_test2 = build_branch(&mut epoch_manager, h[1], &h, &["test2", "test4"]);
 
     // build test1/test3 fork
-    let blocks_test1 = build_branch(&mut epoch_manager, h[0], 0, &h2, &["test1", "test3"]);
+    let blocks_test1 = build_branch(&mut epoch_manager, h[0], &h2, &["test1", "test3"]);
 
     let epoch1 = epoch_manager.get_epoch_id(&h[1]).unwrap();
     let mut bps = epoch_manager
@@ -267,6 +269,7 @@ fn test_fork_finalization() {
 
     let last_block = blocks_test2.last().unwrap();
     let epoch2_1 = epoch_manager.get_epoch_id(last_block).unwrap();
+    println!("last block {:?} epoch id {:?}", last_block, epoch2_1);
     assert_eq!(
         epoch_manager
             .get_all_block_producers_ordered(&epoch2_1, &h[1])
@@ -292,7 +295,7 @@ fn test_fork_finalization() {
     // Check that if we have a different epoch manager and apply only second branch we get the same results.
     let mut epoch_manager2 = setup_default_epoch_manager(validators, epoch_length, 1, 3, 0, 90, 60);
     record_block(&mut epoch_manager2, CryptoHash::default(), h[0], 0, vec![]);
-    build_branch(&mut epoch_manager2, h[0], 0, &h2, &["test1", "test3"]);
+    build_branch(&mut epoch_manager2, h[0], &h2, &["test1", "test3"]);
     assert_eq!(epoch_manager.get_epoch_info(&epoch2_2), epoch_manager2.get_epoch_info(&epoch2_2));
 }
 
@@ -1414,9 +1417,10 @@ fn test_num_missing_blocks() {
         default_reward_calculator(),
     );
     let h = hash_range(8);
+    // Build chain 0 <- 1 <- x <- 3
     record_block(&mut em, Default::default(), h[0], 0, vec![]);
-    record_block(&mut em, h[0], h[1], 1, vec![]);
-    record_block(&mut em, h[1], h[3], 3, vec![]);
+    record_block_with_last_final_block(&mut em, h[0], h[1], 1, h[0], 0, vec![]);
+    record_block_with_last_final_block(&mut em, h[1], h[3], 3, h[0], 0, vec![]);
     let epoch_id = em.get_epoch_id(&h[1]).unwrap();
     assert_eq!(
         em.get_num_validator_blocks(&epoch_id, &h[3], &"test1".parse().unwrap()).unwrap(),
@@ -1713,8 +1717,17 @@ fn test_get_validator_info_invalid_block() {
     let mut epoch_manager = setup_default_epoch_manager(validators, 100, 1, 2, 0, 90, 60);
     let h = hash_range(100);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-    for i in 1..100 {
-        record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+    record_block(&mut epoch_manager, h[0], h[1], 1, vec![]);
+    for i in 2..100 {
+        record_block_with_last_final_block(
+            &mut epoch_manager,
+            h[i - 1],
+            h[i],
+            i as u64,
+            h[i - 2],
+            (i - 2) as u64,
+            vec![],
+        );
     }
     assert!(epoch_manager.get_validator_info(ValidatorInfoIdentifier::BlockHash(h[99])).is_ok());
     assert!(epoch_manager.get_validator_info(ValidatorInfoIdentifier::BlockHash(h[98])).is_ok());
