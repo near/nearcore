@@ -33,22 +33,6 @@ can follow the process below to begin work on it.
 small code change, please feel free to submit a PR directly addressing the issue
 without opening an issue.
 
-# Setting up editors and IDEs
-
-Majority of NEAR developers use CLion with Rust plugin as their primary IDE.
-
-We also had success with VSCode with rust-analyzer, see the steps for
-installation
-[here](https://commonwealth.im/near/proposal/discussion/338-remote-development-with-vscode-and-rustanalyzer).
-
-Some of us use VIM with [rust.vim](https://github.com/rust-lang/rust.vim) and
-[rusty-tags](https://github.com/dan-t/rusty-tags). It has fewer features than
-CLion or VSCode, but overall provides a usable setting.
-
-Refer to [this
-document](https://docs.nearprotocol.com/docs/contribution/nearcore) for details
-on setting up your environment.
-
 # Build Process
 
 Nearcore is a reasonably standard Rust project, so `cargo test` most likely will
