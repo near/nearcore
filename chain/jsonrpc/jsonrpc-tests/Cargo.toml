@@ -22,7 +22,6 @@ near-primitives = { path = "../../../core/primitives" }
 near-client = { path = "../../client" }
 near-store = { path = "../../../core/store" }
 near-network = { path = "../../network" }
-near-network = { path = "../../network" }
 near-jsonrpc = { path = "../" }
 near-jsonrpc-primitives = { path = "../../jsonrpc-primitives" }
 

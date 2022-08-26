@@ -32,7 +32,6 @@ near-crypto = { path = "../../core/crypto" }
 near-epoch-manager = { path = "../../chain/epoch-manager"}
 near-jsonrpc = { path = "../../chain/jsonrpc" }
 near-network = { path = "../../chain/network" }
-near-network = { path = "../../chain/network" }
 near-store = { path = "../../core/store" }
 near-telemetry = { path = "../../chain/telemetry" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }

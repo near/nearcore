@@ -40,7 +40,6 @@ near-jsonrpc = { path = "../chain/jsonrpc" }
 near-jsonrpc-client = { path = "../chain/jsonrpc/client" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 near-network = { path = "../chain/network" }
-near-network = { path = "../chain/network" }
 near-primitives = { path = "../core/primitives" }
 near-primitives-core = { path = "../core/primitives-core" }
 near-store = { path = "../core/store" }

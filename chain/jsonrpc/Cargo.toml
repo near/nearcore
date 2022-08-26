@@ -31,7 +31,6 @@ near-jsonrpc-client = { path = "client" }
 near-jsonrpc-primitives = { path = "../jsonrpc-primitives", features = ["full"] }
 near-jsonrpc-adversarial-primitives = { path = "../jsonrpc-adversarial-primitives", optional = true }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
-near-network = { path = "../network" }
 
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]

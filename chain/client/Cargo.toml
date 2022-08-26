@@ -43,7 +43,6 @@ near-o11y = { path = "../../core/o11y" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
 delay-detector = { path = "../../tools/delay-detector" }
-near-network = { path = "../network" }
 
 [dev-dependencies]
 assert_matches = "1.3"

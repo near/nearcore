@@ -49,7 +49,6 @@ near-jsonrpc = { path = "../chain/jsonrpc", optional = true }
 near-mainnet-res = { path = "../utils/mainnet-res" }
 near-metrics = { path = "../core/metrics" }
 near-network = { path = "../chain/network" }
-near-network = { path = "../chain/network" }
 near-o11y = { path = "../core/o11y" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
 near-pool = { path = "../chain/pool" }

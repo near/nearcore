@@ -30,5 +30,4 @@ near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 nearcore = { path = "../../nearcore" }
 near-network = { path = "../../chain/network" }
-near-network = { path = "../../chain/network" }
 near-o11y = { path = "../../core/o11y" }

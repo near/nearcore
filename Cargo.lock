@@ -873,7 +873,6 @@ dependencies = [
  "near-chain-configs",
  "near-crypto",
  "near-network",
- "near-network-primitives",
  "near-o11y",
  "near-primitives",
  "near-store",
@@ -1922,7 +1921,7 @@ dependencies = [
  "csv",
  "near-chain-configs",
  "near-crypto",
- "near-network-primitives",
+ "near-network",
  "near-primitives",
  "nearcore",
  "serde",
@@ -2302,7 +2301,6 @@ dependencies = [
  "near-jsonrpc-primitives",
  "near-logger-utils",
  "near-network",
- "near-network-primitives",
  "near-o11y",
  "near-performance-metrics",
  "near-primitives",
@@ -2714,7 +2712,6 @@ dependencies = [
  "near-jsonrpc",
  "near-logger-utils",
  "near-network",
- "near-network-primitives",
  "near-performance-metrics",
  "near-primitives",
  "near-store",
@@ -2873,7 +2870,6 @@ dependencies = [
  "near-logger-utils",
  "near-metrics",
  "near-network",
- "near-network-primitives",
  "near-pool",
  "near-primitives",
  "near-store",
@@ -2915,7 +2911,6 @@ dependencies = [
  "near-logger-utils",
  "near-metrics",
  "near-network",
- "near-network-primitives",
  "near-o11y",
  "near-performance-metrics",
  "near-performance-metrics-macros",
@@ -2945,7 +2940,7 @@ dependencies = [
  "near-chain-primitives",
  "near-chunks-primitives",
  "near-crypto",
- "near-network-primitives",
+ "near-network",
  "near-primitives",
  "serde",
  "serde_json",
@@ -3051,7 +3046,6 @@ dependencies = [
  "near-jsonrpc-primitives",
  "near-metrics",
  "near-network",
- "near-network-primitives",
  "near-o11y",
  "near-primitives",
  "near-rpc-error-macro",
@@ -3068,7 +3062,7 @@ name = "near-jsonrpc-adversarial-primitives"
 version = "0.0.0"
 dependencies = [
  "deepsize",
- "near-network-primitives",
+ "near-network",
  "near-primitives",
  "serde",
 ]
@@ -3136,7 +3130,6 @@ dependencies = [
  "near-jsonrpc-primitives",
  "near-logger-utils",
  "near-network",
- "near-network-primitives",
  "near-primitives",
  "near-store",
  "once_cell",
@@ -3196,7 +3189,6 @@ dependencies = [
  "near-crypto",
  "near-logger-utils",
  "near-metrics",
- "near-network-primitives",
  "near-o11y",
  "near-performance-metrics",
  "near-performance-metrics-macros",
@@ -3224,27 +3216,6 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-opentelemetry",
-]
-
-[[package]]
-name = "near-network-primitives"
-version = "0.0.0"
-dependencies = [
- "actix",
- "anyhow",
- "borsh",
- "chrono",
- "deepsize",
- "near-crypto",
- "near-primitives",
- "once_cell",
- "opentelemetry",
- "serde",
- "strum",
- "thiserror",
- "time 0.3.9",
- "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -3615,7 +3586,6 @@ dependencies = [
  "near-mainnet-res",
  "near-metrics",
  "near-network",
- "near-network-primitives",
  "near-o11y",
  "near-performance-metrics",
  "near-pool",
