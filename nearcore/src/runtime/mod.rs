@@ -2092,7 +2092,7 @@ mod test {
             minimum_stake_divisor: Option<u64>,
         ) -> Self {
             let (dir, opener) = Store::test_opener();
-            let store = opener.open();
+            let store = opener.open().unwrap();
             let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
                 acc.union(&x.iter().cloned().collect()).cloned().collect()
             });

@@ -1,8 +1,8 @@
-pub fn to_base<T: AsRef<[u8]>>(input: T) -> String {
+pub fn to_base58<T: AsRef<[u8]>>(input: T) -> String {
     bs58::encode(input).into_string()
 }
 
-pub fn from_base(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+pub fn from_base58(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     bs58::decode(s).into_vec().map_err(|err| err.into())
 }
 
@@ -92,17 +92,17 @@ fn test_option_base64_format() {
     assert_round_trip("{\"field\":null}", Test { field: None });
 }
 
-pub mod base_bytes_format {
+pub mod base58_format {
     use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};
 
-    use super::{from_base, to_base};
+    use super::{from_base58, to_base58};
 
     pub fn serialize<S>(data: &[u8], serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serializer.serialize_str(&to_base(data))
+        serializer.serialize_str(&to_base58(data))
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
@@ -110,7 +110,7 @@ pub mod base_bytes_format {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        from_base(&s).map_err(|err| de::Error::custom(err.to_string()))
+        from_base58(&s).map_err(|err| de::Error::custom(err.to_string()))
     }
 }
 
@@ -118,7 +118,7 @@ pub mod base_bytes_format {
 fn test_base_bytes_format() {
     #[derive(PartialEq, Debug, serde::Deserialize, serde::Serialize)]
     struct Test {
-        #[serde(with = "base_bytes_format")]
+        #[serde(with = "base58_format")]
         field: Vec<u8>,
     }
 

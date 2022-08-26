@@ -1,3 +1,5 @@
+use std::io;
+
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::version::DbVersion;
 
@@ -48,9 +50,13 @@ pub struct StoreConfig {
 }
 
 /// Mode in which to open the storage.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum Mode {
+    /// Open an existing database in read-only mode.  Fail if it doesn’t exist.
     ReadOnly,
+    /// Open an existing database in read-write mode.  Fail if it doesn’t exist.
+    ReadWriteExisting,
+    /// Open a database in read-write mode.  create if it doesn’t exist.
     ReadWrite,
 }
 
@@ -156,12 +162,17 @@ impl<'a> StoreOpener<'a> {
     /// Returns path to the underlying RocksDB database.
     ///
     /// Does not check whether the database actually exists.
-    pub fn get_path(&self) -> &std::path::Path {
+    pub fn path(&self) -> &std::path::Path {
         &self.path
     }
 
+    #[cfg(test)]
+    pub(crate) fn config(&self) -> &StoreConfig {
+        self.config
+    }
+
     /// Returns version of the database; or `None` if it does not exist.
-    pub fn get_version_if_exists(&self) -> std::io::Result<Option<DbVersion>> {
+    pub fn get_version_if_exists(&self) -> io::Result<Option<DbVersion>> {
         if self.check_if_exists() {
             Some(crate::RocksDB::get_version(&self.path, &self.config)).transpose()
         } else {
@@ -170,20 +181,34 @@ impl<'a> StoreOpener<'a> {
     }
 
     /// Opens the RocksDB database.
-    ///
-    /// Panics on failure.
-    // TODO(mina86): Change it to return Result.
-    pub fn open(&self) -> crate::Store {
-        if self.check_if_exists() {
-            tracing::info!(target: "near", path=%self.path.display(), "Opening RocksDB database");
-        } else if matches!(self.mode, Mode::ReadOnly) {
-            tracing::error!(target: "near", path=%self.path.display(), "Database does not exist");
-            panic!("Failed to open non-existent database for reading");
-        } else {
-            tracing::info!(target: "near", path=%self.path.display(), "Creating new RocksDB database");
+    pub fn open(&self) -> io::Result<crate::Store> {
+        let exists = self.check_if_exists();
+        if !exists && matches!(self.mode, Mode::ReadOnly) {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "Cannot open non-existent database for reading",
+            ));
         }
-        let db = crate::RocksDB::open(&self.path, &self.config, self.mode)
-            .expect("Failed to open the database");
-        crate::Store::new(std::sync::Arc::new(db))
+
+        tracing::info!(target: "near", path=%self.path.display(),
+                       "{} RocksDB database",
+                       if exists { "Opening" } else { "Creating a new" });
+        crate::RocksDB::open(&self.path, &self.config, self.mode)
+            .map(|db| crate::Store::new(std::sync::Arc::new(db)))
+    }
+
+    /// Creates a new snapshot which can be used to recover the database state.
+    ///
+    /// The snapshot is used during database migration to allow users to roll
+    /// back failed migrations.
+    ///
+    /// Note that due to RocksDB being weird, this will create an empty database
+    /// if it does not already exist.  This might not be what you want so make
+    /// sure the database already exists.
+    pub fn new_migration_snapshot(
+        &self,
+        snapshot_path: std::path::PathBuf,
+    ) -> Result<crate::Snapshot, crate::SnapshotError> {
+        crate::Snapshot::new(&self.path, self.config, snapshot_path)
     }
 }

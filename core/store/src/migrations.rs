@@ -9,12 +9,12 @@ use near_primitives::types::AccountId;
 
 use crate::{DBCol, Store, StoreOpener, StoreUpdate};
 
-pub fn set_store_version(store: &Store, db_version: u32) {
+pub fn set_store_version(store: &Store, db_version: u32) -> std::io::Result<()> {
     let mut store_update = store.store_update();
     // Contrary to other integers, we’re using textual representation for
     // storing DbVersion in VERSION_KEY thus to_string rather than to_le_bytes.
     store_update.set(DBCol::DbVersion, crate::db::VERSION_KEY, db_version.to_string().as_bytes());
-    store_update.commit().expect("Failed to write version to database");
+    store_update.commit()
 }
 
 pub struct BatchedStoreUpdate<'a> {
@@ -70,24 +70,26 @@ where
     F: Fn(T) -> U,
 {
     let mut store_update = BatchedStoreUpdate::new(store, 10_000_000);
-    for (key, value) in store.iter(col).map(Result::unwrap) {
+    for pair in store.iter(col) {
+        let (key, value) = pair?;
         let new_value = f(T::try_from_slice(&value).unwrap());
         store_update.set_ser(col, &key, &new_value)?;
     }
     store_update.finish()
 }
 
-pub fn migrate_28_to_29(store_opener: &StoreOpener) {
-    let store = store_opener.open();
+pub fn migrate_28_to_29(store_opener: &StoreOpener) -> anyhow::Result<()> {
+    let store = store_opener.open()?;
     let mut store_update = store.store_update();
     store_update.delete_all(DBCol::_NextBlockWithNewChunk);
     store_update.delete_all(DBCol::_LastBlockWithNewChunk);
-    store_update.commit().unwrap();
+    store_update.commit()?;
 
-    set_store_version(&store, 29);
+    set_store_version(&store, 29)?;
+    Ok(())
 }
 
-pub fn migrate_29_to_30(store_opener: &StoreOpener) {
+pub fn migrate_29_to_30(store_opener: &StoreOpener) -> anyhow::Result<()> {
     use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::epoch_manager::epoch_info::EpochSummary;
     use near_primitives::epoch_manager::AGGREGATOR_KEY;
@@ -99,7 +101,7 @@ pub fn migrate_29_to_30(store_opener: &StoreOpener) {
     };
     use std::collections::BTreeMap;
 
-    let store = store_opener.open();
+    let store = store_opener.open()?;
 
     #[derive(BorshDeserialize)]
     pub struct OldEpochSummary {
@@ -129,9 +131,9 @@ pub fn migrate_29_to_30(store_opener: &StoreOpener) {
         pub last_block_hash: CryptoHash,
     }
 
-    map_col(&store, DBCol::ChunkExtra, ChunkExtra::V1).unwrap();
+    map_col(&store, DBCol::ChunkExtra, ChunkExtra::V1)?;
 
-    map_col(&store, DBCol::BlockInfo, BlockInfo::V1).unwrap();
+    map_col(&store, DBCol::BlockInfo, BlockInfo::V1)?;
 
     map_col(&store, DBCol::EpochValidatorInfo, |info: OldEpochSummary| EpochSummary {
         prev_epoch_last_block_hash: info.prev_epoch_last_block_hash,
@@ -139,14 +141,16 @@ pub fn migrate_29_to_30(store_opener: &StoreOpener) {
         validator_kickout: info.validator_kickout,
         validator_block_chunk_stats: info.validator_block_chunk_stats,
         next_version: info.next_version,
-    })
-    .unwrap();
+    })?;
 
     // DBCol::EpochInfo has a special key which contains a different type than all other
     // values (EpochInfoAggregator), so we cannot use `map_col` on it. We need to handle
     // the AGGREGATOR_KEY differently from all others.
     let col = DBCol::EpochInfo;
-    let keys: Vec<_> = store.iter(col).map(Result::unwrap).map(|(key, _)| key).collect();
+    let keys = store
+        .iter(col)
+        .map(|item| item.map(|(key, _)| key))
+        .collect::<std::io::Result<Vec<_>>>()?;
     let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
     for key in keys {
         if key.as_ref() == AGGREGATOR_KEY {
@@ -163,15 +167,16 @@ pub fn migrate_29_to_30(store_opener: &StoreOpener) {
                     .map(|(account, stake)| (account, ValidatorStake::V1(stake)))
                     .collect(),
             };
-            store_update.set_ser(col, key.as_ref(), &new_value).unwrap();
+            store_update.set_ser(col, key.as_ref(), &new_value)?;
         } else {
             let value: EpochInfoV1 = store.get_ser(col, key.as_ref()).unwrap().unwrap();
             let new_value = EpochInfo::V1(value);
-            store_update.set_ser(col, key.as_ref(), &new_value).unwrap();
+            store_update.set_ser(col, key.as_ref(), &new_value)?;
         }
     }
 
-    store_update.finish().unwrap();
+    store_update.finish()?;
 
-    set_store_version(&store, 30);
+    set_store_version(&store, 30)?;
+    Ok(())
 }

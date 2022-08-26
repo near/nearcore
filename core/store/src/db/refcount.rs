@@ -51,6 +51,23 @@ pub fn decode_value_with_rc(bytes: &[u8]) -> (Option<&[u8]>, i64) {
     }
 }
 
+/// Strips refcount from an owned buffer.
+///
+/// Works like [`decode_value_with_rc`] but operates on an owned vector thus
+/// potentially avoiding memory allocations.  Returns None if the refcount on
+/// the argument is non-positive.
+pub(crate) fn strip_refcount(mut bytes: Vec<u8>) -> Option<Vec<u8>> {
+    if let Some(len) = bytes.len().checked_sub(8) {
+        if i64::from_le_bytes(bytes[len..].try_into().unwrap()) > 0 {
+            bytes.truncate(len);
+            return Some(bytes);
+        }
+    } else {
+        debug_assert!(bytes.is_empty());
+    }
+    None
+}
+
 /// Encode a positive reference count into the value.
 pub(crate) fn add_positive_refcount(data: &[u8], rc: std::num::NonZeroU32) -> Vec<u8> {
     [data, &i64::from(rc.get()).to_le_bytes()].concat()
@@ -95,39 +112,17 @@ pub(crate) fn refcount_merge<'a>(
     }
 }
 
-/// Returns value with reference count stripped if column is refcounted.
-///
-/// If the column is not refcounted, returns the value unchanged.
-///
-/// If the column is refcounted, extracts the reference count from it and
-/// returns value based on that.  If reference count is non-positive, returns
-/// `None`; otherwise returns the value with reference count stripped.  Empty
-/// values are treated as values with reference count zero.
-pub(crate) fn get_with_rc_logic(column: DBCol, value: Option<Vec<u8>>) -> Option<Vec<u8>> {
-    if column.is_rc() {
-        value.and_then(get_payload)
-    } else {
-        value
-    }
-}
-
-fn get_payload(value: Vec<u8>) -> Option<Vec<u8>> {
-    decode_value_with_rc(&value).0.map(|v| v.to_vec())
-}
-
 /// Iterator treats empty value as no value and strips refcount
 pub(crate) fn iter_with_rc_logic<'a>(
     column: DBCol,
     iterator: impl Iterator<Item = io::Result<(Box<[u8]>, Box<[u8]>)>> + 'a,
 ) -> crate::db::DBIterator<'a> {
     if column.is_rc() {
-        Box::new(iterator.filter_map(|item| {
-            let item = if let Ok((key, value)) = item {
-                Ok((key, get_payload(value.into_vec())?.into_boxed_slice()))
-            } else {
-                item
-            };
-            Some(item)
+        Box::new(iterator.filter_map(|item| match item {
+            Err(err) => Some(Err(err)),
+            Ok((key, value)) => {
+                strip_refcount(value.into_vec()).map(|value| Ok((key, value.into_boxed_slice())))
+            }
         }))
     } else {
         Box::new(iterator)
@@ -188,6 +183,9 @@ mod test {
         fn test(want_value: Option<&[u8]>, want_rc: i64, bytes: &[u8]) {
             let got = super::decode_value_with_rc(bytes);
             assert_eq!((want_value, want_rc), got);
+
+            let got = super::strip_refcount(bytes.to_vec());
+            assert_eq!(want_value, got.as_deref());
         }
 
         test(None, -2, MINUS_TWO);
@@ -271,44 +269,6 @@ mod test {
         test(Decision::Keep, b"foo");
         // And this never happens because zero is encoded as empty value.
         test(Decision::Keep, ZERO);
-    }
-
-    #[test]
-    fn get_with_rc_logic() {
-        fn get(col: DBCol, value: &[u8]) -> Option<Vec<u8>> {
-            assert_eq!(None, super::get_with_rc_logic(col, None));
-            super::get_with_rc_logic(col, Some(value.to_vec()))
-        }
-
-        fn test(want: Option<&[u8]>, col: DBCol, value: &[u8]) {
-            assert_eq!(want, get(col, value).as_ref().map(Vec::as_slice));
-        }
-
-        // Column without reference counting.  Values are returned as is.
-        assert!(!DBCol::Block.is_rc());
-        for value in [&b""[..], &b"foo"[..], MINUS_ONE, ZERO, PLUS_ONE] {
-            test(Some(value), DBCol::Block, value);
-        }
-
-        // Column with reference counting.  Count is extracted.
-        const RC_COL: DBCol = DBCol::State;
-        assert!(RC_COL.is_rc());
-
-        test(None, RC_COL, MINUS_ONE);
-        test(None, RC_COL, b"foo\xff\xff\xff\xff\xff\xff\xff\xff");
-        test(None, RC_COL, b"");
-        test(None, RC_COL, ZERO);
-        test(None, RC_COL, b"foo\x00\0\0\0\0\0\0\0");
-        test(Some(b""), RC_COL, PLUS_ONE);
-        test(Some(b"foo"), RC_COL, b"foo\x01\0\0\0\0\0\0\0");
-
-        check_debug_assert_or(
-            || {
-                let value = Some(b"short".to_vec());
-                super::get_with_rc_logic(RC_COL, value)
-            },
-            |got| assert_eq!(None, got),
-        );
     }
 
     #[test]
