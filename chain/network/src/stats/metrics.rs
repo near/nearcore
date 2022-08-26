@@ -163,6 +163,14 @@ pub(crate) static EDGE_TOMBSTONE_SENDING_SKIPPED: Lazy<IntCounter> = Lazy::new(|
     .unwrap()
 });
 
+pub(crate) static EDGE_TOMBSTONE_RECEIVING_SKIPPED: Lazy<IntCounter> = Lazy::new(|| {
+    try_create_int_counter(
+        "near_edge_tombstone_receiving_skip",
+        "Number of times that we pruned tombstones upon receiving.",
+    )
+    .unwrap()
+});
+
 pub(crate) static PEER_UNRELIABLE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_peer_unreliable",
