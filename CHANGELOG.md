@@ -32,6 +32,9 @@
 * `network.external_address` field in `config.json` file is
   deprecated.  In fact it has never been used and only served to
   confuse everyone [#7300](https://github.com/near/nearcore/pull/7300)
+* Due to increasing state size, improved shard cache for Trie nodes to
+  put more nodes in memory. Requires 3 GB more RAM 
+  [#7429](https://github.com/near/nearcore/pull/7429)
 
 ## 1.28.0 [2022-07-27]
 
