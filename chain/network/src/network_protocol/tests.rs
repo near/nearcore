@@ -6,8 +6,7 @@ use crate::types::{HandshakeFailureReason, PeerMessage};
 use anyhow::{bail, Context as _};
 use crate::time;
 use crate::types::{
-    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, RoutedMessageBody,
-};
+    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use near_primitives::syncing::EpochSyncResponse;
 use near_primitives::types::EpochId;
 

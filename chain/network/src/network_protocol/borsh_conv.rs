@@ -1,7 +1,7 @@
 /// Contains borsh <-> network_protocol conversions.
 use crate::network_protocol as mem;
 use crate::network_protocol::borsh_ as net;
-use crate::types::RoutedMessageV2;
+use crate::network_protocol::RoutedMessageV2;
 use thiserror::Error;
 
 impl From<&net::Handshake> for mem::Handshake {

@@ -30,11 +30,10 @@ use std::sync::Arc;
 pub use crate::network_protocol::{
     PeerIdOrHash,
     PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
-    Ping, Pong, RoutedMessage,
-    RoutedMessageBody, RoutedMessageV2, StateResponseInfo, StateResponseInfoV1,
+    StateResponseInfo, StateResponseInfoV1,
     StateResponseInfoV2,
-    PeerChainInfo, PeerChainInfoV2,  PeerInfo, 
-    Edge, EdgeState, InvalidNonceError, PartialEdgeInfo, EDGE_MIN_TIMESTAMP_NONCE,
+    PeerChainInfo, PeerChainInfoV2,  PeerInfo,
+    Edge, PartialEdgeInfo, Ping, Pong, 
 };
 
 /// Number of hops a message is allowed to travel before being dropped.
@@ -150,17 +149,6 @@ impl KnownPeerStatus {
     }
 }
 
-/// Routed Message wrapped with previous sender of the message.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(actix::Message, Clone, Debug)]
-#[rtype(result = "bool")]
-pub struct RoutedMessageFrom {
-    /// Routed messages.
-    pub msg: Box<RoutedMessageV2>,
-    /// Previous hop in the route. Used for messages that needs routing back.
-    pub from: PeerId,
-}
-
 impl AccountOrPeerIdOrHash {
     pub(crate) fn peer_id_or_hash(&self) -> Option<PeerIdOrHash> {
         match self {
@@ -243,8 +231,8 @@ impl PeerManagerMessageRequest {
 #[derive(actix::MessageResponse, Debug)]
 pub enum PeerManagerMessageResponse {
     NetworkResponses(NetworkResponses),
-    OutboundTcpConnect,
     /// TEST-ONLY
+    OutboundTcpConnect,
     SetAdvOptions,
     FetchRoutingTable(RoutingTableInfo),
     PingTo,
@@ -366,9 +354,9 @@ impl From<&FullPeerInfo> for ConnectedPeerInfo {
             full_peer_info: full_peer_info.clone(),
             received_bytes_per_sec: 0,
             sent_bytes_per_sec: 0,
-            last_time_peer_requested: crate::time::Instant::now(),
-            last_time_received_message: crate::time::Instant::now(),
-            connection_established_time: crate::time::Instant::now(),
+            last_time_peer_requested: time::Instant::now(),
+            last_time_received_message: time::Instant::now(),
+            connection_established_time: time::Instant::now(),
             peer_type: PeerType::Outbound,
         }
     }
@@ -595,7 +583,7 @@ impl<M: actix::Message, T: MsgRecipient<M>> MsgRecipient<M> for NetworkRecipient
 mod tests {
     use super::*;
     use near_primitives::syncing::ShardStateSyncResponseV1;
-    use crate::network_protocol::RawRoutedMessage;
+    use crate::network_protocol::{RawRoutedMessage,RoutedMessageBody,RoutedMessage};
     use borsh::{BorshSerialize as _};
 
     const ALLOWED_SIZE: usize = 1 << 20;
@@ -654,7 +642,6 @@ mod tests {
         assert_size!(Pong);
         assert_size!(RawRoutedMessage);
         assert_size!(RoutedMessage);
-        assert_size!(RoutedMessageFrom);
         assert_size!(KnownPeerState);
         assert_size!(InboundTcpConnect);
         assert_size!(OutboundTcpConnect);

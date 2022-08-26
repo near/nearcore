@@ -4,7 +4,8 @@ use near_metrics::{
     try_create_int_counter_vec, try_create_int_gauge, Histogram, HistogramVec, IntCounter,
     IntCounterVec, IntGauge, IntGaugeVec,
 };
-use crate::types::{PeerType, RoutedMessageBody};
+use crate::types::{PeerType};
+use crate::network_protocol::{RoutedMessageBody};
 use once_cell::sync::Lazy;
 
 /// Labels represents a schema of an IntGaugeVec metric.

@@ -10,6 +10,7 @@ use crate::private_actix::PeersResponse;
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::private_actix::{
     PeersRequest, RegisterPeer, RegisterPeerResponse, SendMessage, Unregister,
+    RoutedMessageFrom,
 };
 use crate::routing::edge::verify_nonce;
 use crate::stats::metrics;
@@ -24,11 +25,11 @@ use anyhow::Context as _;
 use lru::LruCache;
 use near_crypto::Signature;
 use crate::time;
-use crate::network_protocol::{PeerChainInfoV2,PeerInfo};
+use crate::network_protocol::{PeerChainInfoV2,PeerInfo,RoutedMessage, RoutedMessageBody};
 use crate::types::{
     Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerIdOrHash,
     PeerManagerRequest, PeerManagerRequestWithContext, PeerType, ReasonForBan,
-    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+    StateResponseInfo,
 };
 use crate::network_protocol::{Edge, PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};

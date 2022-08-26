@@ -1,5 +1,5 @@
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::Encoding;
+use crate::network_protocol::{Encoding,RoutedMessageBody};
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor;
 use crate::testonly::fake_client::Event as CE;
@@ -11,8 +11,7 @@ use assert_matches::assert_matches;
 use near_logger_utils::init_test_logger;
 use crate::time;
 use crate::types::{
-    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, RoutedMessageBody,
-};
+    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, };
 use near_primitives::syncing::EpochSyncResponse;
 use near_primitives::types::EpochId;
 use near_primitives::version::{PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION};

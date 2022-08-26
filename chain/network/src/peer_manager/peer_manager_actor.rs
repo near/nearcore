@@ -7,10 +7,11 @@ use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::connection::{Connection, Pool, PoolError};
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
+    RoutedMessageFrom, 
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerError, RegisterPeerResponse,
     StopMsg, Unregister, ValidateEdgeList,
+    PeerToManagerMsg, PeerToManagerMsgResp, PeersResponse,
 };
-use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp, PeersResponse};
 use crate::routing;
 use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::routing_table_view::RoutingTableView;
@@ -29,10 +30,10 @@ use anyhow::bail;
 use anyhow::Context as _;
 use arc_swap::ArcSwap;
 use crate::time;
-use crate::network_protocol::{AccountOrPeerIdOrHash, RawRoutedMessage,Edge,RoutedMessageBody,PeerInfo, Ping, Pong};
+use crate::network_protocol::{AccountOrPeerIdOrHash, RawRoutedMessage,Edge,RoutedMessageBody,PeerInfo, Ping, Pong, RoutedMessageV2};
 use crate::types::{
     Ban, KnownPeerStatus, KnownProducer, NetworkViewClientMessages,
-    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerType, ReasonForBan, RoutedMessageFrom, RoutedMessageV2,
+    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerType, ReasonForBan,
     StateResponseInfo,
 };
 use crate::network_protocol::{EdgeState, PartialEdgeInfo};
