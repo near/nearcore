@@ -3,7 +3,7 @@ use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::{AccountData, SyncAccountsData};
 use crate::peer::codec::Codec;
-use crate::peer::peer_actor::{Event as PeerEvent, PeerActor};
+use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
@@ -14,7 +14,6 @@ use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp, PeersResponse
 use crate::routing;
 use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::routing_table_view::RoutingTableView;
-use crate::sink::Sink;
 use crate::stats::metrics;
 use crate::store;
 use crate::types::{
@@ -158,6 +157,17 @@ pub(crate) struct NetworkState {
     pub accounts_data: Arc<accounts_data::Cache>,
     /// Connected peers (inbound and outbound) with their full peer information.
     pub tier2: connection::Pool,
+
+    /// View of the Routing table. It keeps:
+    /// - routing information - how to route messages
+    /// - edges adjacent to my_peer_id
+    /// - account id
+    /// Full routing table (that currently includes information about all edges in the graph) is now inside Routing Table.
+    pub routing_table_view: RoutingTableView,
+
+    /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
+    /// messages sincce last block.
+    pub txns_since_last_block: AtomicUsize,
 }
 
 impl NetworkState {
@@ -166,17 +176,20 @@ impl NetworkState {
         genesis_id: GenesisId,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
+        routing_table_view: RoutingTableView,
         send_accounts_data_rl: demux::RateLimit,
     ) -> Self {
         Self {
-            config,
             genesis_id,
             client_addr,
             view_client_addr,
             chain_info: Default::default(),
             tier2: connection::Pool::default(),
             accounts_data: Arc::new(accounts_data::Cache::new()),
+            routing_table_view,
             send_accounts_data_rl,
+            config,
+            txns_since_last_block: AtomicUsize::new(0),
         }
     }
 
@@ -189,6 +202,15 @@ impl NetworkState {
                 peer.send_message(msg.clone());
             }
         }
+    }
+
+    pub fn propose_edge(&self, peer1: &PeerId, with_nonce: Option<u64>) -> PartialEdgeInfo {
+        // When we create a new edge we increase the latest nonce by 2 in case we miss a removal
+        // proposal from our partner.
+        let nonce = with_nonce.unwrap_or_else(|| {
+            self.routing_table_view.get_local_edge(peer1).map_or(1, |edge| edge.next())
+        });
+        PartialEdgeInfo::new(&self.config.node_id(), peer1, nonce, &self.config.node_key)
     }
 }
 
@@ -211,12 +233,6 @@ pub struct PeerManagerActor {
     peer_store: PeerStore,
     /// Set of outbound connections that were not consolidated yet.
     outgoing_peers: HashSet<PeerId>,
-    /// View of the Routing table. It keeps:
-    /// - routing information - how to route messages
-    /// - edges adjacent to my_peer_id
-    /// - account id
-    /// Full routing table (that currently includes information about all edges in the graph) is now inside Routing Table.
-    routing_table_view: RoutingTableView,
     /// A graph of the whole NEAR network, shared between routing::Actor
     /// and PeerManagerActor. PeerManagerActor should have read-only access to the graph.
     /// TODO: this is an intermediate step towards replacing actix runtime with a
@@ -231,31 +247,43 @@ pub struct PeerManagerActor {
     local_peer_pending_update_nonce_request: HashMap<PeerId, u64>,
     /// RoutingTableActor, responsible for computing routing table, routing table exchange, etc.
     routing_table_addr: Addr<routing::Actor>,
-    /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
-    /// messages sincce last block.
-    txns_since_last_block: Arc<AtomicUsize>,
     /// Number of active peers, used for rate limiting.
     peer_counter: Arc<AtomicUsize>,
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
     /// reached.
     whitelist_nodes: Vec<WhitelistNode>,
-    /// test-only.
-    event_sink: Sink<Event>,
 
     pub(crate) state: Arc<NetworkState>,
 }
 
-// test-only
+/// TEST-ONLY
+/// A generic set of events (observable in tests) that the Network may generate.
+/// Ideally the tests should observe only public API properties, but until
+/// we are at that stage, feel free to add any events that you need to observe.
+/// In particular prefer emitting a new event to polling for a state change.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Event {
     ServerStarted,
     RoutedMessageDropped,
     RoutingTableUpdate(Arc<routing::NextHopTable>),
     PeerRegistered(PeerInfo),
-    Peer(PeerEvent),
     Ping(Ping),
     Pong(Pong),
     SetChainInfo,
+    // Reported once a message has been processed.
+    // In contrast to typical RPC protocols, many P2P messages do not trigger
+    // sending a response at the end of processing.
+    // However, for precise instrumentation in tests it is useful to know when
+    // processing has been finished. We simulate the "RPC response" by reporting
+    // an event MessageProcessed.
+    //
+    // Given that processing is asynchronous and unstructured as of now,
+    // it is hard to pinpoint all the places when the processing of a message is
+    // actually complete. Currently this event is reported only for some message types,
+    // feel free to add support for more.
+    MessageProcessed(PeerMessage),
+    // Reported when the actix actor has been stopped.
+    PeerActorStopped,
 }
 
 impl Actor for PeerManagerActor {
@@ -266,7 +294,7 @@ impl Actor for PeerManagerActor {
         if let Some(server_addr) = self.config.node_addr {
             debug!(target: "network", at = ?server_addr, "starting public server");
             let peer_manager_addr = ctx.address();
-            let event_sink = self.event_sink.clone();
+            let state = self.state.clone();
 
             ctx.spawn(
                 async move {
@@ -279,7 +307,7 @@ impl Actor for PeerManagerActor {
                             );
                         }
                     };
-                    event_sink.push(Event::ServerStarted);
+                    state.config.event_sink.push(Event::ServerStarted);
                     loop {
                         if let Ok((conn, client_addr)) = listener.accept().await {
                             peer_manager_addr.do_send(PeerToManagerMsg::InboundTcpConnect(
@@ -365,9 +393,7 @@ impl PeerManagerActor {
             let network_graph = network_graph.clone();
             move |_ctx| routing::Actor::new(clock, store, network_graph)
         });
-        let routing_table_view = RoutingTableView::new(store, my_peer_id.clone());
 
-        let txns_since_last_block = Arc::new(AtomicUsize::new(0));
         let whitelist_nodes = {
             let mut v = vec![];
             for wn in &config.whitelist_nodes {
@@ -379,35 +405,27 @@ impl PeerManagerActor {
         let rl = config.accounts_data_broadcast_rate_limit;
         Ok(Self {
             clock,
-            my_peer_id,
+            my_peer_id: my_peer_id.clone(),
             config: config.clone(),
             max_num_peers: config.max_num_peers,
             peer_store,
             outgoing_peers: HashSet::default(),
-            routing_table_view,
             network_graph,
             routing_table_exchange_helper: Default::default(),
             started_connect_attempts: false,
             local_peer_pending_update_nonce_request: HashMap::new(),
             routing_table_addr,
-            txns_since_last_block,
             peer_counter: Arc::new(AtomicUsize::new(0)),
             whitelist_nodes,
-            event_sink: Sink::void(),
             state: Arc::new(NetworkState::new(
                 config.clone(),
                 genesis_id,
                 client_addr,
                 view_client_addr,
+                RoutingTableView::new(store, my_peer_id.clone()),
                 rl,
             )),
         })
-    }
-
-    /// test-only, sets the event handler.
-    pub fn with_event_sink(mut self, event_sink: Sink<Event>) -> Self {
-        self.event_sink = event_sink;
-        self
     }
 
     fn update_routing_table(
@@ -428,14 +446,11 @@ impl PeerManagerActor {
                     next_hops,
                     peers_to_ban,
                 }) => {
-                    for peer_id in &local_edges_to_remove {
-                        act.routing_table_view.remove_local_edge(peer_id);
-                    }
-                    act.routing_table_view.set_next_hops(next_hops.clone());
+                    act.state.routing_table_view.update(&local_edges_to_remove, next_hops.clone());
                     for peer in peers_to_ban {
                         act.ban_peer(&peer, ReasonForBan::InvalidEdge);
                     }
-                    act.event_sink.push(Event::RoutingTableUpdate(next_hops));
+                    act.config.event_sink.push(Event::RoutingTableUpdate(next_hops));
                 }
                 _ => error!(target: "network", "expected RoutingTableUpdateResponse"),
             })
@@ -446,26 +461,18 @@ impl PeerManagerActor {
         if edges.is_empty() {
             return;
         }
-
-        for edge in &edges {
-            self.routing_table_view.add_local_edge(edge.clone());
-        }
+        self.state.routing_table_view.add_local_edges(&edges);
         self.routing_table_addr.do_send(routing::actor::Message::AddVerifiedEdges { edges });
     }
 
-    fn broadcast_accounts(&mut self, mut accounts: Vec<AnnounceAccount>) {
-        // Filter the accounts, so that we're sending only the ones that were not added.
-        accounts.retain(|a| !self.routing_table_view.contains_account(&a));
-        if accounts.is_empty() {
-            return;
+    fn broadcast_accounts(&mut self, accounts: Vec<AnnounceAccount>) {
+        let new_accounts = self.state.routing_table_view.add_accounts(accounts);
+        debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
+        if new_accounts.len() > 0 {
+            self.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                RoutingTableUpdate::from_accounts(new_accounts),
+            )));
         }
-        debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?accounts, "Received new accounts");
-        for account in &accounts {
-            self.routing_table_view.add_account(account.clone());
-        }
-        self.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-            RoutingTableUpdate::from_accounts(accounts),
-        )));
     }
 
     /// `update_routing_table_trigger` schedule updating routing table to `RoutingTableActor`
@@ -567,27 +574,23 @@ impl PeerManagerActor {
         if !new_edges.is_empty() {
             // Check whenever there is an edge indicating whenever there is a peer we should be
             // connected to but we aren't. And try to resolve the inconsistency.
-            //
             // Also check whenever there is an edge indicating that we should be disconnected
             // from a peer, but we are connected. And try to resolve the inconsistency.
-            for edge in new_edges.iter() {
-                if let Some(other_peer) = edge.other(&self.my_peer_id) {
-                    if !self.routing_table_view.is_local_edge_newer(other_peer, edge.nonce()) {
-                        continue;
+            let new_local_edges = self.state.routing_table_view.add_local_edges(&new_edges);
+            let tier2 = self.state.tier2.read();
+            for edge in new_local_edges {
+                let other_peer = edge.other(&self.my_peer_id).unwrap();
+                match (tier2.contains_key(other_peer), edge.edge_type()) {
+                    // This is an active connection, while the edge indicates it shouldn't.
+                    (true, EdgeState::Removed) => {
+                        self.maybe_remove_connected_peer(ctx, &edge, other_peer)
                     }
-                    // Check whether we belong to this edge.
-                    if self.state.tier2.read().contains_key(other_peer) {
-                        // This is an active connection.
-                        if edge.edge_type() == EdgeState::Removed {
-                            self.maybe_remove_connected_peer(ctx, edge, other_peer);
-                        }
-                    } else if edge.edge_type() == EdgeState::Active {
-                        // We are not connected to this peer, but routing table contains
-                        // information that we do. We should wait and remove that peer
-                        // from routing table
-                        Self::wait_peer_or_remove(ctx, edge.clone());
-                    }
-                    self.routing_table_view.add_local_edge(edge.clone());
+                    // We are not connected to this peer, but routing table contains
+                    // information that we do. We should wait and remove that peer
+                    // from routing table
+                    (false, EdgeState::Active) => Self::wait_peer_or_remove(ctx, edge),
+                    // OK
+                    _ => {}
                 }
             }
             self.routing_table_addr
@@ -673,7 +676,7 @@ impl PeerManagerActor {
         self.state.tier2.insert(connection.clone());
         self.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
         self.sync_after_handshake(connection, ctx, new_edge);
-        self.event_sink.push(Event::PeerRegistered(peer_info));
+        self.config.event_sink.push(Event::PeerRegistered(peer_info));
     }
 
     fn sync_after_handshake(
@@ -697,9 +700,9 @@ impl PeerManagerActor {
                     known_edges.retain(|edge| edge.removal_info().is_none());
                     metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
                 }
-                let known_accounts = act.routing_table_view.get_announce_accounts();
+                let known_accounts = act.state.routing_table_view.get_announce_accounts();
                 peer.send_message(Arc::new(PeerMessage::SyncRoutingTable(
-                    RoutingTableUpdate::new(known_edges, known_accounts.cloned().collect()),
+                    RoutingTableUpdate::new(known_edges, known_accounts),
                 )));
 
                 // Ask for peers list on connection.
@@ -735,7 +738,7 @@ impl PeerManagerActor {
         // update that represents the connection removal.
         self.state.tier2.remove(peer_id);
 
-        if let Some(edge) = self.routing_table_view.get_local_edge(peer_id) {
+        if let Some(edge) = self.state.routing_table_view.get_local_edge(peer_id) {
             if edge.edge_type() == EdgeState::Active {
                 let edge_update = edge.remove_edge(self.my_peer_id.clone(), &self.config.node_key);
                 self.add_verified_edges_to_routing_table(vec![edge_update.clone()]);
@@ -802,12 +805,10 @@ impl PeerManagerActor {
         stream: TcpStream,
         peer_type: PeerType,
         peer_info: Option<PeerInfo>,
-        partial_edge_info: Option<PartialEdgeInfo>,
     ) {
         let my_peer_id = self.my_peer_id.clone();
         let account_id = self.config.validator.as_ref().map(|v| v.account_id());
         let server_addr = self.config.node_addr;
-        let handshake_timeout = self.config.handshake_timeout;
 
         let server_addr = match server_addr {
             Some(server_addr) => server_addr,
@@ -828,15 +829,12 @@ impl PeerManagerActor {
             }
         };
 
-        let txns_since_last_block = Arc::clone(&self.txns_since_last_block);
-
         // Start every peer actor on separate thread.
         let arbiter = Arbiter::new();
         let peer_counter = self.peer_counter.clone();
         peer_counter.fetch_add(1, Ordering::SeqCst);
         let clock = self.clock.clone();
         let state = self.state.clone();
-        let event_sink = self.event_sink.clone();
         PeerActor::start_in_arbiter(&arbiter.handle(), move |ctx| {
             let (read, write) = tokio::io::split(stream);
 
@@ -862,15 +860,11 @@ impl PeerManagerActor {
                 peer_info,
                 peer_type,
                 FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
-                handshake_timeout,
                 recipient.clone().recipient(),
-                partial_edge_info,
-                txns_since_last_block,
                 peer_counter,
                 rate_limiter,
                 None,
                 state,
-                event_sink.compose(Event::Peer),
             )
         });
     }
@@ -1238,12 +1232,12 @@ impl PeerManagerActor {
             }
         }
 
-        match self.routing_table_view.find_route(&self.clock, &msg.msg.target) {
+        match self.state.routing_table_view.find_route(&self.clock, &msg.msg.target) {
             Ok(peer_id) => {
                 // Remember if we expect a response for this message.
                 if msg.msg.author == self.my_peer_id && msg.expect_response() {
                     trace!(target: "network", ?msg, "initiate route back");
-                    self.routing_table_view.add_route_back(
+                    self.state.routing_table_view.add_route_back(
                         &self.clock,
                         msg.hash(),
                         self.my_peer_id.clone(),
@@ -1260,7 +1254,7 @@ impl PeerManagerActor {
                       account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
                       to = ?msg.msg.target,
                       reason = ?find_route_error,
-                      known_peers = ?self.routing_table_view.reachable_peers(),
+                      known_peers = ?self.state.routing_table_view.reachable_peers(),
                       msg = ?msg.msg.body,
                     "Drop signed message"
                 );
@@ -1272,14 +1266,18 @@ impl PeerManagerActor {
     /// Route message to target peer.
     /// Return whether the message is sent or not.
     fn send_message_to_peer(&mut self, msg: RawRoutedMessage) -> bool {
-        let msg = self.sign_routed_message(msg, self.my_peer_id.clone());
-        self.send_signed_message_to_peer(msg)
+        self.send_signed_message_to_peer(msg.sign(
+            self.my_peer_id.clone(),
+            &self.config.node_key,
+            self.config.routed_message_ttl,
+            Some(self.clock.now_utc()),
+        ))
     }
 
     /// Send message to specific account.
     /// Return whether the message is sent or not.
     fn send_message_to_account(&mut self, account_id: &AccountId, msg: RoutedMessageBody) -> bool {
-        let target = match self.routing_table_view.account_owner(account_id) {
+        let target = match self.state.routing_table_view.account_owner(account_id) {
             Ok(peer_id) => peer_id,
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
@@ -1290,7 +1288,7 @@ impl PeerManagerActor {
                        reason = ?find_route_error,
                        ?msg,"Drop message",
                 );
-                trace!(target: "network", known_peers = ?self.routing_table_view.get_accounts_keys().collect::<Vec<_>>(), "Known peers");
+                trace!(target: "network", known_peers = ?self.state.routing_table_view.get_accounts_keys(), "Known peers");
                 return false;
             }
         };
@@ -1307,39 +1305,14 @@ impl PeerManagerActor {
         }
     }
 
-    fn sign_routed_message(
-        &self,
-        msg: RawRoutedMessage,
-        my_peer_id: PeerId,
-    ) -> Box<RoutedMessageV2> {
-        msg.sign(
-            my_peer_id,
-            &self.config.node_key,
-            self.config.routed_message_ttl,
-            Some(self.clock.now_utc()),
-        )
-    }
-
     // Determine if the given target is referring to us.
-    fn message_for_me(
-        routing_table_view: &mut RoutingTableView,
-        my_peer_id: &PeerId,
-        target: &PeerIdOrHash,
-    ) -> bool {
+    fn message_for_me(&self, target: &PeerIdOrHash) -> bool {
         match target {
-            PeerIdOrHash::PeerId(peer_id) => peer_id == my_peer_id,
-            PeerIdOrHash::Hash(hash) => routing_table_view.compare_route_back(*hash, my_peer_id),
+            PeerIdOrHash::PeerId(peer_id) => &self.my_peer_id == peer_id,
+            PeerIdOrHash::Hash(hash) => {
+                self.state.routing_table_view.compare_route_back(*hash, &self.my_peer_id)
+            }
         }
-    }
-
-    fn propose_edge(&self, peer1: &PeerId, with_nonce: Option<u64>) -> PartialEdgeInfo {
-        // When we create a new edge we increase the latest nonce by 2 in case we miss a removal
-        // proposal from our partner.
-        let nonce = with_nonce.unwrap_or_else(|| {
-            self.routing_table_view.get_local_edge(peer1).map_or(1, |edge| edge.next())
-        });
-
-        PartialEdgeInfo::new(&self.my_peer_id, peer1, nonce, &self.config.node_key)
     }
 
     fn send_ping(&mut self, nonce: u64, target: PeerId) {
@@ -1382,17 +1355,16 @@ impl PeerManagerActor {
                 .map(|x| x.stats.load().received_bytes_per_sec)
                 .sum(),
             known_producers: self
+                .state
                 .routing_table_view
                 .get_announce_accounts()
+                .into_iter()
                 .map(|announce_account| KnownProducer {
-                    account_id: announce_account.account_id.clone(),
+                    account_id: announce_account.account_id,
                     peer_id: announce_account.peer_id.clone(),
                     // TODO: fill in the address.
                     addr: None,
-                    next_hops: self
-                        .routing_table_view
-                        .view_route(&announce_account.peer_id)
-                        .map(|it| it.clone()),
+                    next_hops: self.state.routing_table_view.view_route(&announce_account.peer_id),
                 })
                 .collect(),
             tier1_accounts: self.state.accounts_data.load().data.values().cloned().collect(),
@@ -1650,7 +1622,7 @@ impl PeerManagerActor {
                 .map(|addr| self.is_ip_whitelisted(&addr.ip()))
                 .unwrap_or(false)
         {
-            self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
+            self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None);
         } else {
             // TODO(1896): Gracefully drop inbound connection for other peer.
             debug!(target: "network", "Inbound connection dropped (network at max capacity).");
@@ -1676,14 +1648,11 @@ impl PeerManagerActor {
                     Ok(res) => match res {
                         Ok(stream) => {
                             debug!(target: "network", peer_info = ?msg.peer_info, "Connecting");
-                            let edge_info = act.propose_edge(&msg.peer_info.id, None);
-
                             act.try_connect_peer(
                                 ctx.address(),
                                 stream,
                                 PeerType::Outbound,
                                 Some(msg.peer_info),
-                                Some(edge_info),
                             );
                             actix::fut::ready(())
                         }
@@ -1762,8 +1731,8 @@ impl PeerManagerActor {
             return RegisterPeerResponse::Reject;
         }
 
-        let last_edge = self.routing_table_view.get_local_edge(&peer_info.id);
-        let last_nonce = last_edge.map_or(0, |edge| edge.nonce());
+        let last_edge = self.state.routing_table_view.get_local_edge(&peer_info.id);
+        let last_nonce = last_edge.as_ref().map_or(0, |edge| edge.nonce());
 
         // Check that the received nonce is greater than the current nonce of this connection.
         if last_nonce >= other_edge_info.nonce {
@@ -1794,7 +1763,7 @@ impl PeerManagerActor {
         let edge_info = msg
             .this_edge_info
             .clone()
-            .unwrap_or_else(|| self.propose_edge(&peer_info.id, Some(other_edge_info.nonce)));
+            .unwrap_or_else(|| self.state.propose_edge(&peer_info.id, Some(other_edge_info.nonce)));
 
         let edge_info_response = if require_response { Some(edge_info.clone()) } else { None };
 
@@ -1861,7 +1830,7 @@ impl PeerManagerActor {
             }
             // TEST-ONLY
             PeerManagerMessageRequest::FetchRoutingTable => {
-                PeerManagerMessageResponse::FetchRoutingTable(self.routing_table_view.info())
+                PeerManagerMessageResponse::FetchRoutingTable(self.state.routing_table_view.info())
             }
             // TEST-ONLY
             PeerManagerMessageRequest::PingTo { nonce, target } => {
@@ -1892,7 +1861,7 @@ impl PeerManagerActor {
                 PeerToManagerMsgResp::Empty
             }
             PeerToManagerMsg::UpdateEdge((peer, nonce)) => {
-                PeerToManagerMsgResp::UpdatedEdge(self.propose_edge(&peer, Some(nonce)))
+                PeerToManagerMsgResp::UpdatedEdge(self.state.propose_edge(&peer, Some(nonce)))
             }
             PeerToManagerMsg::RouteBack(body, target) => {
                 trace!(target: "network", ?target, "Sending message to route back");
@@ -1926,7 +1895,7 @@ impl PeerManagerActor {
             }
             PeerToManagerMsg::RequestUpdateNonce(peer_id, edge_info) => {
                 if Edge::partial_verify(&self.my_peer_id, &peer_id, &edge_info) {
-                    if let Some(cur_edge) = self.routing_table_view.get_local_edge(&peer_id) {
+                    if let Some(cur_edge) = self.state.routing_table_view.get_local_edge(&peer_id) {
                         if cur_edge.edge_type() == EdgeState::Active
                             && cur_edge.nonce() >= edge_info.nonce
                         {
@@ -1954,7 +1923,11 @@ impl PeerManagerActor {
                         // This happens in case, we get an edge, in `RoutingTableActor`,
                         // which says that we shouldn't be connected to local peer, but we are.
                         // This is a part of logic used to ask peer, if he really want to be disconnected.
-                        if self.routing_table_view.is_local_edge_newer(other_peer, edge.nonce()) {
+                        if self
+                            .state
+                            .routing_table_view
+                            .is_local_edge_newer(other_peer, edge.nonce())
+                        {
                             if let Some(nonce) =
                                 self.local_peer_pending_update_nonce_request.get(other_peer)
                             {
@@ -1981,20 +1954,15 @@ impl PeerManagerActor {
                 let accounts = routing_table_update.accounts;
 
                 // Filter known accounts before validating them.
+                let old = self
+                    .state
+                    .routing_table_view
+                    .get_announces(accounts.iter().map(|a| &a.account_id));
                 let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = accounts
                     .into_iter()
-                    .filter_map(|announce_account| {
-                        if let Some(current_announce_account) =
-                            self.routing_table_view.get_announce(&announce_account.account_id)
-                        {
-                            if announce_account.epoch_id == current_announce_account.epoch_id {
-                                None
-                            } else {
-                                Some((announce_account, Some(current_announce_account.epoch_id)))
-                            }
-                        } else {
-                            Some((announce_account, None))
-                        }
+                    .map(|aa| {
+                        let id = aa.account_id.clone();
+                        (aa, old.get(&id).map(|old| old.epoch_id.clone()))
                     })
                     .collect();
 
@@ -2036,21 +2004,21 @@ impl PeerManagerActor {
 
         if msg.expect_response() {
             trace!(target: "network", route_back = ?PeerMessage::Routed(msg.clone()), "Received peer message that requires");
-            self.routing_table_view.add_route_back(&self.clock, msg.hash(), from.clone());
+            self.state.routing_table_view.add_route_back(&self.clock, msg.hash(), from.clone());
         }
 
-        if Self::message_for_me(&mut self.routing_table_view, &self.my_peer_id, &msg.msg.target) {
+        if self.message_for_me(&msg.msg.target) {
             self.record_routed_msg_latency(&msg);
             // Handle Ping and Pong message if they are for us without sending to client.
             // i.e. Return false in case of Ping and Pong
             match &msg.msg.body {
                 RoutedMessageBody::Ping(ping) => {
                     self.send_pong(ping.nonce as usize, msg.hash());
-                    self.event_sink.push(Event::Ping(ping.clone()));
+                    self.config.event_sink.push(Event::Ping(ping.clone()));
                     false
                 }
                 RoutedMessageBody::Pong(pong) => {
-                    self.event_sink.push(Event::Pong(pong.clone()));
+                    self.config.event_sink.push(Event::Pong(pong.clone()));
                     false
                 }
                 _ => true,
@@ -2059,7 +2027,7 @@ impl PeerManagerActor {
             if msg.decrease_ttl() {
                 self.send_signed_message_to_peer(msg);
             } else {
-                self.event_sink.push(Event::RoutedMessageDropped);
+                self.config.event_sink.push(Event::RoutedMessageDropped);
                 warn!(target: "network", ?msg, ?from, "Message dropped because TTL reached 0.");
             }
             false
@@ -2106,7 +2074,6 @@ impl Handler<SetChainInfo> for PeerManagerActor {
         let now = self.clock.now_utc();
         let SetChainInfo(info) = info;
         let state = self.state.clone();
-        let event_sink = self.event_sink.clone();
         // We set state.chain_info and call accounts_data.set_keys
         // synchronously, therefore, assuming actix in-order delivery,
         // there will be no race condition between subsequent SetChainInfo
@@ -2183,7 +2150,7 @@ impl Handler<SetChainInfo> for PeerManagerActor {
                     accounts_data: state.accounts_data.load().data.values().cloned().collect(),
                 },
             )));
-            event_sink.push(Event::SetChainInfo);
+            state.config.event_sink.push(Event::SetChainInfo);
         });
     }
 }
