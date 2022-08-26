@@ -267,6 +267,9 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
+        metrics::REVERTED_TRIE_INSERTIONS
+            .with_label_values(&[&format!("{}", shard_uid.shard_id)])
+            .inc_by(trie_changes.insertions.len() as u64);
         self.apply_deletions_inner(&trie_changes.insertions, shard_uid, store_update)
     }
 

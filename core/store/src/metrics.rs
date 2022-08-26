@@ -121,7 +121,7 @@ pub static SHARD_CACHE_DELETIONS_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
 pub static APPLIED_TRIE_DELETIONS: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_applied_trie_deletions",
-        "Applied deletions to trie",
+        "Trie deletions applied to store",
         &["shard_id"],
     )
     .unwrap()
@@ -129,7 +129,15 @@ pub static APPLIED_TRIE_DELETIONS: Lazy<IntCounterVec> = Lazy::new(|| {
 pub static APPLIED_TRIE_INSERTIONS: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_applied_trie_insertions",
-        "Applied insertions to trie",
+        "Trie insertions applied to store",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+pub static REVERTED_TRIE_INSERTIONS: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_reverted_trie_insertions",
+        "Trie insertions reverted due to GC of forks",
         &["shard_id"],
     )
     .unwrap()
