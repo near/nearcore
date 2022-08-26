@@ -1,7 +1,8 @@
 /// Store module defines atomic DB operations on top of schema module.
 /// All transactions should be implemented within this module,
 /// in particular schema::StoreUpdate is not exported.
-use near_network::types::{Edge, KnownPeerState};
+use crate::network_protocol::{Edge};
+use crate::types::{KnownPeerState};
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use std::collections::HashSet;

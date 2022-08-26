@@ -24,12 +24,13 @@ use anyhow::Context as _;
 use lru::LruCache;
 use near_crypto::Signature;
 use crate::time;
-use near_network::types::{
-    Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfoV2, PeerIdOrHash,
-    PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType, ReasonForBan,
+use crate::network_protocol::{PeerChainInfoV2,PeerInfo};
+use crate::types::{
+    Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerIdOrHash,
+    PeerManagerRequest, PeerManagerRequestWithContext, PeerType, ReasonForBan,
     RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
 };
-use near_network::types::{Edge, PartialEdgeInfo};
+use crate::network_protocol::{Edge, PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;

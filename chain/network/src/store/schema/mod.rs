@@ -4,7 +4,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use crate::time;
-use near_network::types as primitives;
+use crate::types as primitives;
 use near_primitives::account::id::AccountId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_store::DBCol;

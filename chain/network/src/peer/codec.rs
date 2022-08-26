@@ -8,7 +8,7 @@
 use crate::stats::metrics;
 use bytes::{Buf, BufMut, BytesMut};
 use bytesize::{GIB, MIB};
-use near_network::types::ReasonForBan;
+use crate::types::ReasonForBan;
 use near_performance_metrics::framed_write::EncoderCallBack;
 use std::io::{Error, ErrorKind};
 use tokio_util::codec::{Decoder, Encoder};
@@ -108,11 +108,11 @@ impl Decoder for Codec {
 #[cfg(test)]
 mod test {
     use crate::peer::codec::{Codec, NETWORK_MESSAGE_MAX_SIZE_BYTES};
-    use crate::types::{Handshake, PeerMessage, RoutingTableUpdate};
+    use crate::types::{Handshake, PeerMessage, RoutingTableUpdate,ReasonForBan};
     use bytes::{BufMut, BytesMut};
     use near_crypto::{KeyType, SecretKey};
-    use near_network::types::{
-        PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, ReasonForBan, RoutedMessage,
+    use crate::network_protocol::{
+        PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, RoutedMessage,
         RoutedMessageBody, RoutedMessageV2,
     };
     use near_primitives::block::{Approval, ApprovalInner};

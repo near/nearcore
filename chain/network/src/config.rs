@@ -5,7 +5,9 @@ use crate::sink::Sink;
 use anyhow::Context;
 use near_crypto::{KeyType, SecretKey};
 use crate::time;
-use near_network::types::{Blacklist, PeerInfo, ROUTED_MESSAGE_TTL};
+use crate::blacklist;
+use crate::types::ROUTED_MESSAGE_TTL;
+use crate::network_protocol::{PeerInfo};
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -111,7 +113,7 @@ pub struct NetworkConfig {
     /// Period between pushing network info to client
     pub push_info_period: time::Duration,
     /// Nodes will not accept or try to establish connection to such peers.
-    pub blacklist: Blacklist,
+    pub blacklist: blacklist::Blacklist,
     /// Flag to disable outbound connections. When this flag is active, nodes will not try to
     /// establish connection with other nodes, but will accept incoming connection if other requirements
     /// are satisfied.
@@ -133,7 +135,7 @@ pub struct NetworkConfig {
 
     /// TEST-ONLY
     /// TODO(gprusak): make it pub(crate), once all integration tests
-    /// are merged into near_network.
+    /// are merged into crate.
     pub event_sink: Sink<Event>,
 }
 
@@ -278,7 +280,7 @@ impl NetworkConfig {
             max_routes_to_store: 1,
             highest_peer_horizon: 5,
             push_info_period: time::Duration::milliseconds(100),
-            blacklist: Blacklist::default(),
+            blacklist: blacklist::Blacklist::default(),
             outbound_disabled: false,
             inbound_disabled: false,
             connect_only_to_boot_nodes: false,
@@ -355,7 +357,7 @@ mod test {
     use crate::network_protocol::AccountData;
     use crate::testonly::make_rng;
     use crate::time;
-    use near_network::types::UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
+    use super::UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
     use near_primitives::validator_signer::ValidatorSigner;
 
     #[test]

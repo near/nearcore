@@ -1,6 +1,6 @@
 use crate::stats::metrics;
 use crate::time;
-use near_network::types::{Edge, InvalidNonceError};
+use crate::network_protocol::{Edge, InvalidNonceError};
 
 // Don't accept nonces (edges) that are more than this delta from current time.
 // This value should be smaller than PRUNE_EDGES_AFTER (otherwise, the might accept the edge and garbage collect it seconds later).

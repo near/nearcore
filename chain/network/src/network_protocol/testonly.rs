@@ -4,8 +4,9 @@ use crate::config;
 use crate::types::{AccountKeys, ChainInfo, Handshake, RoutingTableUpdate};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use crate::time;
-use near_network::types::{
-    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
+use crate::network_protocol::{RawRoutedMessage,RoutedMessageBody,Edge, PartialEdgeInfo, PeerInfo};
+use crate::types::{
+    AccountOrPeerIdOrHash, 
 };
 use near_primitives::block::{genesis_chunks, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody};

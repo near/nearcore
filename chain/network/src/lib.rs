@@ -9,6 +9,7 @@ mod network_protocol;
 mod peer;
 mod peer_manager;
 
+pub mod blacklist;
 pub mod config;
 pub mod config_json;
 pub(crate) mod private_actix;
@@ -22,6 +23,6 @@ pub mod time;
 #[cfg(test)]
 pub(crate) mod testonly;
 
-// TODO(gprusak): these should be testonly, once all network integration tests are moved to near_network.
+// TODO(gprusak): these should be testonly, once all network integration tests are moved to crate.
 pub mod broadcast;
 pub mod sink;

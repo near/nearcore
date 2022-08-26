@@ -2,8 +2,10 @@ use crate::config;
 use crate::store;
 use anyhow::bail;
 use crate::time;
-use near_network::types::{
-    Blacklist, KnownPeerState, KnownPeerStatus, PeerInfo, ReasonForBan,
+use crate::blacklist::{Blacklist};
+use crate::network_protocol::{PeerInfo};
+use crate::types::{
+    KnownPeerState, KnownPeerStatus, ReasonForBan,
 };
 use near_primitives::network::PeerId;
 use rand::seq::IteratorRandom;

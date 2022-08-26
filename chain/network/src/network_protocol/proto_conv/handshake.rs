@@ -3,7 +3,7 @@ use super::*;
 
 use crate::network_protocol::proto;
 use crate::network_protocol::{Handshake, HandshakeFailureReason};
-use near_network::types::{PeerChainInfoV2, PeerInfo};
+use crate::network_protocol::{PeerChainInfoV2, PeerInfo};
 use near_primitives::block::GenesisId;
 use protobuf::MessageField as MF;
 

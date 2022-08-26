@@ -3,6 +3,7 @@ use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Encoding, PeerAddr, PeerMessage, SignedAccountData, SyncAccountsData,
+    PeerInfo,
 };
 use crate::peer;
 use crate::peer_manager::peer_manager_actor::Event as PME;
@@ -13,7 +14,7 @@ use crate::types::{ChainInfo, GetNetworkInfo, PeerManagerMessageRequest, SetChai
 use crate::PeerManagerActor;
 use actix::Actor;
 use crate::time;
-use near_network::types::{OutboundTcpConnect, PeerInfo};
+use crate::types::{OutboundTcpConnect};
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, EpochId};
 use std::collections::HashSet;
@@ -97,9 +98,7 @@ impl ActorHandler {
     pub async fn connect_to(&mut self, peer_info: &PeerInfo) {
         self.actix
             .addr
-            .send(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect {
-                peer_info: peer_info.clone(),
-            }))
+            .send(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect(peer_info.clone())))
             .await
             .unwrap();
         self.events

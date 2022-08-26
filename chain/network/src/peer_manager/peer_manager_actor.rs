@@ -29,13 +29,13 @@ use anyhow::bail;
 use anyhow::Context as _;
 use arc_swap::ArcSwap;
 use crate::time;
-use near_network::types::{
-    AccountOrPeerIdOrHash, Ban, Edge, KnownPeerStatus, KnownProducer, NetworkViewClientMessages,
-    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerInfo, PeerType, Ping, Pong,
-    RawRoutedMessage, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, RoutedMessageV2,
+use crate::network_protocol::{AccountOrPeerIdOrHash, RawRoutedMessage,Edge,RoutedMessageBody,PeerInfo, Ping, Pong};
+use crate::types::{
+    Ban, KnownPeerStatus, KnownProducer, NetworkViewClientMessages,
+    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerType, ReasonForBan, RoutedMessageFrom, RoutedMessageV2,
     StateResponseInfo,
 };
-use near_network::types::{EdgeState, PartialEdgeInfo};
+use crate::network_protocol::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -107,18 +107,8 @@ const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 /// network issue.
 const UNRELIABLE_PEER_HORIZON: u64 = 60;
 
-/// Number of hops a message is allowed to travel before being dropped.
-/// This is used to avoid infinite loop because of inconsistent view of the network
-/// by different nodes.
-pub const ROUTED_MESSAGE_TTL: u8 = 100;
-/// On every message from peer don't update `last_time_received_message`
-/// but wait some "small" timeout between updates to avoid a lot of messages between
-/// Peer and PeerManager.
-pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: time::Duration = time::Duration::seconds(60);
 /// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
 pub const MAX_NUM_PEERS: usize = 128;
-
-
 
 #[derive(Clone, PartialEq, Eq)]
 struct WhitelistNode {
@@ -1281,9 +1271,7 @@ impl PeerManagerActor {
                     interval = default_interval;
                 }
 
-                ctx.notify(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect {
-                    peer_info,
-                }));
+                ctx.notify(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect(peer_info)));
             } else {
                 self.state.ask_for_more_peers(&self.clock);
             }
@@ -1865,7 +1853,7 @@ impl PeerManagerActor {
                         .try_connect_to(
                             self.clock.clone(),
                             ctx.address(),
-                            msg.peer_info,
+                            msg.0,
                             /*is_tier1=*/ false,
                         )
                         .into_actor(self),

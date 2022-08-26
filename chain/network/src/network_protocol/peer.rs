@@ -1,32 +1,17 @@
-use crate::time::Utc;
 /// `network_protocol.rs` contains types which are part of network protocol.
 /// We need to maintain backward compatibility in network protocol.
 /// All changes to this file should be reviewed.
 ///
 /// TODO: - document all types in this file
-use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::Signature;
-use near_primitives::block::{Approval, GenesisId};
-use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::combine_hash;
+use near_primitives::block::{GenesisId};
 use near_primitives::network::PeerId;
-use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
-    PartialEncodedChunkWithArcReceipts, ReceiptProof, ShardChunkHeader,
-};
-use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, ShardId};
-use near_primitives::views::FinalExecutionOutcomeView;
-use std::collections::HashSet;
 use std::fmt;
-use std::fmt::{Debug, Error, Formatter};
 use std::net::{SocketAddr, ToSocketAddrs};
-use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 
 /// Peer information.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 pub struct PeerInfo {
     pub id: PeerId,
     pub addr: Option<SocketAddr>,
@@ -121,7 +106,7 @@ impl FromStr for PeerInfo {
 /// Peer chain information.
 /// TODO: Remove in next version
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
 /// Represents `peers` view about chain.
 pub struct PeerChainInfo {
     /// Chain Id and hash of genesis block.
@@ -133,8 +118,7 @@ pub struct PeerChainInfo {
 }
 
 /// Peer chain information.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct PeerChainInfoV2 {
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
@@ -166,7 +150,7 @@ mod test {
     #[test]
     /// TODO this test might require an improvement (probably by mocking the DNS resolution)
     fn test_from_str() {
-        use crate::types::PeerInfo;
+        use crate::network_protocol::PeerInfo;
         use std::str::FromStr;
 
         let socket_v4 = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 1337);

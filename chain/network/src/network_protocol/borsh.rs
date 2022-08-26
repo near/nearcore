@@ -4,8 +4,9 @@
 /// WARNING WARNING WARNING
 /// We need to maintain backwards compatibility, all changes to this file needs to be reviews.
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_network::types::{
-    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessage,
+use crate::network_protocol::edge::{Edge,PartialEdgeInfo};
+use crate::network_protocol::{
+    PeerChainInfoV2, PeerInfo, RoutedMessage,
 };
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;

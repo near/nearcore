@@ -8,7 +8,7 @@ use actix::{
     WrapFuture as _,
 };
 use crate::time;
-use near_network::types::Edge;
+use crate::network_protocol::Edge;
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
 use near_rate_limiter::{ActixMessageResponse, ActixMessageWrapper, ThrottleToken};

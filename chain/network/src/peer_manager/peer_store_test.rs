@@ -1,5 +1,5 @@
 use near_crypto::{KeyType, SecretKey};
-use near_network::types::{Blacklist, BlacklistEntry};
+use crate::blacklist;
 use near_store::test_utils::create_test_store;
 use near_store::{Store, StoreOpener};
 use std::collections::HashSet;
@@ -330,7 +330,7 @@ fn check_ignore_blacklisted_peers() {
 
     // Blacklist one of the existing peers and one new peer.
     {
-        let blacklist: Blacklist =
+        let blacklist: blacklist::Blacklist =
             ["127.0.0.1:2", "127.0.0.1:5"].iter().map(|e| e.parse().unwrap()).collect();
         let mut peer_store = PeerStore::new(&clock.clock(), store, &[], blacklist, false).unwrap();
         // Peer 127.0.0.1:2 is removed since it's blacklisted.
@@ -376,8 +376,8 @@ fn remove_blacklisted_peers_from_store() {
     // Blacklisted peers are removed from the store.
     {
         let store = store::Store::from(opener.open().unwrap());
-        let blacklist: Blacklist =
-            [BlacklistEntry::from_addr(peer_infos[2].addr.unwrap())].into_iter().collect();
+        let blacklist: blacklist::Blacklist =
+            [blacklist::Entry::from_addr(peer_infos[2].addr.unwrap())].into_iter().collect();
         let _peer_store = PeerStore::new(&clock.clock(), store, &[], blacklist, false).unwrap();
     }
     assert_peers_in_store(&opener, &peer_ids[0..2]);

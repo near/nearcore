@@ -4,7 +4,7 @@ use crate::routing::routing_table_view::*;
 use crate::store;
 use crate::testonly::make_rng;
 use crate::time;
-use near_network::types::PeerIdOrHash;
+use crate::types::PeerIdOrHash;
 use near_store::test_utils::create_test_store;
 use rand::seq::SliceRandom;
 use std::sync::Arc;

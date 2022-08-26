@@ -15,8 +15,9 @@ use near_network::test_utils::{
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network::{Event, PeerManagerActor};
 use near_network::time;
+use near_network::blacklist;
 use near_network::types::{
-    Blacklist, BlacklistEntry, OutboundTcpConnect, PeerInfo, Ping as NetPing, Pong as NetPong,
+    OutboundTcpConnect, PeerInfo, Ping as NetPing, Pong as NetPong,
     ROUTED_MESSAGE_TTL,
 };
 use near_primitives::block::GenesisId;
@@ -264,7 +265,7 @@ impl StateMachine {
                     tracing::debug!(target: "dupa", "{from} -> {to} ({} -> {})",info.runner.test_config[from].peer_info().id,peer_info.id);
                     let peer_id = peer_info.id.clone();
                     pm.send(PeerManagerMessageRequest::OutboundTcpConnect(
-                        OutboundTcpConnect { peer_info },
+                        OutboundTcpConnect(peer_info),
                     )).await?;
                     if !force {
                         return Ok(ControlFlow::Break(()))
@@ -536,12 +537,12 @@ impl Runner {
 
         let boot_nodes =
             config.boot_nodes.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
-        let blacklist: Blacklist = config
+        let blacklist: blacklist::Blacklist = config
             .blacklist
             .iter()
             .map(|x| match x {
-                Some(x) => BlacklistEntry::from_addr(self.test_config[*x].addr()),
-                None => BlacklistEntry::from_ip(Ipv4Addr::LOCALHOST.into()),
+                Some(x) => blacklist::Entry::from_addr(self.test_config[*x].addr()),
+                None => blacklist::Entry::from_ip(Ipv4Addr::LOCALHOST.into()),
             })
             .collect();
         let whitelist =

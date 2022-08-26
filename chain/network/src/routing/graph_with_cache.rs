@@ -1,7 +1,7 @@
 use crate::routing;
 use crate::stats::metrics;
 use crate::time;
-use near_network::types::{Edge, EdgeState};
+use crate::network_protocol::{Edge, EdgeState};
 use near_primitives::network::PeerId;
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};

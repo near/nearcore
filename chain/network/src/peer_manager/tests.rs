@@ -11,7 +11,7 @@ use crate::types::{PeerMessage, RoutingTableUpdate};
 use itertools::Itertools;
 use near_logger_utils::init_test_logger;
 use crate::time;
-use near_network::types::{Ping, RoutedMessageBody, EDGE_MIN_TIMESTAMP_NONCE};
+use crate::network_protocol::{Ping, RoutedMessageBody, EDGE_MIN_TIMESTAMP_NONCE};
 use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
 use pretty_assertions::assert_eq;
@@ -263,7 +263,7 @@ async fn ttl() {
     peer.complete_handshake().await;
     // await for peer manager to compute the routing table.
     // TODO(gprusak): probably extract it to a separate function when migrating other tests from
-    // integration-tests to near_network.
+    // integration-tests to crate.
     pm.events
         .recv_until(|ev| match ev {
             Event::PeerManager(PME::RoutingTableUpdate(rt)) => {

@@ -7,7 +7,8 @@ use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::future::BoxFuture;
 use futures::{future, Future, FutureExt};
 use near_crypto::{KeyType, SecretKey};
-use near_network::types::{PeerInfo, ReasonForBan};
+use crate::types::{ReasonForBan};
+use crate::network_protocol::PeerInfo;
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
@@ -79,7 +80,7 @@ pub fn wait_or_panic(max_wait_ms: u64) {
 ///
 /// ```rust,ignore
 /// use actix::{System, Actor};
-/// use near_network::test_utils::WaitOrTimeoutActor;
+/// use crate::test_utils::WaitOrTimeoutActor;
 /// use std::time::{Instant, Duration};
 ///
 /// near_actix_test_utils::run_actix(async {
@@ -311,7 +312,7 @@ pub mod test_features {
     use actix::actors::mocker::Mocker;
     use actix::Actor;
     use crate::time;
-    use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
+    use crate::types::{NetworkViewClientMessages, NetworkViewClientResponses};
     use near_primitives::block::GenesisId;
     use near_store::Store;
     use std::sync::atomic::{AtomicUsize, Ordering};

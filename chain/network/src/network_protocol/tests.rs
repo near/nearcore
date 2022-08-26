@@ -5,7 +5,7 @@ use crate::testonly::make_rng;
 use crate::types::{HandshakeFailureReason, PeerMessage};
 use anyhow::{bail, Context as _};
 use crate::time;
-use near_network::types::{
+use crate::types::{
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, RoutedMessageBody,
 };
 use near_primitives::syncing::EpochSyncResponse;

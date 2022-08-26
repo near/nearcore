@@ -10,7 +10,7 @@ use anyhow::Context as _;
 use assert_matches::assert_matches;
 use near_logger_utils::init_test_logger;
 use crate::time;
-use near_network::types::{
+use crate::types::{
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, RoutedMessageBody,
 };
 use near_primitives::syncing::EpochSyncResponse;

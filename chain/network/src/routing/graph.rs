@@ -1,4 +1,4 @@
-use near_network::types::MAX_NUM_PEERS;
+use crate::peer_manager::peer_manager_actor::MAX_NUM_PEERS;
 use near_primitives::network::PeerId;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};

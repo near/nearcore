@@ -1,18 +1,15 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
+    AccountOrPeerIdOrHash, 
     Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate, SignedAccountData,
 };
+use std::net::SocketAddr;
 use crate::routing::routing_table_view::RoutingTableInfo;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use near_crypto::PublicKey;
 use crate::time;
-use near_network::types::{
-    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, KnownProducer, OutboundTcpConnect,
-    PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, PeerType, Ping, Pong, ReasonForBan,
-    StateResponseInfo,
-};
+use near_primitives::views::FinalExecutionOutcomeView;
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
@@ -31,22 +28,21 @@ use std::sync::Arc;
 
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
+    PeerIdOrHash,
     PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
     Ping, Pong, RoutedMessage,
     RoutedMessageBody, RoutedMessageV2, StateResponseInfo, StateResponseInfoV1,
     StateResponseInfoV2,
-};
-
-pub use crate::network_protocol::peer::{
-    PeerChainInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, 
-};
-
-pub use crate::network_protocol::edge::{
+    PeerChainInfo, PeerChainInfoV2,  PeerInfo, 
     Edge, EdgeState, InvalidNonceError, PartialEdgeInfo, EDGE_MIN_TIMESTAMP_NONCE,
 };
 
+/// Number of hops a message is allowed to travel before being dropped.
+/// This is used to avoid infinite loop because of inconsistent view of the network
+/// by different nodes.
+pub const ROUTED_MESSAGE_TTL: u8 = 100;
+
 /// Peer type.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, strum::IntoStaticStr)]
 pub enum PeerType {
     /// Inbound session
@@ -57,7 +53,7 @@ pub enum PeerType {
 
 
 /// Messages from PeerManager to Peer with a tracing Context.
-#[derive(Message, Debug)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct PeerManagerRequestWithContext {
     pub msg: PeerManagerRequest,
@@ -73,7 +69,7 @@ pub struct KnownProducer {
 }
 
 /// Ban reason.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Copy)]
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq, Copy)]
 pub enum ReasonForBan {
     None = 0,
     BadBlock = 1,
@@ -94,7 +90,7 @@ pub enum ReasonForBan {
 
 /// Banning signal sent from Peer instance to PeerManager
 /// just before Peer instance is stopped.
-#[derive(Message, Debug)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct Ban {
     pub peer_id: PeerId,
@@ -102,20 +98,11 @@ pub struct Ban {
 }
 
 /// Messages from PeerManager to Peer
-#[derive(Message, Debug)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub enum PeerManagerRequest {
     BanPeer(ReasonForBan),
     UnregisterPeer,
-}
-
-
-
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Hash, Serialize)]
-pub enum AccountOrPeerIdOrHash {
-    AccountId(AccountId),
-    PeerId(PeerId),
-    Hash(CryptoHash),
 }
 
 /// Status of the known peers.
@@ -148,14 +135,14 @@ impl KnownPeerState {
 }
 
 /// Actor message that holds the TCP stream from an inbound TCP connection
-#[derive(Message, Debug)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-pub struct InboundTcpConnect(TcpStream);
+pub struct InboundTcpConnect(pub tokio::net::TcpStream);
 
 /// Actor message to request the creation of an outbound TCP connection to a peer.
-#[derive(Message, Clone, Debug)]
+#[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "()")]
-pub struct OutboundTcpConnect(PeerInfo);
+pub struct OutboundTcpConnect(pub PeerInfo);
 
 impl KnownPeerStatus {
     pub fn is_banned(&self) -> bool {
@@ -175,7 +162,7 @@ pub struct RoutedMessageFrom {
 }
 
 impl AccountOrPeerIdOrHash {
-    fn peer_id_or_hash(&self) -> Option<PeerIdOrHash> {
+    pub(crate) fn peer_id_or_hash(&self) -> Option<PeerIdOrHash> {
         match self {
             AccountOrPeerIdOrHash::AccountId(_) => None,
             AccountOrPeerIdOrHash::PeerId(peer_id) => Some(PeerIdOrHash::PeerId(peer_id.clone())),
@@ -489,7 +476,7 @@ pub enum NetworkResponses {
 #[rtype(result = "NetworkClientResponses")]
 pub enum NetworkClientMessages {
     #[cfg(feature = "test_features")]
-    Adversarial(near_network::types::NetworkAdversarialMessage),
+    Adversarial(crate::types::NetworkAdversarialMessage),
 
     /// Received transaction.
     Transaction {
@@ -608,6 +595,8 @@ impl<M: actix::Message, T: MsgRecipient<M>> MsgRecipient<M> for NetworkRecipient
 mod tests {
     use super::*;
     use near_primitives::syncing::ShardStateSyncResponseV1;
+    use crate::network_protocol::RawRoutedMessage;
+    use borsh::{BorshSerialize as _};
 
     const ALLOWED_SIZE: usize = 1 << 20;
     const NOTIFY_SIZE: usize = 1024;
@@ -707,7 +696,7 @@ mod tests {
 
 // Don't need Borsh ?
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, borsh::BorshSerialize, borsh::BorshDeserialize, Hash)]
 /// Defines the destination for a network request.
 /// The request should be sent either to the `account_id` as a routed message, or directly to
 /// any peer that tracks the shard.

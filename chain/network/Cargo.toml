@@ -39,6 +39,7 @@ rand = "0.6"
 rand_pcg = "0.1"
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 strum = { version = "0.24", features = ["derive"] }
+time = "0.3"
 tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec"] }
 tokio = { version = "1.1", features = ["net", "rt-multi-thread"] }

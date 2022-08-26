@@ -1,7 +1,13 @@
 /// Contains types that belong to the `network protocol.
-mod borsh;
+#[path = "borsh.rs"]
+mod borsh_;
 mod borsh_conv;
 mod proto_conv;
+mod peer;
+mod edge;
+pub use peer::*;
+pub use edge::*;
+
 
 #[cfg(test)]
 pub(crate) mod testonly;
@@ -14,13 +20,14 @@ mod _proto {
 
 pub use _proto::network as proto;
 
-use ::borsh::{BorshDeserialize as _, BorshSerialize as _};
+use near_primitives::merkle::combine_hash;
+use near_crypto::Signature;
+use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_crypto::PublicKey;
 use crate::time;
-use near_network::types::{
-    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessageBody, RoutedMessageV2,
-};
-use near_primitives::block::{Block, BlockHeader, GenesisId};
+use near_primitives::views::FinalExecutionOutcomeView;
+use near_primitives::block::{Block, BlockHeader, GenesisId,Approval};
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -28,9 +35,15 @@ use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse}
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::sharding::{
+    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
+    PartialEncodedChunkWithArcReceipts, ReceiptProof, ShardChunkHeader,
+};
+use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
 use protobuf::Message as _;
 use std::fmt;
 use std::sync::Arc;
+use std::collections::HashSet;
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct PeerAddr {
@@ -280,7 +293,7 @@ pub enum ParsePeerMessageError {
 impl PeerMessage {
     pub(crate) fn serialize(&self, enc: Encoding) -> Vec<u8> {
         match enc {
-            Encoding::Borsh => borsh::PeerMessage::from(self).try_to_vec().unwrap(),
+            Encoding::Borsh => borsh_::PeerMessage::from(self).try_to_vec().unwrap(),
             Encoding::Proto => proto::PeerMessage::from(self).write_to_bytes().unwrap(),
         }
     }
@@ -290,7 +303,7 @@ impl PeerMessage {
         data: &[u8],
     ) -> Result<PeerMessage, ParsePeerMessageError> {
         Ok(match enc {
-            Encoding::Borsh => (&borsh::PeerMessage::try_from_slice(data)
+            Encoding::Borsh => (&borsh_::PeerMessage::try_from_slice(data)
                 .map_err(ParsePeerMessageError::BorshDecode)?)
                 .try_into()
                 .map_err(ParsePeerMessageError::BorshConv)?,
@@ -362,8 +375,7 @@ impl PeerMessage {
 }
 
 // TODO(#1313): Use Box
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, strum::IntoStaticStr)]
-#[allow(clippy::large_enum_variant)]
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, strum::IntoStaticStr)]
 pub enum RoutedMessageBody {
     BlockApproval(Approval),
     ForwardTx(SignedTransaction),
@@ -439,8 +451,8 @@ impl From<PartialEncodedChunkWithArcReceipts> for RoutedMessageBody {
     }
 }
 
-impl Debug for RoutedMessageBody {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+impl fmt::Debug for RoutedMessageBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RoutedMessageBody::BlockApproval(approval) => write!(
                 f,
@@ -508,7 +520,7 @@ impl Debug for RoutedMessageBody {
 /// If target is hash, it is a message that should be routed back using the same path used to route
 /// the request in first place. It is the hash of the request message.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessage {
     /// Peer id which is directed this message.
     /// If `target` is hash, this a message should be routed back.
@@ -530,10 +542,10 @@ pub struct RoutedMessageV2 {
     /// Message
     pub msg: RoutedMessage,
     /// The time the Routed message was created by `author`.
-    pub created_at: Option<Utc>,
+    pub created_at: Option<time::Utc>,
 }
 
-impl Deref for RoutedMessageV2 {
+impl std::ops::Deref for RoutedMessageV2 {
     type Target = RoutedMessage;
 
     fn deref(&self) -> &Self::Target {
@@ -541,13 +553,13 @@ impl Deref for RoutedMessageV2 {
     }
 }
 
-impl DerefMut for RoutedMessageV2 {
+impl std::ops::DerefMut for RoutedMessageV2 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.msg
     }
 }
 
-#[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
+#[derive(borsh::BorshSerialize, PartialEq, Eq, Clone, Debug)]
 struct RoutedMessageNoSignature<'a> {
     target: &'a PeerIdOrHash,
     author: &'a PeerId,
@@ -594,7 +606,7 @@ impl RoutedMessage {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub enum PeerIdOrHash {
     PeerId(PeerId),
     Hash(CryptoHash),
@@ -603,7 +615,7 @@ pub enum PeerIdOrHash {
 /// Message for chunk part owners to forward their parts to validators tracking that shard.
 /// This reduces the number of requests a node tracking a shard needs to send to obtain enough
 /// parts to reconstruct the message (in the best case no such requests are needed).
-#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct PartialEncodedChunkForwardMsg {
     pub chunk_hash: ChunkHash,
     pub inner_header_hash: CryptoHash,
@@ -617,14 +629,14 @@ pub struct PartialEncodedChunkForwardMsg {
 
 /// Test code that someone become part of our protocol?
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct Ping {
     pub nonce: u64,
     pub source: PeerId,
 }
 
 /// Test code that someone become part of our protocol?
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
+#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct Pong {
     pub nonce: u64,
     pub source: PeerId,
@@ -653,35 +665,35 @@ impl PartialEncodedChunkForwardMsg {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct PartialEncodedChunkRequestMsg {
     pub chunk_hash: ChunkHash,
     pub part_ords: Vec<u64>,
     pub tracking_shards: HashSet<ShardId>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct PartialEncodedChunkResponseMsg {
     pub chunk_hash: ChunkHash,
     pub parts: Vec<PartialEncodedChunkPart>,
     pub receipts: Vec<ReceiptProof>,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct StateResponseInfoV1 {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
     pub state_response: ShardStateSyncResponseV1,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct StateResponseInfoV2 {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
     pub state_response: ShardStateSyncResponse,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub enum StateResponseInfo {
     V1(StateResponseInfoV1),
     V2(StateResponseInfoV2),
@@ -710,7 +722,13 @@ impl StateResponseInfo {
     }
 }
 
-#[derive(Message, Clone, Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, borsh::BorshSerialize, borsh::BorshDeserialize, Hash, serde::Serialize)]
+pub enum AccountOrPeerIdOrHash {
+    AccountId(AccountId),
+    PeerId(PeerId),
+    Hash(CryptoHash),
+}
+
 pub struct RawRoutedMessage {
     pub target: AccountOrPeerIdOrHash,
     pub body: RoutedMessageBody,
@@ -721,7 +739,7 @@ impl RawRoutedMessage {
     /// Panics if the target is an AccountId instead of a PeerId.
     pub fn sign(
         self,
-        node_key: &SecretKey,
+        node_key: &near_crypto::SecretKey,
         routed_message_ttl: u8,
         now: Option<time::Utc>,
     ) -> Box<RoutedMessageV2> {

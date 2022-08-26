@@ -4,7 +4,7 @@ use near_metrics::{
     try_create_int_counter_vec, try_create_int_gauge, Histogram, HistogramVec, IntCounter,
     IntCounterVec, IntGauge, IntGaugeVec,
 };
-use near_network::types::{PeerType, RoutedMessageBody};
+use crate::types::{PeerType, RoutedMessageBody};
 use once_cell::sync::Lazy;
 
 /// Labels represents a schema of an IntGaugeVec metric.
@@ -239,7 +239,7 @@ pub(crate) static BROADCAST_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
 
 pub(crate) static NETWORK_ROUTED_MSG_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_network_routed_msg_latency",
+        "crate_routed_msg_latency",
         "Latency of network messages, assuming clocks are perfectly synchronized",
         &["routed"],
         Some(exponential_buckets(0.0001, 1.6, 20).unwrap()),

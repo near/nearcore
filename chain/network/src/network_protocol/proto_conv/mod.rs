@@ -12,5 +12,5 @@ use crypto::*;
 use handshake::*;
 use net::*;
 pub(crate) use peer_message::*;
-use time::*;
+use self::time::*;
 use util::*;

@@ -15,10 +15,12 @@ use crate::testonly::fake_client;
 use crate::types::{PeerMessage, RoutingTableUpdate};
 use actix::{Actor, Context, Handler};
 use near_crypto::{InMemorySigner, Signature};
-use near_network::types::{
-    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
-    RoutedMessageV2,
+use crate::network_protocol::{
+    RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
+    Edge, PartialEdgeInfo, PeerInfo, 
 };
+use crate::types::{
+    AccountOrPeerIdOrHash, };
 use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
 
