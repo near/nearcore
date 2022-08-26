@@ -213,22 +213,16 @@ fn adjust_op(op: &mut DBOp) -> bool {
         }
         DBOp::UpdateRefcount { col, key, value } => {
             assert!(col.is_rc());
-            let rc = crate::db::refcount::strip_refcount(value);
-            if rc <= 0 {
+            let value = core::mem::take(value);
+            if let Some(value) = crate::db::refcount::strip_refcount(value) {
+                *op = DBOp::Set { col: *col, key: core::mem::take(key), value };
+                true
+            } else {
                 near_o11y::log_assert!(
                     false,
-                    "Unexpected refcount {rc} in {col} in cold store: {key:?}"
+                    "Unexpected non-positive reference count in {col} in cold store: {key:?}"
                 );
                 false
-            } else {
-                let dummy = DBOp::Set { col: DBCol::DbVersion, key: Vec::new(), value: Vec::new() };
-                let tmp = core::mem::replace(op, dummy);
-                if let DBOp::UpdateRefcount { col, key, value } = tmp {
-                    *op = DBOp::Set { col, key, value };
-                    true
-                } else {
-                    unreachable!()
-                }
             }
         }
         DBOp::Delete { col, key } => {
@@ -263,35 +257,39 @@ mod test {
 
     /// Prettifies raw key for display.
     fn pretty_key(key: &[u8]) -> String {
+        fn chunk(chunk: &[u8]) -> String {
+            let num = u64::from_le_bytes(chunk.try_into().unwrap());
+            if num < 256 {
+                format!("le({num})")
+            } else if num.swap_bytes() < 256 {
+                format!("be({})", num.swap_bytes())
+            } else if let Ok(value) = std::str::from_utf8(chunk) {
+                value.to_string()
+            } else {
+                format!("{chunk:x?}")
+            }
+        }
+        fn hash(chunk: &[u8]) -> String {
+            crate::CryptoHash::from(chunk.try_into().unwrap()).to_string()
+        }
         match key.len() {
-            8 if &key[0..7] == &[0; 7] => format!("be({})", key[7]),
-            8 if &key[1..8] == &[0; 7] => format!("le({})", key[0]),
-            16 if &key[0..7] == &[0; 7] => {
-                format!("`be({}) || {}`", key[7], std::str::from_utf8(&key[8..]).unwrap())
-            }
-            16 if &key[1..8] == &[0; 7] => {
-                format!("`le({}) || {}`", key[0], std::str::from_utf8(&key[8..]).unwrap())
-            }
-            32 => crate::CryptoHash::from(key.try_into().unwrap()).to_string(),
-            40 => format!(
-                "`{} || {}`",
-                std::str::from_utf8(&key[..8]).unwrap(),
-                crate::CryptoHash::from(key[8..].try_into().unwrap())
-            ),
+            8 => chunk(key),
+            16 => format!("`{} || {}`", chunk(&key[..8]), chunk(&key[8..])),
+            32 => hash(key),
+            40 => format!("`{} || {}`", chunk(&key[..8]), hash(&key[8..])),
             _ => format!("{key:x?}"),
         }
     }
 
     /// Prettifies raw value for display.
-    fn pretty_value(value: Option<Vec<u8>>, refcount: bool) -> String {
+    fn pretty_value(value: Option<&[u8]>, refcount: bool) -> String {
         match value {
             None => "∅".to_string(),
-            Some(mut value) if refcount => {
-                let rc = crate::db::refcount::strip_refcount(&mut value);
-                let value = String::from_utf8(value).unwrap();
-                format!("{value}; rc: {rc}")
+            Some(value) if refcount => {
+                let decoded = crate::db::refcount::decode_value_with_rc(value);
+                format!("{}; rc: {}", pretty_value(decoded.0, false), decoded.1)
             }
-            Some(value) => String::from_utf8(value).unwrap(),
+            Some(value) => std::str::from_utf8(value).unwrap().to_string(),
         }
     }
 
@@ -325,7 +323,7 @@ mod test {
                 let value = db.get_raw_bytes(col, &key).unwrap();
                 // When fetching reference counted column ColdDatabase adds
                 // reference count to it.
-                let value = pretty_value(value, col.is_rc() && !is_raw);
+                let value = pretty_value(value.as_deref(), col.is_rc() && !is_raw);
                 let key = pretty_key(key);
                 let name = if is_raw { "raw " } else { "cold" };
                 result.push(format!("[{name}] {col}, {key} → {value}"));
@@ -405,7 +403,7 @@ mod test {
                 let name = if is_raw { "raw " } else { "cold" };
                 for item in db.iter(col) {
                     let (key, value) = item.unwrap();
-                    let value = pretty_value(Some(value.into_vec()), false);
+                    let value = pretty_value(Some(value.as_ref()), false);
                     let key = pretty_key(&key);
                     result.push(format!("[{name}] ({key}, {value})"));
                 }
