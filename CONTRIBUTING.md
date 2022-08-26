@@ -48,8 +48,12 @@ for installation instructions.
 * You can optionally use the system installations of `librocksdb`, `libsnappy`
 and `lz4` in order to speed up the compilation and reduce the build memory
 requirements by setting the `ROCKSDB_LIB_DIR`, `SNAPPY_LIB_DIR` and
-`LZ4_LIB_DIR` environment variables.  These environment variables should point at
-the directory containing the dynamic shared objects (`.so`s or `.dylib`s.)
+`LZ4_LIB_DIR` environment variables.  These environment variables should point
+at the directory containing the dynamic shared objects (`.so`s or `.dylib`s).
+Please see the
+[wiki](https://wiki.near.org/contribute/contribute-nearcore#use-system-provided-rocksdb)
+for additional instructions on how to use a system-provided rocksdb
+installation.
 
 If your setup does not involve `rustup`, the required version of the rust
 toolchain can be found in the `rust-toolchain` file.
@@ -70,11 +74,13 @@ on the right track.
 3. A PR can contain any number of commits and when merged, the commits will be
 squashed into a single commit.
 4. The PR name should follow the template: `<type>: <name>`.  
-Where `type` is `fix` for fixes; `feat` for new features; `refactor` for changes
-that primarily reorganize code; `doc` for changes that primarily change
-documentation or comments; `test` for changes that primarily introduce new
-tests; and `chore` for updating grunt tasks. Please note that `type` is case
-sensitive.
+Where `type` is:
+   - `fix` for bug fixes;
+   - `feat` for new features;
+   - `refactor` for changes that reorganize code without adding new content;
+   - `doc` for changes that change documentation or comments;
+   - `test` for changes that introduce new tests;
+   - `chore` for grunt tasks like updating dependencies.
 5. The PR description should follow the following template:
 
 ```
