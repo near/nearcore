@@ -11,30 +11,27 @@ document](https://docs.nearprotocol.com/docs/contribution/contribution-overview)
 - For an overview of the NEAR core architecture, see [this
 playlist](https://www.youtube.com/playlist?list=PL9tzQn_TEuFV4qlts0tVgndnytFs4QSYo).
 
-- If you have never contributed to nearcore before and are looking for
-relatively simple issues to get started with, please checkout issues labeled
-with `C-good-first-issue`
+- If you are looking for relatively simple tasks to familiarise yourself with
+`nearcore`, please check out issues labeled with the `C-good-first-issue` label
 [here](https://github.com/near/nearcore/labels/C-good-first-issue).  If you see
-one that looks interesting and is not claimed, please comment on the issue that
-you would like to start working on it and someone from the team should assign it
-to you.
+one that looks interesting and is unassigned or has not been actively worked on
+in some time, please ask to have the issue be assigned to you and someone from
+the team should help you get started.  We do not always keep the issue tracker
+up-to-date, so if you do not find an interesting task to work on, please ask for
+help on our zulip channel.
 
 - If you have an idea for an enhancement to the protocol, please make the
 proposal by following the [NEAR Enhancement
 Proposal](https://github.com/near/NEPs/blob/master/neps/nep-0001.md).
 
 - Otherwise, if you have an idea for an enhancement that does not require a
-change in the proposal, please start by creaeting a new issue in the repository.
+change in the proposal, please start by creating a new issue in the tracker.
 Someone should respond within 48 hours.  If the proposal is accepted, then you
-can follow the process below to begin working on it.
+can follow the process below to begin work on it.
 
 - Finally, if you have noticed an obvious typo or bug that can be fixed with a
 small code change, please feel free to submit a PR directly addressing the issue
 without opening an issue.
-
-If you have an issue assigned to you, then we kindly ask that you provide an
-update at least once a week so we know if you are still actively working on the
-issue.
 
 # Setting up editors and IDEs
 
@@ -84,9 +81,8 @@ When working on a PR, please keep the following in mind:
 1. The changes should be thoroughly tested.  Please refer to [this
 document](https://github.com/nearprotocol/nearcore/wiki/Writing-tests-for-nearcore)
 for our testing guidelines and overview of the testing infrastructure.
-2. If you get an issue assigned to you, please post updates at least once a
-week.  You are encouraged to submit work-in-progress draft PRs to get early
-feedback.
+2. Feel free to submit draft PRs to get early feedback and to make sure you are
+on the right track.
 3. A PR can contain any number of commits and when merged, the commits will be
 squashed into a single commit.
 4. The PR name should follow the template: `<type>: <name>`.  
@@ -110,13 +106,13 @@ document it in [CHANGELOG.md](CHANGELOG.md) in `[unreleased]` section.
 
 # After the PR is submitted
 
-1. We have a CI process configured to run various tests on each PR.  If
-the CI fails on your PR, you need to fix it before it will be reviewed.
-2. Once the CI passes, you should expect the first feedback to appear within one
-business day.
-3. When all the comments have been addressed and all the reviewers are
-satisfied, they will approve your PR.  You can now add the `S-automerge` label
-on it to instruct Github to merge the PR.
+1. We have a CI process configured to run various tests on each PR.  All tests
+need to pass before your PR can be merged.
+2. When the CI is green and comments from the reviewer(s) have been addressed,
+they should approve the PR enabling you to merge it.
+3. You can use the `S-automerge` label to instruct Github to put the PR in the
+merge queue with other approved PRs so you do not have to manually look for a
+window to merge it.
 
 # Code review process
 
