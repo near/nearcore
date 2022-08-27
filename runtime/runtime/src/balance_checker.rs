@@ -14,12 +14,100 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::ProtocolVersion;
-use near_store::{get, get_account, get_postponed_receipt, TrieUpdate};
+use near_store::{get, get_account, get_postponed_receipt, TrieAccess, TrieUpdate};
 use std::collections::HashSet;
+
+/// Returns delayed receipts with given range of indices.
+fn get_delayed_receipts(
+    state: &dyn TrieAccess,
+    indexes: std::ops::Range<u64>,
+) -> Result<Vec<Receipt>, StorageError> {
+    indexes
+        .map(|index| {
+            get(state, &TrieKey::DelayedReceipt { index })?.ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "Delayed receipt #{} should be in the state",
+                    index
+                ))
+            })
+        })
+        .collect()
+}
+
+/// Calculates and returns cost of a receipt.
+fn receipt_cost(
+    transaction_costs: &RuntimeFeesConfig,
+    current_protocol_version: ProtocolVersion,
+    receipt: &Receipt,
+) -> Result<Balance, IntegerOverflowError> {
+    Ok(match &receipt.receipt {
+        ReceiptEnum::Action(action_receipt) => {
+            let mut total_cost = total_deposit(&action_receipt.actions)?;
+            if !AccountId::is_system(&receipt.predecessor_id) {
+                let mut total_gas = safe_add_gas(
+                    transaction_costs.action_receipt_creation_config.exec_fee(),
+                    total_prepaid_exec_fees(
+                        transaction_costs,
+                        &action_receipt.actions,
+                        &receipt.receiver_id,
+                        current_protocol_version,
+                    )?,
+                )?;
+                total_gas = safe_add_gas(total_gas, total_prepaid_gas(&action_receipt.actions)?)?;
+                let total_gas_cost = safe_gas_to_balance(action_receipt.gas_price, total_gas)?;
+                total_cost = safe_add_balance(total_cost, total_gas_cost)?;
+            }
+            total_cost
+        }
+        ReceiptEnum::Data(_) => 0,
+    })
+}
+
+/// Calculates and returns total cost of all the receipts.
+fn total_receipts_cost(
+    transaction_costs: &RuntimeFeesConfig,
+    current_protocol_version: ProtocolVersion,
+    receipts: &[Receipt],
+) -> Result<Balance, IntegerOverflowError> {
+    receipts.iter().try_fold(0, |accumulator, receipt| {
+        let cost = receipt_cost(transaction_costs, current_protocol_version, receipt)?;
+        safe_add_balance(accumulator, cost)
+    })
+}
+
+/// Returns total account balance of all accounts with given ids.
+fn total_accounts_balance(
+    state: &dyn TrieAccess,
+    accounts_ids: &HashSet<AccountId>,
+) -> Result<Balance, RuntimeError> {
+    accounts_ids.iter().try_fold(0u128, |accumulator, account_id| {
+        let (amount, locked) = match get_account(state, account_id)? {
+            None => return Ok(accumulator),
+            Some(account) => (account.amount(), account.locked()),
+        };
+        Ok(safe_add_balance_apply!(accumulator, amount, locked))
+    })
+}
+
+/// Calculates and returns total costs of all the postponed receipts.
+fn total_postponed_receipts_cost(
+    state: &dyn TrieAccess,
+    transaction_costs: &RuntimeFeesConfig,
+    current_protocol_version: ProtocolVersion,
+    receipt_ids: &HashSet<(AccountId, crate::CryptoHash)>,
+) -> Result<Balance, RuntimeError> {
+    receipt_ids.iter().try_fold(0, |total, item| {
+        let (account_id, receipt_id) = item;
+        let cost = match get_postponed_receipt(state, account_id, receipt_id.clone())? {
+            None => return Ok(total),
+            Some(receipt) => receipt_cost(transaction_costs, current_protocol_version, &receipt)?,
+        };
+        safe_add_balance(total, cost).map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
+    })
+}
 
 pub(crate) fn check_balance(
     transaction_costs: &RuntimeFeesConfig,
-    initial_state: &TrieUpdate,
     final_state: &TrieUpdate,
     validator_accounts_update: &Option<ValidatorAccountsUpdate>,
     incoming_receipts: &[Receipt],
@@ -28,34 +116,24 @@ pub(crate) fn check_balance(
     stats: &ApplyStats,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), RuntimeError> {
+    let initial_state = final_state.trie().as_ref();
+
     // Delayed receipts
     let initial_delayed_receipt_indices: DelayedReceiptIndices =
         get(initial_state, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
     let final_delayed_receipt_indices: DelayedReceiptIndices =
         get(final_state, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
-    let get_delayed_receipts = |from_index, to_index, state| {
-        (from_index..to_index)
-            .map(|index| {
-                get(state, &TrieKey::DelayedReceipt { index })?.ok_or_else(|| {
-                    StorageError::StorageInconsistentState(format!(
-                        "Delayed receipt #{} should be in the state",
-                        index
-                    ))
-                })
-            })
-            .collect::<Result<Vec<Receipt>, StorageError>>()
-    };
+
     // Previously delayed receipts that were processed this time.
     let processed_delayed_receipts = get_delayed_receipts(
-        initial_delayed_receipt_indices.first_index,
-        final_delayed_receipt_indices.first_index,
         initial_state,
+        initial_delayed_receipt_indices.first_index..final_delayed_receipt_indices.first_index,
     )?;
     // Receipts that were not processed this time and are delayed now.
     let new_delayed_receipts = get_delayed_receipts(
-        initial_delayed_receipt_indices.next_available_index,
-        final_delayed_receipt_indices.next_available_index,
         final_state,
+        initial_delayed_receipt_indices.next_available_index
+            ..final_delayed_receipt_indices.next_available_index,
     )?;
 
     // Accounts
@@ -81,53 +159,12 @@ pub(crate) fn check_balance(
         } else {
             0
         };
-    let total_accounts_balance = |state| -> Result<Balance, RuntimeError> {
-        Ok(all_accounts_ids
-            .iter()
-            .map(|account_id| {
-                get_account(state, account_id)?.map_or(Ok(0), |a| {
-                    safe_add_balance(a.amount(), a.locked())
-                        .map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
-                })
-            })
-            .collect::<Result<Vec<Balance>, RuntimeError>>()?
-            .into_iter()
-            .try_fold(0u128, safe_add_balance)?)
-    };
-    let initial_accounts_balance = total_accounts_balance(initial_state)?;
-    let final_accounts_balance = total_accounts_balance(final_state)?;
+
+    let initial_accounts_balance = total_accounts_balance(initial_state, &all_accounts_ids)?;
+    let final_accounts_balance = total_accounts_balance(final_state, &all_accounts_ids)?;
     // Receipts
-    let receipt_cost = |receipt: &Receipt| -> Result<Balance, IntegerOverflowError> {
-        Ok(match &receipt.receipt {
-            ReceiptEnum::Action(action_receipt) => {
-                let mut total_cost = total_deposit(&action_receipt.actions)?;
-                if !AccountId::is_system(&receipt.predecessor_id) {
-                    let mut total_gas = safe_add_gas(
-                        transaction_costs.action_receipt_creation_config.exec_fee(),
-                        total_prepaid_exec_fees(
-                            transaction_costs,
-                            &action_receipt.actions,
-                            &receipt.receiver_id,
-                            current_protocol_version,
-                        )?,
-                    )?;
-                    total_gas =
-                        safe_add_gas(total_gas, total_prepaid_gas(&action_receipt.actions)?)?;
-                    let total_gas_cost = safe_gas_to_balance(action_receipt.gas_price, total_gas)?;
-                    total_cost = safe_add_balance(total_cost, total_gas_cost)?;
-                }
-                total_cost
-            }
-            ReceiptEnum::Data(_) => 0,
-        })
-    };
     let receipts_cost = |receipts: &[Receipt]| -> Result<Balance, IntegerOverflowError> {
-        receipts
-            .iter()
-            .map(receipt_cost)
-            .collect::<Result<Vec<Balance>, IntegerOverflowError>>()?
-            .into_iter()
-            .try_fold(0u128, safe_add_balance)
+        total_receipts_cost(transaction_costs, current_protocol_version, receipts)
     };
     let incoming_receipts_balance = receipts_cost(incoming_receipts)?;
     let outgoing_receipts_balance = receipts_cost(outgoing_receipts)?;
@@ -140,43 +177,40 @@ pub(crate) fn check_balance(
     let all_potential_postponed_receipt_ids = incoming_receipts
         .iter()
         .chain(processed_delayed_receipts.iter())
-        .map(|receipt| {
+        .filter_map(|receipt| {
             let account_id = &receipt.receiver_id;
             match &receipt.receipt {
-                ReceiptEnum::Action(_) => Ok(Some((account_id.clone(), receipt.receipt_id))),
+                ReceiptEnum::Action(_) => Some(Ok((account_id.clone(), receipt.receipt_id))),
                 ReceiptEnum::Data(data_receipt) => {
-                    if let Some(receipt_id) = get(
+                    let result = get(
                         initial_state,
                         &TrieKey::PostponedReceiptId {
                             receiver_id: account_id.clone(),
                             data_id: data_receipt.data_id,
                         },
-                    )? {
-                        Ok(Some((account_id.clone(), receipt_id)))
-                    } else {
-                        Ok(None)
+                    );
+                    match result {
+                        Err(err) => Some(Err(err)),
+                        Ok(None) => None,
+                        Ok(Some(receipt_id)) => Some(Ok((account_id.clone(), receipt_id))),
                     }
                 }
             }
         })
-        .collect::<Result<Vec<Option<_>>, StorageError>>()?
-        .into_iter()
-        .filter_map(|x| x)
-        .collect::<HashSet<_>>();
+        .collect::<Result<HashSet<_>, StorageError>>()?;
 
-    let total_postponed_receipts_cost = |state| -> Result<Balance, RuntimeError> {
-        Ok(all_potential_postponed_receipt_ids
-            .iter()
-            .map(|(account_id, receipt_id)| {
-                Ok(get_postponed_receipt(state, account_id, *receipt_id)?
-                    .map_or(Ok(0), |r| receipt_cost(&r))?)
-            })
-            .collect::<Result<Vec<Balance>, RuntimeError>>()?
-            .into_iter()
-            .try_fold(0u128, safe_add_balance)?)
-    };
-    let initial_postponed_receipts_balance = total_postponed_receipts_cost(initial_state)?;
-    let final_postponed_receipts_balance = total_postponed_receipts_cost(final_state)?;
+    let initial_postponed_receipts_balance = total_postponed_receipts_cost(
+        initial_state,
+        transaction_costs,
+        current_protocol_version,
+        &all_potential_postponed_receipt_ids,
+    )?;
+    let final_postponed_receipts_balance = total_postponed_receipts_cost(
+        final_state,
+        transaction_costs,
+        current_protocol_version,
+        &all_potential_postponed_receipt_ids,
+    )?;
     // Sum it up
 
     let initial_balance = safe_add_balance_apply!(
@@ -229,8 +263,8 @@ mod tests {
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{Action, TransferAction};
     use near_primitives::types::{MerkleHash, StateChangeCause};
-    use near_store::set_account;
     use near_store::test_utils::create_tries;
+    use near_store::{set_account, Trie};
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use crate::near_primitives::shard_layout::ShardUId;
@@ -247,12 +281,10 @@ mod tests {
     fn test_check_balance_no_op() {
         let tries = create_tries();
         let root = MerkleHash::default();
-        let initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
         let final_state = tries.new_trie_update(ShardUId::single_shard(), root);
         let transaction_costs = RuntimeFeesConfig::test();
         check_balance(
             &transaction_costs,
-            &initial_state,
             &final_state,
             &None,
             &[],
@@ -268,12 +300,10 @@ mod tests {
     fn test_check_balance_unaccounted_refund() {
         let tries = create_tries();
         let root = MerkleHash::default();
-        let initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
         let final_state = tries.new_trie_update(ShardUId::single_shard(), root);
         let transaction_costs = RuntimeFeesConfig::test();
         let err = check_balance(
             &transaction_costs,
-            &initial_state,
             &final_state,
             &None,
             &[Receipt::new_balance_refund(&alice_account(), 1000)],
@@ -286,29 +316,54 @@ mod tests {
         assert_matches!(err, RuntimeError::BalanceMismatchError(_));
     }
 
+    fn prepare_state_change(
+        set_initial_state: impl FnOnce(&mut TrieUpdate),
+        set_final_state: impl FnOnce(&mut TrieUpdate),
+    ) -> TrieUpdate {
+        let tries = create_tries();
+        let shard_uid = ShardUId::single_shard();
+
+        // Commit initial state
+        let root = {
+            let mut trie_update = tries.new_trie_update(shard_uid, Trie::EMPTY_ROOT);
+            set_initial_state(&mut trie_update);
+            trie_update.commit(StateChangeCause::NotWritableToDisk);
+            let trie_changes = trie_update.finalize().unwrap().0;
+            let (store_update, root) = tries.apply_all(&trie_changes, shard_uid);
+            store_update.commit().unwrap();
+            root
+        };
+
+        // Prepare final state
+        {
+            let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), root);
+            set_final_state(&mut trie_update);
+            trie_update.commit(StateChangeCause::NotWritableToDisk);
+            trie_update
+        }
+    }
+
     #[test]
     fn test_check_balance_refund() {
-        let tries = create_tries();
-        let root = MerkleHash::default();
         let account_id = alice_account();
 
         let initial_balance = TESTING_INIT_BALANCE;
         let refund_balance = 1000;
 
-        let mut initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
-        let initial_account = account_new(initial_balance, hash(&[]));
-        set_account(&mut initial_state, account_id.clone(), &initial_account);
-        initial_state.commit(StateChangeCause::NotWritableToDisk);
-
-        let mut final_state = tries.new_trie_update(ShardUId::single_shard(), root);
-        let final_account = account_new(initial_balance + refund_balance, hash(&[]));
-        set_account(&mut final_state, account_id.clone(), &final_account);
-        final_state.commit(StateChangeCause::NotWritableToDisk);
+        let final_state = prepare_state_change(
+            |trie_update| {
+                let initial_account = account_new(initial_balance, hash(&[]));
+                set_account(trie_update, account_id.clone(), &initial_account);
+            },
+            |trie_update| {
+                let final_account = account_new(initial_balance + refund_balance, hash(&[]));
+                set_account(trie_update, account_id.clone(), &final_account);
+            },
+        );
 
         let transaction_costs = RuntimeFeesConfig::test();
         check_balance(
             &transaction_costs,
-            &initial_state,
             &final_state,
             &None,
             &[Receipt::new_balance_refund(&account_id, refund_balance)],
@@ -322,8 +377,6 @@ mod tests {
 
     #[test]
     fn test_check_balance_tx_to_receipt() {
-        let tries = create_tries();
-        let root = MerkleHash::default();
         let account_id = alice_account();
 
         let initial_balance = TESTING_INIT_BALANCE / 2;
@@ -337,19 +390,21 @@ mod tests {
         let contract_reward = send_gas as u128 * *cfg.burnt_gas_reward.numer() as u128 * gas_price
             / (*cfg.burnt_gas_reward.denom() as u128);
         let total_validator_reward = send_gas as Balance * gas_price - contract_reward;
-        let mut initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
-        let initial_account = account_new(initial_balance, hash(&[]));
-        set_account(&mut initial_state, account_id.clone(), &initial_account);
-        initial_state.commit(StateChangeCause::NotWritableToDisk);
 
-        let mut final_state = tries.new_trie_update(ShardUId::single_shard(), root);
-        let final_account = account_new(
-            initial_balance - (exec_gas + send_gas) as Balance * gas_price - deposit
-                + contract_reward,
-            hash(&[]),
+        let final_state = prepare_state_change(
+            |trie_update| {
+                let initial_account = account_new(initial_balance, hash(&[]));
+                set_account(trie_update, account_id.clone(), &initial_account);
+            },
+            |trie_update| {
+                let final_account = account_new(
+                    initial_balance - (exec_gas + send_gas) as Balance * gas_price - deposit
+                        + contract_reward,
+                    hash(&[]),
+                );
+                set_account(trie_update, account_id.clone(), &final_account);
+            },
         );
-        set_account(&mut final_state, account_id.clone(), &final_account);
-        final_state.commit(StateChangeCause::NotWritableToDisk);
 
         let signer =
             InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
@@ -377,7 +432,6 @@ mod tests {
 
         check_balance(
             &cfg,
-            &initial_state,
             &final_state,
             &None,
             &[],
@@ -435,7 +489,6 @@ mod tests {
         assert_eq!(
             check_balance(
                 &transaction_costs,
-                &initial_state,
                 &initial_state,
                 &None,
                 &[receipt],

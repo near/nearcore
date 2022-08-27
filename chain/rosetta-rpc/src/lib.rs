@@ -16,7 +16,6 @@ use strum::IntoEnumIterator;
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_primitives::borsh::BorshDeserialize;
-use near_primitives::serialize::BaseEncode;
 
 pub use config::RosettaRpcConfig;
 
@@ -30,6 +29,12 @@ mod utils;
 pub const BASE_PATH: &str = "";
 pub const API_VERSION: &str = "1.4.4";
 pub const BLOCKCHAIN: &str = "nearprotocol";
+
+/// Genesis together with genesis block identifier.
+struct GenesisWithIdentifier {
+    genesis: Genesis,
+    block_id: models::BlockIdentifier,
+}
 
 /// Verifies that network identifier provided by the user is what we expect.
 ///
@@ -92,7 +97,7 @@ async fn network_list(
 /// This endpoint returns the current status of the network requested. Any
 /// NetworkIdentifier returned by /network/list should be accessible here.
 async fn network_status(
-    genesis: web::Data<Genesis>,
+    genesis: web::Data<GenesisWithIdentifier>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::NetworkRequest>,
@@ -101,12 +106,8 @@ async fn network_status(
 
     let status = check_network_identifier(&client_addr, network_identifier).await?;
 
-    let genesis_height = genesis.config.genesis_height;
-    let (network_info, genesis_hash, earliest_block) = tokio::try_join!(
+    let (network_info, earliest_block) = tokio::try_join!(
         client_addr.send(near_client::GetNetworkInfo {}),
-        view_client_addr.send(near_client::GetBlockHash(
-            near_primitives::types::BlockId::Height(genesis_height).into(),
-        )),
         view_client_addr.send(near_client::GetBlock(
             near_primitives::types::BlockReference::SyncCheckpoint(
                 near_primitives::types::SyncCheckpoint::EarliestAvailable
@@ -114,23 +115,15 @@ async fn network_status(
         )),
     )?;
     let network_info = network_info.map_err(errors::ErrorKind::InternalError)?;
-    let genesis_hash =
-        genesis_hash.map_err(|err| errors::ErrorKind::InternalInvariantError(err.to_string()))?;
-    let genesis_block_identifier = models::BlockIdentifier {
-        index: genesis_height.try_into().unwrap(),
-        hash: genesis_hash.to_base(),
-    };
+    let genesis_block_identifier = genesis.block_id.clone();
     let oldest_block_identifier: models::BlockIdentifier = earliest_block
         .ok()
-        .map(|block| (&block.header).into())
+        .map(|block| (&block).into())
         .unwrap_or_else(|| genesis_block_identifier.clone());
 
     let final_block = crate::utils::get_final_block(&view_client_addr).await?;
     Ok(Json(models::NetworkStatusResponse {
-        current_block_identifier: models::BlockIdentifier {
-            index: final_block.header.height.try_into().unwrap(),
-            hash: final_block.header.hash.to_base(),
-        },
+        current_block_identifier: (&final_block).into(),
         current_block_timestamp: i64::try_from(final_block.header.timestamp_nanosec / 1_000_000)
             .unwrap(),
         genesis_block_identifier,
@@ -205,7 +198,7 @@ async fn network_options(
 /// given that a chain reorg event might cause the specific block at
 /// height `n` to be set to a different one.
 async fn block_details(
-    genesis: web::Data<Genesis>,
+    genesis: web::Data<GenesisWithIdentifier>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::BlockRequest>,
@@ -219,7 +212,7 @@ async fn block_details(
         .await?
         .ok_or_else(|| errors::ErrorKind::NotFound("Block not found".into()))?;
 
-    let block_identifier: models::BlockIdentifier = (&block.header).into();
+    let block_identifier: models::BlockIdentifier = (&block).into();
 
     let parent_block_identifier = if block.header.prev_hash == Default::default() {
         // According to Rosetta API genesis block should have the parent block
@@ -232,19 +225,12 @@ async fn block_details(
             ))
             .await?
             .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
-
-        models::BlockIdentifier {
-            index: parent_block.header.height.try_into().unwrap(),
-            hash: parent_block.header.hash.to_base(),
-        }
+        (&parent_block).into()
     };
 
-    let transactions = crate::adapters::collect_transactions(
-        Arc::clone(&genesis),
-        Addr::clone(&view_client_addr),
-        &block,
-    )
-    .await?;
+    let transactions =
+        crate::adapters::collect_transactions(&genesis.genesis, view_client_addr.get_ref(), &block)
+            .await?;
 
     Ok(Json(models::BlockResponse {
         block: Some(models::Block {
@@ -279,7 +265,7 @@ async fn block_details(
 /// NOTE: The current implementation is suboptimal as it processes the whole
 /// block to only return a single transaction.
 async fn block_transaction_details(
-    genesis: web::Data<Genesis>,
+    genesis: web::Data<GenesisWithIdentifier>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::BlockTransactionRequest>,
@@ -298,15 +284,12 @@ async fn block_transaction_details(
         .await?
         .ok_or_else(|| errors::ErrorKind::NotFound("Block not found".into()))?;
 
-    let transaction = crate::adapters::collect_transactions(
-        Arc::clone(&genesis),
-        Addr::clone(&view_client_addr),
-        &block,
-    )
-    .await?
-    .into_iter()
-    .find(|transaction| transaction.transaction_identifier == transaction_identifier)
-    .ok_or_else(|| errors::ErrorKind::NotFound("Transaction not found".into()))?;
+    let transaction =
+        crate::adapters::collect_transactions(&genesis.genesis, view_client_addr.get_ref(), &block)
+            .await?
+            .into_iter()
+            .find(|transaction| transaction.transaction_identifier == transaction_identifier)
+            .ok_or_else(|| errors::ErrorKind::NotFound("Transaction not found".into()))?;
 
     Ok(Json(models::BlockTransactionResponse { transaction }))
 }
@@ -358,6 +341,7 @@ async fn account_balance(
             .await?
             .runtime_config;
 
+    let account_id_for_access_key = account_identifier.address.clone();
     let account_id = account_identifier.address.into();
     let (block_hash, block_height, account_info) =
         match crate::utils::query_account(block_id, account_id, &view_client_addr).await {
@@ -383,13 +367,22 @@ async fn account_balance(
     } else {
         account_balances.liquid
     };
-
+    let nonces = if let Some(metadata) = account_identifier.metadata {
+        Some(
+            crate::utils::get_nonces(
+                &view_client_addr,
+                account_id_for_access_key,
+                metadata.public_keys,
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
     Ok(Json(models::AccountBalanceResponse {
-        block_identifier: models::BlockIdentifier {
-            hash: block_hash.to_base(),
-            index: block_height.try_into().unwrap(),
-        },
+        block_identifier: models::BlockIdentifier::new(block_height, &block_hash),
         balances: vec![models::Amount::from_yoctonear(balance)],
+        metadata: nonces,
     }))
 }
 
@@ -461,6 +454,7 @@ async fn construction_derive(
         account_identifier: models::AccountIdentifier {
             address: address.parse().unwrap(),
             sub_account: None,
+            metadata: None,
         },
     }))
 }
@@ -487,6 +481,7 @@ async fn construction_preprocess(
         required_public_keys: vec![models::AccountIdentifier {
             address: near_actions.sender_account_id.clone().into(),
             sub_account: None,
+            metadata: None,
         }],
         options: models::ConstructionMetadataOptions {
             signer_account_id: near_actions.sender_account_id.into(),
@@ -534,7 +529,7 @@ async fn construction_metadata(
 
     Ok(Json(models::ConstructionMetadataResponse {
         metadata: models::ConstructionMetadata {
-            recent_block_hash: block_hash.to_base(),
+            recent_block_hash: block_hash.to_string(),
             signer_public_access_key_nonce: access_key.nonce.saturating_add(1),
         },
     }))
@@ -784,11 +779,14 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
 
 pub fn start_rosetta_rpc(
     config: crate::config::RosettaRpcConfig,
-    genesis: Arc<Genesis>,
+    genesis: Genesis,
+    genesis_block_hash: &near_primitives::hash::CryptoHash,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
 ) -> actix_web::dev::ServerHandle {
     let crate::config::RosettaRpcConfig { addr, cors_allowed_origins, limits } = config;
+    let block_id = models::BlockIdentifier::new(genesis.config.genesis_height, genesis_block_hash);
+    let genesis = Arc::new(GenesisWithIdentifier { genesis, block_id });
     let server = HttpServer::new(move || {
         let json_config = web::JsonConfig::default()
             .limit(limits.input_payload_max_size)

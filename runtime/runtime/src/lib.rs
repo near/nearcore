@@ -3,13 +3,13 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use tracing::debug;
 
 use near_chain_configs::Genesis;
 pub use near_crypto;
 use near_crypto::PublicKey;
 pub use near_primitives;
-#[cfg(feature = "sandbox")]
 use near_primitives::contract::ContractCode;
 use near_primitives::profile::ProfileData;
 pub use near_primitives::runtime::apply_state::ApplyState;
@@ -47,7 +47,6 @@ use near_store::{
     set_account, set_postponed_receipt, set_received_data, PartialStorage, ShardTries,
     StorageError, Trie, TrieChanges, TrieUpdate,
 };
-#[cfg(feature = "sandbox")]
 use near_store::{set_access_key, set_code};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
@@ -222,7 +221,7 @@ impl Runtime {
         signed_transaction: &SignedTransaction,
         stats: &mut ApplyStats,
     ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
-        let _span = tracing::debug_span!(target: "runtime", "process_transaction").entered();
+        let _span = tracing::debug_span!(target: "runtime", "process_transaction", tx_hash = %signed_transaction.get_hash()).entered();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
         match verify_and_charge_transaction(
@@ -408,8 +407,6 @@ impl Runtime {
                     stake,
                     &apply_state.prev_block_hash,
                     epoch_info_provider,
-                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                    false,
                 )?;
             }
             Action::AddKey(add_key) => {
@@ -443,18 +440,6 @@ impl Runtime {
                     account_id,
                     delete_account,
                     apply_state.current_protocol_version,
-                )?;
-            }
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            Action::StakeChunkOnly(stake) => {
-                action_stake(
-                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
-                    &mut result,
-                    account_id,
-                    stake,
-                    &apply_state.prev_block_hash,
-                    epoch_info_provider,
-                    true,
                 )?;
             }
         };
@@ -1160,27 +1145,27 @@ impl Runtime {
     pub fn apply(
         &self,
         trie: Trie,
-        root: CryptoHash,
         validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         apply_state: &ApplyState,
         incoming_receipts: &[Receipt],
         transactions: &[SignedTransaction],
         epoch_info_provider: &dyn EpochInfoProvider,
-        states_to_patch: Option<Vec<StateRecord>>,
+        state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
+        // state_patch must be empty unless this is sandbox build.  Thanks to
+        // conditional compilation this always resolves to true so technically
+        // the check is not necessary.  It’s defence in depth to make sure any
+        // future refactoring won’t break the condition.
+        assert!(cfg!(feature = "sandbox") || state_patch.is_empty());
+
         let _span = tracing::debug_span!(
             target: "runtime",
             "apply",
             num_transactions = transactions.len())
         .entered();
 
-        if states_to_patch.is_some() && !cfg!(feature = "sandbox") {
-            panic!("Can only patch state in sandbox mode");
-        }
-
         let trie = Rc::new(trie);
-        let initial_state = TrieUpdate::new(trie.clone(), root);
-        let mut state_update = TrieUpdate::new(trie.clone(), root);
+        let mut state_update = TrieUpdate::new(trie.clone());
 
         let mut stats = ApplyStats::default();
 
@@ -1267,7 +1252,11 @@ impl Runtime {
                 target: "runtime",
                 "process_receipt",
                 receipt_id = %receipt.receipt_id,
-                node_counter = ?state_update.trie.get_trie_nodes_count())
+                node_counter = ?state_update.trie().get_trie_nodes_count(),
+                predecessor = %receipt.predecessor_id,
+                receiver = %receipt.receiver_id,
+                id = %receipt.receipt_id,
+            )
             .entered();
             let result = self.process_receipt(
                 state_update,
@@ -1278,15 +1267,12 @@ impl Runtime {
                 &mut stats,
                 epoch_info_provider,
             );
-            tracing::debug!(target: "runtime", node_counter = ?state_update.trie.get_trie_nodes_count());
-            result?.into_iter().try_for_each(
-                |outcome_with_id: ExecutionOutcomeWithId| -> Result<(), RuntimeError> {
-                    *total_gas_burnt =
-                        safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
-                    outcomes.push(outcome_with_id);
-                    Ok(())
-                },
-            )?;
+            tracing::debug!(target: "runtime", node_counter = ?state_update.trie().get_trie_nodes_count());
+            if let Some(outcome_with_id) = result? {
+                *total_gas_burnt =
+                    safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
+                outcomes.push(outcome_with_id);
+            }
             Ok(())
         };
 
@@ -1352,7 +1338,6 @@ impl Runtime {
 
         check_balance(
             &apply_state.config.transaction_costs,
-            &initial_state,
             &state_update,
             validator_accounts_update,
             incoming_receipts,
@@ -1363,12 +1348,7 @@ impl Runtime {
         )?;
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
-
-        #[cfg(feature = "sandbox")]
-        if let Some(patch) = states_to_patch {
-            self.apply_state_patches(&mut state_update, patch);
-        }
-
+        self.apply_state_patch(&mut state_update, state_patch);
         let (trie_changes, state_changes) = state_update.finalize()?;
 
         // Dedup proposals from the same account.
@@ -1419,13 +1399,11 @@ impl Runtime {
         Ok(())
     }
 
-    #[cfg(feature = "sandbox")]
-    fn apply_state_patches(
-        &self,
-        state_update: &mut TrieUpdate,
-        states_to_patch: Vec<StateRecord>,
-    ) {
-        for record in states_to_patch {
+    fn apply_state_patch(&self, state_update: &mut TrieUpdate, state_patch: SandboxStatePatch) {
+        if state_patch.is_empty() {
+            return;
+        }
+        for record in state_patch {
             match record {
                 StateRecord::Account { account_id, account } => {
                     set_account(state_update, account_id, &account);
@@ -1434,7 +1412,7 @@ impl Runtime {
                     state_update.set(TrieKey::ContractData { key: data_key, account_id }, value);
                 }
                 StateRecord::Contract { account_id, code } => {
-                    let acc = get_account(&state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
+                    let acc = get_account(state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
                     // Recompute contract code hash.
                     let code = ContractCode::new(code, None);
                     set_code(state_update, account_id, &code);
@@ -1457,6 +1435,19 @@ impl Runtime {
     ) -> HashMap<AccountId, u64> {
         let mut storage_computer = StorageComputer::new(config);
         storage_computer.process_records(records);
+        storage_computer.finalize()
+    }
+
+    /// Compute the expected storage per account for genesis records.
+    pub fn compute_genesis_storage_usage(
+        &self,
+        genesis: &Genesis,
+        config: &RuntimeConfig,
+    ) -> HashMap<AccountId, u64> {
+        let mut storage_computer = StorageComputer::new(config);
+        genesis.for_each_record(|record| {
+            storage_computer.process_record(record);
+        });
         storage_computer.finalize()
     }
 
@@ -1601,7 +1592,7 @@ mod tests {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::test()),
-            cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
+            cache: Some(Box::new(StoreCompiledContractCache::new(&tries.get_store()))),
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
@@ -1616,14 +1607,13 @@ mod tests {
             setup_runtime(to_yocto(1_000_000), 0, 10u64.pow(15));
         runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &[],
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
     }
@@ -1646,14 +1636,13 @@ mod tests {
 
         runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &Some(validator_accounts_update),
                 &apply_state,
                 &[Receipt::new_balance_refund(&alice_account(), small_refund)],
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
     }
@@ -1675,14 +1664,13 @@ mod tests {
             let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
             let apply_result = runtime
                 .apply(
-                    tries.get_trie_for_shard(ShardUId::single_shard()),
-                    root,
+                    tries.get_trie_for_shard(ShardUId::single_shard(), root),
                     &None,
                     &apply_state,
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
-                    None,
+                    Default::default(),
                 )
                 .unwrap();
             let (store_update, new_root) =
@@ -1718,14 +1706,13 @@ mod tests {
             let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
             let apply_result = runtime
                 .apply(
-                    tries.get_trie_for_shard(ShardUId::single_shard()),
-                    root,
+                    tries.get_trie_for_shard(ShardUId::single_shard(), root),
                     &None,
                     &apply_state,
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
-                    None,
+                    Default::default(),
                 )
                 .unwrap();
             let (store_update, new_root) =
@@ -1769,14 +1756,13 @@ mod tests {
             let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
             let apply_result = runtime
                 .apply(
-                    tries.get_trie_for_shard(ShardUId::single_shard()),
-                    root,
+                    tries.get_trie_for_shard(ShardUId::single_shard(), root),
                     &None,
                     &apply_state,
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
-                    None,
+                    Default::default(),
                 )
                 .unwrap();
             let (store_update, new_root) =
@@ -1829,14 +1815,13 @@ mod tests {
             num_receipts_given += prev_receipts.len() as u64;
             let apply_result = runtime
                 .apply(
-                    tries.get_trie_for_shard(ShardUId::single_shard()),
-                    root,
+                    tries.get_trie_for_shard(ShardUId::single_shard(), root),
                     &None,
                     &apply_state,
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
-                    None,
+                    Default::default(),
                 )
                 .unwrap();
             let (store_update, new_root) =
@@ -1932,14 +1917,13 @@ mod tests {
         // The new delayed queue is TX#3, R#0, R#1.
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts[0..2],
                 &local_transactions[0..4],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         let (store_update, root) =
@@ -1981,14 +1965,13 @@ mod tests {
         // The new delayed queue is R#1, R#2
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts[2..3],
                 &local_transactions[4..5],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         let (store_update, root) =
@@ -2022,14 +2005,13 @@ mod tests {
         // The new delayed queue is R#1, R#2, TX#8, R#3
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts[3..4],
                 &local_transactions[5..9],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         let (store_update, root) =
@@ -2071,14 +2053,13 @@ mod tests {
         // The new delayed queue is R#3, R#4
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts[4..5],
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         let (store_update, root) =
@@ -2105,14 +2086,13 @@ mod tests {
         // The new delayed queue is empty.
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts[5..6],
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
 
@@ -2144,14 +2124,13 @@ mod tests {
 
         let result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         assert_eq!(result.stats.gas_deficit_amount, result.stats.tx_burnt_amount * 9)
@@ -2204,14 +2183,13 @@ mod tests {
 
         let result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         // We used part of the prepaid gas to paying extra fees.
@@ -2274,14 +2252,13 @@ mod tests {
 
         let result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         // Used full prepaid gas, but it still not enough to cover deficit.
@@ -2311,14 +2288,13 @@ mod tests {
 
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         let (store_update, root) =
@@ -2353,14 +2329,13 @@ mod tests {
 
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         let (store_update, root) =
@@ -2389,14 +2364,13 @@ mod tests {
 
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         let (store_update, _) =
@@ -2409,7 +2383,7 @@ mod tests {
         apply_state
             .cache
             .unwrap()
-            .get(&key.0)
+            .get(&key)
             .expect("Compiled contract should be cached")
             .expect("Compilation result should be non-empty");
     }

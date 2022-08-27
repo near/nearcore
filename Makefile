@@ -39,7 +39,6 @@ neard-debug:
 	cargo build -p neard
 
 debug: neard-debug
-	cargo build -p near-vm-runner-standalone
 	cargo build -p store-validator
 	cargo build -p genesis-populate
 	$(MAKE) sandbox
@@ -53,7 +52,6 @@ perf-release:
 
 perf-debug:
 	cargo build -p neard --features performance_stats,memory_stats
-	cargo build -p near-vm-runner-standalone
 	cargo build -p store-validator --features nearcore/performance_stats,nearcore/memory_stats
 
 
@@ -67,7 +65,6 @@ neard-nightly-release:
 
 nightly-debug:
 	cargo build -p neard --features nightly,performance_stats,memory_stats
-	cargo build -p near-vm-runner-standalone --features nightly
 	cargo build -p store-validator --features nearcore/nightly,nearcore/performance_stats,nearcore/memory_stats
 	cargo build -p genesis-populate --features nearcore/nightly,nearcore/performance_stats,nearcore/memory_stats
 
@@ -95,6 +92,9 @@ sandbox-release: neard-sandbox-release
 
 neard-sandbox-release:
 	cargo build -p neard --features sandbox --release
+
+shardnet-release:
+	cargo build -p neard --release --features shardnet
 
 
 .PHONY: docker-nearcore docker-nearcore-nightly release neard debug

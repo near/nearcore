@@ -47,13 +47,11 @@ impl Scenario {
         let (tempdir, store) = if self.use_in_memory_store {
             (None, create_test_store())
         } else {
-            let tempdir = tempfile::tempdir()
-                .unwrap_or_else(|err| panic!("failed to create temporary directory: {}", err));
-            let store = near_store::StoreOpener::with_default_config(tempdir.path()).open();
-            (Some(tempdir), store)
+            let (tempdir, opener) = near_store::Store::test_opener();
+            (Some(tempdir), opener.open().unwrap())
         };
 
-        let mut env = TestEnv::builder(ChainGenesis::from(&genesis))
+        let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
             .clients(clients.clone())
             .validators(clients)
             .runtime_adapters(vec![Arc::new(NightshadeRuntime::test_with_runtime_config_store(

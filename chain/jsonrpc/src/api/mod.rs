@@ -5,8 +5,6 @@ use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::errors::{RpcError, ServerError};
 use near_primitives::borsh::BorshDeserialize;
 
-#[cfg(feature = "test_features")]
-mod adversarial;
 mod blocks;
 mod changes;
 mod chunks;
@@ -23,6 +21,12 @@ mod validator;
 
 pub(crate) trait RpcRequest: Sized {
     fn parse(value: Option<Value>) -> Result<Self, RpcParseError>;
+}
+
+impl RpcRequest for () {
+    fn parse(_: Option<Value>) -> Result<Self, RpcParseError> {
+        Ok(())
+    }
 }
 
 pub trait RpcFrom<T> {
@@ -73,7 +77,7 @@ impl RpcFrom<near_primitives::errors::InvalidTxError> for ServerError {
     }
 }
 
-fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcParseError> {
+pub(crate) fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcParseError> {
     if let Some(value) = value {
         serde_json::from_value(value)
             .map_err(|err| RpcParseError(format!("Failed parsing args: {}", err)))

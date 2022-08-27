@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.61.0"
+rust-version = "1.63.0"
 edition = "2021"
 
 [dependencies]
@@ -17,18 +17,17 @@ tracing = "0.1.13"
 itertools = "0.10.0"
 rand = "0.7"
 serde_json = "1"
-# Temporary workaround, fix with rust toolchain update.
-sysinfo = { git = "https://github.com/near/sysinfo", rev = "3cb97ee79a02754407d2f0f63628f247d7c65e7b" }
+sysinfo = "0.24.5"
 strum = { version = "0.24", features = ["derive"] }
 lru = "0.7.2"
 once_cell = "1.5.2"
 borsh = "0.9"
 reed-solomon-erasure = "4"
 num-rational = "0.3"
-prometheus = "0.11"
 thiserror = "1.0"
 tokio = { version = "1.1", features = ["sync"] }
 
+near-chain-primitives = { path = "../chain-primitives" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
@@ -43,10 +42,11 @@ near-telemetry = { path = "../telemetry" }
 near-o11y = { path = "../../core/o11y" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
-delay-detector = { path = "../../tools/delay_detector" }
+delay-detector = { path = "../../tools/delay-detector" }
 near-network-primitives = { path = "../network-primitives" }
 
 [dev-dependencies]
+assert_matches = "1.3"
 near-logger-utils = { path = "../../test-utils/logger" }
 near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
 
@@ -64,22 +64,14 @@ delay_detector = [
   "near-network/delay_detector",
   "delay-detector/delay_detector",
 ]
-protocol_feature_chunk_only_producers = [
-  "near-primitives/protocol_feature_chunk_only_producers",
-  "near-chain/protocol_feature_chunk_only_producers",
-]
-protocol_feature_routing_exchange_algorithm = [
-  "near-network/protocol_feature_routing_exchange_algorithm",
-  "near-chain/protocol_feature_routing_exchange_algorithm",
-  "near-primitives/protocol_feature_routing_exchange_algorithm",
-]
 nightly_protocol = []
 nightly = [
   "nightly_protocol",
   "near-chain/nightly",
-  "protocol_feature_routing_exchange_algorithm",
 ]
 sandbox = [
-  "near-network/sandbox",
+  "near-client-primitives/sandbox",
   "near-chain/sandbox",
 ]
+# Shardnet is the experimental network that we deploy for chunk-only producer testing.
+shardnet = ["near-network/shardnet"]

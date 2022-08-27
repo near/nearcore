@@ -271,7 +271,7 @@ impl GasCounter {
         self.deduct_gas(burn_gas, use_gas)
     }
 
-    pub fn add_trie_fees(&mut self, count: TrieNodesCount) -> Result<()> {
+    pub fn add_trie_fees(&mut self, count: &TrieNodesCount) -> Result<()> {
         self.pay_per(touching_trie_node, count.db_reads)?;
         self.pay_per(read_cached_trie_node, count.mem_reads)?;
         Ok(())

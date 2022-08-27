@@ -1,13 +1,26 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use std::fmt;
 
-/// This enum holds the information about the columns that we use within the RocksDB storage.
-/// You can think about our storage as 2-dimensional table (with key and column as indexes/coordinates).
+/// This enum holds the information about the columns that we use within the
+/// RocksDB storage.
+///
+/// You can think about our storage as 2-dimensional table (with key and column
+/// as indexes/coordinates).
+///
+/// Note that the names of the variants in this enumeration correspond to the
+/// name of the RocksDB column families.  As such, it is *not* safe to rename
+/// a variant.
+///
+/// The only exception is adding an underscore at the beginning of the name to
+/// indicate that the column has been deprecated.  Deprecated columns are not
+/// used except for the database migration code which needs to deal with the
+/// deprecation.  Make sure to add `#[strum(serialize = "OriginalName")]`
+/// attribute in front of the variant when you deprecate a column.
 #[derive(
     PartialEq,
-    Debug,
     Copy,
     Clone,
+    Debug,
     Hash,
     Eq,
     BorshDeserialize,
@@ -20,121 +33,124 @@ pub enum DBCol {
     /// Column to indicate which version of database this is.
     /// - *Rows*: single row [VERSION_KEY]
     /// - *Content type*: The version of the database (u32), serialized as JSON.
-    DbVersion = 0,
+    DbVersion,
     /// Column that store Misc cells.
     /// - *Rows*: multiple, for example "GENESIS_JSON_HASH", "HEAD_KEY", [LATEST_KNOWN_KEY] etc.
     /// - *Content type*: cell specific.
-    BlockMisc = 1,
+    BlockMisc,
     /// Column that stores Block content.
     /// - *Rows*: block hash (CryptHash)
     /// - *Content type*: [near_primitives::block::Block]
-    Block = 2,
+    Block,
     /// Column that stores Block headers.
     /// - *Rows*: block hash (CryptoHash)
     /// - *Content type*: [near_primitives::block_header::BlockHeader]
-    BlockHeader = 3,
+    BlockHeader,
     /// Column that stores mapping from block height to block hash.
     /// - *Rows*: height (u64)
     /// - *Content type*: block hash (CryptoHash)
-    BlockHeight = 4,
+    BlockHeight,
     /// Column that stores the Trie state.
     /// - *Rows*: trie_node_or_value_hash (CryptoHash)
     /// - *Content type*: Serializd RawTrieNodeWithSize or value ()
-    State = 5,
+    State,
     /// Mapping from BlockChunk to ChunkExtra
     /// - *Rows*: BlockChunk (block_hash, shard_uid)
     /// - *Content type*: [near_primitives::types::ChunkExtra]
-    ChunkExtra = 6,
+    ChunkExtra,
     /// Mapping from transaction outcome id (CryptoHash) to list of outcome ids with proofs.
+    /// Multiple outcomes can arise due to forks.
     /// - *Rows*: outcome id (CryptoHash)
     /// - *Content type*: Vec of [near_primitives::transactions::ExecutionOutcomeWithIdAndProof]
-    TransactionResult = 7,
+    TransactionResult,
     /// Mapping from Block + Shard to list of outgoing receipts.
     /// - *Rows*: block + shard
     /// - *Content type*: Vec of [near_primitives::receipt::Receipt]
-    OutgoingReceipts = 8,
+    OutgoingReceipts,
     /// Mapping from Block + Shard to list of incoming receipt proofs.
     /// Each proof might prove multiple receipts.
     /// - *Rows*: (block, shard)
     /// - *Content type*: Vec of [near_primitives::sharding::ReceiptProof]
-    IncomingReceipts = 9,
+    IncomingReceipts,
     /// Info about the peers that we are connected to. Mapping from peer_id to KnownPeerState.
     /// - *Rows*: peer_id (PublicKey)
     /// - *Content type*: [network_primitives::types::KnownPeerState]
-    Peers = 10,
+    Peers,
     /// Mapping from EpochId to EpochInfo
     /// - *Rows*: EpochId (CryptoHash)
     /// - *Content type*: [near_primitives::epoch_manager::EpochInfo]
-    EpochInfo = 11,
+    EpochInfo,
     /// Mapping from BlockHash to BlockInfo
     /// - *Rows*: BlockHash (CryptoHash)
     /// - *Content type*: [near_primitives::epoch_manager::BlockInfo]
-    BlockInfo = 12,
+    BlockInfo,
     /// Mapping from ChunkHash to ShardChunk.
     /// - *Rows*: ChunkHash (CryptoHash)
     /// - *Content type*: [near_primitives::sharding::ShardChunk]
-    Chunks = 13,
+    Chunks,
     /// Storage for  PartialEncodedChunk.
     /// - *Rows*: ChunkHash (CryptoHash)
     /// - *Content type*: [near_primitives::sharding::PartialEncodedChunk]
-    PartialChunks = 14,
+    PartialChunks,
     /// Blocks for which chunks need to be applied after the state is downloaded for a particular epoch
     /// - *Rows*: BlockHash (CryptoHash)
     /// - *Content type*: Vec of BlockHash (CryptoHash)
-    BlocksToCatchup = 15,
+    BlocksToCatchup,
     /// Blocks for which the state is being downloaded
     /// - *Rows*: First block of the epoch (CryptoHash)
     /// - *Content type*: StateSyncInfo
-    StateDlInfos = 16,
+    StateDlInfos,
     /// Blocks that were ever challenged.
     /// - *Rows*: BlockHash (CryptoHash)
     /// - *Content type*: 'true' (bool)
-    ChallengedBlocks = 17,
+    ChallengedBlocks,
     /// Contains all the Shard State Headers.
     /// - *Rows*: StateHeaderKey (ShardId || BlockHash)
     /// - *Content type*: ShardStateSyncResponseHeader
-    StateHeaders = 18,
+    StateHeaders,
     /// Contains all the invalid chunks (that we had trouble decoding or verifying).
     /// - *Rows*: ShardChunkHeader object
     /// - *Content type*: EncodedShardChunk
-    InvalidChunks = 19,
+    InvalidChunks,
     /// Contains 'BlockExtra' information that is computed after block was processed.
     /// Currently it stores only challenges results.
     /// - *Rows*: BlockHash (CryptoHash)
     /// - *Content type*: BlockExtra
-    BlockExtra = 20,
+    BlockExtra,
     /// Store hash of all block per each height, to detect double signs.
     /// - *Rows*: int (height of the block)
     /// - *Content type*: Map: EpochId -> Set of BlockHash(CryptoHash)
-    BlockPerHeight = 21,
+    BlockPerHeight,
     /// Contains State parts that we've received.
     /// - *Rows*: StatePartKey (BlockHash || ShardId || PartId (u64))
     /// - *Content type*: state part (bytes)
-    StateParts = 22,
+    StateParts,
     /// Contains mapping from epoch_id to epoch start (first block height of the epoch)
     /// - *Rows*: EpochId (CryptoHash)  -- TODO: where does the epoch_id come from? it looks like blockHash..
     /// - *Content type*: BlockHeight (int)
-    EpochStart = 23,
+    EpochStart,
     /// Map account_id to announce_account (which peer has announced which account in the current epoch). // TODO: explain account annoucement
     /// - *Rows*: AccountId (str)
     /// - *Content type*: AnnounceAccount
-    AccountAnnouncements = 24,
+    AccountAnnouncements,
     /// Next block hashes in the sequence of the canonical chain blocks.
     /// - *Rows*: BlockHash (CryptoHash)
     /// - *Content type*: next block: BlockHash (CryptoHash)
-    NextBlockHashes = 25,
+    NextBlockHashes,
     /// `LightClientBlock`s corresponding to the last final block of each completed epoch.
     /// - *Rows*: EpochId (CryptoHash)
     /// - *Content type*: LightClientBlockView
-    EpochLightClientBlocks = 26,
+    EpochLightClientBlocks,
     /// Mapping from Receipt id to destination Shard Id, i.e, the shard that this receipt is sent to.
     /// - *Rows*: ReceiptId (CryptoHash)
     /// - *Content type*: Shard Id || ref_count (u64 || u64)
-    ReceiptIdToShardId = 27,
+    ReceiptIdToShardId,
     // Deprecated.
-    _NextBlockWithNewChunk = 28,
+    #[strum(serialize = "NextBlockWithNewChunk")]
+    _NextBlockWithNewChunk,
     // Deprecated.
-    _LastBlockWithNewChunk = 29,
+    #[strum(serialize = "LastBlockWithNewChunk")]
+    _LastBlockWithNewChunk,
     /// Network storage:
     ///   When given edge is removed (or we didn't get any ping from it for a while), we remove it from our 'in memory'
     ///   view and persist into storage.
@@ -156,83 +172,89 @@ pub enum DBCol {
     /// Map each saved peer on disk with its component id (a.k.a. nonce).
     /// - *Rows*: peer_id
     /// - *Column type*:  (nonce) u64
-    PeerComponent = 30,
+    PeerComponent,
     /// Map component id  (a.k.a. nonce) with all edges in this component.
     /// These are all the edges that were purged and persisted to disk at the same time.
     /// - *Rows*: nonce
     /// - *Column type*: `Vec<near_network::routing::Edge>`
-    ComponentEdges = 31,
+    ComponentEdges,
     /// Biggest component id (a.k.a nonce) used.
     /// - *Rows*: single row (empty row name)
     /// - *Column type*: (nonce) u64
-    LastComponentNonce = 32,
+    LastComponentNonce,
     /// Map of transactions
     /// - *Rows*: transaction hash
     /// - *Column type*: SignedTransaction
-    Transactions = 33,
+    Transactions,
     /// Mapping from a given (Height, ShardId) to the Chunk hash.
     /// - *Rows*: (Height || ShardId) - (u64 || u64)
     /// - *Column type*: ChunkHash (CryptoHash)
-    ChunkPerHeightShard = 34,
+    ChunkPerHeightShard,
     /// Changes to state (Trie) that we have recorded.
     /// - *Rows*: BlockHash || TrieKey (TrieKey is written via custom to_vec)
     /// - *Column type*: TrieKey, new value and reason for change (RawStateChangesWithTrieKey)
-    StateChanges = 35,
+    StateChanges,
     /// Mapping from Block to its refcount. (Refcounts are used in handling chain forks)
     /// - *Rows*: BlockHash (CryptoHash)
     /// - *Column type*: refcount (u64)
-    BlockRefCount = 36,
+    BlockRefCount,
     /// Changes to Trie that we recorded during given block/shard processing.
     /// - *Rows*: BlockHash || ShardId
     /// - *Column type*: old root, new root, list of insertions, list of deletions (TrieChanges)
-    TrieChanges = 37,
+    TrieChanges,
     /// Mapping from a block hash to a merkle tree of block hashes that are in the chain before it.
     /// - *Rows*: BlockHash
     /// - *Column type*: PartialMerkleTree - MerklePath to the leaf + number of leaves in the whole tree.
-    BlockMerkleTree = 38,
+    BlockMerkleTree,
     /// Mapping from height to the set of Chunk Hashes that were included in the block at that height.
     /// - *Rows*: height (u64)
     /// - *Column type*: Vec<ChunkHash (CryptoHash)>
-    ChunkHashesByHeight = 39,
+    ChunkHashesByHeight,
     /// Mapping from block ordinal number (number of the block in the chain) to the BlockHash.
     /// - *Rows*: ordinal (u64)
     /// - *Column type*: BlockHash (CryptoHash)
-    BlockOrdinal = 40,
+    BlockOrdinal,
     /// GC Count for each column - number of times we did the GarbageCollection on the column.
     /// - *Rows*: column id (byte)
     /// - *Column type*: u64
-    GCCount = 41,
+    GCCount,
     /// All Outcome ids by block hash and shard id. For each shard it is ordered by execution order.
     /// TODO: seems that it has only 'transaction ids' there (not sure if intentional)
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
     /// - *Column type*: Vec <OutcomeId (CryptoHash)>
-    OutcomeIds = 42,
+    OutcomeIds,
     /// Deprecated
-    _TransactionRefCount = 43,
+    #[strum(serialize = "TransactionRefCount")]
+    _TransactionRefCount,
     /// Heights of blocks that have been processed.
     /// - *Rows*: height (u64)
     /// - *Column type*: empty
-    ProcessedBlockHeights = 44,
+    ProcessedBlockHeights,
     /// Mapping from receipt hash to Receipt.
     /// - *Rows*: receipt (CryptoHash)
     /// - *Column type*: Receipt
-    Receipts = 45,
+    Receipts,
     /// Precompiled machine code of the contract, used by StoreCompiledContractCache.
     /// - *Rows*: ContractCacheKey or code hash (not sure)
     /// - *Column type*: near-vm-runner CacheRecord
-    CachedContractCode = 46,
+    CachedContractCode,
     /// Epoch validator information used for rpc purposes.
     /// - *Rows*: epoch id (CryptoHash)
     /// - *Column type*: EpochSummary
-    EpochValidatorInfo = 47,
+    EpochValidatorInfo,
     /// Header Hashes indexed by Height.
     /// - *Rows*: height (u64)
     /// - *Column type*: Vec<HeaderHashes (CryptoHash)>
-    HeaderHashesByHeight = 48,
+    HeaderHashesByHeight,
     /// State changes made by a chunk, used for splitting states
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
     /// - *Column type*: StateChangesForSplitStates
-    StateChangesForSplitStates = 49,
+    StateChangesForSplitStates,
+    /// State changes made by a chunk, used for splitting states
+    /// - *Rows*: serialized TrieKey (Vec<u8>)
+    /// - *Column type*: ValueRef
+    #[cfg(feature = "protocol_feature_flat_state")]
+    FlatState,
 }
 
 impl DBCol {
@@ -264,22 +286,26 @@ impl DBCol {
     }
 
     /// Whethere this column is reference-counted.
-    /// This means, that we're storing additional 8 bytes at the end of the payload with the current RC value.
-    /// For such columns you must not use set, set_ser or delete, but 'update_refcount' instead.
     ///
-    /// Under the hood, we're using our custom merge operator (refcount_merge) to properly 'join' the refcounted cells.
-    /// WARNING: this means that the 'value' for a given key must never change.
+    /// A reference-counted column is one where we store additional 8-byte value
+    /// at the end of the payload with the current reference counter value.  For
+    /// such columns you must not use `set`, `set_ser` or `delete` operations,
+    /// but 'increment_refcount' and `decrement_refcount` instead.
+    ///
+    /// Under the hood, we’re using custom merge operator (see
+    /// [`RocksDB::refcount_merge`]) to properly ‘join’ the refcounted cells.
+    /// This means that the 'value' for a given key must never change.
     ///
     /// Example:
     ///
     /// ```ignore
-    /// update_refcount("foo", "bar", 1);
+    /// increment_refcount("foo", "bar");
     /// // good - after this call, the RC will be equal to 3.
-    /// update_refcount("foo", "bar", 2);
+    /// increment_refcount_by("foo", "bar", 2);
     /// // bad - the value is still 'bar'.
-    /// update_refcount("foo", "baz", 1);
+    /// increment_refcount("foo", "baz");
     /// // ok - the value will be removed now. (as rc == 0)
-    /// update_refcount("foo", "", -3)
+    /// decrement_refcount_by("foo", "", 3)
     /// ```
     ///
     /// Quick note on negative refcounts: if we have a key that ends up having
@@ -289,9 +315,10 @@ impl DBCol {
     /// Example:
     ///
     /// ```ignore
-    /// update_refcount("a", "b", 1);
-    /// update_refcount("a", -3);
-    /// // Now we have the entry in the database that has "a", empty value and refcount value of -2,
+    /// increment_refcount("a", "b");
+    /// decrement_refcount_by("a", 3);
+    /// // Now we have the entry in the database with key "a", empty payload and
+    /// // refcount value of -2,
     /// ```
     pub const fn is_rc(&self) -> bool {
         match self {
@@ -337,71 +364,11 @@ impl DBCol {
             _ => false,
         }
     }
-
-    /// Returns variant’s name as a static string.
-    ///
-    /// This is equivalent to [`Into::into`] but often makes the call site
-    /// simpler since there is no need to ascribe the type.
-    pub fn variant_name(&self) -> &'static str {
-        self.into()
-    }
 }
 
 impl fmt::Display for DBCol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let desc = match self {
-            Self::DbVersion => "db version",
-            Self::BlockMisc => "miscellaneous block data",
-            Self::Block => "block data",
-            Self::BlockHeader => "block header data",
-            Self::BlockHeight => "block height",
-            Self::State => "blockchain state",
-            Self::ChunkExtra => "extra information of trunk",
-            Self::TransactionResult => "transaction results",
-            Self::OutgoingReceipts => "outgoing receipts",
-            Self::IncomingReceipts => "incoming receipts",
-            Self::Peers => "peer information",
-            Self::EpochInfo => "epoch information",
-            Self::BlockInfo => "block information",
-            Self::Chunks => "chunks",
-            Self::PartialChunks => "partial chunks",
-            Self::BlocksToCatchup => "blocks need to apply chunks",
-            Self::StateDlInfos => "blocks downloading",
-            Self::ChallengedBlocks => "challenged blocks",
-            Self::StateHeaders => "state headers",
-            Self::InvalidChunks => "invalid chunks",
-            Self::BlockExtra => "extra block information",
-            Self::BlockPerHeight => "hash of block per height",
-            Self::StateParts => "state parts",
-            Self::EpochStart => "epoch start",
-            Self::AccountAnnouncements => "account announcements",
-            Self::NextBlockHashes => "next block hash",
-            Self::EpochLightClientBlocks => "epoch light client block",
-            Self::ReceiptIdToShardId => "receipt id to shard id",
-            Self::_NextBlockWithNewChunk => "next block with new chunk (deprecated)",
-            Self::_LastBlockWithNewChunk => "last block with new chunk (deprecated)",
-            Self::PeerComponent => "peer components",
-            Self::ComponentEdges => "component edges",
-            Self::LastComponentNonce => "last component nonce",
-            Self::Transactions => "transactions",
-            Self::ChunkPerHeightShard => "hash of chunk per height and shard_id",
-            Self::StateChanges => "key value changes",
-            Self::BlockRefCount => "refcount per block",
-            Self::TrieChanges => "trie changes",
-            Self::BlockMerkleTree => "block merkle tree",
-            Self::ChunkHashesByHeight => "chunk hashes indexed by height_created",
-            Self::BlockOrdinal => "block ordinal",
-            Self::GCCount => "gc count",
-            Self::OutcomeIds => "outcome ids",
-            Self::_TransactionRefCount => "refcount per transaction (deprecated)",
-            Self::ProcessedBlockHeights => "processed block heights",
-            Self::Receipts => "receipts",
-            Self::CachedContractCode => "cached code",
-            Self::EpochValidatorInfo => "epoch validator info",
-            Self::HeaderHashesByHeight => "header hashes indexed by their height",
-            Self::StateChangesForSplitStates => "state changes indexed by block hash and shard id",
-        };
-        write!(f, "{}", desc)
+        fmt::Debug::fmt(self, f)
     }
 }
 

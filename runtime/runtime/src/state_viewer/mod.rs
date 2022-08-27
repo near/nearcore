@@ -12,7 +12,6 @@ use near_primitives::{
         apply_state::ApplyState,
         migration_data::{MigrationData, MigrationFlags},
     },
-    serialize::to_base64,
     transaction::FunctionCallAction,
     trie_key::trie_key_parsers,
     types::{AccountId, EpochInfoProvider, Gas},
@@ -143,7 +142,7 @@ impl TrieViewer {
         let mut values = vec![];
         let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, prefix);
         let acc_sep_len = query.len() - prefix.len();
-        let mut iter = state_update.trie.iter(&state_update.get_root())?;
+        let mut iter = state_update.trie().iter()?;
         iter.seek(&query)?;
         for item in iter {
             let (key, value) = item?;
@@ -151,8 +150,8 @@ impl TrieViewer {
                 break;
             }
             values.push(StateItem {
-                key: to_base64(&key[acc_sep_len..]),
-                value: to_base64(&value),
+                key: key[acc_sep_len..].to_vec(),
+                value: value,
                 proof: vec![],
             });
         }
@@ -171,7 +170,7 @@ impl TrieViewer {
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
         let now = Instant::now();
-        let root = state_update.get_root();
+        let root = state_update.get_root().clone();
         let mut account = get_account(&state_update, contract_id)?.ok_or_else(|| {
             errors::CallFunctionError::AccountDoesNotExist {
                 requested_account_id: contract_id.clone(),

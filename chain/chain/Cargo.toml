@@ -8,6 +8,7 @@ rust-version = "1.60.0"
 edition = "2021"
 
 [dependencies]
+ansi_term = "0.12"
 actix = "0.13.0"
 borsh = "0.9"
 chrono = { version = "0.4.4", features = ["serde"] }
@@ -21,18 +22,19 @@ rayon = "1.5"
 strum = "0.24"
 thiserror = "1.0"
 tracing = "0.1.13"
-prometheus = "0.11"
 crossbeam-channel = "0.5"
 
-delay-detector = { path = "../../tools/delay_detector"}
+delay-detector = { path = "../../tools/delay-detector"}
 near-chain-configs = { path = "../../core/chain-configs" }
 near-chain-primitives = { path = "../chain-primitives" }
 near-crypto = { path = "../../core/crypto" }
 near-metrics = { path = "../../core/metrics" }
+near-o11y = { path = "../../core/o11y" }
 near-pool = { path = "../pool" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-cache = { path = "../../utils/near-cache" }
+near-client-primitives = { path = "../client-primitives"}
 
 [dev-dependencies]
 insta = "1"
@@ -47,20 +49,14 @@ expensive_tests = []
 test_features = []
 delay_detector = ["delay-detector/delay_detector"]
 no_cache = ["near-store/no_cache"]
-protocol_feature_chunk_only_producers = [
-  "near-chain-configs/protocol_feature_chunk_only_producers",
-  "near-primitives/protocol_feature_chunk_only_producers",
-]
+protocol_feature_flat_state = ["near-store/protocol_feature_flat_state"]
 
-protocol_feature_routing_exchange_algorithm = []
 nightly = [
   "nightly_protocol",
-  "protocol_feature_chunk_only_producers",
-  "protocol_feature_routing_exchange_algorithm",
 ]
 nightly_protocol = [
   "near-store/nightly_protocol",
   "near-primitives/nightly_protocol",
 ]
 mock_node = []
-sandbox = []
+sandbox = ["near-primitives/sandbox"]

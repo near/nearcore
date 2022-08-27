@@ -16,13 +16,12 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
     TransactionOrReceiptId,
 };
-use near_primitives::utils::generate_random_string;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkView, DebugBlockStatus, EpochInfoView, EpochValidatorInfo,
-    ExecutionOutcomeWithIdView, FinalExecutionOutcomeViewEnum, GasPriceView,
-    LightClientBlockLiteView, LightClientBlockView, QueryRequest, QueryResponse, ReceiptView,
-    StateChangesKindsView, StateChangesRequestView, StateChangesView, TrackedShardsView,
+    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+    FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
+    QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView, StateChangesRequestView,
+    StateChangesView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use serde::Serialize;
@@ -68,7 +67,7 @@ impl Clone for DownloadStatus {
 }
 
 /// Various status of syncing a specific shard.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum ShardSyncStatus {
     StateDownloadHeader,
     StateDownloadParts,
@@ -190,13 +189,6 @@ impl Message for GetBlock {
     type Result = Result<BlockView, GetBlockError>;
 }
 
-/// Actor message requesting block hash by id, hash or sync state.
-pub struct GetBlockHash(pub BlockReference);
-
-impl Message for GetBlockHash {
-    type Result = Result<CryptoHash, GetBlockError>;
-}
-
 /// Get block with the block merkle tree. Used for testing
 pub struct GetBlockWithMerkleTree(pub BlockReference);
 
@@ -262,14 +254,13 @@ impl From<near_chain_primitives::Error> for GetChunkError {
 /// Queries client for given path / data.
 #[derive(Clone, Debug)]
 pub struct Query {
-    pub query_id: String,
     pub block_reference: BlockReference,
     pub request: QueryRequest,
 }
 
 impl Query {
     pub fn new(block_reference: BlockReference, request: QueryRequest) -> Self {
-        Query { query_id: generate_random_string(10), block_reference, request }
+        Query { block_reference, request }
     }
 }
 
@@ -346,32 +337,6 @@ pub struct Status {
     pub is_health_check: bool,
     // If true - return more detailed information about the current status (recent blocks etc).
     pub detailed: bool,
-}
-
-// Different debug requests that can be sent by HTML pages, via GET.
-pub enum DebugStatus {
-    // Request for the current sync status
-    SyncStatus,
-    // Request currently tracked shards
-    TrackedShards,
-    // Detailed information about last couple epochs.
-    EpochInfo,
-    // Detailed information about last couple blocks.
-    BlockStatus,
-}
-
-impl Message for DebugStatus {
-    type Result = Result<DebugStatusResponse, StatusError>;
-}
-
-#[derive(Serialize, Debug)]
-pub enum DebugStatusResponse {
-    SyncStatus(SyncStatus),
-    TrackedShards(TrackedShardsView),
-    // List of epochs - in descending order (next epoch is first).
-    EpochInfo(Vec<EpochInfoView>),
-    // Detailed information about blocks.
-    BlockStatus(Vec<DebugBlockStatus>),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -826,4 +791,26 @@ impl From<near_chain_primitives::Error> for GetProtocolConfigError {
             _ => Self::Unreachable(error.to_string()),
         }
     }
+}
+
+#[cfg(feature = "sandbox")]
+#[derive(Debug)]
+pub enum SandboxMessage {
+    SandboxPatchState(Vec<near_primitives::state_record::StateRecord>),
+    SandboxPatchStateStatus,
+    SandboxFastForward(near_primitives::types::BlockHeightDelta),
+    SandboxFastForwardStatus,
+}
+
+#[cfg(feature = "sandbox")]
+#[derive(Eq, PartialEq, Debug, actix::MessageResponse)]
+pub enum SandboxResponse {
+    SandboxPatchStateFinished(bool),
+    SandboxFastForwardFinished(bool),
+    SandboxFastForwardFailed(String),
+    SandboxNoResponse,
+}
+#[cfg(feature = "sandbox")]
+impl Message for SandboxMessage {
+    type Result = SandboxResponse;
 }

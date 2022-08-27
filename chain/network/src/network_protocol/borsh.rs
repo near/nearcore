@@ -81,24 +81,10 @@ impl From<HandshakeAutoDes> for Handshake {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct RoutingTableUpdate {
-    pub(crate) edges: Vec<Edge>,
-    pub(crate) accounts: Vec<AnnounceAccount>,
-}
-
-impl RoutingTableUpdate {
-    pub(crate) fn from_edges(edges: Vec<Edge>) -> Self {
-        Self { edges, accounts: Vec::new() }
-    }
-
-    pub fn from_accounts(accounts: Vec<AnnounceAccount>) -> Self {
-        Self { edges: Vec::new(), accounts }
-    }
-
-    pub(crate) fn new(edges: Vec<Edge>, accounts: Vec<AnnounceAccount>) -> Self {
-        Self { edges, accounts }
-    }
+#[derive(Default, BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub(super) struct RoutingTableUpdate {
+    pub edges: Vec<Edge>,
+    pub accounts: Vec<AnnounceAccount>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -128,7 +114,7 @@ impl std::error::Error for HandshakeFailureReason {}
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, strum::AsRefStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
-pub enum PeerMessage {
+pub(super) enum PeerMessage {
     Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
@@ -159,40 +145,7 @@ pub enum PeerMessage {
     EpochSyncFinalizationRequest(EpochId),
     EpochSyncFinalizationResponse(Box<EpochSyncFinalizationResponse>),
 
-    RoutingTableSyncV2(RoutingSyncV2),
+    _RoutingTableSyncV2,
 }
 #[cfg(target_arch = "x86_64")] // Non-x86_64 doesn't match this requirement yet but it's not bad as it's not production-ready
 const _: () = assert!(std::mem::size_of::<PeerMessage>() <= 1144, "PeerMessage > 1144 bytes");
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub enum RoutingSyncV2 {
-    Version2(RoutingVersion2),
-}
-const _: () = assert!(std::mem::size_of::<RoutingSyncV2>() <= 80, "RoutingSyncV2 > 80 bytes");
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct PartialSync {
-    pub(crate) ibf_level: crate::routing::ibf_peer_set::ValidIBFLevel,
-    pub(crate) ibf: Vec<crate::routing::ibf::IbfBox>,
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub enum RoutingState {
-    PartialSync(PartialSync),
-    RequestAllEdges,
-    Done,
-    RequestMissingEdges(Vec<u64>),
-    InitializeIbf,
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct RoutingVersion2 {
-    pub(crate) known_edges: u64,
-    pub(crate) seed: u64,
-    pub(crate) edges: Vec<Edge>,
-    pub(crate) routing_state: RoutingState,
-}

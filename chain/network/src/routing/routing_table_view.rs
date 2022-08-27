@@ -1,221 +1,243 @@
+use crate::routing;
 use crate::routing::route_back_cache::RouteBackCache;
-use itertools::Itertools;
+use crate::store;
 use lru::LruCache;
+use near_network_primitives::time;
 use near_network_primitives::types::{Edge, PeerIdOrHash};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
-use near_store::{DBCol, Store};
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 use tracing::warn;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
-const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
-const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
-/// Routing table will clean edges if there is at least one node that is not reachable
-/// since `SAVE_PEERS_MAX_TIME` seconds. All peers disconnected since `SAVE_PEERS_AFTER_TIME`
-/// seconds will be removed from cache and persisted in disk.
-pub(crate) const SAVE_PEERS_MAX_TIME: Duration = Duration::from_secs(7_200);
-pub(crate) const DELETE_PEERS_AFTER_TIME: Duration = Duration::from_secs(3_600);
+const LAST_ROUTED_CACHE_SIZE: usize = 10_000;
 
-pub struct RoutingTableView {
-    /// PeerId associated for every known account id.
-    account_peers: LruCache<AccountId, AnnounceAccount>,
-    /// Active PeerId that are part of the shortest path to each PeerId.
-    pub(crate) peer_forwarding: Arc<HashMap<PeerId, Vec<PeerId>>>,
+pub(crate) struct RoutingTableView(Mutex<Inner>);
+
+struct Inner {
+    my_peer_id: PeerId,
     /// Store last update for known edges. This is limited to list of adjacent edges to `my_peer_id`.
-    pub(crate) local_edges_info: HashMap<PeerId, Edge>,
+    local_edges: HashMap<PeerId, Edge>,
+
+    /// Maps an account_id to a peer owning it.
+    account_peers: LruCache<AccountId, AnnounceAccount>,
+    /// For each peer, the set of neighbors which are one hop closer to `my_peer_id`.
+    /// Alternatively, if we look at the set of all shortest path from `my_peer_id` to peer,
+    /// this will be the set of first nodes on all such paths.
+    next_hops: Arc<routing::NextHopTable>,
     /// Hash of messages that requires routing back to respective previous hop.
     route_back: RouteBackCache,
     /// Access to store on disk
-    store: Store,
-    /// Number of times each active connection was used to route a message.
-    /// If there are several options use route with minimum nonce.
-    /// New routes are added with minimum nonce.
-    route_nonce: LruCache<PeerId, usize>,
+    store: store::Store,
+
+    /// Counter of number of calls to find_route_by_peer_id.
+    find_route_calls: u64,
+    /// Last time the given peer was selected by find_route_by_peer_id.
+    last_routed: LruCache<PeerId, u64>,
+}
+
+impl Inner {
+    /// Select a connected peer on some shortest path to `peer_id`.
+    /// If there are several such peers, pick the least recently used one.
+    fn find_route_from_peer_id(&mut self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
+        let peers = self.next_hops.get(peer_id).ok_or(FindRouteError::PeerUnreachable)?;
+        let next_hop = peers
+            .iter()
+            .min_by_key(|p| self.last_routed.get(*p).copied().unwrap_or(0))
+            .ok_or(FindRouteError::PeerUnreachable)?;
+        self.last_routed.put(next_hop.clone(), self.find_route_calls);
+        self.find_route_calls += 1;
+        Ok(next_hop.clone())
+    }
+
+    // Find route back with given hash and removes it from cache.
+    fn fetch_route_back(&mut self, clock: &time::Clock, hash: CryptoHash) -> Option<PeerId> {
+        self.route_back.remove(clock, &hash)
+    }
+
+    /// Checks whenever edge is newer than the one we already have.
+    /// Works only for local edges.
+    fn is_local_edge_newer(&self, other_peer: &PeerId, nonce: u64) -> bool {
+        self.local_edges.get(other_peer).map_or(0, |x| x.nonce()) < nonce
+    }
+
+    /// Get AnnounceAccount for the given AccountId.
+    fn get_announce(&mut self, account_id: &AccountId) -> Option<AnnounceAccount> {
+        if let Some(announce_account) = self.account_peers.get(account_id) {
+            return Some(announce_account.clone());
+        }
+        match self.store.get_account_announcement(&account_id) {
+            Err(e) => {
+                warn!(target: "network", "Error loading announce account from store: {:?}", e);
+                None
+            }
+            Ok(None) => None,
+            Ok(Some(a)) => {
+                self.account_peers.put(account_id.clone(), a.clone());
+                Some(a)
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
 pub(crate) enum FindRouteError {
-    Disconnected,
-    PeerNotFound,
+    PeerUnreachable,
     AccountNotFound,
     RouteBackNotFound,
 }
 
 impl RoutingTableView {
-    pub fn new(store: Store) -> Self {
-        // Find greater nonce on disk and set `component_nonce` to this value.
-
-        Self {
+    pub fn new(store: store::Store, my_peer_id: PeerId) -> Self {
+        Self(Mutex::new(Inner {
+            my_peer_id,
             account_peers: LruCache::new(ANNOUNCE_ACCOUNT_CACHE_SIZE),
-            peer_forwarding: Default::default(),
-            local_edges_info: Default::default(),
+            next_hops: Default::default(),
+            local_edges: Default::default(),
             route_back: RouteBackCache::default(),
             store,
-            route_nonce: LruCache::new(ROUND_ROBIN_NONCE_CACHE_SIZE),
+            find_route_calls: 0,
+            last_routed: LruCache::new(LAST_ROUTED_CACHE_SIZE),
+        }))
+    }
+
+    pub(crate) fn update(
+        &self,
+        local_edges_to_remove: &[PeerId],
+        next_hops: Arc<routing::NextHopTable>,
+    ) {
+        let mut inner = self.0.lock();
+        for peer_id in local_edges_to_remove {
+            inner.local_edges.remove(peer_id);
         }
+        inner.next_hops = next_hops;
     }
 
     /// Checks whenever edge is newer than the one we already have.
     /// Works only for local edges.
     pub(crate) fn is_local_edge_newer(&self, other_peer: &PeerId, nonce: u64) -> bool {
-        self.local_edges_info.get(other_peer).map_or(0, |x| x.nonce()) < nonce
+        self.0.lock().is_local_edge_newer(other_peer, nonce)
     }
 
-    /// Find peer that is connected to `source` and belong to the shortest path
-    /// from `source` to `peer_id`.
-    fn find_route_from_peer_id(&mut self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
-        if let Some(routes) = self.peer_forwarding.get(peer_id) {
-            match (routes.iter())
-                .map(|peer_id| {
-                    (self.route_nonce.get(peer_id).cloned().unwrap_or_default(), peer_id)
-                })
-                .minmax()
-                .into_option()
-            {
-                None => Err(FindRouteError::Disconnected),
-                // Neighbor with minimum and maximum nonce respectively.
-                Some(((min_v, next_hop), (max_v, _))) => {
-                    // Strategy similar to Round Robin. Select node with least nonce and send it. Increase its
-                    // nonce by one. Additionally if the difference between the highest nonce and the lowest
-                    // nonce is greater than some threshold increase the lowest nonce to be at least
-                    // max nonce - threshold.
-                    self.route_nonce.put(
-                        next_hop.clone(),
-                        std::cmp::max(
-                            min_v + 1,
-                            max_v.saturating_sub(ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED),
-                        ),
-                    );
-
-                    Ok(next_hop.clone())
-                }
-            }
-        } else {
-            Err(FindRouteError::PeerNotFound)
-        }
+    pub(crate) fn reachable_peers(&self) -> usize {
+        // There is an implicit assumption here that all next_hops entries are non-empty.
+        // To enforce this, we would need to make NextHopTable a newtype rather than an alias,
+        // and add appropriate constructors, which would filter out empty entries.
+        self.0.lock().next_hops.len()
     }
 
-    pub(crate) fn find_route(&mut self, target: &PeerIdOrHash) -> Result<PeerId, FindRouteError> {
+    pub(crate) fn find_route(
+        &self,
+        clock: &time::Clock,
+        target: &PeerIdOrHash,
+    ) -> Result<PeerId, FindRouteError> {
+        let mut inner = self.0.lock();
         match target {
-            PeerIdOrHash::PeerId(peer_id) => self.find_route_from_peer_id(peer_id),
+            PeerIdOrHash::PeerId(peer_id) => inner.find_route_from_peer_id(peer_id),
             PeerIdOrHash::Hash(hash) => {
-                self.fetch_route_back(*hash).ok_or(FindRouteError::RouteBackNotFound)
+                inner.fetch_route_back(clock, *hash).ok_or(FindRouteError::RouteBackNotFound)
             }
         }
     }
 
-    pub(crate) fn view_route(&self, peer_id: &PeerId) -> Option<&Vec<PeerId>> {
-        self.peer_forwarding.get(peer_id)
+    pub(crate) fn view_route(&self, peer_id: &PeerId) -> Option<Vec<PeerId>> {
+        self.0.lock().next_hops.get(peer_id).cloned()
     }
 
     /// Find peer that owns this AccountId.
-    pub(crate) fn account_owner(
-        &mut self,
-        account_id: &AccountId,
-    ) -> Result<PeerId, FindRouteError> {
-        self.get_announce(account_id)
+    pub(crate) fn account_owner(&self, account_id: &AccountId) -> Result<PeerId, FindRouteError> {
+        self.0
+            .lock()
+            .get_announce(account_id)
             .map(|announce_account| announce_account.peer_id)
             .ok_or(FindRouteError::AccountNotFound)
     }
 
-    /// Add (account id, peer id) to routing table.
-    /// Note: There is at most on peer id per account id.
-    pub(crate) fn add_account(&mut self, announce_account: AnnounceAccount) {
-        let account_id = announce_account.account_id.clone();
-        self.account_peers.put(account_id.clone(), announce_account.clone());
-
-        // Add account to store
-        let mut update = self.store.store_update();
-        if let Err(e) = update
-            .set_ser(DBCol::AccountAnnouncements, account_id.as_ref().as_bytes(), &announce_account)
-            .and_then(|_| update.commit())
-        {
-            warn!(target: "network", "Error saving announce account to store: {:?}", e);
+    /// Adds accounts to the routing table.
+    /// Returns the diff: new values that has been added.
+    /// Note: There is at most one peer id per account id.
+    pub(crate) fn add_accounts(&self, aas: Vec<AnnounceAccount>) -> Vec<AnnounceAccount> {
+        let mut inner = self.0.lock();
+        let mut res = vec![];
+        for aa in aas {
+            match inner.get_announce(&aa.account_id) {
+                Some(old) if old.epoch_id == aa.epoch_id => continue,
+                _ => {}
+            }
+            inner.account_peers.put(aa.account_id.clone(), aa.clone());
+            // Add account to store. Best effort
+            if let Err(e) = inner.store.set_account_announcement(&aa.account_id, &aa) {
+                warn!(target: "network", "Error saving announce account to store: {:?}", e);
+            }
+            res.push(aa);
         }
+        res
     }
 
-    // TODO(MarX, #1694): Allow one account id to be routed to several peer id.
-    pub(crate) fn contains_account(&mut self, announce_account: &AnnounceAccount) -> bool {
-        self.get_announce(&announce_account.account_id).map_or(false, |current_announce_account| {
-            current_announce_account.epoch_id == announce_account.epoch_id
-        })
-    }
-
-    pub fn remove_local_edges<'a>(&mut self, peers: impl Iterator<Item = &'a PeerId>) {
-        for other_peer in peers {
-            self.local_edges_info.remove(other_peer);
-        }
-    }
-
-    pub(crate) fn add_route_back(&mut self, hash: CryptoHash, peer_id: PeerId) {
-        self.route_back.insert(hash, peer_id);
-    }
-
-    // Find route back with given hash and removes it from cache.
-    fn fetch_route_back(&mut self, hash: CryptoHash) -> Option<PeerId> {
-        self.route_back.remove(&hash)
+    pub(crate) fn add_route_back(&self, clock: &time::Clock, hash: CryptoHash, peer_id: PeerId) {
+        self.0.lock().route_back.insert(clock, hash, peer_id);
     }
 
     pub(crate) fn compare_route_back(&self, hash: CryptoHash, peer_id: &PeerId) -> bool {
-        self.route_back.get(&hash).map_or(false, |value| value == peer_id)
+        self.0.lock().route_back.get(&hash).map_or(false, |value| value == peer_id)
     }
 
     pub(crate) fn info(&self) -> RoutingTableInfo {
-        let account_peers = self
-            .get_announce_accounts()
-            .map(|announce_account| {
-                (announce_account.account_id.clone(), announce_account.peer_id.clone())
-            })
-            .collect();
-        RoutingTableInfo { account_peers, peer_forwarding: self.peer_forwarding.clone() }
+        let inner = self.0.lock();
+        let account_peers =
+            inner.account_peers.iter().map(|(id, aa)| (id.clone(), aa.peer_id.clone())).collect();
+        RoutingTableInfo { account_peers, next_hops: inner.next_hops.clone() }
     }
 
     /// Public interface for `account_peers`.
     /// Get keys currently on cache.
-    pub(crate) fn get_accounts_keys(&self) -> impl Iterator<Item = &AccountId> + ExactSizeIterator {
-        self.account_peers.iter().map(|(k, _v)| k)
+    pub(crate) fn get_accounts_keys(&self) -> Vec<AccountId> {
+        self.0.lock().account_peers.iter().map(|(k, _v)| k).cloned().collect()
     }
 
     /// Get announce accounts on cache.
-    pub(crate) fn get_announce_accounts(
-        &self,
-    ) -> impl Iterator<Item = &AnnounceAccount> + ExactSizeIterator {
-        self.account_peers.iter().map(|(_k, v)| v)
+    pub(crate) fn get_announce_accounts(&self) -> Vec<AnnounceAccount> {
+        self.0.lock().account_peers.iter().map(|(_, v)| v.clone()).collect()
     }
 
-    /// Get account announce from
-    pub(crate) fn get_announce(&mut self, account_id: &AccountId) -> Option<AnnounceAccount> {
-        if let Some(announce_account) = self.account_peers.get(account_id) {
-            Some(announce_account.clone())
-        } else {
-            self.store
-                .get_ser(DBCol::AccountAnnouncements, account_id.as_ref().as_bytes())
-                .map(|res: Option<AnnounceAccount>| {
-                    if let Some(announce_account) = res {
-                        self.account_peers.put(account_id.clone(), announce_account.clone());
-                        Some(announce_account)
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or_else(|e| {
-                    warn!(target: "network", "Error loading announce account from store: {:?}", e);
-                    None
-                })
+    /// Get AnnounceAccount for the given AccountId.
+    pub(crate) fn get_announces<'a>(
+        &'a self,
+        account_ids: impl Iterator<Item = &'a AccountId>,
+    ) -> HashMap<AccountId, AnnounceAccount> {
+        let mut inner = self.0.lock();
+        account_ids.filter_map(|id| inner.get_announce(id).map(|a| (id.clone(), a))).collect()
+    }
+
+    pub(crate) fn get_local_edge(&self, other_peer: &PeerId) -> Option<Edge> {
+        self.0.lock().local_edges.get(other_peer).cloned()
+    }
+
+    /// Returns the diff: new local edges added.
+    pub(crate) fn add_local_edges(&self, edges: &[Edge]) -> Vec<Edge> {
+        let mut inner = self.0.lock();
+        let mut res = vec![];
+        for edge in edges {
+            let other = match edge.other(&inner.my_peer_id) {
+                Some(other) => other,
+                None => continue,
+            };
+            let old_nonce = inner.local_edges.get(other).map_or(0, |e| e.nonce());
+            if old_nonce >= edge.nonce() {
+                continue;
+            }
+            inner.local_edges.insert(other.clone(), edge.clone());
+            res.push(edge.clone());
         }
-    }
-
-    pub(crate) fn get_local_edge(&self, other_peer: &PeerId) -> Option<&Edge> {
-        self.local_edges_info.get(other_peer)
+        res
     }
 }
 
 #[derive(Debug)]
 pub struct RoutingTableInfo {
     pub account_peers: HashMap<AccountId, PeerId>,
-    pub peer_forwarding: Arc<HashMap<PeerId, Vec<PeerId>>>,
+    pub next_hops: Arc<routing::NextHopTable>,
 }

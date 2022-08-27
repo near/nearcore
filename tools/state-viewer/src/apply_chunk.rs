@@ -15,7 +15,6 @@ use near_primitives_core::hash::hash;
 use near_primitives_core::types::Gas;
 use near_store::DBCol;
 use near_store::Store;
-use nearcore::NightshadeRuntime;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use std::cmp::Ord;
@@ -73,7 +72,7 @@ fn get_incoming_receipts(
 
 // returns (apply_result, gas limit)
 pub(crate) fn apply_chunk(
-    runtime: &NightshadeRuntime,
+    runtime: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
     chunk_hash: ChunkHash,
     target_height: Option<u64>,
@@ -135,7 +134,7 @@ pub(crate) fn apply_chunk(
             hash("random seed".as_ref()),
             true,
             is_first_block_with_chunk_of_version,
-            None,
+            Default::default(),
         )?,
         chunk_header.gas_limit(),
     ))
@@ -149,7 +148,7 @@ enum HashType {
 fn find_tx_or_receipt(
     hash: &CryptoHash,
     block_hash: &CryptoHash,
-    runtime: &NightshadeRuntime,
+    runtime: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
 ) -> anyhow::Result<Option<(HashType, ShardId)>> {
     let block = chain_store.get_block(&block_hash)?;
@@ -176,12 +175,12 @@ fn find_tx_or_receipt(
 }
 
 fn apply_tx_in_block(
-    runtime: &NightshadeRuntime,
+    runtime: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
     tx_hash: &CryptoHash,
     block_hash: CryptoHash,
 ) -> anyhow::Result<ApplyTransactionResult> {
-    match find_tx_or_receipt(tx_hash, &block_hash, &runtime, chain_store)? {
+    match find_tx_or_receipt(tx_hash, &block_hash, runtime, chain_store)? {
         Some((hash_type, shard_id)) => {
             match hash_type {
                 HashType::Tx => {
@@ -203,7 +202,7 @@ fn apply_tx_in_block(
 }
 
 fn apply_tx_in_chunk(
-    runtime: &NightshadeRuntime,
+    runtime: &dyn RuntimeAdapter,
     store: Store,
     chain_store: &mut ChainStore,
     tx_hash: &CryptoHash,
@@ -217,7 +216,8 @@ fn apply_tx_in_chunk(
     let head = chain_store.head()?.height;
     let mut chunk_hashes = vec![];
 
-    for (k, v) in store.iter(DBCol::ChunkHashesByHeight) {
+    for item in store.iter(DBCol::ChunkHashesByHeight) {
+        let (k, v) = item.context("scanning ChunkHashesByHeight column")?;
         let height = BlockHeight::from_le_bytes(k[..].try_into().unwrap());
         if height > head {
             let hashes = HashSet::<ChunkHash>::try_from_slice(&v).unwrap();
@@ -249,8 +249,7 @@ fn apply_tx_in_chunk(
     let mut results = Vec::new();
     for chunk_hash in chunk_hashes {
         println!("found tx in chunk {}. Equivalent command (which will run faster than apply_tx):\nview_state apply_chunk --chunk_hash {}\n", &chunk_hash.0, &chunk_hash.0);
-        let (apply_result, gas_limit) =
-            apply_chunk(runtime.clone(), chain_store, chunk_hash, None, None)?;
+        let (apply_result, gas_limit) = apply_chunk(runtime, chain_store, chunk_hash, None, None)?;
         println!(
             "resulting chunk extra:\n{:?}",
             crate::commands::resulting_chunk_extra(&apply_result, gas_limit)
@@ -262,7 +261,7 @@ fn apply_tx_in_chunk(
 
 pub(crate) fn apply_tx(
     genesis_height: BlockHeight,
-    runtime: &NightshadeRuntime,
+    runtime: &dyn RuntimeAdapter,
     store: Store,
     tx_hash: CryptoHash,
 ) -> anyhow::Result<Vec<ApplyTransactionResult>> {
@@ -277,12 +276,12 @@ pub(crate) fn apply_tx(
 }
 
 fn apply_receipt_in_block(
-    runtime: &NightshadeRuntime,
+    runtime: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
     id: &CryptoHash,
     block_hash: CryptoHash,
 ) -> anyhow::Result<ApplyTransactionResult> {
-    match find_tx_or_receipt(id, &block_hash, &runtime, chain_store)? {
+    match find_tx_or_receipt(id, &block_hash, runtime, chain_store)? {
         Some((hash_type, shard_id)) => {
             match hash_type {
                 HashType::Tx => {
@@ -305,7 +304,7 @@ fn apply_receipt_in_block(
 }
 
 fn apply_receipt_in_chunk(
-    runtime: &NightshadeRuntime,
+    runtime: &dyn RuntimeAdapter,
     store: Store,
     chain_store: &mut ChainStore,
     id: &CryptoHash,
@@ -323,7 +322,8 @@ fn apply_receipt_in_chunk(
     let mut to_apply = HashSet::new();
     let mut non_applied_chunks = HashMap::new();
 
-    for (k, v) in store.iter(DBCol::ChunkHashesByHeight) {
+    for item in store.iter(DBCol::ChunkHashesByHeight) {
+        let (k, v) = item.context("scanning ChunkHashesByHeight column")?;
         let height = BlockHeight::from_le_bytes(k[..].try_into().unwrap());
         if height > head {
             let hashes = HashSet::<ChunkHash>::try_from_slice(&v).unwrap();
@@ -389,7 +389,7 @@ fn apply_receipt_in_chunk(
 
 pub(crate) fn apply_receipt(
     genesis_height: BlockHeight,
-    runtime: &NightshadeRuntime,
+    runtime: &dyn RuntimeAdapter,
     store: Store,
     id: CryptoHash,
 ) -> anyhow::Result<Vec<ApplyTransactionResult>> {

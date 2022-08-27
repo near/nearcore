@@ -2,12 +2,12 @@ use crate::commands::*;
 use crate::epoch_info;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use clap::{Args, Parser, Subcommand};
-use near_chain_configs::GenesisValidationMode;
+use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::Store;
+use near_store::{Mode, Store};
 use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -22,6 +22,9 @@ pub enum StateViewerSubCommand {
     DumpState(DumpStateCmd),
     #[clap(alias = "dump_state_redis")]
     DumpStateRedis(DumpStateRedisCmd),
+    /// Generate a file that contains all transactions from a block.
+    #[clap(alias = "dump_tx")]
+    DumpTx(DumpTxCmd),
     /// Print chain from start_index to end_index.
     Chain(ChainCmd),
     /// Replay headers from chain.
@@ -67,17 +70,18 @@ pub enum StateViewerSubCommand {
 }
 
 impl StateViewerSubCommand {
-    pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode, readwrite: bool) {
+    pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode, mode: Mode) {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-        let store = near_store::StoreOpener::new(home_dir, &near_config.config.store)
-            .read_only(!readwrite)
-            .open();
+        let store_opener =
+            near_store::Store::opener(home_dir, &near_config.config.store).mode(mode);
+        let store = store_opener.open().unwrap();
         match self {
             StateViewerSubCommand::Peers => peers(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
             StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyRange(cmd) => cmd.run(home_dir, near_config, store),
@@ -87,7 +91,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(home_dir),
+            StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(&store_opener.path()),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
@@ -119,6 +123,11 @@ pub struct DumpStateCmd {
     /// If not set, all account IDs will be dumped.
     #[clap(long)]
     account_ids: Option<Vec<AccountId>>,
+    /// List of validators to remain validators.
+    /// All other validators will be kicked, but still dumped.
+    /// Their stake will be returned to balance.
+    #[clap(long)]
+    include_validators: Option<Vec<AccountId>>,
 }
 
 impl DumpStateCmd {
@@ -130,7 +139,9 @@ impl DumpStateCmd {
             home_dir,
             near_config,
             store,
-            self.account_ids.as_ref(),
+            &GenesisChangeConfig::default()
+                .with_select_account_ids(self.account_ids)
+                .with_whitelist_validators(self.include_validators),
         );
     }
 }
@@ -145,6 +156,38 @@ pub struct DumpStateRedisCmd {
 impl DumpStateRedisCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         dump_state_redis(self.height, home_dir, near_config, store);
+    }
+}
+
+#[derive(Parser)]
+pub struct DumpTxCmd {
+    /// Specify the start block by height to begin dumping transactions from, inclusive.
+    #[clap(long)]
+    start_height: BlockHeight,
+    /// Specify the end block by height to stop dumping transactions at, inclusive.
+    #[clap(long)]
+    end_height: BlockHeight,
+    /// List of account IDs to dump.
+    /// If not set, all account IDs will be dumped.
+    #[clap(long)]
+    account_ids: Option<Vec<AccountId>>,
+    /// Optionally, can specify the path of the output.
+    #[clap(long)]
+    output_path: Option<String>,
+}
+
+impl DumpTxCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        dump_tx(
+            self.start_height,
+            self.end_height,
+            home_dir,
+            near_config,
+            store,
+            self.account_ids.as_ref(),
+            self.output_path,
+        )
+        .expect("Failed to dump transaction...")
     }
 }
 
@@ -320,8 +363,8 @@ pub struct RocksDBStatsCmd {
 }
 
 impl RocksDBStatsCmd {
-    pub fn run(self, home_dir: &Path) {
-        get_rocksdb_stats(home_dir, self.file).expect("Couldn't get RocksDB stats");
+    pub fn run(self, store_dir: &Path) {
+        get_rocksdb_stats(store_dir, self.file).expect("Couldn't get RocksDB stats");
     }
 }
 

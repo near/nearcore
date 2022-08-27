@@ -3,16 +3,22 @@ name = "master"
 weight = 10
 
 [[branch]]
-name = "1.27.0"
+name = "1.28.0"
 weight = 10
 
-#[[branch]]
-#name = "1.26.0"
-#weight = 10
+[[branch]]
+name = "1.27.0"
+weight = 10
 
 [[target]]
 crate = "runtime/near-vm-runner/fuzz"
 runner = "runner"
+weight = 10
+flags = ["-len_control=0", "-prefer_small=0", "-max_len=4000000", "-rss_limit_mb=3072"]
+
+[[target]]
+crate = "runtime/near-vm-runner/fuzz"
+runner = "diffrunner"
 weight = 10
 flags = ["-len_control=0", "-prefer_small=0", "-max_len=4000000", "-rss_limit_mb=3072"]
 

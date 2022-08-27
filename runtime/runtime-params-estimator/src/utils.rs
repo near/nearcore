@@ -1,17 +1,16 @@
 use crate::apply_block_cost;
-use crate::config::Config;
 use crate::estimator_context::EstimatorContext;
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::TransactionBuilder;
-
-use std::collections::HashMap;
-
-use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
-use near_primitives::types::AccountId;
+use near_primitives::transaction::{
+    Action, DeployContractAction, FunctionCallAction, SignedTransaction,
+};
 use near_vm_logic::{ExtCosts, VMConfig};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use rand_xorshift::XorShiftRng;
+use std::collections::HashMap;
+use std::iter;
 
 pub fn read_resource(path: &str) -> Vec<u8> {
     let dir = env!("CARGO_MANIFEST_DIR");
@@ -47,8 +46,7 @@ pub(crate) fn transaction_cost_ext(
     make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
     block_latency: usize,
 ) -> (GasCost, HashMap<ExtCosts, u64>) {
-    let per_block_overhead = apply_block_cost(ctx);
-    let measurement_overhead = per_block_overhead * (1 + block_latency) as u64 / block_size as u64;
+    let measurement_overhead = overhead_per_measured_block(ctx, block_latency);
 
     let mut testbed = ctx.testbed();
     let blocks = {
@@ -66,18 +64,20 @@ pub(crate) fn transaction_cost_ext(
     };
 
     let measurements = testbed.measure_blocks(blocks, block_latency);
-    let mut measurements =
+    let measurements =
         measurements.into_iter().skip(testbed.config.warmup_iters_per_block).collect::<Vec<_>>();
 
-    // The assumption is that the overhead in the measurement due to applying blocks
-    // is negligible (<1%) and can therefore be ignored. This code is here to verify .
-    for (cost, _ext) in &mut measurements {
-        if measurement_overhead.clone() * 100 >= *cost {
-            cost.set_uncertain("BLOCK-MEASUREMENT-OVERHEAD");
-        }
-    }
+    aggregate_per_block_measurements(block_size, measurements, Some(measurement_overhead))
+}
 
-    aggregate_per_block_measurements(testbed.config, block_size, measurements)
+/// Returns the total measurement overhead for a measured block.
+pub(crate) fn overhead_per_measured_block(
+    ctx: &mut EstimatorContext,
+    block_latency: usize,
+) -> GasCost {
+    let per_block_overhead = apply_block_cost(ctx);
+    let measurement_overhead = per_block_overhead * (1 + block_latency) as u64;
+    measurement_overhead
 }
 
 #[track_caller]
@@ -148,6 +148,8 @@ pub(crate) fn fn_cost_with_setup(
     count: u64,
 ) -> GasCost {
     let (total_cost, measured_count) = {
+        let block_latency = 0;
+        let overhead = overhead_per_measured_block(ctx, block_latency);
         let block_size = 2usize;
         let n_blocks = ctx.config.warmup_iters_per_block + ctx.config.iter_per_block;
 
@@ -185,7 +187,7 @@ pub(crate) fn fn_cost_with_setup(
             .collect();
 
         let (gas_cost, ext_costs) =
-            aggregate_per_block_measurements(ctx.config, block_size, measurements);
+            aggregate_per_block_measurements(block_size, measurements, Some(overhead));
         (gas_cost, ext_costs[&ext_cost])
     };
     assert_eq!(measured_count, count);
@@ -201,20 +203,26 @@ pub(crate) fn fn_cost_with_setup(
 /// this causes the contract to be deployed once in every iteration. Therefore,
 /// whenever possible, prefer to add a method to the generic test contract.
 ///
-/// The no-op function call cost is NOT subtracted.
+/// The measured cost is the pure cost of executing a function call action. The
+/// overhead of block, transaction, and receipt processing is already subtracted
+/// in the returned result. It does so by executing the method n+1 times in a
+/// single transaction, and subtract the cost of a transaction that calls the
+/// method once, before dividing by n.
 pub(crate) fn fn_cost_in_contract(
     ctx: &mut EstimatorContext,
     method: &str,
     code: &[u8],
-    block_size: usize,
+    n_actions: usize,
 ) -> GasCost {
-    let n_blocks = ctx.config.warmup_iters_per_block + ctx.config.iter_per_block;
+    let n_warmup_blocks = ctx.config.warmup_iters_per_block;
+    let n_blocks = n_warmup_blocks + ctx.config.iter_per_block;
     let mut testbed = ctx.testbed();
 
-    let chosen_accounts = {
+    let mut chosen_accounts = {
         let tb = testbed.transaction_builder();
-        std::iter::repeat_with(|| tb.random_unused_account()).take(n_blocks).collect::<Vec<_>>()
+        iter::repeat_with(|| tb.random_unused_account()).take(n_blocks + 1).collect::<Vec<_>>()
     };
+    testbed.clear_caches();
 
     for account in &chosen_accounts {
         let tb = testbed.transaction_builder();
@@ -224,59 +232,102 @@ pub(crate) fn fn_cost_in_contract(
         testbed.process_block(vec![setup_tx], 0);
     }
 
-    let blocks = {
-        let mut blocks = Vec::with_capacity(n_blocks);
-        for account in chosen_accounts {
-            let tb = testbed.transaction_builder();
-            let mut block = Vec::new();
-            for _ in 0..block_size {
-                let tx = tb.transaction_from_function_call(account.clone(), method, Vec::new());
-                block.push(tx);
-            }
-            blocks.push(block);
-        }
-        blocks
-    };
+    let mut blocks = Vec::with_capacity(n_blocks);
+    // Measurement blocks with single tx with many actions.
+    for account in chosen_accounts.drain(..n_blocks) {
+        let actions = iter::repeat_with(|| function_call_action(method.to_string()))
+            .take(n_actions)
+            .collect();
+        let tx = testbed.transaction_builder().transaction_from_actions(
+            account.clone(),
+            account,
+            actions,
+        );
+        blocks.push(vec![tx]);
+    }
+    // Base with single tx with single action. Insert it after warm-up blocks.
+    let final_account = chosen_accounts.pop().unwrap();
+    let base_tx = testbed.transaction_builder().transaction_from_actions(
+        final_account.clone(),
+        final_account,
+        vec![function_call_action(method.to_string())],
+    );
+    blocks.insert(n_warmup_blocks, vec![base_tx]);
 
     let mut measurements = testbed.measure_blocks(blocks, 0);
-    measurements.drain(0..ctx.config.warmup_iters_per_block);
+    measurements.drain(0..n_warmup_blocks);
 
+    let (base_gas_cost, _base_ext_costs) = measurements.remove(0);
+    // Do not subtract block overhead because we already subtract the base.
+    let overhead = None;
+    let block_size = 1;
     let (gas_cost, _ext_costs) =
-        aggregate_per_block_measurements(ctx.config, block_size, measurements);
-    gas_cost
+        aggregate_per_block_measurements(block_size, measurements, overhead);
+    gas_cost.saturating_sub(&base_gas_cost, &NonNegativeTolerance::Strict) / (n_actions - 1) as u64
 }
 
+fn function_call_action(method_name: String) -> Action {
+    Action::FunctionCall(FunctionCallAction {
+        method_name,
+        args: Vec::new(),
+        gas: 10u64.pow(15),
+        deposit: 0,
+    })
+}
+
+/// Takes a list of measurements of input blocks and returns the cost for a
+/// single work item.
+///
+/// Inputs measurements cover the work to ingest and fully process it. Note that
+/// the processing can span multiple block ticks but the measured work is
+/// defined in a single block.
+///
+/// Each block is assumed to contain `block_size` amount of work
+/// items to be measured. Usually, one such work item is a transaction, or an
+/// action within a transaction.
+///
+/// The output is the cost of a single work item.
 pub(crate) fn aggregate_per_block_measurements(
-    config: &Config,
     block_size: usize,
-    measurements: Vec<(GasCost, HashMap<ExtCosts, u64>)>,
+    block_measurements: Vec<(GasCost, HashMap<ExtCosts, u64>)>,
+    overhead: Option<GasCost>,
 ) -> (GasCost, HashMap<ExtCosts, u64>) {
     let mut block_costs = Vec::new();
     let mut total_ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
-    let mut total = GasCost::zero(config.metric);
-    let mut n = 0;
-    for (gas_cost, ext_cost) in measurements {
-        block_costs.push(gas_cost.to_gas() as f64);
-        total += gas_cost;
-        n += block_size as u64;
-        for (c, v) in ext_cost {
+    let mut total = GasCost::zero();
+    let num_blocks = block_measurements.len() as u64;
+    for (block_cost, block_ext_cost) in block_measurements {
+        block_costs.push(block_cost.to_gas() as f64);
+        total += block_cost;
+        for (c, v) in block_ext_cost {
             *total_ext_costs.entry(c).or_default() += v;
         }
     }
-    for v in total_ext_costs.values_mut() {
-        *v /= n;
-    }
-    let mut gas_cost = total / n;
+
+    let work_item_ext_cost = {
+        for v in total_ext_costs.values_mut() {
+            let n = num_blocks * block_size as u64;
+            *v /= n;
+        }
+        total_ext_costs
+    };
+
+    let mut avg_block_cost = total / num_blocks;
     if is_high_variance(&block_costs) {
-        gas_cost.set_uncertain("HIGH-VARIANCE");
+        avg_block_cost.set_uncertain("HIGH-VARIANCE");
     }
-    (gas_cost, total_ext_costs)
+    if let Some(overhead) = overhead {
+        avg_block_cost = avg_block_cost.saturating_sub(&overhead, &NonNegativeTolerance::PER_MILLE);
+    }
+    let work_item_gas_cost = avg_block_cost / block_size as u64;
+
+    (work_item_gas_cost, work_item_ext_cost)
 }
 
-pub(crate) fn average_cost(config: &Config, measurements: &[GasCost]) -> GasCost {
-    let total = measurements.iter().fold(GasCost::zero(config.metric), |acc, x| acc + x.clone());
-    let mut avg = total / measurements.len() as u64;
+pub(crate) fn average_cost(measurements: Vec<GasCost>) -> GasCost {
     let scalar_costs = measurements.iter().map(|cost| cost.to_gas() as f64).collect::<Vec<_>>();
+    let total: GasCost = measurements.into_iter().sum();
+    let mut avg = total / scalar_costs.len() as u64;
     if is_high_variance(&scalar_costs) {
         avg.set_uncertain("HIGH-VARIANCE");
     }
@@ -284,23 +335,24 @@ pub(crate) fn average_cost(config: &Config, measurements: &[GasCost]) -> GasCost
 }
 
 /// We expect our cost computations to be fairly reproducible, and just flag
-/// "high-variance" measurements as suspicious. To make results easily
-/// explainable, we just require that all the samples don't deviate from the
-/// mean by more than 15%, where the number 15 is somewhat arbitrary.
+/// "high-variance" measurements as suspicious. We require that sample standard
+/// deviation is no more than 10% of the mean.
 ///
 /// Note that this looks at block processing times, and each block contains
 /// multiples of things we are actually measuring. As low block variance doesn't
 /// guarantee low within-block variance, this is necessary an approximate sanity
 /// check.
 pub(crate) fn is_high_variance(samples: &[f64]) -> bool {
-    let threshold = 0.15;
+    let threshold = 0.1;
 
+    if samples.len() <= 1 {
+        return true;
+    }
     let mean = samples.iter().copied().sum::<f64>() / (samples.len() as f64);
-
-    let all_below_threshold =
-        samples.iter().copied().all(|it| (mean - it).abs() < mean * threshold);
-
-    !all_below_threshold
+    let s2 = samples.iter().map(|value| (mean - *value).powi(2)).sum::<f64>()
+        / (samples.len() - 1) as f64;
+    let stddev = s2.sqrt();
+    stddev / mean > threshold
 }
 
 /// Returns several percentile values from the given vector of costs. For
@@ -316,11 +368,6 @@ pub(crate) fn percentiles(
         .into_iter()
         .map(move |p| (p * sample_size as f32).ceil() as usize - 1)
         .map(move |idx| costs[idx].clone())
-}
-
-/// Get account id from its index.
-pub(crate) fn get_account_id(account_index: usize) -> AccountId {
-    AccountId::try_from(format!("near_{}_{}", account_index, account_index)).unwrap()
 }
 
 /// Produce a valid function name with `len` letters

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use actix::Addr;
 
 use near_chain_configs::Genesis;
@@ -18,15 +16,14 @@ mod validated_operations;
 /// `other_transactions` to deal with this: https://community.rosetta-api.org/t/how-to-return-data-without-being-able-to-paginate/98
 /// We choose to do a proper implementation for the genesis block later.
 async fn convert_genesis_records_to_transaction(
-    genesis: Arc<Genesis>,
-    view_client_addr: Addr<ViewClientActor>,
+    genesis: &Genesis,
+    view_client_addr: &Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
 ) -> crate::errors::Result<crate::models::Transaction> {
-    let genesis_account_ids = genesis.records.as_ref().iter().filter_map(|record| {
+    let mut genesis_account_ids = std::collections::HashSet::new();
+    genesis.for_each_record(|record| {
         if let near_primitives::state_record::StateRecord::Account { account_id, .. } = record {
-            Some(account_id)
-        } else {
-            None
+            genesis_account_ids.insert(account_id.clone());
         }
     });
     // Collect genesis accounts into a BTreeMap rather than a HashMap so that
@@ -35,7 +32,7 @@ async fn convert_genesis_records_to_transaction(
     // stay the same).
     let genesis_accounts: std::collections::BTreeMap<_, _> = crate::utils::query_accounts(
         &near_primitives::types::BlockId::Hash(block.header.hash).into(),
-        genesis_account_ids,
+        genesis_account_ids.iter(),
         &view_client_addr,
     )
     .await?;
@@ -56,6 +53,7 @@ async fn convert_genesis_records_to_transaction(
                 account: crate::models::AccountIdentifier {
                     address: account_id.clone(),
                     sub_account: None,
+                    metadata: None,
                 },
                 amount: Some(crate::models::Amount::from_yoctonear(account_balances.liquid)),
                 type_: crate::models::OperationType::Transfer,
@@ -71,6 +69,7 @@ async fn convert_genesis_records_to_transaction(
                 account: crate::models::AccountIdentifier {
                     address: account_id.clone(),
                     sub_account: Some(crate::models::SubAccount::LiquidBalanceForStorage.into()),
+                    metadata: None,
                 },
                 amount: Some(crate::models::Amount::from_yoctonear(
                     account_balances.liquid_for_storage,
@@ -88,6 +87,7 @@ async fn convert_genesis_records_to_transaction(
                 account: crate::models::AccountIdentifier {
                     address: account_id.clone(),
                     sub_account: Some(crate::models::SubAccount::Locked.into()),
+                    metadata: None,
                 },
                 amount: Some(crate::models::Amount::from_yoctonear(account_balances.locked)),
                 type_: crate::models::OperationType::Transfer,
@@ -111,7 +111,7 @@ async fn convert_genesis_records_to_transaction(
 }
 
 pub(crate) async fn convert_block_to_transactions(
-    view_client_addr: Addr<ViewClientActor>,
+    view_client_addr: &Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     let state_changes = view_client_addr
@@ -172,8 +172,8 @@ pub(crate) async fn convert_block_to_transactions(
 }
 
 pub(crate) async fn collect_transactions(
-    genesis: Arc<Genesis>,
-    view_client_addr: Addr<ViewClientActor>,
+    genesis: &Genesis,
+    view_client_addr: &Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     if block.header.prev_hash == Default::default() {
@@ -318,6 +318,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                         validated_operations::TransferOperation {
                             account: sender_account_identifier.clone(),
                             amount: -transfer_amount.clone(),
+                            predecessor_id: Some(sender_account_identifier.clone()),
                         }
                         .into_operation(sender_transfer_operation_id.clone()),
                     );
@@ -326,6 +327,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                         validated_operations::TransferOperation {
                             account: receiver_account_identifier.clone(),
                             amount: transfer_amount,
+                            predecessor_id: Some(sender_account_identifier.clone()),
                         }
                         .into_related_operation(
                             crate::models::OperationIdentifier::new(&operations),
@@ -335,18 +337,6 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                 }
 
                 near_primitives::transaction::Action::Stake(action) => {
-                    operations.push(
-                        validated_operations::StakeOperation {
-                            account: receiver_account_identifier.clone(),
-                            amount: action.stake,
-                            public_key: (&action.public_key).into(),
-                        }
-                        .into_operation(crate::models::OperationIdentifier::new(&operations)),
-                    );
-                }
-
-                #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                near_primitives::transaction::Action::StakeChunkOnly(action) => {
                     operations.push(
                         validated_operations::StakeOperation {
                             account: receiver_account_identifier.clone(),
@@ -390,6 +380,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                             validated_operations::TransferOperation {
                                 account: sender_account_identifier.clone(),
                                 amount: -attached_amount.clone(),
+                                predecessor_id: Some(sender_account_identifier.clone()),
                             }
                             .into_operation(fund_transfer_operation_id.clone()),
                         );

@@ -1,9 +1,9 @@
 use crate::types::{
-    NetworkInfo, NetworkResponses, PeerManagerAdapter, PeerManagerMessageRequest,
-    PeerManagerMessageResponse,
+    MsgRecipient, NetworkInfo, NetworkResponses, PeerManagerMessageRequest,
+    PeerManagerMessageResponse, SetChainInfo,
 };
 use crate::PeerManagerActor;
-use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message, Recipient};
+use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::future::BoxFuture;
 use futures::{future, Future, FutureExt};
 use near_crypto::{KeyType, SecretKey};
@@ -12,13 +12,12 @@ use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
-use once_cell::sync::{Lazy, OnceCell};
+use once_cell::sync::Lazy;
 use rand::{thread_rng, RngCore};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
 use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
 use tracing::debug;
 
 static OPENED_PORTS: Lazy<Mutex<HashSet<u16>>> = Lazy::new(|| Mutex::new(HashSet::new()));
@@ -65,7 +64,7 @@ pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
 /// Useful in tests to prevent them from running forever.
 #[allow(unreachable_code)]
 pub fn wait_or_panic(max_wait_ms: u64) {
-    actix::spawn(tokio::time::sleep(Duration::from_millis(max_wait_ms)).then(|_| {
+    actix::spawn(tokio::time::sleep(tokio::time::Duration::from_millis(max_wait_ms)).then(|_| {
         panic!("Timeout exceeded.");
         future::ready(())
     }));
@@ -117,7 +116,7 @@ impl WaitOrTimeoutActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            Duration::from_millis(self.check_interval_ms),
+            tokio::time::Duration::from_millis(self.check_interval_ms),
             move |act, ctx| {
                 act.ms_slept += act.check_interval_ms;
                 if act.ms_slept > act.max_wait_ms {
@@ -155,8 +154,8 @@ where
         check_interval_ms < max_wait_ms,
         "interval shorter than wait time, did you swap the argument order?"
     );
-    let mut interval = tokio::time::interval(Duration::from_millis(check_interval_ms));
-    tokio::time::timeout(Duration::from_millis(max_wait_ms), async {
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(check_interval_ms));
+    tokio::time::timeout(tokio::time::Duration::from_millis(max_wait_ms), async {
         loop {
             interval.tick().await;
             if let ControlFlow::Break(res) = cond().await {
@@ -219,23 +218,6 @@ impl Handler<GetInfo> for PeerManagerActor {
     }
 }
 
-/// `GetBroadcastMessageCount` gets `NetworkMetrics` from `PeerManager`.
-#[cfg(feature = "test_features")]
-#[derive(Message)]
-#[rtype(result = "u64")]
-pub struct GetBroadcastMessageCount {
-    pub msg_type: &'static str,
-}
-
-#[cfg(feature = "test_features")]
-impl Handler<GetBroadcastMessageCount> for PeerManagerActor {
-    type Result = u64;
-
-    fn handle(&mut self, msg: GetBroadcastMessageCount, _ctx: &mut Context<Self>) -> Self::Result {
-        self.network_metrics.get_broadcast_count(msg.msg_type)
-    }
-}
-
 // `StopSignal is used to stop PeerManagerActor for unit tests
 #[derive(Message, Default)]
 #[rtype(result = "()")]
@@ -293,7 +275,7 @@ pub struct MockPeerManagerAdapter {
     pub requests: Arc<RwLock<VecDeque<PeerManagerMessageRequest>>>,
 }
 
-impl PeerManagerAdapter for MockPeerManagerAdapter {
+impl MsgRecipient<PeerManagerMessageRequest> for MockPeerManagerAdapter {
     fn send(
         &self,
         msg: PeerManagerMessageRequest,
@@ -308,26 +290,29 @@ impl PeerManagerAdapter for MockPeerManagerAdapter {
     }
 }
 
+impl MsgRecipient<SetChainInfo> for MockPeerManagerAdapter {
+    fn send(&self, _msg: SetChainInfo) -> BoxFuture<'static, Result<(), MailboxError>> {
+        async { Ok(()) }.boxed()
+    }
+    fn do_send(&self, _msg: SetChainInfo) {}
+}
+
 impl MockPeerManagerAdapter {
     pub fn pop(&self) -> Option<PeerManagerMessageRequest> {
         self.requests.write().unwrap().pop_front()
     }
 }
 
-#[cfg(feature = "test_features")]
 pub mod test_features {
-    use crate::routing::routing_table_actor::{start_routing_table_actor, RoutingTableActor};
-    use crate::test_utils::{convert_boot_nodes, open_port};
+    use crate::config;
+    use crate::test_utils::convert_boot_nodes;
     use crate::types::{NetworkClientMessages, NetworkClientResponses};
     use crate::PeerManagerActor;
     use actix::actors::mocker::Mocker;
-    use actix::{Actor, Addr};
-    use near_network_primitives::types::{
-        NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
-    };
+    use actix::Actor;
+    use near_network_primitives::time;
+    use near_network_primitives::types::{NetworkViewClientMessages, NetworkViewClientResponses};
     use near_primitives::block::GenesisId;
-    use near_primitives::network::PeerId;
-    use near_store::test_utils::create_test_store;
     use near_store::Store;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -337,42 +322,13 @@ pub mod test_features {
     /// Mock for `ViewClientActor`
     type ViewClientMock = Mocker<NetworkViewClientMessages>;
 
-    // Start PeerManagerActor, and RoutingTableActor together and returns pairs of addresses
-    // for each of them.
-    pub fn make_peer_manager_routing_table_addr_pair(
-    ) -> (Addr<PeerManagerActor>, Addr<RoutingTableActor>) {
-        let seed = "test2";
-        let port = open_port();
-
-        let net_config = NetworkConfig::from_seed(seed, port);
-        let store = create_test_store();
-        let routing_table_addr = start_routing_table_actor(net_config.node_id(), store.clone());
-        let peer_manager_addr = make_peer_manager(
-            store,
-            net_config,
-            vec![("test1", open_port())],
-            10,
-            routing_table_addr.clone(),
-        )
-        .0
-        .start();
-        (peer_manager_addr, routing_table_addr)
-    }
-
     // Make peer manager for unit tests
-    //
-    // Returns:
-    //    PeerManagerActor
-    //    PeerId - PeerId associated with given actor
-    //    Arc<AtomicUsize> - shared pointer for counting the number of received
-    //                       `NetworkViewClientMessages::AnnounceAccount` messages
     pub fn make_peer_manager(
         store: Store,
-        mut config: NetworkConfig,
+        mut config: config::NetworkConfig,
         boot_nodes: Vec<(&str, u16)>,
         peer_max_count: u32,
-        routing_table_addr: Addr<RoutingTableActor>,
-    ) -> (PeerManagerActor, PeerId, Arc<AtomicUsize>) {
+    ) -> PeerManagerActor {
         config.boot_nodes = convert_boot_nodes(boot_nodes);
         config.max_num_peers = peer_max_count;
         let counter = Arc::new(AtomicUsize::new(0));
@@ -393,57 +349,19 @@ pub mod test_features {
                         accounts.clone().into_iter().map(|obj| obj.0).collect(),
                     )))
                 }
-                NetworkViewClientMessages::GetChainInfo => {
-                    Box::new(Some(NetworkViewClientResponses::ChainInfo {
-                        genesis_id: GenesisId::default(),
-                        height: 1,
-                        tracked_shards: vec![],
-                        archival: false,
-                    }))
-                }
                 _ => Box::new(Some(NetworkViewClientResponses::NoResponse)),
             }
         }))
         .start();
-        let peer_id = config.node_id();
-        (
-            PeerManagerActor::new(
-                store,
-                config,
-                client_addr.recipient(),
-                view_client_addr.recipient(),
-                routing_table_addr,
-            )
-            .unwrap(),
-            peer_id,
-            counter,
+        PeerManagerActor::new(
+            time::Clock::real(),
+            store,
+            config,
+            client_addr.recipient(),
+            view_client_addr.recipient(),
+            GenesisId::default(),
         )
-    }
-}
-
-#[derive(Default)]
-pub struct NetworkRecipient {
-    peer_manager_recipient: OnceCell<Recipient<PeerManagerMessageRequest>>,
-}
-
-impl NetworkRecipient {
-    pub fn set_recipient(&self, peer_manager_recipient: Recipient<PeerManagerMessageRequest>) {
-        self.peer_manager_recipient
-            .set(peer_manager_recipient)
-            .expect("can't `set_recipient` twice");
-    }
-}
-
-impl PeerManagerAdapter for NetworkRecipient {
-    fn send(
-        &self,
-        msg: PeerManagerMessageRequest,
-    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, MailboxError>> {
-        self.peer_manager_recipient.wait().send(msg).boxed()
-    }
-
-    fn do_send(&self, msg: PeerManagerMessageRequest) {
-        let _ = self.peer_manager_recipient.wait().do_send(msg);
+        .unwrap()
     }
 }
 
@@ -451,18 +369,5 @@ impl PeerManagerAdapter for NetworkRecipient {
 #[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct SetAdvOptions {
-    pub disable_edge_signature_verification: Option<bool>,
-    pub disable_edge_propagation: Option<bool>,
-    pub disable_edge_pruning: Option<bool>,
     pub set_max_peers: Option<u64>,
-}
-
-#[cfg(feature = "test_features")]
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Message, Clone, Debug)]
-#[rtype(result = "()")]
-pub struct SetRoutingTable {
-    pub add_edges: Option<Vec<near_network_primitives::types::Edge>>,
-    pub remove_edges: Option<Vec<near_network_primitives::types::SimpleEdge>>,
-    pub prune_edges: Option<bool>,
 }

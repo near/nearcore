@@ -5,7 +5,7 @@ use std::io;
 pub use near_account_id as id;
 
 use crate::hash::CryptoHash;
-use crate::serialize::{option_u128_dec_format, u128_dec_format_compatible};
+use crate::serialize::dec_format;
 use crate::types::{Balance, Nonce, StorageUsage};
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy,
@@ -24,10 +24,10 @@ impl Default for AccountVersion {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
     /// The total not locked tokens.
-    #[serde(with = "u128_dec_format_compatible")]
+    #[serde(with = "dec_format")]
     amount: Balance,
     /// The amount locked due to staking.
-    #[serde(with = "u128_dec_format_compatible")]
+    #[serde(with = "dec_format")]
     locked: Balance,
     /// Hash of the code stored in the storage for this account.
     code_hash: CryptoHash,
@@ -115,9 +115,6 @@ impl BorshDeserialize for Account {
         // This should only ever happen if we have pre-transition account serialized in state
         // See test_account_size
         let deserialized_account = LegacyAccount::deserialize(buf)?;
-        if buf.len() != 0 {
-            panic!("Tried deserializing a buffer that is not exactly the size of an account");
-        }
         Ok(Account {
             amount: deserialized_account.amount,
             locked: deserialized_account.locked,
@@ -197,7 +194,7 @@ pub struct FunctionCallPermission {
     /// `None` means unlimited allowance.
     /// NOTE: To change or increase the allowance, the old access key needs to be deleted and a new
     /// access key should be created.
-    #[serde(with = "option_u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub allowance: Option<Balance>,
 
     // This isn't an AccountId because already existing records in testnet genesis have invalid
@@ -217,7 +214,6 @@ mod tests {
     use borsh::BorshSerialize;
 
     use crate::hash::hash;
-    use crate::serialize::to_base;
 
     use super::*;
 
@@ -225,7 +221,7 @@ mod tests {
     fn test_account_serialization() {
         let acc = Account::new(1_000_000, 1_000_000, CryptoHash::default(), 100);
         let bytes = acc.try_to_vec().unwrap();
-        assert_eq!(to_base(&hash(&bytes)), "EVk5UaxBe8LQ8r8iD5EAxVBs6TJcMDKqyH7PBuho6bBJ");
+        assert_eq!(hash(&bytes).to_string(), "EVk5UaxBe8LQ8r8iD5EAxVBs6TJcMDKqyH7PBuho6bBJ");
     }
 
     #[test]

@@ -3,7 +3,6 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::test_utils::encode;
 use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::types::Balance;
-use near_primitives::version::ProtocolFeature;
 use near_vm_errors::{FunctionCallError, HostError, VMError, WasmTrap};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
@@ -22,6 +21,7 @@ fn test_contract() -> ContractCode {
     ContractCode::new(code.to_vec(), None)
 }
 
+#[track_caller]
 fn assert_run_result(result: VMResult, expected_value: u64) {
     if let Some(_) = result.error() {
         panic!("Failed execution");
@@ -73,47 +73,6 @@ pub fn test_read_write() {
             None,
         );
         assert_run_result(result, 20);
-    });
-}
-
-#[test]
-pub fn test_stablized_host_function() {
-    with_vm_variants(|vm_kind: VMKind| {
-        let code = test_contract();
-        let mut fake_external = MockedExternal::new();
-
-        let context = create_context(vec![]);
-        let config = VMConfig::test();
-        let fees = RuntimeFeesConfig::test();
-
-        let promise_results = vec![];
-        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
-        let result = runtime.run(
-            &code,
-            "do_ripemd",
-            &mut fake_external,
-            context.clone(),
-            &fees,
-            &promise_results,
-            LATEST_PROTOCOL_VERSION,
-            None,
-        );
-        assert_eq!(result.error(), None);
-
-        let result = runtime.run(
-            &code,
-            "do_ripemd",
-            &mut fake_external,
-            context,
-            &fees,
-            &promise_results,
-            ProtocolFeature::MathExtension.protocol_version() - 1,
-            None,
-        );
-        match result.error() {
-            Some(&VMError::FunctionCallError(FunctionCallError::LinkError { msg: _ })) => {}
-            _ => panic!("should return a link error due to missing import"),
-        }
     });
 }
 

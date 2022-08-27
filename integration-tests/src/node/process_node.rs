@@ -1,3 +1,4 @@
+use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Arc;
@@ -15,10 +16,9 @@ use nearcore::config::NearConfig;
 use crate::node::Node;
 use crate::user::rpc_user::RpcUser;
 use crate::user::User;
-use actix::{Actor, System};
-use futures::{FutureExt, TryFutureExt};
+use actix::System;
 use near_jsonrpc_client::new_client;
-use near_network::test_utils::WaitOrTimeoutActor;
+use near_network::test_utils::wait_or_timeout;
 
 pub enum ProcessNodeState {
     Stopped,
@@ -51,19 +51,16 @@ impl Node for ProcessNode {
                 let client_addr = format!("http://{}", self.config.rpc_addr().unwrap());
                 thread::sleep(Duration::from_secs(3));
                 near_actix_test_utils::run_actix(async move {
-                    WaitOrTimeoutActor::new(
-                        Box::new(move |_| {
-                            actix::spawn(
-                                new_client(&client_addr)
-                                    .status()
-                                    .map_ok(|_| System::current().stop())
-                                    .then(|_| futures::future::ready(())),
-                            );
-                        }),
-                        1000,
-                        30000,
-                    )
-                    .start();
+                    wait_or_timeout(1000, 30000, || async {
+                        let res = new_client(&client_addr).status().await;
+                        if res.is_err() {
+                            return ControlFlow::Continue(());
+                        }
+                        ControlFlow::Break(())
+                    })
+                    .await
+                    .unwrap();
+                    System::current().stop()
                 });
             }
             ProcessNodeState::Running(_) => panic!("Node is already running"),

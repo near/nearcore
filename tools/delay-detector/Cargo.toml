@@ -1,0 +1,15 @@
+[package]
+name = "delay-detector"
+version = "0.0.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.63.0"
+edition = "2021"
+
+[dependencies]
+tracing = "0.1.13"
+cpu-time = "1.0"
+
+[features]
+delay_detector = []

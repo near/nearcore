@@ -36,7 +36,6 @@ pub struct TrieIterator<'a> {
     trie: &'a Trie,
     trail: Vec<Crumb>,
     pub(crate) key_nibbles: Vec<u8>,
-    root: CryptoHash,
 }
 
 pub type TrieItem = (Vec<u8>, Vec<u8>);
@@ -52,15 +51,13 @@ pub struct TrieTraversalItem {
 impl<'a> TrieIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
     /// Create a new iterator.
-    pub fn new(trie: &'a Trie, root: &CryptoHash) -> Result<Self, StorageError> {
+    pub(super) fn new(trie: &'a Trie) -> Result<Self, StorageError> {
         let mut r = TrieIterator {
             trie,
             trail: Vec::with_capacity(8),
             key_nibbles: Vec::with_capacity(64),
-            root: *root,
         };
-        let node = trie.retrieve_node(root)?;
-        r.descend_into_node(node);
+        r.descend_into_node(&trie.root)?;
         Ok(r)
     }
 
@@ -76,10 +73,9 @@ impl<'a> TrieIterator<'a> {
     ) -> Result<CryptoHash, StorageError> {
         self.trail.clear();
         self.key_nibbles.clear();
-        let mut hash = self.root;
+        let mut hash = self.trie.root;
         loop {
-            let node = self.trie.retrieve_node(&hash)?;
-            self.trail.push(Crumb { status: CrumbStatus::Entering, node });
+            self.descend_into_node(&hash)?;
             let Crumb { status, node } = self.trail.last_mut().unwrap();
             match &node.node {
                 TrieNode::Empty => break,
@@ -126,8 +122,13 @@ impl<'a> TrieIterator<'a> {
         Ok(hash)
     }
 
-    fn descend_into_node(&mut self, node: TrieNodeWithSize) {
+    /// Fetches block by its hash and adds it to the trail.
+    ///
+    /// The node is stored as the last [`Crumb`] in the trail.
+    fn descend_into_node(&mut self, hash: &CryptoHash) -> Result<(), StorageError> {
+        let node = self.trie.retrieve_node(hash)?;
         self.trail.push(Crumb { status: CrumbStatus::Entering, node });
+        Ok(())
     }
 
     fn key(&self) -> Vec<u8> {
@@ -279,8 +280,7 @@ impl<'a> TrieIterator<'a> {
                     if self.key_nibbles[prefix..] >= path_end[prefix..] {
                         break;
                     }
-                    let node = self.trie.retrieve_node(&hash)?;
-                    self.descend_into_node(node);
+                    self.descend_into_node(&hash)?;
                     nodes_list.push(TrieTraversalItem { hash, key: None });
                 }
                 IterStep::Continue => {}
@@ -314,9 +314,9 @@ impl<'a> Iterator for TrieIterator<'a> {
                 IterStep::PopTrail => {
                     self.trail.pop();
                 }
-                IterStep::Descend(hash) => match self.trie.retrieve_node(&hash) {
-                    Ok(node) => self.descend_into_node(node),
-                    Err(e) => return Some(Err(e)),
+                IterStep::Descend(hash) => match self.descend_into_node(&hash) {
+                    Ok(_) => (),
+                    Err(err) => return Some(Err(err)),
                 },
                 IterStep::Continue => {}
                 IterStep::Value(hash) => {
@@ -339,8 +339,6 @@ mod tests {
     use rand::seq::SliceRandom;
     use rand::Rng;
 
-    use near_primitives::hash::CryptoHash;
-
     use crate::test_utils::{
         create_tries, create_tries_complex, gen_changes, simplify_changes, test_populate_trie,
     };
@@ -355,7 +353,6 @@ mod tests {
         for _ in 0..100 {
             let tries = create_tries_complex(1, 2);
             let shard_uid = ShardUId { version: 1, shard_id: 0 };
-            let trie = tries.get_trie_for_shard(shard_uid);
             let trie_changes = gen_changes(&mut rng, 10);
             let trie_changes = simplify_changes(&trie_changes);
 
@@ -366,37 +363,38 @@ mod tests {
                 }
             }
             let state_root =
-                test_populate_trie(&tries, &Trie::empty_root(), shard_uid, trie_changes.clone());
+                test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes.clone());
+            let trie = tries.get_trie_for_shard(shard_uid, state_root);
 
             {
-                let result1: Vec<_> = trie.iter(&state_root).unwrap().map(Result::unwrap).collect();
+                let result1: Vec<_> = trie.iter().unwrap().map(Result::unwrap).collect();
                 let result2: Vec<_> = map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
                 assert_eq!(result1, result2);
             }
-            test_seek(&trie, &map, &state_root, &[]);
+            test_seek(&trie, &map, &[]);
 
             let empty_vec = vec![];
             let max_key = map.keys().max().unwrap_or(&empty_vec);
             let min_key = map.keys().min().unwrap_or(&empty_vec);
-            test_get_trie_items(&trie, &map, &state_root, &[], &[]);
-            test_get_trie_items(&trie, &map, &state_root, min_key, max_key);
+            test_get_trie_items(&trie, &map, &[], &[]);
+            test_get_trie_items(&trie, &map, min_key, max_key);
             for (seek_key, _) in trie_changes.iter() {
-                test_seek(&trie, &map, &state_root, seek_key);
-                test_get_trie_items(&trie, &map, &state_root, min_key, seek_key);
-                test_get_trie_items(&trie, &map, &state_root, seek_key, max_key);
+                test_seek(&trie, &map, seek_key);
+                test_get_trie_items(&trie, &map, min_key, seek_key);
+                test_get_trie_items(&trie, &map, seek_key, max_key);
             }
             for _ in 0..20 {
                 let alphabet = &b"abcdefgh"[0..rng.gen_range(2, 8)];
                 let key_length = rng.gen_range(1, 8);
                 let seek_key: Vec<u8> =
                     (0..key_length).map(|_| *alphabet.choose(&mut rng).unwrap()).collect();
-                test_seek(&trie, &map, &state_root, &seek_key);
+                test_seek(&trie, &map, &seek_key);
 
                 let seek_key2: Vec<u8> =
                     (0..key_length).map(|_| *alphabet.choose(&mut rng).unwrap()).collect();
                 let path_begin = seek_key.clone().min(seek_key2.clone());
                 let path_end = seek_key.clone().max(seek_key2.clone());
-                test_get_trie_items(&trie, &map, &state_root, &path_begin, &path_end);
+                test_get_trie_items(&trie, &map, &path_begin, &path_end);
             }
         }
     }
@@ -404,17 +402,13 @@ mod tests {
     fn test_get_trie_items(
         trie: &Trie,
         map: &BTreeMap<Vec<u8>, Vec<u8>>,
-        state_root: &CryptoHash,
         path_begin: &[u8],
         path_end: &[u8],
     ) {
         let path_begin_nibbles: Vec<_> = NibbleSlice::new(path_begin).iter().collect();
         let path_end_nibbles: Vec<_> = NibbleSlice::new(path_end).iter().collect();
-        let result1 = trie
-            .iter(state_root)
-            .unwrap()
-            .get_trie_items(&path_begin_nibbles, &path_end_nibbles)
-            .unwrap();
+        let result1 =
+            trie.iter().unwrap().get_trie_items(&path_begin_nibbles, &path_end_nibbles).unwrap();
         let result2: Vec<_> = map
             .range(path_begin.to_vec()..path_end.to_vec())
             .map(|(k, v)| (k.clone(), v.clone()))
@@ -422,20 +416,14 @@ mod tests {
         assert_eq!(result1, result2);
 
         // test when path_end ends in [16]
-        let result1 =
-            trie.iter(state_root).unwrap().get_trie_items(&path_begin_nibbles, &[16u8]).unwrap();
+        let result1 = trie.iter().unwrap().get_trie_items(&path_begin_nibbles, &[16u8]).unwrap();
         let result2: Vec<_> =
             map.range(path_begin.to_vec()..).map(|(k, v)| (k.clone(), v.clone())).collect();
         assert_eq!(result1, result2);
     }
 
-    fn test_seek(
-        trie: &Trie,
-        map: &BTreeMap<Vec<u8>, Vec<u8>>,
-        state_root: &CryptoHash,
-        seek_key: &[u8],
-    ) {
-        let mut iterator = trie.iter(state_root).unwrap();
+    fn test_seek(trie: &Trie, map: &BTreeMap<Vec<u8>, Vec<u8>>, seek_key: &[u8]) {
+        let mut iterator = trie.iter().unwrap();
         iterator.seek(&seek_key).unwrap();
         let result1: Vec<_> = iterator.map(Result::unwrap).take(5).collect();
         let result2: Vec<_> =
@@ -448,16 +436,16 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
             let tries = create_tries();
-            let trie = tries.get_trie_for_shard(ShardUId::single_shard());
             let trie_changes = gen_changes(&mut rng, 10);
             let trie_changes = simplify_changes(&trie_changes);
             let state_root = test_populate_trie(
                 &tries,
-                &Trie::empty_root(),
+                &Trie::EMPTY_ROOT,
                 ShardUId::single_shard(),
                 trie_changes.clone(),
             );
-            let mut iterator = trie.iter(&state_root).unwrap();
+            let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
+            let mut iterator = trie.iter().unwrap();
             loop {
                 let iter_step = match iterator.iter_step() {
                     Some(iter_step) => iter_step,
@@ -471,10 +459,7 @@ mod tests {
                     IterStep::PopTrail => {
                         iterator.trail.pop();
                     }
-                    IterStep::Descend(hash) => match iterator.trie.retrieve_node(&hash) {
-                        Ok(node) => iterator.descend_into_node(node),
-                        Err(e) => panic!("Unexpected error: {}", e),
-                    },
+                    IterStep::Descend(hash) => iterator.descend_into_node(&hash).unwrap(),
                     _ => {}
                 }
             }

@@ -1,28 +1,26 @@
-pub use crate::tests::network::runner::*;
+use crate::tests::network::runner::*;
+use near_network_primitives::time;
 use std::net::{SocketAddr, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
 
 use actix::actors::mocker::Mocker;
 use actix::System;
 use actix::{Actor, Arbiter};
 use futures::{future, FutureExt};
+use near_primitives::block::GenesisId;
 
 use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_test_logger;
 
-use near_network::routing::start_routing_table_actor;
-
+use near_network::config;
 use near_network::test_utils::{
     convert_boot_nodes, open_port, wait_or_timeout, GetInfo, StopSignal, WaitOrTimeoutActor,
 };
 use near_network::types::NetworkClientResponses;
 use near_network::PeerManagerActor;
-use near_network_primitives::types::{
-    NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
-};
+use near_network_primitives::types::NetworkViewClientResponses;
 #[cfg(test)]
 use near_store::test_utils::create_test_store;
 
@@ -37,36 +35,27 @@ fn make_peer_manager(
     peer_max_count: u32,
 ) -> PeerManagerActor {
     let store = create_test_store();
-    let mut config = NetworkConfig::from_seed(seed, port);
+    let mut config = config::NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
     config.max_num_peers = peer_max_count;
+    config.ideal_connections_hi = peer_max_count;
+    config.ideal_connections_lo = peer_max_count;
     let client_addr = ClientMock::mock(Box::new(move |_msg, _ctx| {
         Box::new(Some(NetworkClientResponses::NoResponse))
     }))
     .start();
-    let view_client_addr = ViewClientMock::mock(Box::new(move |msg, _ctx| {
-        let msg = msg.downcast_ref::<NetworkViewClientMessages>().unwrap();
-        match msg {
-            NetworkViewClientMessages::GetChainInfo => {
-                Box::new(Some(NetworkViewClientResponses::ChainInfo {
-                    genesis_id: Default::default(),
-                    height: 1,
-                    tracked_shards: vec![],
-                    archival: false,
-                }))
-            }
-            _ => Box::new(Some(NetworkViewClientResponses::NoResponse)),
-        }
+    let view_client_addr = ViewClientMock::mock(Box::new(|_msg, _ctx| {
+        Box::new(Some(NetworkViewClientResponses::NoResponse))
     }))
     .start();
-    let routing_table_addr = start_routing_table_actor(config.node_id(), store.clone());
 
     PeerManagerActor::new(
+        time::Clock::real(),
         store,
         config,
         client_addr.recipient(),
         view_client_addr.recipient(),
-        routing_table_addr,
+        GenesisId::default(),
     )
     .unwrap()
 }
@@ -223,7 +212,7 @@ fn check_connection_with_new_identity() -> anyhow::Result<()> {
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
     runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
 
-    runner.push(Action::Wait(Duration::from_millis(2000)));
+    runner.push(Action::Wait(time::Duration::milliseconds(2000)));
 
     // Check the no node tried to connect to itself in this process.
     #[cfg(feature = "test_features")]
@@ -249,7 +238,9 @@ fn connection_spam_security_test() {
         let addr: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
 
         while vec.read().unwrap().len() < 100 {
-            if let Ok(stream) = TcpStream::connect_timeout(&addr.clone(), Duration::from_secs(10)) {
+            if let Ok(stream) =
+                TcpStream::connect_timeout(&addr.clone(), std::time::Duration::from_secs(10))
+            {
                 vec.write().unwrap().push(stream);
             }
         }

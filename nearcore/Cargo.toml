@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.61.0"
+rust-version = "1.63.0"
 edition = "2021"
 
 [dependencies]
@@ -20,7 +20,6 @@ futures = "0.3"
 hyper = { version = "0.14", features = ["full"] }
 hyper-tls = "0.5.0"
 once_cell = "1.5.2"
-prometheus = "0.11"
 rand = "0.7"
 rayon = "1.5"
 serde = { version = "1", features = ["derive"] }
@@ -34,34 +33,34 @@ tracing = "0.1.13"
 smart-default = "0.6"
 num-rational = { version = "0.3", features = ["serde"] }
 near-rust-allocator-proxy = { version = "0.4", optional = true }
-lazy-static-include = "3"
 tempfile = "3"
 indicatif = "0.15.0"
 xz2 = "0.1.6"
 rlimit = "0.7"
 strum = "0.24"
 
-near-crypto = { path = "../core/crypto" }
-near-primitives = { path = "../core/primitives" }
-near-chain-configs = { path = "../core/chain-configs" }
-near-store = { path = "../core/store" }
-near-metrics = { path = "../core/metrics" }
-near-o11y = { path = "../core/o11y" }
-node-runtime = { path = "../runtime/runtime" }
 near-chain = { path = "../chain/chain" }
+near-chain-configs = { path = "../core/chain-configs" }
 near-chunks = { path = "../chain/chunks" }
 near-client = { path = "../chain/client" }
-near-pool = { path = "../chain/pool" }
-near-network = { path = "../chain/network" }
+near-crypto = { path = "../core/crypto" }
+near-epoch-manager = { path = "../chain/epoch-manager" }
 near-jsonrpc = { path = "../chain/jsonrpc", optional = true }
-near-rosetta-rpc = { path = "../chain/rosetta-rpc", optional = true }
-near-telemetry = { path = "../chain/telemetry" }
-near-epoch-manager = { path = "../chain/epoch_manager" }
-near-performance-metrics = { path = "../utils/near-performance-metrics" }
-near-vm-runner = { path = "../runtime/near-vm-runner"}
+near-mainnet-res = { path = "../utils/mainnet-res" }
+near-metrics = { path = "../core/metrics" }
+near-network = { path = "../chain/network" }
 near-network-primitives = { path = "../chain/network-primitives" }
+near-o11y = { path = "../core/o11y" }
+near-performance-metrics = { path = "../utils/near-performance-metrics" }
+near-pool = { path = "../chain/pool" }
+near-primitives = { path = "../core/primitives" }
+near-rosetta-rpc = { path = "../chain/rosetta-rpc", optional = true }
+near-store = { path = "../core/store" }
+near-telemetry = { path = "../chain/telemetry" }
+near-vm-runner = { path = "../runtime/near-vm-runner"}
+node-runtime = { path = "../runtime/runtime" }
 
-delay-detector = { path = "../tools/delay_detector" }
+delay-detector = { path = "../tools/delay-detector" }
 
 [dev-dependencies]
 bencher = "0.1.5"
@@ -69,7 +68,7 @@ near-logger-utils = { path = "../test-utils/logger" }
 near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
 testlib = { path = "../test-utils/testlib" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
-primitive-types = "0.10"
+primitive-types = { version = "0.10", default-features = false }
 
 [[bench]]
 name = "store"
@@ -104,26 +103,6 @@ no_cache = [
 delay_detector = ["near-client/delay_detector", "delay-detector/delay_detector"]
 rosetta_rpc = ["near-rosetta-rpc"]
 json_rpc = ["near-jsonrpc"]
-protocol_feature_chunk_only_producers = [
-  "near-chain-configs/protocol_feature_chunk_only_producers",
-  "near-epoch-manager/protocol_feature_chunk_only_producers",
-  "near-chain/protocol_feature_chunk_only_producers",
-  "near-client/protocol_feature_chunk_only_producers",
-  "node-runtime/protocol_feature_chunk_only_producers",
-  "near-rosetta-rpc/protocol_feature_chunk_only_producers",
-  "near-primitives/protocol_feature_chunk_only_producers",
-]
-protocol_feature_routing_exchange_algorithm = [
-  "near-primitives/protocol_feature_routing_exchange_algorithm",
-  "near-chain/protocol_feature_routing_exchange_algorithm",
-  "near-network/protocol_feature_routing_exchange_algorithm",
-  "near-client/protocol_feature_routing_exchange_algorithm",
-  "near-jsonrpc/protocol_feature_routing_exchange_algorithm",
-]
-protocol_feature_access_key_nonce_for_implicit_accounts = [
-  "near-primitives/protocol_feature_access_key_nonce_for_implicit_accounts",
-  "node-runtime/protocol_feature_access_key_nonce_for_implicit_accounts",
-]
 protocol_feature_fix_staking_threshold = [
   "near-primitives/protocol_feature_fix_staking_threshold",
   "near-epoch-manager/protocol_feature_fix_staking_threshold",
@@ -131,15 +110,14 @@ protocol_feature_fix_staking_threshold = [
 protocol_feature_fix_contract_loading_cost = [
   "near-vm-runner/protocol_feature_fix_contract_loading_cost",
 ]
+protocol_feature_flat_state = ["near-store/protocol_feature_flat_state", "near-chain/protocol_feature_flat_state", "node-runtime/protocol_feature_flat_state"]
+
 nightly = [
   "nightly_protocol",
   "near-primitives/nightly",
   "near-client/nightly",
   "near-epoch-manager/nightly",
   "near-store/nightly",
-  "protocol_feature_chunk_only_producers",
-  "protocol_feature_routing_exchange_algorithm",
-  "protocol_feature_access_key_nonce_for_implicit_accounts",
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_fix_contract_loading_cost",
 ]
@@ -158,3 +136,6 @@ sandbox = [
   "node-runtime/sandbox",
   "near-jsonrpc/sandbox",
 ]
+io_trace = ["near-vm-runner/io_trace"]
+
+shardnet = ["near-network/shardnet"]

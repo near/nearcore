@@ -3,6 +3,16 @@ use near_crypto::{KeyType, SecretKey, Signature};
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use once_cell::sync::Lazy;
+
+use crate::time;
+
+// We'd treat all nonces that are below this values as 'old style' (without any expiration time).
+// And all nonces above this value as new style (that would expire after some time).
+// This value is set to August 8, 2022.
+// TODO: Remove this in Dec 2022 - once we finish migration to new nonces.
+pub const EDGE_MIN_TIMESTAMP_NONCE: Lazy<time::Utc> =
+    Lazy::new(|| time::Utc::from_unix_timestamp(1660000000).unwrap());
 
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
@@ -26,8 +36,12 @@ impl PartialEdgeInfo {
     }
 }
 
+pub enum InvalidNonceError {
+    NonceOutOfBoundsError,
+}
+
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "test_features", derive(serde::Serialize, serde::Deserialize))]
 pub struct Edge(pub Arc<EdgeInner>);
 
@@ -41,6 +55,11 @@ impl Edge {
         signature1: Signature,
     ) -> Self {
         Edge(Arc::new(EdgeInner::new(peer0, peer1, nonce, signature0, signature1)))
+    }
+
+    pub fn with_removal_info(mut self, ri: Option<(bool, Signature)>) -> Edge {
+        Arc::make_mut(&mut self.0).removal_info = ri;
+        self
     }
 
     pub fn key(&self) -> &(PeerId, PeerId) {
@@ -124,9 +143,6 @@ impl Edge {
         } else {
             nonce + 1
         }
-    }
-    pub fn to_simple_edge(&self) -> SimpleEdge {
-        SimpleEdge::new(self.key().0.clone(), self.key().1.clone(), self.nonce())
     }
 
     /// Create the remove edge change from an added edge change.
@@ -215,6 +231,32 @@ impl Edge {
             None
         }
     }
+
+    // Checks if edge was created before a given timestamp.
+    pub fn is_edge_older_than(&self, utc_timestamp: time::Utc) -> bool {
+        Edge::nonce_to_utc(self.nonce()).map_or(false, |maybe_timestamp| {
+            // Old-style nonce - for now, assume that they are always fresh.
+            maybe_timestamp.map_or(false, |nonce_timestamp| nonce_timestamp < utc_timestamp)
+        })
+    }
+
+    pub fn nonce_to_utc(nonce: u64) -> Result<Option<time::Utc>, InvalidNonceError> {
+        if let Ok(nonce_as_i64) = i64::try_from(nonce) {
+            time::Utc::from_unix_timestamp(nonce_as_i64)
+                .map(
+                    |nonce_ts| {
+                        if nonce_ts > *EDGE_MIN_TIMESTAMP_NONCE {
+                            Some(nonce_ts)
+                        } else {
+                            None
+                        }
+                    },
+                )
+                .map_err(|_| InvalidNonceError::NonceOutOfBoundsError)
+        } else {
+            Err(InvalidNonceError::NonceOutOfBoundsError)
+        }
+    }
 }
 
 /// An `Edge` represents a direct connection between two peers in Near Protocol P2P network.
@@ -223,7 +265,7 @@ impl Edge {
 /// We need to keep explicitly `Removed` edges, in order to be able to proof, that given `Edge`
 /// isn't `Active` anymore. In case, someone delivers a proof that the edge existed.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "test_features", derive(serde::Serialize, serde::Deserialize))]
 pub struct EdgeInner {
     /// Each edge consists of unordered pair of public keys of both peers.
@@ -273,38 +315,6 @@ impl EdgeInner {
 
     fn hash(&self) -> CryptoHash {
         Edge::build_hash(&self.key.0, &self.key.1, self.nonce)
-    }
-}
-
-/// Represents edge between two nodes. Unlike `Edge` it doesn't contain signatures.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Hash, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "test_features", derive(serde::Serialize, serde::Deserialize))]
-pub struct SimpleEdge {
-    key: (PeerId, PeerId),
-    nonce: u64,
-}
-
-impl SimpleEdge {
-    pub fn new(peer0: PeerId, peer1: PeerId, nonce: u64) -> SimpleEdge {
-        let (peer0, peer1) = Edge::make_key(peer0, peer1);
-        SimpleEdge { key: (peer0, peer1), nonce }
-    }
-
-    pub fn key(&self) -> &(PeerId, PeerId) {
-        &self.key
-    }
-
-    pub fn nonce(&self) -> u64 {
-        self.nonce
-    }
-
-    pub fn edge_state(&self) -> EdgeState {
-        if self.nonce % 2 == 1 {
-            EdgeState::Active
-        } else {
-            EdgeState::Removed
-        }
     }
 }
 

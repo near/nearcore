@@ -1,14 +1,13 @@
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::BlockHeight;
-use near_primitives::views::BlockStatusView;
 use std::cmp::Ordering;
 use std::collections::{
     btree_map::{self, BTreeMap},
     hash_map::{self, HashMap},
     BinaryHeap, HashSet,
 };
-use tracing::warn;
+use tracing::{debug, warn};
 
 type BlockHash = CryptoHash;
 
@@ -126,6 +125,7 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
 
     pub fn accept_chunk(&mut self, chunk_hash: &ChunkHash) {
         let block_hashes = self.missing_chunks.remove(chunk_hash).unwrap_or_else(HashSet::new);
+        debug!(target: "chunks", ?chunk_hash, "Chunk accepted, {} blocks were waiting for it.", block_hashes.len());
         for block_hash in block_hashes {
             match self.blocks_missing_chunks.entry(block_hash) {
                 hash_map::Entry::Occupied(mut missing_chunks_entry) => {
@@ -134,7 +134,10 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
                     if missing_chunks.is_empty() {
                         // No more missing chunks!
                         missing_chunks_entry.remove_entry();
+                        debug!(target: "chunks", %block_hash, "Block is ready - last chunk received.");
                         self.mark_block_as_ready(&block_hash);
+                    } else {
+                        debug!(target: "chunks", %block_hash, "Block is still waiting for {} chunks.", missing_chunks.len());
                     }
                 }
                 hash_map::Entry::Vacant(_) => {
@@ -143,18 +146,6 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
                 }
             }
         }
-    }
-
-    pub fn list_blocks_by_height(&self) -> Vec<BlockStatusView> {
-        let mut result = Vec::new();
-        for (height, blocks_with_missing_chunks) in &self.height_idx {
-            result.extend(
-                blocks_with_missing_chunks
-                    .iter()
-                    .map(|block| BlockStatusView::new(&height, &block)),
-            );
-        }
-        result
     }
 
     fn mark_block_as_ready(&mut self, block_hash: &BlockHash) {

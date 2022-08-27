@@ -5,7 +5,8 @@ env:
 steps:
   - label: "protobuf backward compatibility"
     command: |
-      buf breaking --against '.git#branch=master'
+      buf breaking --against ".git#ref=`git merge-base master HEAD`"
+
     timeout: 30
     agents:
     - "distro=amazonlinux"
@@ -68,7 +69,7 @@ steps:
 
       cargo build -p neard --bin neard --features nightly
       cd pytest
-      python3 -m pip install --user -r requirements.txt
+      python3 -m pip install --progress-bar off --user -r requirements.txt
       python3 tests/sanity/spin_up_cluster.py
       cd ..
       # Note: We’re not running spin_up_cluster.py for non-nightly

@@ -28,7 +28,7 @@ impl RuntimeTestbed {
     pub fn from_state_dump(dump_dir: &Path) -> Self {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
         let StateDump { store, roots } = StateDump::from_dir(dump_dir, workdir.path());
-        let tries = ShardTries::new(store, 0, 1);
+        let tries = ShardTries::test(store, 1);
 
         assert!(roots.len() <= 1, "Parameter estimation works with one shard only.");
         assert!(!roots.is_empty(), "No state roots found.");
@@ -72,7 +72,7 @@ impl RuntimeTestbed {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
-            cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
+            cache: Some(Box::new(StoreCompiledContractCache::new(&tries.get_store()))),
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
@@ -97,14 +97,13 @@ impl RuntimeTestbed {
         let apply_result = self
             .runtime
             .apply(
-                self.tries.get_trie_for_shard(ShardUId::single_shard()),
-                self.root,
+                self.tries.get_trie_for_shard(ShardUId::single_shard(), self.root.clone()),
                 &None,
                 &self.apply_state,
                 &self.prev_receipts,
                 transactions,
                 &self.epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
 
