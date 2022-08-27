@@ -238,7 +238,7 @@ impl Trie {
             .expect("apply_state_part is guaranteed to succeed when each part is valid")
     }
 
-    pub fn get_memory_usage_from_serialized(bytes: &Vec<u8>) -> Result<u64, StorageError> {
+    pub fn get_memory_usage_from_serialized(bytes: &[u8]) -> Result<u64, StorageError> {
         RawTrieNodeWithSize::decode(bytes).map(|raw_node| raw_node.memory_usage).map_err(|err| {
             StorageError::StorageInconsistentState(format!("Failed to decode node: {err}"))
         })

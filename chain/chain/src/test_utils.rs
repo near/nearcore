@@ -1055,18 +1055,18 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error> {
-        Ok(StateRootNode {
-            data: self
-                .state
-                .read()
-                .unwrap()
-                .get(state_root)
-                .unwrap()
-                .clone()
-                .try_to_vec()
-                .expect("should never fall"),
-            memory_usage: *self.state_size.read().unwrap().get(state_root).unwrap(),
-        })
+        let data = self
+            .state
+            .read()
+            .unwrap()
+            .get(state_root)
+            .unwrap()
+            .clone()
+            .try_to_vec()
+            .expect("should never fall")
+            .into();
+        let memory_usage = *self.state_size.read().unwrap().get(state_root).unwrap();
+        Ok(StateRootNode { data: Some(data), memory_usage })
     }
 
     fn validate_state_root_node(

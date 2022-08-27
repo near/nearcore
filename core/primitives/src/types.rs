@@ -421,15 +421,21 @@ impl StateChanges {
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateRootNode {
-    /// in Nightshade, data is the serialized TrieNodeWithSize
-    pub data: Vec<u8>,
-    /// in Nightshade, memory_usage is a field of TrieNodeWithSize
+    /// In Nightshade, data is the serialized TrieNodeWithSize.
+    ///
+    /// Empty nodes are not encoded and are represented by `None` here.
+    pub data: Option<std::sync::Arc<[u8]>>,
+    /// In Nightshade, memory_usage is a field of TrieNodeWithSize.
     pub memory_usage: u64,
 }
 
 impl StateRootNode {
     pub fn empty() -> Self {
-        StateRootNode { data: vec![], memory_usage: 0 }
+        StateRootNode { data: None, memory_usage: 0 }
+    }
+
+    pub fn data(&self) -> &[u8] {
+        self.data.as_deref().unwrap_or(&[])
     }
 }
 
