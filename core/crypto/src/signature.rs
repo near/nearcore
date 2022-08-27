@@ -437,9 +437,9 @@ impl SecretKey {
                 let keypair = ed25519_dalek::Keypair::generate(&mut OsRng);
                 SecretKey::ED25519(ED25519SecretKey(keypair.to_bytes()))
             }
-            KeyType::SECP256K1 => SecretKey::SECP256K1(secp256k1::SecretKey::new(
-                &mut secp256k1::rand::rngs::OsRng,
-            )),
+            KeyType::SECP256K1 => {
+                SecretKey::SECP256K1(secp256k1::SecretKey::new(&mut secp256k1::rand::rngs::OsRng))
+            }
         }
     }
 
