@@ -1066,7 +1066,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             .expect("should never fall")
             .into();
         let memory_usage = *self.state_size.read().unwrap().get(state_root).unwrap();
-        Ok(StateRootNode { data: Some(data), memory_usage })
+        Ok(StateRootNode { data, memory_usage })
     }
 
     fn validate_state_root_node(
