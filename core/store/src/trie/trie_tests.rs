@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 /// TrieMemoryPartialStorage, but contains only the first n requested nodes.
 pub struct IncompletePartialStorage {
-    pub(crate) recorded_storage: HashMap<CryptoHash, Vec<u8>>,
+    pub(crate) recorded_storage: HashMap<CryptoHash, Arc<[u8]>>,
     pub(crate) visited_nodes: RefCell<HashSet<CryptoHash>>,
     pub node_count_to_fail_after: usize,
 }
@@ -37,7 +37,7 @@ impl TrieStorage for IncompletePartialStorage {
         let result = self
             .recorded_storage
             .get(hash)
-            .map_or_else(|| Err(StorageError::TrieNodeMissing), |val| Ok(val.as_slice().into()));
+            .map_or(Err(StorageError::TrieNodeMissing), |val| Ok(val.clone()));
 
         if result.is_ok() {
             self.visited_nodes.borrow_mut().insert(*hash);

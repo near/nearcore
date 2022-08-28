@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use near_primitives::challenge::PartialState;
+use near_primitives::challenge::{PartialState, StateItem};
 use near_primitives::state_part::PartId;
 use near_primitives::types::StateRoot;
 use tracing::error;
@@ -188,7 +188,7 @@ impl Trie {
     fn apply_state_part_impl(
         state_root: &StateRoot,
         part_id: PartId,
-        part: Vec<Vec<u8>>,
+        part: Vec<StateItem>,
     ) -> Result<ApplyStatePartResult, StorageError> {
         if state_root == &Trie::EMPTY_ROOT {
             return Ok(ApplyStatePartResult {
@@ -232,7 +232,7 @@ impl Trie {
     pub fn apply_state_part(
         state_root: &StateRoot,
         part_id: PartId,
-        part: Vec<Vec<u8>>,
+        part: Vec<StateItem>,
     ) -> ApplyStatePartResult {
         Self::apply_state_part_impl(state_root, part_id, part)
             .expect("apply_state_part is guaranteed to succeed when each part is valid")
@@ -271,18 +271,10 @@ mod tests {
         /// StorageError if data is inconsistent. Should never happen if each part was validated.
         pub fn combine_state_parts_naive(
             state_root: &StateRoot,
-            parts: &Vec<Vec<Vec<u8>>>,
+            parts: &[Vec<StateItem>],
         ) -> Result<TrieChanges, StorageError> {
-            let nodes = parts
-                .iter()
-                .map(|part| part.iter())
-                .flatten()
-                .map(|data| data.to_vec())
-                .collect::<Vec<_>>();
-            let trie = Trie::from_recorded_storage(
-                PartialStorage { nodes: PartialState(nodes) },
-                state_root.clone(),
-            );
+            let nodes = PartialState(parts.iter().flat_map(|part| part.iter()).cloned().collect());
+            let trie = Trie::from_recorded_storage(PartialStorage { nodes }, state_root.clone());
             let mut insertions = <HashMap<CryptoHash, (Vec<u8>, u32)>>::new();
             trie.traverse_all_nodes(|hash| {
                 if let Some((_bytes, rc)) = insertions.get_mut(hash) {
@@ -626,7 +618,7 @@ mod tests {
 
                 let trie_changes = check_combine_state_parts(trie.get_root(), num_parts, &parts);
 
-                let mut nodes = <HashMap<CryptoHash, Vec<u8>>>::new();
+                let mut nodes = <HashMap<CryptoHash, std::sync::Arc<[u8]>>>::new();
                 let sizes_vec = parts
                     .iter()
                     .map(|nodes| nodes.iter().map(|node| node.len()).sum::<usize>())
@@ -666,7 +658,7 @@ mod tests {
     fn check_combine_state_parts(
         state_root: &CryptoHash,
         num_parts: u64,
-        parts: &Vec<Vec<Vec<u8>>>,
+        parts: &Vec<Vec<std::sync::Arc<[u8]>>>,
     ) -> TrieChanges {
         let trie_changes = Trie::combine_state_parts_naive(state_root, parts).unwrap();
 

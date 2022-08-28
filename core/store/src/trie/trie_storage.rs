@@ -263,13 +263,13 @@ pub trait TrieStorage {
 pub struct TrieRecordingStorage {
     pub(crate) store: Store,
     pub(crate) shard_uid: ShardUId,
-    pub(crate) recorded: RefCell<HashMap<CryptoHash, Vec<u8>>>,
+    pub(crate) recorded: RefCell<HashMap<CryptoHash, Arc<[u8]>>>,
 }
 
 impl TrieStorage for TrieRecordingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         if let Some(val) = self.recorded.borrow().get(hash) {
-            return Ok(val.as_slice().into());
+            return Ok(val.clone());
         }
         let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
         let val = self
@@ -277,8 +277,9 @@ impl TrieStorage for TrieRecordingStorage {
             .get(DBCol::State, key.as_ref())
             .map_err(|_| StorageError::StorageInternalError)?;
         if let Some(val) = val {
-            self.recorded.borrow_mut().insert(*hash, val.clone());
-            Ok(val.into())
+            let val = Arc::from(val);
+            self.recorded.borrow_mut().insert(*hash, Arc::clone(&val));
+            Ok(val)
         } else {
             Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))
         }
@@ -296,7 +297,7 @@ impl TrieStorage for TrieRecordingStorage {
 /// Storage for validating recorded partial storage.
 /// visited_nodes are to validate that partial storage doesn't contain unnecessary nodes.
 pub struct TrieMemoryPartialStorage {
-    pub(crate) recorded_storage: HashMap<CryptoHash, Vec<u8>>,
+    pub(crate) recorded_storage: HashMap<CryptoHash, Arc<[u8]>>,
     pub(crate) visited_nodes: RefCell<HashSet<CryptoHash>>,
 }
 
@@ -305,7 +306,7 @@ impl TrieStorage for TrieMemoryPartialStorage {
         let result = self
             .recorded_storage
             .get(hash)
-            .map_or_else(|| Err(StorageError::TrieNodeMissing), |val| Ok(val.as_slice().into()));
+            .map_or(Err(StorageError::TrieNodeMissing), |val| Ok(val.clone()));
         if result.is_ok() {
             self.visited_nodes.borrow_mut().insert(*hash);
         }
