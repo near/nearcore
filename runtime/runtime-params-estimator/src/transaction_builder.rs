@@ -103,7 +103,7 @@ impl TransactionBuilder {
         self.accounts[account_index].clone()
     }
     pub(crate) fn random_unused_account(&mut self) -> AccountId {
-        if self.unused_index == self.accounts.len() {
+        if self.unused_index >= self.unused_accounts.len() {
             panic!("All accounts used. Try running with a higher value for the parameter `--accounts-num <NUM>`.")
         }
         let tmp = self.unused_index;
