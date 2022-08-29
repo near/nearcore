@@ -388,9 +388,10 @@ fn docker_image() -> Result<String, anyhow::Error> {
     // and the result should be `rust-x.y.z`
     let tag = dockerfile
         .lines()
-        .find(|line| line.starts_with("FROM "))
-        .map(|line| line.split_once(' ').unwrap().1.replace(":", "-"))
-        .context("could not parse rustc version from Dockerfile")?;
+        .find_map(|line| line.split_once("FROM "))
+        .context("could not parse rustc version from Dockerfile")?
+        .1
+        .replace(":", "-");
 
     Ok(format!("{}:{}", image, tag))
 }
