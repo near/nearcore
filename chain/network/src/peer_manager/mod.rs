@@ -6,3 +6,5 @@ pub(crate) mod peer_store;
 pub(crate) mod testonly;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod connection_tests;

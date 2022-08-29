@@ -222,7 +222,7 @@ impl Pool {
                 return Err(PoolError::AlreadyConnected);
             }
             if peer.peer_type == PeerType::Inbound {
-                if pool.outbound_handshakes.contains(id) && id < &pool.me {
+                if pool.outbound_handshakes.contains(id) && id >= &pool.me {
                     return Err(PoolError::AlreadyStartedConnecting);
                 }
             }

@@ -331,7 +331,7 @@ async fn accounts_data_broadcast() {
     let data = chain.make_tier1_data(rng, clock);
 
     // Connect peer, expect initial sync to be empty.
-    let (mut peer1, got1) = pm.start_connection(rng, chain.clone()).await.handshake(clock).await;
+    let (mut peer1, got1) = pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
     assert_eq!(got1.accounts_data, vec![]);
 
     // Send some data. It won't be broadcasted back.
@@ -345,7 +345,7 @@ async fn accounts_data_broadcast() {
     pm.wait_for_accounts_data(&want.iter().map(|d| d.into()).collect()).await;
 
     // Connect another peer and perform initial full sync.
-    let (mut peer2, got2) = pm.start_connection(rng, chain.clone()).await.handshake(clock).await;
+    let (mut peer2, got2) = pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
     assert_eq!(got2.accounts_data.as_set(), want.as_set());
 
     // Send a mix of new and old data. Only new data should be broadcasted.
@@ -559,11 +559,11 @@ async fn connection_spam_security_test() {
     // Saturate the pending connections limit.
     let mut conns = vec![];
     for _ in 0..LIMIT_PENDING_PEERS {
-        conns.push(pm.start_connection(rng, chain.clone()).await);
+        conns.push(pm.start_inbound(chain.clone(), chain.make_config(rng)).await);
     }
     // Try to establish additional connections. Should fail.
     for _ in 0..10 {
-        pm.start_connection(rng, chain.clone()).await.fail_handshake(&clock.clock()).await;
+        pm.start_inbound(chain.clone(), chain.make_config(rng)).await.fail_handshake(&clock.clock()).await;
     }
     // Terminate the pending connections. Should succeed.
     for c in conns {

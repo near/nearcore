@@ -945,6 +945,7 @@ impl Actor for PeerActor {
         if self.peer_type == PeerType::Outbound {
             self.send_handshake(self.handshake_spec.clone().unwrap());
         }
+        self.network_state.config.event_sink.push(Event::PeerActorStarted);
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {

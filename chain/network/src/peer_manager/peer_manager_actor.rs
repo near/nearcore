@@ -468,7 +468,9 @@ pub enum Event {
     // actually complete. Currently this event is reported only for some message types,
     // feel free to add support for more.
     MessageProcessed(PeerMessage),
-    // Reported when the actix actor has been stopped.
+    // Reported when the PeerActor has been started.
+    PeerActorStarted,
+    // Reported when the PeerActor has been stopped.
     PeerActorStopped,
 }
 
