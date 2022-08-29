@@ -51,6 +51,23 @@ pub fn decode_value_with_rc(bytes: &[u8]) -> (Option<&[u8]>, i64) {
     }
 }
 
+/// Strips refcount from an owned buffer.
+///
+/// Works like [`decode_value_with_rc`] but operates on an owned vector thus
+/// potentially avoiding memory allocations.  Returns None if the refcount on
+/// the argument is non-positive.
+pub(crate) fn strip_refcount(mut bytes: Vec<u8>) -> Option<Vec<u8>> {
+    if let Some(len) = bytes.len().checked_sub(8) {
+        if i64::from_le_bytes(bytes[len..].try_into().unwrap()) > 0 {
+            bytes.truncate(len);
+            return Some(bytes);
+        }
+    } else {
+        debug_assert!(bytes.is_empty());
+    }
+    None
+}
+
 /// Encode a positive reference count into the value.
 pub(crate) fn add_positive_refcount(data: &[u8], rc: std::num::NonZeroU32) -> Vec<u8> {
     [data, &i64::from(rc.get()).to_le_bytes()].concat()
@@ -103,7 +120,9 @@ pub(crate) fn iter_with_rc_logic<'a>(
     if column.is_rc() {
         Box::new(iterator.filter_map(|item| match item {
             Err(err) => Some(Err(err)),
-            Ok((key, value)) => decode_value_with_rc(&value).0.map(|value| Ok((key, value.into()))),
+            Ok((key, value)) => {
+                strip_refcount(value.into_vec()).map(|value| Ok((key, value.into_boxed_slice())))
+            }
         }))
     } else {
         Box::new(iterator)
@@ -164,6 +183,9 @@ mod test {
         fn test(want_value: Option<&[u8]>, want_rc: i64, bytes: &[u8]) {
             let got = super::decode_value_with_rc(bytes);
             assert_eq!((want_value, want_rc), got);
+
+            let got = super::strip_refcount(bytes.to_vec());
+            assert_eq!(want_value, got.as_deref());
         }
 
         test(None, -2, MINUS_TWO);

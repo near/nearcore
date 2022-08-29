@@ -187,7 +187,7 @@ impl Database for RocksDB {
             .db
             .get_pinned_cf_opt(self.cf_handle(col), key, &read_options)
             .map_err(into_other)?
-            .map(|slice| DBBytes(super::DBBytesInner::Rocks(slice)));
+            .map(DBBytes::from_rocksdb_slice);
         timer.observe_duration();
         Ok(result)
     }

@@ -89,18 +89,54 @@ pub type DBIterator<'a> = Box<dyn Iterator<Item = io::Result<(Box<[u8]>, Box<[u8
 pub struct DBBytes<'a>(DBBytesInner<'a>);
 
 enum DBBytesInner<'a> {
-    /// Data held as an owned vector.
+    /// Data held as a vector.
     Vec(Vec<u8>),
 
-    /// Data held as RocksDB-specific pinnable slice type.
-    Rocks(::rocksdb::DBPinnableSlice<'a>),
+    /// Data held as RocksDB-specific pinnable slice.
+    Rocks {
+        /// Slice view of the data.
+        ///
+        /// Having this allows us to create views at only parts of the pinnable
+        /// slice without having to modify it.  We need it because remove_suffix
+        /// method of the C++ class is not exposed.
+        slice: &'a [u8],
+
+        /// This is what owns the data.
+        ///
+        /// This is never modified which is why we can have `slice` field
+        /// pointing at the data this pinnable slice holds.
+        db_slice: ::rocksdb::DBPinnableSlice<'a>,
+    },
 }
 
 impl<'a> DBBytes<'a> {
     pub fn as_slice(&self) -> &[u8] {
         match self.0 {
             DBBytesInner::Vec(ref bytes) => bytes.as_slice(),
-            DBBytesInner::Rocks(ref bytes) => &*bytes,
+            DBBytesInner::Rocks { slice, .. } => slice,
+        }
+    }
+
+    fn from_rocksdb_slice(db_slice: ::rocksdb::DBPinnableSlice<'a>) -> Self {
+        let slice = &*db_slice;
+        let (ptr, len) = (slice.as_ptr(), slice.len());
+        // SAFETY: We got the raw parts from a slice so they are obviously
+        // correct.  By using 'a lifetime we guarantee that this slice won’t
+        // outlive `db_slice` field.  And lastly, since `db_slice` is never
+        // modified and it holds pointers to pinned (in Rust sense) data, we can
+        // safely keep reference to its interior.
+        let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
+        DBBytes(DBBytesInner::Rocks { slice, db_slice })
+    }
+
+    fn strip_refcount(self) -> Option<Self> {
+        match self.0 {
+            DBBytesInner::Vec(bytes) => {
+                refcount::strip_refcount(bytes).map(|bytes| Self(DBBytesInner::Vec(bytes)))
+            }
+            DBBytesInner::Rocks { slice, db_slice } => refcount::decode_value_with_rc(slice)
+                .0
+                .map(|slice| Self(DBBytesInner::Rocks { slice, db_slice })),
         }
     }
 }
@@ -134,7 +170,7 @@ impl<'a> From<DBBytes<'a>> for Vec<u8> {
     fn from(bytes: DBBytes<'a>) -> Self {
         match bytes.0 {
             DBBytesInner::Vec(bytes) => bytes,
-            DBBytesInner::Rocks(bytes) => bytes.to_vec(),
+            DBBytesInner::Rocks { slice, .. } => slice.to_vec(),
         }
     }
 }
@@ -174,9 +210,7 @@ pub trait Database: Sync + Send {
     /// **Panics** if the column is not reference counted.
     fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBBytes<'_>>> {
         assert!(col.is_rc());
-        Ok(self
-            .get_raw_bytes(col, key)?
-            .and_then(|bytes| refcount::decode_value_with_rc(&bytes).0.map(DBBytes::from)))
+        Ok(self.get_raw_bytes(col, key)?.and_then(DBBytes::strip_refcount))
     }
 
     /// Iterate over all items in given column in lexicographical order sorted
