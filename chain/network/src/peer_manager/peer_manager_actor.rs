@@ -665,11 +665,11 @@ impl PeerManagerActor {
 
         self.state.tier2.insert_ready(connection.clone())?;
         self.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
-        self.sync_after_handshake(connection.clone(), ctx, new_edge);
         // Best effort write to DB.
         if let Err(err) = self.peer_store.peer_connected(&self.clock, peer_info) {
             error!(target: "network", ?err, "Failed to save peer data");
         }
+        self.sync_after_handshake(connection.clone(), ctx, new_edge);
         self.config.event_sink.push(Event::PeerRegistered(peer_info.clone()));
         Ok(())
     }
@@ -1631,16 +1631,15 @@ impl PeerManagerActor {
     #[perf]
     fn handle_msg_outbound_tcp_connect(&self, msg: OutboundTcpConnect, ctx: &mut Context<Self>) {
         let _d = delay_detector::DelayDetector::new(|| "outbound tcp connect".into());
-        let handshake_permit = match self.state.tier2.start_outbound(msg.peer_info.id.clone()) {
-            Ok(it) => it,
-            Err(err) => {
-                tracing::warn!(target: "network", peer_info = ?msg.peer_info, "cannot connect: {err}");
-                return;
-            }
-        };
-
         debug!(target: "network", to = ?msg.peer_info, "Trying to connect");
         if let Some(addr) = msg.peer_info.addr {
+            let handshake_permit = match self.state.tier2.start_outbound(msg.peer_info.id.clone()) {
+                Ok(it) => it,
+                Err(err) => {
+                    tracing::warn!(target: "network", peer_info = ?msg.peer_info, "cannot connect: {err}");
+                    return;
+                }
+            };
             // The `connect` may take several minutes. This happens when the
             // `SYN` packet for establishing a TCP connection gets silently
             // dropped, in which case the default TCP timeout is applied. That's
@@ -1700,24 +1699,6 @@ impl PeerManagerActor {
         }
 
         let tier2 = self.state.tier2.load();
-        // We already connected to this peer.
-        if tier2.ready.contains_key(&peer_info.id) {
-            debug!(target: "network", peer_info = ?self.my_peer_id, id = ?peer_info.id, "Dropping handshake (Active Peer).");
-            return RegisterPeerResponse::Reject;
-        }
-
-        // This is incoming connection but we have this peer already in outgoing.
-        // This only happens when both of us connect at the same time, break tie using higher peer id.
-        if msg.connection.peer_type == PeerType::Inbound
-            && tier2.outbound_handshakes.contains(&peer_info.id)
-        {
-            // We pick connection that has lower id.
-            if peer_info.id > self.my_peer_id {
-                debug!(target: "network", my_peer_id = ?self.my_peer_id, id = ?peer_info.id, "Dropping handshake (Tied).");
-                return RegisterPeerResponse::Reject;
-            }
-        }
-
         if msg.connection.peer_type == PeerType::Inbound
             && !self.is_inbound_allowed()
             && !self.is_peer_whitelisted(&peer_info)

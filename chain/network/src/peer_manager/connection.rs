@@ -181,6 +181,8 @@ pub(crate) struct PoolSnapshot {
     /// b. Peer A executes 1 and then attempts 2.
     /// In this scenario A will fail to obtain a permit, because it has already accepted a
     /// connection from B.
+    ///
+    /// TODO(gprusak): cover it with tests.
     pub outbound_handshakes: im::HashSet<PeerId>,
 }
 
@@ -200,13 +202,11 @@ impl fmt::Debug for OutboundHandshakePermit {
 
 impl Drop for OutboundHandshakePermit {
     fn drop(&mut self) {
-        let pool = match self.1.upgrade() {
-            Some(pool) => pool,
-            None => return,
-        };
-        pool.update(|pool| {
-            pool.outbound_handshakes.remove(&self.0);
-        });
+        if let Some(pool) = self.1.upgrade() {
+            pool.update(|pool| {
+                pool.outbound_handshakes.remove(&self.0);
+            });
+        }
     }
 }
 

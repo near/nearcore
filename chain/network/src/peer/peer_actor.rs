@@ -634,10 +634,10 @@ impl Actor for PeerActor {
                     // peer store. This avoids a situation in which both peers are connecting to
                     // each other, and after resolving the tie, a peer tries to remove the other
                     // peer from the active connection if it was added in the parallel connection.
-                    remove_from_peer_store: match &self.peer_status {
-                        PeerStatus::Connecting { .. } => false,
-                        _ => true,
-                    },
+                    remove_from_peer_store: !matches!(
+                        &self.peer_status,
+                        PeerStatus::Connecting { .. }
+                    ),
                 }));
             }
         }
