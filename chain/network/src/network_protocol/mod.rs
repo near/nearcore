@@ -203,7 +203,7 @@ pub struct Handshake {
 }
 
 impl Handshake {
-    pub fn new(
+    pub(crate) fn new(
         version: ProtocolVersion,
         peer_id: PeerId,
         target_peer_id: PeerId,
@@ -298,14 +298,17 @@ pub enum ParsePeerMessageError {
 }
 
 impl PeerMessage {
-    pub fn serialize(&self, enc: Encoding) -> Vec<u8> {
+    pub(crate) fn serialize(&self, enc: Encoding) -> Vec<u8> {
         match enc {
             Encoding::Borsh => borsh::PeerMessage::from(self).try_to_vec().unwrap(),
             Encoding::Proto => proto::PeerMessage::from(self).write_to_bytes().unwrap(),
         }
     }
 
-    pub fn deserialize(enc: Encoding, data: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
+    pub(crate) fn deserialize(
+        enc: Encoding,
+        data: &[u8],
+    ) -> Result<PeerMessage, ParsePeerMessageError> {
         Ok(match enc {
             Encoding::Borsh => (&borsh::PeerMessage::try_from_slice(data)
                 .map_err(ParsePeerMessageError::BorshDecode)?)
