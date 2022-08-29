@@ -118,6 +118,7 @@ impl TrieCacheInner {
                     }
                     None => {
                         metrics::SHARD_CACHE_POP_MISSES.with_label_values(&metrics_labels).inc();
+                        continue;
                     }
                 },
                 None => {}
