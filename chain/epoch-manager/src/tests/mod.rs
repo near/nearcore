@@ -374,7 +374,7 @@ fn test_validator_kickout() {
 #[test]
 fn test_validator_unstake() {
     let store = create_test_store();
-    let config = epoch_config(2, 1, 2, 0, 90, 60, 0, None);
+    let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
     let amount_staked = 1_000_000;
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
@@ -439,7 +439,7 @@ fn test_validator_unstake() {
 #[test]
 fn test_slashing() {
     let store = create_test_store();
-    let config = epoch_config(2, 1, 2, 0, 90, 60, 0, None);
+    let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
     let amount_staked = 1_000_000;
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
@@ -506,7 +506,7 @@ fn test_slashing() {
 #[test]
 fn test_double_sign_slashing1() {
     let store = create_test_store();
-    let config = epoch_config(2, 1, 2, 0, 90, 60, 0, None);
+    let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
     let amount_staked = 1_000_000;
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
@@ -2103,7 +2103,7 @@ fn set_block_info_protocol_version(info: &mut BlockInfo, protocol_version: Proto
 #[test]
 fn test_protocol_version_switch() {
     let store = create_test_store();
-    let config = epoch_config(2, 1, 2, 0, 90, 60, 0, None);
+    let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
     let amount_staked = 1_000_000;
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
@@ -2140,7 +2140,7 @@ fn test_protocol_version_switch_with_shard_layout_change() {
         avg_hidden_validator_seats_per_shard: get_num_seats_per_shard(4, 0),
         shard_layout: shard_layout.clone(),
     };
-    let config = epoch_config(2, 1, 2, 0, 90, 60, 0, Some(shard_config));
+    let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
     let amount_staked = 1_000_000;
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
@@ -2259,7 +2259,7 @@ fn test_protocol_version_switch_with_many_seats() {
 fn test_protocol_version_switch_after_switch() {
     let store = create_test_store();
     let epoch_length: usize = 10;
-    let config = epoch_config(epoch_length as u64, 1, 2, 0, 90, 60, 0, None);
+    let config = epoch_config(epoch_length as u64, 1, 2, 0, 90, 60, 0);
     let amount_staked = 1_000_000;
     let validators = vec![
         stake("test1".parse().unwrap(), amount_staked),
@@ -2447,7 +2447,7 @@ fn test_chunk_producers() {
 #[test]
 fn test_validator_kickout_sanity() {
     let epoch_config =
-        epoch_config(5, 2, 4, 0, 90, 80, 0, None).for_protocol_version(PROTOCOL_VERSION).clone();
+        epoch_config(5, 2, 4, 0, 90, 80, 0).for_protocol_version(PROTOCOL_VERSION).clone();
     let accounts = vec![
         ("test0".parse().unwrap(), 1000),
         ("test1".parse().unwrap(), 1000),
@@ -2533,7 +2533,7 @@ fn test_validator_kickout_sanity() {
 fn test_max_kickout_stake_ratio() {
     #[allow(unused_mut)]
     let mut epoch_config =
-        epoch_config(5, 2, 4, 0, 90, 80, 0, None).for_protocol_version(PROTOCOL_VERSION).clone();
+        epoch_config(5, 2, 4, 0, 90, 80, 0).for_protocol_version(PROTOCOL_VERSION).clone();
     let accounts = vec![
         ("test0".parse().unwrap(), 1000),
         ("test1".parse().unwrap(), 1000),

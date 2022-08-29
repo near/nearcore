@@ -87,39 +87,28 @@ pub struct AllEpochConfig {
     use_production_config: bool,
     /// EpochConfig from genesis
     genesis_epoch_config: EpochConfig,
-    /// ShardConfig for the simple nightshade upgrade. Also a temporary implementation that allow us
-    /// to upgrade sharding configuration on mainnet and testnet
-    simple_nightshade_shard_config: Option<ShardConfig>,
 }
 
 impl AllEpochConfig {
-    pub fn new(
-        use_production_config: bool,
-        genesis_epoch_config: EpochConfig,
-        simple_nightshade_shard_config: Option<ShardConfig>,
-    ) -> Self {
-        Self { use_production_config, genesis_epoch_config, simple_nightshade_shard_config }
+    pub fn new(use_production_config: bool, genesis_epoch_config: EpochConfig) -> Self {
+        Self { use_production_config, genesis_epoch_config }
     }
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
         // if SimpleNightshade is enabled, we override genesis shard config with
         // the simple nightshade shard config
         let mut config = self.genesis_epoch_config.clone();
-        if checked_feature!("stable", SimpleNightshade, protocol_version) {
-            if let Some(ShardConfig {
-                num_block_producer_seats_per_shard,
-                avg_hidden_validator_seats_per_shard,
-                shard_layout,
-            }) = &self.simple_nightshade_shard_config
-            {
-                config.num_block_producer_seats_per_shard =
-                    num_block_producer_seats_per_shard.clone();
-                config.avg_hidden_validator_seats_per_shard =
-                    avg_hidden_validator_seats_per_shard.clone();
-                config.shard_layout = shard_layout.clone();
-            }
-        }
         if self.use_production_config {
+            if checked_feature!("stable", SimpleNightshade, protocol_version) {
+                config.shard_layout = ShardLayout::default_simple_nightshade_layout();
+                config.num_block_producer_seats_per_shard = vec![
+                    config.num_block_producer_seats;
+                    config.shard_layout.num_shards()
+                        as usize
+                ];
+                config.avg_hidden_validator_seats_per_shard =
+                    vec![0; config.shard_layout.num_shards() as usize];
+            }
             if checked_feature!("stable", ChunkOnlyProducers, protocol_version) {
                 // On testnet, genesis config set num_block_producer_seats to 200
                 // This is to bring it back to 100 to be the same as on mainnet
