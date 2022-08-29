@@ -14,7 +14,8 @@ use crate::DBCol;
 ///   isn’t needed to disambiguate the value.  It is used on hot storage to
 ///   provide some isolation by putting data of different shards in different
 ///   ranges of keys.  This is not beneficial is cold storage so we’re not using
-///   the prefix to reduce space usage.
+///   the prefix to reduce space usage and avoid heavy data migration in case of
+///   resharding.
 ///
 /// - Keys of columns which include block height are encoded using big-endian
 ///   rather than little-endian as in hot storage.  Big-endian has the advantage
@@ -36,13 +37,13 @@ use crate::DBCol;
 /// are enabled will cause a panic.
 struct ColdDatabase<D: Database = crate::db::RocksDB>(D);
 
-// impl<D: Database + 'static> ColdDatabase<D> {
-//     pub(crate) fn new(db: D) -> std::sync::Arc<dyn Database> {
-//         std::sync::Arc::new(Self(db))
-//     }
-// }
-
 impl<D: Database> ColdDatabase<D> {
+    /// Returns raw bytes from the underlying storage.
+    ///
+    /// Adjusts the key if necessary (see [`get_cold_key`]) and retrieves data
+    /// corresponding to it from the database and returns it as it resides in
+    /// the database.  This is common code used by [`Self::get_raw_bytes`] and
+    /// [`Self::get_with_rc_stripped`] methods.
     fn get_impl(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<Vec<u8>>> {
         let mut buffer = [0; 32];
         let key = get_cold_key(col, key, &mut buffer).unwrap_or(key);
@@ -73,7 +74,7 @@ impl<D: Database> super::Database for ColdDatabase<D> {
     /// Iterates over all values in a column.
     ///
     /// This is implemented only for a few columns.  Specifically for Block,
-    /// BlockHeader, ChunkHashesByHeight, EpochInfo and StateDlInfos.  It’ll
+    /// BlockHeader, ChunkHashesByHeight and EpochInfo.  It’ll
     /// panic if used for any other column.
     ///
     /// Furthermore, because key of ChunkHashesByHeight is modified in cold
@@ -84,11 +85,7 @@ impl<D: Database> super::Database for ColdDatabase<D> {
         assert!(
             matches!(
                 column,
-                DBCol::StateDlInfos
-                    | DBCol::BlockHeader
-                    | DBCol::Block
-                    | DBCol::ChunkHashesByHeight
-                    | DBCol::EpochInfo
+                DBCol::BlockHeader | DBCol::Block | DBCol::ChunkHashesByHeight | DBCol::EpochInfo
             ),
             "iter on cold storage is not supported for {column}"
         );
@@ -131,6 +128,18 @@ impl<D: Database> super::Database for ColdDatabase<D> {
         unreachable!();
     }
 
+    /// Atomically applies operations in given transaction.
+    ///
+    /// If debug assertions are enabled, panics if there are any delete
+    /// operations or operations decreasing reference count of a value.  If
+    /// debug assertions are not enabled, such operations are filtered out.
+    ///
+    /// As per documentation of [the type](Self), some keys and values are
+    /// adjusted before they are written to the database.  In particular,
+    /// ShardUId is removed from keys of DBCol::State column.  This means that
+    /// write of hash α to shard X and to shard Y will result in the same write.
+    /// If convenient at transaction generation time, it’s beneficial to
+    /// deduplicate such writes.
     fn write(&self, mut transaction: DBTransaction) -> std::io::Result<()> {
         let mut idx = 0;
         while idx < transaction.ops.len() {
@@ -413,22 +422,16 @@ mod test {
     fn test_iterator() {
         let db = create_test_db();
 
-        let mut ops: Vec<_> =
-            [DBCol::StateDlInfos, DBCol::BlockHeader, DBCol::Block, DBCol::EpochInfo]
-                .iter()
-                .map(|col| set(*col, HASH))
-                .collect();
+        let mut ops: Vec<_> = [DBCol::BlockHeader, DBCol::Block, DBCol::EpochInfo]
+            .iter()
+            .map(|col| set(*col, HASH))
+            .collect();
         ops.push(set(DBCol::ChunkHashesByHeight, HEIGHT_LE));
         db.write(DBTransaction { ops }).unwrap();
 
         let mut result = Vec::<String>::new();
-        for col in [
-            DBCol::StateDlInfos,
-            DBCol::BlockHeader,
-            DBCol::Block,
-            DBCol::EpochInfo,
-            DBCol::ChunkHashesByHeight,
-        ] {
+        for col in [DBCol::BlockHeader, DBCol::Block, DBCol::EpochInfo, DBCol::ChunkHashesByHeight]
+        {
             let dbs: [(bool, &dyn Database); 2] = [(false, &db), (true, &db.0)];
             result.push(format!("{col}"));
             for (is_raw, db) in dbs {
@@ -446,9 +449,6 @@ mod test {
         //     cargo install cargo-insta
         //     cargo insta test --accept -p near-store  -- db::colddb
         insta::assert_display_snapshot!(result.join("\n"), @r###"
-        StateDlInfos
-        [cold] (11111111111111111111111111111111, FooBar)
-        [raw ] (11111111111111111111111111111111, FooBar)
         BlockHeader
         [cold] (11111111111111111111111111111111, FooBar)
         [raw ] (11111111111111111111111111111111, FooBar)
