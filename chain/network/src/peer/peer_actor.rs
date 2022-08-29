@@ -1,7 +1,9 @@
 use crate::accounts_data;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
+use crate::network_protocol::{Edge, PartialEdgeInfo};
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
+use crate::network_protocol::{PeerChainInfoV2, PeerInfo, RoutedMessage, RoutedMessageBody};
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection::{Connection, OutboundHandshakePermit, Stats};
@@ -9,11 +11,15 @@ use crate::peer_manager::peer_manager_actor::{Event, NetworkState};
 use crate::private_actix::PeersResponse;
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::private_actix::{
-    PeersRequest, RegisterPeer, RegisterPeerResponse, SendMessage, Unregister,
-    RoutedMessageFrom,
+    PeersRequest, RegisterPeer, RegisterPeerResponse, RoutedMessageFrom, SendMessage, Unregister,
 };
 use crate::routing::edge::verify_nonce;
 use crate::stats::metrics;
+use crate::time;
+use crate::types::{
+    Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerIdOrHash, PeerManagerRequest,
+    PeerManagerRequestWithContext, PeerType, ReasonForBan, StateResponseInfo,
+};
 use crate::types::{
     Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses, PeerMessage,
 };
@@ -24,14 +30,6 @@ use actix::{
 use anyhow::Context as _;
 use lru::LruCache;
 use near_crypto::Signature;
-use crate::time;
-use crate::network_protocol::{PeerChainInfoV2,PeerInfo,RoutedMessage, RoutedMessageBody};
-use crate::types::{
-    Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerIdOrHash,
-    PeerManagerRequest, PeerManagerRequestWithContext, PeerType, ReasonForBan,
-    StateResponseInfo,
-};
-use crate::network_protocol::{Edge, PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
@@ -316,7 +314,7 @@ impl PeerActor {
     ) -> Result<(), IOError> {
         match self.connection.as_ref() {
             Some(conn) if conn.is_tier1 && !msg.is_tier1() => {
-                panic!("trying to {} message over TIER1 connection.",msg.msg_variant())
+                panic!("trying to {} message over TIER1 connection.", msg.msg_variant())
             }
             _ => {}
         }
@@ -344,7 +342,11 @@ impl PeerActor {
             let tid = near_rust_allocator_proxy::get_tid();
             #[cfg(not(feature = "performance_stats"))]
             let tid = 0;
-            return Err(IOError::Send { tid, message_type: msg.msg_variant().to_string(), size: bytes_len });
+            return Err(IOError::Send {
+                tid,
+                message_type: msg.msg_variant().to_string(),
+                size: bytes_len,
+            });
         }
         Ok(())
     }
@@ -886,7 +888,6 @@ impl PeerActor {
             .then(move |res, act, ctx| {
                 match res.map(|r|r.unwrap_consolidate_response()) {
                     Ok(RegisterPeerResponse::Accept) => {
-                        tracing::debug!(target:"dupa", "conn accepted {} -> ...",act.my_node_id());
                         act.peer_info = Some(peer_info).into();
                         act.peer_status = PeerStatus::Ready;
                         // Respond to handshake if it's inbound and connection was consolidated.
@@ -910,7 +911,6 @@ impl PeerActor {
                         actix::fut::ready(())
                     },
                     err => {
-                        tracing::debug!(target:"dupa", "conn rejected {} -> ...: {err:?}",act.my_node_id());
                         info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting: {err:?}", act.my_node_id(), handshake);
                         ctx.stop();
                         actix::fut::ready(())
@@ -945,7 +945,7 @@ impl Actor for PeerActor {
         if self.peer_type == PeerType::Outbound {
             self.send_handshake(self.handshake_spec.clone().unwrap());
         }
-        self.network_state.config.event_sink.push(Event::PeerActorStarted);
+        self.network_state.config.event_sink.push(Event::PeerActorStarted(self.peer_addr));
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
@@ -980,7 +980,7 @@ impl Actor for PeerActor {
     fn stopped(&mut self, _ctx: &mut Self::Context) {
         Arbiter::current().stop();
         //tracing::debug!(target:"dupa", "stopping PeerActor {} -> ...",self.my_node_info.id);
-        self.network_state.config.event_sink.push(Event::PeerActorStopped)
+        self.network_state.config.event_sink.push(Event::ConnectionClosed(self.peer_addr))
     }
 }
 
@@ -1051,11 +1051,11 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
         match (&self.peer_status, &self.connection) {
             (PeerStatus::Ready, Some(conn)) if conn.is_tier1 && !peer_msg.is_tier1() => {
                 warn!(target: "network", "Received {} on TIER1 connection, disconnecting",peer_msg.msg_variant());
-                // TODO(gprusak): this is abusive behavior. Consider banning for it. 
+                // TODO(gprusak): this is abusive behavior. Consider banning for it.
                 ctx.stop();
                 return;
             }
-            _ => {},
+            _ => {}
         }
 
         match (&self.peer_status, peer_msg.clone()) {

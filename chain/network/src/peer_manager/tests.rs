@@ -2,16 +2,16 @@ use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Encoding, PeerAddr, SyncAccountsData};
+use crate::network_protocol::{Ping, RoutedMessageBody, EDGE_MIN_TIMESTAMP_NONCE};
 use crate::peer;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::{Event as PME, LIMIT_PENDING_PEERS};
 use crate::peer_manager::testonly::{Event, NormalAccountData};
 use crate::testonly::{assert_is_superset, make_rng, AsSet as _};
+use crate::time;
 use crate::types::{PeerMessage, RoutingTableUpdate};
 use itertools::Itertools;
 use near_logger_utils::init_test_logger;
-use crate::time;
-use crate::network_protocol::{Ping, RoutedMessageBody, EDGE_MIN_TIMESTAMP_NONCE};
 use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
 use pretty_assertions::assert_eq;
@@ -331,7 +331,8 @@ async fn accounts_data_broadcast() {
     let data = chain.make_tier1_data(rng, clock);
 
     // Connect peer, expect initial sync to be empty.
-    let (mut peer1, got1) = pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
+    let (mut peer1, got1) =
+        pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
     assert_eq!(got1.accounts_data, vec![]);
 
     // Send some data. It won't be broadcasted back.
@@ -345,7 +346,8 @@ async fn accounts_data_broadcast() {
     pm.wait_for_accounts_data(&want.iter().map(|d| d.into()).collect()).await;
 
     // Connect another peer and perform initial full sync.
-    let (mut peer2, got2) = pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
+    let (mut peer2, got2) =
+        pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
     assert_eq!(got2.accounts_data.as_set(), want.as_set());
 
     // Send a mix of new and old data. Only new data should be broadcasted.
@@ -563,7 +565,10 @@ async fn connection_spam_security_test() {
     }
     // Try to establish additional connections. Should fail.
     for _ in 0..10 {
-        pm.start_inbound(chain.clone(), chain.make_config(rng)).await.fail_handshake(&clock.clock()).await;
+        pm.start_inbound(chain.clone(), chain.make_config(rng))
+            .await
+            .fail_handshake(&clock.clock())
+            .await;
     }
     // Terminate the pending connections. Should succeed.
     for c in conns {

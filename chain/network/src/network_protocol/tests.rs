@@ -2,11 +2,10 @@ use super::*;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::Encoding;
 use crate::testonly::make_rng;
-use crate::types::{HandshakeFailureReason, PeerMessage};
-use anyhow::{bail, Context as _};
 use crate::time;
-use crate::types::{
-    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
+use crate::types::{HandshakeFailureReason, PeerMessage};
+use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
+use anyhow::{bail, Context as _};
 use near_primitives::syncing::EpochSyncResponse;
 use near_primitives::types::EpochId;
 

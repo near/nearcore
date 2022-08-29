@@ -2,21 +2,30 @@ use crate::accounts_data;
 use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::{AccountData, SyncAccountsData};
+use crate::network_protocol::{
+    AccountOrPeerIdOrHash, Edge, PeerInfo, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
+    RoutedMessageV2,
+};
+use crate::network_protocol::{EdgeState, PartialEdgeInfo};
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::connection::{Connection, Pool, PoolError};
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
-    RoutedMessageFrom, 
-    PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerError, RegisterPeerResponse,
-    StopMsg, Unregister, ValidateEdgeList,
-    PeerToManagerMsg, PeerToManagerMsgResp, PeersResponse,
+    PeerRequestResult, PeerToManagerMsg, PeerToManagerMsgResp, PeersRequest, PeersResponse,
+    RegisterPeer, RegisterPeerError, RegisterPeerResponse, RoutedMessageFrom, StopMsg, Unregister,
+    ValidateEdgeList,
 };
 use crate::routing;
 use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use crate::store;
+use crate::time;
+use crate::types::{
+    Ban, KnownPeerStatus, KnownProducer, NetworkViewClientMessages, NetworkViewClientResponses,
+    OutboundTcpConnect, PeerIdOrHash, PeerType, ReasonForBan, StateResponseInfo,
+};
 use crate::types::{
     ChainInfo, ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, NetworkClientMessages, NetworkInfo,
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
@@ -29,14 +38,6 @@ use actix::{
 use anyhow::bail;
 use anyhow::Context as _;
 use arc_swap::ArcSwap;
-use crate::time;
-use crate::network_protocol::{AccountOrPeerIdOrHash, RawRoutedMessage,Edge,RoutedMessageBody,PeerInfo, Ping, Pong, RoutedMessageV2};
-use crate::types::{
-    Ban, KnownPeerStatus, KnownProducer, NetworkViewClientMessages,
-    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerType, ReasonForBan,
-    StateResponseInfo,
-};
-use crate::network_protocol::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -312,7 +313,10 @@ impl NetworkState {
     // It is expected to perform <10 lookups total on average,
     // so the call latency should be negligible wrt sending a TCP packet.
     // If not, consider precomputing the AccountId -> Connection mapping.
-    pub fn get_tier1_connection(&self, account_id:&AccountId) -> Option<(PeerId,Arc<Connection>)> {
+    pub fn get_tier1_connection(
+        &self,
+        account_id: &AccountId,
+    ) -> Option<(PeerId, Arc<Connection>)> {
         let accounts_data = self.accounts_data.load();
         let tier1 = self.tier1.load();
         for data in accounts_data.by_account.get(account_id)?.values() {
@@ -321,13 +325,13 @@ impl NetworkState {
                 None => continue,
             };
             if let Some(conn) = tier1.ready.get(peer_id) {
-                return Some((peer_id.clone(),conn.clone()));
+                return Some((peer_id.clone(), conn.clone()));
             }
             // TODO(gprusak): first iterate over all data. So that direct connections have priority
             // over proxies.
             for proxy in &data.peers {
                 if let Some(conn) = tier1.ready.get(&proxy.peer_id) {
-                    return Some((peer_id.clone(),conn.clone()));
+                    return Some((peer_id.clone(), conn.clone()));
                 }
             }
         }
@@ -344,12 +348,19 @@ impl NetworkState {
         stream_cfg: StreamConfig,
     ) {
         // Start every peer actor on separate thread.
+        let peer_addr = match stream.peer_addr() {
+            Ok(it) => it,
+            Err(err) => {
+                error!("stream.peer_addr(): {err}");
+                return;
+            }
+        };
         let arbiter = Arbiter::new();
         let peer_cfg = match peer_actor::Config::new(stream, stream_cfg, None, self.clone()) {
             Ok(cfg) => cfg,
             Err(err) => {
                 warn!("peer_actor::Config::new(): {err}");
-                self.config.event_sink.push(Event::PeerActorStopped);
+                self.config.event_sink.push(Event::ConnectionClosed(peer_addr));
                 return;
             }
         };
@@ -469,10 +480,10 @@ pub enum Event {
     // actually complete. Currently this event is reported only for some message types,
     // feel free to add support for more.
     MessageProcessed(PeerMessage),
-    // Reported when the PeerActor has been started.
-    PeerActorStarted,
-    // Reported when the PeerActor has been stopped.
-    PeerActorStopped,
+    // Reported when a handshake has been started.
+    PeerActorStarted(SocketAddr),
+    // Reported when the TCP connection has been closed.
+    ConnectionClosed(SocketAddr),
 }
 
 impl Actor for PeerManagerActor {
@@ -1275,7 +1286,9 @@ impl PeerManagerActor {
                     interval = default_interval;
                 }
 
-                ctx.notify(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect(peer_info)));
+                ctx.notify(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect(
+                    peer_info,
+                )));
             } else {
                 self.state.ask_for_more_peers(&self.clock);
             }
@@ -1339,8 +1352,9 @@ impl PeerManagerActor {
                 self.send_message_to_account(account_id, msg)
             }
             peer_or_hash @ AccountOrPeerIdOrHash::PeerId(_)
-            | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) => self
-                .send_message_to_peer(self.sign_message(RawRoutedMessage { target: peer_or_hash.clone(), body: msg })),
+            | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) => self.send_message_to_peer(
+                self.sign_message(RawRoutedMessage { target: peer_or_hash.clone(), body: msg }),
+            ),
         }
     }
 
@@ -1387,25 +1401,23 @@ impl PeerManagerActor {
     }
 
     fn sign_message(&self, msg: RawRoutedMessage) -> Box<RoutedMessageV2> {
-        msg.sign(
-            &self.config.node_key,
-            self.config.routed_message_ttl,
-            Some(self.clock.now_utc()),
-        )
+        msg.sign(&self.config.node_key, self.config.routed_message_ttl, Some(self.clock.now_utc()))
     }
 
     /// Send message to specific account.
     /// Return whether the message is sent or not.
     fn send_message_to_account(&mut self, account_id: &AccountId, msg: RoutedMessageBody) -> bool {
         if msg.is_tier1() {
-            if let Some((target,conn)) = self.state.get_tier1_connection(account_id) {
-                conn.send_message(Arc::new(PeerMessage::Routed(self.sign_message(RawRoutedMessage {
-                    target: AccountOrPeerIdOrHash::PeerId(target),
-                    body: msg.clone(),
-                }))));
+            if let Some((target, conn)) = self.state.get_tier1_connection(account_id) {
+                conn.send_message(Arc::new(PeerMessage::Routed(self.sign_message(
+                    RawRoutedMessage {
+                        target: AccountOrPeerIdOrHash::PeerId(target),
+                        body: msg.clone(),
+                    },
+                ))));
             }
         }
-        
+
         let target = match self.state.routing_table_view.account_owner(account_id) {
             Some(peer_id) => peer_id,
             None => {

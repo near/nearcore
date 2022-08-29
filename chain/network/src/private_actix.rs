@@ -1,11 +1,12 @@
 /// This file is contains all types used for communication between `Actors` within this crate.
 /// They are not meant to be used outside.
-use crate::network_protocol::{PeerMessage, RoutingTableUpdate, RoutedMessageV2, Edge, PartialEdgeInfo, PeerInfo, RoutedMessageBody};
-use crate::peer_manager::connection::{Connection, PoolError};
-use conqueue::QueueSender;
-use crate::types::{
-    Ban, PeerType, ReasonForBan, 
+use crate::network_protocol::{
+    Edge, PartialEdgeInfo, PeerInfo, PeerMessage, RoutedMessageBody, RoutedMessageV2,
+    RoutingTableUpdate,
 };
+use crate::peer_manager::connection::{Connection, PoolError};
+use crate::types::{Ban, PeerType, ReasonForBan};
+use conqueue::QueueSender;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use std::collections::HashMap;

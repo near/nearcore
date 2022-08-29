@@ -1,11 +1,11 @@
 use crate::network_protocol::Encoding;
+use crate::network_protocol::RoutedMessageBody;
+use crate::types::PeerType;
 use near_metrics::{
     exponential_buckets, try_create_histogram, try_create_histogram_vec, try_create_int_counter,
     try_create_int_counter_vec, try_create_int_gauge, Histogram, HistogramVec, IntCounter,
     IntCounterVec, IntGauge, IntGaugeVec,
 };
-use crate::types::{PeerType};
-use crate::network_protocol::{RoutedMessageBody};
 use once_cell::sync::Lazy;
 
 /// Labels represents a schema of an IntGaugeVec metric.

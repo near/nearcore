@@ -1,7 +1,7 @@
+use crate::network_protocol::Edge;
 use crate::private_actix::{StopMsg, ValidateEdgeList};
 use actix::{Actor, ActorContext, Handler, SyncContext};
 use conqueue::{QueueReceiver, QueueSender};
-use crate::network_protocol::Edge;
 use near_performance_metrics_macros::perf;
 use near_primitives::borsh::maybestd::collections::HashMap;
 use near_primitives::borsh::maybestd::sync::{Arc, Mutex};

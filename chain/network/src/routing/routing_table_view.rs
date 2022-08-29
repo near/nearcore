@@ -1,10 +1,10 @@
+use crate::network_protocol::Edge;
 use crate::routing;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::store;
-use lru::LruCache;
 use crate::time;
-use crate::network_protocol::{Edge};
-use crate::types::{PeerIdOrHash};
+use crate::types::PeerIdOrHash;
+use lru::LruCache;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
@@ -146,10 +146,7 @@ impl RoutingTableView {
 
     /// Find peer that owns this AccountId.
     pub(crate) fn account_owner(&self, account_id: &AccountId) -> Option<PeerId> {
-        self.0
-            .lock()
-            .get_announce(account_id)
-            .map(|announce_account| announce_account.peer_id)
+        self.0.lock().get_announce(account_id).map(|announce_account| announce_account.peer_id)
     }
 
     /// Add (account id, peer id) to routing table.

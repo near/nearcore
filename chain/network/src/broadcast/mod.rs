@@ -54,10 +54,7 @@ impl<T: Clone + Send> Receiver<T> {
     // Without actix, awaiting the expected state
     // should get way easier.
     pub fn from_now(&self) -> Self {
-        Self {
-            channel: self.channel.clone(),
-            next: self.channel.stream.read().unwrap().len(),
-        }
+        Self { channel: self.channel.clone(), next: self.channel.stream.read().unwrap().len() }
     }
 
     pub async fn recv(&mut self) -> T {

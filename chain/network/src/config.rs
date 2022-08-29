@@ -1,13 +1,13 @@
+use crate::blacklist;
 use crate::concurrency::demux;
 use crate::network_protocol::PeerAddr;
+use crate::network_protocol::PeerInfo;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::sink::Sink;
+use crate::time;
+use crate::types::ROUTED_MESSAGE_TTL;
 use anyhow::Context;
 use near_crypto::{KeyType, SecretKey};
-use crate::time;
-use crate::blacklist;
-use crate::types::ROUTED_MESSAGE_TTL;
-use crate::network_protocol::{PeerInfo};
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -351,13 +351,13 @@ impl std::ops::Deref for VerifiedConfig {
 
 #[cfg(test)]
 mod test {
+    use super::UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
     use crate::config;
     use crate::network_protocol;
     use crate::network_protocol::testonly as data;
     use crate::network_protocol::AccountData;
     use crate::testonly::make_rng;
     use crate::time;
-    use super::UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
     use near_primitives::validator_signer::ValidatorSigner;
 
     #[test]

@@ -1,15 +1,13 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    AccountOrPeerIdOrHash, 
-    Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate, SignedAccountData,
+    AccountOrPeerIdOrHash, Encoding, Handshake, HandshakeFailureReason, PeerMessage,
+    RoutingTableUpdate, SignedAccountData,
 };
-use std::net::SocketAddr;
 use crate::routing::routing_table_view::RoutingTableInfo;
+use crate::time;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use near_crypto::PublicKey;
-use crate::time;
-use near_primitives::views::FinalExecutionOutcomeView;
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
@@ -20,20 +18,19 @@ use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse}
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
 use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::views::FinalExecutionOutcomeView;
 use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView};
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
-    PeerIdOrHash,
-    PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
-    StateResponseInfo, StateResponseInfoV1,
-    StateResponseInfoV2,
-    PeerChainInfo, PeerChainInfoV2,  PeerInfo,
-    Edge, PartialEdgeInfo, Ping, Pong, 
+    Edge, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
+    PartialEncodedChunkResponseMsg, PeerChainInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, Ping,
+    Pong, StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
 };
 
 /// Number of hops a message is allowed to travel before being dropped.
@@ -49,7 +46,6 @@ pub enum PeerType {
     /// Outbound session
     Outbound,
 }
-
 
 /// Messages from PeerManager to Peer with a tracing Context.
 #[derive(actix::Message, Debug)]
@@ -582,9 +578,9 @@ impl<M: actix::Message, T: MsgRecipient<M>> MsgRecipient<M> for NetworkRecipient
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::network_protocol::{RawRoutedMessage, RoutedMessage, RoutedMessageBody};
+    use borsh::BorshSerialize as _;
     use near_primitives::syncing::ShardStateSyncResponseV1;
-    use crate::network_protocol::{RawRoutedMessage,RoutedMessageBody,RoutedMessage};
-    use borsh::{BorshSerialize as _};
 
     const ALLOWED_SIZE: usize = 1 << 20;
     const NOTIFY_SIZE: usize = 1024;
@@ -702,7 +698,6 @@ pub struct AccountIdOrPeerTrackingShard {
     /// Only send messages to peers whose latest chain height is no less `min_height`
     pub min_height: BlockHeight,
 }
-
 
 #[derive(actix::Message, strum::IntoStaticStr)]
 #[rtype(result = "NetworkViewClientResponses")]

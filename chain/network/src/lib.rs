@@ -17,8 +17,8 @@ pub mod routing;
 pub(crate) mod stats;
 pub(crate) mod store;
 pub mod test_utils;
-pub mod types;
 pub mod time;
+pub mod types;
 
 #[cfg(test)]
 pub(crate) mod testonly;

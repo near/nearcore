@@ -6,9 +6,9 @@
 /// NOTES:
 ///     - Code has an extra logic to ban peers if they sent messages that are too large.
 use crate::stats::metrics;
+use crate::types::ReasonForBan;
 use bytes::{Buf, BufMut, BytesMut};
 use bytesize::{GIB, MIB};
-use crate::types::ReasonForBan;
 use near_performance_metrics::framed_write::EncoderCallBack;
 use std::io::{Error, ErrorKind};
 use tokio_util::codec::{Decoder, Encoder};
@@ -107,14 +107,14 @@ impl Decoder for Codec {
 
 #[cfg(test)]
 mod test {
+    use crate::network_protocol::{
+        PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, RoutedMessage, RoutedMessageBody,
+        RoutedMessageV2,
+    };
     use crate::peer::codec::{Codec, NETWORK_MESSAGE_MAX_SIZE_BYTES};
-    use crate::types::{Handshake, PeerMessage, RoutingTableUpdate,ReasonForBan};
+    use crate::types::{Handshake, PeerMessage, ReasonForBan, RoutingTableUpdate};
     use bytes::{BufMut, BytesMut};
     use near_crypto::{KeyType, SecretKey};
-    use crate::network_protocol::{
-        PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, RoutedMessage,
-        RoutedMessageBody, RoutedMessageV2,
-    };
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::CryptoHash;
     use near_primitives::network::{AnnounceAccount, PeerId};

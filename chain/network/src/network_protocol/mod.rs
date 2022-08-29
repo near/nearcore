@@ -2,12 +2,11 @@
 #[path = "borsh.rs"]
 mod borsh_;
 mod borsh_conv;
-mod proto_conv;
-mod peer;
 mod edge;
-pub use peer::*;
+mod peer;
+mod proto_conv;
 pub use edge::*;
-
+pub use peer::*;
 
 #[cfg(test)]
 pub(crate) mod testonly;
@@ -20,30 +19,30 @@ mod _proto {
 
 pub use _proto::network as proto;
 
-use near_primitives::merkle::combine_hash;
-use near_crypto::Signature;
+use crate::time;
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_crypto::PublicKey;
-use crate::time;
-use near_primitives::views::FinalExecutionOutcomeView;
-use near_primitives::block::{Block, BlockHeader, GenesisId,Approval};
-use near_primitives::types::{BlockHeight, ShardId};
+use near_crypto::Signature;
+use near_primitives::block::{Approval, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::combine_hash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, EpochId};
-use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
     PartialEncodedChunkWithArcReceipts, ReceiptProof, ShardChunkHeader,
 };
+use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, EpochId};
+use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::validator_signer::ValidatorSigner;
+use near_primitives::views::FinalExecutionOutcomeView;
 use protobuf::Message as _;
+use std::collections::HashSet;
 use std::fmt;
 use std::sync::Arc;
-use std::collections::HashSet;
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct PeerAddr {
@@ -317,7 +316,7 @@ impl PeerMessage {
     pub(crate) fn is_tier1(&self) -> bool {
         match self {
             Self::Tier1Handshake(_) => true,
-            Self::HandshakeFailure(_,_) => true,
+            Self::HandshakeFailure(_, _) => true,
             Self::LastEdge(_) => true,
             Self::Routed(msg) => msg.body.is_tier1(),
             _ => false,
@@ -375,7 +374,9 @@ impl PeerMessage {
 }
 
 // TODO(#1313): Use Box
-#[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, strum::IntoStaticStr)]
+#[derive(
+    borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, strum::IntoStaticStr,
+)]
 pub enum RoutedMessageBody {
     BlockApproval(Approval),
     ForwardTx(SignedTransaction),
@@ -722,7 +723,16 @@ impl StateResponseInfo {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, borsh::BorshSerialize, borsh::BorshDeserialize, Hash, serde::Serialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    borsh::BorshSerialize,
+    borsh::BorshDeserialize,
+    Hash,
+    serde::Serialize,
+)]
 pub enum AccountOrPeerIdOrHash {
     AccountId(AccountId),
     PeerId(PeerId),

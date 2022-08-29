@@ -1,14 +1,14 @@
+use crate::network_protocol::Edge;
 use crate::private_actix::{StopMsg, ValidateEdgeList};
 use crate::routing;
 use crate::routing::edge_validator_actor::EdgeValidatorActor;
 use crate::stats::metrics;
 use crate::store;
+use crate::time;
 use actix::{
     ActorContext as _, ActorFutureExt, Addr, Context, ContextFutureSpawner as _, Running,
     WrapFuture as _,
 };
-use crate::time;
-use crate::network_protocol::Edge;
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
 use near_rate_limiter::{ActixMessageResponse, ActixMessageWrapper, ThrottleToken};

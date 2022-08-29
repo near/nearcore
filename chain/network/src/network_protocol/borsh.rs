@@ -1,13 +1,11 @@
+use crate::network_protocol::edge::{Edge, PartialEdgeInfo};
+use crate::network_protocol::{PeerChainInfoV2, PeerInfo, RoutedMessage};
 /// Contains types that belong to the `network protocol.
 ///
 /// WARNING WARNING WARNING
 /// WARNING WARNING WARNING
 /// We need to maintain backwards compatibility, all changes to this file needs to be reviews.
 use borsh::{BorshDeserialize, BorshSerialize};
-use crate::network_protocol::edge::{Edge,PartialEdgeInfo};
-use crate::network_protocol::{
-    PeerChainInfoV2, PeerInfo, RoutedMessage,
-};
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;

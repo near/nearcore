@@ -123,7 +123,7 @@ pub struct CacheSnapshot {
     /// for this account.
     pub data: im::HashMap<(EpochId, AccountId), Arc<SignedAccountData>>,
     /// Indices on data.
-    pub by_account: im::HashMap<AccountId,im::HashMap<EpochId,Arc<SignedAccountData>>>,
+    pub by_account: im::HashMap<AccountId, im::HashMap<EpochId, Arc<SignedAccountData>>>,
 }
 
 impl CacheSnapshot {
@@ -163,7 +163,10 @@ impl CacheSnapshot {
             return None;
         }
         self.data.insert((d.epoch_id.clone(), d.account_id.clone()), d.clone());
-        self.by_account.entry(d.account_id.clone()).or_default().insert(d.epoch_id.clone(),d.clone());
+        self.by_account
+            .entry(d.account_id.clone())
+            .or_default()
+            .insert(d.epoch_id.clone(), d.clone());
         Some(d)
     }
 }
@@ -193,7 +196,7 @@ impl Cache {
             for (k, v) in std::mem::take(&mut inner.data) {
                 if keys.contains_key(&k) {
                     inner.data.insert(k.clone(), v.clone());
-                    inner.by_account.entry(k.1).or_default().insert(k.0,v);
+                    inner.by_account.entry(k.1).or_default().insert(k.0, v);
                 }
             }
             inner.keys = keys;

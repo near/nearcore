@@ -2,6 +2,9 @@ use crate::broadcast;
 use crate::concurrency::demux;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
+use crate::network_protocol::{
+    Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
+};
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::peer_manager_actor;
@@ -12,15 +15,10 @@ use crate::routing::routing_table_view::RoutingTableView;
 use crate::store;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
+use crate::types::AccountOrPeerIdOrHash;
 use crate::types::{PeerMessage, RoutingTableUpdate};
 use actix::{Actor, Context, Handler};
 use near_crypto::{InMemorySigner, Signature};
-use crate::network_protocol::{
-    RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
-    Edge, PartialEdgeInfo, PeerInfo, 
-};
-use crate::types::{
-    AccountOrPeerIdOrHash, };
 use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
 
@@ -145,18 +143,26 @@ impl PeerHandle {
     }
 
     pub async fn complete_handshake(&mut self) -> Edge {
-        self.events.recv_until(|ev|match ev {
-            Event::HandshakeDone(edge) => Some(edge),
-            Event::Network(peer_manager_actor::Event::PeerActorStopped) => panic!("handshake failed"),
-            _ => None,
-        }).await
+        self.events
+            .recv_until(|ev| match ev {
+                Event::HandshakeDone(edge) => Some(edge),
+                Event::Network(peer_manager_actor::Event::ConnectionClosed(_)) => {
+                    panic!("handshake failed")
+                }
+                _ => None,
+            })
+            .await
     }
     pub async fn fail_handshake(&mut self) {
-        self.events.recv_until(|ev|match ev {
-            Event::Network(peer_manager_actor::Event::PeerActorStopped) => Some(()),
-            Event::HandshakeDone(_) => panic!("handshake succeeded"),
-            _ => None,
-        }).await
+        self.events
+            .recv_until(|ev| match ev {
+                Event::Network(peer_manager_actor::Event::ConnectionClosed(_)) => Some(()),
+                // HandshakeDone means that handshake succeeded locally,
+                // but in case this is an inbound connection, it can still
+                // fail on the other side. Therefore we cannot panic on HandshakeDone.
+                _ => None,
+            })
+            .await
     }
 
     pub fn routed_message(

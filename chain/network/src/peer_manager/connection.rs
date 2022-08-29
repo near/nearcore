@@ -2,18 +2,14 @@ use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::PeerMessage;
+use crate::network_protocol::{Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo};
 use crate::network_protocol::{SignedAccountData, SyncAccountsData};
 use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
 use crate::stats::metrics;
-use crate::types::FullPeerInfo;
 use crate::time;
-use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo,
-};
-use crate::types::{PeerManagerRequest,
-    PeerManagerRequestWithContext, PeerType, ReasonForBan,
-};
+use crate::types::FullPeerInfo;
+use crate::types::{PeerManagerRequest, PeerManagerRequestWithContext, PeerType, ReasonForBan};
 use near_primitives::network::PeerId;
 use near_rate_limiter::ThrottleController;
 use std::collections::{hash_map::Entry, HashMap};

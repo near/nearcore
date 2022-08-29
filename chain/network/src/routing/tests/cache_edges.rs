@@ -1,12 +1,12 @@
 use crate::network_protocol::testonly as data;
+use crate::network_protocol::Edge;
+use crate::network_protocol::EDGE_MIN_TIMESTAMP_NONCE;
 use crate::routing;
 use crate::store;
 use crate::store::testonly::Component;
 use crate::testonly::make_rng;
-use near_crypto::Signature;
 use crate::time;
-use crate::network_protocol::Edge;
-use crate::network_protocol::EDGE_MIN_TIMESTAMP_NONCE;
+use near_crypto::Signature;
 use near_primitives::network::PeerId;
 use near_store::test_utils::create_test_store;
 use parking_lot::RwLock;
