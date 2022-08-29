@@ -1,3 +1,4 @@
+use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::PeerMessage;
@@ -6,7 +7,6 @@ use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
 use crate::stats::metrics;
 use crate::types::FullPeerInfo;
-use arc_swap::ArcSwap;
 use near_network_primitives::time;
 use near_network_primitives::types::{
     PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext,
@@ -18,17 +18,9 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-
-fn update<T: Clone>(p: &ArcSwap<T>, mut f: impl FnMut(&mut T)) {
-    p.rcu(|v| {
-        let mut v = (**v).clone();
-        f(&mut v);
-        Arc::new(v)
-    });
-}
 
 #[derive(Clone)]
 pub(crate) struct Stats {
@@ -69,7 +61,7 @@ pub(crate) struct Connection {
 }
 
 impl fmt::Debug for Connection {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Connection")
             .field("peer_info", &self.peer_info)
             .field("partial_edge_info", &self.partial_edge_info)
@@ -155,48 +147,163 @@ impl Connection {
     }
 }
 
-#[derive(Default)]
-pub(crate) struct Pool(ArcSwap<im::HashMap<PeerId, Arc<Connection>>>);
+#[derive(Clone)]
+pub(crate) struct PoolSnapshot {
+    pub me: PeerId,
+    pub ready: im::HashMap<PeerId, Arc<Connection>>,
+    /// Set of started outbound connections, which are not ready yet.
+    /// We need to keep those to prevent a deadlock when 2 peers try
+    /// to connect to each other at the same time.
+    ///
+    /// The procedure of establishing a connections should look as follows:
+    /// 1. Peer A decides to connect to peer B.
+    /// 2. Peer A gets an OutboundHandshakePermit by calling pool.start_outbound(B).
+    /// 3. Peer A connects to peer B.
+    /// 4. Peer B accepts the connection by calling pool.insert_ready(<connection to A>).
+    /// 5. Peer B notifies A that it has accepted the connection.
+    /// 6. Peer A accepts the connection by calling pool.insert_ready(<connection to B>).
+    /// 7. Peer A drops the OutboundHandshakePermit.
+    ///
+    /// In case any of these steps fails the connection and the OutboundHandshakePermit
+    /// should be dropped.
+    ///
+    /// Now imagine that A and B try to connect to each other at the same time:
+    /// a. Peer A executes 1,2,3.
+    /// b. Peer B executes 1,2,3.
+    /// c. Both A and B try to execute 4 and exactly one of these calls will succeed: the tie
+    ///    is broken by comparing PeerIds: connection from smaller to bigger takes priority.
+    ///    WLOG let us assume that A < B.
+    /// d. Peer A rejects connection from B, peer B accepts connection from A and notifies A.
+    /// e. A continues with 6,7, B just drops the connection and the permit.
+    ///
+    /// Now imagine a different interleaving:
+    /// a. Peer B executes 1,2,3 and A accepts the connection (i.e. 4)
+    /// b. Peer A executes 1 and then attempts 2.
+    /// In this scenario A will fail to obtain a permit, because it has already accepted a
+    /// connection from B.
+    ///
+    /// TODO(gprusak): cover it with tests.
+    pub outbound_handshakes: im::HashSet<PeerId>,
+}
+
+pub(crate) struct OutboundHandshakePermit(PeerId, Weak<ArcMutex<PoolSnapshot>>);
+
+impl OutboundHandshakePermit {
+    pub fn peer_id(&self) -> &PeerId {
+        &self.0
+    }
+}
+
+impl fmt::Debug for OutboundHandshakePermit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.peer_id().fmt(f)
+    }
+}
+
+impl Drop for OutboundHandshakePermit {
+    fn drop(&mut self) {
+        if let Some(pool) = self.1.upgrade() {
+            pool.update(|pool| {
+                pool.outbound_handshakes.remove(&self.0);
+            });
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct Pool(Arc<ArcMutex<PoolSnapshot>>);
+
+#[derive(thiserror::Error, Debug)]
+pub(crate) enum PoolError {
+    #[error("already connected to this peer")]
+    AlreadyConnected,
+    #[error("already started another outbound connection to this peer")]
+    AlreadyStartedConnecting,
+}
 
 impl Pool {
-    pub fn read(&self) -> Arc<im::HashMap<PeerId, Arc<Connection>>> {
-        self.0.load_full()
+    pub fn new(me: PeerId) -> Pool {
+        Self(Arc::new(ArcMutex::new(PoolSnapshot {
+            me,
+            ready: im::HashMap::new(),
+            outbound_handshakes: im::HashSet::new(),
+        })))
     }
 
-    pub fn insert(&self, peer: Arc<Connection>) {
-        let id = peer.peer_info.id.clone();
-        update(&self.0, |peers| {
-            peers.insert(id.clone(), peer.clone());
-        });
+    pub fn load(&self) -> Arc<PoolSnapshot> {
+        self.0.load()
+    }
+
+    pub fn insert_ready(&self, peer: Arc<Connection>) -> Result<(), PoolError> {
+        self.0.update(move |pool| {
+            let id = &peer.peer_info.id;
+            if pool.ready.contains_key(id) {
+                return Err(PoolError::AlreadyConnected);
+            }
+            match peer.peer_type {
+                PeerType::Inbound => {
+                    if pool.outbound_handshakes.contains(id) && id >= &pool.me {
+                        return Err(PoolError::AlreadyStartedConnecting);
+                    }
+                }
+                PeerType::Outbound => {
+                    // This is a bug, if an outbound permit is not kept
+                    // until insert_ready is called.
+                    // TODO(gprusak): in fact, we can make insert_ready
+                    // consume the outbound permit to additionally ensure
+                    // that permit is dropped properly. However we will still
+                    // need a runtime check to verify that the permit comes
+                    // from the same Pool instance and is for the right PeerId.
+                    if !pool.outbound_handshakes.contains(id) {
+                        panic!("bug detected: OutboundHandshakePermit dropped before calling Pool.insert_ready()")
+                    }
+                }
+            }
+            pool.ready.insert(id.clone(), peer);
+            Ok(())
+        })
+    }
+
+    pub fn start_outbound(&self, peer_id: PeerId) -> Result<OutboundHandshakePermit, PoolError> {
+        self.0.update(move |pool| {
+            if pool.ready.contains_key(&peer_id) {
+                return Err(PoolError::AlreadyConnected);
+            }
+            if pool.outbound_handshakes.contains(&peer_id) {
+                return Err(PoolError::AlreadyStartedConnecting);
+            }
+            pool.outbound_handshakes.insert(peer_id.clone());
+            Ok(OutboundHandshakePermit(peer_id, Arc::downgrade(&self.0)))
+        })
     }
 
     pub fn remove(&self, peer_id: &PeerId) {
-        update(&self.0, |peers| {
-            peers.remove(peer_id);
+        self.0.update(|pool| {
+            pool.ready.remove(peer_id);
         });
     }
 
-    /// Send message to peer that belong to our active set
+    /// Send message to peer that belongs to our active set
     /// Return whether the message is sent or not.
     pub fn send_message(&self, peer_id: PeerId, msg: Arc<PeerMessage>) -> bool {
-        let connected_peers = self.read();
-        if let Some(peer) = connected_peers.get(&peer_id) {
+        let pool = self.load();
+        if let Some(peer) = pool.ready.get(&peer_id) {
             peer.send_message(msg);
             return true;
         }
         tracing::debug!(target: "network",
            to = ?peer_id,
-           num_connected_peers = connected_peers.len(),
+           num_connected_peers = pool.ready.len(),
            ?msg,
            "Failed sending message: peer not connected"
         );
         false
     }
 
-    /// Broadcast message to all active peers.
+    /// Broadcast message to all ready peers.
     pub fn broadcast_message(&self, msg: Arc<PeerMessage>) {
         metrics::BROADCAST_MESSAGES.with_label_values(&[msg.msg_variant()]).inc();
-        for peer in self.read().values() {
+        for peer in self.load().ready.values() {
             peer.send_message(msg.clone());
         }
     }

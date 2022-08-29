@@ -43,7 +43,7 @@ pub struct StoreConfig {
     pub block_size: bytesize::ByteSize,
 
     /// Trie cache capacities
-    /// Default value: ShardUId {version: 1, shard_id: 3} -> 2_000_000. TODO: clarify
+    /// Default value: ShardUId {version: 1, shard_id: 3} -> 45_000_000
     /// We're still experimenting with this parameter and it seems decreasing its value can improve
     /// the performance of the storage
     pub trie_cache_capacities: Vec<(ShardUId, usize)>,
@@ -108,7 +108,7 @@ impl Default for StoreConfig {
             // we use it since then.
             block_size: bytesize::ByteSize::kib(16),
 
-            trie_cache_capacities: Default::default(),
+            trie_cache_capacities: vec![(ShardUId { version: 1, shard_id: 3 }, 45_000_000)],
         }
     }
 }
