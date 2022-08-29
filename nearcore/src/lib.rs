@@ -44,31 +44,33 @@ pub fn get_default_home() -> PathBuf {
     PathBuf::default()
 }
 
-/// Returns the path of the DB checkpoint.
-/// Default location is the same as the database location: `path`.
-fn db_checkpoint_path(path: &Path, near_config: &NearConfig) -> PathBuf {
-    let root_path =
-        if let Some(db_migration_snapshot_path) = &near_config.config.db_migration_snapshot_path {
-            assert!(
-                db_migration_snapshot_path.is_absolute(),
-                "'db_migration_snapshot_path' must be an absolute path to an existing directory."
-            );
-            db_migration_snapshot_path.clone()
-        } else {
-            path.to_path_buf()
-        };
-    root_path.join(DB_CHECKPOINT_NAME)
-}
-
-const DB_CHECKPOINT_NAME: &str = "db_migration_snapshot";
-
 /// Creates a consistent DB checkpoint and returns its path.
 /// By default it creates checkpoints in the DB directory, but can be overridden by the config.
 fn create_db_checkpoint(
     opener: &StoreOpener,
     near_config: &NearConfig,
 ) -> anyhow::Result<near_store::Snapshot> {
-    match opener.new_migration_snapshot(db_checkpoint_path(opener.path(), near_config)) {
+    use near_store::config::MigrationSnapshot;
+
+    let example = match (
+        near_config.config.use_db_migration_snapshot,
+        near_config.config.db_migration_snapshot_path.as_ref(),
+    ) {
+        (None, None) => None,
+        (Some(false), _) => Some(MigrationSnapshot::Enabled(false)),
+        (_, None) => Some(MigrationSnapshot::Enabled(true)),
+        (_, Some(path)) => Some(MigrationSnapshot::Path(path.join("migration-snapshot"))),
+    };
+    if let Some(example) = example {
+        anyhow::bail!(
+            "‘use_db_migration_snapshot’ and ‘db_migration_snapshot_path’ \
+             options are deprecated.\n\
+             Set ‘store.migration_snapshot’ to instead, e.g.:\n{}",
+            example.format_example()
+        )
+    }
+
+    match opener.new_migration_snapshot() {
         Ok(snapshot) => Ok(snapshot),
         Err(near_store::SnapshotError::AlreadyExists(snap_path)) => {
             Err(anyhow::anyhow!(
@@ -80,13 +82,17 @@ fn create_db_checkpoint(
             ))
         }
         Err(near_store::SnapshotError::IOError(err)) => {
-            Err(anyhow::anyhow!(
+            let path = std::path::PathBuf::from("/path/to/snapshot/dir");
+            let on = MigrationSnapshot::Path(path).format_example();
+            let off = MigrationSnapshot::Enabled(false).format_example();
+            anyhow::bail!(
                 "Failed to create a database migration snapshot: {err}.\n\
-                 You can change the location of the snapshot by adjusting `config.json`:\n\
-                 \t\"db_migration_snapshot_path\": \"/absolute/path/to/existing/dir\",\n\
+                 To change the location of snapshot adjust \
+                 ‘store.migration_snapshot’ property in ‘config.json’:\n\
+                 {on}\n\
                  Alternatively, you can disable database migration snapshots in `config.json`:\n\
-                 \t\"use_db_migration_snapshot\": false,"
-            ))
+                 {off}"
+            )
         }
     }
 }
@@ -132,11 +138,7 @@ fn apply_store_migrations_if_exists(
     // Before starting a DB migration, create a snapshot of the database.  If
     // the migration fails, the snapshot can be used to restore the database to
     // its original state.
-    let snapshot = if near_config.config.use_db_migration_snapshot {
-        create_db_checkpoint(store_opener, near_config)?
-    } else {
-        near_store::Snapshot::no_snapshot()
-    };
+    let snapshot = create_db_checkpoint(store_opener, near_config)?;
 
     // Add migrations here based on `db_version`.
     if db_version <= 26 {
