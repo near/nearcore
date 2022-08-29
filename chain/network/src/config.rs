@@ -130,12 +130,17 @@ pub struct NetworkConfig {
     /// If true - connect only to the bootnodes.
     pub connect_only_to_boot_nodes: bool,
 
-    /// Whether to send tombstones at startup.
-    pub skip_sending_tombstones: Option<time::Duration>,
+
+    // Whether to ignore tombstones some time after startup.
+    //
+    // Ignoring tombstones means:
+    //   * not broadcasting deleted edges
+    //   * ignoring received deleted edges as well
+    pub skip_tombstones: Option<time::Duration>,
 
     /// TEST-ONLY
     /// TODO(gprusak): make it pub(crate), once all integration tests
-    /// are merged into crate.
+    /// are merged into near_network.
     pub event_sink: Sink<Event>,
 }
 
@@ -225,12 +230,12 @@ impl NetworkConfig {
             features,
             inbound_disabled: cfg.experimental.inbound_disabled,
             connect_only_to_boot_nodes: cfg.experimental.connect_only_to_boot_nodes,
-            skip_sending_tombstones: if cfg.experimental.skip_sending_tombstones_seconds > 0 {
+            skip_tombstones: if cfg.experimental.skip_sending_tombstones_seconds > 0 {
                 Some(time::Duration::seconds(cfg.experimental.skip_sending_tombstones_seconds))
             } else {
                 None
             },
-            event_sink: Sink::void(),
+            event_sink: Sink::null(),
         };
         Ok(this)
     }
@@ -292,8 +297,8 @@ impl NetworkConfig {
                     new_connections_per_tick: 100,
                 }),
             },
-            skip_sending_tombstones: None,
-            event_sink: Sink::void(),
+            skip_tombstones: None,
+            event_sink: Sink::null(),
         }
     }
 

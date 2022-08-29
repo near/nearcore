@@ -152,7 +152,6 @@ pub(crate) struct NetworkState {
     /// Connected peers (inbound and outbound) with their full peer information.
     pub tier2: Pool,
     pub tier1: Pool,
-
     /// View of the Routing table. It keeps:
     /// - routing information - how to route messages
     /// - edges adjacent to my_peer_id
@@ -188,7 +187,6 @@ impl NetworkState {
             send_accounts_data_rl,
             config,
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
-            txns_since_last_block: AtomicUsize::new(0),
         }
     }
 
@@ -561,7 +559,7 @@ impl Actor for PeerManagerActor {
             (MONITOR_PEERS_INITIAL_DURATION, max_interval),
         );
 
-        let skip_tombstones = self.config.skip_sending_tombstones.map(|it| self.clock.now() + it);
+        let skip_tombstones = self.config.skip_tombstones.map(|it| self.clock.now() + it);
 
         // Periodically reads valid edges from `EdgesVerifierActor` and broadcast.
         self.broadcast_validated_edges_trigger(
@@ -672,10 +670,7 @@ impl PeerManagerActor {
                     next_hops,
                     peers_to_ban,
                 }) => {
-                    for peer_id in &local_edges_to_remove {
-                        act.state.routing_table_view.remove_local_edge(peer_id);
-                    }
-                    act.state.routing_table_view.set_next_hops(next_hops.clone());
+                    act.state.routing_table_view.update(&local_edges_to_remove, next_hops.clone());
                     for peer in peers_to_ban {
                         act.ban_peer(&peer, ReasonForBan::InvalidEdge);
                     }
@@ -690,26 +685,18 @@ impl PeerManagerActor {
         if edges.is_empty() {
             return;
         }
-
-        for edge in &edges {
-            self.state.routing_table_view.add_local_edge(edge.clone());
-        }
+        self.state.routing_table_view.add_local_edges(&edges);
         self.routing_table_addr.do_send(routing::actor::Message::AddVerifiedEdges { edges });
     }
 
-    fn broadcast_accounts(&mut self, mut accounts: Vec<AnnounceAccount>) {
-        // Filter the accounts, so that we're sending only the ones that were not added.
-        accounts.retain(|a| !self.state.routing_table_view.contains_account(&a));
-        if accounts.is_empty() {
-            return;
+    fn broadcast_accounts(&mut self, accounts: Vec<AnnounceAccount>) {
+        let new_accounts = self.state.routing_table_view.add_accounts(accounts);
+        debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
+        if new_accounts.len() > 0 {
+            self.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                RoutingTableUpdate::from_accounts(new_accounts),
+            )));
         }
-        debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?accounts, "Received new accounts");
-        for account in &accounts {
-            self.state.routing_table_view.add_account(account.clone());
-        }
-        self.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-            RoutingTableUpdate::from_accounts(accounts),
-        )));
     }
 
     /// `update_routing_table_trigger` schedule updating routing table to `RoutingTableActor`
@@ -770,6 +757,7 @@ impl PeerManagerActor {
         }
 
         info!(
+            target: "bandwidth",
             total_bandwidth_used_by_all_peers,
             total_msg_received_count, max_max_record_num_messages_in_progress, "Bandwidth stats"
         );
@@ -810,29 +798,23 @@ impl PeerManagerActor {
         if !new_edges.is_empty() {
             // Check whenever there is an edge indicating whenever there is a peer we should be
             // connected to but we aren't. And try to resolve the inconsistency.
-            //
             // Also check whenever there is an edge indicating that we should be disconnected
             // from a peer, but we are connected. And try to resolve the inconsistency.
+            let new_local_edges = self.state.routing_table_view.add_local_edges(&new_edges);
             let tier2 = self.state.tier2.load();
-            for edge in new_edges.iter() {
-                if let Some(other_peer) = edge.other(&self.my_peer_id) {
-                    if !self.state.routing_table_view.is_local_edge_newer(other_peer, edge.nonce())
-                    {
-                        continue;
+            for edge in new_local_edges {
+                let other_peer = edge.other(&self.my_peer_id).unwrap();
+                match (tier2.ready.contains_key(other_peer), edge.edge_type()) {
+                    // This is an active connection, while the edge indicates it shouldn't.
+                    (true, EdgeState::Removed) => {
+                        self.maybe_remove_connected_peer(ctx, &edge, other_peer)
                     }
-                    // Check whether we belong to this edge.
-                    if tier2.ready.contains_key(other_peer) {
-                        // This is an active connection.
-                        if edge.edge_type() == EdgeState::Removed {
-                            self.maybe_remove_connected_peer(ctx, edge, other_peer);
-                        }
-                    } else if edge.edge_type() == EdgeState::Active {
-                        // We are not connected to this peer, but routing table contains
-                        // information that we do. We should wait and remove that peer
-                        // from routing table
-                        Self::wait_peer_or_remove(ctx, edge.clone());
-                    }
-                    self.state.routing_table_view.add_local_edge(edge.clone());
+                    // We are not connected to this peer, but routing table contains
+                    // information that we do. We should wait and remove that peer
+                    // from routing table
+                    (false, EdgeState::Active) => Self::wait_peer_or_remove(ctx, edge),
+                    // OK
+                    _ => {}
                 }
             }
             self.routing_table_addr
@@ -890,9 +872,9 @@ impl PeerManagerActor {
     /// Signature from the other node is passed in `full_peer_info.edge_info`.
     fn register_peer(
         &mut self,
-        connection: Arc<Connection>,
+        connection: Arc<connection::Connection>,
         ctx: &mut Context<Self>,
-    ) -> Result<(), PoolError> {
+    ) -> Result<(), connection::PoolError> {
         let peer_info = &connection.peer_info;
         let _span = tracing::trace_span!(target: "network", "register_peer").entered();
         debug!(target: "network", ?peer_info, "Consolidated connection");
@@ -900,17 +882,17 @@ impl PeerManagerActor {
             self.state.tier1.insert_ready(connection.clone())?;
         } else {
             self.state.tier2.insert_ready(connection.clone())?;
+        // Best effort write to DB.
             if let Err(err) = self.peer_store.peer_connected(&self.clock, peer_info) {
                 error!(target: "network", ?err, "Failed to save peer data");
             }
             self.add_verified_edges_to_routing_table(vec![connection.edge.clone()]);
             self.sync_after_handshake(connection.clone(), ctx);
         }
-
         Ok(())
     }
 
-    fn sync_after_handshake(&self, peer: Arc<Connection>, ctx: &mut Context<Self>) {
+    fn sync_after_handshake(&self, peer: Arc<connection::Connection>, ctx: &mut Context<Self>) {
         let run_later_span = tracing::trace_span!(target: "network", "sync_after_handshake");
         // The full sync is delayed, so that handshake is completed before the sync starts.
         near_performance_metrics::actix::run_later(
@@ -922,7 +904,7 @@ impl PeerManagerActor {
                 // sending messages.
                 let mut known_edges: Vec<Edge> =
                     act.network_graph.read().edges().values().cloned().collect();
-                if act.config.skip_sending_tombstones.is_some() {
+                if act.config.skip_tombstones.is_some() {
                     known_edges.retain(|edge| edge.removal_info().is_none());
                     metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
                 }
@@ -974,13 +956,11 @@ impl PeerManagerActor {
             }
         }
     }
-
     /// Add peer to ban list.
     /// This function should only be called after Peer instance is stopped.
     /// Note: Use `try_ban_peer` if there might be a Peer instance still connected.
     fn ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan) {
         warn!(target: "network", ?peer_id, ?ban_reason, "Banning peer");
-        //tracing::debug!(target: "dupa", ?peer_id, ?ban_reason, "Banning {peer_id}");
         self.remove_connected_peer(peer_id, None);
         if let Err(err) = self.peer_store.peer_ban(&self.clock, peer_id, ban_reason) {
             error!(target: "network", ?err, "Failed to save peer data");
@@ -1162,7 +1142,7 @@ impl PeerManagerActor {
     ///    until safe set has safe_set_size elements.
     fn maybe_stop_active_connection(&self) {
         let tier2 = self.state.tier2.load();
-        let filter_peers = |predicate: &dyn Fn(&Connection) -> bool| -> Vec<_> {
+        let filter_peers = |predicate: &dyn Fn(&connection::Connection) -> bool| -> Vec<_> {
             tier2
                 .ready
                 .values()
@@ -1201,7 +1181,7 @@ impl PeerManagerActor {
 
         // Find all recently active peers.
         let now = self.clock.now();
-        let mut active_peers: Vec<Arc<Connection>> = tier2
+        let mut active_peers: Vec<Arc<connection::Connection>> = tier2
             .ready
             .values()
             .filter(|p| {
@@ -1996,20 +1976,15 @@ impl PeerManagerActor {
                 let accounts = routing_table_update.accounts;
 
                 // Filter known accounts before validating them.
+                let old = self
+                    .state
+                    .routing_table_view
+                    .get_announces(accounts.iter().map(|a| &a.account_id));
                 let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = accounts
                     .into_iter()
-                    .filter_map(|announce_account| {
-                        if let Some(current_announce_account) =
-                            self.state.routing_table_view.get_announce(&announce_account.account_id)
-                        {
-                            if announce_account.epoch_id == current_announce_account.epoch_id {
-                                None
-                            } else {
-                                Some((announce_account, Some(current_announce_account.epoch_id)))
-                            }
-                        } else {
-                            Some((announce_account, None))
-                        }
+                    .map(|aa| {
+                        let id = aa.account_id.clone();
+                        (aa, old.get(&id).map(|old| old.epoch_id.clone()))
                     })
                     .collect();
 

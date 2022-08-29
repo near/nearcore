@@ -43,16 +43,20 @@ pub struct StoreConfig {
     pub block_size: bytesize::ByteSize,
 
     /// Trie cache capacities
-    /// Default value: ShardUId {version: 1, shard_id: 3} -> 2_000_000. TODO: clarify
+    /// Default value: ShardUId {version: 1, shard_id: 3} -> 45_000_000
     /// We're still experimenting with this parameter and it seems decreasing its value can improve
     /// the performance of the storage
     pub trie_cache_capacities: Vec<(ShardUId, usize)>,
 }
 
 /// Mode in which to open the storage.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum Mode {
+    /// Open an existing database in read-only mode.  Fail if it doesn’t exist.
     ReadOnly,
+    /// Open an existing database in read-write mode.  Fail if it doesn’t exist.
+    ReadWriteExisting,
+    /// Open a database in read-write mode.  create if it doesn’t exist.
     ReadWrite,
 }
 
@@ -104,7 +108,7 @@ impl Default for StoreConfig {
             // we use it since then.
             block_size: bytesize::ByteSize::kib(16),
 
-            trie_cache_capacities: Default::default(),
+            trie_cache_capacities: vec![(ShardUId { version: 1, shard_id: 3 }, 45_000_000)],
         }
     }
 }
@@ -162,6 +166,11 @@ impl<'a> StoreOpener<'a> {
         &self.path
     }
 
+    #[cfg(test)]
+    pub(crate) fn config(&self) -> &StoreConfig {
+        self.config
+    }
+
     /// Returns version of the database; or `None` if it does not exist.
     pub fn get_version_if_exists(&self) -> io::Result<Option<DbVersion>> {
         if self.check_if_exists() {
@@ -186,5 +195,20 @@ impl<'a> StoreOpener<'a> {
                        if exists { "Opening" } else { "Creating a new" });
         crate::RocksDB::open(&self.path, &self.config, self.mode)
             .map(|db| crate::Store::new(std::sync::Arc::new(db)))
+    }
+
+    /// Creates a new snapshot which can be used to recover the database state.
+    ///
+    /// The snapshot is used during database migration to allow users to roll
+    /// back failed migrations.
+    ///
+    /// Note that due to RocksDB being weird, this will create an empty database
+    /// if it does not already exist.  This might not be what you want so make
+    /// sure the database already exists.
+    pub fn new_migration_snapshot(
+        &self,
+        snapshot_path: std::path::PathBuf,
+    ) -> Result<crate::Snapshot, crate::SnapshotError> {
+        crate::Snapshot::new(&self.path, self.config, snapshot_path)
     }
 }

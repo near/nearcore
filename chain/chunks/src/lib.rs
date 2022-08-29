@@ -1452,9 +1452,7 @@ impl ShardsManager {
                         warn!(target: "chunks", "Received chunk part with part_ord greater than the the total number of chunks");
                         continue;
                     }
-                    if existing_parts.insert(part_ord, part).is_some() {
-                        warn!(target: "chunks", "Part ord {} for chunk {:?} was forwarded multiple times", part_ord, chunk_hash.0);
-                    }
+                    existing_parts.insert(part_ord, part);
                 }
             }
         }

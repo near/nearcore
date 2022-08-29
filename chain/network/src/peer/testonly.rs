@@ -194,13 +194,13 @@ impl PeerHandle {
             let routing_table_view = RoutingTableView::new(store, cfg.id());
             // WARNING: this is a hack to make PeerActor use a specific nonce
             if let (Some(nonce), Some(peer_id)) = (&cfg.nonce, &cfg.start_handshake_with) {
-                routing_table_view.add_local_edge(Edge::new(
+                routing_table_view.add_local_edges(&[Edge::new(
                     cfg.id(),
                     peer_id.clone(),
                     nonce - 1,
                     Signature::default(),
                     Signature::default(),
-                ));
+                )]);
             }
             let mut network_cfg = cfg.network.clone();
             network_cfg.event_sink = send.sink().compose(Event::Network);
