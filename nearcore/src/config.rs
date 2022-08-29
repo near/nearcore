@@ -199,10 +199,6 @@ fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
 }
 
-fn default_use_checkpoints_for_db_migration() -> bool {
-    true
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -317,17 +313,20 @@ pub struct Config {
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gas_burnt_view: Option<Gas>,
-    /// Checkpoints let the user recover from interrupted DB migrations.
-    #[serde(default = "default_use_checkpoints_for_db_migration")]
-    pub use_db_migration_snapshot: bool,
-    /// Location of the DB checkpoint for the DB migrations. This can be one of the following:
-    /// * Empty, the checkpoint will be created in the database location, i.e. '$home/data'.
-    /// * Absolute path that points to an existing directory. The checkpoint will be a sub-directory in that directory.
-    /// For example, setting "use_db_migration_snapshot" to "/tmp/" will create a directory "/tmp/db_migration_snapshot" and populate it with the database files.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub db_migration_snapshot_path: Option<PathBuf>,
     /// Different parameters to configure/optimize underlying storage.
     pub store: near_store::StoreConfig,
+
+    // TODO(mina86): Remove those two altogether at some point.  We need to be
+    // somewhat careful though and make sure that we don’t start silently
+    // ignoring this option without users setting corresponding store option.
+    // For the time being, we’re failing inside of create_db_checkpoint if this
+    // option is set.
+    /// Deprecated; use `store.migration_snapshot` instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub use_db_migration_snapshot: Option<bool>,
+    /// Deprecated; use `store.migration_snapshot` instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub db_migration_snapshot_path: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -355,7 +354,7 @@ impl Default for Config {
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
             db_migration_snapshot_path: None,
-            use_db_migration_snapshot: true,
+            use_db_migration_snapshot: None,
             store: near_store::StoreConfig::default(),
         }
     }

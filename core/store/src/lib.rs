@@ -37,7 +37,7 @@ pub use crate::trie::{
 };
 
 mod columns;
-mod config;
+pub mod config;
 pub mod db;
 pub mod flat_state;
 mod metrics;
