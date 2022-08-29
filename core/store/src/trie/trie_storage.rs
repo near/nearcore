@@ -184,6 +184,7 @@ impl TrieCacheInner {
                     }
                     None => {
                         self.metrics.shard_cache_pop_misses.inc();
+
                         None
                     }
                 },
