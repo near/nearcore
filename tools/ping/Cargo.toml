@@ -18,13 +18,13 @@ prometheus = { version = "0.13.1", features = ["push"] }
 tokio = { version = "1.16.1", features = ["full"]}
 tracing = "0.1.13"
 
-nearcore = { path = "../../nearcore" }
+nearcore = { path = "../../nearcore", features = ["shardnet"]   }
 near-chain = { path = "../../chain/chain" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-metrics = { path = "../../core/metrics" }
-near-network = { path = "../../chain/network" }
+near-network = { path = "../../chain/network", features = ["shardnet"]   }
 near-network-primitives = { path = "../../chain/network-primitives" }
 near-o11y = { path = "../../core/o11y" }
-near-primitives = { path = "../../core/primitives" }
+near-primitives = { path = "../../core/primitives", features = ["shardnet"] }
 near-store = { path = "../../core/store" }
