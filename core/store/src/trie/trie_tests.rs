@@ -34,10 +34,7 @@ impl IncompletePartialStorage {
 
 impl TrieStorage for IncompletePartialStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let result = self
-            .recorded_storage
-            .get(hash)
-            .map_or(Err(StorageError::TrieNodeMissing), |val| Ok(val.clone()));
+        let result = self.recorded_storage.get(hash).cloned().ok_or(StorageError::TrieNodeMissing);
 
         if result.is_ok() {
             self.visited_nodes.borrow_mut().insert(*hash);

@@ -248,6 +248,7 @@ impl Trie {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::sync::Arc;
 
     use rand::prelude::ThreadRng;
     use rand::Rng;
@@ -618,7 +619,7 @@ mod tests {
 
                 let trie_changes = check_combine_state_parts(trie.get_root(), num_parts, &parts);
 
-                let mut nodes = <HashMap<CryptoHash, std::sync::Arc<[u8]>>>::new();
+                let mut nodes = <HashMap<CryptoHash, Arc<[u8]>>>::new();
                 let sizes_vec = parts
                     .iter()
                     .map(|nodes| nodes.iter().map(|node| node.len()).sum::<usize>())
@@ -658,7 +659,7 @@ mod tests {
     fn check_combine_state_parts(
         state_root: &CryptoHash,
         num_parts: u64,
-        parts: &Vec<Vec<std::sync::Arc<[u8]>>>,
+        parts: &Vec<Vec<Arc<[u8]>>>,
     ) -> TrieChanges {
         let trie_changes = Trie::combine_state_parts_naive(state_root, parts).unwrap();
 
