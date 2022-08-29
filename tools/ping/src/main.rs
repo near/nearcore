@@ -10,6 +10,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use near_primitives::version::PROTOCOL_VERSION;
 
 #[derive(Parser)]
 struct Cli {
@@ -146,6 +147,7 @@ fn parse_account_filter<P: AsRef<Path>>(filename: P) -> std::io::Result<HashSet<
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
+    println!("Protocol version: {}", PROTOCOL_VERSION);
 
     let _subscriber = near_o11y::default_subscriber(
         near_o11y::EnvFilterBuilder::new(std::env::var("RUST_LOG").unwrap_or("info".to_string()))
