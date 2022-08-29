@@ -349,6 +349,7 @@ impl NetworkState {
             Ok(cfg) => cfg,
             Err(err) => {
                 warn!("peer_actor::Config::new(): {err}");
+                self.config.event_sink.push(Event::PeerActorStopped);
                 return;
             }
         };

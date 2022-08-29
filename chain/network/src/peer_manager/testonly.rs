@@ -133,7 +133,7 @@ impl ActorHandler {
     }
 
     pub async fn start_inbound(&self, chain: Arc<data::Chain>, network_cfg : config::NetworkConfig) -> RawConnection {
-        let mut conn = RawConnection {
+        let conn = RawConnection {
             events: self.events.from_now(),
             stream: tokio::net::TcpStream::connect(self.cfg.node_addr.unwrap()).await.unwrap(),
             cfg: peer::testonly::PeerConfig {
@@ -145,9 +145,13 @@ impl ActorHandler {
                 nonce: None,
             },
         };
-        conn.events
+        // Wait until the TCP connection is accepted or rejected.
+        // The Handshake is not performed yet.
+        // Do not consume events, so that PeerActorStopped can still be observed.
+        conn.events.clone()
             .recv_until(|ev| match ev {
                 Event::PeerManager(PME::PeerActorStarted) => Some(()),
+                Event::PeerManager(PME::PeerActorStopped) => Some(()),
                 _ => None,
             })
             .await;
@@ -166,7 +170,7 @@ impl ActorHandler {
             .addr
             .do_send(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect(peer_info.clone())));
         let (stream,_) = listener.accept().await.unwrap();
-        let mut conn = RawConnection {
+        let conn = RawConnection {
             events,
             stream,
             cfg: peer::testonly::PeerConfig {
@@ -178,9 +182,13 @@ impl ActorHandler {
                 nonce: None,
             },
         };
-        conn.events
+        // Wait until the TCP connection is accepted or rejected.
+        // The Handshake is not performed yet.
+        // Do not consume events, so that PeerActorStopped can still be observed.
+        conn.events.clone()
             .recv_until(|ev| match ev {
                 Event::PeerManager(PME::PeerActorStarted) => Some(()),
+                Event::PeerManager(PME::PeerActorStopped) => Some(()),
                 _ => None,
             })
             .await;

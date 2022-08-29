@@ -145,24 +145,18 @@ impl PeerHandle {
     }
 
     pub async fn complete_handshake(&mut self) -> Edge {
-        match self.events.recv().await {
-            Event::Network(peer_manager_actor::Event::PeerActorStarted) => (),
-            ev => panic!("want PeerActorStarted, got {ev:?}"),
-        }
-        match self.events.recv().await {
-            Event::HandshakeDone(edge) => edge,
-            ev => panic!("want HandshakeDone, got {ev:?}"),
-        }
+        self.events.recv_until(|ev|match ev {
+            Event::HandshakeDone(edge) => Some(edge),
+            Event::Network(peer_manager_actor::Event::PeerActorStopped) => panic!("handshake failed"),
+            _ => None,
+        }).await
     }
     pub async fn fail_handshake(&mut self) {
-        match self.events.recv().await {
-            Event::Network(peer_manager_actor::Event::PeerActorStarted) => (),
-            ev => panic!("want PeerActorStarted, got {ev:?}"),
-        }
-        match self.events.recv().await {
-            Event::Network(peer_manager_actor::Event::PeerActorStopped) => (),
-            ev => panic!("want PeerActorStopped, got {ev:?}"),
-        }
+        self.events.recv_until(|ev|match ev {
+            Event::Network(peer_manager_actor::Event::PeerActorStopped) => Some(()),
+            Event::HandshakeDone(_) => panic!("handshake succeeded"),
+            _ => None,
+        }).await
     }
 
     pub fn routed_message(
