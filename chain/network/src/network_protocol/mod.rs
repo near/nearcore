@@ -261,14 +261,14 @@ impl PeerMessage {
         })
     }
 
-    pub(crate) fn msg_variant(&self) -> &'static str {
+    pub fn msg_variant(&self) -> &'static str {
         match self {
             PeerMessage::Routed(routed_msg) => routed_msg.msg.body_variant(),
             _ => self.into(),
         }
     }
 
-    pub(crate) fn is_client_message(&self) -> bool {
+    pub fn is_client_message(&self) -> bool {
         match self {
             PeerMessage::Block(_)
             | PeerMessage::BlockHeaders(_)
@@ -292,7 +292,7 @@ impl PeerMessage {
         }
     }
 
-    pub(crate) fn is_view_client_message(&self) -> bool {
+    pub fn is_view_client_message(&self) -> bool {
         match self {
             PeerMessage::BlockHeadersRequest(_)
             | PeerMessage::BlockRequest(_)
