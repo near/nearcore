@@ -34,7 +34,8 @@ use crate::sharding::{
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
-    ExecutionStatus, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
+    ExecutionStatus, FunctionCallAction, SignedDelegateAction, SignedTransaction, StakeAction,
+    TransferAction,
 };
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
@@ -954,6 +955,11 @@ pub enum ActionView {
     DeleteAccount {
         beneficiary_id: AccountId,
     },
+    Delegate {
+        delegate_action_serde: Vec<u8>,
+        signature: Signature,
+        public_key: PublicKey,
+    },
 }
 
 impl From<Action> for ActionView {
@@ -982,6 +988,11 @@ impl From<Action> for ActionView {
             Action::DeleteAccount(action) => {
                 ActionView::DeleteAccount { beneficiary_id: action.beneficiary_id }
             }
+            Action::Delegate(action) => ActionView::Delegate {
+                delegate_action_serde: action.delegate_action_serde,
+                signature: action.signature,
+                public_key: action.public_key,
+            },
         }
     }
 }
@@ -1011,6 +1022,15 @@ impl TryFrom<ActionView> for Action {
             ActionView::DeleteAccount { beneficiary_id } => {
                 Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
             }
+            ActionView::Delegate {
+                delegate_action_serde: delegate_action,
+                signature,
+                public_key,
+            } => Action::Delegate(SignedDelegateAction {
+                delegate_action_serde: delegate_action,
+                signature,
+                public_key,
+            }),
         })
     }
 }
@@ -1478,6 +1498,7 @@ impl TryFrom<ReceiptView> for Receipt {
                     actions,
                 } => ReceiptEnum::Action(ActionReceipt {
                     signer_id,
+                    publisher_id: None,
                     signer_public_key,
                     gas_price,
                     output_data_receivers: output_data_receivers

@@ -120,6 +120,7 @@ pub fn total_send_fees(
             },
             DeleteKey(_) => cfg.delete_key_cost.send_fee(sender_is_receiver),
             DeleteAccount(_) => cfg.delete_account_cost.send_fee(sender_is_receiver),
+            Delegate(_) => 0, // TODO: Set some fee
         };
         result = safe_add_gas(result, delta)?;
     }
@@ -170,6 +171,7 @@ pub fn exec_fee(
         },
         DeleteKey(_) => cfg.delete_key_cost.exec_fee(),
         DeleteAccount(_) => cfg.delete_account_cost.exec_fee(),
+        Delegate(_) => cfg.delete_account_cost.exec_fee(), // TODO: Add another fee for Delegate action.
     }
 }
 

@@ -10,7 +10,7 @@ use crate::borsh::maybestd::collections::HashMap;
 use crate::hash::CryptoHash;
 use crate::logging;
 use crate::serialize::{dec_format, option_base64_format};
-use crate::transaction::{Action, TransferAction};
+use crate::transaction::{Action, DelegateAction, TransferAction};
 use crate::types::{AccountId, Balance, ShardId};
 
 /// Receipts are used for a cross-shard communication.
@@ -52,6 +52,7 @@ impl Receipt {
 
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: "system".parse().unwrap(),
+                publisher_id: None,
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
                 gas_price: 0,
                 output_data_receivers: vec![],
@@ -79,11 +80,36 @@ impl Receipt {
 
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: receiver_id.clone(),
+                publisher_id: None,
                 signer_public_key,
                 gas_price: 0,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![Action::Transfer(TransferAction { deposit: refund })],
+            }),
+        }
+    }
+
+    pub fn new_delegate_actions(
+        publisher_id: &AccountId,
+        predecessor_id: &AccountId,
+        delegate_action: &DelegateAction,
+        public_key: &PublicKey,
+        gas_price: Balance,
+    ) -> Self {
+        Receipt {
+            predecessor_id: predecessor_id.clone(),
+            receiver_id: delegate_action.reciever_id.clone(),
+            receipt_id: CryptoHash::default(),
+
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: predecessor_id.clone(),
+                publisher_id: Some(publisher_id.clone()),
+                signer_public_key: public_key.clone(),
+                gas_price: gas_price,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: delegate_action.actions.clone(),
             }),
         }
     }
@@ -103,6 +129,8 @@ pub enum ReceiptEnum {
 pub struct ActionReceipt {
     /// A signer of the original transaction
     pub signer_id: AccountId,
+    /// A publisher's identifier in case of a delgated action
+    pub publisher_id: Option<AccountId>,
     /// An access key which was used to sign the original transaction
     pub signer_public_key: PublicKey,
     /// A gas_price which has been used to buy gas in the original transaction

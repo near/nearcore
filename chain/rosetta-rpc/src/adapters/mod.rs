@@ -410,6 +410,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     );
                     operations.push(deploy_contract_operation);
                 }
+                near_primitives::transaction::Action::Delegate(_) => todo!(),
             }
         }
         operations

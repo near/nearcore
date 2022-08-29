@@ -11,7 +11,7 @@ use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
-    FunctionCallAction, StakeAction, TransferAction,
+    FunctionCallAction, SignedDelegateAction, StakeAction, TransferAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, TrieCacheMode};
@@ -30,6 +30,7 @@ use near_vm_errors::{
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::VMContext;
 
+use crate::balance_checker::receipt_cost;
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::{ActionResult, ApplyState};
@@ -253,6 +254,7 @@ pub(crate) fn action_function_call(
                 receipt_id: CryptoHash::default(),
                 receipt: ReceiptEnum::Action(ActionReceipt {
                     signer_id: action_receipt.signer_id.clone(),
+                    publisher_id: action_receipt.publisher_id.clone(),
                     signer_public_key: action_receipt.signer_public_key.clone(),
                     gas_price: action_receipt.gas_price,
                     output_data_receivers: receipt.output_data_receivers,
@@ -613,6 +615,46 @@ pub(crate) fn action_add_key(
     Ok(())
 }
 
+pub(crate) fn action_delegate_action(
+    apply_state: &ApplyState,
+    action_receipt: &ActionReceipt,
+    predecessor_id: &AccountId,
+    signed_delegate_action: &SignedDelegateAction,
+    result: &mut ActionResult,
+) -> Result<(), RuntimeError> {
+    match signed_delegate_action.get_delegate_action() {
+        Ok(delegate_action) => {
+            let new_receipt = Receipt::new_delegate_actions(
+                &action_receipt.signer_id,
+                predecessor_id,
+                &delegate_action,
+                &signed_delegate_action.public_key,
+                action_receipt.gas_price,
+            );
+
+            let transaction_costs = &apply_state.config.transaction_costs;
+            let current_protocol_version = apply_state.current_protocol_version;
+            let cost = receipt_cost(transaction_costs, current_protocol_version, &new_receipt)?;
+
+            if let Some(refund) = delegate_action.deposit.checked_sub(cost.clone()) {
+                let refund_receipt = Receipt::new_balance_refund(&action_receipt.signer_id, refund);
+
+                result.new_receipts.push(new_receipt);
+                result.new_receipts.push(refund_receipt);
+            } else {
+                result.result = Err(ActionErrorKind::LackBalanceForState {
+                    account_id: action_receipt.signer_id.clone(),
+                    amount: cost.clone(),
+                }
+                .into());
+            }
+        }
+        Err(_) => todo!(),
+    }
+
+    Ok(())
+}
+
 pub(crate) fn check_actor_permissions(
     action: &Action,
     account: &Option<Account>,
@@ -645,7 +687,10 @@ pub(crate) fn check_actor_permissions(
                 .into());
             }
         }
-        Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
+        Action::CreateAccount(_)
+        | Action::FunctionCall(_)
+        | Action::Transfer(_)
+        | Action::Delegate(_) => (),
     };
     Ok(())
 }
@@ -720,6 +765,7 @@ pub(crate) fn check_account_existence(
                 .into());
             }
         }
+        Action::Delegate(_) => (),
     };
     Ok(())
 }

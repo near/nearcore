@@ -861,6 +861,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         receipt_id: create_receipt_nonce(from.clone(), to.clone(), amount, nonce),
                         receipt: ReceiptEnum::Action(ActionReceipt {
                             signer_id: from.clone(),
+                            publisher_id: None,
                             signer_public_key: PublicKey::empty(KeyType::ED25519),
                             gas_price,
                             output_data_receivers: vec![],

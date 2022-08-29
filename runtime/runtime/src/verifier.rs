@@ -1,5 +1,7 @@
 use near_crypto::key_conversion::is_valid_staking_key;
+use near_crypto::PublicKey;
 use near_primitives::runtime::get_insufficient_storage_stake;
+use near_primitives::transaction::Transaction;
 use near_primitives::{
     account::AccessKeyPermission,
     config::VMLimitConfig,
@@ -91,6 +93,14 @@ pub fn verify_and_charge_transaction(
         )?;
     let transaction = &signed_transaction.transaction;
     let signer_id = &transaction.signer_id;
+
+    verify_delegate_action(
+        state_update,
+        &config.wasm_config.limit_config,
+        transaction,
+        block_height,
+        current_protocol_version,
+    )?;
 
     let mut signer = match get_account(state_update, signer_id)? {
         Some(signer) => signer,
@@ -329,7 +339,114 @@ pub fn validate_action(
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
         Action::DeleteAccount(_) => Ok(()),
+        Action::Delegate(_) => Ok(()),
     }
+}
+
+fn verify_delegate_action(
+    state_update: &mut TrieUpdate,
+    limit_config: &VMLimitConfig,
+    transaction: &Transaction,
+    #[allow(unused)] block_height: Option<BlockHeight>,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), RuntimeError> {
+    let mut iter = transaction.actions.iter().peekable();
+    let mut found_delegate_action = false;
+    while let Some(action) = iter.next() {
+        if let Action::Delegate(signed_delegate_action) = action {
+            if !found_delegate_action {
+                // There should be only one DelegateAction
+                found_delegate_action = true;
+
+                let hash = signed_delegate_action.get_hash();
+                let public_key = &signed_delegate_action.public_key;
+                if !signed_delegate_action.signature.verify(hash.as_ref(), public_key) {
+                    return Err(InvalidTxError::InvalidSignature)
+                        .map_err(RuntimeError::InvalidTxError);
+                }
+
+                let delegate_action = signed_delegate_action.get_delegate_action().unwrap();
+                validate_actions(limit_config, &delegate_action.actions)
+                    .map_err(InvalidTxError::ActionsValidation)?;
+
+                // DelegateAction shouldn't contain a nested DelegateAction
+                if delegate_action.actions.iter().any(|a| matches!(a, Action::Delegate(_))) {
+                    return Err(ActionsValidationError::TotalNumberOfActionsExceeded {
+                        total_number_of_actions: transaction.actions.len() as u64,
+                        limit: 0,
+                    })
+                    .map_err(InvalidTxError::ActionsValidation)
+                    .map_err(RuntimeError::InvalidTxError);
+                }
+
+                validate_access_key(
+                    state_update,
+                    &transaction.receiver_id,
+                    &signed_delegate_action.public_key,
+                    delegate_action.nonce,
+                    block_height,
+                    current_protocol_version,
+                )?;
+            } else {
+                return Err(ActionsValidationError::TotalNumberOfActionsExceeded {
+                    total_number_of_actions: transaction.actions.len() as u64,
+                    limit: 1,
+                })
+                .map_err(InvalidTxError::ActionsValidation)
+                .map_err(RuntimeError::InvalidTxError);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn validate_access_key(
+    state_update: &mut TrieUpdate,
+    signer_id: &AccountId,
+    public_key: &PublicKey,
+    nonce: u64,
+    #[allow(unused)] block_height: Option<BlockHeight>,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), RuntimeError> {
+    match get_account(state_update, signer_id)? {
+        Some(signer) => signer,
+        None => {
+            return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() }.into());
+        }
+    };
+    let mut access_key = match get_access_key(state_update, signer_id, public_key)? {
+        Some(access_key) => access_key,
+        None => {
+            return Err(InvalidTxError::InvalidAccessKeyError(
+                InvalidAccessKeyError::AccessKeyNotFound {
+                    account_id: signer_id.clone(),
+                    public_key: public_key.clone(),
+                },
+            )
+            .into());
+        }
+    };
+
+    if nonce <= access_key.nonce {
+        return Err(
+            InvalidTxError::InvalidNonce { tx_nonce: nonce, ak_nonce: access_key.nonce }.into()
+        );
+    }
+    if checked_feature!("stable", AccessKeyNonceRange, current_protocol_version) {
+        if let Some(height) = block_height {
+            let upper_bound =
+                height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+            if nonce >= upper_bound {
+                return Err(InvalidTxError::NonceTooLarge { tx_nonce: nonce, upper_bound }.into());
+            }
+        }
+    };
+
+    access_key.nonce = nonce;
+
+    set_access_key(state_update, signer_id.clone(), public_key.clone(), &access_key);
+    Ok(())
 }
 
 /// Validates `DeployContractAction`. Checks that the given contract size doesn't exceed the limit.
@@ -1202,6 +1319,7 @@ mod tests {
                 &limit_config,
                 &ActionReceipt {
                     signer_id: alice_account(),
+                    publisher_id: None,
                     signer_public_key: PublicKey::empty(KeyType::ED25519),
                     gas_price: 100,
                     output_data_receivers: vec![],

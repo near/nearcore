@@ -255,6 +255,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
             receipt_id: hash(row.account_id.as_ref().as_bytes()),
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: row.account_id.clone(),
+                publisher_id: None,
                 // `signer_public_key` can be anything because the key checks are not applied when
                 // a transaction is already converted to a receipt.
                 signer_public_key: PublicKey::empty(KeyType::ED25519),

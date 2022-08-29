@@ -1414,6 +1414,7 @@ fn make_write_key_value_action(key: Vec<u64>, value: Vec<u64>) -> Action {
 fn make_receipt(node: &impl Node, actions: Vec<Action>, receiver_id: AccountId) -> Receipt {
     let receipt_enum = ReceiptEnum::Action(ActionReceipt {
         signer_id: alice_account(),
+        publisher_id: None,
         signer_public_key: node.signer().as_ref().public_key(),
         gas_price: 0,
         output_data_receivers: vec![],

@@ -1,6 +1,7 @@
 use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::io::Error;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
@@ -70,6 +71,7 @@ pub enum Action {
     AddKey(AddKeyAction),
     DeleteKey(DeleteKeyAction),
     DeleteAccount(DeleteAccountAction),
+    Delegate(SignedDelegateAction),
 }
 
 impl Action {
@@ -83,6 +85,10 @@ impl Action {
         match self {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
+            Action::Delegate(a) => {
+                let delegate_action = a.get_delegate_action().unwrap();
+                delegate_action.deposit
+            }
             _ => 0,
         }
     }
@@ -217,6 +223,40 @@ pub struct DeleteAccountAction {
 impl From<DeleteAccountAction> for Action {
     fn from(delete_account_action: DeleteAccountAction) -> Self {
         Self::DeleteAccount(delete_account_action)
+    }
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+pub struct DelegateAction {
+    pub reciever_id: AccountId,
+    pub deposit: Balance,
+    pub nonce: u64,
+    pub actions: Vec<Action>,
+}
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+pub struct SignedDelegateAction {
+    // Borsh doesn't support recursive types. Therefore this field
+    // is deserialized to DelegateAction in runtime
+    pub delegate_action_serde: Vec<u8>,
+    pub public_key: PublicKey,
+    pub signature: Signature,
+}
+
+impl SignedDelegateAction {
+    pub fn get_delegate_action(&self) -> Result<DelegateAction, Error> {
+        DelegateAction::try_from_slice(&self.delegate_action_serde)
+    }
+
+    pub fn get_hash(&self) -> CryptoHash {
+        hash(&self.delegate_action_serde)
+    }
+}
+
+impl From<SignedDelegateAction> for Action {
+    fn from(delegate_action: SignedDelegateAction) -> Self {
+        Self::Delegate(delegate_action)
     }
 }
 
