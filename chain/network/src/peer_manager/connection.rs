@@ -1,3 +1,4 @@
+use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::PeerMessage;
 use crate::network_protocol::{SignedAccountData, SyncAccountsData};
@@ -18,7 +19,6 @@ use std::fmt;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::sync::Mutex;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -30,6 +30,7 @@ fn update<T: Clone>(p: &ArcSwap<T>, mut f: impl FnMut(&mut T)) {
     });
 }
 
+#[derive(Clone)]
 pub(crate) struct Stats {
     /// Number of bytes we've received from the peer.
     pub received_bytes_per_sec: u64,
@@ -37,24 +38,9 @@ pub(crate) struct Stats {
     pub sent_bytes_per_sec: u64,
 }
 
-// AtomicCell narrows down a Mutex API to load/store calls.
-pub(crate) struct AtomicCell<T>(Mutex<T>);
-
-impl<T: Clone> AtomicCell<T> {
-    pub fn new(v: T) -> Self {
-        Self(Mutex::new(v))
-    }
-    pub fn load(&self) -> T {
-        self.0.lock().unwrap().clone()
-    }
-    pub fn store(&self, v: T) {
-        *self.0.lock().unwrap() = v;
-    }
-}
-
 /// Contains information relevant to a connected peer.
-pub(crate) struct ConnectedPeer {
-    // TODO(gprusak): addr should be internal, so that ConnectedPeer will become an API of the
+pub(crate) struct Connection {
+    // TODO(gprusak): addr should be internal, so that Connection will become an API of the
     // PeerActor.
     pub addr: actix::Addr<PeerActor>,
 
@@ -73,7 +59,7 @@ pub(crate) struct ConnectedPeer {
     /// Last time we received a message from this peer.
     pub last_time_received_message: AtomicCell<time::Instant>,
     /// Connection stats
-    pub stats: ArcSwap<Stats>,
+    pub stats: AtomicCell<Stats>,
     /// prometheus gauge point guard.
     pub _peer_connections_metric: metrics::GaugePoint,
 
@@ -82,9 +68,9 @@ pub(crate) struct ConnectedPeer {
     pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
 }
 
-impl fmt::Debug for ConnectedPeer {
+impl fmt::Debug for Connection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.debug_struct("ConnectedPeer")
+        f.debug_struct("Connection")
             .field("peer_info", &self.peer_info)
             .field("partial_edge_info", &self.partial_edge_info)
             .field("peer_type", &self.peer_type)
@@ -93,7 +79,7 @@ impl fmt::Debug for ConnectedPeer {
     }
 }
 
-impl ConnectedPeer {
+impl Connection {
     pub fn full_peer_info(&self) -> FullPeerInfo {
         let mut chain_info = self.initial_chain_info.clone();
         chain_info.height = self.chain_height.load(Ordering::Relaxed);
@@ -170,14 +156,14 @@ impl ConnectedPeer {
 }
 
 #[derive(Default)]
-pub(crate) struct ConnectedPeers(ArcSwap<im::HashMap<PeerId, Arc<ConnectedPeer>>>);
+pub(crate) struct Pool(ArcSwap<im::HashMap<PeerId, Arc<Connection>>>);
 
-impl ConnectedPeers {
-    pub fn read(&self) -> Arc<im::HashMap<PeerId, Arc<ConnectedPeer>>> {
+impl Pool {
+    pub fn read(&self) -> Arc<im::HashMap<PeerId, Arc<Connection>>> {
         self.0.load_full()
     }
 
-    pub fn insert(&self, peer: Arc<ConnectedPeer>) {
+    pub fn insert(&self, peer: Arc<Connection>) {
         let id = peer.peer_info.id.clone();
         update(&self.0, |peers| {
             peers.insert(id.clone(), peer.clone());

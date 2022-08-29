@@ -14,7 +14,7 @@ use near_chain_configs::{
     MIN_GC_NUM_EPOCHS_TO_KEEP,
 };
 use near_crypto::{PublicKey, Signature};
-use near_epoch_manager::EpochManager;
+use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, ApprovalInner};
@@ -67,65 +67,14 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
 pub mod errors;
 
-const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
-
-/// Wrapper type for epoch manager to get avoid implementing trait for foreign types.
-pub struct SafeEpochManager(pub Arc<RwLock<EpochManager>>);
-
-impl SafeEpochManager {
-    fn write(&self) -> RwLockWriteGuard<EpochManager> {
-        self.0.write().expect(POISONED_LOCK_ERR)
-    }
-
-    fn read(&self) -> RwLockReadGuard<EpochManager> {
-        self.0.read().expect(POISONED_LOCK_ERR)
-    }
-}
-
-impl EpochInfoProvider for SafeEpochManager {
-    fn validator_stake(
-        &self,
-        epoch_id: &EpochId,
-        last_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<Option<Balance>, EpochError> {
-        let epoch_manager = self.read();
-        let last_block_info = epoch_manager.get_block_info(last_block_hash)?;
-        if last_block_info.slashed().contains_key(account_id) {
-            return Ok(None);
-        }
-        let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
-        Ok(epoch_info.get_validator_id(account_id).map(|id| epoch_info.validator_stake(*id)))
-    }
-
-    fn validator_total_stake(
-        &self,
-        epoch_id: &EpochId,
-        last_block_hash: &CryptoHash,
-    ) -> Result<Balance, EpochError> {
-        let epoch_manager = self.read();
-        let last_block_info = epoch_manager.get_block_info(last_block_hash)?;
-        let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
-        Ok(epoch_info
-            .validators_iter()
-            .filter(|info| !last_block_info.slashed().contains_key(info.account_id()))
-            .map(|info| info.stake())
-            .sum())
-    }
-
-    fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.minimum_stake(prev_block_hash)
-    }
-}
 
 /// Defines Nightshade state transition and validator rotation.
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
@@ -137,7 +86,7 @@ pub struct NightshadeRuntime {
     tries: ShardTries,
     trie_viewer: TrieViewer,
     pub runtime: Runtime,
-    epoch_manager: SafeEpochManager,
+    epoch_manager: EpochManagerHandle,
     shard_tracker: ShardTracker,
     genesis_state_roots: Vec<StateRoot>,
     migration_data: Arc<MigrationData>,
@@ -193,10 +142,9 @@ impl NightshadeRuntime {
             genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
         );
         let tries = ShardTries::new(store.clone(), trie_cache_factory);
-        let epoch_manager = Arc::new(RwLock::new(
-            EpochManager::new_from_genesis_config(store.clone(), &genesis_config)
-                .expect("Failed to start Epoch Manager"),
-        ));
+        let epoch_manager = EpochManager::new_from_genesis_config(store.clone(), &genesis_config)
+            .expect("Failed to start Epoch Manager")
+            .into_handle();
         let shard_tracker = ShardTracker::new(tracked_config, epoch_manager.clone());
         NightshadeRuntime {
             genesis_config,
@@ -205,7 +153,7 @@ impl NightshadeRuntime {
             tries,
             runtime,
             trie_viewer,
-            epoch_manager: SafeEpochManager(epoch_manager),
+            epoch_manager,
             shard_tracker,
             genesis_state_roots: state_roots,
             migration_data: Arc::new(load_migration_data(&genesis.config.chain_id)),
@@ -280,10 +228,13 @@ impl NightshadeRuntime {
     }
 
     fn genesis_state_from_records(store: Store, genesis: &Genesis) -> Vec<StateRoot> {
-        if !genesis.records.as_ref().is_empty() {
-            info!(target: "runtime", "Genesis state has {} records, computing state roots", genesis.records.0.len());
-        } else {
-            info!(target: "runtime", "Computing state roots from records in file {:?}", genesis.records_file);
+        match genesis.records_len() {
+            Ok(count) => {
+                info!(target: "runtime", "Genesis state has {count} records, computing state roots")
+            }
+            Err(path) => {
+                info!(target: "runtime", "Computing state roots from records in file {}", path.display())
+            }
         }
         let mut state_roots = vec![];
         let initial_epoch_config = EpochConfig::from(&genesis.config);
@@ -374,10 +325,9 @@ impl NightshadeRuntime {
         home_dir: &Path,
         genesis: &Genesis,
     ) -> Vec<StateRoot> {
-        let has_records = !genesis.records.as_ref().is_empty();
         let has_dump = home_dir.join(STATE_DUMP_FILE).exists();
         if has_dump {
-            if has_records {
+            if genesis.records_len().is_ok() {
                 warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
             }
             let state_roots = Self::genesis_state_from_dump(store, home_dir);
@@ -957,17 +907,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
     ) -> Result<bool, Error> {
         let epoch_manager = self.epoch_manager.read();
-        if let Ok(chunk_producer) =
-            epoch_manager.get_chunk_producer_info(epoch_id, height_created, shard_id)
-        {
-            let block_info = epoch_manager.get_block_info(last_known_hash)?;
-            if block_info.slashed().contains_key(chunk_producer.account_id()) {
-                return Ok(false);
-            }
-            Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
-        } else {
-            Err(Error::NotAValidator)
+        let chunk_producer =
+            epoch_manager.get_chunk_producer_info(epoch_id, height_created, shard_id)?;
+        let block_info = epoch_manager.get_block_info(last_known_hash)?;
+        if block_info.slashed().contains_key(chunk_producer.account_id()) {
+            return Ok(false);
         }
+        Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
     }
 
     fn verify_approvals_and_threshold_orphan(
@@ -1093,14 +1039,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
     ) -> Result<(ValidatorStake, bool), Error> {
         let epoch_manager = self.epoch_manager.read();
-        match epoch_manager.get_validator_by_account_id(epoch_id, account_id) {
-            Ok(Some(validator)) => {
-                let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
-                Ok((validator, block_info.slashed().contains_key(account_id)))
-            }
-            Ok(None) => Err(Error::NotAValidator),
-            Err(e) => Err(e.into()),
-        }
+        let validator = epoch_manager.get_validator_by_account_id(epoch_id, account_id)?;
+        let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
+        Ok((validator, block_info.slashed().contains_key(account_id)))
     }
 
     fn get_fisherman_by_account_id(
@@ -1110,14 +1051,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
     ) -> Result<(ValidatorStake, bool), Error> {
         let epoch_manager = self.epoch_manager.read();
-        match epoch_manager.get_fisherman_by_account_id(epoch_id, account_id) {
-            Ok(Some(fisherman)) => {
-                let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
-                Ok((fisherman, block_info.slashed().contains_key(account_id)))
-            }
-            Ok(None) => Err(Error::NotAValidator),
-            Err(e) => Err(e.into()),
-        }
+        let fisherman = epoch_manager.get_fisherman_by_account_id(epoch_id, account_id)?;
+        let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
+        Ok((fisherman, block_info.slashed().contains_key(account_id)))
     }
 
     fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, Error> {
@@ -2156,7 +2092,7 @@ mod test {
             minimum_stake_divisor: Option<u64>,
         ) -> Self {
             let (dir, opener) = Store::test_opener();
-            let store = opener.open();
+            let store = opener.open().unwrap();
             let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
                 acc.union(&x.iter().cloned().collect()).cloned().collect()
             });
@@ -2784,7 +2720,7 @@ mod test {
             |env: &mut TestEnv, expected_blocks: &mut [u64], expected_chunks: &mut [u64]| {
                 let epoch_id = env.head.epoch_id.clone();
                 let height = env.head.height;
-                let em = env.runtime.epoch_manager.0.read().unwrap();
+                let em = env.runtime.epoch_manager.read();
                 let bp = em.get_block_producer_info(&epoch_id, height).unwrap();
                 let cp = em.get_chunk_producer_info(&epoch_id, height, 0).unwrap();
 

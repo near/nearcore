@@ -206,8 +206,6 @@ pub enum NetworkRequests {
     ForwardTx(AccountId, SignedTransaction),
     /// Query transaction status
     TxStatus(AccountId, AccountId, CryptoHash),
-    /// Request for receipt execution outcome
-    ReceiptOutComeRequest(AccountId, CryptoHash),
     /// A challenge to invalidate a block.
     Challenge(Challenge),
 }

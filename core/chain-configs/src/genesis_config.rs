@@ -291,13 +291,13 @@ pub struct GenesisRecords(pub Vec<StateRecord>);
 pub struct Genesis {
     #[serde(flatten)]
     pub config: GenesisConfig,
-    pub records: GenesisRecords,
+    records: GenesisRecords,
     /// Genesis object may not contain records.
     /// In this case records can be found in records_file.
     /// The idea is that all records consume too much memory,
     /// so they should be processed in streaming fashion with for_each_record.
     #[serde(skip)]
-    pub records_file: PathBuf,
+    records_file: PathBuf,
 }
 
 impl GenesisConfig {
@@ -571,6 +571,14 @@ impl Genesis {
         stream_records_from_file(reader, callback).map_err(io::Error::from)
     }
 
+    /// Returns number of records in the genesis or path to records file.
+    pub fn records_len(&self) -> Result<usize, &Path> {
+        match self.records.0.len() {
+            0 => Err(&self.records_file),
+            n => Ok(n),
+        }
+    }
+
     /// If records vector is empty processes records stream from records_file.
     /// May panic if records_file is removed or is in wrong format.
     pub fn for_each_record(&self, mut callback: impl FnMut(&StateRecord)) {
@@ -585,6 +593,21 @@ impl Genesis {
                 callback(record);
             }
         }
+    }
+
+    /// Forces loading genesis records into memory.
+    ///
+    /// This is meant for **tests only**.  In production code you should be
+    /// using [`Self::for_each_record`] instead to iterate over records.
+    ///
+    /// If the records are already loaded, simply returns mutable reference to
+    /// them.  Otherwise, reads them from `records_file`, stores them in memory
+    /// and then returns mutable reference to them.
+    pub fn force_read_records(&mut self) -> &mut GenesisRecords {
+        if self.records.as_ref().is_empty() {
+            self.records = GenesisRecords::from_file(&self.records_file);
+        }
+        &mut self.records
     }
 }
 

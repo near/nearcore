@@ -14,7 +14,7 @@ pub struct VMContext {
     /// The account id of that signed the original transaction that led to this
     /// execution.
     pub signer_account_id: AccountId,
-    #[serde(with = "serialize::base_bytes_format")]
+    #[serde(with = "serialize::base58_format")]
     /// The public key that was used to sign the original transaction that led to
     /// this execution.
     pub signer_account_pk: PublicKey,
@@ -51,7 +51,7 @@ pub struct VMContext {
     pub attached_deposit: Balance,
     /// The gas attached to the call that can be used to pay for the gas fees.
     pub prepaid_gas: Gas,
-    #[serde(with = "serialize::base_bytes_format")]
+    #[serde(with = "serialize::base58_format")]
     /// Initial seed for randomness
     pub random_seed: Vec<u8>,
     /// If Some, it means that execution is made in a view mode and defines its configuration.

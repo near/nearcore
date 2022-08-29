@@ -1,7 +1,7 @@
 use num_rational::Rational64;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use near_cache::SyncLruCache;
 use primitive_types::U256;
@@ -17,8 +17,8 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId,
-    ValidatorId, ValidatorKickoutReason, ValidatorStats,
+    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId,
+    EpochInfoProvider, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStats,
 };
 use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
 use near_primitives::views::{
@@ -48,6 +48,64 @@ mod validator_selection;
 const EPOCH_CACHE_SIZE: usize = if cfg!(feature = "no_cache") { 1 } else { 50 };
 const BLOCK_CACHE_SIZE: usize = if cfg!(feature = "no_cache") { 5 } else { 1000 }; // TODO(#5080): fix this
 const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
+
+/// In the current architecture, various components have access to the same
+/// shared mutable instance of [`EpochManager`]. This handle manages locking
+/// required for such access.
+///
+/// It's up to the caller to ensure that there are no logical races when using
+/// `.write` access.
+#[derive(Clone)]
+pub struct EpochManagerHandle {
+    inner: Arc<RwLock<EpochManager>>,
+}
+
+impl EpochManagerHandle {
+    pub fn write(&self) -> RwLockWriteGuard<EpochManager> {
+        self.inner.write().unwrap()
+    }
+
+    pub fn read(&self) -> RwLockReadGuard<EpochManager> {
+        self.inner.read().unwrap()
+    }
+}
+
+impl EpochInfoProvider for EpochManagerHandle {
+    fn validator_stake(
+        &self,
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<Option<Balance>, EpochError> {
+        let epoch_manager = self.read();
+        let last_block_info = epoch_manager.get_block_info(last_block_hash)?;
+        if last_block_info.slashed().contains_key(account_id) {
+            return Ok(None);
+        }
+        let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
+        Ok(epoch_info.get_validator_id(account_id).map(|id| epoch_info.validator_stake(*id)))
+    }
+
+    fn validator_total_stake(
+        &self,
+        epoch_id: &EpochId,
+        last_block_hash: &CryptoHash,
+    ) -> Result<Balance, EpochError> {
+        let epoch_manager = self.read();
+        let last_block_info = epoch_manager.get_block_info(last_block_hash)?;
+        let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
+        Ok(epoch_info
+            .validators_iter()
+            .filter(|info| !last_block_info.slashed().contains_key(info.account_id()))
+            .map(|info| info.stake())
+            .sum())
+    }
+
+    fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.minimum_stake(prev_block_hash)
+    }
+}
 
 /// Tracks epoch information across different forks, such as validators.
 /// Note: that even after garbage collection, the data about genesis epoch should be in the store.
@@ -164,6 +222,11 @@ impl EpochManager {
             store_update.commit()?;
         }
         Ok(epoch_manager)
+    }
+
+    pub fn into_handle(self) -> EpochManagerHandle {
+        let inner = Arc::new(RwLock::new(self));
+        EpochManagerHandle { inner }
     }
 
     /// Only used in mock node
@@ -892,9 +955,11 @@ impl EpochManager {
         &self,
         epoch_id: &EpochId,
         account_id: &AccountId,
-    ) -> Result<Option<ValidatorStake>, EpochError> {
+    ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
-        Ok(epoch_info.get_validator_by_account(account_id))
+        epoch_info
+            .get_validator_by_account(account_id)
+            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))
     }
 
     /// Returns fisherman for given account id for given epoch.
@@ -902,9 +967,11 @@ impl EpochManager {
         &self,
         epoch_id: &EpochId,
         account_id: &AccountId,
-    ) -> Result<Option<ValidatorStake>, EpochError> {
+    ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
-        Ok(epoch_info.get_fisherman_by_account(account_id))
+        epoch_info
+            .get_fisherman_by_account(account_id)
+            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))
     }
 
     pub fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
