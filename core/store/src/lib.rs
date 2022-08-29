@@ -46,6 +46,7 @@ pub mod test_utils;
 mod trie;
 
 pub use crate::config::{Mode, StoreConfig, StoreOpener};
+pub use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError};
 
 #[derive(Clone)]
 pub struct Store {
@@ -82,10 +83,11 @@ impl Store {
     }
 
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        let value = self
-            .storage
-            .get_raw_bytes(column, key)
-            .map(|result| refcount::get_with_rc_logic(column, result))?;
+        let value = if column.is_rc() {
+            self.storage.get_with_rc_stripped(column, key)
+        } else {
+            self.storage.get_raw_bytes(column, key)
+        }?;
         tracing::trace!(
             target: "store",
             db_op = "get",
@@ -356,6 +358,17 @@ impl StoreUpdate {
         self.transaction.merge(other.transaction)
     }
 
+    pub fn update_cache(&self) -> io::Result<()> {
+        if let Some(tries) = &self.shard_tries {
+            // Note: avoid comparing wide pointers here to work-around
+            // https://github.com/rust-lang/rust/issues/69757
+            let addr = |arc| Arc::as_ptr(arc) as *const u8;
+            assert_eq!(addr(&tries.get_store().storage), addr(&self.storage),);
+            tries.update_cache(&self.transaction)?;
+        }
+        Ok(())
+    }
+
     pub fn commit(self) -> io::Result<()> {
         debug_assert!(
             {
@@ -376,13 +389,7 @@ impl StoreUpdate {
             "Transaction overwrites itself: {:?}",
             self
         );
-        if let Some(tries) = self.shard_tries {
-            // Note: avoid comparing wide pointers here to work-around
-            // https://github.com/rust-lang/rust/issues/69757
-            let addr = |arc| Arc::as_ptr(arc) as *const u8;
-            assert_eq!(addr(&tries.get_store().storage), addr(&self.storage),);
-            tries.update_cache(&self.transaction)?;
-        }
+        self.update_cache()?;
         let _span = tracing::trace_span!(target: "store", "commit").entered();
         for op in &self.transaction.ops {
             match op {

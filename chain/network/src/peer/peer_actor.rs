@@ -5,13 +5,12 @@ use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData}
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
-use crate::peer_manager::peer_manager_actor::NetworkState;
+use crate::peer_manager::peer_manager_actor::{Event, NetworkState};
 use crate::private_actix::PeersResponse;
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::private_actix::{
     PeersRequest, RegisterPeer, RegisterPeerResponse, SendMessage, Unregister,
 };
-use crate::sink::Sink;
 use crate::stats::metrics;
 use crate::types::{
     Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses, PeerMessage,
@@ -24,9 +23,9 @@ use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    Ban, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfoV2, PeerIdOrHash,
-    PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType, ReasonForBan,
-    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+    Ban, EdgeState, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfoV2,
+    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType,
+    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
 };
 use near_network_primitives::types::{Edge, PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
@@ -65,31 +64,14 @@ const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
 const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
 
-/// A generic set of events (observable in tests) that a PeerActor may generate.
-/// Ideally the tests should observe only public API properties, but until
-/// we are at that stage, feel free to add any events that you need to observe.
-/// In particular prefer emitting a new event to polling for a state change.
-// TEST-ONLY
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum Event {
-    // Reported once a message has been processed.
-    // In contrast to typical RPC protocols, many P2P messages do not trigger
-    // sending a response at the end of processing.
-    // However, for precise instrumentation in tests it is useful to know when
-    // processing has been finished. We simulate the "RPC response" by reporting
-    // an event MessageProcessed.
-    //
-    // Given that processing is asynchronous and unstructured as of now,
-    // it is hard to pinpoint all the places when the processing of a message is
-    // actually complete. Currently this event is reported only for some message types,
-    // feel free to add support for more.
-    MessageProcessed(PeerMessage),
-}
-
 pub(crate) struct PeerActor {
     clock: time::Clock,
+
+    /// Shared state of the network module.
+    network_state: Arc<NetworkState>,
     /// This node's id and address (either listening or socket address).
     my_node_info: PeerInfo,
+
     /// Peer address from connection.
     peer_addr: SocketAddr,
     /// Peer id and info. Present if outbound or ready.
@@ -102,8 +84,7 @@ pub(crate) struct PeerActor {
     protocol_version: ProtocolVersion,
     /// Framed wrapper to send messages through the TCP connection.
     framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
-    /// Handshake timeout.
-    handshake_timeout: time::Duration,
+
     /// Peer manager recipient to break the dependency loop.
     /// PeerManager is a recipient of 2 types of messages, therefore
     /// to inject a fake PeerManager in tests, we need a separate
@@ -113,9 +94,6 @@ pub(crate) struct PeerActor {
     tracker: Arc<Mutex<Tracker>>,
     /// Edge information needed to build the real edge. This is relevant for handshake.
     partial_edge_info: Option<PartialEdgeInfo>,
-    /// How many transactions we have received since the last block message
-    /// Note: Shared between multiple Peers.
-    txns_since_last_block: Arc<AtomicUsize>,
     /// How many peer actors are created
     peer_counter: Arc<AtomicUsize>,
     /// Cache of recently routed messages, this allows us to drop duplicates
@@ -130,11 +108,6 @@ pub(crate) struct PeerActor {
 
     /// Shared state of the connection. Populated once the connection is established.
     connection: Option<Arc<connection::Connection>>,
-    /// Shared state of the network module.
-    network_state: Arc<NetworkState>,
-
-    /// test-only.
-    event_sink: Sink<Event>,
 }
 
 impl Debug for PeerActor {
@@ -161,21 +134,16 @@ impl PeerActor {
         peer_info: Option<PeerInfo>,
         connecting_status: ConnectingStatus,
         framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
-        handshake_timeout: time::Duration,
         peer_manager_addr: Recipient<PeerToManagerMsg>,
-        partial_edge_info: Option<PartialEdgeInfo>,
-        txns_since_last_block: Arc<AtomicUsize>,
         peer_counter: Arc<AtomicUsize>,
         throttle_controller: ThrottleController,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
-        event_sink: Sink<Event>,
     ) -> Self {
         PeerActor {
             clock,
             my_node_info,
             peer_addr,
-            peer_info: peer_info.into(),
             peer_type: match &connecting_status {
                 ConnectingStatus::Inbound => PeerType::Inbound,
                 ConnectingStatus::Outbound { .. } => PeerType::Outbound,
@@ -183,11 +151,12 @@ impl PeerActor {
             peer_status: PeerStatus::Connecting(connecting_status),
             protocol_version: PROTOCOL_VERSION,
             framed,
-            handshake_timeout,
             peer_manager_addr,
             tracker: Default::default(),
-            partial_edge_info,
-            txns_since_last_block,
+            partial_edge_info: peer_info
+                .as_ref()
+                .map(|info| network_state.propose_edge(&info.id, None)),
+            peer_info: peer_info.into(),
             peer_counter,
             routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
             throttle_controller,
@@ -195,7 +164,6 @@ impl PeerActor {
             force_encoding,
             connection: None,
             network_state,
-            event_sink,
         }
     }
 
@@ -615,7 +583,7 @@ impl PeerActor {
         } else {
             return false;
         };
-        let r = self.txns_since_last_block.load(Ordering::Acquire);
+        let r = self.network_state.txns_since_last_block.load(Ordering::Acquire);
         r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE
     }
 }
@@ -630,7 +598,7 @@ impl Actor for PeerActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            self.handshake_timeout.try_into().unwrap(),
+            self.network_state.config.handshake_timeout.try_into().unwrap(),
             move |act, ctx| match &act.peer_status {
                 PeerStatus::Connecting { .. } => {
                     info!(target: "network", "Handshake timeout expired for {}", act.peer_info);
@@ -678,6 +646,7 @@ impl Actor for PeerActor {
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
         Arbiter::current().stop();
+        self.network_state.config.event_sink.push(Event::PeerActorStopped)
     }
 }
 
@@ -698,7 +667,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
         // as long as it travels to PeerManager, etc.
 
         self.update_stats_on_receiving_message(msg.len());
-        let peer_msg = match self.parse_message(&msg) {
+        let mut peer_msg = match self.parse_message(&msg) {
             Ok(msg) => msg,
             Err(err) => {
                 debug!(target: "network", "Received invalid data {:?} from {}: {}", logging::pretty_vec(&msg), self.peer_info, err);
@@ -726,10 +695,10 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
         if let PeerMessage::Routed(routed) = &peer_msg {
             if let RoutedMessage { body: RoutedMessageBody::ForwardTx(_), .. } = routed.as_ref().msg
             {
-                self.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
+                self.network_state.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
             }
         } else if let PeerMessage::Block(_) = &peer_msg {
-            self.txns_since_last_block.store(0, Ordering::Release);
+            self.network_state.txns_since_last_block.store(0, Ordering::Release);
         }
 
         tracing::trace!(target: "network", "Received message: {}", peer_msg);
@@ -742,6 +711,22 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES
                 .with_label_values(&labels)
                 .inc_by(msg.len() as u64);
+        }
+
+        // Optionally, ignore any received tombstones after startup. This is to
+        // prevent overload from too much accumulated deleted edges.
+        //
+        // We have similar code to skip sending tombstones, here we handle the
+        // case when our peer doesn't use that logic yet.
+        if let Some(skip_tombstones) = self.network_state.config.skip_tombstones {
+            if let PeerMessage::SyncRoutingTable(routing_table) = &mut peer_msg {
+                if let Some(connection) = &self.connection {
+                    if connection.connection_established_time + skip_tombstones > self.clock.now() {
+                        routing_table.edges.retain(|edge| edge.edge_type() == EdgeState::Active);
+                        metrics::EDGE_TOMBSTONE_RECEIVING_SKIPPED.inc();
+                    }
+                }
+            }
         }
 
         match (&self.peer_status, peer_msg.clone()) {
@@ -1104,7 +1089,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     if let Some(ban_reason) = ban_reason {
                         act.ban_peer(ctx, ban_reason);
                     }
-                    act.event_sink.push(Event::MessageProcessed(peer_msg));
+                    act.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
                 })
                 .spawn(ctx);
             }
