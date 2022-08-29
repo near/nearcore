@@ -152,6 +152,35 @@ pub(crate) struct PoolSnapshot {
     pub me: PeerId,
     pub ready: im::HashMap<PeerId, Arc<Connection>>,
     /// Set of started outbound connections, which are not ready yet.
+    /// We need to keep those to prevent a deadlock when 2 peers try
+    /// to connect to each other at the same time.
+    ///
+    /// The procedure of establishing a connections should look as follows:
+    /// 1. Peer A decides to connect to peer B.
+    /// 2. Peer A gets an OutboundHandshakePermit by calling pool.start_outbound(B).
+    /// 3. Peer A connects to peer B.
+    /// 4. Peer B accepts the connection by calling pool.insert_ready(<connection to A>).
+    /// 5. Peer B notifies A that it has accepted the connection.
+    /// 6. Peer A accepts the connection by calling pool.insert_ready(<connection to B>).
+    /// 7. Peer A drops the OutboundHandshakePermit.
+    ///
+    /// In case any of these steps fails the connection and the OutboundHandshakePermit
+    /// should be dropped.
+    ///
+    /// Now imagine that A and B try to connect to each other at the same time:
+    /// a. Peer A executes 1,2,3.
+    /// b. Peer B executes 1,2,3.
+    /// c. Both A and B try to execute 4 and exactly one of these calls will succeed: the tie
+    ///    is broken by comparing PeerIds: connection from smaller to bigger takes priority.
+    ///    WLOG let us assume that A < B.
+    /// d. Peer A rejects connection from B, peer B accepts connection from A and notifies A.
+    /// e. A continues with 6,7, B just drops the connection and the permit.
+    ///
+    /// Now imagine a different interleaving:
+    /// a. Peer B executes 1,2,3 and A accepts the connection (i.e. 4)
+    /// b. Peer A executes 1 and then attempts 2.
+    /// In this scenario A will fail to obtain a permit, because it has already accepted a
+    /// connection from B.
     pub outbound_handshakes: im::HashSet<PeerId>,
 }
 
@@ -211,9 +240,23 @@ impl Pool {
             if pool.ready.contains_key(id) {
                 return Err(PoolError::AlreadyConnected);
             }
-            if peer.peer_type == PeerType::Inbound {
-                if pool.outbound_handshakes.contains(id) && id < &pool.me {
-                    return Err(PoolError::AlreadyStartedConnecting);
+            match peer.peer_type {
+                PeerType::Inbound => {
+                    if pool.outbound_handshakes.contains(id) && id >= &pool.me {
+                        return Err(PoolError::AlreadyStartedConnecting);
+                    }
+                }
+                PeerType::Outbound => {
+                    // This is a bug, if an outbound permit is not kept
+                    // until insert_ready is called.
+                    // TODO(gprusak): in fact, we can make insert_ready
+                    // consume the outbound permit to additionally ensure
+                    // that permit is dropped properly. However we will still
+                    // need a runtime check to verify that the permit comes
+                    // from the same Pool instance and is for the right PeerId.
+                    if !pool.outbound_handshakes.contains(id) {
+                        panic!("bug detected: OutboundHandshakePermit dropped before calling Pool.insert_ready()")
+                    }
                 }
             }
             pool.ready.insert(id.clone(), peer);

@@ -1190,6 +1190,18 @@ pub(crate) enum ConnectingStatus {
     Outbound(connection::OutboundHandshakePermit),
 }
 
+/// State machine of the PeerActor.
+/// The transition graph for inbound connection is:
+/// Connecting(Inbound) -> Ready -> Banned
+/// for outbound connection is:
+/// Connecting(Outbound) -> Ready -> Banned
+///
+/// From every state the PeerActor can be immediately shut down.
+/// In the Connecting state only Handshake-related messages are allowed.
+/// All the other messages can be exchanged only in the Ready state.
+///
+/// For the exact process of establishing a connection between peers,
+/// see PoolSnapshot in chain/network/src/peer_manager/connection.rs.
 #[derive(Debug)]
 enum PeerStatus {
     /// Handshake in progress.
