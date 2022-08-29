@@ -203,7 +203,7 @@ pub struct Handshake {
 }
 
 impl Handshake {
-    pub(crate) fn new(
+    pub fn new(
         version: ProtocolVersion,
         peer_id: PeerId,
         target_peer_id: PeerId,
@@ -298,17 +298,14 @@ pub enum ParsePeerMessageError {
 }
 
 impl PeerMessage {
-    pub(crate) fn serialize(&self, enc: Encoding) -> Vec<u8> {
+    pub fn serialize(&self, enc: Encoding) -> Vec<u8> {
         match enc {
             Encoding::Borsh => borsh::PeerMessage::from(self).try_to_vec().unwrap(),
             Encoding::Proto => proto::PeerMessage::from(self).write_to_bytes().unwrap(),
         }
     }
 
-    pub(crate) fn deserialize(
-        enc: Encoding,
-        data: &[u8],
-    ) -> Result<PeerMessage, ParsePeerMessageError> {
+    pub fn deserialize(enc: Encoding, data: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
         Ok(match enc {
             Encoding::Borsh => (&borsh::PeerMessage::try_from_slice(data)
                 .map_err(ParsePeerMessageError::BorshDecode)?)
@@ -321,14 +318,14 @@ impl PeerMessage {
         })
     }
 
-    pub(crate) fn msg_variant(&self) -> &'static str {
+    pub fn msg_variant(&self) -> &'static str {
         match self {
             PeerMessage::Routed(routed_msg) => routed_msg.msg.body_variant(),
             _ => self.into(),
         }
     }
 
-    pub(crate) fn is_client_message(&self) -> bool {
+    pub fn is_client_message(&self) -> bool {
         match self {
             PeerMessage::Block(_)
             | PeerMessage::BlockHeaders(_)
@@ -352,7 +349,7 @@ impl PeerMessage {
         }
     }
 
-    pub(crate) fn is_view_client_message(&self) -> bool {
+    pub fn is_view_client_message(&self) -> bool {
         match self {
             PeerMessage::BlockHeadersRequest(_)
             | PeerMessage::BlockRequest(_)
