@@ -162,7 +162,7 @@ pub trait ChainStoreAccess {
         Ok(None)
     }
     /// Returns block header from the current chain for given height if present.
-    fn get_header_by_height(&self, height: BlockHeight) -> Result<BlockHeader, Error> {
+    fn get_block_header_by_height(&self, height: BlockHeight) -> Result<BlockHeader, Error> {
         let hash = self.get_block_hash_by_height(height)?;
         self.get_block_header(&hash)
     }
@@ -180,7 +180,7 @@ pub trait ChainStoreAccess {
         shard_id: ShardId,
     ) -> Result<ChunkHash, Error>;
     /// Returns block header from the current chain defined by `sync_hash` for given height if present.
-    fn get_header_on_chain_by_height(
+    fn get_block_header_on_chain_by_height(
         &self,
         sync_hash: &CryptoHash,
         height: BlockHeight,
@@ -557,7 +557,7 @@ impl ChainStore {
             }
         } else {
             let header = self
-                .get_header_on_chain_by_height(prev_block_header.hash(), base_height)
+                .get_block_header_on_chain_by_height(prev_block_header.hash(), base_height)
                 .map_err(|_| InvalidTxError::InvalidChain)?;
             if header.hash() == base_block_hash {
                 Ok(())
@@ -1670,7 +1670,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
     #[cfg(feature = "test_features")]
     pub fn adv_save_latest_known(&mut self, height: BlockHeight) -> Result<(), Error> {
-        let header = self.get_header_by_height(height)?;
+        let header = self.get_block_header_by_height(height)?;
         let tip = Tip::from_header(&header);
         self.chain_store
             .save_latest_known(LatestKnown { height, seen: to_timestamp(Utc::now()) })?;
@@ -2440,6 +2440,10 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::CachedContractCode => {
                 unreachable!();
             }
+            #[cfg(feature = "protocol_feature_flat_state")]
+            DBCol::FlatState => {
+                unreachable!();
+            }
         }
         self.inc_gc(col);
         self.merge(store_update);
@@ -2771,8 +2775,14 @@ impl<'a> ChainStoreUpdate<'a> {
                 block_hash,
             )?;
         }
+
+        // Convert trie changes to database ops for trie nodes.
+        // Create separate store update for deletions, because we want to update cache and don't want to remove nodes
+        // from the store.
+        let mut deletions_store_update = self.store().store_update();
         for mut wrapped_trie_changes in self.trie_changes.drain(..) {
             wrapped_trie_changes.insertions_into(&mut store_update);
+            wrapped_trie_changes.deletions_into(&mut deletions_store_update);
             wrapped_trie_changes.state_changes_into(&mut store_update);
 
             if self.chain_store.save_trie_changes {
@@ -2781,6 +2791,8 @@ impl<'a> ChainStoreUpdate<'a> {
                     .map_err(|err| Error::Other(err.to_string()))?;
             }
         }
+        deletions_store_update.update_cache()?;
+
         for ((block_hash, shard_id), state_changes) in
             self.add_state_changes_for_split_states.drain()
         {
@@ -3311,7 +3323,7 @@ mod tests {
             DBCol::ChunkExtra,
         ];
         for col in DBCol::iter() {
-            println!("current column is {:?}", col);
+            println!("current column is {col}");
             if gced_cols.contains(&col) {
                 // only genesis block includes new chunk.
                 let count = if col == DBCol::OutcomeIds { Some(1) } else { Some(8) };

@@ -135,7 +135,7 @@ fn check_tx_processing(
     next_height
 }
 
-fn deploy_test_contract(
+pub(crate) fn deploy_test_contract(
     env: &mut TestEnv,
     account_id: AccountId,
     wasm_code: &[u8],
@@ -230,24 +230,6 @@ fn prepare_env_with_congestion(
     }
 
     (env, tx_hashes)
-}
-
-/// Create a `TestEnv` with an account and a contract deployed to that account.
-#[cfg_attr(not(feature = "protocol_feature_fix_contract_loading_cost"), allow(unused))]
-fn prepare_env_with_contract(
-    epoch_length: u64,
-    protocol_version: u32,
-    account: AccountId,
-    contract: Vec<u8>,
-) -> TestEnv {
-    let mut genesis = Genesis::test(vec![account.clone()], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = protocol_version;
-    let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
-        .build();
-    deploy_test_contract(&mut env, account, &contract, epoch_length.clone(), 1);
-    env
 }
 
 /// Runs block producing client and stops after network mock received two blocks.
@@ -517,29 +499,30 @@ fn produce_block_with_approvals() {
 #[test]
 fn produce_block_with_approvals_arrived_early() {
     init_test_logger();
-    let validators = vec![vec![
+    let vs = ValidatorSchedule::new().num_shards(4).block_producers_per_epoch(vec![vec![
         "test1".parse().unwrap(),
         "test2".parse().unwrap(),
         "test3".parse().unwrap(),
         "test4".parse().unwrap(),
-    ]];
+    ]]);
+    let archive = vec![false; vs.all_block_producers().count()];
+    let epoch_sync_enabled = vec![true; vs.all_block_producers().count()];
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
     let block_holder: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
     run_actix(async move {
         let mut approval_counter = 0;
         setup_mock_all_validators(
-            validators.clone(),
+            vs,
             key_pairs,
-            1,
             true,
             2000,
             false,
             false,
             100,
             true,
-            vec![false; validators.iter().map(|x| x.len()).sum()],
-            vec![true; validators.iter().map(|x| x.len()).sum()],
+            archive,
+            epoch_sync_enabled,
             false,
             Box::new(
                 move |conns,
@@ -741,29 +724,29 @@ enum InvalidBlockMode {
 
 fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
     init_test_logger();
-    let validators = vec![vec![
+    let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![vec![
         "test1".parse().unwrap(),
         "test2".parse().unwrap(),
         "test3".parse().unwrap(),
         "test4".parse().unwrap(),
-    ]];
+    ]]);
+    let validators = vs.all_block_producers().cloned().collect::<Vec<_>>();
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
     run_actix(async move {
         let mut ban_counter = 0;
         let mut sent_bad_blocks = false;
         setup_mock_all_validators(
-            validators.clone(),
+            vs,
             key_pairs,
-            1,
             true,
             100,
             false,
             false,
             100,
             true,
-            vec![false; validators.iter().map(|x| x.len()).sum()],
-            vec![true; validators.iter().map(|x| x.len()).sum()],
+            vec![false; validators.len()],
+            vec![true; validators.len()],
             false,
             Box::new(
                 move |conns,
@@ -774,8 +757,8 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                         NetworkRequests::Block { block } => {
                             if block.header().height() >= 4 && !sent_bad_blocks {
                                 let block_producer_idx =
-                                    block.header().height() as usize % validators[0].len();
-                                let block_producer = &validators[0][block_producer_idx];
+                                    block.header().height() as usize % validators.len();
+                                let block_producer = &validators[block_producer_idx];
                                 let validator_signer1 = InMemoryValidatorSigner::from_seed(
                                     block_producer.clone(),
                                     KeyType::ED25519,
@@ -982,6 +965,7 @@ fn client_sync_headers() {
             received_bytes_per_sec: 0,
             known_producers: vec![],
             peer_counter: 0,
+            tier1_accounts: vec![],
         }));
         wait_or_panic(2000);
     });
@@ -2045,7 +2029,7 @@ fn test_sync_hash_validity() {
         env.produce_block(0, i);
     }
     for i in 0..19 {
-        let block_hash = *env.clients[0].chain.get_header_by_height(i).unwrap().hash();
+        let block_hash = *env.clients[0].chain.get_block_header_by_height(i).unwrap().hash();
         let res = env.clients[0].chain.check_sync_hash_validity(&block_hash);
         println!("height {:?} -> {:?}", i, res);
         if i == 11 || i == 16 {
@@ -2101,6 +2085,8 @@ fn test_block_height_processed_orphan() {
 
 #[test]
 fn test_validate_chunk_extra() {
+    let mut capture = near_o11y::TracingCapture::enable();
+
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
@@ -2184,7 +2170,14 @@ fn test_validate_chunk_extra() {
         assert_matches!(res.unwrap_err(), near_chain::Error::ChunksMissing(_));
     }
 
-    // Process the previously unavailable chunk. This causes two blocks to be accepted.
+    // Process the previously unavailable chunk. This causes two blocks to be
+    // accepted. Technically, the blocks are accepted concurrently, so we can
+    // observe either `block1 -> block2` reorg or `block2, block1` fork. We want
+    // to try to produce chunks on top of block1, so we force the reorg case
+    // using `capture`
+
+    env.pause_block_processing(&mut capture, block2.hash());
+
     let mut chain_store =
         ChainStore::new(env.clients[0].chain.store().store().clone(), genesis_height, true);
     let chunk_header = encoded_chunk.cloned_header();
@@ -2194,8 +2187,11 @@ fn test_validate_chunk_extra() {
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
     env.clients[0].process_blocks_with_missing_chunks(Arc::new(|_| {}));
-    let accepted_blocks = env.clients[0].finish_blocks_in_processing();
-    assert_eq!(accepted_blocks.len(), 2);
+    let accepted_blocks = env.clients[0].finish_block_in_processing(block1.hash());
+    assert_eq!(accepted_blocks.len(), 1);
+    env.resume_block_processing(block2.hash());
+    let accepted_blocks = env.clients[0].finish_block_in_processing(block2.hash());
+    assert_eq!(accepted_blocks.len(), 1);
 
     // About to produce a block on top of block1. Validate that this chunk is legit.
     let chunks = env.clients[0].shards_mgr.prepare_chunks(block1.hash());
@@ -2480,8 +2476,8 @@ fn test_refund_receipts_processing() {
             .runtime_adapter
             .get_tries()
             .new_trie_update(test_shard_uid, *chunk_extra.state_root());
-        let delayed_indices =
-            get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
+        let delayed_indices: Option<DelayedReceiptIndices> =
+            get(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
         let finished_all_delayed_receipts = match delayed_indices {
             None => false,
             Some(delayed_indices) => {
@@ -2511,9 +2507,9 @@ fn test_refund_receipts_processing() {
                     receipt_outcome.outcome_with_id.outcome.status,
                     ExecutionStatus::Failure(TxExecutionError::ActionError(_))
                 );
-                receipt_outcome.outcome_with_id.outcome.receipt_ids.iter().for_each(|id| {
+                for id in receipt_outcome.outcome_with_id.outcome.receipt_ids.iter() {
                     refund_receipt_ids.insert(*id);
-                });
+                }
             }
             _ => assert!(false),
         };
@@ -2530,9 +2526,9 @@ fn test_refund_receipts_processing() {
             .unwrap()
             .remove(&0)
             .unwrap();
-        execution_outcomes_from_block.iter().for_each(|outcome| {
+        for outcome in execution_outcomes_from_block.iter() {
             processed_refund_receipt_ids.insert(outcome.outcome_with_id.id);
-        });
+        }
         let chunk_extra =
             env.clients[0].chain.get_chunk_extra(block.hash(), &test_shard_uid).unwrap().clone();
         assert_eq!(execution_outcomes_from_block.len(), 1);
@@ -2543,7 +2539,7 @@ fn test_refund_receipts_processing() {
 
 #[test]
 fn test_wasmer2_upgrade() {
-    let mut capture = near_logger_utils::TracingCapture::enable();
+    let mut capture = near_o11y::TracingCapture::enable();
 
     let old_protocol_version =
         near_primitives::version::ProtocolFeature::Wasmer2.protocol_version() - 1;
@@ -2615,91 +2611,6 @@ fn test_wasmer2_upgrade() {
 
     assert!(logs_at_old_version.iter().any(|l| l.contains(&"vm_kind=Wasmer0")));
     assert!(logs_at_new_version.iter().any(|l| l.contains(&"vm_kind=Wasmer2")));
-}
-
-#[test]
-#[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
-fn test_account_id_in_function_call_permission_upgrade() {
-    use near_primitives::{
-        account::{AccessKey, AccessKeyPermission, FunctionCallPermission},
-        errors::ActionsValidationError,
-        transaction::AddKeyAction,
-    };
-
-    let old_protocol_version =
-        near_primitives::version::ProtocolFeature::AccountIdInFunctionCallPermission
-            .protocol_version()
-            - 1;
-    let new_protocol_version = old_protocol_version + 1;
-
-    // Prepare TestEnv with a contract at the old protocol version.
-    let mut env = {
-        let epoch_length = 5;
-        let mut genesis =
-            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        genesis.config.epoch_length = epoch_length;
-        genesis.config.protocol_version = old_protocol_version;
-        let chain_genesis = ChainGenesis::new(&genesis);
-        TestEnv::builder(chain_genesis)
-            .runtime_adapters(vec![Arc::new(
-                nearcore::NightshadeRuntime::test_with_runtime_config_store(
-                    Path::new("../../../.."),
-                    create_test_store(),
-                    &genesis,
-                    TrackedConfig::new_empty(),
-                    RuntimeConfigStore::new(None),
-                ),
-            ) as Arc<dyn RuntimeAdapter>])
-            .build()
-    };
-
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let tx = Transaction {
-        signer_id: "test0".parse().unwrap(),
-        receiver_id: "test0".parse().unwrap(),
-        public_key: signer.public_key(),
-        actions: vec![Action::AddKey(AddKeyAction {
-            public_key: signer.public_key(),
-            access_key: AccessKey {
-                nonce: 1,
-                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                    allowance: None,
-                    receiver_id: "#".to_string(),
-                    method_names: vec![],
-                }),
-            },
-        })],
-        nonce: 0,
-        block_hash: CryptoHash::default(),
-    };
-
-    // Run the transaction, it should pass as we don't do validation at this protocol version.
-    {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction =
-            Transaction { nonce: 10, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
-        let res = env.clients[0].process_tx(signed_transaction, false, false);
-        assert_eq!(res, NetworkClientResponses::ValidTx);
-        for i in 0..3 {
-            env.produce_block(0, tip.height + i + 1);
-        }
-    };
-
-    env.upgrade_protocol(new_protocol_version);
-
-    // Re-run the transaction, now it fails due to invalid account id.
-    {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction =
-            Transaction { nonce: 11, block_hash: tip.last_block_hash, ..tx }.sign(&signer);
-        let res = env.clients[0].process_tx(signed_transaction, false, false);
-        assert_eq!(
-            res,
-            NetworkClientResponses::InvalidTx(InvalidTxError::ActionsValidation(
-                ActionsValidationError::InvalidAccountId { account_id: "#".to_string() }
-            ))
-        )
-    };
 }
 
 #[test]
@@ -3241,10 +3152,8 @@ fn test_congestion_receipt_execution() {
         .runtime_adapter
         .get_tries()
         .new_trie_update(ShardUId::single_shard(), *chunk_extra.state_root());
-    let delayed_indices =
-        get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices)
-            .unwrap()
-            .unwrap();
+    let delayed_indices: DelayedReceiptIndices =
+        get(&state_update, &TrieKey::DelayedReceiptIndices).unwrap().unwrap();
     assert!(delayed_indices.next_available_index > 0);
     let mut block = env.clients[0].produce_block(height + 1).unwrap().unwrap();
     testlib::process_blocks::set_no_chunk_in_block(&mut block, &prev_block);
@@ -4058,245 +3967,6 @@ mod access_key_nonce_range_tests {
     }
 }
 
-mod protocol_feature_restore_receipts_after_fix_tests {
-    use super::*;
-    use near_primitives::runtime::migration_data::MigrationData;
-    use near_primitives::version::ProtocolFeature;
-    use nearcore::migrations::load_migration_data;
-
-    const EPOCH_LENGTH: u64 = 5;
-    const HEIGHT_TIMEOUT: u64 = 10;
-
-    fn run_test(
-        chain_id: &str,
-        low_height_with_no_chunk: BlockHeight,
-        high_height_with_no_chunk: BlockHeight,
-        should_be_restored: bool,
-    ) {
-        init_test_logger();
-
-        let protocol_version =
-            ProtocolFeature::RestoreReceiptsAfterFixApplyChunks.protocol_version() - 1;
-        let mut genesis =
-            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        genesis.config.chain_id = String::from(chain_id);
-        genesis.config.epoch_length = EPOCH_LENGTH;
-        genesis.config.protocol_version = protocol_version;
-        let chain_genesis = ChainGenesis::new(&genesis);
-        let runtime = nearcore::NightshadeRuntime::test(
-            Path::new("../../../.."),
-            create_test_store(),
-            &genesis,
-        );
-        // TODO #4305: get directly from NightshadeRuntime
-        let migration_data = load_migration_data(&genesis.config.chain_id);
-
-        let mut env = TestEnv::builder(chain_genesis)
-            .runtime_adapters(vec![Arc::new(runtime) as Arc<dyn RuntimeAdapter>])
-            .build();
-
-        let get_restored_receipt_hashes = |migration_data: &MigrationData| -> HashSet<CryptoHash> {
-            HashSet::from_iter(
-                migration_data
-                    .restored_receipts
-                    .get(&0u64)
-                    .cloned()
-                    .unwrap_or_default()
-                    .iter()
-                    .map(|receipt| receipt.receipt_id),
-            )
-        };
-
-        let mut receipt_hashes_to_restore = get_restored_receipt_hashes(&migration_data);
-        let mut height: BlockHeight = 1;
-        let mut last_update_height: BlockHeight = 0;
-
-        // Simulate several blocks to guarantee that they are produced successfully.
-        // Stop block production if all receipts were restored. Or, if some receipts are still not
-        // applied, upgrade already happened, and no new receipt was applied in some last blocks,
-        // consider the process stuck to avoid any possibility of infinite loop.
-        while height < 15
-            || (!receipt_hashes_to_restore.is_empty()
-                && height - last_update_height < HEIGHT_TIMEOUT)
-        {
-            let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
-            if low_height_with_no_chunk <= height && height < high_height_with_no_chunk {
-                let prev_block =
-                    env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
-                testlib::process_blocks::set_no_chunk_in_block(&mut block, &prev_block);
-            }
-            set_block_protocol_version(
-                &mut block,
-                "test0".parse().unwrap(),
-                ProtocolFeature::RestoreReceiptsAfterFixApplyChunks.protocol_version(),
-            );
-
-            env.process_block(0, block, Provenance::PRODUCED);
-
-            let last_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
-            let protocol_version = env.clients[0]
-                .runtime_adapter
-                .get_epoch_protocol_version(last_block.header().epoch_id())
-                .unwrap();
-
-            for receipt_id in receipt_hashes_to_restore.clone().iter() {
-                if env.clients[0].chain.get_execution_outcome(receipt_id).is_ok() {
-                    assert!(
-                        protocol_version
-                            >= ProtocolFeature::RestoreReceiptsAfterFixApplyChunks
-                                .protocol_version(),
-                        "Restored receipt {} was executed before protocol upgrade",
-                        receipt_id
-                    );
-                    receipt_hashes_to_restore.remove(receipt_id);
-                    last_update_height = height;
-                };
-            }
-
-            // Update last updated height anyway if upgrade did not happen
-            if protocol_version
-                < ProtocolFeature::RestoreReceiptsAfterFixApplyChunks.protocol_version()
-            {
-                last_update_height = height;
-            }
-            height += 1;
-        }
-
-        if should_be_restored {
-            assert!(
-                receipt_hashes_to_restore.is_empty(),
-                "Some of receipts were not executed, hashes: {:?}",
-                receipt_hashes_to_restore
-            );
-        } else {
-            assert_eq!(
-            receipt_hashes_to_restore,
-            get_restored_receipt_hashes(&migration_data),
-            "If accidentally there are no chunks in first epoch with new protocol version, receipts should not be introduced"
-        );
-        }
-    }
-
-    #[test]
-    fn test_no_chunks_missing() {
-        // If there are no chunks missing, all receipts should be applied
-        run_test("mainnet", 1, 0, true);
-    }
-
-    #[test]
-    fn test_first_chunk_in_epoch_missing() {
-        // If the first chunk in the first epoch with needed protocol version is missing,
-        // all receipts should still be applied
-        run_test("mainnet", 8, 12, true);
-    }
-
-    #[test]
-    fn test_all_chunks_in_epoch_missing() {
-        // If all chunks are missing in the first epoch, no receipts should be applied
-        run_test("mainnet", 11, 11 + EPOCH_LENGTH, false);
-    }
-
-    #[test]
-    fn test_run_for_testnet() {
-        // Run the same process for chain other than mainnet to ensure that blocks are produced
-        // successfully during the protocol upgrade.
-        run_test("testnet", 1, 0, true);
-    }
-}
-
-mod storage_usage_fix_tests {
-    use super::*;
-    use borsh::BorshDeserialize;
-    use near_primitives::types::AccountId;
-    use near_primitives::version::ProtocolFeature;
-    use near_store::TrieUpdate;
-    use std::rc::Rc;
-
-    fn process_blocks_with_storage_usage_fix(
-        chain_id: String,
-        check_storage_usage: fn(AccountId, u64, u64),
-    ) {
-        let epoch_length = 5;
-        let mut genesis =
-            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        genesis.config.chain_id = chain_id;
-        genesis.config.epoch_length = epoch_length;
-        genesis.config.protocol_version = ProtocolFeature::FixStorageUsage.protocol_version() - 1;
-        let chain_genesis = ChainGenesis::new(&genesis);
-        let mut env = TestEnv::builder(chain_genesis)
-            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
-            .build();
-        for i in 1..=16 {
-            // We cannot just use TestEnv::produce_block as we are updating protocol version
-            let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
-            set_block_protocol_version(
-                &mut block,
-                "test0".parse().unwrap(),
-                ProtocolFeature::FixStorageUsage.protocol_version(),
-            );
-
-            let _ =
-                env.clients[0].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
-            env.clients[0].finish_blocks_in_processing();
-
-            let root = *env.clients[0]
-                .chain
-                .get_chunk_extra(block.hash(), &ShardUId::single_shard())
-                .unwrap()
-                .state_root();
-            let trie = Rc::new(
-                env.clients[0]
-                    .runtime_adapter
-                    .get_trie_for_shard(0, block.header().prev_hash())
-                    .unwrap(),
-            );
-            let state_update = TrieUpdate::new(trie.clone(), root);
-            use near_primitives::account::Account;
-            let mut account_test1_raw = state_update
-                .get(&TrieKey::Account { account_id: "test1".parse().unwrap() })
-                .unwrap()
-                .unwrap()
-                .clone();
-            let account_test1 = Account::try_from_slice(&mut account_test1_raw).unwrap();
-            let mut account_test0_raw = state_update
-                .get(&TrieKey::Account { account_id: "test0".parse().unwrap() })
-                .unwrap()
-                .unwrap()
-                .clone();
-            let account_test0 = Account::try_from_slice(&mut account_test0_raw).unwrap();
-            check_storage_usage("test1".parse().unwrap(), i, account_test1.storage_usage());
-            check_storage_usage("test0".parse().unwrap(), i, account_test0.storage_usage());
-        }
-    }
-
-    #[test]
-    fn test_fix_storage_usage_migration() {
-        init_test_logger();
-        process_blocks_with_storage_usage_fix(
-            "mainnet".to_string(),
-            |account_id: AccountId, block_height: u64, storage_usage: u64| {
-                if account_id.as_ref() == "test0" || account_id.as_ref() == "test1" {
-                    assert_eq!(storage_usage, 182);
-                } else if block_height >= 11 {
-                    assert_eq!(storage_usage, 4560);
-                } else {
-                    assert_eq!(storage_usage, 364);
-                }
-            },
-        );
-        process_blocks_with_storage_usage_fix(
-            "testnet".to_string(),
-            |account_id: AccountId, _: u64, storage_usage: u64| {
-                if account_id.as_ref() == "test0" || account_id.as_ref() == "test1" {
-                    assert_eq!(storage_usage, 182);
-                } else {
-                    assert_eq!(storage_usage, 364);
-                }
-            },
-        );
-    }
-}
-
 #[cfg(test)]
 mod cap_max_gas_price_tests {
     use super::*;
@@ -4447,10 +4117,10 @@ mod contract_precompilation_tests {
         let trie = Rc::new(
             env.clients[1]
                 .runtime_adapter
-                .get_trie_for_shard(0, block.header().prev_hash())
+                .get_trie_for_shard(0, block.header().prev_hash(), state_root)
                 .unwrap(),
         );
-        let state_update = TrieUpdate::new(trie, state_root);
+        let state_update = TrieUpdate::new(trie);
 
         let mut logs = vec![];
         let view_state = ViewApplyState {
@@ -4921,82 +4591,5 @@ mod lower_storage_key_limit_test {
             let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
             assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
         }
-    }
-}
-
-#[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
-mod new_contract_loading_cost {
-    use super::*;
-
-    /// Check that normal execution has the same gas cost after FixContractLoadingCost.
-    #[test]
-    fn unchanged_gas_cost() {
-        let new_protocol_version =
-            near_primitives::version::ProtocolFeature::FixContractLoadingCost.protocol_version();
-        let old_protocol_version = new_protocol_version - 1;
-
-        let contract_size = 4096;
-        let contract = near_test_contracts::sized_contract(contract_size);
-
-        let epoch_length: BlockHeight = 5;
-
-        let account: AccountId = "test0".parse().unwrap();
-        let mut env = prepare_env_with_contract(
-            epoch_length,
-            old_protocol_version,
-            account.clone(),
-            contract,
-        );
-
-        let old_result = env.call_main(&account);
-        let old_gas = old_result.receipts_outcome[0].outcome.gas_burnt;
-        assert_matches!(old_result.status, FinalExecutionStatus::SuccessValue(_));
-
-        env.upgrade_protocol(new_protocol_version);
-
-        let new_result = env.call_main(&account);
-        let new_gas = new_result.receipts_outcome[0].outcome.gas_burnt;
-        assert_matches!(new_result.status, FinalExecutionStatus::SuccessValue(_));
-
-        assert_eq!(old_gas, new_gas);
-    }
-
-    /// Check that execution that fails during contract preparation has the updated gas cost after the update.
-    #[test]
-    fn preparation_error_gas_cost() {
-        let new_protocol_version =
-            near_primitives::version::ProtocolFeature::FixContractLoadingCost.protocol_version();
-        let old_protocol_version = new_protocol_version - 1;
-
-        let bad_contract = b"not-a-contract".to_vec();
-        let contract_size = bad_contract.len();
-
-        let epoch_length: BlockHeight = 5;
-
-        let account: AccountId = "test0".parse().unwrap();
-        let mut env = prepare_env_with_contract(
-            epoch_length,
-            old_protocol_version,
-            account.clone(),
-            bad_contract,
-        );
-
-        let old_result = env.call_main(&account);
-        let old_gas = old_result.receipts_outcome[0].outcome.gas_burnt;
-        assert_matches!(old_result.status, FinalExecutionStatus::Failure(_));
-
-        env.upgrade_protocol(new_protocol_version);
-
-        let new_result = env.call_main(&account);
-        let new_gas = new_result.receipts_outcome[0].outcome.gas_burnt;
-        assert_matches!(new_result.status, FinalExecutionStatus::Failure(_));
-
-        // Gas cost should be different because the upgrade pre-charges loading costs.
-        assert_ne!(old_gas, new_gas);
-        // Runtime parameter values for version of the protocol upgrade
-        let loading_base = 35_445_963;
-        let loading_byte = 216_750;
-        let loading_cost = loading_base + contract_size as u64 * loading_byte;
-        assert_eq!(old_gas + loading_cost, new_gas);
     }
 }

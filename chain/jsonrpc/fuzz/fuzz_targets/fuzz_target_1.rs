@@ -122,7 +122,8 @@ impl Serialize for Base58String {
     where
         S: Serializer,
     {
-        serializer.serialize_newtype_struct("Base58String", &bs58::encode(self.0).into_string())
+        let serialised = near_primitives::serialize::to_base58(&self.0);
+        serializer.serialize_newtype_struct("Base58String", &serialised)
     }
 }
 
@@ -131,7 +132,8 @@ impl Serialize for Base64String {
     where
         S: Serializer,
     {
-        serializer.serialize_newtype_struct("Base58String", &base64::encode(&self.0))
+        let serialised = near_primitives::serialize::to_base64(&self.0);
+        serializer.serialize_newtype_struct("Base64String", &serialised)
     }
 }
 

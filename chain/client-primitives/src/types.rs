@@ -16,7 +16,6 @@ use near_primitives::types::{
     AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
     TransactionOrReceiptId,
 };
-use near_primitives::utils::generate_random_string;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
@@ -190,13 +189,6 @@ impl Message for GetBlock {
     type Result = Result<BlockView, GetBlockError>;
 }
 
-/// Actor message requesting block hash by id, hash or sync state.
-pub struct GetBlockHash(pub BlockReference);
-
-impl Message for GetBlockHash {
-    type Result = Result<CryptoHash, GetBlockError>;
-}
-
 /// Get block with the block merkle tree. Used for testing
 pub struct GetBlockWithMerkleTree(pub BlockReference);
 
@@ -262,14 +254,13 @@ impl From<near_chain_primitives::Error> for GetChunkError {
 /// Queries client for given path / data.
 #[derive(Clone, Debug)]
 pub struct Query {
-    pub query_id: String,
     pub block_reference: BlockReference,
     pub request: QueryRequest,
 }
 
 impl Query {
     pub fn new(block_reference: BlockReference, request: QueryRequest) -> Self {
-        Query { query_id: generate_random_string(10), block_reference, request }
+        Query { block_reference, request }
     }
 }
 

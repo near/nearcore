@@ -256,11 +256,14 @@ fn test_garbage_collection() {
         let block_prod_time = 100;
         let epoch_length = 5;
         let target_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1);
+        let vs = ValidatorSchedule::new().num_shards(2).block_producers_per_epoch(vec![vec![
+            "test1".parse().unwrap(),
+            "test2".parse().unwrap(),
+        ]]);
 
         setup_mock_all_validators(
-            vec![vec!["test1".parse().unwrap(), "test2".parse().unwrap()]],
+            vs,
             vec![PeerInfo::random(), PeerInfo::random()],
-            1,
             true,
             block_prod_time,
             false,

@@ -16,6 +16,7 @@ use network::{FakeClientActor, Network};
 use near_chain_configs::Genesis;
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
+use near_network_primitives::time;
 use near_o11y::tracing::{error, info};
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -36,7 +37,6 @@ fn genesis_hash(chain_id: &str) -> CryptoHash {
 }
 
 pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<Arc<Network>> {
-    config.network_config.verify().context("start_with_config")?;
     let store = create_test_store();
 
     let network_adapter = Arc::new(NetworkRecipient::default());
@@ -48,6 +48,7 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
 
     let network_actor = PeerManagerActor::start_in_arbiter(&Arbiter::new().handle(), move |_ctx| {
         PeerManagerActor::new(
+            time::Clock::real(),
             store,
             config.network_config,
             client_actor.clone().recipient(),
@@ -77,7 +78,7 @@ fn download_configs(chain_id: &str, dir: &std::path::Path) -> anyhow::Result<Nea
         near_crypto::InMemorySigner::from_random(account_id, near_crypto::KeyType::ED25519);
     let mut genesis = Genesis::default();
     genesis.config.chain_id = chain_id.to_string();
-    return Ok(NearConfig::new(config, genesis, (&node_signer).into(), None));
+    NearConfig::new(config, genesis, (&node_signer).into(), None)
 }
 
 #[derive(Parser, Debug)]

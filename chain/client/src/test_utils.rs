@@ -1,6 +1,7 @@
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::DateTime;
 use futures::{future, FutureExt};
+use near_o11y::TracingCapture;
 use near_primitives::time::Utc;
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;
@@ -9,7 +10,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::mem::swap;
 use std::ops::DerefMut;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tracing::info;
 
@@ -36,8 +37,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper};
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, NumShards,
-    ShardId,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, ShardId,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
@@ -51,11 +51,13 @@ use near_telemetry::TelemetryActor;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_client_primitives::types::Error;
-use near_network::types::{NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse};
+use near_network::types::{
+    NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
+};
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses,
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo,
-    PeerType, SetChainInfo,
+    PeerType,
 };
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::network::PeerId;
@@ -157,7 +159,7 @@ impl Client {
     /// This function finishes processing block with hash `hash`, if the procesing of that block
     /// has started.
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
-        if let Ok(_) = wait_for_block_in_processing(&mut self.chain, hash) {
+        if let Ok(()) = wait_for_block_in_processing(&mut self.chain, hash) {
             let (accepted_blocks, errors) = self.postprocess_ready_blocks(Arc::new(|_| {}), true);
             assert!(errors.is_empty());
             return accepted_blocks;
@@ -544,9 +546,8 @@ fn send_chunks<T, I, F>(
 ///                 the default action is performed, that might (and likely will) overwrite the
 ///                 `response` before it is sent back to the requester.
 pub fn setup_mock_all_validators(
-    validators: Vec<Vec<AccountId>>,
+    vs: ValidatorSchedule,
     key_pairs: Vec<PeerInfo>,
-    validator_groups: u64,
     skip_sync_wait: bool,
     block_prod_time: u64,
     drop_chunks: bool,
@@ -565,7 +566,7 @@ pub fn setup_mock_all_validators(
     >,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>, Arc<RwLock<BlockStats>>) {
     let peer_manager_mock = Arc::new(RwLock::new(peer_manager_mock));
-    let validators_clone = validators.clone();
+    let validators = vs.all_validators().cloned().collect::<Vec<_>>();
     let key_pairs = key_pairs;
 
     let addresses: Vec<_> = (0..key_pairs.len()).map(|i| hash(vec![i as u8].as_ref())).collect();
@@ -577,7 +578,6 @@ pub fn setup_mock_all_validators(
 
     let announced_accounts = Arc::new(RwLock::new(HashSet::new()));
     let genesis_block = Arc::new(RwLock::new(None));
-    let num_shards = validators.iter().map(|x| x.len()).min().unwrap() as NumShards;
 
     let last_height = Arc::new(RwLock::new(vec![0; key_pairs.len()]));
     let largest_endorsed_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
@@ -585,10 +585,11 @@ pub fn setup_mock_all_validators(
     let hash_to_height = Arc::new(RwLock::new(HashMap::new()));
     let block_stats = Arc::new(RwLock::new(BlockStats::new()));
 
-    for (index, account_id) in validators.into_iter().flatten().enumerate() {
+    for (index, account_id) in validators.clone().into_iter().enumerate() {
+        let vs = vs.clone();
         let block_stats1 = block_stats.clone();
         let mut view_client_addr_slot = None;
-        let validators_clone2 = validators_clone.clone();
+        let validators_clone2 = validators.clone();
         let genesis_block1 = genesis_block.clone();
         let key_pairs = key_pairs.clone();
         let key_pairs1 = key_pairs.clone();
@@ -614,7 +615,7 @@ pub fn setup_mock_all_validators(
                 drop(guard);
 
                 if perform_default {
-                    let my_ord = validators_clone2.iter().flatten().position(|it| it == &account_id).unwrap();
+                    let my_ord = validators_clone2.iter().position(|it| it == &account_id).unwrap();
                     let my_key_pair = key_pairs[my_ord].clone();
                     let my_address = addresses[my_ord];
 
@@ -655,6 +656,7 @@ pub fn setup_mock_all_validators(
                             received_bytes_per_sec: 0,
                             known_producers: vec![],
                             peer_counter: 0,
+                            tier1_accounts: vec![],
                         };
                         client_addr.do_send(NetworkClientMessages::NetworkInfo(info));
                     }
@@ -695,7 +697,7 @@ pub fn setup_mock_all_validators(
                             };
                             send_chunks(
                                 connectors1,
-                                validators_clone2.iter().flatten().map(|s| Some(s.clone())).enumerate(),
+                                validators_clone2.iter().map(|s| Some(s.clone())).enumerate(),
                                 target.account_id.as_ref().map(|s| s.clone()),
                                 drop_chunks,
                                 create_msg,
@@ -724,7 +726,7 @@ pub fn setup_mock_all_validators(
                             };
                             send_chunks(
                                 connectors1,
-                                validators_clone2.iter().flatten().cloned().enumerate(),
+                                validators_clone2.iter().cloned().enumerate(),
                                 account_id.clone(),
                                 drop_chunks,
                                 create_msg,
@@ -736,7 +738,7 @@ pub fn setup_mock_all_validators(
                             };
                             send_chunks(
                                 connectors1,
-                                validators_clone2.iter().flatten().cloned().enumerate(),
+                                validators_clone2.iter().cloned().enumerate(),
                                 account_id.clone(),
                                 drop_chunks,
                                 create_msg,
@@ -855,7 +857,7 @@ pub fn setup_mock_all_validators(
                                 AccountOrPeerIdOrHash::AccountId(x) => x,
                                 _ => panic!(),
                             };
-                            for (i, name) in validators_clone2.iter().flatten().enumerate() {
+                            for (i, name) in validators_clone2.iter().enumerate() {
                                 if name == target_account_id {
                                     let me = connectors1[my_ord].0.clone();
                                     actix::spawn(
@@ -892,7 +894,7 @@ pub fn setup_mock_all_validators(
                                 AccountOrPeerIdOrHash::AccountId(x) => x,
                                 _ => panic!(),
                             };
-                            for (i, name) in validators_clone2.iter().flatten().enumerate() {
+                            for (i, name) in validators_clone2.iter().enumerate() {
                                 if name == target_account_id {
                                     let me = connectors1[my_ord].0.clone();
                                     actix::spawn(
@@ -963,7 +965,7 @@ pub fn setup_mock_all_validators(
                             let approval = approval_message.approval.clone();
 
                             if do_propagate {
-                                for (i, name) in validators_clone2.iter().flatten().enumerate() {
+                                for (i, name) in validators_clone2.iter().enumerate() {
                                     if name == &approval_message.target {
                                         connectors1[i].0.do_send(
                                             NetworkClientMessages::BlockApproval(
@@ -1011,18 +1013,13 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::ForwardTx(_, _)
                         | NetworkRequests::BanPeer { .. }
                         | NetworkRequests::TxStatus(_, _, _)
-                        | NetworkRequests::Challenge(_)
-                        | NetworkRequests::ReceiptOutComeRequest(_, _) => {}
+                        | NetworkRequests::Challenge(_) => {}
                     };
                 }
                 resp
             }).start();
             let network_adapter = NetworkRecipient::default();
             network_adapter.set_recipient(pm);
-            let vs = ValidatorSchedule::new()
-                .num_shards(num_shards)
-                .validator_groups(validator_groups)
-                .block_producers_per_epoch(validators_clone.clone());
             let (block, client, view_client_addr) = setup(
                 vs,
                 epoch_length,
@@ -1149,6 +1146,7 @@ pub struct TestEnv {
     pub network_adapters: Vec<Arc<MockPeerManagerAdapter>>,
     pub clients: Vec<Client>,
     account_to_client_index: HashMap<AccountId, usize>,
+    paused_blocks: Arc<Mutex<HashMap<CryptoHash, Arc<OnceCell<()>>>>>,
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     seeds: HashMap<AccountId, RngSeed>,
@@ -1320,6 +1318,7 @@ impl TestEnvBuilder {
                 .enumerate()
                 .map(|(index, client)| (client, index))
                 .collect(),
+            paused_blocks: Default::default(),
             seeds,
         }
     }
@@ -1345,6 +1344,42 @@ impl TestEnv {
     pub fn produce_block(&mut self, id: usize, height: BlockHeight) {
         let block = self.clients[id].produce_block(height).unwrap();
         self.process_block(id, block.unwrap(), Provenance::PRODUCED);
+    }
+
+    /// Pause processing of the given block, which means that the background
+    /// thread which applies the chunks on the block will get blocked until
+    /// `resume_block_processing` is called.
+    ///
+    /// Note that you must call `resume_block_processing` at some later point to
+    /// unstuck the block.
+    ///
+    /// Implementation is rather crude and just hijacks our logging
+    /// infrastructure. Hopefully this is good enough, but, if it isn't, we can
+    /// add something more robust.
+    pub fn pause_block_processing(&mut self, capture: &mut TracingCapture, block: &CryptoHash) {
+        let paused_blocks = Arc::clone(&self.paused_blocks);
+        paused_blocks.lock().unwrap().insert(*block, Arc::new(OnceCell::new()));
+        capture.set_callback(move |msg| {
+            if msg.starts_with("do_apply_chunks") {
+                let cell = paused_blocks.lock().unwrap().iter().find_map(|(block_hash, cell)| {
+                    if msg.contains(&format!("block_hash={block_hash}")) {
+                        Some(Arc::clone(cell))
+                    } else {
+                        None
+                    }
+                });
+                if let Some(cell) = cell {
+                    cell.wait();
+                }
+            }
+        });
+    }
+
+    /// See `pause_block_processing`.
+    pub fn resume_block_processing(&mut self, block: &CryptoHash) {
+        let mut paused_blocks = self.paused_blocks.lock().unwrap();
+        let cell = paused_blocks.remove(block).unwrap();
+        let _ = cell.set(());
     }
 
     pub fn client(&mut self, account_id: &AccountId) -> &mut Client {
@@ -1603,6 +1638,18 @@ impl TestEnv {
         })];
         let tx = self.tx_from_actions(actions, &signer, signer.account_id.clone());
         self.execute_tx(tx)
+    }
+}
+
+impl Drop for TestEnv {
+    fn drop(&mut self) {
+        let paused_blocks = self.paused_blocks.lock().unwrap();
+        for cell in paused_blocks.values() {
+            let _ = cell.set(());
+        }
+        if !paused_blocks.is_empty() && !std::thread::panicking() {
+            panic!("some blocks are still paused, did you call `resume_block_processing`?")
+        }
     }
 }
 

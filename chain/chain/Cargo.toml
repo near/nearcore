@@ -8,6 +8,7 @@ rust-version = "1.60.0"
 edition = "2021"
 
 [dependencies]
+ansi_term = "0.12"
 actix = "0.13.0"
 borsh = "0.9"
 chrono = { version = "0.4.4", features = ["serde"] }
@@ -23,7 +24,7 @@ thiserror = "1.0"
 tracing = "0.1.13"
 crossbeam-channel = "0.5"
 
-delay-detector = { path = "../../tools/delay_detector"}
+delay-detector = { path = "../../tools/delay-detector"}
 near-chain-configs = { path = "../../core/chain-configs" }
 near-chain-primitives = { path = "../chain-primitives" }
 near-crypto = { path = "../../core/crypto" }
@@ -48,14 +49,10 @@ expensive_tests = []
 test_features = []
 delay_detector = ["delay-detector/delay_detector"]
 no_cache = ["near-store/no_cache"]
-protocol_feature_chunk_only_producers = [
-  "near-chain-configs/protocol_feature_chunk_only_producers",
-  "near-primitives/protocol_feature_chunk_only_producers",
-]
+protocol_feature_flat_state = ["near-store/protocol_feature_flat_state"]
 
 nightly = [
   "nightly_protocol",
-  "protocol_feature_chunk_only_producers",
 ]
 nightly_protocol = [
   "near-store/nightly_protocol",

@@ -1,14 +1,16 @@
+use crate::config;
 use crate::store;
 use anyhow::bail;
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    Blacklist, KnownPeerState, KnownPeerStatus, NetworkConfig, PeerInfo, ReasonForBan,
+    Blacklist, KnownPeerState, KnownPeerStatus, PeerInfo, ReasonForBan,
 };
 use near_primitives::network::PeerId;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::collections::hash_map::{Entry, Iter};
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::ops::Not;
 use tracing::{debug, error, info};
@@ -52,6 +54,8 @@ pub struct PeerStore {
     // they will not be present in this list, otherwise they will be present.
     addr_peers: HashMap<SocketAddr, VerifiedPeer>,
     blacklist: Blacklist,
+    boot_nodes: HashSet<PeerId>,
+    connect_only_to_boot_nodes: bool,
 }
 
 impl PeerStore {
@@ -60,7 +64,9 @@ impl PeerStore {
         store: store::Store,
         boot_nodes: &[PeerInfo],
         blacklist: Blacklist,
+        connect_only_to_boot_nodes: bool,
     ) -> anyhow::Result<Self> {
+        let boot_nodes_set: HashSet<PeerId> = boot_nodes.iter().map(|it| it.id.clone()).collect();
         // A mapping from `PeerId` to `KnownPeerState`.
         let mut peerid_2_state = HashMap::default();
         // Stores mapping from `SocketAddr` to `VerifiedPeer`, which contains `PeerId`.
@@ -95,7 +101,12 @@ impl PeerStore {
         for (peer_id, peer_state) in store.list_peer_states()? {
             // If it’s already banned, keep it banned.  Otherwise, it’s not connected.
             let status = if peer_state.status.is_banned() {
-                peer_state.status
+                if connect_only_to_boot_nodes && boot_nodes_set.contains(&peer_id) {
+                    // Give boot node another chance.
+                    KnownPeerStatus::NotConnected
+                } else {
+                    peer_state.status
+                }
             } else {
                 KnownPeerStatus::NotConnected
             };
@@ -141,8 +152,14 @@ impl PeerStore {
             }
         }
 
-        let mut peer_store =
-            PeerStore { store, peer_states: peerid_2_state, addr_peers: addr_2_peer, blacklist };
+        let mut peer_store = PeerStore {
+            store,
+            peer_states: peerid_2_state,
+            addr_peers: addr_2_peer,
+            blacklist,
+            boot_nodes: boot_nodes_set,
+            connect_only_to_boot_nodes,
+        };
         peer_store.delete_peers(&peers_to_delete)?;
         Ok(peer_store)
     }
@@ -255,6 +272,8 @@ impl PeerStore {
                 (p.status == KnownPeerStatus::NotConnected || p.status == KnownPeerStatus::Unknown)
                     && !ignore_fn(p)
                     && p.peer_info.addr.is_some()
+                    // if we're connecting only to the bood nodes - filter out the nodes that are not bootnodes.
+                    && (!self.connect_only_to_boot_nodes || self.boot_nodes.contains(&p.peer_info.id))
             },
             1,
         )
@@ -276,7 +295,7 @@ impl PeerStore {
     pub(crate) fn remove_expired(
         &mut self,
         clock: &time::Clock,
-        config: &NetworkConfig,
+        config: &config::NetworkConfig,
     ) -> anyhow::Result<()> {
         let now = clock.now_utc();
         let mut to_remove = vec![];

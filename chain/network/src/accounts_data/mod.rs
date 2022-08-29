@@ -24,12 +24,12 @@
 //!       discarding the progress
 //!     - banning a peer wouldn't help since peers are anonymous, so a single attacker can act as a
 //!       lot of peers
+use crate::concurrency::arc_mutex::ArcMutex;
 use crate::network_protocol;
 use crate::network_protocol::SignedAccountData;
-use near_network_primitives::types::AccountKeys;
+use crate::types::AccountKeys;
 use near_o11y::log_assert;
 use near_primitives::types::{AccountId, EpochId};
-use parking_lot::RwLock;
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::collections::HashMap;
 use std::future::Future;
@@ -53,6 +53,10 @@ impl Drop for MustCompleteGuard {
 /// that they can be put together into a tokio::select block. All the higher level logic
 /// would greatly benefit (in terms of readability and bug-resistance) from being non-abortable.
 /// Rust doesn't support linear types as of now, so best we can do is a runtime check.
+/// TODO(gprusak): we would like to make the futures non-abortable, however with the current
+/// semantics of actix, which drops all the futures when stopped this is not feasible.
+/// Reconsider how to introduce must_complete to our codebase.
+#[allow(dead_code)]
 fn must_complete<Fut: Future>(fut: Fut) -> impl Future<Output = Fut::Output> {
     let guard = MustCompleteGuard;
     async move {
@@ -64,13 +68,16 @@ fn must_complete<Fut: Future>(fut: Fut) -> impl Future<Output = Fut::Output> {
 
 /// spawns a closure on a global rayon threadpool and awaits its completion.
 /// Returns the closure result.
+/// WARNING: panicking within a rayon task seems to be causing a double panic,
+/// and hence the panic message is not visible when running "cargo test".
 async fn rayon_spawn<T: 'static + Send>(f: impl 'static + Send + FnOnce() -> T) -> T {
-    must_complete(async move {
-        let (send, recv) = tokio::sync::oneshot::channel();
-        rayon::spawn(move || log_assert!(send.send(f()).is_ok(), "rayon_spawn has been aborted"));
-        recv.await.unwrap()
-    })
-    .await
+    let (send, recv) = tokio::sync::oneshot::channel();
+    rayon::spawn(move || {
+        if send.send(f()).is_err() {
+            tracing::warn!("rayon_spawn has been aborted");
+        }
+    });
+    recv.await.unwrap()
 }
 
 /// Applies f to the iterated elements and collects the results, until the first None is returned.
@@ -105,16 +112,17 @@ pub(crate) enum Error {
     SingleAccountMultipleData,
 }
 
-struct CacheInner {
-    keys: Arc<AccountKeys>,
+#[derive(Clone)]
+pub struct CacheSnapshot {
+    pub keys: Arc<AccountKeys>,
     /// Current state of knowledge about an account.
     /// key is the public key of the account in the given epoch.
     /// It will be used to verify new incoming versions of SignedAccountData
     /// for this account.
-    data: HashMap<(EpochId, AccountId), SignedAccountData>,
+    pub data: im::HashMap<(EpochId, AccountId), Arc<SignedAccountData>>,
 }
 
-impl CacheInner {
+impl CacheSnapshot {
     fn is_new(&self, d: &SignedAccountData) -> bool {
         let id = (d.epoch_id.clone(), d.account_id.clone());
         self.keys.contains_key(&id)
@@ -123,7 +131,7 @@ impl CacheInner {
                 _ => true,
             }
     }
-    fn try_insert(&mut self, d: SignedAccountData) -> Option<SignedAccountData> {
+    fn try_insert(&mut self, d: Arc<SignedAccountData>) -> Option<Arc<SignedAccountData>> {
         if !self.is_new(&d) {
             return None;
         }
@@ -133,44 +141,49 @@ impl CacheInner {
     }
 }
 
-pub(crate) struct Cache {
-    inner: RwLock<CacheInner>,
-}
+pub(crate) struct Cache(ArcMutex<CacheSnapshot>);
 
 impl Cache {
     pub fn new() -> Self {
-        Self {
-            inner: RwLock::new(CacheInner {
-                keys: Arc::new(AccountKeys::default()),
-                data: HashMap::new(),
-            }),
-        }
+        Self(ArcMutex::new(CacheSnapshot {
+            keys: Arc::new(AccountKeys::default()),
+            data: im::HashMap::new(),
+        }))
     }
 
     /// Updates the set of important accounts and their public keys.
     /// The AccountData which is no longer important is dropped.
     /// Returns true iff the set of accounts actually changed.
     pub fn set_keys(&self, keys: Arc<AccountKeys>) -> bool {
-        let mut inner = self.inner.write();
-        // Skip further processing if the key set didn't change.
-        if Arc::ptr_eq(&keys, &inner.keys) || keys == inner.keys {
-            return false;
-        }
-        inner.data.retain(|k, _| keys.contains_key(k));
-        inner.keys = keys;
-        true
+        self.0.update(|inner| {
+            // Skip further processing if the key set didn't change.
+            // NOTE: if T implements Eq, then Arc<T> short circuits equality for x == x.
+            if keys == inner.keys {
+                return false;
+            }
+            for (k, v) in std::mem::take(&mut inner.data) {
+                if keys.contains_key(&k) {
+                    inner.data.insert(k, v);
+                }
+            }
+            inner.keys = keys;
+            true
+        })
     }
 
     /// Selects new data and verifies the signatures.
     /// Returns the verified new data and an optional error.
     /// Note that even if error has been returned the partially validated output is returned
     /// anyway.
-    fn verify(&self, data: Vec<SignedAccountData>) -> (Vec<SignedAccountData>, Option<Error>) {
+    fn verify(
+        &self,
+        data: Vec<Arc<SignedAccountData>>,
+    ) -> (Vec<Arc<SignedAccountData>>, Option<Error>) {
         // Filter out non-interesting data, so that we never check signatures for valid non-interesting data.
         // Bad peers may force us to check signatures for fake data anyway, but we will ban them after first invalid signature.
         // It locks epochs for reading for a short period.
         let mut data_and_keys = HashMap::new();
-        let inner = self.inner.read();
+        let inner = self.0.load();
         for d in data {
             // There is a limit on the amount of RAM occupied by per-account datasets.
             // Broadcasting larger datasets is considered malicious behavior.
@@ -195,12 +208,11 @@ impl Cache {
             };
             data_and_keys.insert(id, (d, key));
         }
-        drop(inner);
 
         // Verify the signatures in parallel.
         // Verification will stop at the first encountered error.
         let (data, ok) = try_map(data_and_keys.into_values().par_bridge(), |(d, key)| {
-            if d.payload().verify(&key) {
+            if d.payload().verify(&key).is_ok() {
                 return Some(d);
             }
             return None;
@@ -215,20 +227,21 @@ impl Cache {
     /// Returns the data inserted and optionally a verification error.
     /// WriteLock is acquired only for the final update (after verification).
     pub async fn insert(
-        self: Arc<Self>,
-        data: Vec<SignedAccountData>,
-    ) -> (Vec<SignedAccountData>, Option<Error>) {
+        self: &Arc<Self>,
+        data: Vec<Arc<SignedAccountData>>,
+    ) -> (Vec<Arc<SignedAccountData>>, Option<Error>) {
         let this = self.clone();
         // Execute verification on the rayon threadpool.
         let (data, err) = rayon_spawn(move || this.verify(data)).await;
         // Insert the successfully verified data, even if an error has been encountered.
-        let mut inner = self.inner.write();
+        let inserted =
+            self.0.update(|inner| data.into_iter().filter_map(|d| inner.try_insert(d)).collect());
         // Return the inserted data.
-        (data.into_iter().filter_map(|d| inner.try_insert(d)).collect(), err)
+        (inserted, err)
     }
 
-    /// Copies and returns all the AccountData in the cache.
-    pub fn dump(&self) -> Vec<SignedAccountData> {
-        self.inner.read().data.values().cloned().collect()
+    /// Loads the current cache snapshot.
+    pub fn load(&self) -> Arc<CacheSnapshot> {
+        self.0.load()
     }
 }

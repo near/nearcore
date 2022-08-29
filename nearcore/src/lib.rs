@@ -10,20 +10,18 @@ use near_chain::{Chain, ChainGenesis};
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
+use near_network_primitives::time;
 use near_primitives::block::GenesisId;
 use near_primitives::version::DbVersion;
-#[cfg(feature = "rosetta_rpc")]
-use near_rosetta_rpc::start_rosetta_rpc;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
-use near_store::db::RocksDB;
 use near_store::migrations::{migrate_28_to_29, migrate_29_to_30, set_store_version};
 use near_store::{DBCol, Mode, Store, StoreOpener};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::oneshot;
-use tracing::{error, info, trace};
+use tracing::{info, trace};
 
 pub mod append_only_map;
 pub mod config;
@@ -66,22 +64,31 @@ const DB_CHECKPOINT_NAME: &str = "db_migration_snapshot";
 
 /// Creates a consistent DB checkpoint and returns its path.
 /// By default it creates checkpoints in the DB directory, but can be overridden by the config.
-fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> anyhow::Result<PathBuf> {
-    let checkpoint_path = db_checkpoint_path(path, near_config);
-    anyhow::ensure!(!checkpoint_path.exists(),
-            "Detected an existing database migration snapshot: '{}'.\n\
-             Probably a database migration got interrupted and your database is corrupted.\n\
-             Please replace the contents of '{}' with data from that checkpoint, delete the checkpoint and try again.",
-                    checkpoint_path.display(),
-                    path.display());
-
-    let db = RocksDB::open(path, &near_config.config.store, Mode::ReadWrite)?;
-    let checkpoint = db.checkpoint()?;
-    info!(target: "near", "Creating a database migration snapshot in '{}'", checkpoint_path.display());
-    checkpoint.create_checkpoint(&checkpoint_path)?;
-    info!(target: "near", "Created a database migration snapshot in '{}'", checkpoint_path.display());
-
-    Ok(checkpoint_path)
+fn create_db_checkpoint(
+    opener: &StoreOpener,
+    near_config: &NearConfig,
+) -> anyhow::Result<near_store::Snapshot> {
+    match opener.new_migration_snapshot(db_checkpoint_path(opener.path(), near_config)) {
+        Ok(snapshot) => Ok(snapshot),
+        Err(near_store::SnapshotError::AlreadyExists(snap_path)) => {
+            Err(anyhow::anyhow!(
+                "Detected an existing database migration snapshot at ‘{}’.\n\
+                 Probably a database migration got interrupted and your database is corrupted.\n\
+                 Please replace files in ‘{}’ with contents of the snapshot, delete the snapshot and try again.",
+                snap_path.display(),
+                opener.path().display(),
+            ))
+        }
+        Err(near_store::SnapshotError::IOError(err)) => {
+            Err(anyhow::anyhow!(
+                "Failed to create a database migration snapshot: {err}.\n\
+                 You can change the location of the snapshot by adjusting `config.json`:\n\
+                 \t\"db_migration_snapshot_path\": \"/absolute/path/to/existing/dir\",\n\
+                 Alternatively, you can disable database migration snapshots in `config.json`:\n\
+                 \t\"use_db_migration_snapshot\": false,"
+            ))
+        }
+    }
 }
 
 /// Checks current version of the database and applies migrations if needed.
@@ -122,20 +129,13 @@ fn apply_store_migrations_if_exists(
         );
     }
 
-    // Before starting a DB migration, create a consistent snapshot of the database. If a migration
-    // fails, it can be used to quickly restore the database to its original state.
-    let checkpoint_path = if near_config.config.use_db_migration_snapshot {
-        let checkpoint_path = create_db_checkpoint(&store_opener.get_path(), near_config).context(
-            "Failed to create a database migration snapshot.\n\
-             You can change the location of the snapshot by adjusting `config.json`:\n\
-             \t\"db_migration_snapshot_path\": \"/absolute/path/to/existing/dir\",\n\
-             Alternatively, you can disable database migration snapshots in `config.json`:\n\
-             \t\"use_db_migration_snapshot\": false,",
-        )?;
-        info!(target: "near", "Created a DB checkpoint before a DB migration: '{}'. Please recover from this checkpoint if the migration gets interrupted.", checkpoint_path.display());
-        Some(checkpoint_path)
+    // Before starting a DB migration, create a snapshot of the database.  If
+    // the migration fails, the snapshot can be used to restore the database to
+    // its original state.
+    let snapshot = if near_config.config.use_db_migration_snapshot {
+        create_db_checkpoint(store_opener, near_config)?
     } else {
-        None
+        near_store::Snapshot::no_snapshot()
     };
 
     // Add migrations here based on `db_version`.
@@ -154,23 +154,25 @@ fn apply_store_migrations_if_exists(
     if db_version <= 28 {
         // version 28 => 29: delete ColNextBlockWithNewChunk, ColLastBlockWithNewChunk
         info!(target: "near", "Migrate DB from version 28 to 29");
-        migrate_28_to_29(store_opener);
+        migrate_28_to_29(store_opener)?;
     }
     if db_version <= 29 {
         // version 29 => 30: migrate all structures that use ValidatorStake to versionized version
         info!(target: "near", "Migrate DB from version 29 to 30");
-        migrate_29_to_30(store_opener);
+        migrate_29_to_30(store_opener)?;
     }
     if db_version <= 30 {
         // version 30 => 31: recompute block ordinal due to a bug fixed in #5761
         info!(target: "near", "Migrate DB from version 30 to 31");
-        migrate_30_to_31(store_opener, &near_config);
+        migrate_30_to_31(store_opener, &near_config)?;
     }
 
     if cfg!(feature = "nightly") || cfg!(feature = "nightly_protocol") {
-        let store = store_opener.open();
+        let store = store_opener
+            .open()
+            .with_context(|| format!("Opening database at {}", store_opener.path().display()))?;
         // set some dummy value to avoid conflict with other migrations from nightly features
-        set_store_version(&store, 10000);
+        set_store_version(&store, 10000)?;
     } else {
         debug_assert_eq!(
             Some(near_primitives::version::DB_VERSION),
@@ -178,25 +180,9 @@ fn apply_store_migrations_if_exists(
         );
     }
 
-    // DB migration was successful, remove the checkpoint to avoid it taking up precious disk space.
-    if let Some(checkpoint_path) = checkpoint_path {
-        info!(target: "near", "Deleting the database migration snapshot at '{}'", checkpoint_path.display());
-        match std::fs::remove_dir_all(&checkpoint_path) {
-            Ok(_) => {
-                info!(target: "near", "Deleted the database migration snapshot at '{}'", checkpoint_path.display());
-            }
-            Err(err) => {
-                error!(
-                    target: "near",
-                    "Failed to delete the database migration snapshot at '{}'.\n\
-                    \tError: {:#?}.\n\
-                    \n\
-                    Please delete the database migration snapshot manually before the next start of the node.",
-                    checkpoint_path.display(),
-                    err);
-            }
-        }
-    }
+    // DB migration was successful, remove the snapshot to avoid it taking up
+    // precious disk space.
+    snapshot.remove();
 
     Ok(true)
 }
@@ -204,9 +190,12 @@ fn apply_store_migrations_if_exists(
 fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Store> {
     let opener = Store::opener(home_dir, &near_config.config.store);
     let exists = apply_store_migrations_if_exists(&opener, near_config)?;
-    let store = opener.open();
+    let store = opener
+        .open()
+        .with_context(|| format!("Opening database at {}", opener.path().display()))?;
     if !exists {
-        set_store_version(&store, near_primitives::version::DB_VERSION);
+        set_store_version(&store, near_primitives::version::DB_VERSION)
+            .with_context(|| format!("Initialising database at {}", opener.path().display()))?;
     }
 
     // Check if the storage is an archive and if it is make sure we are too.
@@ -252,7 +241,7 @@ pub fn start_with_config_and_synchronization(
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(&config.genesis);
-    let genesis_block = Chain::make_genesis_block(runtime.clone(), &chain_genesis)?;
+    let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis)?;
     let genesis_id = GenesisId {
         chain_id: config.client_config.chain_id.clone(),
         hash: genesis_block.header().hash().clone(),
@@ -285,12 +274,12 @@ pub fn start_with_config_and_synchronization(
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
     let arbiter = Arbiter::new();
-    config.network_config.verify().context("start_with_config")?;
     let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), {
         let client_actor = client_actor.clone();
         let view_client = view_client.clone();
         move |_ctx| {
             PeerManagerActor::new(
+                time::Clock::real(),
                 store,
                 config.network_config,
                 client_actor.recipient(),
@@ -316,9 +305,10 @@ pub fn start_with_config_and_synchronization(
     if let Some(rosetta_rpc_config) = config.rosetta_rpc_config {
         rpc_servers.push((
             "Rosetta RPC",
-            start_rosetta_rpc(
+            near_rosetta_rpc::start_rosetta_rpc(
                 rosetta_rpc_config,
-                Arc::new(config.genesis.clone()),
+                config.genesis,
+                genesis_block.header().hash(),
                 client_actor.clone(),
                 view_client.clone(),
             ),
@@ -366,20 +356,8 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         skip_columns.push(DBCol::TrieChanges);
     }
 
-    // Make sure we can open at least two databases and have some file
-    // descriptors to spare.
-    let required = 2 * (config.store.max_open_files as u64) + 512;
-    let (soft, hard) = rlimit::Resource::NOFILE
-        .get()
-        .map_err(|err| anyhow::anyhow!("getrlimit: NOFILE: {}", err))?;
-    if soft < required {
-        rlimit::Resource::NOFILE
-            .set(required, hard)
-            .map_err(|err| anyhow::anyhow!("setrlimit: NOFILE: {}", err))?;
-    }
-
     let src_opener = Store::opener(home_dir, &config.store).mode(Mode::ReadOnly);
-    let src_path = src_opener.get_path();
+    let src_path = src_opener.path();
     if let Some(db_version) = src_opener.get_version_if_exists()? {
         anyhow::ensure!(
             db_version == near_primitives::version::DB_VERSION,
@@ -398,7 +376,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     // (since it’s a command line option) which is why we set home to cwd.
     let cwd = std::env::current_dir()?;
     let dst_opener = Store::opener(&cwd, &dst_config);
-    let dst_path = dst_opener.get_path();
+    let dst_path = dst_opener.path();
     anyhow::ensure!(
         !dst_opener.check_if_exists(),
         "{}: directory already exists",
@@ -409,7 +387,9 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
           src = %src_path.display(), dest = %dst_path.display(),
           "Recompressing database");
 
-    let src_store = src_opener.open();
+    let src_store = src_opener
+        .open()
+        .with_context(|| format!("Opening database at {}", src_opener.path().display()))?;
 
     let final_head_height = if skip_columns.contains(&DBCol::PartialChunks) {
         let tip: Option<near_primitives::block::Tip> =
@@ -425,7 +405,9 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         None
     };
 
-    let dst_store = dst_opener.open();
+    let dst_store = dst_opener
+        .open()
+        .with_context(|| format!("Opening database at {}", dst_opener.path().display()))?;
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
 
@@ -447,7 +429,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         let mut batch_written: u64 = 0;
         let mut count_keys: u64 = 0;
         for item in src_store.iter_raw_bytes(column) {
-            let (key, value) = item.with_context(|| format!("scanning column {column:?}"))?;
+            let (key, value) = item.with_context(|| format!("scanning column {column}"))?;
             store_update.set_raw_bytes(column, &key, &value);
             total_written += value.len() as u64;
             batch_written += value.len() as u64;

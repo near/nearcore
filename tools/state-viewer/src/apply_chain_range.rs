@@ -245,7 +245,7 @@ fn apply_block_from_range(
                 *block.header().random_value(),
                 true,
                 is_first_block_with_chunk_of_version,
-                None,
+                Default::default(),
             )
             .unwrap()
     } else {
@@ -271,7 +271,7 @@ fn apply_block_from_range(
                 *block.header().random_value(),
                 false,
                 false,
-                None,
+                Default::default(),
             )
             .unwrap()
     };
@@ -288,8 +288,8 @@ fn apply_block_from_range(
 
     let state_update =
         runtime_adapter.get_tries().new_trie_update(shard_uid, *chunk_extra.state_root());
-    let delayed_indices =
-        get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
+    let delayed_indices: Option<DelayedReceiptIndices> =
+        get(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
 
     match existing_chunk_extra {
         Some(existing_chunk_extra) => {

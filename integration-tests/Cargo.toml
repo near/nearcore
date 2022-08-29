@@ -4,14 +4,13 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.62.1"
+rust-version = "1.63.0"
 edition = "2021"
 
 [dependencies]
 actix = "0.13.0"
 actix-rt = "2"
 anyhow = "1.0.55"
-base64 = "0.11"
 borsh = "0.9"
 chrono = { version = "0.4.4", features = ["serde"] }
 clap = { version = "3.1.6", features = ["derive"] }
@@ -36,7 +35,7 @@ near-chunks = { path = "../chain/chunks" }
 near-client = { path = "../chain/client" }
 near-client-primitives = { path = "../chain/client-primitives" }
 near-crypto = { path = "../core/crypto" }
-near-epoch-manager = { path = "../chain/epoch_manager"}
+near-epoch-manager = { path = "../chain/epoch-manager"}
 near-jsonrpc = { path = "../chain/jsonrpc" }
 near-jsonrpc-client = { path = "../chain/jsonrpc/client" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
@@ -45,6 +44,7 @@ near-network-primitives = { path = "../chain/network-primitives" }
 near-primitives = { path = "../core/primitives" }
 near-primitives-core = { path = "../core/primitives-core" }
 near-store = { path = "../core/store" }
+near-o11y = { path = "../core/o11y" }
 near-telemetry = { path = "../chain/telemetry" }
 near-test-contracts = { path = "../runtime/near-test-contracts" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
@@ -67,10 +67,6 @@ performance_stats = [
 ]
 expensive_tests = []
 test_features = ["nearcore/test_features"]
-protocol_feature_chunk_only_producers = [
-  "near-client/protocol_feature_chunk_only_producers",
-  "near-primitives/protocol_feature_chunk_only_producers",
-]
 protocol_feature_account_id_in_function_call_permission = [
   "near-primitives/protocol_feature_account_id_in_function_call_permission"
 ]
@@ -80,7 +76,6 @@ protocol_feature_fix_contract_loading_cost = [
 nightly = [
   "nightly_protocol",
   "nearcore/nightly",
-  "protocol_feature_chunk_only_producers",
   "protocol_feature_account_id_in_function_call_permission",
   "protocol_feature_fix_contract_loading_cost",
 ]

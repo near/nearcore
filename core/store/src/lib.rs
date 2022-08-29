@@ -19,7 +19,7 @@ use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
-use near_primitives::serialize::to_base;
+use near_primitives::serialize::to_base58;
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
@@ -32,19 +32,21 @@ pub use crate::trie::iterator::TrieIterator;
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
     estimator, split_state, ApplyStatePartResult, KeyForStateChanges, PartialStorage, ShardTries,
-    Trie, TrieCache, TrieCacheFactory, TrieCachingStorage, TrieChanges, TrieStorage,
+    Trie, TrieAccess, TrieCache, TrieCacheFactory, TrieCachingStorage, TrieChanges, TrieStorage,
     WrappedTrieChanges,
 };
 
 mod columns;
 mod config;
 pub mod db;
+pub mod flat_state;
 mod metrics;
 pub mod migrations;
 pub mod test_utils;
 mod trie;
 
 pub use crate::config::{Mode, StoreConfig, StoreOpener};
+pub use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError};
 
 #[derive(Clone)]
 pub struct Store {
@@ -81,15 +83,16 @@ impl Store {
     }
 
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        let value = self
-            .storage
-            .get_raw_bytes(column, key)
-            .map(|result| refcount::get_with_rc_logic(column, result))?;
+        let value = if column.is_rc() {
+            self.storage.get_with_rc_stripped(column, key)
+        } else {
+            self.storage.get_raw_bytes(column, key)
+        }?;
         tracing::trace!(
             target: "store",
             db_op = "get",
-            col = ?column,
-            key = %to_base(key),
+            col = %column,
+            key = %to_base58(key),
             size = value.as_ref().map(Vec::len)
         );
         Ok(value)
@@ -214,7 +217,7 @@ impl StoreUpdate {
     /// It is a programming error if `insert` overwrites an existing, different
     /// value. Use it for insert-only columns.
     pub fn insert(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
-        assert!(column.is_insert_only(), "can't insert: {column:?}");
+        assert!(column.is_insert_only(), "can't insert: {column}");
         self.transaction.insert(column, key.to_vec(), value.to_vec())
     }
 
@@ -224,7 +227,7 @@ impl StoreUpdate {
         key: &[u8],
         value: &T,
     ) -> io::Result<()> {
-        assert!(column.is_insert_only(), "can't insert_ser: {column:?}");
+        assert!(column.is_insert_only(), "can't insert_ser: {column}");
         let data = value.try_to_vec()?;
         self.insert(column, key, &data);
         Ok(())
@@ -246,7 +249,7 @@ impl StoreUpdate {
         data: &[u8],
         increase: std::num::NonZeroU32,
     ) {
-        assert!(column.is_rc(), "can't update refcount: {column:?}");
+        assert!(column.is_rc(), "can't update refcount: {column}");
         let value = refcount::add_positive_refcount(data, increase);
         self.transaction.update_refcount(column, key.to_vec(), value);
     }
@@ -269,7 +272,7 @@ impl StoreUpdate {
         key: &[u8],
         decrease: std::num::NonZeroU32,
     ) {
-        assert!(column.is_rc(), "can't update refcount: {column:?}");
+        assert!(column.is_rc(), "can't update refcount: {column}");
         let value = refcount::encode_negative_refcount(decrease);
         self.transaction.update_refcount(column, key.to_vec(), value)
     }
@@ -288,7 +291,7 @@ impl StoreUpdate {
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
-        assert!(!(column.is_rc() || column.is_insert_only()), "can't set: {column:?}");
+        assert!(!(column.is_rc() || column.is_insert_only()), "can't set: {column}");
         self.transaction.set(column, key.to_vec(), value.to_vec())
     }
 
@@ -302,7 +305,7 @@ impl StoreUpdate {
         key: &[u8],
         value: &T,
     ) -> io::Result<()> {
-        assert!(!(column.is_rc() || column.is_insert_only()), "can't set_ser: {column:?}");
+        assert!(!(column.is_rc() || column.is_insert_only()), "can't set_ser: {column}");
         let data = value.try_to_vec()?;
         self.set(column, key, &data);
         Ok(())
@@ -323,7 +326,7 @@ impl StoreUpdate {
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {
-        assert!(!column.is_rc(), "can't delete: {column:?}");
+        assert!(!column.is_rc(), "can't delete: {column}");
         self.transaction.delete(column, key.to_vec());
     }
 
@@ -355,6 +358,17 @@ impl StoreUpdate {
         self.transaction.merge(other.transaction)
     }
 
+    pub fn update_cache(&self) -> io::Result<()> {
+        if let Some(tries) = &self.shard_tries {
+            // Note: avoid comparing wide pointers here to work-around
+            // https://github.com/rust-lang/rust/issues/69757
+            let addr = |arc| Arc::as_ptr(arc) as *const u8;
+            assert_eq!(addr(&tries.get_store().storage), addr(&self.storage),);
+            tries.update_cache(&self.transaction)?;
+        }
+        Ok(())
+    }
+
     pub fn commit(self) -> io::Result<()> {
         debug_assert!(
             {
@@ -375,30 +389,24 @@ impl StoreUpdate {
             "Transaction overwrites itself: {:?}",
             self
         );
-        if let Some(tries) = self.shard_tries {
-            // Note: avoid comparing wide pointers here to work-around
-            // https://github.com/rust-lang/rust/issues/69757
-            let addr = |arc| Arc::as_ptr(arc) as *const u8;
-            assert_eq!(addr(&tries.get_store().storage), addr(&self.storage),);
-            tries.update_cache(&self.transaction)?;
-        }
+        self.update_cache()?;
         let _span = tracing::trace_span!(target: "store", "commit").entered();
         for op in &self.transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "insert", col = ?col, key =  %to_base(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %to_base58(key), size = value.len())
                 }
                 DBOp::Set { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "set", col = ?col, key =  %to_base(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %to_base58(key), size = value.len())
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "update_rc", col = ?col, key =  %to_base(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %to_base58(key), size = value.len())
                 }
                 DBOp::Delete { col, key } => {
-                    tracing::trace!(target: "store", db_op = "delete", col = ?col, key =  %to_base(key))
+                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %to_base58(key))
                 }
                 DBOp::DeleteAll { col } => {
-                    tracing::trace!(target: "store", db_op = "delete_all", col = ?col)
+                    tracing::trace!(target: "store", db_op = "delete_all", col = %col)
                 }
             }
         }
@@ -411,13 +419,13 @@ impl fmt::Debug for StoreUpdate {
         writeln!(f, "Store Update {{")?;
         for op in self.transaction.ops.iter() {
             match op {
-                DBOp::Insert { col, key, .. } => writeln!(f, "  + {:?} {}", col, to_base(key))?,
-                DBOp::Set { col, key, .. } => writeln!(f, "  * {:?} {}", col, to_base(key))?,
+                DBOp::Insert { col, key, .. } => writeln!(f, "  + {col} {}", to_base58(key))?,
+                DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", to_base58(key))?,
                 DBOp::UpdateRefcount { col, key, .. } => {
-                    writeln!(f, "  +- {:?} {}", col, to_base(key))?
+                    writeln!(f, "  ± {col} {}", to_base58(key))?
                 }
-                DBOp::Delete { col, key } => writeln!(f, "  - {:?} {}", col, to_base(key))?,
-                DBOp::DeleteAll { col } => writeln!(f, "  delete all {:?}", col)?,
+                DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", to_base58(key))?,
+                DBOp::DeleteAll { col } => writeln!(f, "  - {col} (all)")?,
             }
         }
         writeln!(f, "}}")
@@ -428,10 +436,10 @@ impl fmt::Debug for StoreUpdate {
 /// # Errors
 /// see StorageError
 pub fn get<T: BorshDeserialize>(
-    state_update: &TrieUpdate,
+    trie: &dyn TrieAccess,
     key: &TrieKey,
 ) -> Result<Option<T>, StorageError> {
-    match state_update.get(key)? {
+    match trie.get(key)? {
         None => Ok(None),
         Some(data) => match T::try_from_slice(&data) {
             Err(_err) => {
@@ -453,10 +461,10 @@ pub fn set_account(state_update: &mut TrieUpdate, account_id: AccountId, account
 }
 
 pub fn get_account(
-    state_update: &TrieUpdate,
+    trie: &dyn TrieAccess,
     account_id: &AccountId,
 ) -> Result<Option<Account>, StorageError> {
-    get(state_update, &TrieKey::Account { account_id: account_id.clone() })
+    get(trie, &TrieKey::Account { account_id: account_id.clone() })
 }
 
 pub fn set_received_data(
@@ -469,11 +477,11 @@ pub fn set_received_data(
 }
 
 pub fn get_received_data(
-    state_update: &TrieUpdate,
+    trie: &dyn TrieAccess,
     receiver_id: &AccountId,
     data_id: CryptoHash,
 ) -> Result<Option<ReceivedData>, StorageError> {
-    get(state_update, &TrieKey::ReceivedData { receiver_id: receiver_id.clone(), data_id })
+    get(trie, &TrieKey::ReceivedData { receiver_id: receiver_id.clone(), data_id })
 }
 
 pub fn set_postponed_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
@@ -493,17 +501,17 @@ pub fn remove_postponed_receipt(
 }
 
 pub fn get_postponed_receipt(
-    state_update: &TrieUpdate,
+    trie: &dyn TrieAccess,
     receiver_id: &AccountId,
     receipt_id: CryptoHash,
 ) -> Result<Option<Receipt>, StorageError> {
-    get(state_update, &TrieKey::PostponedReceipt { receiver_id: receiver_id.clone(), receipt_id })
+    get(trie, &TrieKey::PostponedReceipt { receiver_id: receiver_id.clone(), receipt_id })
 }
 
 pub fn get_delayed_receipt_indices(
-    state_update: &TrieUpdate,
+    trie: &dyn TrieAccess,
 ) -> Result<DelayedReceiptIndices, StorageError> {
-    Ok(get(state_update, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default())
+    Ok(get(trie, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default())
 }
 
 pub fn set_access_key(
@@ -524,22 +532,22 @@ pub fn remove_access_key(
 }
 
 pub fn get_access_key(
-    state_update: &TrieUpdate,
+    trie: &dyn TrieAccess,
     account_id: &AccountId,
     public_key: &PublicKey,
 ) -> Result<Option<AccessKey>, StorageError> {
     get(
-        state_update,
+        trie,
         &TrieKey::AccessKey { account_id: account_id.clone(), public_key: public_key.clone() },
     )
 }
 
 pub fn get_access_key_raw(
-    state_update: &TrieUpdate,
+    trie: &dyn TrieAccess,
     raw_key: &[u8],
 ) -> Result<Option<AccessKey>, StorageError> {
     get(
-        state_update,
+        trie,
         &trie_key_parsers::parse_trie_key_access_key_from_raw_key(raw_key)
             .expect("access key in the state should be correct"),
     )
@@ -550,13 +558,12 @@ pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &Con
 }
 
 pub fn get_code(
-    state_update: &TrieUpdate,
+    trie: &dyn TrieAccess,
     account_id: &AccountId,
     code_hash: Option<CryptoHash>,
 ) -> Result<Option<ContractCode>, StorageError> {
-    state_update
-        .get(&TrieKey::ContractCode { account_id: account_id.clone() })
-        .map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
+    let key = TrieKey::ContractCode { account_id: account_id.clone() };
+    trie.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
 }
 
 /// Removes account, code and all access keys associated to it.
@@ -640,7 +647,11 @@ impl StoreCompiledContractCache {
 impl CompiledContractCache for StoreCompiledContractCache {
     fn put(&self, key: &CryptoHash, value: Vec<u8>) -> io::Result<()> {
         let mut update = crate::db::DBTransaction::new();
-        update.insert(DBCol::CachedContractCode, key.as_ref().to_vec(), value);
+        // We intentionally use `.set` here, rather than `.insert`. We don't yet
+        // guarantee deterministic compilation, so, if we happen to compile the
+        // same contract concurrently on two threads, the `value`s might differ,
+        // but this doesn't matter.
+        update.set(DBCol::CachedContractCode, key.as_ref().to_vec(), value);
         self.db.write(update)
     }
 
@@ -682,7 +693,7 @@ mod tests {
     #[test]
     fn clear_column_rocksdb() {
         let (_tmp_dir, opener) = Store::test_opener();
-        test_clear_column(opener.open());
+        test_clear_column(opener.open().unwrap());
     }
 
     #[test]
@@ -753,7 +764,7 @@ mod tests {
 
     #[test]
     fn rocksdb_iter_order() {
-        test_iter_order_impl(Store::test_opener().1.open());
+        test_iter_order_impl(Store::test_opener().1.open().unwrap());
     }
 
     #[test]

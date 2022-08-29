@@ -11,21 +11,17 @@
 use crate::time;
 use actix::Message;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::PublicKey;
 use near_crypto::SecretKey;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 use serde::Serialize;
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use tokio::net::TcpStream;
 
 /// Exported types, which are part of network protocol.
@@ -37,9 +33,9 @@ pub use crate::network_protocol::{
 };
 
 pub use crate::blacklist::{Blacklist, Entry as BlacklistEntry};
-pub use crate::config::{NetworkConfig, ValidatorConfig, ValidatorEndpoints};
-pub use crate::config_json::Config as ConfigJSON;
-pub use crate::network_protocol::edge::{Edge, EdgeState, PartialEdgeInfo};
+pub use crate::network_protocol::edge::{
+    Edge, EdgeState, PartialEdgeInfo, EDGE_MIN_TIMESTAMP_NONCE,
+};
 
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
@@ -48,8 +44,7 @@ pub const ROUTED_MESSAGE_TTL: u8 = 100;
 /// On every message from peer don't update `last_time_received_message`
 /// but wait some "small" timeout between updates to avoid a lot of messages between
 /// Peer and PeerManager.
-pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: std::time::Duration =
-    std::time::Duration::from_secs(60);
+pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: time::Duration = time::Duration::seconds(60);
 /// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
 pub const MAX_NUM_PEERS: usize = 128;
 
@@ -298,10 +293,6 @@ pub enum NetworkViewClientMessages {
     TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
     /// Transaction status response
     TxStatusResponse(Box<FinalExecutionOutcomeView>),
-    /// Request for receipt outcome
-    ReceiptOutcomeRequest(CryptoHash),
-    /// Receipt outcome response
-    ReceiptOutcomeResponse(Box<ExecutionOutcomeWithIdAndProof>),
     /// Request a block.
     BlockRequest(CryptoHash),
     /// Request headers.
@@ -320,37 +311,10 @@ pub enum NetworkViewClientMessages {
     AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 }
 
-/// Set of account keys.
-/// This is information which chain pushes to network to implement tier1.
-/// See ChainInfo.
-pub type AccountKeys = HashMap<(EpochId, AccountId), PublicKey>;
-
-/// Network-relevant data about the chain.
-// TODO(gprusak): it is more like node info, or sth.
-#[derive(Debug, Clone, Default)]
-pub struct ChainInfo {
-    pub tracked_shards: Vec<ShardId>,
-    pub height: BlockHeight,
-    // Public keys of accounts participating in the BFT consensus
-    // (both accounts from current and next epoch are important, that's why
-    // the map is indexed by (EpochId,AccountId) pair).
-    // It currently includes "block producers", "chunk producers" and "approvers".
-    // They are collectively known as "validators".
-    // Peers acting on behalf of these accounts have a higher
-    // priority on the NEAR network than other peers.
-    pub tier1_accounts: Arc<AccountKeys>,
-}
-
-#[derive(Debug, actix::Message)]
-#[rtype(result = "()")]
-pub struct SetChainInfo(pub ChainInfo);
-
 #[derive(Debug, actix::MessageResponse)]
 pub enum NetworkViewClientResponses {
     /// Transaction execution outcome
     TxStatus(Box<FinalExecutionOutcomeView>),
-    /// Receipt outcome response
-    ReceiptOutcomeResponse(Box<ExecutionOutcomeWithIdAndProof>),
     /// Block response.
     Block(Box<Block>),
     /// Headers response.

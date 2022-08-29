@@ -71,8 +71,16 @@ impl fmt::Display for PeerInfo {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum ParsePeerInfoError {
+    #[error("invalid format: {0}")]
+    InvalidFormat(String),
+    #[error("PeerId: {0}")]
+    PeerId(#[source] near_crypto::ParseKeyError),
+}
+
 impl FromStr for PeerInfo {
-    type Err = Box<dyn std::error::Error>;
+    type Err = ParsePeerInfoError;
     /// Returns a PeerInfo from string
     ///
     /// Valid format examples:
@@ -90,13 +98,6 @@ impl FromStr for PeerInfo {
         let addr;
         let account_id;
 
-        let invalid_peer_error_factory = || -> Self::Err {
-            Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!("Invalid PeerInfo format: {:?}", chunks),
-            ))
-        };
-
         if chunks.len() == 1 {
             addr = None;
             account_id = None;
@@ -113,20 +114,16 @@ impl FromStr for PeerInfo {
                 addr = x.next();
                 account_id = Some(chunks[2].parse().unwrap());
             } else {
-                return Err(invalid_peer_error_factory());
+                return Err(Self::Err::InvalidFormat(s.to_string()));
             }
         } else {
-            return Err(invalid_peer_error_factory());
+            return Err(Self::Err::InvalidFormat(s.to_string()));
         }
-        Ok(PeerInfo { id: PeerId::new(chunks[0].parse()?), addr, account_id })
-    }
-}
-
-impl TryFrom<&str> for PeerInfo {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        Self::from_str(s)
+        Ok(PeerInfo {
+            id: PeerId::new(chunks[0].parse().map_err(Self::Err::PeerId)?),
+            addr,
+            account_id,
+        })
     }
 }
 
@@ -196,14 +193,22 @@ pub enum RoutedMessageBody {
     TxStatusRequest(AccountId, CryptoHash),
     TxStatusResponse(FinalExecutionOutcomeView),
 
-    // Kept for backwards borsh compatibility.
+    /// Not used, but needed for borsh backward compatibility.
     _UnusedQueryRequest,
-    // Kept for backwards borsh compatibility.
+    /// Not used, but needed for borsh backward compatibility.
     _UnusedQueryResponse,
 
+    /// Not used any longer and ignored when received.
+    ///
+    /// We’ve been still sending those messages at protocol version 56 so we
+    /// need to wait until 59 before we can remove the variant completely.
+    /// Until then we need to be able to decode those messages (even though we
+    /// will ignore them).
     ReceiptOutcomeRequest(CryptoHash),
-    /// Not used, but needed to preserve backward compatibility.
-    Unused,
+
+    /// Not used, but needed to borsh backward compatibility.
+    _UnusedReceiptOutcomeResponse,
+
     StateRequestHeader(ShardId, CryptoHash),
     StateRequestPart(ShardId, CryptoHash, u64),
     StateResponse(StateResponseInfoV1),
@@ -216,6 +221,21 @@ pub enum RoutedMessageBody {
     VersionedPartialEncodedChunk(PartialEncodedChunk),
     VersionedStateResponse(StateResponseInfo),
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
+}
+
+impl RoutedMessageBody {
+    // Return whether this message is important.
+    // In routing logics, we send important messages multiple times to minimize the risk that they are
+    // lost
+    pub fn is_important(&self) -> bool {
+        match self {
+            // Both BlockApproval and PartialEncodedChunk is essential for block production and
+            // are only sent by the original node and if they are lost, the receiver node doesn't
+            // know to request them.
+            RoutedMessageBody::BlockApproval(_) | RoutedMessageBody::PartialEncodedChunk(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl From<PartialEncodedChunkWithArcReceipts> for RoutedMessageBody {
@@ -247,9 +267,10 @@ impl Debug for RoutedMessageBody {
             RoutedMessageBody::TxStatusResponse(response) => {
                 write!(f, "TxStatusResponse({})", response.transaction.hash)
             }
-            RoutedMessageBody::_UnusedQueryRequest { .. } => write!(f, "QueryRequest"),
-            RoutedMessageBody::_UnusedQueryResponse { .. } => write!(f, "QueryResponse"),
+            RoutedMessageBody::_UnusedQueryRequest => write!(f, "QueryRequest"),
+            RoutedMessageBody::_UnusedQueryResponse => write!(f, "QueryResponse"),
             RoutedMessageBody::ReceiptOutcomeRequest(hash) => write!(f, "ReceiptRequest({})", hash),
+            RoutedMessageBody::_UnusedReceiptOutcomeResponse => write!(f, "ReceiptResponse"),
             RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
                 write!(f, "StateRequestHeader({}, {})", shard_id, sync_hash)
             }
@@ -288,7 +309,6 @@ impl Debug for RoutedMessageBody {
             ),
             RoutedMessageBody::Ping(_) => write!(f, "Ping"),
             RoutedMessageBody::Pong(_) => write!(f, "Pong"),
-            RoutedMessageBody::Unused => write!(f, "Unused"),
         }
     }
 }

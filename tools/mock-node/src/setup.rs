@@ -33,7 +33,7 @@ fn setup_runtime(
     let store = if in_memory_storage {
         create_test_store()
     } else {
-        near_store::Store::opener(home_dir, &config.config.store).open()
+        near_store::Store::opener(home_dir, &config.config.store).open().unwrap()
     };
 
     Arc::new(NightshadeRuntime::from_config(home_dir, store, config))
@@ -167,12 +167,12 @@ pub fn setup_mock_node(
             &config.genesis.config,
         )
         .unwrap();
-        let mut mock_epoch_manager = EpochManager::new_from_genesis_config(
+        let mock_epoch_manager = EpochManager::new_from_genesis_config(
             mock_network_runtime.get_store(),
             &config.genesis.config,
         )
         .unwrap();
-        epoch_manager.copy_epoch_info_as_of_block(&hash, &mut mock_epoch_manager).unwrap();
+        epoch_manager.copy_epoch_info_as_of_block(&hash, &mock_epoch_manager).unwrap();
         tracing::info!(target: "mock_node", "Done preparing epoch info");
 
         // copy state for all shards

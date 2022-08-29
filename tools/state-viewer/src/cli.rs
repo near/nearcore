@@ -2,7 +2,7 @@ use crate::commands::*;
 use crate::epoch_info;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use clap::{Args, Parser, Subcommand};
-use near_chain_configs::GenesisValidationMode;
+use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
@@ -75,7 +75,7 @@ impl StateViewerSubCommand {
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
         let store_opener =
             near_store::Store::opener(home_dir, &near_config.config.store).mode(mode);
-        let store = store_opener.open();
+        let store = store_opener.open().unwrap();
         match self {
             StateViewerSubCommand::Peers => peers(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
@@ -91,7 +91,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(&store_opener.get_path()),
+            StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(&store_opener.path()),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
@@ -123,6 +123,11 @@ pub struct DumpStateCmd {
     /// If not set, all account IDs will be dumped.
     #[clap(long)]
     account_ids: Option<Vec<AccountId>>,
+    /// List of validators to remain validators.
+    /// All other validators will be kicked, but still dumped.
+    /// Their stake will be returned to balance.
+    #[clap(long)]
+    include_validators: Option<Vec<AccountId>>,
 }
 
 impl DumpStateCmd {
@@ -134,7 +139,9 @@ impl DumpStateCmd {
             home_dir,
             near_config,
             store,
-            self.account_ids.as_ref(),
+            &GenesisChangeConfig::default()
+                .with_select_account_ids(self.account_ids)
+                .with_whitelist_validators(self.include_validators),
         );
     }
 }

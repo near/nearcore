@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_primitives::sandbox_state_patch::SandboxStatePatch;
+use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_part::PartId;
 use num_rational::Ratio;
 use tracing::debug;
@@ -24,7 +24,6 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
-use near_primitives::serialize::to_base;
 use near_primitives::shard_layout;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ChunkHash;
@@ -246,7 +245,6 @@ impl KeyValueRuntime {
             })
             .collect();
 
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
         if !vs.chunk_only_producers.is_empty() {
             assert_eq!(validators_by_valset.len(), vs.chunk_only_producers.len());
             for (epoch_idx, epoch_cops) in vs.chunk_only_producers.into_iter().enumerate() {
@@ -306,7 +304,7 @@ impl KeyValueRuntime {
         }
         let prev_block_header = self
             .get_block_header(&prev_hash)?
-            .ok_or_else(|| Error::DBNotFoundErr(to_base(&prev_hash)))?;
+            .ok_or_else(|| Error::DBNotFoundErr(prev_hash.to_string()))?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
         let mut hash_to_next_epoch_approvals_req =
@@ -388,7 +386,6 @@ impl KeyValueRuntime {
             % self.validators_by_valset.len())
     }
 
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     pub fn get_chunk_only_producers_for_shard(
         &self,
         epoch_id: &EpochId,
@@ -418,16 +415,23 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         shard_id: ShardId,
         _block_hash: &CryptoHash,
+        state_root: StateRoot,
     ) -> Result<Trie, Error> {
-        Ok(self.tries.get_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 }))
+        Ok(self
+            .tries
+            .get_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 }, state_root))
     }
 
     fn get_view_trie_for_shard(
         &self,
         shard_id: ShardId,
         _block_hash: &CryptoHash,
+        state_root: StateRoot,
     ) -> Result<Trie, Error> {
-        Ok(self.tries.get_view_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 }))
+        Ok(self.tries.get_view_trie_for_shard(
+            ShardUId { version: 0, shard_id: shard_id as u32 },
+            state_root,
+        ))
     }
 
     fn verify_block_vrf(
@@ -548,7 +552,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(validators)
     }
     fn get_epoch_chunk_producers(&self, _epoch_id: &EpochId) -> Result<Vec<ValidatorStake>, Error> {
-        todo!()
+        tracing::warn!("not implemented, returning a dummy value");
+        Ok(vec![])
     }
 
     fn get_block_producer(
@@ -625,12 +630,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(account_id_to_shard_id(account_id, self.num_shards))
     }
 
-    fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error> {
-        let validators = &self.get_block_producers(self.get_epoch_and_valset(*parent_hash)?.1);
+    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
+        let validators =
+            &self.get_epoch_block_producers_ordered(epoch_id, &CryptoHash::default())?;
         // if we don't use data_parts and total_parts as part of the formula here, the part owner
         //     would not depend on height, and tests wouldn't catch passing wrong height here
         let idx = part_id as usize + self.num_data_parts() + self.num_total_parts();
-        Ok(validators[idx as usize % validators.len()].account_id().clone())
+        Ok(validators[idx as usize % validators.len()].0.account_id().clone())
     }
 
     fn cares_about_shard(
@@ -749,7 +755,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         generate_storage_proof: bool,
         _is_new_chunk: bool,
         _is_first_block_with_chunk_of_version: bool,
-        _state_patch: Option<SandboxStatePatch>,
+        _state_patch: SandboxStatePatch,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
         let mut tx_results = vec![];
@@ -1049,18 +1055,18 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error> {
-        Ok(StateRootNode {
-            data: self
-                .state
-                .read()
-                .unwrap()
-                .get(state_root)
-                .unwrap()
-                .clone()
-                .try_to_vec()
-                .expect("should never fall"),
-            memory_usage: *self.state_size.read().unwrap().get(state_root).unwrap(),
-        })
+        let data = self
+            .state
+            .read()
+            .unwrap()
+            .get(state_root)
+            .unwrap()
+            .clone()
+            .try_to_vec()
+            .expect("should never fall")
+            .into();
+        let memory_usage = *self.state_size.read().unwrap().get(state_root).unwrap();
+        Ok(StateRootNode { data, memory_usage })
     }
 
     fn validate_state_root_node(
@@ -1238,7 +1244,6 @@ impl RuntimeAdapter for KeyValueRuntime {
                 return Ok((validator_stake.clone(), false));
             }
         }
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
         for validator_stake in validators.chunk_producers.iter().flatten() {
             if validator_stake.account_id() == account_id {
                 return Ok((validator_stake.clone(), false));
@@ -1268,7 +1273,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         loop {
             let header = self
                 .get_block_header(&candidate_hash)?
-                .ok_or_else(|| Error::DBNotFoundErr(to_base(&candidate_hash)))?;
+                .ok_or_else(|| Error::DBNotFoundErr(candidate_hash.to_string()))?;
             candidate_hash = *header.prev_hash();
             if self.is_next_block_epoch_start(&candidate_hash)? {
                 break Ok(self.get_epoch_and_valset(candidate_hash)?.0);
@@ -1388,8 +1393,10 @@ pub fn setup_with_validators(
     (chain, runtime, signers)
 }
 
-pub fn format_hash(h: CryptoHash) -> String {
-    to_base(&h)[..6].to_string()
+pub fn format_hash(hash: CryptoHash) -> String {
+    let mut hash = hash.to_string();
+    hash.truncate(6);
+    hash
 }
 
 /// Displays chain from given store.

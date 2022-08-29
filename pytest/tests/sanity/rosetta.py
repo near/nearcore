@@ -609,7 +609,12 @@ class RosettaTestCase(unittest.TestCase):
                     'index': 0
                 },
                 'status': 'SUCCESS',
-                'type': 'TRANSFER'
+                'type': 'TRANSFER',
+                'metadata': {
+                    'predecessor_id': {
+                        'address': 'test0'
+                    }
+                }
             }, {
                 'account': {
                     'address': 'test0'
@@ -625,7 +630,12 @@ class RosettaTestCase(unittest.TestCase):
                     'index': 1
                 },
                 'status': 'SUCCESS',
-                'type': 'TRANSFER'
+                'type': 'TRANSFER',
+                'metadata': {
+                    'predecessor_id': {
+                        'address': 'test0'
+                    }
+                }
             }],
             'related_transactions': [{
                 'direction': 'forward',
@@ -646,6 +656,11 @@ class RosettaTestCase(unittest.TestCase):
                     },
                     'type': 'TRANSFER',
                     'status': 'SUCCESS',
+                    'metadata': {
+                        'predecessor_id': {
+                            'address': 'test0'
+                        }
+                    },
                     'account': {
                         'address': implicit.account_id,
                     },
@@ -662,6 +677,11 @@ class RosettaTestCase(unittest.TestCase):
                     },
                     'type': 'TRANSFER',
                     'status': 'SUCCESS',
+                    'metadata': {
+                        'predecessor_id': {
+                            'address': 'test0'
+                        }
+                    },
                     'account': {
                         'address': implicit.account_id,
                         'sub_account': {
@@ -700,13 +720,18 @@ class RosettaTestCase(unittest.TestCase):
                             'decimals': 24,
                             'symbol': 'NEAR'
                         },
-                        'value': '12736651875000000000'
+                        'value': '1273665187500000000'
                     },
                     'operation_identifier': {
                         'index': 0
                     },
                     'status': 'SUCCESS',
-                    'type': 'TRANSFER'
+                    'type': 'TRANSFER',
+                    'metadata': {
+                        'predecessor_id': {
+                            'address': 'system'
+                        }
+                    }
                 }],
                 'transaction_identifier': related.identifier
             }, related.transaction())
@@ -745,13 +770,18 @@ class RosettaTestCase(unittest.TestCase):
                             'decimals': 24,
                             'symbol': 'NEAR'
                         },
-                        'value': '-511097000000000000000'
+                        'value': '-51109700000000000000'
                     },
                     'operation_identifier': {
                         'index': 0
                     },
                     'status': 'SUCCESS',
-                    'type': 'TRANSFER'
+                    'type': 'TRANSFER',
+                    'metadata': {
+                        'predecessor_id': {
+                            'address': implicit.account_id
+                        }
+                    }
                 }],
                 'related_transactions': [{
                     'direction': 'forward',
@@ -776,7 +806,7 @@ class RosettaTestCase(unittest.TestCase):
                             'decimals': 24,
                             'symbol': 'NEAR'
                         },
-                        'value': '-7668903000000000000000'
+                        'value': '-8128890300000000000000'
                     },
                     'operation_identifier': {
                         'index': 0
@@ -826,13 +856,18 @@ class RosettaTestCase(unittest.TestCase):
                             'decimals': 24,
                             'symbol': 'NEAR'
                         },
-                        'value': '9488903000000000000000'
+                        'value': '9948890300000000000000'
                     },
                     'operation_identifier': {
                         'index': 0
                     },
                     'status': 'SUCCESS',
-                    'type': 'TRANSFER'
+                    'type': 'TRANSFER',
+                    'metadata': {
+                        'predecessor_id': {
+                            'address': "system"
+                        }
+                    }
                 }],
                 'transaction_identifier': receipt_id_2
             }, result.transaction())

@@ -85,6 +85,7 @@ impl Network {
                     received_bytes_per_sec: 0,
                     known_producers: vec![],
                     peer_counter: 0,
+                    tier1_accounts: vec![],
                 }),
                 info_futures: Default::default(),
             }),
@@ -296,8 +297,6 @@ impl Handler<NetworkViewClientMessages> for FakeClientActor {
         let name = match msg {
             NetworkViewClientMessages::TxStatus { .. } => "TxStatus",
             NetworkViewClientMessages::TxStatusResponse(_) => "TxStatusResponse",
-            NetworkViewClientMessages::ReceiptOutcomeRequest(_) => "ReceiptOutcomeRequest",
-            NetworkViewClientMessages::ReceiptOutcomeResponse(_) => "ReceiptOutputResponse",
             NetworkViewClientMessages::BlockRequest(_) => "BlockRequest",
             NetworkViewClientMessages::BlockHeadersRequest(_) => "BlockHeadersRequest",
             NetworkViewClientMessages::StateRequestHeader { .. } => "StateRequestHeader",

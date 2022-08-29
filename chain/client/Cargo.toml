@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.62.1"
+rust-version = "1.63.0"
 edition = "2021"
 
 [dependencies]
@@ -42,7 +42,7 @@ near-telemetry = { path = "../telemetry" }
 near-o11y = { path = "../../core/o11y" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
-delay-detector = { path = "../../tools/delay_detector" }
+delay-detector = { path = "../../tools/delay-detector" }
 near-network-primitives = { path = "../network-primitives" }
 
 [dev-dependencies]
@@ -64,10 +64,6 @@ delay_detector = [
   "near-network/delay_detector",
   "delay-detector/delay_detector",
 ]
-protocol_feature_chunk_only_producers = [
-  "near-primitives/protocol_feature_chunk_only_producers",
-  "near-chain/protocol_feature_chunk_only_producers",
-]
 nightly_protocol = []
 nightly = [
   "nightly_protocol",
@@ -78,4 +74,4 @@ sandbox = [
   "near-chain/sandbox",
 ]
 # Shardnet is the experimental network that we deploy for chunk-only producer testing.
-shardnet = ["protocol_feature_chunk_only_producers"]
+shardnet = ["near-network/shardnet"]

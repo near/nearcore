@@ -1,24 +1,24 @@
 //! Structs in this file are used for debug purposes, and might change at any time
 //! without backwards compatibility.
-
 use crate::ClientActor;
 use actix::{Context, Handler};
 use borsh::BorshSerialize;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::types::ValidatorInfoIdentifier;
-use near_chain::{near_chain_primitives, ChainStoreAccess};
+use near_chain::{near_chain_primitives, ChainStoreAccess, RuntimeAdapter};
 use near_client_primitives::debug::{
-    BlockProduction, ChunkProduction, DebugStatus, DebugStatusResponse, ProductionAtHeight,
-    ValidatorStatus,
+    ApprovalAtHeightStatus, BlockProduction, ChunkCollection, DebugStatus, DebugStatusResponse,
+    ProductionAtHeight, ValidatorStatus,
 };
 use near_client_primitives::types::Error;
 use near_client_primitives::{
     debug::{EpochInfoView, TrackedShardsView},
     types::StatusError,
 };
+use near_o11y::log_assert;
 use near_performance_metrics_macros::perf;
 use near_primitives::syncing::get_num_state_parts;
-use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use near_primitives::{
     hash::CryptoHash,
     syncing::{ShardStateSyncResponseHeader, StateHeaderKey},
@@ -26,19 +26,123 @@ use near_primitives::{
     views::ValidatorInfo,
 };
 use near_store::DBCol;
+use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
+use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::time::Clock;
 
 // Constants for debug requests.
 const DEBUG_BLOCKS_TO_FETCH: u32 = 50;
 const DEBUG_EPOCHS_TO_FETCH: u32 = 5;
 
 // How many old blocks (before HEAD) should be shown in debug page.
-const DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW: u64 = 10;
+const DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW: u64 = 50;
 
 // Maximum number of blocks to show.
 const DEBUG_MAX_PRODUCTION_BLOCKS_TO_SHOW: u64 = 1000;
+
+/// Number of blocks (and chunks) for which to keep the detailed timing information for debug purposes.
+pub const PRODUCTION_TIMES_CACHE_SIZE: usize = 1000;
+
+pub struct BlockProductionTracker(lru::LruCache<BlockHeight, BlockProduction>);
+
+impl BlockProductionTracker {
+    pub(crate) fn new() -> Self {
+        Self(lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE))
+    }
+
+    pub(crate) fn get(&mut self, height: BlockHeight) -> BlockProduction {
+        self.0.get(&height).cloned().unwrap_or_default()
+    }
+
+    /// Record approvals received so far for this block. Must be called before block is produced.
+    pub(crate) fn record_approvals(
+        &mut self,
+        height: BlockHeight,
+        approvals: ApprovalAtHeightStatus,
+    ) {
+        // This function will only be called before block production, so it is ok to overwrite
+        // the previous value
+        if let Some(prev_block_production) = self.0.put(
+            height,
+            BlockProduction {
+                approvals,
+                chunks_collection_time: vec![],
+                block_production_time: None,
+                block_included: false,
+            },
+        ) {
+            log_assert!(
+                prev_block_production.block_production_time.is_none(),
+                "record approvals called after block {} produced",
+                height
+            );
+        }
+    }
+
+    /// Record block production info
+    pub(crate) fn record_block_production(
+        &mut self,
+        height: BlockHeight,
+        chunk_collections: Vec<ChunkCollection>,
+    ) {
+        if let Some(block_production) = self.0.get_mut(&height) {
+            block_production.block_production_time = Some(Clock::utc());
+            block_production.chunks_collection_time = chunk_collections;
+        }
+    }
+
+    /// Record chunk collected after a block is produced if the block didn't include a chunk for the shard.
+    /// If called before the block was produced, nothing happens.
+    pub(crate) fn record_chunk_collected(&mut self, height: BlockHeight, shard_id: ShardId) {
+        if let Some(block_production) = self.0.get_mut(&height) {
+            let chunk_collections = &mut block_production.chunks_collection_time;
+            // Check that chunk_collection is set and we haven't received this chunk yet.
+            if let Some(chunk_collection) = chunk_collections.get_mut(shard_id as usize) {
+                if chunk_collection.received_time.is_none() {
+                    chunk_collection.received_time = Some(Clock::utc());
+                }
+            }
+            // Otherwise, it means chunk_collections is not set yet, which means the block wasn't produced.
+            // And we do nothing in this case.
+        }
+    }
+
+    pub(crate) fn construct_chunk_collection_info(
+        block_height: BlockHeight,
+        epoch_id: &EpochId,
+        num_shards: ShardId,
+        new_chunks: &HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)>,
+        runtime_adapter: &dyn RuntimeAdapter,
+    ) -> Result<Vec<ChunkCollection>, Error> {
+        let mut chunk_collection_info = vec![];
+        for shard_id in 0..num_shards {
+            if let Some((new_chunk, chunk_time)) = new_chunks.get(&shard_id) {
+                let chunk_producer = runtime_adapter.get_chunk_producer(
+                    epoch_id,
+                    new_chunk.height_created(),
+                    shard_id,
+                )?;
+                chunk_collection_info.push(ChunkCollection {
+                    chunk_producer,
+                    received_time: Some(chunk_time.clone()),
+                    chunk_included: true,
+                });
+            } else {
+                let chunk_producer =
+                    runtime_adapter.get_chunk_producer(epoch_id, block_height, shard_id)?;
+                chunk_collection_info.push(ChunkCollection {
+                    chunk_producer,
+                    received_time: None,
+                    chunk_included: false,
+                });
+            }
+        }
+        Ok(chunk_collection_info)
+    }
+}
 
 impl Handler<DebugStatus> for ClientActor {
     type Result = Result<DebugStatusResponse, StatusError>;
@@ -358,7 +462,7 @@ impl ClientActor {
     /// produced and some detailed timing information.
     fn get_validator_status(&mut self) -> Result<ValidatorStatus, near_chain_primitives::Error> {
         let head = self.client.chain.head()?;
-        let mut production_map: HashMap<BlockHeight, ProductionAtHeight> = HashMap::new();
+        let mut productions = vec![];
 
         if let Some(signer) = &self.client.validator_signer {
             let validator_id = signer.validator_id().to_string();
@@ -366,60 +470,72 @@ impl ClientActor {
             // We want to show some older blocks (up to DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW in the past)
             // and new blocks (up to the current height for which we've sent approval).
 
-            let max_height = self
-                .client
-                .doomslug
-                .get_largest_target_height()
-                .clamp(head.height, head.height + DEBUG_MAX_PRODUCTION_BLOCKS_TO_SHOW);
+            let estimated_epoch_end = max(
+                head.height,
+                self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?
+                    + self.client.chain.epoch_length,
+            );
+            let max_height = self.client.doomslug.get_largest_approval_height().clamp(
+                head.height,
+                min(head.height + DEBUG_MAX_PRODUCTION_BLOCKS_TO_SHOW, estimated_epoch_end),
+            );
 
+            let mut epoch_id = head.epoch_id.clone();
             for height in
                 head.height.saturating_sub(DEBUG_PRODUCTION_OLD_BLOCKS_TO_SHOW)..=max_height
             {
+                let mut has_block_or_chunks_to_produce = false;
                 let mut production = ProductionAtHeight::default();
-                // For each height - we want to collect information about received approvals.
-                production.approvals = self.client.doomslug.approval_status_at_height(&height);
+
+                // The block may be in the last epoch from head, we need to account for that.
+                if let Ok(header) = self.client.chain.get_block_header_by_height(height) {
+                    epoch_id = header.epoch_id().clone();
+                }
 
                 // And if we are the block (or chunk) producer for this height - collect some timing info.
                 let block_producer = self
                     .client
                     .runtime_adapter
-                    .get_block_producer(&head.epoch_id, height)
+                    .get_block_producer(&epoch_id, height)
                     .map(|f| f.to_string())
                     .unwrap_or_default();
 
+                let num_chunks = self.client.runtime_adapter.num_shards(&epoch_id)?;
+
                 if block_producer == validator_id {
-                    production.block_production = self
-                        .client
-                        .block_production_times
-                        .get(&height)
-                        .cloned()
-                        .or(Some(BlockProduction::default()));
+                    // For each height - we want to collect information about received approvals.
+                    let mut block_production = self.client.block_production_info.get(height);
+                    block_production.block_included =
+                        self.client.chain.get_block_hash_by_height(height).is_ok();
+                    production.block_production = Some(block_production);
+                    has_block_or_chunks_to_produce = true;
                 }
 
-                for shard_id in 0..self.client.runtime_adapter.num_shards(&head.epoch_id)? {
+                for shard_id in 0..num_chunks {
                     let chunk_producer = self
                         .client
                         .runtime_adapter
-                        .get_chunk_producer(&head.epoch_id, height, shard_id)
+                        .get_chunk_producer(&epoch_id, height, shard_id)
                         .map(|f| f.to_string())
                         .unwrap_or_default();
                     if chunk_producer == validator_id {
                         production.chunk_production.insert(
                             shard_id,
-                            ChunkProduction {
-                                chunk_production_duration_millis: self
-                                    .client
-                                    .chunk_production_times
-                                    .get(&(height, shard_id))
-                                    .map(|i| i.as_millis() as u64),
-                                chunk_production_time: None,
-                            },
+                            self.client
+                                .chunk_production_info
+                                .get(&(height, shard_id))
+                                .cloned()
+                                .unwrap_or_default(),
                         );
+                        has_block_or_chunks_to_produce = true;
                     }
                 }
-                production_map.insert(height, production);
+                if has_block_or_chunks_to_produce {
+                    productions.push((height, production));
+                }
             }
         }
+        productions.reverse();
 
         Ok(ValidatorStatus {
             validator_name: self
@@ -448,7 +564,7 @@ impl ClientActor {
             head_height: head.height,
             shards: self.client.runtime_adapter.num_shards(&head.epoch_id).unwrap_or_default(),
             approval_history: self.client.doomslug.get_approval_history(),
-            production: production_map,
+            production: productions,
         })
     }
 }

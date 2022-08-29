@@ -8,11 +8,10 @@ use near_chain_configs::GenesisConfig;
 use near_client::sync;
 use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
-    PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
 };
 use near_network_primitives::types::{
     PartialEdgeInfo, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
-    SetChainInfo,
 };
 use near_performance_metrics::actix::run_later;
 use near_primitives::block::GenesisId;
@@ -237,6 +236,7 @@ impl MockPeerManagerActor {
             received_bytes_per_sec: 0,
             known_producers: vec![],
             peer_counter: 0,
+            tier1_accounts: vec![],
         };
         let incoming_requests = IncomingRequests::new(
             &network_config.incoming_requests,

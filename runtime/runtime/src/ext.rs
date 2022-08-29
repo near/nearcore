@@ -175,7 +175,7 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        self.trie_update.trie.get_trie_nodes_count()
+        self.trie_update.trie().get_trie_nodes_count()
     }
 
     fn validator_stake(&self, account_id: &AccountId) -> ExtResult<Option<Balance>> {

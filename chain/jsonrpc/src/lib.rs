@@ -28,7 +28,6 @@ use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{prometheus, Encoder, TextEncoder};
 use near_network::types::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
@@ -271,7 +270,7 @@ impl JsonRpcHandler {
             "block" => process_method_call(request, |params| self.block(params)).await,
             "broadcast_tx_async" => {
                 process_method_call(request, |params| async {
-                    let tx = self.send_tx_async(params).await.to_base();
+                    let tx = self.send_tx_async(params).await.to_string();
                     Result::<_, std::convert::Infallible>::Ok(tx)
                 })
                 .await
@@ -1069,8 +1068,8 @@ impl JsonRpcHandler {
     async fn adv_set_sync_info(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let height = crate::api::parse_params::<u64>(params)?;
         actix::spawn(
-            self.view_client_addr
-                .send(near_network_primitives::types::NetworkViewClientMessages::Adversarial(
+            self.client_addr
+                .send(near_network::types::NetworkClientMessages::Adversarial(
                     near_network_primitives::types::NetworkAdversarialMessage::AdvSetSyncInfo(
                         height,
                     ),

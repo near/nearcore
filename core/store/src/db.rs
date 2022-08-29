@@ -3,7 +3,7 @@ use std::io;
 use crate::DBCol;
 
 pub mod refcount;
-mod rocksdb;
+pub(crate) mod rocksdb;
 mod testdb;
 
 pub use self::rocksdb::RocksDB;
@@ -55,10 +55,12 @@ impl DBTransaction {
     }
 
     pub fn insert(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+        assert!(col.is_insert_only(), "can't insert: {col:?}");
         self.ops.push(DBOp::Insert { col, key, value });
     }
 
     pub fn update_refcount(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+        assert!(col.is_rc(), "can't update refcount: {col:?}");
         self.ops.push(DBOp::UpdateRefcount { col, key, value });
     }
 
@@ -88,6 +90,14 @@ pub trait Database: Sync + Send {
     /// You most likely will want to use [`refcount::get_with_rc_logic`] to
     /// properly handle reference-counted columns.
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>>;
+
+    /// Returns value for given `key` forcing a reference count decoding.
+    ///
+    /// **Panics** if the column is not reference counted.
+    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
+        assert!(col.is_rc());
+        Ok(self.get_raw_bytes(col, key)?.and_then(crate::db::refcount::strip_refcount))
+    }
 
     /// Iterate over all items in given column in lexicographical order sorted
     /// by the key.
@@ -132,14 +142,12 @@ pub trait Database: Sync + Send {
 }
 
 fn assert_no_overwrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {
-    assert_eq!(
-        value, old_value,
+    assert!(
+        value == old_value,
         "\
 write once column overwritten
 col: {col}
 key: {key:?}
-old value: {old_value:?}
-new value: {value:?}
 "
     )
 }

@@ -130,12 +130,15 @@ fn near_configs_to_node_configs(
 ) -> Vec<NodeConfig> {
     let mut result = vec![];
     for i in 0..configs.len() {
-        result.push(NodeConfig::Thread(NearConfig::new(
-            configs[i].clone(),
-            genesis.clone(),
-            (&network_signers[i]).into(),
-            Some(Arc::new(validator_signers[i].clone())),
-        )))
+        result.push(NodeConfig::Thread(
+            NearConfig::new(
+                configs[i].clone(),
+                genesis.clone(),
+                (&network_signers[i]).into(),
+                Some(Arc::new(validator_signers[i].clone())),
+            )
+            .unwrap(),
+        ))
     }
     result
 }
@@ -153,7 +156,8 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
     genesis.config.gas_price_adjustment_rate = Ratio::from_integer(0);
     for seed in seeds {
         let mut is_account_record_found = false;
-        for record in genesis.records.as_mut() {
+        let records = genesis.force_read_records().as_mut();
+        for record in records.iter_mut() {
             if let StateRecord::Account { account_id: record_account_id, ref mut account } = record
             {
                 if record_account_id.as_ref() == seed {
@@ -163,9 +167,7 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
             }
         }
         assert!(is_account_record_found);
-        genesis
-            .records
-            .as_mut()
+        records
             .push(StateRecord::Contract { account_id: seed.parse().unwrap(), code: code.to_vec() });
     }
     near_configs_to_node_configs(configs, validator_signers, network_signers, genesis)

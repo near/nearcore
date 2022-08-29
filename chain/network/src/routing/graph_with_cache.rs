@@ -1,5 +1,6 @@
 use crate::routing;
 use crate::stats::metrics;
+use near_network_primitives::time;
 use near_network_primitives::types::{Edge, EdgeState};
 use near_primitives::network::PeerId;
 use parking_lot::Mutex;
@@ -22,6 +23,8 @@ pub struct GraphWithCache {
     /// Peers of this node, which are on any shortest path to the given node.
     /// Derived from graph.
     cached_next_hops: Mutex<Option<Arc<NextHopTable>>>,
+    // Don't allow edges that are before this time (if set)
+    prune_edges_before: Option<time::Utc>,
 }
 
 impl GraphWithCache {
@@ -30,6 +33,7 @@ impl GraphWithCache {
             graph: routing::Graph::new(my_peer_id),
             edges: Default::default(),
             cached_next_hops: Default::default(),
+            prune_edges_before: None,
         }
     }
 
@@ -48,12 +52,25 @@ impl GraphWithCache {
         prev.map_or(false, |x| x.nonce() >= edge.nonce())
     }
 
+    pub fn set_unreliable_peers(&mut self, unreliable_peers: HashSet<PeerId>) {
+        self.graph.set_unreliable_peers(unreliable_peers);
+        // Invalidate cache.
+        *self.cached_next_hops.lock() = None;
+    }
+
     /// Adds an edge without validating the signatures. O(1).
     /// Returns true, iff <edge> was newer than an already known version of this edge.
     pub fn update_edge(&mut self, edge: Edge) -> bool {
         if self.has(&edge) {
             return false;
         }
+        if let Some(edge_limit) = self.prune_edges_before {
+            // Don't add edges that are older than the limit.
+            if edge.is_edge_older_than(edge_limit) {
+                return false;
+            }
+        }
+
         let key = edge.key();
         // Add the edge.
         match edge.edge_type() {
@@ -73,8 +90,20 @@ impl GraphWithCache {
 
     /// Removes an edge by key. O(1).
     pub fn remove_edge(&mut self, key: &EdgeKey) {
-        if self.edges.remove(key).is_some() {
-            self.graph.remove_edge(&key.0, &key.1);
+        self.remove_edges(&vec![key])
+    }
+
+    // Removes mutiple edges.
+    // The main benefit is that we take the cached_next_hops lock only once.
+    fn remove_edges(&mut self, edge_keys: &[&EdgeKey]) {
+        let mut removed = false;
+        for key in edge_keys {
+            if self.edges.remove(key).is_some() {
+                self.graph.remove_edge(&key.0, &key.1);
+                removed = true;
+            }
+        }
+        if removed {
             *self.cached_next_hops.lock() = None;
         }
     }
@@ -104,9 +133,24 @@ impl GraphWithCache {
             })
             .cloned()
             .collect();
-        for edge in &edges {
-            self.remove_edge(edge.key());
-        }
+        self.remove_edges(&edges.iter().map(|edge| edge.key()).collect::<Vec<_>>());
         edges
+    }
+
+    pub fn prune_old_edges(&mut self, prune_edges_older_than: time::Utc) {
+        self.prune_edges_before = Some(prune_edges_older_than);
+        let old_edges = self
+            .edges()
+            .iter()
+            .filter_map(|(edge_key, edge)| {
+                if edge.is_edge_older_than(prune_edges_older_than) {
+                    Some(edge_key)
+                } else {
+                    None
+                }
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        self.remove_edges(&old_edges.iter().collect::<Vec<_>>());
     }
 }
