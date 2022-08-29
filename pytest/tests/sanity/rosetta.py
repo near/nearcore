@@ -720,7 +720,7 @@ class RosettaTestCase(unittest.TestCase):
                             'decimals': 24,
                             'symbol': 'NEAR'
                         },
-                        'value': '12736651875000000000'
+                        'value': '1273665187500000000'
                     },
                     'operation_identifier': {
                         'index': 0
@@ -770,7 +770,7 @@ class RosettaTestCase(unittest.TestCase):
                             'decimals': 24,
                             'symbol': 'NEAR'
                         },
-                        'value': '-511097000000000000000'
+                        'value': '-51109700000000000000'
                     },
                     'operation_identifier': {
                         'index': 0
@@ -806,7 +806,7 @@ class RosettaTestCase(unittest.TestCase):
                             'decimals': 24,
                             'symbol': 'NEAR'
                         },
-                        'value': '-7668903000000000000000'
+                        'value': '-8128890300000000000000'
                     },
                     'operation_identifier': {
                         'index': 0
@@ -856,7 +856,7 @@ class RosettaTestCase(unittest.TestCase):
                             'decimals': 24,
                             'symbol': 'NEAR'
                         },
-                        'value': '9488903000000000000000'
+                        'value': '9948890300000000000000'
                     },
                     'operation_identifier': {
                         'index': 0
