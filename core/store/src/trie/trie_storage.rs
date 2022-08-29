@@ -75,8 +75,12 @@ pub struct TrieCacheInner {
     shard_id: u32,
     /// Whether cache is used for view calls execution.
     is_view: bool,
+    // Counters tracking operations happening inside the shard cache.
+    // Stored here to avoid overhead of looking them up on hot paths.
+    metrics: TrieCacheMetrics,
+}
 
-    // Store counteres here to avoid overhead of looking them up on hot paths.
+struct TrieCacheMetrics {
     shard_cache_too_large: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_pop_hits: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_pop_misses: GenericCounter<prometheus::core::AtomicU64>,
@@ -95,13 +99,7 @@ impl TrieCacheInner {
     ) -> Self {
         assert!(cache_capacity > 0 && total_size_limit > 0);
         let metrics_labels: [&str; 2] = [&format!("{}", shard_id), &format!("{}", is_view as u8)];
-        Self {
-            cache: LruCache::new(cache_capacity),
-            deletions: BoundedQueue::new(deletions_queue_capacity),
-            total_size: 0,
-            total_size_limit,
-            shard_id,
-            is_view,
+        let metrics = TrieCacheMetrics {
             shard_cache_too_large: metrics::SHARD_CACHE_TOO_LARGE
                 .with_label_values(&metrics_labels),
             shard_cache_pop_hits: metrics::SHARD_CACHE_POP_HITS.with_label_values(&metrics_labels),
@@ -112,6 +110,15 @@ impl TrieCacheInner {
                 .with_label_values(&metrics_labels),
             shard_cache_deletions_size: metrics::SHARD_CACHE_DELETIONS_SIZE
                 .with_label_values(&metrics_labels),
+        };
+        Self {
+            cache: LruCache::new(cache_capacity),
+            deletions: BoundedQueue::new(deletions_queue_capacity),
+            total_size: 0,
+            total_size_limit,
+            shard_id,
+            is_view,
+            metrics,
         }
     }
 
@@ -131,19 +138,19 @@ impl TrieCacheInner {
             match self.deletions.pop() {
                 Some(key) => match self.cache.pop(&key) {
                     Some(value) => {
-                        self.shard_cache_pop_hits.inc();
+                        self.metrics.shard_cache_pop_hits.inc();
                         self.total_size -= value.len() as u64;
                         continue;
                     }
                     None => {
-                        self.shard_cache_pop_misses.inc();
+                        self.metrics.shard_cache_pop_misses.inc();
                     }
                 },
                 None => {}
             }
 
             // Second, pop LRU value.
-            self.shard_cache_pop_lru.inc();
+            self.metrics.shard_cache_pop_lru.inc();
             let (_, value) =
                 self.cache.pop_lru().expect("Cannot fail because total size capacity is > 0");
             self.total_size -= value.len() as u64;
@@ -163,26 +170,26 @@ impl TrieCacheInner {
     // Adds key to the deletions queue if it is present in cache.
     // Returns key-value pair which are popped if deletions queue is full.
     pub(crate) fn pop(&mut self, key: &CryptoHash) -> Option<(CryptoHash, Arc<[u8]>)> {
-        self.shard_cache_deletions_size.set(self.deletions.len() as i64);
+        self.metrics.shard_cache_deletions_size.set(self.deletions.len() as i64);
         // Do nothing if key was removed before.
         if self.cache.contains(key) {
             // Put key to the queue of deletions and possibly remove another key we have to delete.
             match self.deletions.put(key.clone()) {
                 Some(key_to_delete) => match self.cache.pop(&key_to_delete) {
                     Some(evicted_value) => {
-                        self.shard_cache_pop_hits.inc();
+                        self.metrics.shard_cache_pop_hits.inc();
                         self.total_size -= evicted_value.len() as u64;
                         Some((key_to_delete, evicted_value))
                     }
                     None => {
-                        self.shard_cache_pop_misses.inc();
+                        self.metrics.shard_cache_pop_misses.inc();
                         None
                     }
                 },
                 None => None,
             }
         } else {
-            self.shard_cache_gc_pop_misses.inc();
+            self.metrics.shard_cache_gc_pop_misses.inc();
             None
         }
     }
@@ -231,7 +238,7 @@ impl TrieCache {
                     if value.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
                         guard.put(hash, value.into());
                     } else {
-                        guard.shard_cache_too_large.inc();
+                        guard.metrics.shard_cache_too_large.inc();
                     }
                 } else {
                     guard.pop(&hash);
@@ -381,8 +388,12 @@ pub struct TrieCachingStorage {
     pub(crate) db_read_nodes: Cell<u64>,
     /// Counts trie nodes retrieved from the chunk cache.
     pub(crate) mem_read_nodes: Cell<u64>,
+    // Counters tracking operations happening inside the shard cache.
+    // Stored here to avoid overhead of looking them up on hot paths.
+    metrics: TrieCacheInnerMetrics,
+}
 
-    // Store counteres here to avoid overhead of looking them up on hot paths.
+struct TrieCacheInnerMetrics {
     chunk_cache_hits: GenericCounter<prometheus::core::AtomicU64>,
     chunk_cache_misses: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_hits: GenericCounter<prometheus::core::AtomicU64>,
@@ -402,14 +413,7 @@ impl TrieCachingStorage {
     ) -> TrieCachingStorage {
         let metrics_labels: [&str; 2] =
             [&format!("{}", shard_uid.shard_id), &format!("{}", is_view as u8)];
-        TrieCachingStorage {
-            store,
-            shard_uid,
-            shard_cache,
-            cache_mode: Cell::new(TrieCacheMode::CachingShard),
-            chunk_cache: RefCell::new(Default::default()),
-            db_read_nodes: Cell::new(0),
-            mem_read_nodes: Cell::new(0),
+        let metrics = TrieCacheInnerMetrics {
             chunk_cache_hits: metrics::CHUNK_CACHE_HITS.with_label_values(&metrics_labels),
             chunk_cache_misses: metrics::CHUNK_CACHE_MISSES.with_label_values(&metrics_labels),
             shard_cache_hits: metrics::SHARD_CACHE_HITS.with_label_values(&metrics_labels),
@@ -420,6 +424,16 @@ impl TrieCachingStorage {
             chunk_cache_size: metrics::CHUNK_CACHE_SIZE.with_label_values(&metrics_labels),
             shard_cache_current_total_size: metrics::SHARD_CACHE_CURRENT_TOTAL_SIZE
                 .with_label_values(&metrics_labels),
+        };
+        TrieCachingStorage {
+            store,
+            shard_uid,
+            shard_cache,
+            cache_mode: Cell::new(TrieCacheMode::CachingShard),
+            chunk_cache: RefCell::new(Default::default()),
+            db_read_nodes: Cell::new(0),
+            mem_read_nodes: Cell::new(0),
+            metrics,
         }
     }
 
@@ -460,28 +474,28 @@ impl TrieCachingStorage {
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        self.chunk_cache_size.set(self.chunk_cache.borrow().len() as i64);
+        self.metrics.chunk_cache_size.set(self.chunk_cache.borrow().len() as i64);
         // Try to get value from chunk cache containing nodes with cheaper access. We can do it for any `TrieCacheMode`,
         // because we charge for reading nodes only when `CachingChunk` mode is enabled anyway.
         if let Some(val) = self.chunk_cache.borrow_mut().get(hash) {
-            self.chunk_cache_hits.inc();
+            self.metrics.chunk_cache_hits.inc();
             self.inc_mem_read_nodes();
             return Ok(val.clone());
         }
-        self.chunk_cache_misses.inc();
+        self.metrics.chunk_cache_misses.inc();
 
         // Try to get value from shard cache containing most recently touched nodes.
         let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
-        self.shard_cache_size.set(guard.len() as i64);
-        self.shard_cache_current_total_size.set(guard.current_total_size() as i64);
+        self.metrics.shard_cache_size.set(guard.len() as i64);
+        self.metrics.shard_cache_current_total_size.set(guard.current_total_size() as i64);
         let val = match guard.get(hash) {
             Some(val) => {
-                self.shard_cache_hits.inc();
+                self.metrics.shard_cache_hits.inc();
                 near_o11y::io_trace!(count: "shard_cache_hit");
                 val.clone()
             }
             None => {
-                self.shard_cache_misses.inc();
+                self.metrics.shard_cache_misses.inc();
                 near_o11y::io_trace!(count: "shard_cache_miss");
                 // If value is not present in cache, get it from the storage.
                 let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
@@ -501,7 +515,7 @@ impl TrieStorage for TrieCachingStorage {
                 if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
                     guard.put(*hash, val.clone());
                 } else {
-                    self.shard_cache_too_large.inc();
+                    self.metrics.shard_cache_too_large.inc();
                     near_o11y::io_trace!(count: "shard_cache_too_large");
                 }
 
