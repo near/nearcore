@@ -1749,19 +1749,11 @@ impl RuntimeAdapter for NightshadeRuntime {
             return state_root_node == &StateRootNode::empty();
         }
         if hash(&state_root_node.data) != *state_root {
-            false
-        } else {
-            match Trie::get_memory_usage_from_serialized(&state_root_node.data) {
-                Ok(memory_usage) => {
-                    if memory_usage != state_root_node.memory_usage {
-                        // Invalid value of memory_usage
-                        false
-                    } else {
-                        true
-                    }
-                }
-                Err(_) => false, // Invalid state_root_node
-            }
+            return false;
+        }
+        match Trie::get_memory_usage_from_serialized(&state_root_node.data) {
+            Ok(memory_usage) => memory_usage == state_root_node.memory_usage,
+            Err(_) => false, // Invalid state_root_node
         }
     }
 
@@ -2670,7 +2662,7 @@ mod test {
         let mut root_node_wrong = root_node;
         root_node_wrong.memory_usage += 1;
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
-        root_node_wrong.data = vec![123];
+        root_node_wrong.data = std::sync::Arc::new([123]);
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         assert!(!new_env.runtime.validate_state_part(
             &Trie::EMPTY_ROOT,

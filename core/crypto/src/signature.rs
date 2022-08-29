@@ -9,7 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signer, Verifier};
 use once_cell::sync::Lazy;
 use primitive_types::U256;
-use rand_core::OsRng;
+use rand::rngs::OsRng;
 use secp256k1::Message;
 use serde::{Deserialize, Serialize};
 

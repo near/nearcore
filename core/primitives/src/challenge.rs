@@ -10,7 +10,7 @@ use crate::types::AccountId;
 use crate::validator_signer::ValidatorSigner;
 
 /// Serialized TrieNodeWithSize
-pub type StateItem = Vec<u8>;
+pub type StateItem = std::sync::Arc<[u8]>;
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
