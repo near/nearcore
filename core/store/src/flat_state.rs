@@ -39,7 +39,7 @@ impl FlatState {
         #[cfg(feature = "protocol_feature_flat_state")]
         return self
             .store
-            .get(DBCol::FlatState, key)
+            .get_vec(DBCol::FlatState, key)
             .map_err(|_| StorageError::StorageInternalError);
         #[cfg(not(feature = "protocol_feature_flat_state"))]
         unreachable!();

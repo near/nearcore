@@ -1,4 +1,5 @@
 use std::io;
+use std::sync::Arc;
 
 use crate::DBCol;
 
@@ -79,6 +80,83 @@ impl DBTransaction {
 
 pub type DBIterator<'a> = Box<dyn Iterator<Item = io::Result<(Box<[u8]>, Box<[u8]>)>> + 'a>;
 
+/// Data returned from the database.
+///
+/// Abstraction layer for data returned by [`Database::get_raw_bytes`] and
+/// [`Database::get_with_rc_stripped`] methods.  Operating on the value as
+/// a slice is free while converting it to a vector on an arc may requires an
+/// allocation and memory copy.
+pub struct DBBytes<'a>(DBBytesInner<'a>);
+
+enum DBBytesInner<'a> {
+    /// Data held as an owned vector.
+    Vec(Vec<u8>),
+
+    /// Data held as RocksDB-specific pinnable slice type.
+    Rocks(::rocksdb::DBPinnableSlice<'a>),
+}
+
+impl<'a> DBBytes<'a> {
+    pub fn as_slice(&self) -> &[u8] {
+        match self.0 {
+            DBBytesInner::Vec(ref bytes) => bytes.as_slice(),
+            DBBytesInner::Rocks(ref bytes) => &*bytes,
+        }
+    }
+}
+
+impl<'a> std::ops::Deref for DBBytes<'a> {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl<'a> From<Vec<u8>> for DBBytes<'a> {
+    fn from(bytes: Vec<u8>) -> Self {
+        Self(DBBytesInner::Vec(bytes))
+    }
+}
+
+impl<'a> From<&[u8]> for DBBytes<'a> {
+    fn from(bytes: &[u8]) -> Self {
+        Self(DBBytesInner::Vec(bytes.to_vec()))
+    }
+}
+
+impl<'a> From<DBBytes<'a>> for Arc<[u8]> {
+    fn from(bytes: DBBytes<'a>) -> Self {
+        bytes.as_slice().into()
+    }
+}
+
+impl<'a> From<DBBytes<'a>> for Vec<u8> {
+    fn from(bytes: DBBytes<'a>) -> Self {
+        match bytes.0 {
+            DBBytesInner::Vec(bytes) => bytes,
+            DBBytesInner::Rocks(bytes) => bytes.to_vec(),
+        }
+    }
+}
+
+impl<'a> std::fmt::Debug for DBBytes<'a> {
+    fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self.as_slice(), fmtr)
+    }
+}
+
+impl<'a> std::cmp::PartialEq<DBBytes<'a>> for DBBytes<'a> {
+    fn eq(&self, other: &DBBytes<'a>) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+
+impl<'a> std::cmp::PartialEq<[u8]> for DBBytes<'a> {
+    fn eq(&self, other: &[u8]) -> bool {
+        self.as_slice() == other
+    }
+}
+
 pub trait Database: Sync + Send {
     /// Returns raw bytes for given `key` ignoring any reference count decoding
     /// if any.
@@ -89,14 +167,16 @@ pub trait Database: Sync + Send {
     ///
     /// You most likely will want to use [`refcount::get_with_rc_logic`] to
     /// properly handle reference-counted columns.
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>>;
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBBytes<'_>>>;
 
     /// Returns value for given `key` forcing a reference count decoding.
     ///
     /// **Panics** if the column is not reference counted.
-    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
+    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBBytes<'_>>> {
         assert!(col.is_rc());
-        Ok(self.get_raw_bytes(col, key)?.and_then(crate::db::refcount::strip_refcount))
+        Ok(self
+            .get_raw_bytes(col, key)?
+            .and_then(|bytes| refcount::decode_value_with_rc(&bytes).0.map(DBBytes::from)))
     }
 
     /// Iterate over all items in given column in lexicographical order sorted

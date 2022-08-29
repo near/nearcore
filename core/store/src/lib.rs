@@ -25,7 +25,7 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 
 use crate::db::{
-    refcount, DBIterator, DBOp, DBTransaction, Database, RocksDB, StoreStatistics,
+    refcount, DBBytes, DBIterator, DBOp, DBTransaction, Database, RocksDB, StoreStatistics,
     GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;
@@ -82,7 +82,7 @@ impl Store {
         self.storage
     }
 
-    pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
+    pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBBytes<'_>>> {
         let value = if column.is_rc() {
             self.storage.get_with_rc_stripped(column, key)
         } else {
@@ -93,16 +93,17 @@ impl Store {
             db_op = "get",
             col = %column,
             key = %to_base58(key),
-            size = value.as_ref().map(Vec::len)
+            size = value.as_deref().map(<[u8]>::len)
         );
         Ok(value)
     }
 
+    pub fn get_vec(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
+        self.get(column, key).map(|result| result.map(Vec::from))
+    }
+
     pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
-        match self.get(column, key)? {
-            Some(bytes) => Ok(Some(T::try_from_slice(&bytes)?)),
-            None => Ok(None),
-        }
+        self.get(column, key)?.as_deref().map(T::try_from_slice).transpose()
     }
 
     pub fn exists(&self, column: DBCol, key: &[u8]) -> io::Result<bool> {
@@ -656,7 +657,10 @@ impl CompiledContractCache for StoreCompiledContractCache {
     }
 
     fn get(&self, key: &CryptoHash) -> io::Result<Option<Vec<u8>>> {
-        self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref())
+        Ok(self
+            .db
+            .get_raw_bytes(DBCol::CachedContractCode, key.as_ref())?
+            .map(|bytes| bytes.to_vec()))
     }
 }
 
@@ -681,7 +685,7 @@ mod tests {
             store_update.increment_refcount(DBCol::State, &[3], &[3]);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), Some(vec![1]));
+        assert_eq!(store.get_vec(DBCol::State, &[1]).unwrap(), Some(vec![1]));
         {
             let mut store_update = store.store_update();
             store_update.delete_all(DBCol::State);

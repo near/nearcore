@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::sync::RwLock;
 
-use crate::db::{refcount, DBIterator, DBOp, DBTransaction, Database};
+use crate::db::{refcount, DBBytes, DBIterator, DBOp, DBTransaction, Database};
 use crate::{DBCol, StoreStatistics};
 
 /// An in-memory database intended for tests.
@@ -20,8 +20,8 @@ impl TestDB {
 }
 
 impl Database for TestDB {
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        Ok(self.db.read().unwrap()[col].get(key).cloned())
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBBytes<'_>>> {
+        Ok(self.db.read().unwrap()[col].get(key).map(|vec| vec.clone().into()))
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
