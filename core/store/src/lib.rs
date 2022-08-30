@@ -265,6 +265,11 @@ impl Store {
         self.storage.flush()
     }
 
+    /// Blocking compaction request if supported by storage.
+    pub fn compact(&self) -> io::Result<()> {
+        self.storage.compact()
+    }
+
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
         self.storage.get_store_statistics()
     }
