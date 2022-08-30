@@ -40,7 +40,7 @@ use near_vm_runner::{precompile_contract, VMResult};
 pub(crate) fn execute_function_call(
     apply_state: &ApplyState,
     runtime_ext: &mut RuntimeExt,
-    account: &mut Account,
+    account: &Account,
     predecessor_id: &AccountId,
     action_receipt: &ActionReceipt,
     promise_results: &[PromiseResult],
