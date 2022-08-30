@@ -1145,6 +1145,11 @@ impl Chain {
                 epoch_protocol_version
             ) {
                 if header.latest_protocol_version() < epoch_protocol_version {
+                    error!(
+                        "header protocol version {} epoch protocol version {}",
+                        header.latest_protocol_version(),
+                        epoch_protocol_version
+                    );
                     return Err(Error::InvalidProtocolVersion);
                 }
             }

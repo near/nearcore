@@ -103,20 +103,30 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
 
 /// Produce `blocks_number` block in the given environment, starting from the given height.
 /// Returns the first unoccupied height in the chain after this operation.
-fn produce_blocks_from_height(
+fn produce_blocks_from_height_with_protocol_version(
     env: &mut TestEnv,
     blocks_number: u64,
     height: BlockHeight,
+    protocol_version: ProtocolVersion,
 ) -> BlockHeight {
     let next_height = height + blocks_number;
     for i in height..next_height {
-        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
+        block.mut_header().set_lastest_protocol_version(protocol_version);
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         for j in 1..env.clients.len() {
             env.process_block(j, block.clone(), Provenance::NONE);
         }
     }
     next_height
+}
+
+fn produce_blocks_from_height(
+    env: &mut TestEnv,
+    blocks_number: u64,
+    height: BlockHeight,
+) -> BlockHeight {
+    produce_blocks_from_height_with_protocol_version(env, blocks_number, height, PROTOCOL_VERSION)
 }
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
@@ -135,12 +145,13 @@ fn check_tx_processing(
     next_height
 }
 
-pub(crate) fn deploy_test_contract(
+pub(crate) fn deploy_test_contract_with_protocol_version(
     env: &mut TestEnv,
     account_id: AccountId,
     wasm_code: &[u8],
     epoch_length: u64,
     height: BlockHeight,
+    protocol_version: ProtocolVersion,
 ) -> BlockHeight {
     let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
     let signer =
@@ -155,7 +166,24 @@ pub(crate) fn deploy_test_contract(
         *block.hash(),
     );
     env.clients[0].process_tx(tx, false, false);
-    produce_blocks_from_height(env, epoch_length, height)
+    produce_blocks_from_height_with_protocol_version(env, epoch_length, height, protocol_version)
+}
+
+pub(crate) fn deploy_test_contract(
+    env: &mut TestEnv,
+    account_id: AccountId,
+    wasm_code: &[u8],
+    epoch_length: u64,
+    height: BlockHeight,
+) -> BlockHeight {
+    deploy_test_contract_with_protocol_version(
+        env,
+        account_id,
+        wasm_code,
+        epoch_length,
+        height,
+        PROTOCOL_VERSION,
+    )
 }
 
 /// Create environment and set of transactions which cause congestion on the chain.
@@ -4500,6 +4528,8 @@ mod lower_storage_key_limit_test {
     /// Check correctness of the protocol upgrade and ability to write 2 KB keys.
     #[test]
     fn protocol_upgrade() {
+        init_test_logger();
+
         let old_protocol_version =
             near_primitives::version::ProtocolFeature::LowerStorageKeyLimit.protocol_version() - 1;
         let new_protocol_version = old_protocol_version + 1;
@@ -4527,12 +4557,13 @@ mod lower_storage_key_limit_test {
                 )) as Arc<dyn RuntimeAdapter>];
             let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
 
-            deploy_test_contract(
+            deploy_test_contract_with_protocol_version(
                 &mut env,
                 "test0".parse().unwrap(),
                 near_test_contracts::base_rs_contract(),
                 epoch_length.clone(),
                 1,
+                old_protocol_version,
             );
             env
         };
@@ -4564,10 +4595,12 @@ mod lower_storage_key_limit_test {
             .sign(&signer);
             let tx_hash = signed_tx.get_hash().clone();
             env.clients[0].process_tx(signed_tx, false, false);
-            for i in 0..epoch_length {
-                let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
-                env.process_block(0, block.clone(), Provenance::PRODUCED);
-            }
+            produce_blocks_from_height_with_protocol_version(
+                &mut env,
+                epoch_length,
+                tip.height + 1,
+                old_protocol_version,
+            );
             let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
             assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
         }
