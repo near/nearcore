@@ -74,7 +74,7 @@ async fn test_peer_communication(
     let b = data::make_signer(&mut rng);
     let want = data::make_edge(&a, &b);
     outbound.send(PeerMessage::ResponseUpdateNonce(want.clone())).await;
-    assert_eq!(Event::ResponseUpdateNonce(want), inbound.events.recv().await);
+    assert_eq!(Event::ResponseUpdateNonce(want), inbound.events.recv_until(filter).await);
 
     // PeersRequest -> PeersResponse
     // This test is different from the rest, because we cannot skip sending the response back.
@@ -85,22 +85,22 @@ async fn test_peer_communication(
     // BlockRequest
     let want = chain.blocks[5].hash().clone();
     outbound.send(PeerMessage::BlockRequest(want.clone())).await;
-    assert_eq!(Event::Client(CE::BlockRequest(want)), inbound.events.recv().await);
+    assert_eq!(Event::Client(CE::BlockRequest(want)), inbound.events.recv_until(filter).await);
 
     // Block
     let want = chain.blocks[5].clone();
     outbound.send(PeerMessage::Block(want.clone())).await;
-    assert_eq!(Event::Client(CE::Block(want)), inbound.events.recv().await);
+    assert_eq!(Event::Client(CE::Block(want)), inbound.events.recv_until(filter).await);
 
     // BlockHeadersRequest
     let want: Vec<_> = chain.blocks.iter().map(|b| b.hash().clone()).collect();
     outbound.send(PeerMessage::BlockHeadersRequest(want.clone())).await;
-    assert_eq!(Event::Client(CE::BlockHeadersRequest(want)), inbound.events.recv().await);
+    assert_eq!(Event::Client(CE::BlockHeadersRequest(want)), inbound.events.recv_until(filter).await);
 
     // BlockHeaders
     let want = chain.get_block_headers();
     outbound.send(PeerMessage::BlockHeaders(want.clone())).await;
-    assert_eq!(Event::Client(CE::BlockHeaders(want)), inbound.events.recv().await);
+    assert_eq!(Event::Client(CE::BlockHeaders(want)), inbound.events.recv_until(filter).await);
 
     // SyncRoutingTable
     let want = data::make_routing_table(&mut rng);
@@ -119,7 +119,7 @@ async fn test_peer_communication(
         None, // TODO(gprusak): this should be clock.now_utc(), once borsh support is dropped.
     );
     outbound.send(PeerMessage::Routed(want.clone())).await;
-    assert_eq!(Event::Routed(want), inbound.events.recv().await);
+    assert_eq!(Event::Routed(want), inbound.events.recv_until(filter).await);
 
     // PartialEncodedChunkResponse
     let want_hash = chain.blocks[3].chunks()[0].chunk_hash();
@@ -135,44 +135,44 @@ async fn test_peer_communication(
         None, // TODO(gprusak): this should be clock.now_utc(), once borsh support is dropped.
     );
     outbound.send(PeerMessage::Routed(want.clone())).await;
-    assert_eq!(Event::Routed(want), inbound.events.recv().await);
+    assert_eq!(Event::Routed(want), inbound.events.recv_until(filter).await);
 
     // Transaction
     let want = data::make_signed_transaction(&mut rng);
     outbound.send(PeerMessage::Transaction(want.clone())).await;
-    assert_eq!(Event::Client(CE::Transaction(want)), inbound.events.recv().await);
+    assert_eq!(Event::Client(CE::Transaction(want)), inbound.events.recv_until(filter).await);
 
     // Challenge
     let want = data::make_challenge(&mut rng);
     outbound.send(PeerMessage::Challenge(want.clone())).await;
-    assert_eq!(Event::Client(CE::Challenge(want)), inbound.events.recv().await);
+    assert_eq!(Event::Client(CE::Challenge(want)), inbound.events.recv_until(filter).await);
 
     // EpochSyncRequest
     let want = EpochId(chain.blocks[1].hash().clone());
     outbound.send(PeerMessage::EpochSyncRequest(want.clone())).await;
-    assert_eq!(Event::Client(CE::EpochSyncRequest(want)), inbound.events.recv().await);
+    assert_eq!(Event::Client(CE::EpochSyncRequest(want)), inbound.events.recv_until(filter).await);
 
     // EpochSyncResponse
     let want = EpochSyncResponse::UpToDate;
     outbound.send(PeerMessage::EpochSyncResponse(Box::new(want.clone()))).await;
-    assert_eq!(Event::Client(CE::EpochSyncResponse(want)), inbound.events.recv().await);
+    assert_eq!(Event::Client(CE::EpochSyncResponse(want)), inbound.events.recv_until(filter).await);
 
     // EpochSyncFinalizationRequest
     let want = EpochId(chain.blocks[1].hash().clone());
     outbound.send(PeerMessage::EpochSyncFinalizationRequest(want.clone())).await;
-    assert_eq!(Event::Client(CE::EpochSyncFinalizationRequest(want)), inbound.events.recv().await);
+    assert_eq!(Event::Client(CE::EpochSyncFinalizationRequest(want)), inbound.events.recv_until(filter).await);
 
     // TODO:
     // LastEdge, HandshakeFailure, Disconnect - affect the state of the PeerActor and are
     // observable only under specific conditions.
-    // ExpochSyncFinalizationResponse - needs some work to produce reasonable fake data.
-    // RoutingTableSyncV2 - not used yet, available under some feature flag.
+    // ExpochSyncFinalizationResponse - unused. 
     Ok(())
 }
 
 #[tokio::test]
 // Verifies that peers are able to establish a common encoding protocol.
 async fn peer_communication() -> anyhow::Result<()> {
+    init_test_logger();
     let encodings = [None, Some(Encoding::Proto), Some(Encoding::Borsh)];
     for outbound in &encodings {
         for inbound in &encodings {

@@ -63,18 +63,11 @@ impl RawConnection {
     pub async fn handshake(
         self,
         clock: &time::Clock,
-    ) -> (peer::testonly::PeerHandle, SyncAccountsData) {
+    ) -> peer::testonly::PeerHandle {
         let mut peer =
             peer::testonly::PeerHandle::start_endpoint(clock.clone(), self.cfg, self.stream).await;
         peer.complete_handshake().await;
-        // TODO(gprusak): this should be part of complete_handshake, once Borsh support is removed.
-        let msg = match peer.events.recv().await {
-            peer::testonly::Event::Network(PME::MessageProcessed(
-                PeerMessage::SyncAccountsData(msg),
-            )) => msg,
-            ev => panic!("expected SyncAccountsData, got {ev:?}"),
-        };
-        (peer, msg)
+        peer
     }
 
     pub async fn fail_handshake(self, clock: &time::Clock) {
