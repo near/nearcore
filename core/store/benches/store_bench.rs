@@ -60,7 +60,7 @@ fn read_from_db(store: &Store, keys: &Vec<Vec<u8>>, col: DBCol) -> usize {
         let r = rand::random::<u32>() % (keys.len() as u32);
         let key = &keys[r as usize];
 
-        let val = store.get_vec(col, key.as_ref()).map_err(|_| StorageError::StorageInternalError);
+        let val = store.get(col, key.as_ref()).map_err(|_| StorageError::StorageInternalError);
 
         if let Ok(Some(x)) = val {
             black_box(x);
