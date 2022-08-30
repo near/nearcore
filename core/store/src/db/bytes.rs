@@ -16,14 +16,14 @@ enum Inner<'a> {
 
     /// Data held as RocksDB-specific pinnable slice.
     Rocks {
-        /// Pointer at the first byte of the data.
+        /// Pointer at the bytes.
         ///
-        /// It points at data held by `db_slice` and as such must not outlive
-        /// it.  Nor can `db_slice` be modified.
-        data: *const u8,
-
-        /// Length of the data.
-        len: usize,
+        /// The data is held by `db_slice` and as such this field must not
+        /// outlive `db_slice`.  Nor can `db_slice` be modified.
+        ///
+        /// We keep a separate pointer because we want to be able to modify
+        /// truncate the value without having to allocate new buffers.
+        data: *const [u8],
 
         /// This is what owns the data.
         ///
@@ -38,10 +38,10 @@ impl<'a> DBBytes<'a> {
     pub fn as_slice(&self) -> &[u8] {
         match self.0 {
             Inner::Vec(ref bytes) => bytes.as_slice(),
-            Inner::Rocks { data, len, .. } => {
-                // SAFETY: (data, len) references at buffer owned by db_slice
-                // which has not been modified since we got the pointer.
-                unsafe { std::slice::from_raw_parts(data, len) }
+            Inner::Rocks { data, .. } => {
+                // SAFETY: data references at buffer owned by db_slice which has
+                // not been modified since we got the pointer.
+                unsafe { &*data }
             }
         }
     }
@@ -58,9 +58,8 @@ impl<'a> DBBytes<'a> {
     /// This is internal API for the [`crate::db::rocksdb::RocksDB`]
     /// implementation of the database interface.
     pub(super) fn from_rocksdb_slice(db_slice: ::rocksdb::DBPinnableSlice<'a>) -> Self {
-        let slice = &*db_slice;
-        let (data, len) = (slice.as_ptr(), slice.len());
-        DBBytes(Inner::Rocks { data, len, db_slice })
+        let data = &*db_slice as *const [u8];
+        DBBytes(Inner::Rocks { data, db_slice })
     }
 
     /// Decodes and strips reference count from the data.
@@ -73,12 +72,10 @@ impl<'a> DBBytes<'a> {
             Inner::Vec(bytes) => {
                 refcount::strip_refcount(bytes).map(|bytes| Self(Inner::Vec(bytes)))
             }
-            Inner::Rocks { data, len, db_slice } => {
+            Inner::Rocks { data, db_slice } => {
                 // SAFETY: See as_slice method.
-                let slice = unsafe { std::slice::from_raw_parts(data, len) };
-                let slice = refcount::decode_value_with_rc(slice).0?;
-                let (data, len) = (slice.as_ptr(), slice.len());
-                Some(Self(Inner::Rocks { data, len, db_slice }))
+                let data = refcount::decode_value_with_rc(unsafe { &*data }).0?;
+                Some(Self(Inner::Rocks { data: data as *const _, db_slice }))
             }
         }
     }
@@ -114,10 +111,9 @@ impl<'a> From<DBBytes<'a>> for Vec<u8> {
     fn from(bytes: DBBytes<'a>) -> Self {
         match bytes.0 {
             Inner::Vec(bytes) => bytes,
-            Inner::Rocks { data, len, .. } => {
+            Inner::Rocks { data, .. } => {
                 // SAFETY: See as_slice method.
-                let slice = unsafe { std::slice::from_raw_parts(data, len) };
-                slice.to_vec()
+                unsafe { &*data }.to_vec()
             }
         }
     }
