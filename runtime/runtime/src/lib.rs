@@ -65,7 +65,6 @@ pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 mod actions;
 pub mod adapter;
 mod balance_checker;
-pub mod cache;
 pub mod config;
 pub mod ext;
 mod genesis;

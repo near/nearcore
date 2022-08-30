@@ -1,7 +1,3 @@
-use std::sync::Arc;
-
-use tracing::debug;
-
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
@@ -84,13 +80,8 @@ impl<'a> RuntimeExt<'a> {
         self.account_id
     }
 
-    pub fn get_code(
-        &self,
-        code_hash: CryptoHash,
-    ) -> Result<Option<Arc<ContractCode>>, StorageError> {
-        debug!(target:"runtime", "Calling the contract at account {}", self.account_id);
-        let code = || get_code(self.trie_update, self.account_id, Some(code_hash));
-        crate::cache::get_code(code_hash, code)
+    pub fn get_code(&self, code_hash: CryptoHash) -> Result<Option<ContractCode>, StorageError> {
+        get_code(self.trie_update, self.account_id, Some(code_hash))
     }
 
     pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {

@@ -51,6 +51,7 @@ pub(crate) fn execute_function_call(
     view_config: Option<ViewConfig>,
 ) -> VMResult {
     let account_id = runtime_ext.account_id();
+    tracing::debug!(target: "runtime", %account_id, "Calling the contract");
     let code = match runtime_ext.get_code(account.code_hash()) {
         Ok(Some(code)) => code,
         Ok(None) => {
