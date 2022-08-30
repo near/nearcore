@@ -1,7 +1,7 @@
 /// This file is contains all types used for communication between `Actors` within this crate.
 /// They are not meant to be used outside.
 use crate::network_protocol::{PeerMessage, RoutingTableUpdate};
-use crate::peer_manager::connected_peers::ConnectedPeer;
+use crate::peer_manager::connection;
 use conqueue::QueueSender;
 use near_network_primitives::types::{
     Ban, Edge, InboundTcpConnect, PartialEdgeInfo, PeerInfo, PeerType, ReasonForBan,
@@ -40,14 +40,13 @@ pub(crate) enum PeerToManagerMsg {
     },
 
     // PeerRequest
-    UpdateEdge((PeerId, u64)),
     RouteBack(Box<RoutedMessageBody>, CryptoHash),
     UpdatePeerInfo(PeerInfo),
 }
 
 /// List of all replies to messages to `PeerManager`. See `PeerManagerMessageRequest` for more details.
 #[derive(actix::MessageResponse, Debug)]
-pub enum PeerToManagerMsgResp {
+pub(crate) enum PeerToManagerMsgResp {
     RoutedMessageFrom(bool),
     RegisterPeer(RegisterPeerResponse),
     PeersRequest(PeerRequestResult),
@@ -58,7 +57,6 @@ pub enum PeerToManagerMsgResp {
     BanPeer(ReasonForBan),
 
     // PeerResponse
-    UpdatedEdge(PartialEdgeInfo),
     Empty,
 }
 /// Actor message which asks `PeerManagerActor` to register peer.
@@ -67,7 +65,7 @@ pub enum PeerToManagerMsgResp {
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "RegisterPeerResponse")]
 pub(crate) struct RegisterPeer {
-    pub connection_state: Arc<ConnectedPeer>,
+    pub connection: Arc<connection::Connection>,
     /// Edge information from this node.
     /// If this is None it implies we are outbound connection, so we need to create our
     /// EdgeInfo part and send it to the other peer.
