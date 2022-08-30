@@ -28,6 +28,7 @@ impl RuntimeTestbed {
     pub fn from_state_dump(dump_dir: &Path) -> Self {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
         let StateDump { store, roots } = StateDump::from_dir(dump_dir, workdir.path());
+        // Ensure decent RocksDB SST file layout.
         store.compact().expect("compaction failed");
         let tries = ShardTries::test(store, 1);
 
