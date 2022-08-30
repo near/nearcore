@@ -72,7 +72,7 @@ const MONITOR_PEERS_MAX_DURATION: time::Duration = time::Duration::milliseconds(
 /// The initial waiting time between consecutive attempts to establish connection
 const MONITOR_PEERS_INITIAL_DURATION: time::Duration = time::Duration::milliseconds(10);
 /// Limit number of pending Peer actors to avoid OOM.
-const LIMIT_PENDING_PEERS: usize = 60;
+pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 /// How ofter should we broadcast edges.
 const BROADCAST_VALIDATED_EDGES_INTERVAL: time::Duration = time::Duration::milliseconds(50);
 /// Maximum amount of time spend processing edges.
@@ -148,6 +148,8 @@ pub(crate) struct NetworkState {
     pub accounts_data: Arc<accounts_data::Cache>,
     /// Connected peers (inbound and outbound) with their full peer information.
     pub tier2: connection::Pool,
+    /// Semaphore limiting inflight inbound handshakes.
+    pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
 
     /// View of the Routing table. It keeps:
     /// - routing information - how to route messages
@@ -159,8 +161,6 @@ pub(crate) struct NetworkState {
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
     /// messages sincce last block.
     pub txns_since_last_block: AtomicUsize,
-    /// Number of active peers, used for rate limiting.
-    pub peer_counter: AtomicUsize,
     /// Semaphore limiting inflight inbound handshakes.
     pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
 }
@@ -183,10 +183,10 @@ impl NetworkState {
             accounts_data: Arc::new(accounts_data::Cache::new()),
             routing_table_view,
             send_accounts_data_rl,
+            inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             config,
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             txns_since_last_block: AtomicUsize::new(0),
-            peer_counter: AtomicUsize::new(0),
         }
     }
 
@@ -229,7 +229,6 @@ impl NetworkState {
             }
         };
         let clock = clock.clone();
-        self.peer_counter.fetch_add(1, Ordering::SeqCst);
         PeerActor::start_in_arbiter(&arbiter.handle(), move |ctx| {
             PeerActor::new(clock, ctx, peer_cfg, peer_manager_addr.clone().recipient())
         });
@@ -1358,7 +1357,6 @@ impl PeerManagerActor {
                 })
                 .collect(),
             tier1_accounts: self.state.accounts_data.load().data.values().cloned().collect(),
-            peer_counter: self.state.peer_counter.load(Ordering::SeqCst),
         }
     }
 
@@ -1777,9 +1775,6 @@ impl PeerManagerActor {
             PeerToManagerMsg::PeersResponse(msg) => {
                 self.handle_msg_peers_response(msg);
                 PeerToManagerMsgResp::Empty
-            }
-            PeerToManagerMsg::UpdateEdge((peer, nonce)) => {
-                PeerToManagerMsgResp::UpdatedEdge(self.state.propose_edge(&peer, Some(nonce)))
             }
             PeerToManagerMsg::RouteBack(body, target) => {
                 trace!(target: "network", ?target, "Sending message to route back");

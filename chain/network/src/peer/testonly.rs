@@ -15,7 +15,6 @@ use crate::testonly::fake_client;
 use crate::types::{PeerMessage, RoutingTableUpdate};
 use actix::{Actor, Context, Handler};
 use near_crypto::{InMemorySigner, Signature};
-use near_network_primitives::time;
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
     RoutedMessageV2,
@@ -24,7 +23,7 @@ use near_primitives::network::PeerId;
 use near_rate_limiter::{ActixMessageResponse, ActixMessageWrapper, ThrottleToken};
 use near_store::test_utils::create_test_store;
 
-use near_network_primitives::time::Utc;
+use near_network_primitives::time;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tracing::Span;
@@ -36,6 +35,13 @@ pub struct PeerConfig {
     pub peers: Vec<PeerInfo>,
     pub start_handshake_with: Option<PeerId>,
     pub force_encoding: Option<crate::network_protocol::Encoding>,
+    /// If both start_handshake_with and nonce are set, PeerActor
+    /// will use this nonce in the handshake.
+    /// WARNING: it has to be >0.
+    /// WARNING: currently nonce is decided by a lookup in the RoutingTableView,
+    ///   so to enforce the nonce below, we add an artificial edge to RoutingTableView.
+    ///   Once we switch to generating nonce from timestamp, this field should be deprecated
+    ///   in favor of passing a fake clock.
     pub nonce: Option<u64>,
 }
 
@@ -190,7 +196,7 @@ impl PeerHandle {
         body: RoutedMessageBody,
         peer_id: PeerId,
         ttl: u8,
-        utc: Option<Utc>,
+        utc: Option<time::Utc>,
     ) -> Box<RoutedMessageV2> {
         RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id), body }.sign(
             self.cfg.id(),
