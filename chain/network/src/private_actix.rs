@@ -4,8 +4,8 @@ use crate::network_protocol::{PeerMessage, RoutingTableUpdate};
 use crate::peer_manager::connection;
 use conqueue::QueueSender;
 use near_network_primitives::types::{
-    Ban, Edge, PartialEdgeInfo, PeerInfo, PeerType, ReasonForBan,
-    RoutedMessageBody, RoutedMessageFrom,
+    Ban, Edge, PartialEdgeInfo, PeerInfo, PeerType, ReasonForBan, RoutedMessageBody,
+    RoutedMessageFrom,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;

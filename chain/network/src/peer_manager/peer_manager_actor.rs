@@ -30,10 +30,10 @@ use anyhow::Context as _;
 use arc_swap::ArcSwap;
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, Ban, Edge, KnownPeerStatus, KnownProducer,
-    NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash,
-    PeerInfo, PeerType, Ping, Pong, RawRoutedMessage, ReasonForBan, RoutedMessageBody,
-    RoutedMessageFrom, RoutedMessageV2, StateResponseInfo,
+    AccountOrPeerIdOrHash, Ban, Edge, KnownPeerStatus, KnownProducer, NetworkViewClientMessages,
+    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerInfo, PeerType, Ping, Pong,
+    RawRoutedMessage, ReasonForBan, RoutedMessageBody, RoutedMessageFrom, RoutedMessageV2,
+    StateResponseInfo,
 };
 use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics_macros::perf;
@@ -310,7 +310,7 @@ pub struct PeerManagerActor {
     /// Connected peers we have sent new edge update, but we haven't received response so far.
     local_peer_pending_update_nonce_request: HashMap<PeerId, u64>,
     /// RoutingTableActor, responsible for computing routing table, routing table exchange, etc.
-    routing_table_addr: Addr<routing::Actor>, 
+    routing_table_addr: Addr<routing::Actor>,
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
     /// reached.
     whitelist_nodes: Vec<WhitelistNode>,
@@ -891,7 +891,6 @@ impl PeerManagerActor {
             .filter(|wn| Some(wn.addr) == peer_info.addr)
             .any(|wn| wn.account_id.is_none() || wn.account_id == peer_info.account_id)
     }
-
 
     /// Returns peers close to the highest height
     fn highest_height_peers(&self) -> Vec<FullPeerInfo> {
@@ -1737,11 +1736,7 @@ impl PeerManagerActor {
                 ctx.spawn(
                     self.state
                         .clone()
-                        .try_connect_to(
-                            self.clock.clone(),
-                            ctx.address(),
-                            msg.peer_info,
-                        )
+                        .try_connect_to(self.clock.clone(), ctx.address(), msg.peer_info)
                         .into_actor(self),
                 );
                 PeerManagerMessageResponse::OutboundTcpConnect

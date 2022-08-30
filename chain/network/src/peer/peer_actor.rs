@@ -170,8 +170,8 @@ impl Config {
                     network_state
                         .tier2
                         .start_outbound(peer_id.clone())
-                        .context("tier2.start_outbound()")?
-                )
+                        .context("tier2.start_outbound()")?,
+                ),
             },
             stream,
             stream_config,
@@ -222,15 +222,24 @@ impl PeerActor {
             tracker: Default::default(),
             partial_edge_info: match &cfg.stream_config {
                 StreamConfig::Inbound => None,
-                StreamConfig::Outbound { peer_id } =>
-                    Some(cfg.network_state.propose_edge(peer_id, None)),
+                StreamConfig::Outbound { peer_id } => {
+                    Some(cfg.network_state.propose_edge(peer_id, None))
+                }
             },
             routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
             throttle_controller: rate_limiter,
             protocol_buffers_supported: false,
             force_encoding: cfg.force_encoding,
             connection: None,
-            peer_info: None.into(),
+            peer_info: match &cfg.stream_config {
+                StreamConfig::Inbound => None,
+                StreamConfig::Outbound { peer_id } => Some(PeerInfo {
+                    id: peer_id.clone(),
+                    addr: Some(cfg.peer_addr.clone()),
+                    account_id: None,
+                }),
+            }
+            .into(),
             network_state: cfg.network_state,
         }
     }

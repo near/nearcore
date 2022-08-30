@@ -21,9 +21,7 @@ use near_network_primitives::types::{
     RoutedMessageV2,
 };
 use near_primitives::network::PeerId;
-use near_rate_limiter::{
-    ActixMessageResponse, ActixMessageWrapper, ThrottleToken,
-};
+use near_rate_limiter::{ActixMessageResponse, ActixMessageWrapper, ThrottleToken};
 use near_store::test_utils::create_test_store;
 
 use near_network_primitives::time::Utc;
@@ -243,9 +241,7 @@ impl PeerHandle {
                         stream,
                         match &cfg.start_handshake_with {
                             None => StreamConfig::Inbound,
-                            Some(id) => {
-                                StreamConfig::Outbound { peer_id: id.clone() }
-                            }
+                            Some(id) => StreamConfig::Outbound { peer_id: id.clone() },
                         },
                         cfg.force_encoding,
                         network_state,
