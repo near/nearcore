@@ -3,7 +3,7 @@ use crate::concurrency::demux;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::peer::codec::Codec;
-use crate::peer::peer_actor::PeerActor;
+use crate::peer::peer_actor::{ConnectingStatus, PeerActor};
 use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_manager_actor::NetworkState;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage, Unregister};
@@ -15,10 +15,9 @@ use crate::testonly::fake_client;
 use crate::types::{PeerMessage, RoutingTableUpdate};
 use actix::{Actor, Context, Handler, StreamHandler as _};
 use near_crypto::{InMemorySigner, Signature};
-use near_network_primitives::time;
 use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, PeerType, RawRoutedMessage,
-    RoutedMessageBody, RoutedMessageV2,
+    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
+    RoutedMessageV2,
 };
 use near_performance_metrics::framed_write::FramedWrite;
 use near_primitives::network::PeerId;
@@ -26,10 +25,9 @@ use near_rate_limiter::{
     ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleFramedRead,
     ThrottleToken,
 };
-use near_store::test_utils::create_test_store;
+use near_store::test_utils::create_test_node_storage;
 
-use near_network_primitives::time::Utc;
-use std::sync::atomic::AtomicUsize;
+use near_network_primitives::time;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_stream::StreamExt;
@@ -42,19 +40,19 @@ pub struct PeerConfig {
     pub peers: Vec<PeerInfo>,
     pub start_handshake_with: Option<PeerId>,
     pub force_encoding: Option<crate::network_protocol::Encoding>,
+    /// If both start_handshake_with and nonce are set, PeerActor
+    /// will use this nonce in the handshake.
+    /// WARNING: it has to be >0.
+    /// WARNING: currently nonce is decided by a lookup in the RoutingTableView,
+    ///   so to enforce the nonce below, we add an artificial edge to RoutingTableView.
+    ///   Once we switch to generating nonce from timestamp, this field should be deprecated
+    ///   in favor of passing a fake clock.
     pub nonce: Option<u64>,
 }
 
 impl PeerConfig {
     pub fn id(&self) -> PeerId {
         self.network.node_id()
-    }
-
-    pub fn peer_type(&self) -> PeerType {
-        match self.start_handshake_with {
-            Some(_) => PeerType::Outbound,
-            None => PeerType::Inbound,
-        }
     }
 
     pub fn partial_edge_info(&self, other: &PeerId, nonce: u64) -> PartialEdgeInfo {
@@ -203,7 +201,7 @@ impl PeerHandle {
         body: RoutedMessageBody,
         peer_id: PeerId,
         ttl: u8,
-        utc: Option<Utc>,
+        utc: Option<time::Utc>,
     ) -> Box<RoutedMessageV2> {
         RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id), body }.sign(
             self.cfg.id(),
@@ -227,7 +225,7 @@ impl PeerHandle {
             let (read, write) = tokio::io::split(stream);
             let fpm = FakePeerManagerActor { cfg: cfg.clone(), event_sink: send.sink() }.start();
             let fc = fake_client::start(send.sink().compose(Event::Client));
-            let store = store::Store::from(create_test_store());
+            let store = store::Store::from(create_test_node_storage());
             let rate_limiter = ThrottleController::new(usize::MAX, usize::MAX);
             let read = ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone())
                 .take_while(|x| match x {
@@ -256,7 +254,6 @@ impl PeerHandle {
                 routing_table_view,
                 demux::RateLimit { qps: 100., burst: 1 },
             ));
-
             PeerActor::create(move |ctx| {
                 PeerActor::add_stream(read, ctx);
                 PeerActor::new(
@@ -268,10 +265,20 @@ impl PeerHandle {
                         addr: Some(peer_addr.clone()),
                         account_id: None,
                     }),
-                    cfg.peer_type(),
+                    match &cfg.start_handshake_with {
+                        Some(id) => ConnectingStatus::Outbound(
+                            network_state.tier2.start_outbound(id.clone()).unwrap(),
+                        ),
+                        None => ConnectingStatus::Inbound(
+                            network_state
+                                .inbound_handshake_permits
+                                .clone()
+                                .try_acquire_owned()
+                                .unwrap(),
+                        ),
+                    },
                     FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
                     fpm.clone().recipient(),
-                    Arc::new(AtomicUsize::new(0)),
                     rate_limiter,
                     cfg.force_encoding,
                     network_state,

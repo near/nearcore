@@ -43,10 +43,41 @@ pub struct StoreConfig {
     pub block_size: bytesize::ByteSize,
 
     /// Trie cache capacities
-    /// Default value: ShardUId {version: 1, shard_id: 3} -> 2_000_000. TODO: clarify
+    /// Default value: ShardUId {version: 1, shard_id: 3} -> 45_000_000
     /// We're still experimenting with this parameter and it seems decreasing its value can improve
     /// the performance of the storage
     pub trie_cache_capacities: Vec<(ShardUId, usize)>,
+
+    /// Path where to create RocksDB checkpoints during database migrations or
+    /// `false` to disable that feature.
+    ///
+    /// If this feature is enabled, when database migration happens a RocksDB
+    /// checkpoint will be created just before the migration starts.  This way,
+    /// if there are any failures during migration, the database can be
+    /// recovered from the checkpoint.
+    ///
+    /// The field can be one of:
+    /// * an absolute path name → the snapshot will be created in specified
+    ///   directory.  No sub-directories will be created so for example you
+    ///   probably don’t want `/tmp` but rather `/tmp/neard-db-snapshot`;
+    /// * an relative path name → the snapshot will be created in a directory
+    ///   inside of the RocksDB database directory (see `path` field);
+    /// * `true` (the default) → this is equivalent to setting the field to
+    ///   `migration-snapshot`; and
+    /// * `false` → the snapshot will not be created.
+    ///
+    /// Note that if the snapshot is on a different file system than the
+    /// database, creating the snapshot may itself take time as data may need to
+    /// be copied between the databases.
+    #[serde(skip_serializing_if = "MigrationSnapshot::is_default")]
+    pub migration_snapshot: MigrationSnapshot,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum MigrationSnapshot {
+    Enabled(bool),
+    Path(std::path::PathBuf),
 }
 
 /// Mode in which to open the storage.
@@ -108,8 +139,46 @@ impl Default for StoreConfig {
             // we use it since then.
             block_size: bytesize::ByteSize::kib(16),
 
-            trie_cache_capacities: Default::default(),
+            trie_cache_capacities: vec![(ShardUId { version: 1, shard_id: 3 }, 45_000_000)],
+
+            migration_snapshot: Default::default(),
         }
+    }
+}
+
+impl MigrationSnapshot {
+    /// Returns path to the snapshot given path to the database.
+    ///
+    /// Returns `None` if migration snapshot is disabled.  Relative paths are
+    /// resolved relative to `db_path`.
+    pub fn get_path<'a>(&'a self, db_path: &std::path::Path) -> Option<std::path::PathBuf> {
+        let path = match &self {
+            Self::Enabled(false) => return None,
+            Self::Enabled(true) => std::path::Path::new("migration-snapshot"),
+            Self::Path(path) => path.as_path(),
+        };
+        Some(db_path.join(path))
+    }
+
+    /// Checks whether the object equals its default value.
+    fn is_default(&self) -> bool {
+        matches!(self, Self::Enabled(true))
+    }
+
+    /// Formats an example of how to edit `config.json` to set migration path to
+    /// given value.
+    pub fn format_example(&self) -> String {
+        let value = serde_json::to_string(self).unwrap();
+        format!(
+            "    {{\n      \"store\": {{\n        \"migration_snapshot\": \
+                 {value}\n      }}\n    }}"
+        )
+    }
+}
+
+impl Default for MigrationSnapshot {
+    fn default() -> Self {
+        Self::Enabled(true)
     }
 }
 
@@ -118,7 +187,7 @@ impl Default for StoreConfig {
 /// Typical usage:
 ///
 /// ```ignore
-/// let store = Store::opener(&near_config.config.store)
+/// let store = NodeStorage::opener(&near_config.config.store)
 ///     .home(neard_home_dir)
 ///     .open();
 /// ```
@@ -126,7 +195,7 @@ pub struct StoreOpener<'a> {
     /// Path to the database.
     ///
     /// This is resolved from nearcore home directory and store configuration
-    /// passed to [`Store::opener`].
+    /// passed to [`NodeStorage::opener`].
     path: std::path::PathBuf,
 
     /// Configuration as provided by the user.
@@ -181,7 +250,7 @@ impl<'a> StoreOpener<'a> {
     }
 
     /// Opens the RocksDB database.
-    pub fn open(&self) -> io::Result<crate::Store> {
+    pub fn open(&self) -> io::Result<crate::NodeStorage> {
         let exists = self.check_if_exists();
         if !exists && matches!(self.mode, Mode::ReadOnly) {
             return Err(io::Error::new(
@@ -194,7 +263,7 @@ impl<'a> StoreOpener<'a> {
                        "{} RocksDB database",
                        if exists { "Opening" } else { "Creating a new" });
         crate::RocksDB::open(&self.path, &self.config, self.mode)
-            .map(|db| crate::Store::new(std::sync::Arc::new(db)))
+            .map(|db| crate::NodeStorage::new(std::sync::Arc::new(db)))
     }
 
     /// Creates a new snapshot which can be used to recover the database state.
@@ -205,10 +274,10 @@ impl<'a> StoreOpener<'a> {
     /// Note that due to RocksDB being weird, this will create an empty database
     /// if it does not already exist.  This might not be what you want so make
     /// sure the database already exists.
-    pub fn new_migration_snapshot(
-        &self,
-        snapshot_path: std::path::PathBuf,
-    ) -> Result<crate::Snapshot, crate::SnapshotError> {
-        crate::Snapshot::new(&self.path, self.config, snapshot_path)
+    pub fn new_migration_snapshot(&self) -> Result<crate::Snapshot, crate::SnapshotError> {
+        match self.config.migration_snapshot.get_path(&self.path) {
+            Some(path) => crate::Snapshot::new(&self.path, self.config, path),
+            None => Ok(crate::Snapshot::no_snapshot()),
+        }
     }
 }

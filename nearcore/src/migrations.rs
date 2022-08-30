@@ -4,7 +4,7 @@ use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::types::Gas;
 use near_primitives::utils::index_to_bytes;
 use near_store::migrations::{set_store_version, BatchedStoreUpdate};
-use near_store::DBCol;
+use near_store::{DBCol, Temperature};
 
 /// Fix an issue with block ordinal (#5761)
 // This migration takes at least 3 hours to complete on mainnet
@@ -12,7 +12,7 @@ pub fn migrate_30_to_31(
     store_opener: &near_store::StoreOpener,
     near_config: &crate::NearConfig,
 ) -> anyhow::Result<()> {
-    let store = store_opener.open()?;
+    let store = store_opener.open()?.get_store(Temperature::Hot);
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         do_migrate_30_to_31(&store, &near_config.genesis.config)?;
     }

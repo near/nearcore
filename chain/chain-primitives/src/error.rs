@@ -299,6 +299,7 @@ impl From<EpochError> for Error {
         match error {
             EpochError::EpochOutOfBounds(epoch_id) => Error::EpochOutOfBounds(epoch_id),
             EpochError::MissingBlock(h) => Error::DBNotFoundErr(h.to_string()),
+            EpochError::NotAValidator(_account_id, _epoch_id) => Error::NotAValidator,
             err => Error::ValidatorError(err.to_string()),
         }
     }

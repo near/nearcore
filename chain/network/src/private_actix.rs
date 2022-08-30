@@ -40,14 +40,13 @@ pub(crate) enum PeerToManagerMsg {
     },
 
     // PeerRequest
-    UpdateEdge((PeerId, u64)),
     RouteBack(Box<RoutedMessageBody>, CryptoHash),
     UpdatePeerInfo(PeerInfo),
 }
 
 /// List of all replies to messages to `PeerManager`. See `PeerManagerMessageRequest` for more details.
 #[derive(actix::MessageResponse, Debug)]
-pub enum PeerToManagerMsgResp {
+pub(crate) enum PeerToManagerMsgResp {
     RoutedMessageFrom(bool),
     RegisterPeer(RegisterPeerResponse),
     PeersRequest(PeerRequestResult),
@@ -58,7 +57,6 @@ pub enum PeerToManagerMsgResp {
     BanPeer(ReasonForBan),
 
     // PeerResponse
-    UpdatedEdge(PartialEdgeInfo),
     Empty,
 }
 /// Actor message which asks `PeerManagerActor` to register peer.

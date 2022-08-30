@@ -89,6 +89,11 @@ impl Snapshot {
             }
         }
     }
+
+    /// Returns path to the snapshot if it exists.
+    pub fn path(&self) -> Option<&std::path::Path> {
+        self.0.as_deref()
+    }
 }
 
 impl std::ops::Drop for Snapshot {
@@ -114,32 +119,25 @@ impl std::ops::Drop for Snapshot {
 fn test_snapshot_creation() {
     use assert_matches::assert_matches;
 
-    let (tmpdir, opener) = crate::Store::test_opener();
-    let path = tmpdir.path().join("cp");
+    let (_tmpdir, opener) = crate::NodeStorage::test_opener();
 
     // Create the database
-    core::mem::drop(opener.open());
+    core::mem::drop(opener.open().unwrap());
 
     // Creating snapshot should work now.
-    let snapshot = opener.new_migration_snapshot(path.clone()).unwrap();
+    let snapshot = opener.new_migration_snapshot().unwrap();
 
     // Snapshot already exists so cannot create a new one.
-    assert_matches!(
-        opener.new_migration_snapshot(path.clone()),
-        Err(SnapshotError::AlreadyExists(_))
-    );
+    assert_matches!(opener.new_migration_snapshot(), Err(SnapshotError::AlreadyExists(_)));
 
     snapshot.remove();
 
     // This should work correctly again since the snapshot has been removed.
-    opener.new_migration_snapshot(path.clone()).unwrap();
+    opener.new_migration_snapshot().unwrap();
 
     // And this again should fail.  We don’t remove the snapshot in
     // Snapshot::drop.
-    assert_matches!(
-        opener.new_migration_snapshot(path.clone()),
-        Err(SnapshotError::AlreadyExists(_))
-    );
+    assert_matches!(opener.new_migration_snapshot(), Err(SnapshotError::AlreadyExists(_)));
 }
 
 /// Tests that reading data from a snapshot is possible.
@@ -148,23 +146,23 @@ fn test_snapshot_recovery() {
     const KEY: &[u8] = b"key";
     const COL: crate::DBCol = crate::DBCol::BlockMisc;
 
-    let (tmpdir, opener) = crate::Store::test_opener();
-    let path = tmpdir.path().join("cp");
+    let (tmpdir, opener) = crate::NodeStorage::test_opener();
+    let path = opener.config().migration_snapshot.get_path(opener.path()).unwrap();
 
     // Populate some data
     {
-        let store = opener.open().unwrap();
+        let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
         let mut update = store.store_update();
         update.set_raw_bytes(COL, KEY, b"value");
         update.commit().unwrap();
     }
 
     // Create snapshot
-    let snapshot = opener.new_migration_snapshot(path.clone()).unwrap();
+    let snapshot = opener.new_migration_snapshot().unwrap();
 
     // Delete the data from the database.
     {
-        let store = opener.open().unwrap();
+        let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
         let mut update = store.store_update();
         update.delete(COL, KEY);
         update.commit().unwrap();
@@ -177,7 +175,7 @@ fn test_snapshot_recovery() {
         let mut config = opener.config().clone();
         config.path = Some(path);
         let opener = crate::StoreOpener::new(tmpdir.path(), &config);
-        let store = opener.open().unwrap();
+        let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
         assert_eq!(Some(b"value".to_vec()), store.get(COL, KEY).unwrap());
     }
 
