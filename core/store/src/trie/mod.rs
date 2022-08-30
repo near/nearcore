@@ -22,7 +22,7 @@ pub use crate::trie::shard_tries::{
     KeyForStateChanges, ShardTries, TrieCacheFactory, WrappedTrieChanges,
 };
 pub use crate::trie::trie_storage::{
-    IoThreadCmd, TrieCache, TrieCachingStorage, TriePrefetchingStorage, TrieStorage,
+    IoRequestQueue, IoThreadCmd, TrieCache, TrieCachingStorage, TriePrefetchingStorage, TrieStorage,
 };
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
 use crate::StorageError;

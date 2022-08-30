@@ -2,8 +2,8 @@ use std::borrow::Borrow;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use near_metrics::prometheus;
 use near_metrics::prometheus::core::{GenericCounter, GenericGauge};
@@ -427,6 +427,8 @@ pub enum IoThreadCmd {
     StopSelf,
 }
 
+pub type IoRequestQueue = Arc<Mutex<VecDeque<IoThreadCmd>>>;
+
 impl TrieCachingStorage {
     pub fn new(
         store: Store,
@@ -512,34 +514,31 @@ impl TrieCachingStorage {
     pub fn start_io_thread(
         root: CryptoHash,
         prefetcher_storage: Box<dyn TrieStorage + Send>,
+        request_queue: IoRequestQueue,
         kill_switch: Arc<AtomicBool>,
-    ) -> (std::thread::JoinHandle<()>, Sender<IoThreadCmd>) {
-        // Spawn a new thread that has access to the same db connection and
-        // shard cache (for reading what is already cached). Also share the same
-        // prefetching space to coordinate in-flight requests.
-        // This thread receives requests over an MPSC channel.
-        let (tx, rx) = std::sync::mpsc::channel::<IoThreadCmd>();
-
-        // `Trie` cannot be sent across threads but `TriePrefetchingStorage` can.
-        //  Therefore, construct `Trie` in new thread.
-        let thread_handle = std::thread::spawn(move || {
+    ) -> std::thread::JoinHandle<()> {
+        std::thread::spawn(move || {
+            // `Trie` cannot be sent across threads but `TriePrefetchingStorage` can.
+            //  Therefore, construct `Trie` in the new thread.
             let prefetcher_trie = crate::Trie::new(prefetcher_storage, root, None);
-            while let Ok(req) = rx.recv() {
-                if kill_switch.load(Ordering::Acquire) {
-                    return;
-                }
-                match req {
-                    IoThreadCmd::PrefetchTrieNode(trie_key) => {
+
+            // Keep looping until either the kill switch signals that prefetching is no
+            // longer needed or a `StopSelf` command indicates that no more prefetch
+            // requests are available.
+            while !kill_switch.load(Ordering::Acquire) {
+                let maybe_request = request_queue.lock().expect(POISONED_LOCK_ERR).pop_front();
+                match maybe_request {
+                    Some(IoThreadCmd::PrefetchTrieNode(trie_key)) => {
                         let storage_key = trie_key.to_vec();
                         if let Ok(Some(_value)) = prefetcher_trie.get(&storage_key) {
                             near_o11y::io_trace!(count: "prefetch_success");
                         }
                     }
-                    IoThreadCmd::StopSelf => return,
+                    Some(IoThreadCmd::StopSelf) => return,
+                    None => std::thread::sleep(Duration::from_micros(10)),
                 }
             }
-        });
-        (thread_handle, tx)
+        })
     }
 
     pub fn stop_prefetcher(&self) {

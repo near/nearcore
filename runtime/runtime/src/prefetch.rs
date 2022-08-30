@@ -41,24 +41,102 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
-use near_store::{IoThreadCmd, Trie, TrieCachingStorage, TriePrefetchingStorage};
+use near_store::{IoRequestQueue, IoThreadCmd, Trie, TrieCachingStorage, TriePrefetchingStorage};
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::Arc;
+use tracing::debug;
+
+/// How many threads will be prefetching data, without the scheduler thread.
+/// Because the storage driver is blocking, there is only one request per thread
+/// at the time.
+const NUM_IO_THREADS: usize = 8;
+/// A chunk must be fully processed in one second. If we send N prefetch requests
+/// in a chunk, that means we spend at least N IOPS on prefetching. More than
+/// that, even, because each prefetch request usually has a series of DB
+/// requests.
+/// A local NVME SSD should be able ro reach 100k IOPS. Assuming an average trie
+/// depth of 10, this leads to 10k requests.
+const MAX_PREFETCH_REQUESTS_PER_CHUNK: usize = 10_000;
+/// How many requests to the prefetching scheduler can be queued up. Note that
+/// because all requests are sent at the start of chunk processing, it means that
+/// the queue will fill up quickly. Therefore setting it at the same value as
+/// MAX_PREFETCH_REQUESTS_PER_CHUNK for now. Set it to lower values to limit
+/// memory usage.
+const SCHEDULER_MAX_BACK_PRESSURE: usize = 10_000;
+
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 pub(crate) struct TriePrefetcher {
     trie: Rc<Trie>,
-    scheduler_tx: Sender<PrefetchSchedulerCmd>,
+    scheduler_tx: SyncSender<PrefetchSchedulerCmd>,
+    requests_limit: usize,
 }
 struct PrefetchScheduler {
     rx: Receiver<PrefetchSchedulerCmd>,
-    io_threads: Vec<Sender<IoThreadCmd>>,
+    request_queue: IoRequestQueue,
 }
 
 enum PrefetchSchedulerCmd {
     PrefetchTrieNode(TrieKey),
     EndOfInput,
+}
+
+impl PrefetchScheduler {
+    fn new(
+        rx: Receiver<PrefetchSchedulerCmd>,
+        root: CryptoHash,
+        prefetcher_storage: TriePrefetchingStorage,
+        kill_switch: Arc<AtomicBool>,
+    ) -> Self {
+        let request_queue = Arc::default();
+        for _ in 0..NUM_IO_THREADS {
+            let _handle = TrieCachingStorage::start_io_thread(
+                root.clone(),
+                Box::new(prefetcher_storage.clone()),
+                Arc::clone(&request_queue),
+                kill_switch.clone(),
+            );
+        }
+
+        Self { rx, request_queue }
+    }
+
+    // Starts a scheduler thread and returns a Sender that accepts prefetch requests.
+    fn start(
+        root: CryptoHash,
+        prefetcher_storage: TriePrefetchingStorage,
+        kill_switch: Arc<AtomicBool>,
+    ) -> (std::thread::JoinHandle<()>, SyncSender<PrefetchSchedulerCmd>) {
+        let (tx, rx) =
+            std::sync::mpsc::sync_channel::<PrefetchSchedulerCmd>(SCHEDULER_MAX_BACK_PRESSURE);
+        let _handle = std::thread::spawn(move || {
+            let scheduler = Self::new(rx, root, prefetcher_storage, kill_switch);
+
+            while let Ok(req) = scheduler.rx.recv() {
+                match req {
+                    PrefetchSchedulerCmd::PrefetchTrieNode(trie_key) => scheduler
+                        .request_queue
+                        .lock()
+                        .expect(POISONED_LOCK_ERR)
+                        .push_back(IoThreadCmd::PrefetchTrieNode(trie_key)),
+                    PrefetchSchedulerCmd::EndOfInput => {
+                        break;
+                    }
+                }
+            }
+
+            for _ in 0..NUM_IO_THREADS {
+                scheduler
+                    .request_queue
+                    .lock()
+                    .expect(POISONED_LOCK_ERR)
+                    .push_back(IoThreadCmd::StopSelf);
+            }
+        });
+        (_handle, tx)
+    }
 }
 
 impl TriePrefetcher {
@@ -70,29 +148,39 @@ impl TriePrefetcher {
 
             let (_handle, scheduler_tx) =
                 PrefetchScheduler::start(root, prefetcher_storage, kill_switch);
-            Some(Self { trie, scheduler_tx })
+            Some(Self { trie, scheduler_tx, requests_limit: MAX_PREFETCH_REQUESTS_PER_CHUNK })
         } else {
             None
         }
     }
 
-    pub(crate) fn input_receipts(&self, receipts: &[Receipt]) {
+    pub(crate) fn input_receipts(&mut self, receipts: &[Receipt]) {
         for receipt in receipts.iter() {
             if let ReceiptEnum::Action(_action_receipt) = &receipt.receipt {
-                self.prefetch_account(receipt.receiver_id.clone());
+                let account_id = receipt.receiver_id.clone();
+                let trie_key = TrieKey::Account { account_id };
+                self.prefetch(PrefetchSchedulerCmd::PrefetchTrieNode(trie_key));
+            }
+            if self.requests_limit == 0 {
+                return;
             }
         }
     }
 
-    pub(crate) fn input_transactions(&self, transactions: &[SignedTransaction]) {
+    pub(crate) fn input_transactions(&mut self, transactions: &[SignedTransaction]) {
         for t in transactions {
-            self.prefetch_account(t.transaction.signer_id.clone());
+            let account_id = t.transaction.signer_id.clone();
+            let trie_key = TrieKey::Account { account_id };
+            self.prefetch(PrefetchSchedulerCmd::PrefetchTrieNode(trie_key));
+
             let trie_key = TrieKey::AccessKey {
                 account_id: t.transaction.signer_id.clone(),
                 public_key: t.transaction.public_key.clone(),
             };
-            let cmd = PrefetchSchedulerCmd::PrefetchTrieNode(trie_key);
-            self.scheduler_tx.send(cmd).expect("TODO");
+            self.prefetch(PrefetchSchedulerCmd::PrefetchTrieNode(trie_key));
+            if self.requests_limit == 0 {
+                return;
+            }
         }
     }
 
@@ -108,63 +196,12 @@ impl TriePrefetcher {
         }
     }
 
-    fn prefetch_account(&self, account_id: near_primitives::types::AccountId) {
-        let trie_key = TrieKey::Account { account_id };
-        let cmd = PrefetchSchedulerCmd::PrefetchTrieNode(trie_key);
-        self.scheduler_tx.send(cmd).expect("TODO");
-    }
-}
-
-impl PrefetchScheduler {
-    fn new(
-        rx: Receiver<PrefetchSchedulerCmd>,
-        root: CryptoHash,
-        prefetcher_storage: TriePrefetchingStorage,
-        kill_switch: Arc<AtomicBool>,
-        num_io_threads: usize,
-    ) -> Self {
-        let io_threads = (0..num_io_threads)
-            .map(|_| {
-                let (_handle, tx) = TrieCachingStorage::start_io_thread(
-                    root.clone(),
-                    Box::new(prefetcher_storage.clone()),
-                    kill_switch.clone(),
-                );
-                tx
-            })
-            .collect::<Vec<_>>();
-
-        Self { rx, io_threads }
-    }
-
-    // Starts a scheduler thread and returns a Sender to it.
-    fn start(
-        root: CryptoHash,
-        prefetcher_storage: TriePrefetchingStorage,
-        kill_switch: Arc<AtomicBool>,
-    ) -> (std::thread::JoinHandle<()>, Sender<PrefetchSchedulerCmd>) {
-        let (tx, rx) = std::sync::mpsc::channel::<PrefetchSchedulerCmd>();
-        let _handle = std::thread::spawn(move || {
-            let num_io_threads = 8;
-            let scheduler = Self::new(rx, root, prefetcher_storage, kill_switch, num_io_threads);
-            let mut txs = scheduler.io_threads.iter().cycle();
-            while let Ok(req) = scheduler.rx.recv() {
-                match req {
-                    PrefetchSchedulerCmd::PrefetchTrieNode(trie_key) => {
-                        txs.next()
-                            .unwrap()
-                            .send(IoThreadCmd::PrefetchTrieNode(trie_key))
-                            .expect("TODO");
-                    }
-                    PrefetchSchedulerCmd::EndOfInput => {
-                        break;
-                    }
-                }
-            }
-            for tx in scheduler.io_threads {
-                tx.send(IoThreadCmd::StopSelf).expect("TODO");
-            }
-        });
-        (_handle, tx)
+    fn prefetch(&mut self, cmd: PrefetchSchedulerCmd) {
+        let res = self.scheduler_tx.try_send(cmd);
+        if let Err(_err) = res {
+            debug!(target: "prefetcher", "I/O scheduler input queue full, dropping prefetch request");
+        } else {
+            self.requests_limit = self.requests_limit.saturating_sub(1);
+        }
     }
 }

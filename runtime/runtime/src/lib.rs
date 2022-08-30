@@ -1167,9 +1167,9 @@ impl Runtime {
 
         let trie = Rc::new(trie);
         let mut state_update = TrieUpdate::new(trie.clone());
-        let prefetcher = TriePrefetcher::new(trie.clone());
+        let mut prefetcher = TriePrefetcher::new(trie.clone());
 
-        if let Some(prefetcher) = &prefetcher {
+        if let Some(prefetcher) = &mut prefetcher {
             prefetcher.input_transactions(transactions);
         }
 
@@ -1284,7 +1284,7 @@ impl Runtime {
 
         let gas_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
 
-        if let Some(prefetcher) = &prefetcher {
+        if let Some(prefetcher) = &mut prefetcher {
             prefetcher.input_receipts(&local_receipts);
             // TODO: Prefetch delayed receipts and then prefetch for them.
             prefetcher.input_receipts(&incoming_receipts);
