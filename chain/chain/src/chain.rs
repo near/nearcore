@@ -2153,7 +2153,7 @@ impl Chain {
         }
 
         let epoch_protocol_version =
-            self.runtime_adapter.get_epoch_protocol_version(block.epoch_id())?;
+            self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
         if epoch_protocol_version > PROTOCOL_VERSION {
             panic!("The client protocol version is older than the protocol version of the network. Please update nearcore");
         }
