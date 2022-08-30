@@ -958,20 +958,11 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     return;
                 }
 
-                self.peer_manager_addr
-                    .send(PeerToManagerMsg::UpdateEdge((
-                        self.other_peer_id().unwrap().clone(),
-                        edge.next(),
-                    )))
-                    .into_actor(self)
-                    .then(|res, act, _ctx| {
-                        if let Ok(PeerToManagerMsgResp::UpdatedEdge(edge_info)) = res {
-                            act.partial_edge_info = Some(edge_info);
-                            act.send_handshake();
-                        }
-                        actix::fut::ready(())
-                    })
-                    .spawn(ctx);
+                let edge_info = self
+                    .network_state
+                    .propose_edge(self.other_peer_id().unwrap(), Some(edge.next()));
+                self.partial_edge_info = Some(edge_info);
+                self.send_handshake();
             }
             (PeerStatus::Ready, PeerMessage::Disconnect) => {
                 debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
