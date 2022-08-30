@@ -230,7 +230,7 @@ impl TrieCache {
         self.0.lock().expect(POISONED_LOCK_ERR).clear()
     }
 
-    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<&Vec<u8>>)>) {
+    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<&[u8]>)>) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
         for (hash, opt_value_rc) in ops {
             if let Some(value_rc) = opt_value_rc {

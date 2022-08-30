@@ -118,7 +118,7 @@ impl ShardStateSyncResponseHeader {
     }
 
     #[inline]
-    pub fn incoming_receipts_proofs(&self) -> &Vec<ReceiptProofResponse> {
+    pub fn incoming_receipts_proofs(&self) -> &[ReceiptProofResponse] {
         match self {
             Self::V1(header) => &header.incoming_receipts_proofs,
             Self::V2(header) => &header.incoming_receipts_proofs,
@@ -126,7 +126,7 @@ impl ShardStateSyncResponseHeader {
     }
 
     #[inline]
-    pub fn root_proofs(&self) -> &Vec<Vec<RootProof>> {
+    pub fn root_proofs(&self) -> &[Vec<RootProof>] {
         match self {
             Self::V1(header) => &header.root_proofs,
             Self::V2(header) => &header.root_proofs,
