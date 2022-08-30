@@ -1,7 +1,7 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::Encoding;
-use crate::peer::peer_actor;
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
+use crate::peer_manager::peer_manager_actor;
 use crate::testonly::fake_client::Event as CE;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
@@ -56,7 +56,9 @@ async fn test_peer_communication(
     // Once borsh support is removed, the initial SyncAccountsData should be consumed in
     // complete_handshake.
     let filter = |ev| match ev {
-        Event::Peer(peer_actor::Event::MessageProcessed(PeerMessage::SyncAccountsData(_))) => None,
+        Event::Network(peer_manager_actor::Event::MessageProcessed(
+            PeerMessage::SyncAccountsData(_),
+        )) => None,
         Event::RoutingTable(_) => None,
         ev => Some(ev),
     };

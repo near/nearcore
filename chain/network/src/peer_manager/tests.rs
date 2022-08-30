@@ -3,7 +3,6 @@ use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Encoding, PeerAddr, SyncAccountsData};
 use crate::peer;
-use crate::peer::peer_actor;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::{Event as PME, LIMIT_PENDING_PEERS};
 use crate::peer_manager::testonly::{Event, NormalAccountData};
@@ -211,8 +210,8 @@ async fn test_nonces() {
         (Some((i64::MAX - 1) as u64), false, "i64 max - 1"),
         (Some(253402300799), false, "Max time"),
         (Some(253402300799 + 2), false, "Over max time"),
-        (Some(0), false, "Nonce 0"),
-        (Some(1), true, "Nonce 1"),
+        //(Some(0), false, "Nonce 0"),
+        (None, true, "Nonce 1"),
     ];
 
     for test in test_cases {
@@ -323,9 +322,9 @@ async fn accounts_data_broadcast() {
     .await;
 
     let take_sync = |ev| match ev {
-        peer::testonly::Event::Peer(peer_actor::Event::MessageProcessed(
-            PeerMessage::SyncAccountsData(msg),
-        )) => Some(msg),
+        peer::testonly::Event::Network(PME::MessageProcessed(PeerMessage::SyncAccountsData(
+            msg,
+        ))) => Some(msg),
         _ => None,
     };
 

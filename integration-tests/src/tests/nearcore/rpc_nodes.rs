@@ -390,30 +390,30 @@ fn test_tx_not_enough_balance_must_return_error() {
                 let res = view_client.send(GetBlock::latest()).await;
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
-                        let _ = client
-                            .broadcast_tx_commit(to_base64(&bytes))
-                            .map_err(|err| {
-                                assert_eq!(
-                                    err.data.unwrap(),
-                                    serde_json::json!({"TxExecutionError": {
-                                        "InvalidTxError": {
-                                            "NotEnoughBalance": {
-                                                "signer_id": "near.0",
-                                                "balance": "950000000000000000000000000000000", // If something changes in setup just update this value
-                                                "cost": "1100000000000453060601875000000000",
-                                            }
-                                        }
-                                    }})
-                                );
-                                System::current().stop();
-                            })
-                            .map_ok(|_| panic!("Transaction must not succeed"))
-                            .await;
                         break;
                     }
                 }
                 sleep(std::time::Duration::from_millis(500)).await;
             }
+            let _ = client
+                .broadcast_tx_commit(to_base64(&bytes))
+                .map_err(|err| {
+                    assert_eq!(
+                        err.data.unwrap(),
+                        serde_json::json!({"TxExecutionError": {
+                            "InvalidTxError": {
+                                "NotEnoughBalance": {
+                                    "signer_id": "near.0",
+                                    "balance": "950000000000000000000000000000000", // If something changes in setup just update this value
+                                    "cost": "1100000000000045306060187500000000",
+                                }
+                            }
+                        }})
+                    );
+                    System::current().stop();
+                })
+                .map_ok(|_| panic!("Transaction must not succeed"))
+                .await;
         });
     });
 }
