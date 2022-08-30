@@ -313,7 +313,6 @@ pub mod test_features {
     use near_network_primitives::time;
     use near_network_primitives::types::{NetworkViewClientMessages, NetworkViewClientResponses};
     use near_primitives::block::GenesisId;
-    use near_store::Store;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
@@ -324,7 +323,7 @@ pub mod test_features {
 
     // Make peer manager for unit tests
     pub fn make_peer_manager(
-        store: Store,
+        store: near_store::NodeStorage,
         mut config: config::NetworkConfig,
         boot_nodes: Vec<(&str, u16)>,
         peer_max_count: u32,
@@ -370,4 +369,11 @@ pub mod test_features {
 #[rtype(result = "()")]
 pub struct SetAdvOptions {
     pub set_max_peers: Option<u64>,
+}
+
+/// Creates an in-memory storage.
+#[cfg(test)]
+pub(crate) fn create_test_peer_store() -> crate::store::Store {
+    let storage = near_store::test_utils::create_test_node_storage();
+    crate::store::Store::from(storage)
 }

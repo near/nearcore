@@ -119,10 +119,10 @@ impl std::ops::Drop for Snapshot {
 fn test_snapshot_creation() {
     use assert_matches::assert_matches;
 
-    let (_tmpdir, opener) = crate::Store::test_opener();
+    let (_tmpdir, opener) = crate::NodeStorage::test_opener();
 
     // Create the database
-    core::mem::drop(opener.open());
+    core::mem::drop(opener.open().unwrap());
 
     // Creating snapshot should work now.
     let snapshot = opener.new_migration_snapshot().unwrap();
@@ -146,12 +146,12 @@ fn test_snapshot_recovery() {
     const KEY: &[u8] = b"key";
     const COL: crate::DBCol = crate::DBCol::BlockMisc;
 
-    let (tmpdir, opener) = crate::Store::test_opener();
+    let (tmpdir, opener) = crate::NodeStorage::test_opener();
     let path = opener.config().migration_snapshot.get_path(opener.path()).unwrap();
 
     // Populate some data
     {
-        let store = opener.open().unwrap();
+        let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
         let mut update = store.store_update();
         update.set_raw_bytes(COL, KEY, b"value");
         update.commit().unwrap();
@@ -162,7 +162,7 @@ fn test_snapshot_recovery() {
 
     // Delete the data from the database.
     {
-        let store = opener.open().unwrap();
+        let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
         let mut update = store.store_update();
         update.delete(COL, KEY);
         update.commit().unwrap();
@@ -175,7 +175,7 @@ fn test_snapshot_recovery() {
         let mut config = opener.config().clone();
         config.path = Some(path);
         let opener = crate::StoreOpener::new(tmpdir.path(), &config);
-        let store = opener.open().unwrap();
+        let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
         assert_eq!(Some(&b"value"[..]), store.get(COL, KEY).unwrap().as_deref());
     }
 

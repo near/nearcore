@@ -48,12 +48,40 @@ mod trie;
 pub use crate::config::{Mode, StoreConfig, StoreOpener};
 pub use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError};
 
+/// Specifies temperature of a storage.
+///
+/// Since currently only hot storage is implemented, this has only one variant.
+/// In the future, certain parts of the code may need to access hot or cold
+/// storage.  Specifically, querying an old block will require reading it from
+/// the cold storage.
+pub enum Temperature {
+    Hot,
+}
+
+/// Node’s storage holding chain and all other necessary data.
+///
+/// The eventual goal is to implement cold storage at which point this structure
+/// will provide interface to access hot and cold storage.  This is in contrast
+/// to [`Store`] which will abstract access to only one of the temperatures of
+/// the storage.
+pub struct NodeStorage {
+    storage: Arc<dyn Database>,
+}
+
+/// Node’s single storage source.
+///
+/// Currently, this is somewhat equivalent to [`NodeStorage`] in that for given
+/// note storage you can get only a single [`Store`] object.  This will change
+/// as we implement cold storage in which case this structure will provide an
+/// interface to access either hot or cold data.  At that point, [`NodeStorage`]
+/// will map to one of two [`Store`] objects depending on the temperature of the
+/// data.
 #[derive(Clone)]
 pub struct Store {
     storage: Arc<dyn Database>,
 }
 
-impl Store {
+impl NodeStorage {
     /// Initialises a new opener with given home directory and store config.
     pub fn opener<'a>(home_dir: &std::path::Path, config: &'a StoreConfig) -> StoreOpener<'a> {
         StoreOpener::new(home_dir, config)
@@ -74,14 +102,70 @@ impl Store {
         (dir, opener)
     }
 
-    pub(crate) fn new(storage: Arc<dyn Database>) -> Store {
-        Store { storage }
+    /// Constructs new object backed by given database.
+    ///
+    /// Note that you most likely don’t want to use this method.  If you’re
+    /// opening an on-disk storage, you want to use [`Self::opener`] instead
+    /// which takes scare of opening the on-disk database and applying all the
+    /// necessary configuration.  If you need an in-memory database for testing,
+    /// you want either [`crate::test_utils::create_test_node_storage`] or
+    /// possibly [`crate::test_utils::create_test_store`] (depending whether you
+    /// need [`NodeStorage`] or [`Store`] object.
+    pub fn new(storage: Arc<dyn Database>) -> Self {
+        Self { storage }
     }
 
-    pub fn into_inner(self) -> Arc<dyn Database> {
-        self.storage
+    /// Returns storage for given temperature.
+    ///
+    /// Some data live only in hot and some only in cold storage (which is at
+    /// the moment not implemented but is planned soon).  Hot data is anything
+    /// at the head of the chain.  Cold data, if node is configured with split
+    /// storage, is anything archival.
+    ///
+    /// Based on block in whose context database access are going to be made,
+    /// you will either need to access hot or cold storage.  Temperature of the
+    /// data is, simplifying slightly, determined based on height of the block.
+    /// Anything above the tail of hot storage is hot and everything else is
+    /// cold.
+    pub fn get_store(&self, temp: Temperature) -> Store {
+        match temp {
+            Temperature::Hot => Store { storage: self.storage.clone() },
+        }
     }
 
+    /// Returns underlying database for given temperature.
+    ///
+    /// With (currently unimplemented) cold storage, this allows accessing
+    /// underlying hot and cold databases directly bypassing any abstractions
+    /// offered by [`NodeStorage`] or [`Store`] interfaces.
+    ///
+    /// This is useful for certain data which only lives in hot storage and
+    /// interfaces which deal with it.  For example, peer store uses hot
+    /// storage’s [`Database`] interface directly.
+    ///
+    /// Note that this is not appropriate for code which only ever accesses hot
+    /// storage but touches information kinds which live in cold storage as
+    /// well.  For example, garbage collection only ever touches hot storage but
+    /// it should go through [`Store`] interface since data it manipulates
+    /// (e.g. blocks) are live in both databases.
+    pub fn get_inner(&self, temp: Temperature) -> Arc<dyn Database> {
+        match temp {
+            Temperature::Hot => self.storage.clone(),
+        }
+    }
+
+    /// Returns underlying database for given temperature.
+    ///
+    /// This is like [`Self::get_inner`] but consumes `self` thus avoiding
+    /// `Arc::clone`.
+    pub fn into_inner(self, temp: Temperature) -> Arc<dyn Database> {
+        match temp {
+            Temperature::Hot => self.storage,
+        }
+    }
+}
+
+impl Store {
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBBytes<'_>>> {
         let value = if column.is_rc() {
             self.storage.get_with_rc_stripped(column, key)
@@ -670,7 +754,7 @@ impl CompiledContractCache for StoreCompiledContractCache {
 mod tests {
     use near_primitives::hash::CryptoHash;
 
-    use super::{DBCol, Store};
+    use super::{DBCol, NodeStorage, Store, Temperature};
 
     #[test]
     fn test_no_cache_disabled() {
@@ -698,8 +782,8 @@ mod tests {
 
     #[test]
     fn clear_column_rocksdb() {
-        let (_tmp_dir, opener) = Store::test_opener();
-        test_clear_column(opener.open().unwrap());
+        let (_tmp_dir, opener) = NodeStorage::test_opener();
+        test_clear_column(opener.open().unwrap().get_store(Temperature::Hot));
     }
 
     #[test]
@@ -770,7 +854,8 @@ mod tests {
 
     #[test]
     fn rocksdb_iter_order() {
-        test_iter_order_impl(Store::test_opener().1.open().unwrap());
+        let (_tempdir, opener) = NodeStorage::test_opener();
+        test_iter_order_impl(opener.open().unwrap().get_store(Temperature::Hot));
     }
 
     #[test]
