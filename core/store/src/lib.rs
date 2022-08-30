@@ -31,9 +31,9 @@ use crate::db::{
 pub use crate::trie::iterator::TrieIterator;
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
-    estimator, split_state, ApplyStatePartResult, KeyForStateChanges, PartialStorage, ShardTries,
-    Trie, TrieAccess, TrieCache, TrieCacheFactory, TrieCachingStorage, TrieChanges, TrieStorage,
-    WrappedTrieChanges,
+    estimator, split_state, ApplyStatePartResult, IoThreadCmd, KeyForStateChanges, PartialStorage,
+    ShardTries, Trie, TrieAccess, TrieCache, TrieCacheFactory, TrieCachingStorage, TrieChanges,
+    TriePrefetchingStorage, TrieStorage, WrappedTrieChanges,
 };
 
 mod columns;

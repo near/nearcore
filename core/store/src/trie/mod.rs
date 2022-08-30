@@ -21,7 +21,9 @@ use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::shard_tries::{
     KeyForStateChanges, ShardTries, TrieCacheFactory, WrappedTrieChanges,
 };
-pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieStorage};
+pub use crate::trie::trie_storage::{
+    IoThreadCmd, TrieCache, TrieCachingStorage, TriePrefetchingStorage, TrieStorage,
+};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
 use crate::StorageError;
 pub use near_primitives::types::TrieNodesCount;

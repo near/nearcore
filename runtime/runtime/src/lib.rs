@@ -59,6 +59,7 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas, RuntimeConfig,
 };
 use crate::genesis::{GenesisStateApplier, StorageComputer};
+use crate::prefetch::TriePrefetcher;
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 
@@ -69,6 +70,7 @@ pub mod config;
 pub mod ext;
 mod genesis;
 mod metrics;
+mod prefetch;
 pub mod state_viewer;
 mod verifier;
 
@@ -1165,6 +1167,11 @@ impl Runtime {
 
         let trie = Rc::new(trie);
         let mut state_update = TrieUpdate::new(trie.clone());
+        let prefetcher = TriePrefetcher::new(trie.clone());
+
+        if let Some(prefetcher) = &prefetcher {
+            prefetcher.input_transactions(transactions);
+        }
 
         let mut stats = ApplyStats::default();
 
@@ -1277,6 +1284,13 @@ impl Runtime {
 
         let gas_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
 
+        if let Some(prefetcher) = &prefetcher {
+            prefetcher.input_receipts(&local_receipts);
+            // TODO: Prefetch delayed receipts and then prefetch for them.
+            prefetcher.input_receipts(&incoming_receipts);
+            prefetcher.end_input();
+        }
+
         // We first process local receipts. They contain staking, local contract calls, etc.
         for receipt in local_receipts.iter() {
             if total_gas_burnt < gas_limit {
@@ -1329,6 +1343,11 @@ impl Runtime {
             } else {
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }
+        }
+
+        // No more receipts are executed on this trie, stop any pending prefetches on it.
+        if let Some(prefetcher) = &prefetcher {
+            prefetcher.stop_prefetching();
         }
 
         if delayed_receipts_indices != initial_delayed_receipt_indices {
