@@ -85,7 +85,7 @@ pub fn set_block_protocol_version(
         KeyType::ED25519,
         block_producer.as_ref(),
     );
-    block.mut_header().set_lastest_protocol_version(protocol_version);
+    block.mut_header().set_latest_protocol_version(protocol_version);
     block.mut_header().resign(&validator_signer);
 }
 
@@ -112,7 +112,7 @@ fn produce_blocks_from_height_with_protocol_version(
     let next_height = height + blocks_number;
     for i in height..next_height {
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
-        block.mut_header().set_lastest_protocol_version(protocol_version);
+        block.mut_header().set_latest_protocol_version(protocol_version);
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         for j in 1..env.clients.len() {
             env.process_block(j, block.clone(), Provenance::NONE);

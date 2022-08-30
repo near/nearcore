@@ -1146,7 +1146,7 @@ impl Chain {
             ) {
                 if header.latest_protocol_version() < epoch_protocol_version {
                     error!(
-                        "header protocol version {} epoch protocol version {}",
+                        "header protocol version {} smaller than epoch protocol version {}",
                         header.latest_protocol_version(),
                         epoch_protocol_version
                     );
@@ -2160,7 +2160,7 @@ impl Chain {
         let epoch_protocol_version =
             self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
         if epoch_protocol_version > PROTOCOL_VERSION {
-            panic!("The client protocol version is older than the protocol version of the network. Please update nearcore");
+            panic!("The client protocol version {} is older than the protocol version of the network {}. Please update nearcore", PROTOCOL_VERSION, epoch_protocol_version);
         }
 
         // First real I/O expense.
