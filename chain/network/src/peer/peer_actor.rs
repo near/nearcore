@@ -19,6 +19,7 @@ use actix::{
     Actor, ActorContext, ActorFutureExt, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
+use anyhow::Context as _;
 use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::time;
@@ -37,17 +38,24 @@ use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
-use near_rate_limiter::ThrottleController;
+use near_rate_limiter::{ThrottleController, ThrottleFramedRead};
 use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
+use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+/// Max number of messages we received from peer, and they are in progress, before we start throttling.
+/// Disabled for now (TODO PUT UNDER FEATURE FLAG)
+const MAX_MESSAGES_COUNT: usize = usize::MAX;
+/// Max total size of all messages that are in progress, before we start throttling.
+/// Disabled for now (TODO PUT UNDER FEATURE FLAG)
+const MAX_MESSAGES_TOTAL_SIZE: usize = usize::MAX;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
@@ -94,8 +102,6 @@ pub(crate) struct PeerActor {
     tracker: Arc<Mutex<Tracker>>,
     /// Edge information needed to build the real edge. This is relevant for handshake.
     partial_edge_info: Option<PartialEdgeInfo>,
-    /// How many peer actors are created
-    peer_counter: Arc<AtomicUsize>,
     /// Cache of recently routed messages, this allows us to drop duplicates
     routed_message_cache: LruCache<(PeerId, PeerIdOrHash, Signature), time::Instant>,
     /// A helper data structure for limiting reading
@@ -125,45 +131,107 @@ pub enum IOError {
     Send { tid: usize, message_type: String, size: usize },
 }
 
-impl PeerActor {
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
-        clock: time::Clock,
-        my_node_info: PeerInfo,
-        peer_addr: SocketAddr,
-        peer_info: Option<PeerInfo>,
-        connecting_status: ConnectingStatus,
-        framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
-        peer_manager_addr: Recipient<PeerToManagerMsg>,
-        peer_counter: Arc<AtomicUsize>,
-        throttle_controller: ThrottleController,
+#[derive(Debug)]
+pub(crate) enum StreamConfig {
+    Inbound,
+    Outbound { peer_id: PeerId },
+}
+
+/// PeerActor config, whose constructor may return an error.
+/// We need it because of actix which doesn't allow us
+/// to make PeerActor::new return an error.
+pub(crate) struct Config {
+    peer_addr: SocketAddr,
+    stream: tokio::net::TcpStream,
+    stream_config: StreamConfig,
+    connecting_status: ConnectingStatus,
+    network_state: Arc<NetworkState>,
+    force_encoding: Option<Encoding>,
+}
+
+impl Config {
+    pub fn new(
+        stream: tokio::net::TcpStream,
+        stream_config: StreamConfig,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
+            peer_addr: stream.peer_addr().context("stream.peer_addr()")?,
+            connecting_status: match &stream_config {
+                StreamConfig::Inbound => ConnectingStatus::Inbound(
+                    network_state
+                        .inbound_handshake_permits
+                        .clone()
+                        .try_acquire_owned()
+                        .context("too many connections in Connecting state")?,
+                ),
+                StreamConfig::Outbound { peer_id } => ConnectingStatus::Outbound(
+                    network_state
+                        .tier2
+                        .start_outbound(peer_id.clone())
+                        .context("tier2.start_outbound()")?
+                )
+            },
+            stream,
+            stream_config,
+            network_state,
+            force_encoding,
+        })
+    }
+}
+
+impl PeerActor {
+    pub(crate) fn new(
+        clock: time::Clock,
+        ctx: &mut <PeerActor as actix::Actor>::Context,
+        cfg: Config,
+        peer_manager_addr: Recipient<PeerToManagerMsg>,
+    ) -> PeerActor {
+        let my_node_info = PeerInfo {
+            id: cfg.network_state.config.node_id(),
+            addr: cfg.network_state.config.node_addr.clone(),
+            account_id: cfg.network_state.config.validator.as_ref().map(|v| v.account_id()),
+        };
+        let (read, write) = tokio::io::split(cfg.stream);
+        let rate_limiter = ThrottleController::new(MAX_MESSAGES_COUNT, MAX_MESSAGES_TOTAL_SIZE);
+        PeerActor::add_stream(
+            ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone()).map_while(|x| {
+                match x {
+                    Ok(x) => Some(x),
+                    Err(err) => {
+                        warn!(target: "network", ?err, "Peer stream error");
+                        None
+                    }
+                }
+            }),
+            ctx,
+        );
         PeerActor {
             clock,
             my_node_info,
-            peer_addr,
-            peer_type: match &connecting_status {
-                ConnectingStatus::Inbound => PeerType::Inbound,
-                ConnectingStatus::Outbound { .. } => PeerType::Outbound,
+            peer_addr: cfg.peer_addr,
+            peer_type: match &cfg.stream_config {
+                StreamConfig::Inbound => PeerType::Inbound,
+                StreamConfig::Outbound { .. } => PeerType::Outbound,
             },
-            peer_status: PeerStatus::Connecting(connecting_status),
+            peer_status: PeerStatus::Connecting(cfg.connecting_status),
             protocol_version: PROTOCOL_VERSION,
-            framed,
+            framed: FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
             peer_manager_addr,
             tracker: Default::default(),
-            partial_edge_info: peer_info
-                .as_ref()
-                .map(|info| network_state.propose_edge(&info.id, None)),
-            peer_info: peer_info.into(),
-            peer_counter,
+            partial_edge_info: match &cfg.stream_config {
+                StreamConfig::Inbound => None,
+                StreamConfig::Outbound { peer_id } =>
+                    Some(cfg.network_state.propose_edge(peer_id, None)),
+            },
             routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
-            throttle_controller,
+            throttle_controller: rate_limiter,
             protocol_buffers_supported: false,
-            force_encoding,
+            force_encoding: cfg.force_encoding,
             connection: None,
-            network_state,
+            peer_info: None.into(),
+            network_state: cfg.network_state,
         }
     }
 
@@ -615,7 +683,7 @@ impl Actor for PeerActor {
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
-        self.peer_counter.fetch_sub(1, Ordering::SeqCst);
+        self.network_state.peer_counter.fetch_sub(1, Ordering::SeqCst);
         metrics::PEER_CONNECTIONS_TOTAL.dec();
         debug!(target: "network", "{:?}: Peer {} disconnected. {:?}", self.my_node_info.id, self.peer_info, self.peer_status);
         if let Some(peer_info) = self.peer_info.as_ref() {
@@ -1169,9 +1237,11 @@ impl Handler<PeerManagerRequestWithContext> for PeerActor {
     }
 }
 
+type InboundHandshakePermit = tokio::sync::OwnedSemaphorePermit;
+
 #[derive(Debug)]
-pub(crate) enum ConnectingStatus {
-    Inbound,
+enum ConnectingStatus {
+    Inbound(InboundHandshakePermit),
     Outbound(connection::OutboundHandshakePermit),
 }
 
