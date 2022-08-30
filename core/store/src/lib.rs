@@ -657,10 +657,7 @@ impl CompiledContractCache for StoreCompiledContractCache {
     }
 
     fn get(&self, key: &CryptoHash) -> io::Result<Option<Vec<u8>>> {
-        Ok(self
-            .db
-            .get_raw_bytes(DBCol::CachedContractCode, key.as_ref())?
-            .map(Vec::from)
+        Ok(self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref())?.map(Vec::from))
     }
 }
 

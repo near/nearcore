@@ -21,7 +21,7 @@ impl TestDB {
 
 impl Database for TestDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBBytes<'_>>> {
-        Ok(self.db.read().unwrap()[col].get(key).map(|vec| vec.clone().into()))
+        Ok(self.db.read().unwrap()[col].get(key).map(|vec| DBBytes::from_vec(vec.clone())))
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {

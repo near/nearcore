@@ -1,12 +1,13 @@
 use std::io;
-use std::sync::Arc;
 
 use crate::DBCol;
 
+mod bytes;
 pub mod refcount;
 pub(crate) mod rocksdb;
 mod testdb;
 
+pub use self::bytes::DBBytes;
 pub use self::rocksdb::RocksDB;
 pub use self::testdb::TestDB;
 
@@ -79,119 +80,6 @@ impl DBTransaction {
 }
 
 pub type DBIterator<'a> = Box<dyn Iterator<Item = io::Result<(Box<[u8]>, Box<[u8]>)>> + 'a>;
-
-/// Data returned from the database.
-///
-/// Abstraction layer for data returned by [`Database::get_raw_bytes`] and
-/// [`Database::get_with_rc_stripped`] methods.  Operating on the value as
-/// a slice is free while converting it to a vector on an arc may requires an
-/// allocation and memory copy.
-pub struct DBBytes<'a>(DBBytesInner<'a>);
-
-enum DBBytesInner<'a> {
-    /// Data held as a vector.
-    Vec(Vec<u8>),
-
-    /// Data held as RocksDB-specific pinnable slice.
-    Rocks {
-        /// Slice view of the data.
-        ///
-        /// Having this allows us to create views at only parts of the pinnable
-        /// slice without having to modify it.  We need it because remove_suffix
-        /// method of the C++ class is not exposed.
-        slice: &'a [u8],
-
-        /// This is what owns the data.
-        ///
-        /// This is never modified which is why we can have `slice` field
-        /// pointing at the data this pinnable slice holds.
-        db_slice: ::rocksdb::DBPinnableSlice<'a>,
-    },
-}
-
-impl<'a> DBBytes<'a> {
-    pub fn as_slice(&self) -> &[u8] {
-        match self.0 {
-            DBBytesInner::Vec(ref bytes) => bytes.as_slice(),
-            DBBytesInner::Rocks { slice, .. } => slice,
-        }
-    }
-
-    fn from_rocksdb_slice(db_slice: ::rocksdb::DBPinnableSlice<'a>) -> Self {
-        let slice = &*db_slice;
-        let (ptr, len) = (slice.as_ptr(), slice.len());
-        // SAFETY: We got the raw parts from a slice so they are obviously
-        // correct.  By using 'a lifetime we guarantee that this slice won’t
-        // outlive `db_slice` field.  And lastly, since `db_slice` is never
-        // modified and it holds pointers to pinned (in Rust sense) data, we can
-        // safely keep reference to its interior.
-        let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
-        DBBytes(DBBytesInner::Rocks { slice, db_slice })
-    }
-
-    fn strip_refcount(self) -> Option<Self> {
-        match self.0 {
-            DBBytesInner::Vec(bytes) => {
-                refcount::strip_refcount(bytes).map(|bytes| Self(DBBytesInner::Vec(bytes)))
-            }
-            DBBytesInner::Rocks { slice, db_slice } => refcount::decode_value_with_rc(slice)
-                .0
-                .map(|slice| Self(DBBytesInner::Rocks { slice, db_slice })),
-        }
-    }
-}
-
-impl<'a> std::ops::Deref for DBBytes<'a> {
-    type Target = [u8];
-    fn deref(&self) -> &[u8] {
-        self.as_slice()
-    }
-}
-
-impl<'a> From<Vec<u8>> for DBBytes<'a> {
-    fn from(bytes: Vec<u8>) -> Self {
-        Self(DBBytesInner::Vec(bytes))
-    }
-}
-
-impl<'a> From<&[u8]> for DBBytes<'a> {
-    fn from(bytes: &[u8]) -> Self {
-        Self(DBBytesInner::Vec(bytes.to_vec()))
-    }
-}
-
-impl<'a> From<DBBytes<'a>> for Arc<[u8]> {
-    fn from(bytes: DBBytes<'a>) -> Self {
-        bytes.as_slice().into()
-    }
-}
-
-impl<'a> From<DBBytes<'a>> for Vec<u8> {
-    fn from(bytes: DBBytes<'a>) -> Self {
-        match bytes.0 {
-            DBBytesInner::Vec(bytes) => bytes,
-            DBBytesInner::Rocks { slice, .. } => slice.to_vec(),
-        }
-    }
-}
-
-impl<'a> std::fmt::Debug for DBBytes<'a> {
-    fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self.as_slice(), fmtr)
-    }
-}
-
-impl<'a> std::cmp::PartialEq<DBBytes<'a>> for DBBytes<'a> {
-    fn eq(&self, other: &DBBytes<'a>) -> bool {
-        self.as_slice() == other.as_slice()
-    }
-}
-
-impl<'a> std::cmp::PartialEq<[u8]> for DBBytes<'a> {
-    fn eq(&self, other: &[u8]) -> bool {
-        self.as_slice() == other
-    }
-}
 
 pub trait Database: Sync + Send {
     /// Returns raw bytes for given `key` ignoring any reference count decoding
