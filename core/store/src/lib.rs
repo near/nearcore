@@ -660,7 +660,7 @@ impl CompiledContractCache for StoreCompiledContractCache {
         Ok(self
             .db
             .get_raw_bytes(DBCol::CachedContractCode, key.as_ref())?
-            .map(|bytes| bytes.to_vec()))
+            .map(Vec::from)
     }
 }
 
