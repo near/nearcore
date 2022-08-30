@@ -3,7 +3,7 @@ use bs58;
 use curve25519_dalek::constants::{
     RISTRETTO_BASEPOINT_POINT as G, RISTRETTO_BASEPOINT_TABLE as GT,
 };
-use rand_core::OsRng;
+use rand::rngs::OsRng;
 use std::borrow::Borrow;
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 

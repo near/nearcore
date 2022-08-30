@@ -4,7 +4,7 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 
 use crate::db::TestDB;
-use crate::{ShardTries, Store, TrieCacheFactory};
+use crate::{NodeStorage, ShardTries, Store, TrieCacheFactory};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DataReceipt, Receipt, ReceiptEnum};
@@ -12,9 +12,16 @@ use near_primitives::shard_layout::{ShardUId, ShardVersion};
 use near_primitives::types::NumShards;
 use std::str::from_utf8;
 
+/// Creates an in-memory node storage.
+///
+/// In tests you’ll often want to use [`create_test_store`] instead.
+pub fn create_test_node_storage() -> NodeStorage {
+    NodeStorage::new(TestDB::new())
+}
+
 /// Creates an in-memory database.
 pub fn create_test_store() -> Store {
-    Store::new(TestDB::new())
+    create_test_node_storage().get_store(crate::Temperature::Hot)
 }
 
 /// Creates a Trie using an in-memory database.

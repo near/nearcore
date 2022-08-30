@@ -35,6 +35,7 @@ use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Gas, Nonce, NumBlocks,
     NumShards, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
+    ValidatorInfoIdentifier,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
@@ -52,7 +53,6 @@ use crate::chain::Chain;
 use crate::store::ChainStoreAccess;
 use crate::types::{
     AcceptedBlock, ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ChainGenesis,
-    ValidatorInfoIdentifier,
 };
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
 use crate::{BlockProcessingArtifact, Doomslug, Provenance};
@@ -1055,18 +1055,18 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error> {
-        Ok(StateRootNode {
-            data: self
-                .state
-                .read()
-                .unwrap()
-                .get(state_root)
-                .unwrap()
-                .clone()
-                .try_to_vec()
-                .expect("should never fall"),
-            memory_usage: *self.state_size.read().unwrap().get(state_root).unwrap(),
-        })
+        let data = self
+            .state
+            .read()
+            .unwrap()
+            .get(state_root)
+            .unwrap()
+            .clone()
+            .try_to_vec()
+            .expect("should never fall")
+            .into();
+        let memory_usage = *self.state_size.read().unwrap().get(state_root).unwrap();
+        Ok(StateRootNode { data, memory_usage })
     }
 
     fn validate_state_root_node(

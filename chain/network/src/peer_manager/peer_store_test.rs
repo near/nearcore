@@ -1,6 +1,6 @@
 use near_crypto::{KeyType, SecretKey};
 use near_network_primitives::types::{Blacklist, BlacklistEntry};
-use near_store::{Store, StoreOpener};
+use near_store::{NodeStorage, StoreOpener};
 use std::collections::HashSet;
 use std::net::{Ipv4Addr, SocketAddrV4};
 
@@ -29,7 +29,7 @@ fn gen_peer_info(port: u16) -> PeerInfo {
 #[test]
 fn ban_store() {
     let clock = time::FakeClock::default();
-    let (_tmp_dir, opener) = Store::test_opener();
+    let (_tmp_dir, opener) = NodeStorage::test_opener();
     let peer_info_a = gen_peer_info(0);
     let peer_info_to_ban = gen_peer_info(1);
     let boot_nodes = vec![peer_info_a, peer_info_to_ban.clone()];
@@ -350,7 +350,7 @@ fn check_ignore_blacklisted_peers() {
 #[test]
 fn remove_blacklisted_peers_from_store() {
     let clock = time::FakeClock::default();
-    let (_tmp_dir, opener) = Store::test_opener();
+    let (_tmp_dir, opener) = NodeStorage::test_opener();
     let (peer_ids, peer_infos): (Vec<_>, Vec<_>) = (0..3)
         .map(|i| {
             let id = get_peer_id(format!("node{}", i));
@@ -380,7 +380,7 @@ fn remove_blacklisted_peers_from_store() {
 
 #[track_caller]
 fn assert_peers_in_store(opener: &StoreOpener, want: &[PeerId]) {
-    let store = store::Store::from(opener.open().unwrap());
+    let store = crate::store::Store::from(opener.open().unwrap());
     let got: HashSet<PeerId> = store.list_peer_states().unwrap().into_iter().map(|x| x.0).collect();
     let want: HashSet<PeerId> = want.iter().cloned().collect();
     assert_eq!(got, want);
@@ -404,7 +404,7 @@ fn assert_peers_in_cache(
 #[test]
 fn test_delete_peers() {
     let clock = time::FakeClock::default();
-    let (_tmp_dir, opener) = Store::test_opener();
+    let (_tmp_dir, opener) = NodeStorage::test_opener();
     let (peer_ids, peer_infos): (Vec<_>, Vec<_>) = (0..3)
         .map(|i| {
             let id = get_peer_id(format!("node{}", i));

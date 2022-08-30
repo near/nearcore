@@ -88,6 +88,10 @@ impl Database for TestDB {
         Ok(())
     }
 
+    fn compact(&self) -> io::Result<()> {
+        Ok(())
+    }
+
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
         None
     }

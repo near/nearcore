@@ -23,7 +23,6 @@ use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
-use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use std::collections::HashSet;
 use std::future::Future;
@@ -44,14 +43,17 @@ fn setup_network_node(
     validators: Vec<AccountId>,
     chain_genesis: ChainGenesis,
     config: config::NetworkConfig,
-    send_events: broadcast::Sender<Event>,
 ) -> Addr<PeerManagerActor> {
-    let store = create_test_store();
+    let store = near_store::test_utils::create_test_node_storage();
 
     let num_validators = validators.len() as ValidatorId;
 
     let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators(store.clone(), vs, 5));
+    let runtime = Arc::new(KeyValueRuntime::new_with_validators(
+        store.get_store(near_store::Temperature::Hot),
+        vs,
+        5,
+    ));
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         account_id.clone(),
         KeyType::ED25519,
@@ -59,7 +61,7 @@ fn setup_network_node(
     ));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
 
-    let db = store.into_inner();
+    let db = store.into_inner(near_store::Temperature::Hot);
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true);
         client_config.archive = config.archive;
@@ -103,7 +105,6 @@ fn setup_network_node(
             genesis_id,
         )
         .unwrap()
-        .with_event_sink(send_events.sink())
     });
 
     peer_manager
@@ -559,6 +560,8 @@ impl Runner {
         network_config.outbound_disabled = config.outbound_disabled;
         network_config.boot_nodes = boot_nodes;
         network_config.archive = config.archive;
+        let (send_events, recv_events) = broadcast::unbounded_channel();
+        network_config.event_sink = send_events.sink();
 
         config.ideal_connections.map(|(lo, hi)| {
             network_config.ideal_connections_lo = lo;
@@ -571,7 +574,6 @@ impl Runner {
             network_config.minimum_outbound_peers = mop;
         });
 
-        let (send_events, recv_events) = broadcast::unbounded_channel();
         let (send_pm, recv_pm) = tokio::sync::oneshot::channel();
         let (send_stop, recv_stop) = tokio::sync::oneshot::channel();
         let handle = std::thread::spawn({
@@ -586,7 +588,6 @@ impl Runner {
                             validators,
                             chain_genesis,
                             network_config,
-                            send_events,
                         ))
                         .map_err(|_| anyhow!("send failed"))?;
                     // recv_stop is expected to get closed.

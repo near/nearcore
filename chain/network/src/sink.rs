@@ -16,7 +16,7 @@ impl<T> Clone for Sink<T> {
 }
 
 impl<T> Sink<T> {
-    pub fn void() -> Self {
+    pub fn null() -> Self {
         Self::new(|_| {})
     }
 

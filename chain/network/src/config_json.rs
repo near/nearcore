@@ -165,8 +165,11 @@ pub struct ExperimentalConfig {
     #[serde(default)]
     pub connect_only_to_boot_nodes: bool,
 
-    // If greater than 0, then system will no longer send tombstones during sync and during that many seconds
-    // after startup.
+    // If greater than 0, then system will no longer send or receive tombstones
+    // during sync and during that many seconds after startup.
+    //
+    // The better name is `skip_tombstones_seconds`, but we keep send for
+    // compatibility.
     #[serde(default = "default_skip_tombstones")]
     pub skip_sending_tombstones_seconds: i64,
 }

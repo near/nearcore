@@ -145,9 +145,9 @@ impl Store {
     }
 }
 
-impl From<near_store::Store> for Store {
-    fn from(store: near_store::Store) -> Self {
-        Self(schema::Store::from(store.into_inner()))
+impl From<near_store::NodeStorage> for Store {
+    fn from(store: near_store::NodeStorage) -> Self {
+        Self::from(store.into_inner(near_store::Temperature::Hot))
     }
 }
 
