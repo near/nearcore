@@ -30,8 +30,10 @@ fn main() {
     let near_config = load_config(home_dir, GenesisValidationMode::Full)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-    let store = near_store::Store::opener(home_dir, &near_config.config.store).open().unwrap();
-
+    let store = near_store::NodeStorage::opener(home_dir, &near_config.config.store)
+        .open()
+        .unwrap()
+        .get_store(near_store::Temperature::Hot);
     let runtime_adapter: Arc<dyn RuntimeAdapter> =
         Arc::new(nearcore::NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
 

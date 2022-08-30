@@ -4,6 +4,7 @@
 use near_network_primitives::types::{Edge, KnownPeerState};
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
+use near_store::{NodeStorage, Temperature};
 use std::collections::HashSet;
 use tracing::debug;
 
@@ -144,14 +145,14 @@ impl Store {
     }
 }
 
-impl From<near_store::Store> for Store {
-    fn from(store: near_store::Store) -> Self {
-        Self(schema::Store::new(store.into_inner()))
+impl From<NodeStorage> for Store {
+    fn from(store: NodeStorage) -> Self {
+        Self(schema::Store::new(store.into_inner(Temperature::Hot)))
     }
 }
 
-impl From<&near_store::Store> for Store {
-    fn from(store: &near_store::Store) -> Self {
-        Self::from(store.clone())
+impl From<&NodeStorage> for Store {
+    fn from(store: &NodeStorage) -> Self {
+        Self(schema::Store::new(store.get_inner(Temperature::Hot)))
     }
 }

@@ -1951,6 +1951,7 @@ mod test {
     use near_primitives::views::{
         AccountView, CurrentEpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
     };
+    use near_store::{NodeStorage, Temperature};
 
     use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
@@ -2081,8 +2082,8 @@ mod test {
             has_reward: bool,
             minimum_stake_divisor: Option<u64>,
         ) -> Self {
-            let (dir, opener) = Store::test_opener();
-            let store = opener.open().unwrap();
+            let (dir, opener) = NodeStorage::test_opener();
+            let store = opener.open().unwrap().get_store(Temperature::Hot);
             let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
                 acc.union(&x.iter().cloned().collect()).cloned().collect()
             });
