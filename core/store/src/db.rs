@@ -138,7 +138,7 @@ pub trait Database: Sync + Send {
     fn flush(&self) -> io::Result<()>;
 
     /// Compact database representation.
-    /// 
+    ///
     /// If the database supports it a form of compaction, calling this function
     /// is blocking until compaction finishes. Otherwise, this is a no-op.
     fn compact(&self) -> io::Result<()> {
