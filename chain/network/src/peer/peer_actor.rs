@@ -42,7 +42,6 @@ use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
@@ -94,8 +93,6 @@ pub(crate) struct PeerActor {
     tracker: Arc<Mutex<Tracker>>,
     /// Edge information needed to build the real edge. This is relevant for handshake.
     partial_edge_info: Option<PartialEdgeInfo>,
-    /// How many peer actors are created
-    peer_counter: Arc<AtomicUsize>,
     /// Cache of recently routed messages, this allows us to drop duplicates
     routed_message_cache: LruCache<(PeerId, PeerIdOrHash, Signature), time::Instant>,
     /// A helper data structure for limiting reading
@@ -135,7 +132,6 @@ impl PeerActor {
         connecting_status: ConnectingStatus,
         framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
         peer_manager_addr: Recipient<PeerToManagerMsg>,
-        peer_counter: Arc<AtomicUsize>,
         throttle_controller: ThrottleController,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
@@ -145,7 +141,7 @@ impl PeerActor {
             my_node_info,
             peer_addr,
             peer_type: match &connecting_status {
-                ConnectingStatus::Inbound => PeerType::Inbound,
+                ConnectingStatus::Inbound { .. } => PeerType::Inbound,
                 ConnectingStatus::Outbound { .. } => PeerType::Outbound,
             },
             peer_status: PeerStatus::Connecting(connecting_status),
@@ -157,7 +153,6 @@ impl PeerActor {
                 .as_ref()
                 .map(|info| network_state.propose_edge(&info.id, None)),
             peer_info: peer_info.into(),
-            peer_counter,
             routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
             throttle_controller,
             protocol_buffers_supported: false,
@@ -615,7 +610,6 @@ impl Actor for PeerActor {
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
-        self.peer_counter.fetch_sub(1, Ordering::SeqCst);
         metrics::PEER_CONNECTIONS_TOTAL.dec();
         debug!(target: "network", "{:?}: Peer {} disconnected. {:?}", self.my_node_info.id, self.peer_info, self.peer_status);
         if let Some(peer_info) = self.peer_info.as_ref() {
@@ -1169,9 +1163,11 @@ impl Handler<PeerManagerRequestWithContext> for PeerActor {
     }
 }
 
+type InboundHandshakePermit = tokio::sync::OwnedSemaphorePermit;
+
 #[derive(Debug)]
 pub(crate) enum ConnectingStatus {
-    Inbound,
+    Inbound(InboundHandshakePermit),
     Outbound(connection::OutboundHandshakePermit),
 }
 
