@@ -1,12 +1,14 @@
 use crate::broadcast;
 use crate::config;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{PeerAddr, PeerMessage, SignedAccountData, SyncAccountsData};
-use crate::peer::peer_actor;
-use crate::peer_manager::peer_manager_actor;
+use crate::network_protocol::{
+    Encoding, PeerAddr, PeerMessage, SignedAccountData, SyncAccountsData,
+};
+use crate::peer;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
+use crate::testonly::Rng;
 use crate::types::{ChainInfo, GetNetworkInfo, PeerManagerMessageRequest, SetChainInfo};
 use crate::PeerManagerActor;
 use actix::Actor;
@@ -20,10 +22,10 @@ use std::sync::Arc;
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Event {
     Client(fake_client::Event),
-    PeerManager(peer_manager_actor::Event),
+    PeerManager(PME),
 }
 
-pub struct ActorHandler {
+pub(crate) struct ActorHandler {
     pub cfg: config::NetworkConfig,
     pub events: broadcast::Receiver<Event>,
     pub actix: ActixSystem<PeerManagerActor>,
@@ -31,9 +33,7 @@ pub struct ActorHandler {
 
 pub fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData> {
     match ev {
-        Event::PeerManager(peer_manager_actor::Event::Peer(
-            peer_actor::Event::MessageProcessed(PeerMessage::SyncAccountsData(msg)),
-        )) => Some(msg),
+        Event::PeerManager(PME::MessageProcessed(PeerMessage::SyncAccountsData(msg))) => Some(msg),
         _ => None,
     }
 }
@@ -55,6 +55,36 @@ impl From<&Arc<SignedAccountData>> for NormalAccountData {
     }
 }
 
+pub(crate) struct RawConnection {
+    stream: tokio::net::TcpStream,
+    cfg: peer::testonly::PeerConfig,
+}
+
+impl RawConnection {
+    pub async fn handshake(
+        self,
+        clock: &time::Clock,
+    ) -> (peer::testonly::PeerHandle, SyncAccountsData) {
+        let mut peer =
+            peer::testonly::PeerHandle::start_endpoint(clock.clone(), self.cfg, self.stream).await;
+        peer.complete_handshake().await;
+        // TODO(gprusak): this should be part of complete_handshake, once Borsh support is removed.
+        let msg = match peer.events.recv().await {
+            peer::testonly::Event::Network(PME::MessageProcessed(
+                PeerMessage::SyncAccountsData(msg),
+            )) => msg,
+            ev => panic!("expected SyncAccountsData, got {ev:?}"),
+        };
+        (peer, msg)
+    }
+
+    pub async fn fail_handshake(self, clock: &time::Clock) {
+        let mut peer =
+            peer::testonly::PeerHandle::start_endpoint(clock.clone(), self.cfg, self.stream).await;
+        peer.fail_handshake().await;
+    }
+}
+
 impl ActorHandler {
     pub fn peer_info(&self) -> PeerInfo {
         PeerInfo {
@@ -63,6 +93,7 @@ impl ActorHandler {
             account_id: None,
         }
     }
+
     pub async fn connect_to(&mut self, peer_info: &PeerInfo) {
         self.actix
             .addr
@@ -73,21 +104,31 @@ impl ActorHandler {
             .unwrap();
         self.events
             .recv_until(|ev| match &ev {
-                Event::PeerManager(peer_manager_actor::Event::PeerRegistered(info))
-                    if peer_info == info =>
-                {
-                    Some(())
-                }
+                Event::PeerManager(PME::PeerRegistered(info)) if peer_info == info => Some(()),
                 _ => None,
             })
             .await;
+    }
+
+    pub async fn start_connection(&self, rng: &mut Rng, chain: Arc<data::Chain>) -> RawConnection {
+        RawConnection {
+            stream: tokio::net::TcpStream::connect(self.cfg.node_addr.unwrap()).await.unwrap(),
+            cfg: peer::testonly::PeerConfig {
+                network: chain.make_config(rng),
+                chain,
+                peers: vec![],
+                start_handshake_with: Some(PeerId::new(self.cfg.node_key.public_key())),
+                force_encoding: Some(Encoding::Proto),
+                nonce: None,
+            },
+        }
     }
 
     pub async fn set_chain_info(&mut self, chain_info: ChainInfo) {
         self.actix.addr.send(SetChainInfo(chain_info)).await.unwrap();
         self.events
             .recv_until(|ev| match ev {
-                Event::PeerManager(peer_manager_actor::Event::SetChainInfo) => Some(()),
+                Event::PeerManager(PME::SetChainInfo) => Some(()),
                 _ => None,
             })
             .await;
@@ -108,7 +149,7 @@ impl ActorHandler {
     }
 }
 
-pub async fn start(
+pub(crate) async fn start(
     clock: time::Clock,
     store: near_store::NodeStorage,
     cfg: config::NetworkConfig,
@@ -116,11 +157,12 @@ pub async fn start(
 ) -> ActorHandler {
     let (send, recv) = broadcast::unbounded_channel();
     let actix = ActixSystem::spawn({
-        let cfg = cfg.clone();
+        let mut cfg = cfg.clone();
         let chain = chain.clone();
         move || {
             let genesis_id = chain.genesis_id.clone();
             let fc = fake_client::start(send.sink().compose(Event::Client));
+            cfg.event_sink = send.sink().compose(Event::PeerManager);
             PeerManagerActor::new(
                 clock,
                 store,
@@ -130,7 +172,6 @@ pub async fn start(
                 genesis_id,
             )
             .unwrap()
-            .with_event_sink(send.sink().compose(Event::PeerManager))
             .start()
         }
     })

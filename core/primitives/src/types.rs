@@ -1,7 +1,10 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use derive_more::{AsRef as DeriveAsRef, From as DeriveFrom};
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+
 use std::ops;
+use std::sync::Arc;
 
 use near_crypto::PublicKey;
 
@@ -421,15 +424,21 @@ impl StateChanges {
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateRootNode {
-    /// in Nightshade, data is the serialized TrieNodeWithSize
-    pub data: Vec<u8>,
-    /// in Nightshade, memory_usage is a field of TrieNodeWithSize
+    /// In Nightshade, data is the serialized TrieNodeWithSize.
+    ///
+    /// Beware that hash of an empty state root (i.e. once who’s data is an
+    /// empty byte string) **does not** equal hash of an empty byte string.
+    /// Instead, an all-zero hash indicates an empty node.
+    pub data: Arc<[u8]>,
+
+    /// In Nightshade, memory_usage is a field of TrieNodeWithSize.
     pub memory_usage: u64,
 }
 
 impl StateRootNode {
     pub fn empty() -> Self {
-        StateRootNode { data: vec![], memory_usage: 0 }
+        static EMPTY: Lazy<Arc<[u8]>> = Lazy::new(|| Arc::new([]));
+        StateRootNode { data: EMPTY.clone(), memory_usage: 0 }
     }
 }
 
@@ -856,6 +865,17 @@ impl Serialize for EpochReference {
             }
         }
     }
+}
+
+/// Either an epoch id or latest block hash.  When `EpochId` variant is used it
+/// must be an identifier of a past epoch.  When `BlockHeight` is used it must
+/// be hash of the latest block in the current epoch.  Using current epoch id
+/// with `EpochId` or arbitrary block hash in past or present epochs will result
+/// in errors.
+#[derive(Debug)]
+pub enum ValidatorInfoIdentifier {
+    EpochId(EpochId),
+    BlockHash(CryptoHash),
 }
 
 /// Reasons for removing a validator from the validator set.

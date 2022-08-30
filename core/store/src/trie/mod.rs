@@ -626,7 +626,7 @@ impl Trie {
         match self.retrieve_raw_node(&self.root)? {
             None => Ok(StateRootNode::empty()),
             Some((bytes, node)) => {
-                Ok(StateRootNode { data: bytes.to_vec(), memory_usage: node.memory_usage })
+                Ok(StateRootNode { data: bytes, memory_usage: node.memory_usage })
             }
         }
     }
