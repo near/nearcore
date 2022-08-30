@@ -154,7 +154,7 @@ mod tests {
     fn get_epoch_manager(
         genesis_protocol_version: ProtocolVersion,
         num_shards: NumShards,
-        simple_nightshade_shard_config: Option<ShardConfig>,
+        use_production_config: bool,
     ) -> EpochManagerHandle {
         let store = create_test_store();
         let initial_epoch_config = EpochConfig {
@@ -186,7 +186,7 @@ mod tests {
         };
         EpochManager::new(
             store,
-            AllEpochConfig::new(false, initial_epoch_config, simple_nightshade_shard_config),
+            AllEpochConfig::new(use_production_config, initial_epoch_config),
             genesis_protocol_version,
             reward_calculator,
             vec![ValidatorStake::new(
@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn test_track_accounts() {
         let num_shards = 4;
-        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards, None);
+        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards, false);
         let shard_layout =
             epoch_manager.read().get_shard_layout(&EpochId::default()).unwrap().clone();
         let tracked_accounts = vec!["test1".parse().unwrap(), "test2".parse().unwrap()];
@@ -277,7 +277,7 @@ mod tests {
     #[test]
     fn test_track_all_shards() {
         let num_shards = 4;
-        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards, None);
+        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards, false);
         let tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager);
         let total_tracked_shards: HashSet<_> = (0..num_shards).collect();
 
@@ -294,18 +294,7 @@ mod tests {
     #[test]
     fn test_track_shards_shard_layout_change() {
         let simple_nightshade_version = SimpleNightshade.protocol_version();
-        let shard_layout = ShardLayout::v1(
-            vec!["aurora".parse().unwrap()],
-            vec!["hhh", "ooo"].into_iter().map(|x| x.parse().unwrap()).collect(),
-            Some(vec![vec![0, 1, 2, 3]]),
-            1,
-        );
-        let shard_config = ShardConfig {
-            num_block_producer_seats_per_shard: get_num_seats_per_shard(4, 2),
-            avg_hidden_validator_seats_per_shard: get_num_seats_per_shard(4, 0),
-            shard_layout: shard_layout,
-        };
-        let epoch_manager = get_epoch_manager(simple_nightshade_version - 1, 1, Some(shard_config));
+        let epoch_manager = get_epoch_manager(simple_nightshade_version - 1, 1, true);
         let tracked_accounts = vec!["near".parse().unwrap(), "zoo".parse().unwrap()];
         let tracker = ShardTracker::new(
             TrackedConfig::Accounts(tracked_accounts.clone()),
