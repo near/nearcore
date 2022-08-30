@@ -1861,9 +1861,6 @@ impl PeerManagerActor {
                 self.handle_msg_peers_response(msg);
                 PeerToManagerMsgResp::Empty
             }
-            PeerToManagerMsg::UpdateEdge((peer, nonce)) => {
-                PeerToManagerMsgResp::UpdatedEdge(self.state.propose_edge(&peer, Some(nonce)))
-            }
             PeerToManagerMsg::RouteBack(body, target) => {
                 trace!(target: "network", ?target, "Sending message to route back");
                 self.send_message_to_peer(RawRoutedMessage {
