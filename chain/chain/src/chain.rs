@@ -76,6 +76,7 @@ use delay_detector::DelayDetector;
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
+use near_primitives::version::PROTOCOL_VERSION;
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -2134,6 +2135,12 @@ impl Chain {
             // TODO: enable after #3729 and #3863
             // self.verify_orphan_header_approvals(&block.header())?;
             return Err(Error::Orphan);
+        }
+
+        let epoch_protocol_version =
+            self.runtime_adapter.get_epoch_protocol_version(block.epoch_id())?;
+        if epoch_protocol_version > PROTOCOL_VERSION {
+            panic!("The client protocol version is older than the protocol version of the network. Please update nearcore");
         }
 
         // First real I/O expense.
