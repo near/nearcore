@@ -14,6 +14,7 @@ use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives_core::types::ProtocolVersion;
 use std::cmp;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -244,7 +245,7 @@ impl Peer {
         sigint_received: &AtomicBool,
     ) -> anyhow::Result<bool> {
         let handshake = PeerMessage::Handshake(Handshake::new(
-            near_primitives::version::PROTOCOL_VERSION,
+            app_info.protocol_version,
             app_info.my_peer_id.clone(),
             self.peer_id.clone(),
             // we have to set this even if we have no intention of listening since otherwise
@@ -358,6 +359,7 @@ struct PingTimes {
 
 struct AppInfo {
     chain_info: PeerChainInfoV2,
+    protocol_version: ProtocolVersion,
     secret_key: SecretKey,
     my_peer_id: PeerId,
     stats: HashMap<PeerId, PingState>,
@@ -373,6 +375,7 @@ impl AppInfo {
         chain_id: &str,
         genesis_hash: CryptoHash,
         head_height: BlockHeight,
+        protocol_version: ProtocolVersion,
         account_filter: Option<HashSet<AccountId>>,
     ) -> Self {
         let secret_key = SecretKey::from_random(KeyType::ED25519);
@@ -385,6 +388,7 @@ impl AppInfo {
                 tracked_shards: vec![0],
                 archival: false,
             },
+            protocol_version,
             secret_key,
             my_peer_id,
             stats: HashMap::new(),
@@ -636,6 +640,7 @@ pub async fn ping_via_node(
     chain_id: &str,
     genesis_hash: CryptoHash,
     head_height: BlockHeight,
+    protocol_version: ProtocolVersion,
     peer_id: PeerId,
     peer_addr: SocketAddr,
     ttl: u8,
@@ -643,7 +648,8 @@ pub async fn ping_via_node(
     account_filter: Option<HashSet<AccountId>>,
     mut latencies_csv: Option<crate::csv::LatenciesCsv>,
 ) -> Vec<(PeerIdentifier, PingStats)> {
-    let mut app_info = AppInfo::new(chain_id, genesis_hash, head_height, account_filter);
+    let mut app_info =
+        AppInfo::new(chain_id, genesis_hash, head_height, protocol_version, account_filter);
 
     app_info.add_peer(&peer_id, None);
 

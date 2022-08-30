@@ -22,6 +22,7 @@ near-chain = { path = "../../chain/chain" }
 near-network-primitives = { path = "../../chain/network-primitives" }
 near-network = { path = "../../chain/network" }
 near-primitives = { path = "../../core/primitives" }
+near-primitives-core = { path = "../../core/primitives-core" }
 near-o11y = { path = "../../core/o11y" }
 near-store = { path = "../../core/store" }
 near-crypto = { path = "../../core/crypto" }

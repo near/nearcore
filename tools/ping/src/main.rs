@@ -5,6 +5,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use near_primitives::types::BlockHeight;
+use near_primitives_core::types::ProtocolVersion;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -23,6 +24,9 @@ struct Cli {
     /// head height to use in the Handshake we send. This must be provided if --chain-id
     /// is not one of "mainnet", "testnet" or "shardnet"
     head_height: Option<u64>,
+    /// Protocol version to advertise in our handshake
+    #[clap(long)]
+    protocol_version: Option<u32>,
     /// node public key and socket address in the format {pub key}@{socket addr}. e.g.:
     /// ed25519:7PGseFbWxvYVgZ89K1uTJKYoKetWs7BJtbyXDzfbAcqX@127.0.0.1:24567
     #[clap(long)]
@@ -80,6 +84,7 @@ struct ChainInfo {
     chain_id: &'static str,
     genesis_hash: CryptoHash,
     head_height: BlockHeight,
+    protocol_version: ProtocolVersion,
 }
 
 static CHAIN_INFO: &[ChainInfo] = &[
@@ -90,6 +95,7 @@ static CHAIN_INFO: &[ChainInfo] = &[
             137, 158, 50, 29, 253, 245, 254, 188, 251, 183, 49, 63, 20, 134,
         ]),
         head_height: 71112469,
+        protocol_version: 55,
     },
     ChainInfo {
         chain_id: "testnet",
@@ -98,6 +104,7 @@ static CHAIN_INFO: &[ChainInfo] = &[
             34, 162, 137, 113, 220, 51, 15, 0, 153, 223, 148, 55, 148, 16,
         ]),
         head_height: 96446588,
+        protocol_version: 56,
     },
     ChainInfo {
         chain_id: "shardnet",
@@ -106,6 +113,7 @@ static CHAIN_INFO: &[ChainInfo] = &[
             127, 219, 141, 160, 109, 150, 121, 215, 174, 108, 67, 47, 110,
         ]),
         head_height: 1622527,
+        protocol_version: 101,
     },
 ];
 
@@ -188,6 +196,17 @@ async fn main() -> anyhow::Result<()> {
             ),
         }
     };
+    let protocol_version = if let Some(v) = &args.protocol_version {
+        *v
+    } else {
+        match chain_info {
+            Some(chain_info) => chain_info.protocol_version,
+            None => {
+                tracing::warn!(target: "ping", "--protocol-version not given, and protocol version for --chain-id {} not known. using 55.", &args.chain_id);
+                55
+            }
+        }
+    };
 
     let peer = match PeerInfo::from_str(&args.peer) {
         Ok(p) => p,
@@ -213,6 +232,7 @@ async fn main() -> anyhow::Result<()> {
         &args.chain_id,
         genesis_hash,
         head_height,
+        protocol_version,
         peer.id.clone(),
         peer.addr.clone().unwrap(),
         args.ttl,
