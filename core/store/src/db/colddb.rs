@@ -152,6 +152,10 @@ impl<D: Database> super::Database for ColdDatabase<D> {
         self.0.write(transaction)
     }
 
+    fn compact(&self) -> std::io::Result<()> {
+        self.0.compact()
+    }
+
     fn flush(&self) -> std::io::Result<()> {
         self.0.flush()
     }
