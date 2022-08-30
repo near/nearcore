@@ -233,29 +233,22 @@ impl TrieCache {
     }
 
     pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<&Vec<u8>>)>) {
-        tracing::error!("In update cache");
-        let mut pops = 0;
-        let mut puts = 0;
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
         for (hash, opt_value_rc) in ops {
             if let Some(value_rc) = opt_value_rc {
                 if let (Some(value), _rc) = decode_value_with_rc(&value_rc) {
                     if value.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
-                        puts += 1;
                         guard.put(hash, value.into());
                     } else {
                         guard.metrics.shard_cache_too_large.inc();
                     }
                 } else {
                     guard.pop(&hash);
-                    pops += 1;
                 }
             } else {
                 guard.pop(&hash);
-                pops += 1;
             }
         }
-        tracing::error!("Finished in update cache: puts {} pops {}", puts, pops);
     }
 
     #[cfg(test)]
@@ -355,7 +348,20 @@ impl TrieStorage for TrieMemoryPartialStorage {
 /// with 512 MB limit. The total RAM usage for a single shard was 1 GB.
 #[cfg(not(feature = "no_cache"))]
 const TRIE_DEFAULT_SHARD_CACHE_SIZE: usize = 50000;
+#[cfg(feature = "no_cache")]
+const TRIE_DEFAULT_SHARD_CACHE_SIZE: usize = 1;
 
+/// Default total size of values which may simultaneously exist the cache.
+/// It is chosen by the estimation of the largest contract storage size we are aware as of 23/08/2022.
+#[cfg(not(feature = "no_cache"))]
+const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: u64 = 3_000_000_000;
+#[cfg(feature = "no_cache")]
+const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: u64 = 1;
+
+/// Capacity for the deletions queue.
+/// It is chosen to fit all hashes of deleted nodes for 3 completely full blocks.
+#[cfg(not(feature = "no_cache"))]
+const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize = 100_000;
 #[cfg(feature = "no_cache")]
 const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize = 1;
 

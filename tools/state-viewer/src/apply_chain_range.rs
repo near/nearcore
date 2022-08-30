@@ -121,7 +121,6 @@ fn apply_block_from_range(
     csv_file_mutex: &Arc<Mutex<Option<&mut File>>>,
     only_contracts: bool,
 ) {
-    tracing::error!("Applying {}", height);
     // normally save_trie_changes depends on whether the node is
     // archival, but here we don't care, and can just set it to false
     // since we're not writing anything to the store anyway
@@ -276,10 +275,6 @@ fn apply_block_from_range(
             )
             .unwrap()
     };
-
-    tracing::error!("Summary (all shards): insertions {} deletions {}",
-    apply_result.trie_changes.trie_changes.insertions.len(),
-    apply_result.trie_changes.trie_changes.deletions.len());
 
     let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
     let chunk_extra = ChunkExtra::new(

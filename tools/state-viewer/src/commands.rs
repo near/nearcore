@@ -15,7 +15,6 @@ use near_network::iter_peers_from_store;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::to_base58;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
@@ -751,12 +750,12 @@ fn load_trie_stop_at_height(
     (runtime, state_roots, last_block.header().clone())
 }
 
-pub fn format_hash(h: CryptoHash, show_full_hashes: bool) -> String {
-    if show_full_hashes {
-        to_base58(&h).to_string()
-    } else {
-        to_base58(&h)[..7].to_string()
+fn format_hash(h: CryptoHash, show_full_hashes: bool) -> String {
+    let mut hash = h.to_string();
+    if !show_full_hashes {
+        hash.truncate(7);
     }
+    hash
 }
 
 pub fn chunk_mask_to_str(mask: &[bool]) -> String {
