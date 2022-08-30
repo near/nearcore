@@ -22,7 +22,6 @@ chrono = { version = "0.4.4", optional = true}
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
-near-chain = { path = "../chain" }
 near-store = { path = "../../core/store" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-cache = { path = "../../utils/near-cache" }
