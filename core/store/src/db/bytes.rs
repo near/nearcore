@@ -88,13 +88,6 @@ impl<'a> std::ops::Deref for DBBytes<'a> {
     }
 }
 
-impl<'a> From<&[u8]> for DBBytes<'a> {
-    /// Allocates a new buffer to hold the data and creates new `DBBytes`.
-    fn from(bytes: &[u8]) -> Self {
-        Self(Inner::Vec(bytes.to_vec()))
-    }
-}
-
 impl<'a> From<DBBytes<'a>> for Arc<[u8]> {
     /// Converts `DBBytes` into a thread-safe reference counted slice.
     ///
