@@ -174,7 +174,6 @@ impl RoutingTableView {
             res.push(aa);
         }
         res
->>>>>>> master
     }
 
     pub(crate) fn add_route_back(&self, clock: &time::Clock, hash: CryptoHash, peer_id: PeerId) {

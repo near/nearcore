@@ -9,7 +9,7 @@ use crate::network_protocol::{
 use crate::network_protocol::{EdgeState, PartialEdgeInfo};
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::{PeerActor, StreamConfig};
-use crate::peer_manager::connection::{Connection, Pool, PoolError};
+use crate::peer_manager::connection;
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
     PeerRequestResult, PeerToManagerMsg, PeerToManagerMsgResp, PeersRequest, PeersResponse,
@@ -150,8 +150,9 @@ pub(crate) struct NetworkState {
     /// AccountsData for TIER1 accounts.
     pub accounts_data: Arc<accounts_data::Cache>,
     /// Connected peers (inbound and outbound) with their full peer information.
-    pub tier2: Pool,
-    pub tier1: Pool,
+    pub tier2: connection::Pool,
+    pub tier1: connection::Pool,
+
     /// View of the Routing table. It keeps:
     /// - routing information - how to route messages
     /// - edges adjacent to my_peer_id
@@ -180,13 +181,14 @@ impl NetworkState {
             client_addr,
             view_client_addr,
             chain_info: Default::default(),
-            tier2: Pool::new(config.node_id()),
-            tier1: Pool::new(config.node_id()),
+            tier2: connection::Pool::new(config.node_id()),
+            tier1: connection::Pool::new(config.node_id()),
             accounts_data: Arc::new(accounts_data::Cache::new()),
             routing_table_view,
             send_accounts_data_rl,
             config,
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
+            txns_since_last_block: AtomicUsize::new(0),
         }
     }
 
@@ -314,7 +316,7 @@ impl NetworkState {
     pub fn get_tier1_connection(
         &self,
         account_id: &AccountId,
-    ) -> Option<(PeerId, Arc<Connection>)> {
+    ) -> Option<(PeerId, Arc<connection::Connection>)> {
         let accounts_data = self.accounts_data.load();
         let tier1 = self.tier1.load();
         for data in accounts_data.by_account.get(account_id)?.values() {
