@@ -162,8 +162,8 @@ impl BlockHeaderInfo {
 /// Block economics config taken from genesis config
 pub struct BlockEconomicsConfig {
     gas_price_adjustment_rate: Rational32,
-    min_gas_price: Balance,
-    max_gas_price: Balance,
+    genesis_min_gas_price: Balance,
+    genesis_max_gas_price: Balance,
     genesis_protocol_version: ProtocolVersion,
 }
 
@@ -171,6 +171,12 @@ impl BlockEconomicsConfig {
     /// Set max gas price to be this multiplier * min_gas_price
     const MAX_GAS_MULTIPLIER: u128 = 20;
     /// Compute min gas price according to protocol version and genesis protocol version.
+    ///
+    /// This returns the effective minimum gas price for a block with the given
+    /// protocol version. The base value is defined in genesis.config but has
+    /// been overwritten at specific protocol versions. Chains with a genesis
+    /// version higher than those changes are not overwritten and will instead
+    /// respect the value defined in genesis.
     pub fn min_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
         if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92 {
             if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92_FIX {
@@ -178,7 +184,7 @@ impl BlockEconomicsConfig {
             } else if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92 {
                 MIN_GAS_PRICE_NEP_92
             } else {
-                self.min_gas_price
+                self.genesis_min_gas_price
             }
         } else if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92_FIX {
             if protocol_version >= MIN_PROTOCOL_VERSION_NEP_92_FIX {
@@ -187,18 +193,18 @@ impl BlockEconomicsConfig {
                 MIN_GAS_PRICE_NEP_92
             }
         } else {
-            self.min_gas_price
+            self.genesis_min_gas_price
         }
     }
 
     pub fn max_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
         if checked_feature!("stable", CapMaxGasPrice, protocol_version) {
             std::cmp::min(
-                self.max_gas_price,
+                self.genesis_max_gas_price,
                 Self::MAX_GAS_MULTIPLIER * self.min_gas_price(protocol_version),
             )
         } else {
-            self.max_gas_price
+            self.genesis_max_gas_price
         }
     }
 
@@ -211,8 +217,8 @@ impl From<&ChainGenesis> for BlockEconomicsConfig {
     fn from(chain_genesis: &ChainGenesis) -> Self {
         BlockEconomicsConfig {
             gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
-            min_gas_price: chain_genesis.min_gas_price,
-            max_gas_price: chain_genesis.max_gas_price,
+            genesis_min_gas_price: chain_genesis.min_gas_price,
+            genesis_max_gas_price: chain_genesis.max_gas_price,
             genesis_protocol_version: chain_genesis.protocol_version,
         }
     }

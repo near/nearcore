@@ -1,21 +1,24 @@
 use crate::broadcast;
 use crate::concurrency::demux;
+use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::peer::codec::Codec;
-use crate::peer::peer_actor;
-use crate::peer::peer_actor::PeerActor;
+use crate::peer::peer_actor::{ConnectingStatus, PeerActor};
+use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_manager_actor::NetworkState;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage, Unregister};
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
+use crate::routing::routing_table_view::RoutingTableView;
+use crate::store;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::types::{PeerMessage, RoutingTableUpdate};
 use actix::{Actor, Context, Handler, StreamHandler as _};
-use near_crypto::InMemorySigner;
+use near_crypto::{InMemorySigner, Signature};
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, PeerType, RawRoutedMessage,
-    RoutedMessageBody, RoutedMessageV2,
+    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
+    RoutedMessageV2,
 };
 use near_performance_metrics::framed_write::FramedWrite;
 use near_primitives::network::PeerId;
@@ -23,9 +26,9 @@ use near_rate_limiter::{
     ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleFramedRead,
     ThrottleToken,
 };
+use near_store::test_utils::create_test_store;
 
 use near_network_primitives::time::Utc;
-use rand::Rng;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
@@ -34,8 +37,8 @@ use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub struct PeerConfig {
-    pub signer: InMemorySigner,
     pub chain: Arc<data::Chain>,
+    pub network: NetworkConfig,
     pub peers: Vec<PeerInfo>,
     pub start_handshake_with: Option<PeerId>,
     pub force_encoding: Option<crate::network_protocol::Encoding>,
@@ -44,18 +47,15 @@ pub struct PeerConfig {
 
 impl PeerConfig {
     pub fn id(&self) -> PeerId {
-        PeerId::new(self.signer.public_key.clone())
-    }
-
-    pub fn peer_type(&self) -> PeerType {
-        match self.start_handshake_with {
-            Some(_) => PeerType::Outbound,
-            None => PeerType::Inbound,
-        }
+        self.network.node_id()
     }
 
     pub fn partial_edge_info(&self, other: &PeerId, nonce: u64) -> PartialEdgeInfo {
-        PartialEdgeInfo::new(&self.id(), other, nonce, &self.signer.secret_key)
+        PartialEdgeInfo::new(&self.id(), other, nonce, &self.network.node_key)
+    }
+
+    pub fn signer(&self) -> InMemorySigner {
+        InMemorySigner::from_secret_key("node".parse().unwrap(), self.network.node_key.clone())
     }
 }
 
@@ -68,7 +68,7 @@ pub(crate) enum Event {
     ResponseUpdateNonce(Edge),
     PeersResponse(Vec<PeerInfo>),
     Client(fake_client::Event),
-    Peer(peer_actor::Event),
+    Network(peer_manager_actor::Event),
     Unregister(Unregister),
 }
 
@@ -107,16 +107,16 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
                 let this_edge_info = match &msg.this_edge_info {
                     Some(info) => info.clone(),
                     None => self.cfg.partial_edge_info(
-                        &msg.connection_state.peer_info.id,
-                        msg.connection_state.partial_edge_info.nonce,
+                        &msg.connection.peer_info.id,
+                        msg.connection.partial_edge_info.nonce,
                     ),
                 };
                 let edge = Edge::new(
                     self.cfg.id(),
-                    msg.connection_state.peer_info.id.clone(),
+                    msg.connection.peer_info.id.clone(),
                     this_edge_info.nonce,
                     this_edge_info.signature.clone(),
-                    msg.connection_state.partial_edge_info.signature.clone(),
+                    msg.connection.partial_edge_info.signature.clone(),
                 );
                 self.event_sink.push(Event::HandshakeDone(edge.clone()));
                 PeerToManagerMsgResp::RegisterPeer(RegisterPeerResponse::Accept(
@@ -186,8 +186,8 @@ impl PeerHandle {
     }
     pub async fn fail_handshake(&mut self) {
         match self.events.recv().await {
-            Event::Unregister(_) => (),
-            ev => panic!("want Unregister, got {ev:?}"),
+            Event::Network(peer_manager_actor::Event::PeerActorStopped) => (),
+            ev => panic!("want PeerActorStopped, got {ev:?}"),
         }
     }
 
@@ -200,29 +200,27 @@ impl PeerHandle {
     ) -> Box<RoutedMessageV2> {
         RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id), body }.sign(
             self.cfg.id(),
-            &self.cfg.signer.secret_key,
+            &self.cfg.network.node_key,
             ttl,
             utc,
         )
     }
 
-    pub async fn start_endpoint<R: Rng>(
+    pub async fn start_endpoint(
         clock: time::Clock,
-        rng: &mut R,
         cfg: PeerConfig,
         stream: TcpStream,
     ) -> PeerHandle {
         let cfg = Arc::new(cfg);
-        let network_cfg = cfg.chain.make_config(rng);
         let cfg_ = cfg.clone();
         let (send, recv) = broadcast::unbounded_channel();
         let actix = ActixSystem::spawn(move || {
             let my_addr = stream.local_addr().unwrap();
             let peer_addr = stream.peer_addr().unwrap();
             let (read, write) = tokio::io::split(stream);
-            let handshake_timeout = time::Duration::seconds(5);
             let fpm = FakePeerManagerActor { cfg: cfg.clone(), event_sink: send.sink() }.start();
             let fc = fake_client::start(send.sink().compose(Event::Client));
+            let store = store::Store::from(create_test_store());
             let rate_limiter = ThrottleController::new(usize::MAX, usize::MAX);
             let read = ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone())
                 .take_while(|x| match x {
@@ -230,6 +228,27 @@ impl PeerHandle {
                     Err(_) => false,
                 })
                 .map(Result::unwrap);
+            let routing_table_view = RoutingTableView::new(store, cfg.id());
+            // WARNING: this is a hack to make PeerActor use a specific nonce
+            if let (Some(nonce), Some(peer_id)) = (&cfg.nonce, &cfg.start_handshake_with) {
+                routing_table_view.add_local_edges(&[Edge::new(
+                    cfg.id(),
+                    peer_id.clone(),
+                    nonce - 1,
+                    Signature::default(),
+                    Signature::default(),
+                )]);
+            }
+            let mut network_cfg = cfg.network.clone();
+            network_cfg.event_sink = send.sink().compose(Event::Network);
+            let network_state = Arc::new(NetworkState::new(
+                Arc::new(network_cfg.verify().unwrap()),
+                cfg.chain.genesis_id.clone(),
+                fc.clone().recipient(),
+                fc.clone().recipient(),
+                routing_table_view,
+                demux::RateLimit { qps: 100., burst: 1 },
+            ));
             PeerActor::create(move |ctx| {
                 PeerActor::add_stream(read, ctx);
                 PeerActor::new(
@@ -241,26 +260,18 @@ impl PeerHandle {
                         addr: Some(peer_addr.clone()),
                         account_id: None,
                     }),
-                    cfg.peer_type(),
+                    match &cfg.start_handshake_with {
+                        Some(id) => ConnectingStatus::Outbound(
+                            network_state.tier2.start_outbound(id.clone()).unwrap(),
+                        ),
+                        None => ConnectingStatus::Inbound,
+                    },
                     FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
-                    handshake_timeout,
                     fpm.clone().recipient(),
-                    fpm.clone().recipient(),
-                    cfg.start_handshake_with
-                        .as_ref()
-                        .map(|id| cfg.partial_edge_info(id, cfg.nonce.unwrap_or(1))),
-                    Arc::new(AtomicUsize::new(0)),
                     Arc::new(AtomicUsize::new(0)),
                     rate_limiter,
                     cfg.force_encoding,
-                    Arc::new(NetworkState::new(
-                        Arc::new(network_cfg.verify().unwrap()),
-                        cfg.chain.genesis_id.clone(),
-                        fc.clone().recipient(),
-                        fc.clone().recipient(),
-                        demux::RateLimit { qps: 100., burst: 1 },
-                    )),
-                    send.sink().compose(Event::Peer),
+                    network_state,
                 )
             })
         })
