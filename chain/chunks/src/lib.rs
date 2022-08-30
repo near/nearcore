@@ -2650,8 +2650,9 @@ mod test {
     }
 
     fn check_request_chunks(
-        fixture: &ChunkTestFixture,
+        fixture: &mut ChunkTestFixture,
         account_id: Option<AccountId>,
+        expect_to_request: bool,
         expect_to_wait: bool,
     ) {
         let header_head = Tip {
@@ -2667,28 +2668,41 @@ mod test {
             fixture.mock_network.clone(),
             TEST_SEED,
         );
+        shards_manager
+            .process_cached_chunk_forwards_for_header(
+                &fixture.mock_chunk_header,
+                &mut fixture.chain_store,
+                &mut fixture.rs,
+            )
+            .unwrap();
         shards_manager.request_chunks(
             vec![fixture.mock_chunk_header.clone()],
             fixture.mock_chunk_header.prev_block_hash().clone(),
             &header_head,
         );
-        assert!(shards_manager
-            .requested_partial_encoded_chunks
-            .contains_key(&fixture.mock_chunk_header.chunk_hash()));
-        if expect_to_wait {
-            let msg = fixture.mock_network.pop();
-            if msg.is_some() {
-                panic!("{:?}", msg);
-            }
+        if !expect_to_request {
+            assert!(!shards_manager
+                .requested_partial_encoded_chunks
+                .contains_key(&fixture.mock_chunk_header.chunk_hash()));
+        } else {
+            assert!(shards_manager
+                .requested_partial_encoded_chunks
+                .contains_key(&fixture.mock_chunk_header.chunk_hash()));
+            if expect_to_wait {
+                let msg = fixture.mock_network.pop();
+                if msg.is_some() {
+                    panic!("{:?}", msg);
+                }
 
-            std::thread::sleep(Duration::from_millis(2 * CHUNK_REQUEST_RETRY_MS));
+                std::thread::sleep(Duration::from_millis(2 * CHUNK_REQUEST_RETRY_MS));
+            }
+            shards_manager.resend_chunk_requests(&header_head);
+            let mut requested = false;
+            while let Some(_) = fixture.mock_network.pop() {
+                requested = true;
+            }
+            assert!(requested);
         }
-        shards_manager.resend_chunk_requests(&header_head);
-        let mut requested = false;
-        while let Some(_) = fixture.mock_network.pop() {
-            requested = true;
-        }
-        assert!(requested);
     }
 
     #[test]
@@ -2697,15 +2711,25 @@ mod test {
     // when a validator requests chunks, the request is recorded but not sent, because it
     // will wait for chunks being forwarded
     fn test_chunk_forward_non_validator() {
-        // When a non validator node requests chunks, the request should be send immediately
-        let fixture = ChunkTestFixture::default();
-        check_request_chunks(&fixture, None, false);
+        // A non-validator that don't track shards should not request anything.
+        let mut fixture = ChunkTestFixture::default();
+        check_request_chunks(&mut fixture, None, false, false);
+
+        // A non-validator that tracks all shards should request immediately.
+        let mut fixture = ChunkTestFixture::new_with_all_shards_tracking();
+        check_request_chunks(&mut fixture, None, true, false);
 
         // still a non-validator because the account id is not a validator account id
-        check_request_chunks(&fixture, Some("none".parse().unwrap()), false);
+        let mut fixture = ChunkTestFixture::default();
+        check_request_chunks(&mut fixture, Some("none".parse().unwrap()), false, false);
+        let mut fixture = ChunkTestFixture::new_with_all_shards_tracking();
+        check_request_chunks(&mut fixture, Some("none".parse().unwrap()), true, false);
 
-        // when a validator request chunks, the request should not be send immediately
-        check_request_chunks(&fixture, Some(fixture.mock_shard_tracker.clone()), true);
+        // when a tracking chunk producer request chunks, the request should not be send
+        // immediately.
+        let account_id = Some(fixture.mock_shard_tracker.clone());
+        let mut fixture = ChunkTestFixture::default();
+        check_request_chunks(&mut fixture, account_id, true, true);
     }
 
     // Test that chunk parts are forwarded to chunk only producers iff they are the next chunk producer
@@ -2782,8 +2806,9 @@ mod test {
         for account_id in chunk_only_producers {
             println!("account {:?}, {:?}", account_id, next_chunk_producer);
             check_request_chunks(
-                &fixture,
+                &mut fixture,
                 Some(account_id.clone()),
+                true,
                 account_id == next_chunk_producer,
             )
         }

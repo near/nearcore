@@ -154,6 +154,12 @@ impl ChunkTestFixture {
         Self::new_with_runtime(orphan_chunk, Arc::new(default_runtime()))
     }
 
+    pub fn new_with_all_shards_tracking() -> Self {
+        let mut runtime = default_runtime();
+        runtime.set_tracks_all_shards(true);
+        Self::new_with_runtime(false, Arc::new(runtime))
+    }
+
     // Create a ChunkTestFixture to test chunk only producers
     pub fn new_with_chunk_only_producers() -> Self {
         let store = near_store::test_utils::create_test_store();
