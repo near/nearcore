@@ -145,6 +145,8 @@ impl Store {
     }
 }
 
+// TODO(mina86): Get rid of it.
+#[cfg(test)]
 impl From<near_store::NodeStorage> for Store {
     fn from(store: near_store::NodeStorage) -> Self {
         Self::from(store.into_inner(near_store::Temperature::Hot))
