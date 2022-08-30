@@ -25,7 +25,7 @@ use near_store::test_utils::create_test_store;
 type ClientMock = Mocker<ClientActor>;
 type ViewClientMock = Mocker<ViewClientActor>;
 
-fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> PeerManagerActor {
+fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> actix::Addr<PeerManagerActor> {
     let store = create_test_store();
     let mut config = config::NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
@@ -37,15 +37,14 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
         Box::new(Some(NetworkViewClientResponses::NoResponse))
     }))
     .start();
-    PeerManagerActor::new(
+    PeerManagerActor::spawn(
         time::Clock::real(),
         store,
         config,
         client_addr.recipient(),
         view_client_addr.recipient(),
         GenesisId::default(),
-    )
-    .unwrap()
+    ).unwrap()
 }
 
 /// This test spawns several (7) nodes but node 0 crash very frequently and restart.
@@ -86,7 +85,6 @@ fn stress_test() {
                         ports[ix],
                         boot_nodes.iter().map(|(acc, port)| (acc.as_str(), *port)).collect(),
                     )
-                    .start(),
                 )
             })
             .collect();
@@ -142,7 +140,6 @@ fn stress_test() {
                             ports[0],
                             boot_nodes.iter().map(|(acc, port)| (acc.as_str(), *port)).collect(),
                         )
-                        .start(),
                     );
 
                     let pm0 = pms[0].clone();

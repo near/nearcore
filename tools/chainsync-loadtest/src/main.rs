@@ -46,20 +46,18 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
         move |_| FakeClientActor::new(network)
     });
 
-    let network_actor = PeerManagerActor::start_in_arbiter(&Arbiter::new().handle(), move |_ctx| {
-        PeerManagerActor::new(
-            time::Clock::real(),
-            store,
-            config.network_config,
-            client_actor.clone().recipient(),
-            client_actor.clone().recipient(),
-            GenesisId {
-                chain_id: config.client_config.chain_id.clone(),
-                hash: genesis_hash(&config.client_config.chain_id),
-            },
-        )
-        .unwrap()
-    });
+    let network_actor = PeerManagerActor::spawn(
+        time::Clock::real(),
+        store,
+        config.network_config,
+        client_actor.clone().recipient(),
+        client_actor.clone().recipient(),
+        GenesisId {
+            chain_id: config.client_config.chain_id.clone(),
+            hash: genesis_hash(&config.client_config.chain_id),
+        },
+    )
+    .unwrap();
     network_adapter.set_recipient(network_actor);
     return Ok(network);
 }

@@ -2,7 +2,6 @@ use crate::accounts_data;
 use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::{AccountData, SyncAccountsData};
-use crate::peer::peer_actor;
 use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_store::PeerStore;
@@ -141,6 +140,8 @@ pub(crate) struct NetworkState {
     pub client_addr: Recipient<NetworkClientMessages>,
     /// Address of the view client actor.
     pub view_client_addr: Recipient<NetworkViewClientMessages>,
+    /// Address of the peer manager actor.
+    pub peer_manager_addr: Recipient<PeerToManagerMsg>,
 
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<ChainInfo>,
@@ -161,8 +162,6 @@ pub(crate) struct NetworkState {
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
     /// messages sincce last block.
     pub txns_since_last_block: AtomicUsize,
-    /// Semaphore limiting inflight inbound handshakes.
-    pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
 }
 
 impl NetworkState {
@@ -171,6 +170,7 @@ impl NetworkState {
         genesis_id: GenesisId,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
+        peer_manager_addr: Recipient<PeerToManagerMsg>,
         routing_table_view: RoutingTableView,
         send_accounts_data_rl: demux::RateLimit,
     ) -> Self {
@@ -178,6 +178,7 @@ impl NetworkState {
             genesis_id,
             client_addr,
             view_client_addr,
+            peer_manager_addr,
             chain_info: Default::default(),
             tier2: connection::Pool::new(config.node_id()),
             accounts_data: Arc::new(accounts_data::Cache::new()),
@@ -185,7 +186,6 @@ impl NetworkState {
             send_accounts_data_rl,
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             config,
-            inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             txns_since_last_block: AtomicUsize::new(0),
         }
     }
@@ -214,30 +214,23 @@ impl NetworkState {
     pub fn try_connect_stream(
         self: &Arc<Self>,
         clock: &time::Clock,
-        peer_manager_addr: Addr<PeerManagerActor>,
         stream: TcpStream,
         stream_cfg: StreamConfig,
     ) {
-        // Start every peer actor on separate thread.
-        let arbiter = Arbiter::new();
-        let peer_cfg = match peer_actor::Config::new(stream, stream_cfg, None, self.clone()) {
-            Ok(cfg) => cfg,
-            Err(err) => {
-                warn!("peer_actor::Config::new(): {err}");
-                self.config.event_sink.push(Event::PeerActorStopped);
-                return;
-            }
+        if let Err(err) = PeerActor::spawn(
+            clock.clone(),
+            stream,
+            stream_cfg,
+            None,
+            self.clone(),
+        ) {
+            tracing::info!(target:"network", ?err, "PeerActor::spawn()");
         };
-        let clock = clock.clone();
-        PeerActor::start_in_arbiter(&arbiter.handle(), move |ctx| {
-            PeerActor::new(clock, ctx, peer_cfg, peer_manager_addr.clone().recipient())
-        });
     }
 
     pub async fn try_connect_to(
         self: Arc<Self>,
         clock: time::Clock,
-        peer_manager_addr: Addr<PeerManagerActor>,
         peer_info: PeerInfo,
     ) {
         let addr = match peer_info.addr {
@@ -272,7 +265,6 @@ impl NetworkState {
         debug!(target: "network", ?peer_info, "Connecting");
         self.try_connect_stream(
             &clock,
-            peer_manager_addr,
             stream,
             StreamConfig::Outbound { peer_id: peer_info.id },
         );
@@ -356,8 +348,6 @@ impl Actor for PeerManagerActor {
             debug!(target: "network", at = ?server_addr, "starting public server");
             let clock = self.clock.clone();
             let state = self.state.clone();
-            let self_addr = ctx.address();
-
             ctx.spawn(
                 async move {
                     let listener = match TcpListener::bind(server_addr).await {
@@ -380,7 +370,6 @@ impl Actor for PeerManagerActor {
                             debug!(target: "network", from = ?client_addr, "got new connection");
                             state.try_connect_stream(
                                 &clock,
-                                self_addr.clone(),
                                 conn,
                                 StreamConfig::Inbound,
                             );
@@ -429,14 +418,14 @@ impl Actor for PeerManagerActor {
 }
 
 impl PeerManagerActor {
-    pub fn new(
+    pub fn spawn(
         clock: time::Clock,
         store: near_store::Store,
         config: config::NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         genesis_id: GenesisId,
-    ) -> anyhow::Result<Self> {
+    ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
         let store = store::Store::from(store);
         let peer_store = PeerStore::new(
@@ -473,7 +462,7 @@ impl PeerManagerActor {
         };
         let config = Arc::new(config);
         let rl = config.accounts_data_broadcast_rate_limit;
-        Ok(Self {
+        Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| Self {
             clock,
             my_peer_id: my_peer_id.clone(),
             config: config.clone(),
@@ -490,10 +479,11 @@ impl PeerManagerActor {
                 genesis_id,
                 client_addr,
                 view_client_addr,
+                ctx.address().recipient(),
                 RoutingTableView::new(store, my_peer_id.clone()),
                 rl,
             )),
-        })
+        }))
     }
 
     fn update_routing_table(
@@ -1734,7 +1724,7 @@ impl PeerManagerActor {
                 ctx.spawn(
                     self.state
                         .clone()
-                        .try_connect_to(self.clock.clone(), ctx.address(), msg.peer_info)
+                        .try_connect_to(self.clock.clone(), msg.peer_info)
                         .into_actor(self),
                 );
                 PeerManagerMessageResponse::OutboundTcpConnect

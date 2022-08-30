@@ -323,12 +323,12 @@ pub mod test_features {
     type ViewClientMock = Mocker<NetworkViewClientMessages>;
 
     // Make peer manager for unit tests
-    pub fn make_peer_manager(
+    pub fn spawn_peer_manager(
         store: Store,
         mut config: config::NetworkConfig,
         boot_nodes: Vec<(&str, u16)>,
         peer_max_count: u32,
-    ) -> PeerManagerActor {
+    ) -> actix::Addr<PeerManagerActor> {
         config.boot_nodes = convert_boot_nodes(boot_nodes);
         config.max_num_peers = peer_max_count;
         let counter = Arc::new(AtomicUsize::new(0));
@@ -353,7 +353,7 @@ pub mod test_features {
             }
         }))
         .start();
-        PeerManagerActor::new(
+        PeerManagerActor::spawn(
             time::Clock::real(),
             store,
             config,

@@ -11,7 +11,6 @@ use crate::testonly::fake_client;
 use crate::testonly::Rng;
 use crate::types::{ChainInfo, GetNetworkInfo, PeerManagerMessageRequest, SetChainInfo};
 use crate::PeerManagerActor;
-use actix::Actor;
 use near_network_primitives::time;
 use near_network_primitives::types::{OutboundTcpConnect, PeerInfo};
 use near_primitives::network::PeerId;
@@ -163,16 +162,14 @@ pub(crate) async fn start(
             let genesis_id = chain.genesis_id.clone();
             let fc = fake_client::start(send.sink().compose(Event::Client));
             cfg.event_sink = send.sink().compose(Event::PeerManager);
-            PeerManagerActor::new(
+            PeerManagerActor::spawn(
                 clock,
                 store,
                 cfg,
                 fc.clone().recipient(),
                 fc.clone().recipient(),
                 genesis_id,
-            )
-            .unwrap()
-            .start()
+            ).unwrap()
         }
     })
     .await;

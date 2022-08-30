@@ -1,5 +1,5 @@
 use crate::tests::network::multiset::MultiSet;
-use actix::{Actor, Addr, AsyncContext};
+use actix::{Actor, Addr};
 use anyhow::{anyhow, bail, Context};
 use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
 use near_chain::{Chain, ChainGenesis};
@@ -12,6 +12,7 @@ use near_network::config;
 use near_network::test_utils::{
     expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo,
 };
+use near_network::types::NetworkRecipient;
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network::{Event, PeerManagerActor};
 use near_network_primitives::time;
@@ -58,51 +59,45 @@ fn setup_network_node(
     ));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
 
-    let peer_manager = PeerManagerActor::create(move |ctx| {
-        let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true);
-        client_config.archive = config.archive;
-        client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
-        let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis).unwrap();
-        let genesis_id = GenesisId {
-            chain_id: client_config.chain_id.clone(),
-            hash: genesis_block.header().hash().clone(),
-        };
-
-        let network_adapter = Arc::new(ctx.address());
-        let adv = near_client::adversarial::Controls::default();
-
-        let client_actor = start_client(
-            client_config.clone(),
-            chain_genesis.clone(),
-            runtime.clone(),
-            config.node_id(),
-            network_adapter.clone(),
-            Some(signer),
-            telemetry_actor,
-            None,
-            adv.clone(),
-        )
-        .0;
-        let view_client_actor = start_view_client(
-            config.validator.as_ref().map(|v| v.account_id()),
-            chain_genesis.clone(),
-            runtime.clone(),
-            network_adapter,
-            client_config,
-            adv,
-        );
-
-        PeerManagerActor::new(
-            time::Clock::real(),
-            store.clone(),
-            config,
-            client_actor.recipient(),
-            view_client_actor.recipient(),
-            genesis_id,
-        )
-        .unwrap()
-    });
-
+    let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true);
+    client_config.archive = config.archive;
+    client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
+    let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis).unwrap();
+    let genesis_id = GenesisId {
+        chain_id: client_config.chain_id.clone(),
+        hash: genesis_block.header().hash().clone(),
+    };
+    let network_adapter = Arc::new(NetworkRecipient::default());
+    let adv = near_client::adversarial::Controls::default();
+    let client_actor = start_client(
+        client_config.clone(),
+        chain_genesis.clone(),
+        runtime.clone(),
+        config.node_id(),
+        network_adapter.clone(),
+        Some(signer),
+        telemetry_actor,
+        None,
+        adv.clone(),
+    )
+    .0;
+    let view_client_actor = start_view_client(
+        config.validator.as_ref().map(|v| v.account_id()),
+        chain_genesis.clone(),
+        runtime.clone(),
+        network_adapter.clone(),
+        client_config,
+        adv,
+    );
+    let peer_manager = PeerManagerActor::spawn(
+        time::Clock::real(),
+        store.clone(),
+        config,
+        client_actor.recipient(),
+        view_client_actor.recipient(),
+        genesis_id,
+    ).unwrap();
+    network_adapter.set_recipient(peer_manager.clone());
     peer_manager
 }
 

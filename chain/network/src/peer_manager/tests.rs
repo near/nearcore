@@ -557,15 +557,18 @@ async fn connection_spam_security_test() {
         peer_manager::testonly::start(clock.clock(), create_test_store(), cfg, chain.clone()).await;
 
     // Saturate the pending connections limit.
+    tracing::debug!("PHASE1");
     let mut conns = vec![];
     for _ in 0..LIMIT_PENDING_PEERS {
         conns.push(pm.start_connection(rng, chain.clone()).await);
     }
     // Try to establish additional connections. Should fail.
+    tracing::debug!("PHASE2");
     for _ in 0..10 {
         pm.start_connection(rng, chain.clone()).await.fail_handshake(&clock.clock()).await;
     }
     // Terminate the pending connections. Should succeed.
+    tracing::debug!("PHASE3");
     for c in conns {
         c.handshake(&clock.clock()).await;
     }

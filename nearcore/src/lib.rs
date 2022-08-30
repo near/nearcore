@@ -2,7 +2,7 @@ pub use crate::config::{init_configs, load_config, load_test_config, NearConfig,
 use crate::migrations::migrate_30_to_31;
 pub use crate::runtime::NightshadeRuntime;
 pub use crate::shard_tracker::TrackedConfig;
-use actix::{Actor, Addr, Arbiter};
+use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
 use actix_web;
 use anyhow::Context;
@@ -275,22 +275,14 @@ pub fn start_with_config_and_synchronization(
 
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
-    let arbiter = Arbiter::new();
-    let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), {
-        let client_actor = client_actor.clone();
-        let view_client = view_client.clone();
-        move |_ctx| {
-            PeerManagerActor::new(
-                time::Clock::real(),
-                store,
-                config.network_config,
-                client_actor.recipient(),
-                view_client.recipient(),
-                genesis_id,
-            )
-            .unwrap()
-        }
-    });
+    let network_actor = PeerManagerActor::spawn(
+        time::Clock::real(),
+        store,
+        config.network_config,
+        client_actor.clone().recipient(),
+        view_client.clone().recipient(),
+        genesis_id,
+    ).unwrap();
     network_adapter.set_recipient(network_actor.clone());
 
     #[cfg(feature = "json_rpc")]
@@ -329,7 +321,7 @@ pub fn start_with_config_and_synchronization(
         client: client_actor,
         view_client,
         rpc_servers,
-        arbiters: vec![client_arbiter_handle, arbiter.handle()],
+        arbiters: vec![client_arbiter_handle],
     })
 }
 
