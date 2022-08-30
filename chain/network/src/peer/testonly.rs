@@ -15,7 +15,6 @@ use crate::testonly::fake_client;
 use crate::types::{PeerMessage, RoutingTableUpdate};
 use actix::{Actor, Context, Handler, StreamHandler as _};
 use near_crypto::{InMemorySigner, Signature};
-use near_network_primitives::time;
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
     RoutedMessageV2,
@@ -28,8 +27,7 @@ use near_rate_limiter::{
 };
 use near_store::test_utils::create_test_store;
 
-use near_network_primitives::time::Utc;
-use std::sync::atomic::AtomicUsize;
+use near_network_primitives::time;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_stream::StreamExt;
@@ -42,6 +40,13 @@ pub struct PeerConfig {
     pub peers: Vec<PeerInfo>,
     pub start_handshake_with: Option<PeerId>,
     pub force_encoding: Option<crate::network_protocol::Encoding>,
+    /// If both start_handshake_with and nonce are set, PeerActor
+    /// will use this nonce in the handshake.
+    /// WARNING: it has to be >0.
+    /// WARNING: currently nonce is decided by a lookup in the RoutingTableView,
+    ///   so to enforce the nonce below, we add an artificial edge to RoutingTableView.
+    ///   Once we switch to generating nonce from timestamp, this field should be deprecated
+    ///   in favor of passing a fake clock.
     pub nonce: Option<u64>,
 }
 
@@ -196,7 +201,7 @@ impl PeerHandle {
         body: RoutedMessageBody,
         peer_id: PeerId,
         ttl: u8,
-        utc: Option<Utc>,
+        utc: Option<time::Utc>,
     ) -> Box<RoutedMessageV2> {
         RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id), body }.sign(
             self.cfg.id(),
@@ -264,11 +269,16 @@ impl PeerHandle {
                         Some(id) => ConnectingStatus::Outbound(
                             network_state.tier2.start_outbound(id.clone()).unwrap(),
                         ),
-                        None => ConnectingStatus::Inbound,
+                        None => ConnectingStatus::Inbound(
+                            network_state
+                                .inbound_handshake_permits
+                                .clone()
+                                .try_acquire_owned()
+                                .unwrap(),
+                        ),
                     },
                     FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
                     fpm.clone().recipient(),
-                    Arc::new(AtomicUsize::new(0)),
                     rate_limiter,
                     cfg.force_encoding,
                     network_state,

@@ -531,7 +531,6 @@ mod tests {
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,
                 known_producers: vec![],
-                peer_counter: 0,
                 tier1_accounts: vec![],
             },
             &config,
