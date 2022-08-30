@@ -465,6 +465,13 @@ impl Client {
             .runtime_adapter
             .get_epoch_id_from_prev_block(&head.last_block_hash)
             .expect("Epoch hash should exist at this point");
+        let protocol_version = self
+            .runtime_adapter
+            .get_epoch_protocol_version(&epoch_id)
+            .expect("Epoch info should be ready at this point");
+        if protocol_version > PROTOCOL_VERSION {
+            panic!("The client protocol version is older than the protocol version of the network. Please update nearcore");
+        }
 
         let approvals = self
             .runtime_adapter
@@ -1232,14 +1239,6 @@ impl Client {
                 log_assert!(result.is_ok(), "Can't clear old data, {:?}", result);
             }
 
-            if self.runtime_adapter.is_next_block_epoch_start(block.hash()).unwrap_or(false) {
-                let next_epoch_protocol_version = unwrap_or_return!(self
-                    .runtime_adapter
-                    .get_epoch_protocol_version(block.header().next_epoch_id()));
-                if next_epoch_protocol_version > PROTOCOL_VERSION {
-                    panic!("The client protocol version is older than the protocol version of the network. Please update nearcore");
-                }
-            }
             // send_network_chain_info should be called whenever the chain head changes.
             // See send_network_chain_info() for more details.
             if let Err(err) = self.send_network_chain_info() {

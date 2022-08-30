@@ -1135,6 +1135,21 @@ impl Chain {
             }
         }
 
+        #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
+        if let Ok(epoch_protocol_version) =
+            self.runtime_adapter.get_epoch_protocol_version(header.epoch_id())
+        {
+            if checked_feature!(
+                "protocol_feature_reject_blocks_with_outdated_protocol_version",
+                RejectBlocksWithOutdatedProtocolVersions,
+                epoch_protocol_version
+            ) {
+                if header.latest_protocol_version() < epoch_protocol_version {
+                    return Err(Error::InvalidProtocolVersion);
+                }
+            }
+        }
+
         let prev_header = self.get_previous_header(header)?;
 
         // Check that epoch_id in the header does match epoch given previous header (only if previous header is present).
