@@ -40,7 +40,7 @@ const WASMER_FEATURES: Features = Features {
 pub struct Wasmer2Memory(Arc<LinearMemory>);
 
 impl Wasmer2Memory {
-    pub(crate) fn new(
+    fn new(
         initial_memory_pages: u32,
         max_memory_pages: u32,
     ) -> Result<Self, wasmer_vm::MemoryError> {
