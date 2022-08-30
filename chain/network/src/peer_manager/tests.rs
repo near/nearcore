@@ -557,8 +557,13 @@ async fn connection_spam_security_test() {
     let mut cfg = chain.make_config(rng);
     // Make sure that connections will never get dropped.
     cfg.handshake_timeout = time::Duration::hours(1);
-    let pm =
-        peer_manager::testonly::start(clock.clock(), create_test_store(), cfg, chain.clone()).await;
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        create_test_node_storage(),
+        cfg,
+        chain.clone(),
+    )
+    .await;
 
     // Saturate the pending connections limit.
     let mut conns = vec![];
