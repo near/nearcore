@@ -137,6 +137,12 @@ pub trait Database: Sync + Send {
     /// This is a no-op for in-memory databases.
     fn flush(&self) -> io::Result<()>;
 
+    /// Compact database representation.
+    ///
+    /// If the database supports it a form of compaction, calling this function
+    /// is blocking until compaction finishes. Otherwise, this is a no-op.
+    fn compact(&self) -> io::Result<()>;
+
     /// Returns statistics about the database if available.
     fn get_store_statistics(&self) -> Option<StoreStatistics>;
 }
