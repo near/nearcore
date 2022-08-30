@@ -292,7 +292,6 @@ pub struct NetworkInfo {
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
-    pub peer_counter: usize,
     pub tier1_accounts: Vec<Arc<SignedAccountData>>,
 }
 

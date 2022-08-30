@@ -247,6 +247,14 @@ impl Database for RocksDB {
         self.db.write(batch).map_err(into_other)
     }
 
+    fn compact(&self) -> io::Result<()> {
+        let none = Option::<&[u8]>::None;
+        for col in DBCol::iter() {
+            self.db.compact_range_cf(self.cf_handle(col), none, none);
+        }
+        Ok(())
+    }
+
     fn flush(&self) -> io::Result<()> {
         // Need to iterator over all CFs because the normal `flush()` only
         // flushes the default column family.
@@ -557,8 +565,68 @@ fn into_other(error: rocksdb::Error) -> io::Error {
     io::Error::new(io::ErrorKind::Other, error.into_string())
 }
 
-fn col_name(col: DBCol) -> String {
-    format!("col{}", col as usize)
+/// Returns name of a RocksDB column family corresponding to given column.
+///
+/// Historically we used `col##` names (with `##` being index of the column).
+/// We have since deprecated this convention.  All future column families are
+/// named the same as the variant of the [`DBCol`] enum.
+fn col_name(col: DBCol) -> &'static str {
+    match col {
+        DBCol::DbVersion => "col0",
+        DBCol::BlockMisc => "col1",
+        DBCol::Block => "col2",
+        DBCol::BlockHeader => "col3",
+        DBCol::BlockHeight => "col4",
+        DBCol::State => "col5",
+        DBCol::ChunkExtra => "col6",
+        DBCol::TransactionResult => "col7",
+        DBCol::OutgoingReceipts => "col8",
+        DBCol::IncomingReceipts => "col9",
+        DBCol::Peers => "col10",
+        DBCol::EpochInfo => "col11",
+        DBCol::BlockInfo => "col12",
+        DBCol::Chunks => "col13",
+        DBCol::PartialChunks => "col14",
+        DBCol::BlocksToCatchup => "col15",
+        DBCol::StateDlInfos => "col16",
+        DBCol::ChallengedBlocks => "col17",
+        DBCol::StateHeaders => "col18",
+        DBCol::InvalidChunks => "col19",
+        DBCol::BlockExtra => "col20",
+        DBCol::BlockPerHeight => "col21",
+        DBCol::StateParts => "col22",
+        DBCol::EpochStart => "col23",
+        DBCol::AccountAnnouncements => "col24",
+        DBCol::NextBlockHashes => "col25",
+        DBCol::EpochLightClientBlocks => "col26",
+        DBCol::ReceiptIdToShardId => "col27",
+        DBCol::_NextBlockWithNewChunk => "col28",
+        DBCol::_LastBlockWithNewChunk => "col29",
+        DBCol::PeerComponent => "col30",
+        DBCol::ComponentEdges => "col31",
+        DBCol::LastComponentNonce => "col32",
+        DBCol::Transactions => "col33",
+        DBCol::ChunkPerHeightShard => "col34",
+        DBCol::StateChanges => "col35",
+        DBCol::BlockRefCount => "col36",
+        DBCol::TrieChanges => "col37",
+        DBCol::BlockMerkleTree => "col38",
+        DBCol::ChunkHashesByHeight => "col39",
+        DBCol::BlockOrdinal => "col40",
+        DBCol::GCCount => "col41",
+        DBCol::OutcomeIds => "col42",
+        DBCol::_TransactionRefCount => "col43",
+        DBCol::ProcessedBlockHeights => "col44",
+        DBCol::Receipts => "col45",
+        DBCol::CachedContractCode => "col46",
+        DBCol::EpochValidatorInfo => "col47",
+        DBCol::HeaderHashesByHeight => "col48",
+        DBCol::StateChangesForSplitStates => "col49",
+        // If you’re adding a new column, do *not* create a new case for it.
+        // All new columns are handled by this default case:
+        #[allow(unreachable_patterns)]
+        _ => <&str>::from(col),
+    }
 }
 
 #[cfg(test)]

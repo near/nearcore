@@ -5,9 +5,7 @@ use crate::NearConfig;
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
-use near_chain::types::{
-    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier,
-};
+use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{BlockHeader, Doomslug, DoomslugThresholdMode, Error, RuntimeAdapter};
 use near_chain_configs::{
     Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
@@ -41,7 +39,7 @@ use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
     EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause,
-    StateChangesForSplitStates, StateRoot, StateRootNode,
+    StateChangesForSplitStates, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -907,17 +905,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
     ) -> Result<bool, Error> {
         let epoch_manager = self.epoch_manager.read();
-        if let Ok(chunk_producer) =
-            epoch_manager.get_chunk_producer_info(epoch_id, height_created, shard_id)
-        {
-            let block_info = epoch_manager.get_block_info(last_known_hash)?;
-            if block_info.slashed().contains_key(chunk_producer.account_id()) {
-                return Ok(false);
-            }
-            Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
-        } else {
-            Err(Error::NotAValidator)
+        let chunk_producer =
+            epoch_manager.get_chunk_producer_info(epoch_id, height_created, shard_id)?;
+        let block_info = epoch_manager.get_block_info(last_known_hash)?;
+        if block_info.slashed().contains_key(chunk_producer.account_id()) {
+            return Ok(false);
         }
+        Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
     }
 
     fn verify_approvals_and_threshold_orphan(
@@ -1043,14 +1037,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
     ) -> Result<(ValidatorStake, bool), Error> {
         let epoch_manager = self.epoch_manager.read();
-        match epoch_manager.get_validator_by_account_id(epoch_id, account_id) {
-            Ok(Some(validator)) => {
-                let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
-                Ok((validator, block_info.slashed().contains_key(account_id)))
-            }
-            Ok(None) => Err(Error::NotAValidator),
-            Err(e) => Err(e.into()),
-        }
+        let validator = epoch_manager.get_validator_by_account_id(epoch_id, account_id)?;
+        let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
+        Ok((validator, block_info.slashed().contains_key(account_id)))
     }
 
     fn get_fisherman_by_account_id(
@@ -1060,14 +1049,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
     ) -> Result<(ValidatorStake, bool), Error> {
         let epoch_manager = self.epoch_manager.read();
-        match epoch_manager.get_fisherman_by_account_id(epoch_id, account_id) {
-            Ok(Some(fisherman)) => {
-                let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
-                Ok((fisherman, block_info.slashed().contains_key(account_id)))
-            }
-            Ok(None) => Err(Error::NotAValidator),
-            Err(e) => Err(e.into()),
-        }
+        let fisherman = epoch_manager.get_fisherman_by_account_id(epoch_id, account_id)?;
+        let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
+        Ok((fisherman, block_info.slashed().contains_key(account_id)))
     }
 
     fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, Error> {
@@ -1763,19 +1747,11 @@ impl RuntimeAdapter for NightshadeRuntime {
             return state_root_node == &StateRootNode::empty();
         }
         if hash(&state_root_node.data) != *state_root {
-            false
-        } else {
-            match Trie::get_memory_usage_from_serialized(&state_root_node.data) {
-                Ok(memory_usage) => {
-                    if memory_usage != state_root_node.memory_usage {
-                        // Invalid value of memory_usage
-                        false
-                    } else {
-                        true
-                    }
-                }
-                Err(_) => false, // Invalid state_root_node
-            }
+            return false;
+        }
+        match Trie::get_memory_usage_from_serialized(&state_root_node.data) {
+            Ok(memory_usage) => memory_usage == state_root_node.memory_usage,
+            Err(_) => false, // Invalid state_root_node
         }
     }
 
@@ -2684,7 +2660,7 @@ mod test {
         let mut root_node_wrong = root_node;
         root_node_wrong.memory_usage += 1;
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
-        root_node_wrong.data = vec![123];
+        root_node_wrong.data = std::sync::Arc::new([123]);
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         assert!(!new_env.runtime.validate_state_part(
             &Trie::EMPTY_ROOT,
