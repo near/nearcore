@@ -204,14 +204,18 @@ pub struct StateItem {
     pub key: Vec<u8>,
     #[serde(with = "base64_format")]
     pub value: Vec<u8>,
-    pub proof: TrieProofPath,
+    /// Deprecated, always empty, eventually will be deleted.
+    // TODO(mina86): This was made deprecated at protocol version 56.  Remove it
+    // once we’re at 59.
+    #[serde(default)]
+    pub proof: Vec<()>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ViewStateResult {
     pub values: Vec<StateItem>,
-    pub proof: TrieProofPath,
+    pub proof: Vec<Arc<[u8]>>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]

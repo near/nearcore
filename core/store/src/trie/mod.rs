@@ -533,7 +533,7 @@ impl Trie {
         }
         let TrieNodeWithSize { node, memory_usage } = match handle {
             NodeHandle::InMemory(h) => memory.node_ref(h).clone(),
-            NodeHandle::Hash(h) => self.retrieve_node(&h).expect("storage failure"),
+            NodeHandle::Hash(h) => self.retrieve_node(&h).expect("storage failure").1,
         };
 
         let mut memory_usage_naive = node.memory_usage_direct(memory);
@@ -615,10 +615,19 @@ impl Trie {
         }
     }
 
-    fn retrieve_node(&self, hash: &CryptoHash) -> Result<TrieNodeWithSize, StorageError> {
+    /// Retrieves decoded node alongside with its raw bytes representation.
+    ///
+    /// Note that because Empty nodes (those which are referenced by
+    /// [`Self::EMPTY_ROOT`] hash) aren’t stored in the database, they don’t
+    /// have a bytes representation.  For those nodes the first return value
+    /// will be `None`.
+    fn retrieve_node(
+        &self,
+        hash: &CryptoHash,
+    ) -> Result<(Option<std::sync::Arc<[u8]>>, TrieNodeWithSize), StorageError> {
         match self.retrieve_raw_node(hash)? {
-            None => Ok(TrieNodeWithSize::empty()),
-            Some((_bytes, node)) => Ok(TrieNodeWithSize::from_raw(node)),
+            None => Ok((None, TrieNodeWithSize::empty())),
+            Some((bytes, node)) => Ok((Some(bytes), TrieNodeWithSize::from_raw(node))),
         }
     }
 
@@ -791,6 +800,7 @@ pub mod estimator {
 #[cfg(test)]
 mod tests {
     use rand::Rng;
+    use std::sync::Arc;
 
     use crate::test_utils::{
         create_test_store, create_tries, create_tries_complex, gen_changes, simplify_changes,
@@ -799,6 +809,87 @@ mod tests {
     use crate::DBCol;
 
     use super::*;
+
+    fn verify_proof(
+        key: &[u8],
+        levels: Vec<RawTrieNodeWithSize>,
+        // when verifying proofs of non-membership, this value should be None
+        maybe_expected_value: Option<&[u8]>,
+        mut expected_hash: CryptoHash,
+    ) -> bool {
+        let mut v = vec![];
+        let mut hash_node = |node: &RawTrieNodeWithSize| {
+            v.clear();
+            node.encode_into(&mut v);
+            CryptoHash::hash_bytes(&v)
+        };
+        let mut hash = Trie::EMPTY_ROOT;
+        let mut key = NibbleSlice::new(key);
+        if levels.is_empty() && maybe_expected_value.is_some() {
+            return false;
+        }
+        for node in levels.iter() {
+            match &node.node {
+                RawTrieNode::Leaf(node_key, value_length, value_hash) => {
+                    hash = hash_node(&node);
+                    if hash != expected_hash {
+                        return false;
+                    }
+
+                    let nib = &NibbleSlice::from_encoded(&node_key).0;
+                    if &key != nib {
+                        return maybe_expected_value.is_none();
+                    }
+
+                    return if let Some(value) = maybe_expected_value {
+                        if *value_length as usize != value.len() {
+                            return false;
+                        }
+                        CryptoHash::hash_bytes(value) == *value_hash
+                    } else {
+                        false
+                    };
+                }
+
+                RawTrieNode::Extension(node_key, child_hash) => {
+                    hash = hash_node(&node);
+                    if hash != expected_hash {
+                        return false;
+                    }
+                    expected_hash = *child_hash;
+
+                    // To avoid unnecessary copy
+                    let nib = NibbleSlice::from_encoded(&node_key).0;
+                    if !key.starts_with(&nib) {
+                        return maybe_expected_value.is_none();
+                    }
+                    key = key.mid(nib.len());
+                }
+                RawTrieNode::Branch(children, value) => {
+                    hash = hash_node(&node);
+                    if hash != expected_hash {
+                        return false;
+                    }
+
+                    if key.is_empty() {
+                        return *value
+                            == maybe_expected_value.map(|value| {
+                                (value.len().try_into().unwrap(), CryptoHash::hash_bytes(&value))
+                            });
+                    }
+                    let index = key.at(0);
+                    match &children[index as usize] {
+                        Some(child_hash) => {
+                            key = key.mid(1);
+                            expected_hash = *child_hash;
+                        }
+                        None => return maybe_expected_value.is_none(),
+                    }
+                }
+            }
+        }
+        maybe_expected_value.is_none() && hash == expected_hash
+    }
 
     type TrieChanges = Vec<(Vec<u8>, Option<Vec<u8>>)>;
     const SHARD_VERSION: u32 = 1;
@@ -1199,5 +1290,72 @@ mod tests {
         let tries2 = ShardTries::test(store2, 1);
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard(), root.clone());
         assert_eq!(trie2.get(b"doge").unwrap().unwrap(), b"coin");
+    }
+
+    impl Trie {
+        /// Given a root and a key, it returns a MerkleProof for that key.
+        /// Note that it can be a proof of membership, or a proof of non membership. This is encoded
+        /// in the boolean of the return type.
+        ///
+        /// Hence, if [get_proof](#method.get_proof) returns (true, _), it means that the key-value are found in the trie
+        /// and a proof for that is presented. Similarly, if (false, _) is returned, it means that the key-value
+        /// pair does not belong to the trie and a proof for that is also returned.
+        ///
+        /// # Errors
+        ///
+        /// If the root or any subsequent nodes are not found in the trie, `StorageError` is returned
+        pub fn get_proof(&self, raw_key: &[u8]) -> Result<Vec<Arc<Vec<u8>>>, StorageError> {
+            let query_key = NibbleSlice::new(raw_key);
+            let mut iter = self.iter()?;
+
+            iter.remember_visited_nodes(true);
+            iter.seek_nibble_slice(query_key)?;
+            let proof = iter
+                .into_visited_nodes()
+                .into_iter()
+                .map(|x| Arc::new(x.to_vec()))
+                .collect::<Vec<_>>();
+            Ok(proof)
+        }
+    }
+
+    #[test]
+    fn test_create_and_verify_proof() {
+        let changes = vec![
+            (b"doge".to_vec(), Some(b"coin".to_vec())),
+            (b"docu".to_vec(), Some(b"value".to_vec())),
+            (b"do".to_vec(), Some(b"verb".to_vec())),
+            (b"horse".to_vec(), Some(b"stallion".to_vec())),
+            (b"dog".to_vec(), Some(b"puppy".to_vec())),
+            (b"h".to_vec(), Some(b"value".to_vec())),
+        ];
+
+        let tries = create_tries();
+        let shard_uid = ShardUId::single_shard();
+        let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, changes.clone());
+        let trie = tries.get_trie_for_shard(shard_uid, root);
+
+        for (k, v) in changes {
+            let raw_proof = trie.get_proof(&k).unwrap();
+            let proof = raw_proof.iter().map(|p| RawTrieNodeWithSize::decode(p).unwrap()).collect();
+
+            assert!(verify_proof(&k, proof, v.as_deref(), root));
+        }
+
+        let non_existing_keys =
+            [b"white_horse".as_ref(), b"white_rose".as_ref(), b"doge_elon".as_ref(), b"".as_ref()];
+
+        for non_existing_key in non_existing_keys {
+            let raw_proof = trie.get_proof(non_existing_key).unwrap();
+            let proof = raw_proof.iter().map(|p| RawTrieNodeWithSize::decode(p).unwrap()).collect();
+            assert!(verify_proof(non_existing_key, proof, None, root));
+        }
+
+        for non_existing_key in non_existing_keys {
+            let raw_proof = trie.get_proof(non_existing_key).unwrap();
+            let proof = raw_proof.iter().map(|p| RawTrieNodeWithSize::decode(p).unwrap()).collect();
+            // duplicating this because RawTrieNodeWithSize does not implement Clone
+            assert!(!verify_proof(non_existing_key, proof, Some(b"0_value"), root));
+        }
     }
 }

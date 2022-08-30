@@ -36,6 +36,9 @@ pub struct TrieIterator<'a> {
     trie: &'a Trie,
     trail: Vec<Crumb>,
     pub(crate) key_nibbles: Vec<u8>,
+
+    /// If not `None`, a list of all nodes that the iterator has visited.
+    visited_nodes: Option<Vec<std::sync::Arc<[u8]>>>,
 }
 
 pub type TrieItem = (Vec<u8>, Vec<u8>);
@@ -56,6 +59,7 @@ impl<'a> TrieIterator<'a> {
             trie,
             trail: Vec::with_capacity(8),
             key_nibbles: Vec::with_capacity(64),
+            visited_nodes: None,
         };
         r.descend_into_node(&trie.root)?;
         Ok(r)
@@ -64,6 +68,23 @@ impl<'a> TrieIterator<'a> {
     /// Position the iterator on the first element with key => `key`.
     pub fn seek<K: AsRef<[u8]>>(&mut self, key: K) -> Result<(), StorageError> {
         self.seek_nibble_slice(NibbleSlice::new(key.as_ref())).map(drop)
+    }
+    /// Configures whether the iterator should remember all the nodes its
+    /// visiting.
+    ///
+    /// List of visited nodes can be retrieved by [`Self::visited_nodes`] method.
+    pub fn remember_visited_nodes(&mut self, remember: bool) {
+        self.visited_nodes = remember.then(|| Vec::new());
+    }
+
+    /// Consumes iterator and returns list of nodes it’s visited.
+    ///
+    /// By default the iterator *doesn’t* remember nodes it visits.  To enable
+    /// that feature use [`Self::remember_visited_nodes`] method.  If the
+    /// feature is disabled, this method returns an empty list.  Otherwise
+    /// it returns list of nodes visited since the feature was enabled.
+    pub fn into_visited_nodes(self) -> Vec<std::sync::Arc<[u8]>> {
+        self.visited_nodes.unwrap_or(Vec::new())
     }
 
     /// Returns the hash of the last node
@@ -124,9 +145,15 @@ impl<'a> TrieIterator<'a> {
 
     /// Fetches block by its hash and adds it to the trail.
     ///
-    /// The node is stored as the last [`Crumb`] in the trail.
+    /// The node is stored as the last [`Crumb`] in the trail.  If iterator is
+    /// configured to remember all the nodes its visiting (which can be enabled
+    /// with [`Self::remember_visited_nodes`]), the node will be added to the
+    /// list.
     fn descend_into_node(&mut self, hash: &CryptoHash) -> Result<(), StorageError> {
-        let node = self.trie.retrieve_node(hash)?;
+        let (bytes, node) = self.trie.retrieve_node(hash)?;
+        if let (Some(bytes), Some(nodes)) = (bytes, &mut self.visited_nodes) {
+            nodes.push(bytes);
+        }
         self.trail.push(Crumb { status: CrumbStatus::Entering, node });
         Ok(())
     }

@@ -11,6 +11,7 @@ use near_primitives::{
     types::{EpochId, StateChangeCause},
     version::PROTOCOL_VERSION,
 };
+use near_primitives_core::serialize::{from_base64, to_base64};
 use near_store::set_account;
 use node_runtime::state_viewer::errors;
 use node_runtime::state_viewer::*;
@@ -105,6 +106,8 @@ fn test_view_call_with_args() {
 
 #[test]
 fn test_view_state() {
+    // in order to ensure determinism under all conditions (compiler, build output, etc)
+    // avoid deploying a test contract. See issue #7238
     let (_, tries, root) = get_runtime_and_trie();
     let shard_uid = TEST_SHARD_UID;
     let mut state_update = tries.new_trie_update(shard_uid, root);
@@ -132,7 +135,18 @@ fn test_view_state() {
     let state_update = tries.new_trie_update(shard_uid, new_root);
     let trie_viewer = TrieViewer::default();
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
-    assert_eq!(result.proof, Vec::<String>::new());
+    assert_eq!(result.proof.iter().map(|x| x.to_vec()).collect::<Vec<_>>(), ["AwEAAAAQcAvUIU4OEj2HoAMFJkqhvxZFNyIwFFUKQdbb+bdAiHyNewEAAAAAAA==",
+        "AQcCc2Tg//GX+CHSgGOgNJdSmU352riCI473gh57j16o5Z2gWL0RHvyJxnv8L1n3Py8nmMk5nXjlGfBholhBzKyBlqeYRr8PVilJ81MgJKvV/R1SxQuTfwwmbZ6sN/TC2XfL1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rlZewEAAAAAAA==",
+        "AwMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3gwDAAAAAAAA",
+        "ASAC7S1KwgLNl0HPdSo8soL8sGOmPhL7O0xTSR8sDDR5pZrzu0ty3UPYJ5UKrFGKxXoyyyNG75AF9hnJHO3xxFkf5NQCAAAAAAAA",
+        "AwEAAAAW607KPj2q3O8dF6XkfALiIrd9mqGir2UlYIcZuLNksTsvAgAAAAAAAA==",
+        "AQhAP4sMdbiWZPtV6jz8hYKzRFSgwaSlQKiGsQXogAmMcrLOl+SJfiCOXMTEZ2a1ebmQOEGkRYa30FaIlB46sLI2IPsBAAAAAAAA",
+        "AwwAAAAWUubmVhcix0ZXN0PKtrEndk0LxM+qpzp0PVtjf+xlrzz4TT0qA+hTtm6BLlYBAAAAAAAA",
+        "AQoAVWCdny7wv/M1LvZASC3Fw0D/NNhI1NYwch9Ux+KZ2qRdQXPC1rNsCGRJ7nd66SfcNmRUVVvQY6EYCbsIiugO6gwBAAAAAAAA",
+        "AAMAAAAgMjMDAAAApmWkWSBCL51Bfkhn79xPuKBKHz//H6B+mY6G9/eieuNtAAAAAAAAAA==",
+        "AAMAAAAgMjEDAAAAjSPPbIboNKeqbt7VTCbOK7LnSQNTjGG91dIZeZerL3JtAAAAAAAAAA==",
+        "AAYAAAAgYSxxcXEDAAAAjSPPbIboNKeqbt7VTCbOK7LnSQNTjGG91dIZeZerL3JzAAAAAAAAAA==",
+    ].into_iter().map(|x| from_base64(x).unwrap()).collect::<Vec<_>>());
     assert_eq!(
         result.values,
         [
@@ -146,6 +160,27 @@ fn test_view_state() {
     assert_eq!(
         result.values,
         [StateItem { key: b"test123".to_vec(), value: b"123".to_vec(), proof: vec![] }]
+    );
+    assert_eq!(
+        result
+            .proof
+            .iter()
+            .inspect(|x| {
+                println!("\"{}\",", to_base64(x));
+            })
+            .map(|x| x.to_vec())
+            .collect::<Vec<_>>(),
+        ["AwEAAAAQcAvUIU4OEj2HoAMFJkqhvxZFNyIwFFUKQdbb+bdAiHyNewEAAAAAAA==",
+            "AQcCc2Tg//GX+CHSgGOgNJdSmU352riCI473gh57j16o5Z2gWL0RHvyJxnv8L1n3Py8nmMk5nXjlGfBholhBzKyBlqeYRr8PVilJ81MgJKvV/R1SxQuTfwwmbZ6sN/TC2XfL1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rlZewEAAAAAAA==",
+            "AwMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3gwDAAAAAAAA",
+            "ASAC7S1KwgLNl0HPdSo8soL8sGOmPhL7O0xTSR8sDDR5pZrzu0ty3UPYJ5UKrFGKxXoyyyNG75AF9hnJHO3xxFkf5NQCAAAAAAAA",
+            "AwEAAAAW607KPj2q3O8dF6XkfALiIrd9mqGir2UlYIcZuLNksTsvAgAAAAAAAA==",
+            "AQhAP4sMdbiWZPtV6jz8hYKzRFSgwaSlQKiGsQXogAmMcrLOl+SJfiCOXMTEZ2a1ebmQOEGkRYa30FaIlB46sLI2IPsBAAAAAAAA",
+            "AwwAAAAWUubmVhcix0ZXN0PKtrEndk0LxM+qpzp0PVtjf+xlrzz4TT0qA+hTtm6BLlYBAAAAAAAA",
+            "AQoAVWCdny7wv/M1LvZASC3Fw0D/NNhI1NYwch9Ux+KZ2qRdQXPC1rNsCGRJ7nd66SfcNmRUVVvQY6EYCbsIiugO6gwBAAAAAAAA",
+            "AAMAAAAgMjMDAAAApmWkWSBCL51Bfkhn79xPuKBKHz//H6B+mY6G9/eieuNtAAAAAAAAAA==",
+            "AAMAAAAgMjEDAAAAjSPPbIboNKeqbt7VTCbOK7LnSQNTjGG91dIZeZerL3JtAAAAAAAAAA==",
+        ].into_iter().map(|x| from_base64(x).unwrap()).collect::<Vec<_>>()
     );
 }
 
