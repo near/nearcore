@@ -37,7 +37,7 @@ pub use crate::trie::{
 };
 
 mod columns;
-mod config;
+pub mod config;
 pub mod db;
 pub mod flat_state;
 mod metrics;
@@ -180,6 +180,11 @@ impl Store {
     /// If the storage is backed by disk, flushes any in-memory data to disk.
     pub fn flush(&self) -> io::Result<()> {
         self.storage.flush()
+    }
+
+    /// Blocking compaction request if supported by storage.
+    pub fn compact(&self) -> io::Result<()> {
+        self.storage.compact()
     }
 
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {

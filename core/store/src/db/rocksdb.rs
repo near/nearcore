@@ -250,6 +250,14 @@ impl Database for RocksDB {
         self.db.write(batch).map_err(into_other)
     }
 
+    fn compact(&self) -> io::Result<()> {
+        let none = Option::<&[u8]>::None;
+        for col in DBCol::iter() {
+            self.db.compact_range_cf(self.cf_handle(col), none, none);
+        }
+        Ok(())
+    }
+
     fn flush(&self) -> io::Result<()> {
         self.db.flush().map_err(into_other)
     }
