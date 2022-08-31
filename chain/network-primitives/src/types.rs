@@ -358,7 +358,6 @@ mod tests {
         assert_size!(Pong);
         assert_size!(RawRoutedMessage);
         assert_size!(RoutedMessage);
-        assert_size!(RoutedMessageFrom);
         assert_size!(KnownPeerState);
         assert_size!(InboundTcpConnect);
         assert_size!(OutboundTcpConnect);
