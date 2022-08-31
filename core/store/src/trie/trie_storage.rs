@@ -9,6 +9,7 @@ use near_metrics::prometheus;
 use near_metrics::prometheus::core::{GenericCounter, GenericGauge};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::TrieKey;
+use tracing::error;
 
 use crate::db::refcount::decode_value_with_rc;
 use crate::trie::POISONED_LOCK_ERR;
@@ -390,7 +391,7 @@ pub struct TrieCachingStorage {
     /// Prefetching IO threads will insert fetched data here. This is also used
     /// to mark what is already being fetched, to avoid fetching the same data
     /// multiple times.
-    pub(crate) prefetching: Arc<Mutex<HashMap<CryptoHash, PrefetchSlot>>>,
+    prefetching: Arc<Mutex<PrefetchStagingArea>>,
     /// Set to true to stop all io threads.
     io_kill_switch: Arc<AtomicBool>,
 
@@ -532,6 +533,9 @@ impl TrieCachingStorage {
                         let storage_key = trie_key.to_vec();
                         if let Ok(Some(_value)) = prefetcher_trie.get(&storage_key) {
                             near_o11y::io_trace!(count: "prefetch_success");
+                        } else {
+                            // This may happen in rare occasions and can be ignored safely.
+                            near_o11y::io_trace!(count: "prefetch_failure");
                         }
                     }
                     Some(IoThreadCmd::StopSelf) => return,
@@ -573,25 +577,28 @@ impl TrieStorage for TrieCachingStorage {
                 val.clone()
             }
             None => {
-                std::mem::drop(guard);
                 self.metrics.shard_cache_misses.inc();
                 near_o11y::io_trace!(count: "shard_cache_miss");
                 // If data is already being prefetched, wait for that instead of sending a new request.
-                let val: Arc<[u8]> = if let Some(val) =
-                    wait_for_prefetched(&self.prefetching, hash.clone(), PrefetchSlot::PendingFetch)
-                {
-                    val
-                } else {
-                    // If value is not present in cache, get it from the storage.
-                    let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
-                    let val = self
-                        .store
-                        .get(DBCol::State, key.as_ref())
-                        .map_err(|_| StorageError::StorageInternalError)?
-                        .ok_or_else(|| {
-                            StorageError::StorageInconsistentState("Trie node missing".to_string())
-                        })?;
-                    val.into()
+                let prefetch_state = PrefetchStagingArea::get_and_set_if_empty(
+                    &self.prefetching,
+                    hash.clone(),
+                    PrefetchSlot::PendingFetch,
+                );
+                // Keep lock until here to avoid race condition between shard cache lookup and reserving prefetch slot.
+                std::mem::drop(guard);
+
+                let val = match prefetch_state {
+                    PrefetcherResult::SlotReserved | PrefetcherResult::MemoryLimitReached => {
+                        self.read_from_db(hash)?
+                    }
+                    PrefetcherResult::Prefetched(value) => value,
+                    PrefetcherResult::Pending => {
+                        std::thread::sleep(Duration::from_micros(1));
+                        // Unwrap: Only main thread  (this one) removes values from staging area,
+                        // therefore blocking read will not return empty.
+                        PrefetchStagingArea::blocking_get(&self.prefetching, hash.clone()).unwrap()
+                    }
                 };
 
                 // Insert value to shard cache, if its size is small enough.
@@ -605,12 +612,9 @@ impl TrieStorage for TrieCachingStorage {
                     self.metrics.shard_cache_too_large.inc();
                     near_o11y::io_trace!(count: "shard_cache_too_large");
                 }
-                let dropped = self.prefetching.lock().expect(POISONED_LOCK_ERR).remove(hash);
-                let dropped = dropped.as_ref().unwrap();
-                assert!(
-                    prefetch_state_matches(PrefetchSlot::Done(Arc::new([])), dropped)
-                        || prefetch_state_matches(PrefetchSlot::PendingFetch, dropped),
-                );
+
+                // Only release after insertion in shard cache. See comment on fn release.
+                self.prefetching.lock().expect(POISONED_LOCK_ERR).release(hash);
 
                 val
             }
@@ -643,6 +647,20 @@ impl TrieStorage for TrieCachingStorage {
     }
 }
 
+impl TrieCachingStorage {
+    fn read_from_db(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
+        let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
+        let val = self
+            .store
+            .get(DBCol::State, key.as_ref())
+            .map_err(|_| StorageError::StorageInternalError)?
+            .ok_or_else(|| {
+                StorageError::StorageInconsistentState("Trie node missing".to_string())
+            })?;
+        Ok(val.into())
+    }
+}
+
 /// Storage used by I/O threads to prefetch data.
 ///
 /// Is always linked to a parent `TrieCachingStorage`. One  caching storage can
@@ -658,68 +676,204 @@ pub struct TriePrefetchingStorage {
     /// pre-fetcher uses this in read-only mode to avoid premature evictions.
     shard_cache: TrieCache,
     /// Shared with parent `TrieCachingStorage`.
-    ///
-    /// Before starting a pre-fetch, a slot is reserved for it. Once the data is
-    /// here, it will be put in that slot. The parent `TrieCachingStorage` needs
-    /// to take it out and move it to the shard cache.
-    prefetching: Arc<Mutex<HashMap<CryptoHash, PrefetchSlot>>>,
+    prefetching: Arc<Mutex<PrefetchStagingArea>>,
 }
+
+/// Staging area for in-flight prefetch requests and a buffer for prefetched data,
+///
+/// Before starting a pre-fetch, a slot is reserved for it. Once the data is
+/// here, it will be put in that slot. The parent `TrieCachingStorage` needs
+/// to take it out and move it to the shard cache.
+///
+/// This design is to avoid prematurely filling up the shard cache.
+#[derive(Default)]
+struct PrefetchStagingArea {
+    slots: HashMap<CryptoHash, PrefetchSlot>,
+    size_bytes: usize,
+}
+
+const MAX_PREFETCH_STAGING_MEMORY: usize = 200 * 1024 * 1024;
+/// How much memory capacity is reserved for each prefetch request.
+/// Set to 4MiB, the same as `max_length_storage_value`.
+const PREFETCH_RESERVED_BYTES_PER_SLOT: usize = 4 * 1024 * 1024;
 
 impl TriePrefetchingStorage {
     fn new(
         store: Store,
         shard_uid: ShardUId,
         shard_cache: TrieCache,
-        prefetching: Arc<Mutex<HashMap<CryptoHash, PrefetchSlot>>>,
+        prefetching: Arc<Mutex<PrefetchStagingArea>>,
     ) -> Self {
         Self { store, shard_uid, shard_cache, prefetching }
+    }
+}
+
+enum PrefetcherResult {
+    SlotReserved,
+    Pending,
+    Prefetched(Arc<[u8]>),
+    MemoryLimitReached,
+}
+
+impl PrefetchStagingArea {
+    fn insert_fetched(&mut self, key: CryptoHash, value: Arc<[u8]>) {
+        self.size_bytes -= PREFETCH_RESERVED_BYTES_PER_SLOT;
+        self.size_bytes += value.len();
+        let pending = self.slots.insert(key, PrefetchSlot::Done(value));
+        assert!(prefetch_state_matches(PrefetchSlot::PendingPrefetch, &pending.unwrap()));
+    }
+
+    /// Release a slot in the prefetcher staging area.
+    ///
+    /// This must only be called after inserting the value to the shard cache.
+    /// Otherwise, the following scenario becomes possible:
+    /// 1: Main thread removes a value from the prefetch staging area
+    /// 2: IO thread misses in the shard cache on the same key and starts fetching it again.
+    /// 3: Main thread value is inserted in shard cache.
+    fn release(&mut self, key: &CryptoHash) {
+        let dropped = self.slots.remove(key);
+        // `Done` is the result after a successful prefetch.
+        // `PendingFetch` means the value has been read without a prefetch.
+        // `None` means prefetching was stopped due to memory limits.
+        debug_assert!(
+            dropped.is_none()
+                || prefetch_state_matches(
+                    PrefetchSlot::Done(Arc::new([])),
+                    dropped.as_ref().unwrap()
+                )
+                || prefetch_state_matches(PrefetchSlot::PendingFetch, dropped.as_ref().unwrap()),
+        );
+        match dropped {
+            Some(PrefetchSlot::Done(value)) => self.size_bytes -= value.len(),
+            Some(PrefetchSlot::PendingFetch) => self.size_bytes -= PREFETCH_RESERVED_BYTES_PER_SLOT,
+            None => { /* NOP */ }
+            _ => {
+                error!(target: "prefetcher", "prefetcher bug detected, trying to release {dropped:?}");
+            }
+        }
+    }
+
+    /// Block until value is prefetched and then return it.
+    fn blocking_get(this: &Arc<Mutex<Self>>, key: CryptoHash) -> Option<Arc<[u8]>> {
+        loop {
+            match this.lock().expect(POISONED_LOCK_ERR).slots.get(&key) {
+                Some(PrefetchSlot::Done(value)) => return Some(value.clone()),
+                Some(_) => { /* NOP */ }
+                None => return None,
+            }
+            std::thread::sleep(std::time::Duration::from_micros(1));
+        }
+    }
+
+    /// Get prefetched value if available and otherwise atomically insert the
+    /// given `PrefetchSlot` if no request is pending yet.
+    fn get_and_set_if_empty(
+        this: &Arc<Mutex<Self>>,
+        key: CryptoHash,
+        set_if_empty: PrefetchSlot,
+    ) -> PrefetcherResult {
+        let mut guard = this.lock().expect(POISONED_LOCK_ERR);
+        let full = match guard.size_bytes.checked_add(PREFETCH_RESERVED_BYTES_PER_SLOT) {
+            Some(size_after) => size_after > MAX_PREFETCH_STAGING_MEMORY,
+            None => true,
+        };
+        if full {
+            return PrefetcherResult::MemoryLimitReached;
+        }
+        match guard.slots.entry(key) {
+            Entry::Occupied(entry) => match entry.get() {
+                PrefetchSlot::Done(value) => {
+                    near_o11y::io_trace!(count: "prefetch_hit");
+                    PrefetcherResult::Prefetched(value.clone())
+                }
+                PrefetchSlot::PendingPrefetch | PrefetchSlot::PendingFetch => {
+                    std::mem::drop(guard);
+                    near_o11y::io_trace!(count: "prefetch_pending");
+                    PrefetcherResult::Pending
+                }
+            },
+            Entry::Vacant(entry) => {
+                entry.insert(set_if_empty);
+                guard.size_bytes += PREFETCH_RESERVED_BYTES_PER_SLOT;
+                PrefetcherResult::SlotReserved
+            }
+        }
     }
 }
 
 impl TrieStorage for TriePrefetchingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         // Try to get value from shard cache containing most recently touched nodes.
-        let maybe_val = {
-            let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
-            guard.get(hash).clone()
-        };
-        let val = match maybe_val {
-            Some(val) => val,
+        let mut shard_cache_guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
+        let maybe_val = { shard_cache_guard.get(hash) };
+
+        match maybe_val {
+            Some(val) => Ok(val),
             None => {
                 // If data is already being prefetched, wait for that instead of sending a new request.
-                if let Some(value) = wait_for_prefetched(
+                let prefetch_state = PrefetchStagingArea::get_and_set_if_empty(
                     &self.prefetching,
                     hash.clone(),
                     PrefetchSlot::PendingPrefetch,
-                ) {
-                    value
-                } else {
-                    let key =
-                        TrieCachingStorage::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
-                    let val: Arc<[u8]> = self
-                        .store
-                        .get(DBCol::State, key.as_ref())
-                        .map_err(|_| StorageError::StorageInternalError)?
-                        .ok_or_else(|| {
-                            StorageError::StorageInconsistentState("Trie node missing".to_string())
-                        })?
-                        .into();
+                );
+                // Keep lock until here to avoid race condition between shard cache insertion and reserving prefetch slot.
+                std::mem::drop(shard_cache_guard);
 
-                    let pending = self
-                        .prefetching
-                        .lock()
-                        .expect(POISONED_LOCK_ERR)
-                        .insert(hash.clone(), PrefetchSlot::Done(val.clone()));
-                    assert!(prefetch_state_matches(
-                        PrefetchSlot::PendingPrefetch,
-                        &pending.unwrap()
-                    ));
-                    val
+                match prefetch_state {
+                    PrefetcherResult::SlotReserved => {
+                        let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
+                            self.shard_uid,
+                            hash,
+                        );
+                        let value: Arc<[u8]> = self
+                            .store
+                            .get(DBCol::State, key.as_ref())
+                            .map_err(|_| StorageError::StorageInternalError)?
+                            .ok_or_else(|| {
+                                StorageError::StorageInconsistentState(
+                                    "Trie node missing".to_string(),
+                                )
+                            })?
+                            .into();
+
+                        self.prefetching
+                            .lock()
+                            .expect(POISONED_LOCK_ERR)
+                            .insert_fetched(hash.clone(), value.clone());
+                        Ok(value)
+                    }
+                    PrefetcherResult::Prefetched(value) => Ok(value),
+                    PrefetcherResult::Pending => {
+                        std::thread::sleep(Duration::from_micros(1));
+                        // Unwrap: Only main thread  (this one) removes values from staging area,
+                        // therefore blocking read will not return empty.
+                        PrefetchStagingArea::blocking_get(&self.prefetching, hash.clone())
+                            .or_else(|| {
+                                // `blocking_get` will return None if the prefetch slot has been removed
+                                // by the main thread and the value inserted into the shard cache.
+                                let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
+                                guard.get(hash)
+                            })
+                            .ok_or_else(|| {
+                                // This could only happen if this thread started prefetching a value
+                                // while also another thread was already prefetching it. Then the other
+                                // other thread finished, the main thread takes it out, and moves it to
+                                // the shard cache. And then this current thread gets delayed for long
+                                // enough that the value gets evicted from the shard cache again before
+                                // this thread has a change to read it.
+                                // In this rare occasion, we shall abort the current prefetch request and
+                                // move on to the next.
+                                StorageError::StorageInconsistentState(
+                                    "Prefetcher failed".to_owned(),
+                                )
+                            })
+                    }
+                    PrefetcherResult::MemoryLimitReached => {
+                        Err(StorageError::StorageInconsistentState("Prefetcher failed".to_owned()))
+                    }
                 }
             }
-        };
-
-        Ok(val)
+        }
     }
 
     fn get_trie_nodes_count(&self) -> TrieNodesCount {
@@ -727,37 +881,7 @@ impl TrieStorage for TriePrefetchingStorage {
     }
 }
 
-/// If a (pre-)fetch is in-flight, block until the result is ready and return it.
-/// Otherwise, atomically insert the given `PrefetchSlot` and return `None`.
-fn wait_for_prefetched(
-    prefetching: &Arc<Mutex<HashMap<CryptoHash, PrefetchSlot>>>,
-    key: CryptoHash,
-    or_insert: PrefetchSlot,
-) -> Option<Arc<[u8]>> {
-    loop {
-        let mut guard = prefetching.lock().expect(POISONED_LOCK_ERR);
-        match guard.entry(key) {
-            Entry::Occupied(entry) => match entry.get() {
-                PrefetchSlot::Done(value) => {
-                    near_o11y::io_trace!(count: "prefetch_hit");
-                    return Some(value.clone());
-                }
-                PrefetchSlot::PendingPrefetch | PrefetchSlot::PendingFetch => {
-                    std::mem::drop(guard);
-                    near_o11y::io_trace!(count: "prefetch_pending");
-                    std::thread::sleep(std::time::Duration::from_micros(100));
-                }
-            },
-            Entry::Vacant(entry) => {
-                entry.insert(or_insert);
-                return None;
-            }
-        }
-    }
-}
-
 fn prefetch_state_matches(expected: PrefetchSlot, actual: &PrefetchSlot) -> bool {
-    // TODO: Remove / make it debug only
     match (expected, actual) {
         (PrefetchSlot::PendingPrefetch, PrefetchSlot::PendingPrefetch)
         | (PrefetchSlot::PendingFetch, PrefetchSlot::PendingFetch)

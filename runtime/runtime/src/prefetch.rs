@@ -127,12 +127,9 @@ impl PrefetchScheduler {
                 }
             }
 
+            let mut request_queue_guard = scheduler.request_queue.lock().expect(POISONED_LOCK_ERR);
             for _ in 0..NUM_IO_THREADS {
-                scheduler
-                    .request_queue
-                    .lock()
-                    .expect(POISONED_LOCK_ERR)
-                    .push_back(IoThreadCmd::StopSelf);
+                request_queue_guard.push_back(IoThreadCmd::StopSelf);
             }
         });
         (_handle, tx)
