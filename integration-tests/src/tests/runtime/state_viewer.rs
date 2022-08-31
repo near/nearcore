@@ -1,8 +1,12 @@
+use std::{collections::HashMap, sync::Arc};
+
 use crate::runtime_utils::{get_runtime_and_trie, get_test_trie_viewer, TEST_SHARD_UID};
 use near_primitives::{
     account::Account,
     hash::hash as sha256,
     hash::CryptoHash,
+    trie_key::trie_key_parsers,
+    types::{AccountId, StateRoot},
     views::{StateItem, ViewApplyState},
 };
 use near_primitives::{
@@ -12,10 +16,88 @@ use near_primitives::{
     version::PROTOCOL_VERSION,
 };
 use near_primitives_core::serialize::from_base64;
-use near_store::set_account;
+use near_store::{set_account, NibbleSlice, RawTrieNode, RawTrieNodeWithSize};
 use node_runtime::state_viewer::errors;
 use node_runtime::state_viewer::*;
 use testlib::runtime_utils::{alice_account, encode_int};
+
+struct ProofVerifier {
+    nodes: HashMap<CryptoHash, RawTrieNodeWithSize>,
+}
+
+impl ProofVerifier {
+    fn new(proof: Vec<Arc<[u8]>>) -> Self {
+        let nodes = proof
+            .into_iter()
+            .map(|bytes| {
+                let hash = CryptoHash::hash_bytes(&bytes);
+                let node = RawTrieNodeWithSize::decode(&bytes).unwrap();
+                (hash, node)
+            })
+            .collect::<HashMap<_, _>>();
+        Self { nodes }
+    }
+
+    fn verify(
+        &self,
+        state_root: &StateRoot,
+        account_id: &AccountId,
+        key: &[u8],
+        expected: Option<&[u8]>,
+    ) -> bool {
+        let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, key);
+        let mut key = NibbleSlice::new(&query);
+
+        let mut expected_hash = state_root;
+        while let Some(node) = self.nodes.get(expected_hash) {
+            match &node.node {
+                RawTrieNode::Leaf(node_key, value_length, value_hash) => {
+                    let nib = &NibbleSlice::from_encoded(&node_key).0;
+                    if &key != nib {
+                        return expected.is_none();
+                    }
+
+                    return if let Some(value) = expected {
+                        if *value_length as usize != value.len() {
+                            return false;
+                        }
+                        CryptoHash::hash_bytes(value) == *value_hash
+                    } else {
+                        false
+                    };
+                }
+
+                RawTrieNode::Extension(node_key, child_hash) => {
+                    expected_hash = child_hash;
+
+                    // To avoid unnecessary copy
+                    let nib = NibbleSlice::from_encoded(&node_key).0;
+                    if !key.starts_with(&nib) {
+                        return expected.is_none();
+                    }
+                    key = key.mid(nib.len());
+                }
+                RawTrieNode::Branch(children, value) => {
+                    if key.is_empty() {
+                        return *value
+                            == expected.map(|value| {
+                                (value.len().try_into().unwrap(), CryptoHash::hash_bytes(&value))
+                            });
+                    }
+                    let index = key.at(0);
+                    match &children[index as usize] {
+                        Some(child_hash) => {
+                            key = key.mid(1);
+                            expected_hash = child_hash;
+                        }
+                        None => return expected.is_none(),
+                    }
+                }
+            }
+        }
+        false
+    }
+}
 
 #[test]
 fn test_view_call() {
@@ -182,6 +264,26 @@ fn test_view_state() {
             "AAMAAAAgMjMDAAAApmWkWSBCL51Bfkhn79xPuKBKHz//H6B+mY6G9/eieuNtAAAAAAAAAA==",
             "AAMAAAAgMjEDAAAAjSPPbIboNKeqbt7VTCbOK7LnSQNTjGG91dIZeZerL3JtAAAAAAAAAA==",
         ].into_iter().map(|x| from_base64(x).unwrap()).collect::<Vec<_>>()
+    );
+
+    let proof_verifier = ProofVerifier::new(result.proof);
+    assert_eq!(
+        proof_verifier.verify(state_update.get_root(), &alice_account(), b"test123", Some(b"123")),
+        true
+    );
+    assert_eq!(
+        proof_verifier.verify(state_update.get_root(), &alice_account(), b"test123", None),
+        false
+    );
+
+    assert_eq!(
+        proof_verifier.verify(
+            state_update.get_root(),
+            &alice_account(),
+            b"non-found-key",
+            Some(b"123")
+        ),
+        false
     );
 }
 

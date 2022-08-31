@@ -17,7 +17,7 @@ use near_primitives::types::{StateRoot, StateRootNode};
 use crate::flat_state::FlatState;
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
-use crate::trie::nibble_slice::NibbleSlice;
+pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::shard_tries::{
     KeyForStateChanges, ShardTries, TrieCacheFactory, WrappedTrieChanges,
 };
@@ -257,7 +257,7 @@ impl TrieNode {
 
 #[derive(Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
-enum RawTrieNode {
+pub enum RawTrieNode {
     Leaf(Vec<u8>, u32, CryptoHash),
     Branch([Option<CryptoHash>; 16], Option<(u32, CryptoHash)>),
     Extension(Vec<u8>, CryptoHash),
@@ -266,8 +266,8 @@ enum RawTrieNode {
 /// Trie node + memory cost of its subtree
 /// memory_usage is serialized, stored, and contributes to hash
 #[derive(Debug, Eq, PartialEq)]
-struct RawTrieNodeWithSize {
-    node: RawTrieNode,
+pub struct RawTrieNodeWithSize {
+    pub node: RawTrieNode,
     memory_usage: u64,
 }
 
@@ -344,7 +344,7 @@ impl RawTrieNode {
         out
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
+    pub fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
         let mut cursor = Cursor::new(bytes);
         match cursor.read_u8()? {
             LEAF_NODE => {
@@ -394,7 +394,7 @@ impl RawTrieNodeWithSize {
         out
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
+    pub fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
         if bytes.len() < 8 {
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type"));
         }
@@ -1289,53 +1289,5 @@ mod tests {
         let tries2 = ShardTries::test(store2, 1);
         let trie2 = tries2.get_trie_for_shard(ShardUId::single_shard(), root.clone());
         assert_eq!(trie2.get(b"doge").unwrap().unwrap(), b"coin");
-    }
-
-    #[test]
-    fn test_create_and_verify_proof() {
-        let changes = vec![
-            (b"doge".to_vec(), Some(b"coin".to_vec())),
-            (b"docu".to_vec(), Some(b"value".to_vec())),
-            (b"do".to_vec(), Some(b"verb".to_vec())),
-            (b"horse".to_vec(), Some(b"stallion".to_vec())),
-            (b"dog".to_vec(), Some(b"puppy".to_vec())),
-            (b"h".to_vec(), Some(b"value".to_vec())),
-        ];
-
-        let get_proof = |trie: &Trie, k: &[u8]| {
-            let mut iter = trie.iter().unwrap();
-            iter.remember_visited_nodes(true);
-            iter.seek(&k).unwrap();
-            iter.into_visited_nodes()
-        };
-
-        let tries = create_tries();
-        let shard_uid = ShardUId::single_shard();
-        let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, changes.clone());
-        let trie = tries.get_trie_for_shard(shard_uid, root);
-
-        for (k, v) in changes {
-            let raw_proof = get_proof(&trie, k.as_ref());
-            let proof = raw_proof.iter().map(|p| RawTrieNodeWithSize::decode(p).unwrap()).collect();
-
-            assert!(verify_proof(&k, proof, v.as_deref(), root));
-        }
-
-        let non_existing_keys =
-            [b"white_horse".as_ref(), b"white_rose".as_ref(), b"doge_elon".as_ref(), b"".as_ref()];
-
-        for non_existing_key in non_existing_keys {
-            let raw_proof = get_proof(&trie, non_existing_key);
-
-            let proof = raw_proof.iter().map(|p| RawTrieNodeWithSize::decode(p).unwrap()).collect();
-            assert!(verify_proof(non_existing_key, proof, None, root));
-        }
-
-        for non_existing_key in non_existing_keys {
-            let raw_proof = get_proof(&trie, non_existing_key);
-            let proof = raw_proof.iter().map(|p| RawTrieNodeWithSize::decode(p).unwrap()).collect();
-            // duplicating this because RawTrieNodeWithSize does not implement Clone
-            assert!(!verify_proof(non_existing_key, proof, Some(b"0_value"), root));
-        }
     }
 }
