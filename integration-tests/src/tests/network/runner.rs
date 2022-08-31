@@ -9,6 +9,7 @@ use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::broadcast;
 use near_network::config;
+use near_network::actix::ActixSystem;
 use near_network::test_utils::{
     expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo,
 };
@@ -164,7 +165,7 @@ async fn check_routing_table(
             (info.runner.test_config[target].peer_id(), peers)
         })
         .collect();
-    let pm = info.get_node(u)?.addr.clone();
+    let pm = info.get_node(u)?.actix.addr.clone();
     let resp = pm.send(PeerManagerMessageRequest::FetchRoutingTable).await?;
     let rt = match resp {
         PeerManagerMessageResponse::FetchRoutingTable(rt) => rt,
@@ -185,7 +186,7 @@ async fn check_account_id(
     for u in known_validators.clone() {
         expected_known.push(info.runner.test_config[u].account_id.clone());
     }
-    let pm = &info.get_node(source)?.addr;
+    let pm = &info.get_node(source)?.actix.addr;
     let rt = match pm.send(PeerManagerMessageRequest::FetchRoutingTable).await? {
         PeerManagerMessageResponse::FetchRoutingTable(rt) => rt,
         _ => bail!("bad response"),
@@ -245,7 +246,7 @@ impl StateMachine {
             Action::SetOptions { target, max_num_peers } => {
                 self.actions.push(Box::new(move |info:&mut RunningInfo| Box::pin(async move {
                     debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                    info.get_node(target)?.addr.send(PeerManagerMessageRequest::SetAdvOptions(near_network::test_utils::SetAdvOptions {
+                    info.get_node(target)?.actix.addr.send(PeerManagerMessageRequest::SetAdvOptions(near_network::test_utils::SetAdvOptions {
                         set_max_peers: max_num_peers,
                     })).await?;
                     Ok(ControlFlow::Break(()))
@@ -254,7 +255,7 @@ impl StateMachine {
             Action::AddEdge { from, to, force } => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
                     debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                    let pm = info.get_node(from)?.addr.clone();
+                    let pm = info.get_node(from)?.actix.addr.clone();
                     let peer_info = info.runner.test_config[to].peer_info();
                     let peer_id = peer_info.id.clone();
                     pm.send(PeerManagerMessageRequest::OutboundTcpConnect(
@@ -286,7 +287,7 @@ impl StateMachine {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
                     debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
                     let target = info.runner.test_config[target].peer_id();
-                    info.get_node(source)?.addr.send(PeerManagerMessageRequest::PingTo{
+                    info.get_node(source)?.actix.addr.send(PeerManagerMessageRequest::PingTo{
                         nonce, target,
                     }).await?;
                     Ok(ControlFlow::Break(()))
@@ -295,7 +296,7 @@ impl StateMachine {
             Action::Stop(source) => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
                     debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                    info.stop_node(source).await?;
+                    info.stop_node(source);
                     Ok(ControlFlow::Break(()))
                 })));
             }
@@ -374,23 +375,13 @@ pub struct Runner {
 }
 
 struct NodeHandle {
-    addr: Addr<PeerManagerActor>,
+    actix: ActixSystem<PeerManagerActor>,
     events: broadcast::Receiver<Event>,
     pings: MultiSet<NetPing>,
     pongs: MultiSet<NetPong>,
-    send_stop: tokio::sync::oneshot::Sender<std::convert::Infallible>,
-    handle: std::thread::JoinHandle<anyhow::Result<()>>,
 }
 
 impl NodeHandle {
-    async fn stop(self) -> anyhow::Result<()> {
-        let handle = self.handle;
-        drop(self.send_stop);
-        tokio::task::spawn_blocking(|| handle.join().map_err(|_| anyhow!("node panicked"))?)
-            .await??;
-        Ok(())
-    }
-
     async fn consume_event(&mut self) {
         match self.events.recv().await {
             Event::Ping(ping) => self.pings.insert(ping),
@@ -526,6 +517,7 @@ impl Runner {
     }
 
     async fn setup_node(&self, node_id: usize) -> anyhow::Result<NodeHandle> {
+        tracing::debug!(target:"dupa", "starting {node_id}");
         let config = &self.test_config[node_id];
 
         let boot_nodes =
@@ -565,33 +557,17 @@ impl Runner {
             network_config.minimum_outbound_peers = mop;
         });
 
-        let (send_pm, recv_pm) = tokio::sync::oneshot::channel();
-        let (send_stop, recv_stop) = tokio::sync::oneshot::channel();
-        let handle = std::thread::spawn({
-            let account_id = config.account_id.clone();
-            let validators = self.validators.clone();
-            let chain_genesis = self.chain_genesis.clone();
-            move || {
-                actix::System::new().block_on(async move {
-                    send_pm
-                        .send(setup_network_node(
-                            account_id,
-                            validators,
-                            chain_genesis,
-                            network_config,
-                        ))
-                        .map_err(|_| anyhow!("send failed"))?;
-                    // recv_stop is expected to get closed.
-                    recv_stop.await.unwrap_err();
-                    Ok(())
-                })
-            }
-        });
-        let addr = recv_pm.await?;
+        let account_id = config.account_id.clone();
+        let validators = self.validators.clone();
+        let chain_genesis = self.chain_genesis.clone();
+        
         Ok(NodeHandle {
-            addr,
-            send_stop,
-            handle,
+            actix: ActixSystem::spawn(||setup_network_node(
+                account_id,
+                validators,
+                chain_genesis,
+                network_config,
+            )).await,
             events: recv_events,
             pings: MultiSet::default(),
             pongs: MultiSet::default(),
@@ -622,7 +598,7 @@ pub fn start_test(runner: Runner) -> anyhow::Result<()> {
         let step = tokio::time::Duration::from_millis(10);
         let start = tokio::time::Instant::now();
         for (i, a) in actions.into_iter().enumerate() {
-            debug!("[starting action {i}]");
+            tracing::debug!(target:"dupa", "[starting action {i}]");
             loop {
                 let done =
                     tokio::time::timeout_at(start + timeout, a(&mut info)).await.with_context(
@@ -637,7 +613,7 @@ pub fn start_test(runner: Runner) -> anyhow::Result<()> {
         }
         // Stop the running nodes.
         for i in 0..info.nodes.len() {
-            info.stop_node(i).await?;
+            info.stop_node(i);
         }
         Ok(())
     })
@@ -647,15 +623,13 @@ impl RunningInfo {
     fn get_node(&self, node_id: usize) -> anyhow::Result<&NodeHandle> {
         self.nodes[node_id].as_ref().ok_or(anyhow!("node is down"))
     }
-    async fn stop_node(&mut self, node_id: usize) -> anyhow::Result<()> {
-        if let Some(n) = self.nodes[node_id].take() {
-            n.stop().await?;
-        }
-        Ok(())
+    fn stop_node(&mut self, node_id: usize) {
+        tracing::debug!(target:"dupa", "stopping {node_id}");
+        self.nodes[node_id].take();
     }
 
     async fn start_node(&mut self, node_id: usize) -> anyhow::Result<()> {
-        self.stop_node(node_id).await?;
+        self.stop_node(node_id);
         self.nodes[node_id] = Some(self.runner.setup_node(node_id).await?);
         Ok(())
     }
@@ -668,7 +642,7 @@ pub fn assert_expected_peers(node_id: usize, peers: Vec<usize>) -> ActionFn {
     Box::new(move |info: &mut RunningInfo| {
         let peers = peers.clone();
         Box::pin(async move {
-            let pm = &info.get_node(node_id)?.addr;
+            let pm = &info.get_node(node_id)?.actix.addr;
             let network_info = pm.send(GetInfo {}).await?;
             let got: HashSet<_> = network_info
                 .connected_peers
@@ -696,7 +670,7 @@ pub fn check_expected_connections(
     Box::new(move |info: &mut RunningInfo| {
         Box::pin(async move {
             debug!(target: "network", node_id, expected_connections_lo, ?expected_connections_hi, "runner.rs: check_expected_connections");
-            let pm = &info.get_node(node_id)?.addr;
+            let pm = &info.get_node(node_id)?.actix.addr;
             let res = pm.send(GetInfo {}).await?;
             if expected_connections_lo.map_or(false, |l| l > res.num_connected_peers) {
                 return Ok(ControlFlow::Continue(()));
@@ -716,7 +690,7 @@ async fn check_direct_connection_inner(
 ) -> anyhow::Result<ControlFlow> {
     let target_peer_id = info.runner.test_config[target_id].peer_id();
     debug!(target: "network",  node_id, ?target_id, "runner.rs: check_direct_connection");
-    let pm = &info.get_node(node_id)?.addr;
+    let pm = &info.get_node(node_id)?.actix.addr;
     let rt = match pm.send(PeerManagerMessageRequest::FetchRoutingTable).await? {
         PeerManagerMessageResponse::FetchRoutingTable(rt) => rt,
         _ => bail!("bad response"),
@@ -761,7 +735,7 @@ async fn ban_peer_inner(
 ) -> anyhow::Result<ControlFlow> {
     debug!(target: "network", target_peer, banned_peer, "runner.rs: ban_peer");
     let banned_peer_id = info.runner.test_config[banned_peer].peer_id();
-    let pm = &info.get_node(target_peer)?.addr;
+    let pm = &info.get_node(target_peer)?.actix.addr;
     pm.send(BanPeerSignal::new(banned_peer_id)).await?;
     Ok(ControlFlow::Break(()))
 }
