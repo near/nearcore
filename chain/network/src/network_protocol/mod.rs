@@ -262,7 +262,7 @@ pub enum PeerMessage {
     Block(Block),
 
     Transaction(SignedTransaction),
-    Routed(Box<RoutedMessageV2>),
+    Routed(Arc<RoutedMessageV2>),
 
     /// Gracefully disconnect from other peer.
     Disconnect,

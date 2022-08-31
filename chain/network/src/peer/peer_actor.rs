@@ -309,15 +309,15 @@ impl PeerActor {
         let view_client_message = match msg {
             PeerMessage::Routed(message) => {
                 msg_hash = Some(message.hash());
-                match message.msg.body {
+                match &message.msg.body {
                     RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => {
                         NetworkViewClientMessages::TxStatus {
-                            tx_hash,
-                            signer_account_id: account_id,
+                            tx_hash: tx_hash.clone(),
+                            signer_account_id: account_id.clone(),
                         }
                     }
                     RoutedMessageBody::TxStatusResponse(tx_result) => {
-                        NetworkViewClientMessages::TxStatusResponse(Box::new(tx_result))
+                        NetworkViewClientMessages::TxStatusResponse(Box::new(tx_result.clone()))
                     }
                     RoutedMessageBody::ReceiptOutcomeRequest(_receipt_id) => {
                         // Silently ignore for the time being.  We’ve been still
@@ -327,10 +327,17 @@ impl PeerActor {
                         return;
                     }
                     RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
-                        NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash }
+                        NetworkViewClientMessages::StateRequestHeader {
+                            shard_id: *shard_id,
+                            sync_hash: sync_hash.clone(),
+                        }
                     }
                     RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id) => {
-                        NetworkViewClientMessages::StateRequestPart { shard_id, sync_hash, part_id }
+                        NetworkViewClientMessages::StateRequestPart {
+                            shard_id: *shard_id,
+                            sync_hash: sync_hash.clone(),
+                            part_id: *part_id,
+                        }
                     }
                     body => {
                         error!(target: "network", "Peer receive_view_client_message received unexpected type: {:?}", body);
@@ -418,7 +425,7 @@ impl PeerActor {
             if let Some(peer_id) = self.other_peer_id() { peer_id.clone() } else { return };
 
         // Wrap peer message into what client expects.
-        let network_client_msg = match msg {
+        let network_client_msg = match msg.clone() {
             PeerMessage::Block(block) => {
                 let block_hash = *block.hash();
                 self.tracker.lock().push_received(block_hash);
@@ -443,43 +450,43 @@ impl PeerActor {
             PeerMessage::Routed(routed_message) => {
                 let msg_hash = routed_message.hash();
 
-                match routed_message.msg.body {
+                match &routed_message.msg.body {
                     RoutedMessageBody::BlockApproval(approval) => {
-                        NetworkClientMessages::BlockApproval(approval, peer_id)
+                        NetworkClientMessages::BlockApproval(approval.clone(), peer_id)
                     }
                     RoutedMessageBody::ForwardTx(transaction) => {
                         NetworkClientMessages::Transaction {
-                            transaction,
+                            transaction: transaction.clone(),
                             is_forwarded: true,
                             check_only: false,
                         }
                     }
 
                     RoutedMessageBody::StateResponse(info) => {
-                        NetworkClientMessages::StateResponse(StateResponseInfo::V1(info))
+                        NetworkClientMessages::StateResponse(StateResponseInfo::V1(info.clone()))
                     }
                     RoutedMessageBody::VersionedStateResponse(info) => {
-                        NetworkClientMessages::StateResponse(info)
+                        NetworkClientMessages::StateResponse(info.clone())
                     }
                     RoutedMessageBody::PartialEncodedChunkRequest(request) => {
-                        NetworkClientMessages::PartialEncodedChunkRequest(request, msg_hash)
+                        NetworkClientMessages::PartialEncodedChunkRequest(request.clone(), msg_hash)
                     }
                     RoutedMessageBody::PartialEncodedChunkResponse(response) => {
                         NetworkClientMessages::PartialEncodedChunkResponse(
-                            response,
+                            response.clone(),
                             self.clock.now().into(),
                         )
                     }
                     RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk) => {
                         NetworkClientMessages::PartialEncodedChunk(PartialEncodedChunk::V1(
-                            partial_encoded_chunk,
+                            partial_encoded_chunk.clone(),
                         ))
                     }
                     RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
-                        NetworkClientMessages::PartialEncodedChunk(chunk)
+                        NetworkClientMessages::PartialEncodedChunk(chunk.clone())
                     }
                     RoutedMessageBody::PartialEncodedChunkForward(forward) => {
-                        NetworkClientMessages::PartialEncodedChunkForward(forward)
+                        NetworkClientMessages::PartialEncodedChunkForward(forward.clone())
                     }
                     RoutedMessageBody::Ping(_)
                     | RoutedMessageBody::Pong(_)
@@ -543,7 +550,9 @@ impl PeerActor {
                         );
                         return actix::fut::ready(());
                     }
-                    _ => {}
+                    _ => {
+                        act.network_state.config.event_sink.push(Event::MessageProcessed(msg));
+                    }
                 };
                 actix::fut::ready(())
             })
@@ -1078,7 +1087,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 })
                 .spawn(ctx);
             }
-            (PeerStatus::Ready, PeerMessage::Routed(mut msg)) => {
+            (PeerStatus::Ready, PeerMessage::Routed(msg)) => {
                 tracing::trace!(
                     target: "network",
                     "Received routed message from {} to {:?}.",
@@ -1093,7 +1102,11 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 let from = self.other_peer_id().unwrap().clone();
                 if msg.expect_response() {
                     tracing::trace!(target: "network", route_back = ?msg.clone(), "Received peer message that requires");
-                    self.network_state.routing_table_view.add_route_back(&self.clock, msg.hash(), from.clone());
+                    self.network_state.routing_table_view.add_route_back(
+                        &self.clock,
+                        msg.hash(),
+                        from.clone(),
+                    );
                 }
                 if self.network_state.message_for_me(&msg.target) {
                     metrics::record_routed_msg_latency(&self.clock, &msg);
@@ -1102,18 +1115,29 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     match &msg.body {
                         RoutedMessageBody::Ping(ping) => {
                             self.network_state.send_pong(&self.clock, ping.nonce, msg.hash());
+                            // TODO(gprusak): deprecate Event::Ping/Pong in favor of
+                            // MessageProcessed.
                             self.network_state.config.event_sink.push(Event::Ping(ping.clone()));
+                            self.network_state
+                                .config
+                                .event_sink
+                                .push(Event::MessageProcessed(PeerMessage::Routed(msg)));
                         }
                         RoutedMessageBody::Pong(pong) => {
                             self.network_state.config.event_sink.push(Event::Pong(pong.clone()));
+                            self.network_state
+                                .config
+                                .event_sink
+                                .push(Event::MessageProcessed(PeerMessage::Routed(msg)));
                         }
                         _ => {
-                            self.receive_message(ctx, PeerMessage::Routed(msg));
+                            self.receive_message(ctx, PeerMessage::Routed(msg.clone()));
                         }
                     }
                 } else {
+                    let mut msg = (*msg).clone();
                     if msg.decrease_ttl() {
-                        self.network_state.send_signed_message_to_peer(&self.clock, msg);
+                        self.network_state.send_signed_message_to_peer(&self.clock, Arc::new(msg));
                     } else {
                         self.network_state.config.event_sink.push(Event::RoutedMessageDropped);
                         warn!(target: "network", ?msg, ?from, "Message dropped because TTL reached 0.");

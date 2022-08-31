@@ -114,7 +114,7 @@ impl RawRoutedMessage {
         secret_key: &SecretKey,
         routed_message_ttl: u8,
         now: Option<time::Utc>,
-    ) -> Box<RoutedMessageV2> {
+    ) -> RoutedMessageV2 {
         let target = self.target.peer_id_or_hash().unwrap();
         let hash = RoutedMessage::build_hash(&target, &author, &self.body);
         let signature = secret_key.sign(hash.as_ref());
@@ -128,7 +128,6 @@ impl RawRoutedMessage {
             },
             created_at: now,
         }
-        .into()
     }
 }
 

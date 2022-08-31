@@ -227,33 +227,39 @@ impl NetworkState {
         }
     }
 
-    pub fn send_ping(&self, clock :&time::Clock, nonce: u64, target: PeerId) {
+    pub fn send_ping(&self, clock: &time::Clock, nonce: u64, target: PeerId) {
         let body = RoutedMessageBody::Ping(Ping { nonce, source: self.config.node_id() });
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(clock, msg);
     }
 
     pub fn send_pong(&self, clock: &time::Clock, nonce: u64, target: CryptoHash) {
-        let body =
-            RoutedMessageBody::Pong(Pong { nonce, source: self.config.node_id() });
+        let body = RoutedMessageBody::Pong(Pong { nonce, source: self.config.node_id() });
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body };
-        self.send_message_to_peer(clock,msg);
+        self.send_message_to_peer(clock, msg);
     }
 
     /// Route message to target peer.
     /// Return whether the message is sent or not.
     pub fn send_message_to_peer(&self, clock: &time::Clock, msg: RawRoutedMessage) -> bool {
-        self.send_signed_message_to_peer(clock, msg.sign(
-            self.config.node_id(),
-            &self.config.node_key,
-            self.config.routed_message_ttl,
-            Some(clock.now_utc()),
-        ))
+        self.send_signed_message_to_peer(
+            clock,
+            Arc::new(msg.sign(
+                self.config.node_id(),
+                &self.config.node_key,
+                self.config.routed_message_ttl,
+                Some(clock.now_utc()),
+            )),
+        )
     }
 
     /// Route signed message to target peer.
     /// Return whether the message is sent or not.
-    pub fn send_signed_message_to_peer(&self, clock: &time::Clock, msg: Box<RoutedMessageV2>) -> bool {
+    pub fn send_signed_message_to_peer(
+        &self,
+        clock: &time::Clock,
+        msg: Arc<RoutedMessageV2>,
+    ) -> bool {
         let my_peer_id = self.config.node_id();
 
         // Check if the message is for myself and don't try to send it in that case.
@@ -269,11 +275,7 @@ impl NetworkState {
                 // Remember if we expect a response for this message.
                 if msg.msg.author == my_peer_id && msg.expect_response() {
                     trace!(target: "network", ?msg, "initiate route back");
-                    self.routing_table_view.add_route_back(
-                        &clock,
-                        msg.hash(),
-                        my_peer_id,
-                    );
+                    self.routing_table_view.add_route_back(&clock, msg.hash(), my_peer_id);
                 }
                 self.tier2.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)))
             }
@@ -1284,8 +1286,10 @@ impl PeerManagerActor {
                 self.send_message_to_account(account_id, msg)
             }
             peer_or_hash @ AccountOrPeerIdOrHash::PeerId(_)
-            | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) =>
-                self.state.send_message_to_peer(&self.clock,RawRoutedMessage { target: peer_or_hash.clone(), body: msg }),
+            | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) => self.state.send_message_to_peer(
+                &self.clock,
+                RawRoutedMessage { target: peer_or_hash.clone(), body: msg },
+            ),
         }
     }
 
@@ -1312,13 +1316,13 @@ impl PeerManagerActor {
         if msg.body.is_important() {
             let mut success = false;
             for _ in 0..IMPORTANT_MESSAGE_RESENT_COUNT {
-                success |= self.state.send_message_to_peer(&self.clock,msg.clone());
+                success |= self.state.send_message_to_peer(&self.clock, msg.clone());
             }
             success
         } else {
-            self.state.send_message_to_peer(&self.clock,msg)
+            self.state.send_message_to_peer(&self.clock, msg)
         }
-    } 
+    }
 
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
         let tier2 = self.state.tier2.load();
@@ -1457,10 +1461,10 @@ impl PeerManagerActor {
                         RoutedMessageBody::VersionedStateResponse(response)
                     }
                 };
-                if self.state.send_message_to_peer(&self.clock, RawRoutedMessage {
-                    target: AccountOrPeerIdOrHash::Hash(route_back),
-                    body,
-                }) {
+                if self.state.send_message_to_peer(
+                    &self.clock,
+                    RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(route_back), body },
+                ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
@@ -1528,12 +1532,15 @@ impl PeerManagerActor {
 
                         if let Some(matching_peer) = matching_peers.iter().choose(&mut thread_rng())
                         {
-                            if self.state.send_message_to_peer(&self.clock,RawRoutedMessage {
-                                target: AccountOrPeerIdOrHash::PeerId(matching_peer.clone()),
-                                body: RoutedMessageBody::PartialEncodedChunkRequest(
-                                    request.clone(),
-                                ),
-                            }) {
+                            if self.state.send_message_to_peer(
+                                &self.clock,
+                                RawRoutedMessage {
+                                    target: AccountOrPeerIdOrHash::PeerId(matching_peer.clone()),
+                                    body: RoutedMessageBody::PartialEncodedChunkRequest(
+                                        request.clone(),
+                                    ),
+                                },
+                            ) {
                                 success = true;
                                 break;
                             }
@@ -1551,10 +1558,13 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
-                if self.state.send_message_to_peer(&self.clock,RawRoutedMessage {
-                    target: AccountOrPeerIdOrHash::Hash(route_back),
-                    body: RoutedMessageBody::PartialEncodedChunkResponse(response),
-                }) {
+                if self.state.send_message_to_peer(
+                    &self.clock,
+                    RawRoutedMessage {
+                        target: AccountOrPeerIdOrHash::Hash(route_back),
+                        body: RoutedMessageBody::PartialEncodedChunkResponse(response),
+                    },
+                ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
@@ -1862,10 +1872,10 @@ impl PeerManagerActor {
             }
             PeerToManagerMsg::RouteBack(body, target) => {
                 trace!(target: "network", ?target, "Sending message to route back");
-                self.state.send_message_to_peer(&self.clock,RawRoutedMessage {
-                    target: AccountOrPeerIdOrHash::Hash(target),
-                    body: *body,
-                });
+                self.state.send_message_to_peer(
+                    &self.clock,
+                    RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body: *body },
+                );
                 PeerToManagerMsgResp::Empty
             }
             PeerToManagerMsg::UpdatePeerInfo(peer_info) => {
