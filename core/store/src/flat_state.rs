@@ -82,7 +82,7 @@ mod imp {
 
     impl FlatState {
         pub fn get_ref(&self, _root: &CryptoHash, _key: &[u8]) -> ! {
-            unreachable!()
+            match self {}
         }
     }
 
