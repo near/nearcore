@@ -636,7 +636,7 @@ mod test {
         );
         let new_genesis = new_near_config.genesis;
 
-        assert_eq!(new_genesis.config.shard_layout, ShardLayout::v1_test());
+        assert_eq!(new_genesis.config.shard_layout, ShardLayout::get_simple_nightshade_layout());
         assert_eq!(new_genesis.config.num_block_producer_seats_per_shard, vec![2; 4]);
         assert_eq!(new_genesis.config.avg_hidden_validator_seats_per_shard, vec![0; 4]);
     }

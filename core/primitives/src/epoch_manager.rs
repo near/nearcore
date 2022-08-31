@@ -100,7 +100,7 @@ impl AllEpochConfig {
         let mut config = self.genesis_epoch_config.clone();
         if self.use_production_config {
             if checked_feature!("stable", SimpleNightshade, protocol_version) {
-                config.shard_layout = ShardLayout::default_simple_nightshade_layout();
+                config.shard_layout = ShardLayout::get_simple_nightshade_layout();
                 config.num_block_producer_seats_per_shard = vec![
                     config.num_block_producer_seats;
                     config.shard_layout.num_shards()

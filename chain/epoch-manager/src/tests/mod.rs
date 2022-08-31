@@ -2175,7 +2175,7 @@ fn test_protocol_version_switch_with_shard_layout_change() {
     );
     assert_eq!(
         epoch_manager.get_shard_layout(&epochs[2]).unwrap(),
-        ShardLayout::default_simple_nightshade_layout()
+        ShardLayout::get_simple_nightshade_layout()
     );
 
     // Check split shards

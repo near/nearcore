@@ -153,7 +153,7 @@ impl ShardLayout {
     }
 
     /// Returns the simple nightshade layout that we use in production
-    pub fn default_simple_nightshade_layout() -> ShardLayout {
+    pub fn get_simple_nightshade_layout() -> ShardLayout {
         ShardLayout::v1(
             vec![],
             vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
