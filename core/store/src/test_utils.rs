@@ -1,11 +1,10 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use rand::seq::SliceRandom;
 use rand::Rng;
 
 use crate::db::TestDB;
-use crate::{NodeStorage, ShardTries, Store, Temperature, TrieCacheFactory};
+use crate::{NodeStorage, ShardTries, Store, TrieCacheFactory};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DataReceipt, Receipt, ReceiptEnum};
@@ -17,12 +16,12 @@ use std::str::from_utf8;
 ///
 /// In tests you’ll often want to use [`create_test_store`] instead.
 pub fn create_test_node_storage() -> NodeStorage {
-    NodeStorage::new(Arc::new(TestDB::new()))
+    NodeStorage::new(TestDB::new())
 }
 
 /// Creates an in-memory database.
 pub fn create_test_store() -> Store {
-    create_test_node_storage().get_store(Temperature::Hot)
+    create_test_node_storage().get_store(crate::Temperature::Hot)
 }
 
 /// Creates a Trie using an in-memory database.
