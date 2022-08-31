@@ -19,7 +19,7 @@ fn edge(p0: &PeerId, p1: &PeerId, nonce: u64) -> Edge {
 struct RoutingTableTest {
     clock: time::FakeClock,
     rng: crate::testonly::Rng,
-    store: near_store::NodeStorage,
+    db: Arc<dyn near_store::db::Database>,
     graph: Arc<RwLock<routing::GraphWithCache>>,
     // This is the system runner attached to the given test's system thread.
     // Allows to create actors within the test.
@@ -46,22 +46,22 @@ impl RoutingTableTest {
         let mut rng = make_rng(87927345);
         let clock = time::FakeClock::default();
         let me = data::make_peer_id(&mut rng);
-        let store = near_store::test_utils::create_test_node_storage();
+        let db = near_store::db::TestDB::new();
 
         let graph = Arc::new(RwLock::new(routing::GraphWithCache::new(me.clone())));
-        Self { rng, clock, graph, store, _system: actix::System::new() }
+        Self { rng, clock, graph, db, _system: actix::System::new() }
     }
 
     fn new_actor(&self) -> routing::actor::Actor {
         routing::actor::Actor::new(
             self.clock.clock(),
-            store::Store::from(&self.store),
+            store::Store::from(self.db.clone()),
             self.graph.clone(),
         )
     }
 
     fn check(&mut self, want_mem: &[Edge], want_db: &[Component]) {
-        let store = store::Store::from(&self.store);
+        let store = store::Store::from(self.db.clone());
         let got_mem = self.graph.read().edges().clone();
         let got_mem: HashMap<_, _> = got_mem.iter().collect();
         let mut want_mem_map = HashMap::new();

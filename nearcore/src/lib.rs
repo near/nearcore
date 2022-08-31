@@ -291,7 +291,7 @@ pub fn start_with_config_and_synchronization(
         move |_ctx| {
             PeerManagerActor::new(
                 time::Clock::real(),
-                store,
+                store.into_inner(near_store::Temperature::Hot),
                 config.network_config,
                 client_actor.recipient(),
                 view_client.recipient(),

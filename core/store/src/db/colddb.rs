@@ -270,7 +270,7 @@ mod test {
 
     /// Constructs test in-memory database.
     fn create_test_db() -> ColdDatabase<crate::db::TestDB> {
-        ColdDatabase(crate::db::testdb::TestDB::new())
+        ColdDatabase(crate::db::testdb::TestDB::default())
     }
 
     fn set(col: DBCol, key: &[u8]) -> DBOp {

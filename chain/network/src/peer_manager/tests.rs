@@ -13,7 +13,6 @@ use near_logger_utils::init_test_logger;
 use near_network_primitives::time;
 use near_network_primitives::types::{Ping, RoutedMessageBody, EDGE_MIN_TIMESTAMP_NONCE};
 use near_primitives::network::PeerId;
-use near_store::test_utils::create_test_node_storage;
 use pretty_assertions::assert_eq;
 use rand::seq::SliceRandom as _;
 use rand::Rng as _;
@@ -32,7 +31,7 @@ async fn repeated_data_in_sync_routing_table() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let pm = peer_manager::testonly::start(
         clock.clock(),
-        create_test_node_storage(),
+        near_store::db::TestDB::new(),
         chain.make_config(rng),
         chain.clone(),
     )
@@ -108,14 +107,14 @@ async fn no_edge_broadcast_after_restart() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let mut total_edges = vec![];
-    let storage = create_test_node_storage().into_inner(near_store::Temperature::Hot);
+    let store = near_store::db::TestDB::new();
 
     for i in 0..3 {
         println!("iteration {i}");
         // Start a PeerManager and connect a peer to it.
         let pm = peer_manager::testonly::start(
             clock.clock(),
-            near_store::NodeStorage::new(storage.clone()),
+            store.clone(),
             chain.make_config(rng),
             chain.clone(),
         )
@@ -182,12 +181,10 @@ async fn test_nonces() {
     let mut clock = time::FakeClock::new(*EDGE_MIN_TIMESTAMP_NONCE + time::Duration::days(2));
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    //let mut total_edges = vec![];
-
     // Start a PeerManager and connect a peer to it.
     let pm = peer_manager::testonly::start(
         clock.clock(),
-        create_test_node_storage(),
+        near_store::db::TestDB::new(),
         chain.make_config(rng),
         chain.clone(),
     )
@@ -244,7 +241,7 @@ async fn ttl() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let mut pm = peer_manager::testonly::start(
         clock.clock(),
-        create_test_node_storage(),
+        near_store::db::TestDB::new(),
         chain.make_config(rng),
         chain.clone(),
     )
@@ -314,7 +311,7 @@ async fn accounts_data_broadcast() {
 
     let mut pm = peer_manager::testonly::start(
         clock.clone(),
-        create_test_node_storage(),
+        near_store::db::TestDB::new(),
         chain.make_config(rng),
         chain.clone(),
     )
@@ -397,7 +394,7 @@ async fn accounts_data_gradual_epoch_change() {
         pms.push(
             peer_manager::testonly::start(
                 clock.clock(),
-                create_test_node_storage(),
+                near_store::db::TestDB::new(),
                 chain.make_config(rng),
                 chain.clone(),
             )
@@ -471,7 +468,7 @@ async fn accounts_data_rate_limiting() {
         pms.push(
             peer_manager::testonly::start(
                 clock.clock(),
-                create_test_node_storage(),
+                near_store::db::TestDB::new(),
                 cfg,
                 chain.clone(),
             )
@@ -559,7 +556,7 @@ async fn connection_spam_security_test() {
     cfg.handshake_timeout = time::Duration::hours(1);
     let pm = peer_manager::testonly::start(
         clock.clock(),
-        create_test_node_storage(),
+        near_store::db::TestDB::new(),
         cfg,
         chain.clone(),
     )

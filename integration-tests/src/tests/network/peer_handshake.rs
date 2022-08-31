@@ -31,7 +31,6 @@ fn make_peer_manager(
     boot_nodes: Vec<(&str, u16)>,
     peer_max_count: u32,
 ) -> PeerManagerActor {
-    let store = near_store::test_utils::create_test_node_storage();
     let mut config = config::NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
     config.max_num_peers = peer_max_count;
@@ -48,7 +47,7 @@ fn make_peer_manager(
 
     PeerManagerActor::new(
         time::Clock::real(),
-        store,
+        near_store::db::TestDB::new(),
         config,
         client_addr.recipient(),
         view_client_addr.recipient(),

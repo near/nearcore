@@ -9,6 +9,7 @@ use near_primitives::account::id::AccountId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_store::DBCol;
 use std::io;
+use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
@@ -265,10 +266,6 @@ pub struct Store(std::sync::Arc<dyn near_store::db::Database>);
 pub struct StoreUpdate(near_store::db::DBTransaction);
 
 impl Store {
-    pub fn new(db: std::sync::Arc<dyn near_store::db::Database>) -> Store {
-        Store(db)
-    }
-
     pub fn new_update(&mut self) -> StoreUpdate {
         Default::default()
     }
@@ -295,6 +292,12 @@ impl Store {
             Some(v) => Some(C::Value::decode(&v)?),
             None => None,
         })
+    }
+}
+
+impl From<Arc<dyn near_store::db::Database>> for Store {
+    fn from(db: Arc<dyn near_store::db::Database>) -> Self {
+        Self(db)
     }
 }
 

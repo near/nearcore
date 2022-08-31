@@ -61,6 +61,7 @@ fn setup_network_node(
     ));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
 
+    let db = store.into_inner(near_store::Temperature::Hot);
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true);
         client_config.archive = config.archive;
@@ -97,7 +98,7 @@ fn setup_network_node(
 
         PeerManagerActor::new(
             time::Clock::real(),
-            store,
+            db.clone(),
             config,
             client_actor.recipient(),
             view_client_actor.recipient(),
