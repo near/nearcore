@@ -25,7 +25,7 @@ use near_network_primitives::time;
 use near_network_primitives::types::{
     Ban, EdgeState, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfoV2,
     PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType,
-    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, StateResponseInfo,
+    ReasonForBan, RoutedMessage, RoutedMessageBody, StateResponseInfo,
 };
 use near_network_primitives::types::{Edge, PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
@@ -1078,30 +1078,46 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 })
                 .spawn(ctx);
             }
-            (PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
+            (PeerStatus::Ready, PeerMessage::Routed(mut msg)) => {
                 tracing::trace!(
                     target: "network",
                     "Received routed message from {} to {:?}.",
                     self.peer_info,
-                    routed_message.msg.target);
+                    msg.target);
 
                 // Receive invalid routed message from peer.
-                if !routed_message.verify() {
+                if !msg.verify() {
                     self.ban_peer(ctx, ReasonForBan::InvalidSignature);
+                    return;
+                }
+                let from = self.other_peer_id().unwrap().clone();
+                if msg.expect_response() {
+                    tracing::trace!(target: "network", route_back = ?msg.clone(), "Received peer message that requires");
+                    self.network_state.routing_table_view.add_route_back(&self.clock, msg.hash(), from.clone());
+                }
+                if self.network_state.message_for_me(&msg.target) {
+                    metrics::record_routed_msg_latency(&self.clock, &msg);
+                    // Handle Ping and Pong message if they are for us without sending to client.
+                    // i.e. Return false in case of Ping and Pong
+                    match &msg.body {
+                        RoutedMessageBody::Ping(ping) => {
+                            self.network_state.send_pong(&self.clock, ping.nonce, msg.hash());
+                            self.network_state.config.event_sink.push(Event::Ping(ping.clone()));
+                        }
+                        RoutedMessageBody::Pong(pong) => {
+                            self.network_state.config.event_sink.push(Event::Pong(pong.clone()));
+                        }
+                        _ => {
+                            self.receive_message(ctx, PeerMessage::Routed(msg));
+                        }
+                    }
                 } else {
-                    self.peer_manager_addr
-                        .send(PeerToManagerMsg::RoutedMessageFrom(RoutedMessageFrom {
-                            msg: routed_message.clone(),
-                            from: self.other_peer_id().unwrap().clone(),
-                        }))
-                        .into_actor(self)
-                        .then(move |res, act, ctx| {
-                            if res.map(|f| f.unwrap_routed_message_from()).unwrap_or(false) {
-                                act.receive_message(ctx, PeerMessage::Routed(routed_message));
-                            }
-                            actix::fut::ready(())
-                        })
-                        .spawn(ctx);
+                    if msg.decrease_ttl() {
+                        self.network_state.send_signed_message_to_peer(&self.clock, msg);
+                    } else {
+                        self.network_state.config.event_sink.push(Event::RoutedMessageDropped);
+                        warn!(target: "network", ?msg, ?from, "Message dropped because TTL reached 0.");
+                    }
                 }
             }
             (PeerStatus::Ready, msg) => {

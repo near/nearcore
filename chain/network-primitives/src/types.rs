@@ -132,17 +132,6 @@ impl RawRoutedMessage {
     }
 }
 
-/// Routed Message wrapped with previous sender of the message.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(actix::Message, Clone, Debug)]
-#[rtype(result = "bool")]
-pub struct RoutedMessageFrom {
-    /// Routed messages.
-    pub msg: Box<RoutedMessageV2>,
-    /// Previous hop in the route. Used for messages that needs routing back.
-    pub from: PeerId,
-}
-
 /// Status of the known peers.
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum KnownPeerStatus {

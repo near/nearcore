@@ -131,11 +131,6 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
                     },
                 ))
             }
-            PeerToManagerMsg::RoutedMessageFrom(rmf) => {
-                self.event_sink.push(Event::Routed(rmf.msg.clone()));
-                // Reject all incoming routed messages.
-                PeerToManagerMsgResp::RoutedMessageFrom(false)
-            }
             PeerToManagerMsg::SyncRoutingTable { routing_table_update, .. } => {
                 self.event_sink.push(Event::RoutingTable(routing_table_update));
                 PeerToManagerMsgResp::Empty

@@ -306,5 +306,5 @@ impl Pool {
         for peer in self.load().ready.values() {
             peer.send_message(msg.clone());
         }
-    }
+    } 
 }

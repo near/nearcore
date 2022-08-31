@@ -4,7 +4,8 @@ use near_metrics::{
     try_create_int_counter_vec, try_create_int_gauge, Histogram, HistogramVec, IntCounter,
     IntCounterVec, IntGauge, IntGaugeVec,
 };
-use near_network_primitives::types::{PeerType, RoutedMessageBody};
+use near_network_primitives::time;
+use near_network_primitives::types::{PeerType, RoutedMessageBody, RoutedMessageV2};
 use once_cell::sync::Lazy;
 
 /// Labels represents a schema of an IntGaugeVec metric.
@@ -245,7 +246,7 @@ pub(crate) static BROADCAST_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static NETWORK_ROUTED_MSG_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
+static NETWORK_ROUTED_MSG_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_network_routed_msg_latency",
         "Latency of network messages, assuming clocks are perfectly synchronized",
@@ -254,6 +255,18 @@ pub(crate) static NETWORK_ROUTED_MSG_LATENCY: Lazy<HistogramVec> = Lazy::new(|| 
     )
     .unwrap()
 });
+
+// The routed message received its destination. If the timestamp of creation of this message is
+// known, then update the corresponding latency metric histogram.
+pub(crate) fn record_routed_msg_latency(clock: &time::Clock, msg: &RoutedMessageV2) {
+    if let Some(created_at) = msg.created_at {
+        let now = clock.now_utc();
+        let duration = now - created_at;
+        NETWORK_ROUTED_MSG_LATENCY
+            .with_label_values(&[msg.body_variant()])
+            .observe(duration.as_seconds_f64());
+    }
+}
 
 #[derive(Clone, Copy, strum::AsRefStr)]
 pub(crate) enum MessageDropped {
