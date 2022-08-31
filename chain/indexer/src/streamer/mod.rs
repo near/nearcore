@@ -287,8 +287,9 @@ pub(crate) async fn start(
     blocks_sink: mpsc::Sender<StreamerMessage>,
 ) {
     info!(target: INDEXER, "Starting Streamer...");
-    let indexer_db_path =
-        near_store::Store::opener(&indexer_config.home_dir, &store_config).path().join("indexer");
+    let indexer_db_path = near_store::NodeStorage::opener(&indexer_config.home_dir, &store_config)
+        .path()
+        .join("indexer");
 
     // TODO: implement proper error handling
     let db = DB::open_default(indexer_db_path).unwrap();
