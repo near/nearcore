@@ -77,6 +77,8 @@ mod imp {
     use crate::Store;
 
     /// Since this has no variants it can never be instantiated.
+    ///
+    /// To use flat state enable `protocol_feature_flat_state` cargo feature.
     #[derive(Clone)]
     pub enum FlatState {}
 
@@ -86,6 +88,8 @@ mod imp {
         }
     }
 
+    /// Always returns `None`; to use of flat state enable
+    /// `protocol_feature_flat_state` cargo feature.
     #[inline]
     pub fn maybe_new(_use_flat_state: bool, _store: &Store) -> Option<FlatState> {
         None
