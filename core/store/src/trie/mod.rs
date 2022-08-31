@@ -800,7 +800,6 @@ pub mod estimator {
 #[cfg(test)]
 mod tests {
     use rand::Rng;
-    use std::sync::Arc;
 
     use crate::test_utils::{
         create_test_store, create_tries, create_tries_complex, gen_changes, simplify_changes,
@@ -1292,33 +1291,6 @@ mod tests {
         assert_eq!(trie2.get(b"doge").unwrap().unwrap(), b"coin");
     }
 
-    impl Trie {
-        /// Given a root and a key, it returns a MerkleProof for that key.
-        /// Note that it can be a proof of membership, or a proof of non membership. This is encoded
-        /// in the boolean of the return type.
-        ///
-        /// Hence, if [get_proof](#method.get_proof) returns (true, _), it means that the key-value are found in the trie
-        /// and a proof for that is presented. Similarly, if (false, _) is returned, it means that the key-value
-        /// pair does not belong to the trie and a proof for that is also returned.
-        ///
-        /// # Errors
-        ///
-        /// If the root or any subsequent nodes are not found in the trie, `StorageError` is returned
-        pub fn get_proof(&self, raw_key: &[u8]) -> Result<Vec<Arc<Vec<u8>>>, StorageError> {
-            let query_key = NibbleSlice::new(raw_key);
-            let mut iter = self.iter()?;
-
-            iter.remember_visited_nodes(true);
-            iter.seek_nibble_slice(query_key)?;
-            let proof = iter
-                .into_visited_nodes()
-                .into_iter()
-                .map(|x| Arc::new(x.to_vec()))
-                .collect::<Vec<_>>();
-            Ok(proof)
-        }
-    }
-
     #[test]
     fn test_create_and_verify_proof() {
         let changes = vec![
@@ -1330,13 +1302,20 @@ mod tests {
             (b"h".to_vec(), Some(b"value".to_vec())),
         ];
 
+        let get_proof = |trie: &Trie, k: &[u8]| {
+            let mut iter = trie.iter().unwrap();
+            iter.remember_visited_nodes(true);
+            iter.seek(&k).unwrap();
+            iter.into_visited_nodes()
+        };
+
         let tries = create_tries();
         let shard_uid = ShardUId::single_shard();
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, changes.clone());
         let trie = tries.get_trie_for_shard(shard_uid, root);
 
         for (k, v) in changes {
-            let raw_proof = trie.get_proof(&k).unwrap();
+            let raw_proof = get_proof(&trie, k.as_ref());
             let proof = raw_proof.iter().map(|p| RawTrieNodeWithSize::decode(p).unwrap()).collect();
 
             assert!(verify_proof(&k, proof, v.as_deref(), root));
@@ -1346,13 +1325,14 @@ mod tests {
             [b"white_horse".as_ref(), b"white_rose".as_ref(), b"doge_elon".as_ref(), b"".as_ref()];
 
         for non_existing_key in non_existing_keys {
-            let raw_proof = trie.get_proof(non_existing_key).unwrap();
+            let raw_proof = get_proof(&trie, non_existing_key);
+
             let proof = raw_proof.iter().map(|p| RawTrieNodeWithSize::decode(p).unwrap()).collect();
             assert!(verify_proof(non_existing_key, proof, None, root));
         }
 
         for non_existing_key in non_existing_keys {
-            let raw_proof = trie.get_proof(non_existing_key).unwrap();
+            let raw_proof = get_proof(&trie, non_existing_key);
             let proof = raw_proof.iter().map(|p| RawTrieNodeWithSize::decode(p).unwrap()).collect();
             // duplicating this because RawTrieNodeWithSize does not implement Clone
             assert!(!verify_proof(non_existing_key, proof, Some(b"0_value"), root));

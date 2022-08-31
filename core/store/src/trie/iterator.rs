@@ -72,7 +72,7 @@ impl<'a> TrieIterator<'a> {
     /// Configures whether the iterator should remember all the nodes its
     /// visiting.
     ///
-    /// List of visited nodes can be retrieved by [`Self::visited_nodes`] method.
+    /// Use [`Self::into_visited_nodes`] to retrieve the list.
     pub fn remember_visited_nodes(&mut self, remember: bool) {
         self.visited_nodes = remember.then(|| Vec::new());
     }

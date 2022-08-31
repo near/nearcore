@@ -193,9 +193,6 @@ impl From<AccessKeyView> for AccessKey {
     }
 }
 
-/// Set of serialized TrieNodes that are encoded in base64. Represent proof of inclusion of some TrieNode in the MerkleTrie.
-pub type TrieProofPath = Vec<String>;
-
 /// Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -205,8 +202,8 @@ pub struct StateItem {
     #[serde(with = "base64_format")]
     pub value: Vec<u8>,
     /// Deprecated, always empty, eventually will be deleted.
-    // TODO(mina86): This was made deprecated at protocol version 56.  Remove it
-    // once we’re at 59.
+    // TODO(mina86): This was deprecated in 1.30.  Get rid of the field
+    // altogether at 1.33 or something.
     #[serde(default)]
     pub proof: Vec<()>,
 }

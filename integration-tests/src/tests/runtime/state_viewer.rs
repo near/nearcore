@@ -11,7 +11,7 @@ use near_primitives::{
     types::{EpochId, StateChangeCause},
     version::PROTOCOL_VERSION,
 };
-use near_primitives_core::serialize::{from_base64, to_base64};
+use near_primitives_core::serialize::from_base64;
 use near_store::set_account;
 use node_runtime::state_viewer::errors;
 use node_runtime::state_viewer::*;
@@ -135,8 +135,10 @@ fn test_view_state() {
     let state_update = tries.new_trie_update(shard_uid, new_root);
     let trie_viewer = TrieViewer::default();
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
-    assert_eq!(result.proof.iter().map(|x| x.to_vec()).collect::<Vec<_>>(), ["AwEAAAAQcAvUIU4OEj2HoAMFJkqhvxZFNyIwFFUKQdbb+bdAiHyNewEAAAAAAA==",
-        "AQcCc2Tg//GX+CHSgGOgNJdSmU352riCI473gh57j16o5Z2gWL0RHvyJxnv8L1n3Py8nmMk5nXjlGfBholhBzKyBlqeYRr8PVilJ81MgJKvV/R1SxQuTfwwmbZ6sN/TC2XfL1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rlZewEAAAAAAA==",
+    assert_eq!(result.proof.iter()
+    .map(|x| x.to_vec()).collect::<Vec<_>>(), [
+        "AwEAAAAQjHWWT6rXAXqUm14fjfDxo3286ApntHMI1eK0aQAJZPfJewEAAAAAAA==",
+        "AQcCSXBK8DHIYBF47dz6xB2iFKLLsPjAIAo9syJTBC0/Y1OjJNvT5izZukYCmtq/AyVTeyWFl1Ei6yFZBf5yIJ0i96eYRr8PVilJ81MgJKvV/R1SxQuTfwwmbZ6sN/TC2XfL1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rmVewEAAAAAAA==",
         "AwMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3gwDAAAAAAAA",
         "ASAC7S1KwgLNl0HPdSo8soL8sGOmPhL7O0xTSR8sDDR5pZrzu0ty3UPYJ5UKrFGKxXoyyyNG75AF9hnJHO3xxFkf5NQCAAAAAAAA",
         "AwEAAAAW607KPj2q3O8dF6XkfALiIrd9mqGir2UlYIcZuLNksTsvAgAAAAAAAA==",
@@ -146,7 +148,8 @@ fn test_view_state() {
         "AAMAAAAgMjMDAAAApmWkWSBCL51Bfkhn79xPuKBKHz//H6B+mY6G9/eieuNtAAAAAAAAAA==",
         "AAMAAAAgMjEDAAAAjSPPbIboNKeqbt7VTCbOK7LnSQNTjGG91dIZeZerL3JtAAAAAAAAAA==",
         "AAYAAAAgYSxxcXEDAAAAjSPPbIboNKeqbt7VTCbOK7LnSQNTjGG91dIZeZerL3JzAAAAAAAAAA==",
-    ].into_iter().map(|x| from_base64(x).unwrap()).collect::<Vec<_>>());
+    ].into_iter()
+    .map(|x| from_base64(x).unwrap()).collect::<Vec<_>>());
     assert_eq!(
         result.values,
         [
@@ -165,13 +168,11 @@ fn test_view_state() {
         result
             .proof
             .iter()
-            .inspect(|x| {
-                println!("\"{}\",", to_base64(x));
-            })
             .map(|x| x.to_vec())
             .collect::<Vec<_>>(),
-        ["AwEAAAAQcAvUIU4OEj2HoAMFJkqhvxZFNyIwFFUKQdbb+bdAiHyNewEAAAAAAA==",
-            "AQcCc2Tg//GX+CHSgGOgNJdSmU352riCI473gh57j16o5Z2gWL0RHvyJxnv8L1n3Py8nmMk5nXjlGfBholhBzKyBlqeYRr8PVilJ81MgJKvV/R1SxQuTfwwmbZ6sN/TC2XfL1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rlZewEAAAAAAA==",
+        [
+            "AwEAAAAQjHWWT6rXAXqUm14fjfDxo3286ApntHMI1eK0aQAJZPfJewEAAAAAAA==",
+            "AQcCSXBK8DHIYBF47dz6xB2iFKLLsPjAIAo9syJTBC0/Y1OjJNvT5izZukYCmtq/AyVTeyWFl1Ei6yFZBf5yIJ0i96eYRr8PVilJ81MgJKvV/R1SxQuTfwwmbZ6sN/TC2XfL1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rmVewEAAAAAAA==",
             "AwMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3gwDAAAAAAAA",
             "ASAC7S1KwgLNl0HPdSo8soL8sGOmPhL7O0xTSR8sDDR5pZrzu0ty3UPYJ5UKrFGKxXoyyyNG75AF9hnJHO3xxFkf5NQCAAAAAAAA",
             "AwEAAAAW607KPj2q3O8dF6XkfALiIrd9mqGir2UlYIcZuLNksTsvAgAAAAAAAA==",
