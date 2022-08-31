@@ -256,7 +256,12 @@ impl Database for RocksDB {
     }
 
     fn flush(&self) -> io::Result<()> {
-        self.db.flush().map_err(into_other)
+        // Need to iterator over all CFs because the normal `flush()` only
+        // flushes the default column family.
+        for col in DBCol::iter() {
+            self.db.flush_cf(self.cf_handle(col)).map_err(into_other)?;
+        }
+        Ok(())
     }
 
     /// Trying to get
