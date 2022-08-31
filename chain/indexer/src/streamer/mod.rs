@@ -344,7 +344,7 @@ pub(crate) async fn start(
         metrics::START_BLOCK_HEIGHT.set(start_syncing_block_height as i64);
         metrics::LATEST_BLOCK_HEIGHT.set(latest_block_height as i64);
         for block_height in start_syncing_block_height..=latest_block_height {
-            metrics::CURRENT_BLOCK_HEIGHT.set(latest_block_height as i64);
+            metrics::CURRENT_BLOCK_HEIGHT.set(block_height as i64);
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
                 let response = build_streamer_message(&view_client, block).await;
 
