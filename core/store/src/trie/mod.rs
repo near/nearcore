@@ -18,12 +18,13 @@ use crate::flat_state::FlatState;
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
+pub use crate::trie::prefetching_trie_storage::{
+    IoRequestQueue, IoThreadCmd, TriePrefetchingStorage,
+};
 pub use crate::trie::shard_tries::{
     KeyForStateChanges, ShardTries, TrieCacheFactory, WrappedTrieChanges,
 };
-pub use crate::trie::trie_storage::{
-    IoRequestQueue, IoThreadCmd, TrieCache, TrieCachingStorage, TriePrefetchingStorage, TrieStorage,
-};
+pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
 use crate::StorageError;
 pub use near_primitives::types::TrieNodesCount;
@@ -31,6 +32,7 @@ pub use near_primitives::types::TrieNodesCount;
 mod insert_delete;
 pub mod iterator;
 mod nibble_slice;
+mod prefetching_trie_storage;
 mod shard_tries;
 pub mod split_state;
 mod state_parts;
