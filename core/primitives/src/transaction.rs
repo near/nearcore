@@ -85,10 +85,6 @@ impl Action {
         match self {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
-            Action::Delegate(a) => {
-                let delegate_action = a.get_delegate_action().unwrap();
-                delegate_action.deposit
-            }
             _ => 0,
         }
     }
@@ -228,35 +224,62 @@ impl From<DeleteAccountAction> for Action {
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+pub struct ActionArraySerde {
+    /// A list of actions to be applied
+    actions: Vec<Action>,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DelegateAction {
-    pub reciever_id: AccountId,
-    pub deposit: Balance,
-    pub nonce: u64,
-    pub actions: Vec<Action>,
+    /// Signer of the delegated actions
+    pub sender_id: AccountId,
+    /// Receiver of the delegated actions.
+    pub receiver_id: AccountId,
+    /// List of actions to be executed.
+    // This is a workaround to avoid a type recursion. 'actions[Action]' is deserialized in runtime.
+    // This field contains serialized ActionArraySerde structure.
+    pub action_array_serde: Vec<u8>,
+    /// Nonce to ensure that the same delegate action is not sent twice by a relayer and should match for given account's `public_key`.
+    /// After this action is processed it will increment.
+    pub nonce: Nonce,
+    /// The hash of the block in the blockchain on top of which the given DelegateAction is valid
+    pub block_hash: CryptoHash,
+    /// Public key that is used to sign this delegated action.
+    pub public_key: PublicKey,
 }
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct SignedDelegateAction {
-    // Borsh doesn't support recursive types. Therefore this field
-    // is deserialized to DelegateAction in runtime
-    pub delegate_action_serde: Vec<u8>,
-    pub public_key: PublicKey,
+    pub delegate_action: DelegateAction,
     pub signature: Signature,
 }
 
 impl SignedDelegateAction {
-    pub fn get_delegate_action(&self) -> Result<DelegateAction, Error> {
-        DelegateAction::try_from_slice(&self.delegate_action_serde)
-    }
+    pub fn verify(&self) -> bool {
+        let delegate_action = &self.delegate_action;
+        let hash = delegate_action.get_hash();
+        let public_key = &delegate_action.public_key;
 
-    pub fn get_hash(&self) -> CryptoHash {
-        hash(&self.delegate_action_serde)
+        self.signature.verify(hash.as_ref(), public_key)
     }
 }
 
 impl From<SignedDelegateAction> for Action {
     fn from(delegate_action: SignedDelegateAction) -> Self {
         Self::Delegate(delegate_action)
+    }
+}
+
+impl DelegateAction {
+    pub fn get_actions(&self) -> Result<Vec<Action>, Error> {
+        let a = ActionArraySerde::try_from_slice(&self.action_array_serde)?;
+        Ok(a.actions)
+    }
+
+    pub fn get_hash(&self) -> CryptoHash {
+        let bytes = self.try_to_vec().expect("Failed to deserialize");
+        hash(&bytes)
     }
 }
 

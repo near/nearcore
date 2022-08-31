@@ -120,7 +120,7 @@ pub fn total_send_fees(
             },
             DeleteKey(_) => cfg.delete_key_cost.send_fee(sender_is_receiver),
             DeleteAccount(_) => cfg.delete_account_cost.send_fee(sender_is_receiver),
-            Delegate(_) => 0, // TODO: Set some fee
+            Delegate(_) => 1, // TODO: Set some fee
         };
         result = safe_add_gas(result, delta)?;
     }
@@ -241,7 +241,28 @@ pub fn total_prepaid_exec_fees(
 ) -> Result<Gas, IntegerOverflowError> {
     let mut result = 0;
     for action in actions {
-        let delta = exec_fee(config, action, receiver_id, current_protocol_version);
+        let mut delta;
+        if let Action::Delegate(signed_delegate_action) = action {
+            let actions = signed_delegate_action.delegate_action.get_actions().unwrap();
+            delta = total_prepaid_exec_fees(
+                config,
+                &actions,
+                &signed_delegate_action.delegate_action.receiver_id,
+                current_protocol_version,
+            )?;
+            delta = safe_add_gas(
+                delta,
+                exec_fee(
+                    config,
+                    action,
+                    &signed_delegate_action.delegate_action.receiver_id,
+                    current_protocol_version,
+                ),
+            )?;
+            delta = safe_add_gas(delta, config.action_receipt_creation_config.exec_fee())?;
+        } else {
+            delta = exec_fee(config, action, receiver_id, current_protocol_version);
+        }
         result = safe_add_gas(result, delta)?;
     }
     Ok(result)
@@ -250,14 +271,32 @@ pub fn total_prepaid_exec_fees(
 pub fn total_deposit(actions: &[Action]) -> Result<Balance, IntegerOverflowError> {
     let mut total_balance: Balance = 0;
     for action in actions {
-        total_balance = safe_add_balance(total_balance, action.get_deposit_balance())?;
+        let action_balance;
+        if let Action::Delegate(signed_delegate_action) = action {
+            let actions = signed_delegate_action.delegate_action.get_actions().unwrap();
+            action_balance = total_deposit(&actions)?;
+        } else {
+            action_balance = action.get_deposit_balance();
+        }
+        total_balance = safe_add_balance(total_balance, action_balance)?;
     }
     Ok(total_balance)
 }
 
 /// Get the total sum of prepaid gas for given actions.
 pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, IntegerOverflowError> {
-    actions.iter().try_fold(0, |acc, action| safe_add_gas(acc, action.get_prepaid_gas()))
+    let mut total_gas: Gas = 0;
+    for action in actions {
+        let action_gas;
+        if let Action::Delegate(signed_delegate_action) = action {
+            let actions = signed_delegate_action.delegate_action.get_actions().unwrap();
+            action_gas = total_prepaid_gas(&actions)?;
+        } else {
+            action_gas = action.get_prepaid_gas();
+        }
+        total_gas = safe_add_gas(total_gas, action_gas)?;
+    }
+    Ok(total_gas)
 }
 
 #[cfg(test)]

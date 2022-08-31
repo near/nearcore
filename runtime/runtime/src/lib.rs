@@ -251,7 +251,6 @@ impl Runtime {
                     receipt_id,
                     receipt: ReceiptEnum::Action(ActionReceipt {
                         signer_id: transaction.signer_id.clone(),
-                        relayer_id: None,
                         signer_public_key: transaction.public_key.clone(),
                         gas_price: verification_result.receipt_gas_price,
                         output_data_receivers: vec![],
@@ -372,7 +371,7 @@ impl Runtime {
             }
             Action::Transfer(transfer) => {
                 if let Some(account) = account.as_mut() {
-                    action_transfer(account, transfer)?;
+                    action_transfer(account, transfer.deposit)?;
                     // Check if this is a gas refund, then try to refund the access key allowance.
                     if is_refund && action_receipt.signer_id == receipt.receiver_id {
                         try_refund_allowance(
@@ -394,7 +393,7 @@ impl Runtime {
                         account,
                         actor_id,
                         &receipt.receiver_id,
-                        transfer,
+                        transfer.deposit,
                         apply_state.block_index,
                         apply_state.current_protocol_version,
                     );
@@ -444,9 +443,11 @@ impl Runtime {
                 )?;
             }
             Action::Delegate(signed_delegate_action) => {
-                action_delegate_action(
+                apply_delegate_action(
+                    state_update,
                     apply_state,
                     action_receipt,
+                    account,
                     account_id,
                     signed_delegate_action,
                     &mut result,
@@ -803,21 +804,16 @@ impl Runtime {
             )?;
         }
 
-        let signer_is_predecessor =
-            action_receipt.signer_id.as_str() == receipt.predecessor_id.as_str();
-        let refund_id = if action_receipt.relayer_id.is_some() && signer_is_predecessor {
-            action_receipt.relayer_id.as_ref().unwrap()
-        } else {
-            &receipt.predecessor_id
-        };
         if deposit_refund > 0 {
-            result.new_receipts.push(Receipt::new_balance_refund(refund_id, deposit_refund));
+            result
+                .new_receipts
+                .push(Receipt::new_balance_refund(&receipt.predecessor_id, deposit_refund));
         }
         if gas_balance_refund > 0 {
             // Gas refunds refund the allowance of the access key, so if the key exists on the
             // account it will increase the allowance by the refund amount.
             result.new_receipts.push(Receipt::new_gas_refund(
-                refund_id,
+                &action_receipt.signer_id,
                 gas_balance_refund,
                 action_receipt.signer_public_key.clone(),
             ));
@@ -1521,7 +1517,6 @@ mod tests {
             receipt_id: CryptoHash::default(),
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: account_id,
-                relayer_id: None,
                 signer_public_key: signer.public_key(),
                 gas_price: GAS_PRICE,
                 output_data_receivers: vec![],
@@ -1872,7 +1867,6 @@ mod tests {
                     receipt_id,
                     receipt: ReceiptEnum::Action(ActionReceipt {
                         signer_id: bob_account(),
-                        relayer_id: None,
                         signer_public_key: PublicKey::empty(KeyType::ED25519),
                         gas_price: GAS_PRICE,
                         output_data_receivers: vec![],
@@ -2188,7 +2182,6 @@ mod tests {
             receipt_id: CryptoHash::default(),
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: bob_account(),
-                relayer_id: None,
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
                 gas_price,
                 output_data_receivers: vec![],
@@ -2258,7 +2251,6 @@ mod tests {
             receipt_id: CryptoHash::default(),
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: bob_account(),
-                relayer_id: None,
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
                 gas_price,
                 output_data_receivers: vec![],

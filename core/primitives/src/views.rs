@@ -32,10 +32,10 @@ use crate::sharding::{
     ShardChunkHeaderV3,
 };
 use crate::transaction::{
-    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
-    ExecutionStatus, FunctionCallAction, SignedDelegateAction, SignedTransaction, StakeAction,
-    TransferAction,
+    Action, AddKeyAction, CreateAccountAction, DelegateAction, DeleteAccountAction,
+    DeleteKeyAction, DeployContractAction, ExecutionMetadata, ExecutionOutcome,
+    ExecutionOutcomeWithIdAndProof, ExecutionStatus, FunctionCallAction, SignedDelegateAction,
+    SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
@@ -956,9 +956,8 @@ pub enum ActionView {
         beneficiary_id: AccountId,
     },
     Delegate {
-        delegate_action_serde: Vec<u8>,
+        delegate_action: DelegateAction,
         signature: Signature,
-        public_key: PublicKey,
     },
 }
 
@@ -989,9 +988,8 @@ impl From<Action> for ActionView {
                 ActionView::DeleteAccount { beneficiary_id: action.beneficiary_id }
             }
             Action::Delegate(action) => ActionView::Delegate {
-                delegate_action_serde: action.delegate_action_serde,
+                delegate_action: action.delegate_action,
                 signature: action.signature,
-                public_key: action.public_key,
             },
         }
     }
@@ -1022,15 +1020,12 @@ impl TryFrom<ActionView> for Action {
             ActionView::DeleteAccount { beneficiary_id } => {
                 Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
             }
-            ActionView::Delegate {
-                delegate_action_serde: delegate_action,
-                signature,
-                public_key,
-            } => Action::Delegate(SignedDelegateAction {
-                delegate_action_serde: delegate_action,
-                signature,
-                public_key,
-            }),
+            ActionView::Delegate { delegate_action, signature } => {
+                Action::Delegate(SignedDelegateAction {
+                    delegate_action: delegate_action,
+                    signature,
+                })
+            }
         })
     }
 }
@@ -1498,7 +1493,6 @@ impl TryFrom<ReceiptView> for Receipt {
                     actions,
                 } => ReceiptEnum::Action(ActionReceipt {
                     signer_id,
-                    relayer_id: None,
                     signer_public_key,
                     gas_price,
                     output_data_receivers: output_data_receivers

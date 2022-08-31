@@ -4,17 +4,21 @@ use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
-use near_primitives::errors::{ActionError, ActionErrorKind, ContractCallError, RuntimeError};
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, ContractCallError, InvalidAccessKeyError, RuntimeError,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
-    Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
-    FunctionCallAction, SignedDelegateAction, StakeAction, TransferAction,
+    Action, AddKeyAction, DelegateAction, DeleteAccountAction, DeleteKeyAction,
+    DeployContractAction, FunctionCallAction, SignedDelegateAction, StakeAction, TransferAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, TrieCacheMode};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode,
+};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
@@ -30,8 +34,7 @@ use near_vm_errors::{
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::VMContext;
 
-use crate::balance_checker::receipt_cost;
-use crate::config::{safe_add_gas, RuntimeConfig};
+use crate::config::{safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas, RuntimeConfig};
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::{ActionResult, ApplyState};
 use near_primitives::config::ViewConfig;
@@ -254,7 +257,6 @@ pub(crate) fn action_function_call(
                 receipt_id: CryptoHash::default(),
                 receipt: ReceiptEnum::Action(ActionReceipt {
                     signer_id: action_receipt.signer_id.clone(),
-                    relayer_id: action_receipt.relayer_id.clone(),
                     signer_public_key: action_receipt.signer_public_key.clone(),
                     gas_price: action_receipt.gas_price,
                     output_data_receivers: receipt.output_data_receivers,
@@ -353,11 +355,8 @@ pub(crate) fn try_refund_allowance(
     Ok(())
 }
 
-pub(crate) fn action_transfer(
-    account: &mut Account,
-    transfer: &TransferAction,
-) -> Result<(), StorageError> {
-    account.set_amount(account.amount().checked_add(transfer.deposit).ok_or_else(|| {
+pub(crate) fn action_transfer(account: &mut Account, deposit: Balance) -> Result<(), StorageError> {
+    account.set_amount(account.amount().checked_add(deposit).ok_or_else(|| {
         StorageError::StorageInconsistentState("Account balance integer overflow".to_string())
     })?);
     Ok(())
@@ -414,7 +413,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     account_id: &AccountId,
-    transfer: &TransferAction,
+    deposit: Balance,
     block_height: BlockHeight,
     current_protocol_version: ProtocolVersion,
 ) {
@@ -443,7 +442,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
         .expect("we should be able to deserialize ED25519 public key");
 
     *account = Some(Account::new(
-        transfer.deposit,
+        deposit,
         0,
         CryptoHash::default(),
         fee_config.storage_usage_config.num_bytes_account
@@ -615,42 +614,183 @@ pub(crate) fn action_add_key(
     Ok(())
 }
 
-pub(crate) fn action_delegate_action(
+pub(crate) fn apply_delegate_action(
+    state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
     action_receipt: &ActionReceipt,
-    predecessor_id: &AccountId,
+    sender: &mut Option<Account>,
+    sender_id: &AccountId,
     signed_delegate_action: &SignedDelegateAction,
     result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
-    match signed_delegate_action.get_delegate_action() {
-        Ok(delegate_action) => {
-            let new_receipt = Receipt::new_delegate_actions(
-                &action_receipt.signer_id,
-                predecessor_id,
-                &delegate_action,
-                &signed_delegate_action.public_key,
-                action_receipt.gas_price,
-            );
+    let delegate_action = &signed_delegate_action.delegate_action;
 
-            let transaction_costs = &apply_state.config.transaction_costs;
-            let current_protocol_version = apply_state.current_protocol_version;
-            let cost = receipt_cost(transaction_costs, current_protocol_version, &new_receipt)?;
+    if !signed_delegate_action.verify() {
+        result.result = Err(ActionErrorKind::DelegateActionInvalidSignature.into());
+        return Ok(());
+    }
+    if delegate_action.sender_id.as_str() != sender_id.as_str() {
+        result.result = Err(ActionErrorKind::DelegateActionSenderDoesNotMatchTxReceiver {
+            sender_id: delegate_action.sender_id.clone(),
+            receiver_id: sender_id.clone(),
+        }
+        .into());
+        return Ok(());
+    }
+    if sender.is_none() {
+        result.result =
+            Err(ActionErrorKind::DelegateActionSenderDoesNotExist { sender_id: sender_id.clone() }
+                .into());
+        return Ok(());
+    };
 
-            if let Some(refund) = delegate_action.deposit.checked_sub(cost.clone()) {
-                let refund_receipt = Receipt::new_balance_refund(&action_receipt.signer_id, refund);
+    validate_access_key(state_update, apply_state, sender_id, delegate_action, result)?;
+    if result.result.is_err() {
+        return Ok(());
+    }
 
-                result.new_receipts.push(new_receipt);
-                result.new_receipts.push(refund_receipt);
-            } else {
-                result.result = Err(ActionErrorKind::LackBalanceForState {
-                    account_id: action_receipt.signer_id.clone(),
-                    amount: cost.clone(),
-                }
+    let actions = delegate_action.get_actions().unwrap();
+
+    let new_receipt = Receipt::new_delegate_actions(
+        &action_receipt.signer_id,
+        sender_id,
+        &delegate_action.receiver_id,
+        &actions,
+        &delegate_action.public_key,
+        action_receipt.gas_price,
+    );
+
+    let required_gas = receipt_required_gas(apply_state, &new_receipt)?;
+    result.gas_used += required_gas;
+    result.new_receipts.push(new_receipt);
+
+    Ok(())
+}
+
+fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
+    Ok(match &receipt.receipt {
+        ReceiptEnum::Action(action_receipt) => {
+            let mut required_gas = safe_add_gas(
+                total_prepaid_exec_fees(
+                    &apply_state.config.transaction_costs,
+                    &action_receipt.actions,
+                    &receipt.receiver_id,
+                    apply_state.current_protocol_version,
+                )?,
+                total_prepaid_gas(&action_receipt.actions)?,
+            )?;
+            required_gas = safe_add_gas(
+                required_gas,
+                apply_state.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+            )?;
+
+            required_gas
+        }
+        ReceiptEnum::Data(_) => 0,
+    })
+}
+
+pub fn validate_access_key(
+    state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
+    sender_id: &AccountId,
+    delegate_action: &DelegateAction,
+    result: &mut ActionResult,
+) -> Result<(), RuntimeError> {
+    let mut access_key = match get_access_key(state_update, sender_id, &delegate_action.public_key)?
+    {
+        Some(access_key) => access_key,
+        None => {
+            result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::AccessKeyNotFound {
+                    account_id: sender_id.clone(),
+                    public_key: delegate_action.public_key.clone(),
+                },
+            )
+            .into());
+            return Ok(());
+        }
+    };
+
+    if delegate_action.nonce <= access_key.nonce {
+        result.result = Err(ActionErrorKind::DelegateActionInvalidNonce {
+            delegate_nonce: delegate_action.nonce,
+            ak_nonce: access_key.nonce,
+        }
+        .into());
+        return Ok(());
+    }
+    if checked_feature!("stable", AccessKeyNonceRange, apply_state.current_protocol_version) {
+        let upper_bound = apply_state.block_index
+            * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+        if delegate_action.nonce >= upper_bound {
+            result.result = Err(ActionErrorKind::DelegateActionNonceTooLarge {
+                delegate_nonce: delegate_action.nonce,
+                upper_bound,
+            }
+            .into());
+            return Ok(());
+        }
+    };
+
+    access_key.nonce = delegate_action.nonce;
+
+    let actions = delegate_action.get_actions().unwrap();
+
+    if let AccessKeyPermission::FunctionCall(ref function_call_permission) = access_key.permission {
+        if actions.len() != 1 {
+            result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess,
+            )
+            .into());
+            return Ok(());
+        }
+        if let Some(Action::FunctionCall(ref function_call)) = actions.get(0) {
+            if function_call.deposit > 0 {
+                result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                    InvalidAccessKeyError::DepositWithFunctionCall,
+                )
                 .into());
             }
+            if delegate_action.receiver_id.as_ref() != function_call_permission.receiver_id {
+                result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                    InvalidAccessKeyError::ReceiverMismatch {
+                        tx_receiver: delegate_action.receiver_id.clone(),
+                        ak_receiver: function_call_permission.receiver_id.clone(),
+                    },
+                )
+                .into());
+                return Ok(());
+            }
+            if !function_call_permission.method_names.is_empty()
+                && function_call_permission
+                    .method_names
+                    .iter()
+                    .all(|method_name| &function_call.method_name != method_name)
+            {
+                result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                    InvalidAccessKeyError::MethodNameMismatch {
+                        method_name: function_call.method_name.clone(),
+                    },
+                )
+                .into());
+                return Ok(());
+            }
+        } else {
+            result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess,
+            )
+            .into());
+            return Ok(());
         }
-        Err(_) => todo!(),
-    }
+    };
+
+    set_access_key(
+        state_update,
+        sender_id.clone(),
+        delegate_action.public_key.clone(),
+        &access_key,
+    );
 
     Ok(())
 }
