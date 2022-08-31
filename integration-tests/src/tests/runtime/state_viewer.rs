@@ -136,7 +136,7 @@ fn test_view_state() {
     let trie_viewer = TrieViewer::default();
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
     assert_eq!(result.proof.iter()
-    .map(|x| x.to_vec()).collect::<Vec<_>>(), [
+    .map(|x| x.as_ref()).collect::<Vec<_>>(), [
         "AwEAAAAQjHWWT6rXAXqUm14fjfDxo3286ApntHMI1eK0aQAJZPfJewEAAAAAAA==",
         "AQcCSXBK8DHIYBF47dz6xB2iFKLLsPjAIAo9syJTBC0/Y1OjJNvT5izZukYCmtq/AyVTeyWFl1Ei6yFZBf5yIJ0i96eYRr8PVilJ81MgJKvV/R1SxQuTfwwmbZ6sN/TC2XfL1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rmVewEAAAAAAA==",
         "AwMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3gwDAAAAAAAA",
@@ -168,7 +168,7 @@ fn test_view_state() {
         result
             .proof
             .iter()
-            .map(|x| x.to_vec())
+            .map(|x| x.as_ref())
             .collect::<Vec<_>>(),
         [
             "AwEAAAAQjHWWT6rXAXqUm14fjfDxo3286ApntHMI1eK0aQAJZPfJewEAAAAAAA==",
