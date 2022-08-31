@@ -5,9 +5,7 @@ use crate::NearConfig;
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
-use near_chain::types::{
-    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier,
-};
+use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{BlockHeader, Doomslug, DoomslugThresholdMode, Error, RuntimeAdapter};
 use near_chain_configs::{
     Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
@@ -41,7 +39,7 @@ use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
     EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause,
-    StateChangesForSplitStates, StateRoot, StateRootNode,
+    StateChangesForSplitStates, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -1953,6 +1951,7 @@ mod test {
     use near_primitives::views::{
         AccountView, CurrentEpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
     };
+    use near_store::{NodeStorage, Temperature};
 
     use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
@@ -2083,8 +2082,8 @@ mod test {
             has_reward: bool,
             minimum_stake_divisor: Option<u64>,
         ) -> Self {
-            let (dir, opener) = Store::test_opener();
-            let store = opener.open().unwrap();
+            let (dir, opener) = NodeStorage::test_opener();
+            let store = opener.open().unwrap().get_store(Temperature::Hot);
             let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
                 acc.union(&x.iter().cloned().collect()).cloned().collect()
             });

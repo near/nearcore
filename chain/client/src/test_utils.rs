@@ -655,7 +655,6 @@ pub fn setup_mock_all_validators(
                             sent_bytes_per_sec: 0,
                             received_bytes_per_sec: 0,
                             known_producers: vec![],
-                            peer_counter: 0,
                             tier1_accounts: vec![],
                         };
                         client_addr.do_send(NetworkClientMessages::NetworkInfo(info));
@@ -1490,7 +1489,7 @@ impl TestEnv {
             self.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
 
         let mut block = self.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
-        block.mut_header().set_lastest_protocol_version(protocol_version);
+        block.mut_header().set_latest_protocol_version(protocol_version);
         block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
             block_producer.clone(),
             KeyType::ED25519,

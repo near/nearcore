@@ -247,8 +247,21 @@ impl Database for RocksDB {
         self.db.write(batch).map_err(into_other)
     }
 
+    fn compact(&self) -> io::Result<()> {
+        let none = Option::<&[u8]>::None;
+        for col in DBCol::iter() {
+            self.db.compact_range_cf(self.cf_handle(col), none, none);
+        }
+        Ok(())
+    }
+
     fn flush(&self) -> io::Result<()> {
-        self.db.flush().map_err(into_other)
+        // Need to iterator over all CFs because the normal `flush()` only
+        // flushes the default column family.
+        for col in DBCol::iter() {
+            self.db.flush_cf(self.cf_handle(col)).map_err(into_other)?;
+        }
+        Ok(())
     }
 
     /// Trying to get
@@ -619,7 +632,7 @@ fn col_name(col: DBCol) -> &'static str {
 #[cfg(test)]
 mod tests {
     use crate::db::{Database, StatsValue};
-    use crate::{DBCol, Store, StoreConfig, StoreStatistics};
+    use crate::{DBCol, NodeStorage, StoreConfig, StoreStatistics};
 
     use super::*;
 
@@ -637,8 +650,8 @@ mod tests {
 
     #[test]
     fn rocksdb_merge_sanity() {
-        let (_tmp_dir, opener) = Store::test_opener();
-        let store = opener.open().unwrap();
+        let (_tmp_dir, opener) = NodeStorage::test_opener();
+        let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
