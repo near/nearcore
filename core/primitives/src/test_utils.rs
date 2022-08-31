@@ -263,7 +263,7 @@ impl BlockHeader {
         }
     }
 
-    pub fn set_lastest_protocol_version(&mut self, latest_protocol_version: ProtocolVersion) {
+    pub fn set_latest_protocol_version(&mut self, latest_protocol_version: ProtocolVersion) {
         match self {
             BlockHeader::BlockHeaderV1(header) => {
                 let header = Arc::make_mut(header);
