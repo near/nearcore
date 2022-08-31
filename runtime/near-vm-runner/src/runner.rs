@@ -37,33 +37,33 @@ pub fn run(
     cache: Option<&dyn CompiledContractCache>,
 ) -> VMResult {
     let vm_kind = VMKind::for_protocol_version(current_protocol_version);
-    if let Some(runtime) = vm_kind.runtime(wasm_config.clone()) {
-        let span = tracing::debug_span!(
-            target: "vm",
-            "run",
-            "code.len" = code.code().len(),
-            %method_name,
-            ?vm_kind,
-            burnt_gas = tracing::field::Empty,
-        )
-        .entered();
+    let span = tracing::debug_span!(
+        target: "vm",
+        "run",
+        "code.len" = code.code().len(),
+        %method_name,
+        ?vm_kind,
+        burnt_gas = tracing::field::Empty,
+    )
+    .entered();
 
-        let res = runtime.run(
-            code,
-            method_name,
-            ext,
-            context,
-            fees_config,
-            promise_results,
-            current_protocol_version,
-            cache,
-        );
+    let runtime = vm_kind.runtime(wasm_config.clone()).unwrap_or_else(|| {
+        panic!("the {:?} runtime has not been enabled at compile time", vm_kind)
+    });
 
-        span.record("burnt_gas", &res.outcome().burnt_gas);
-        res
-    } else {
-        panic!("the {:?} runtime has not been enabled at compile time", vm_kind);
-    }
+    let res = runtime.run(
+        code,
+        method_name,
+        ext,
+        context,
+        fees_config,
+        promise_results,
+        current_protocol_version,
+        cache,
+    );
+
+    span.record("burnt_gas", &res.outcome().burnt_gas);
+    res
 }
 
 pub trait VM {
