@@ -214,7 +214,7 @@ impl PeerActor {
         msg: &PeerMessage,
         enc: Encoding,
     ) -> Result<(), IOError> {
-        let msg_type: &str = msg.into();
+        let msg_type: &str = msg.msg_variant();
         let _span = tracing::trace_span!(
             target: "network",
             "send_message_with_encoding",
@@ -232,7 +232,6 @@ impl PeerActor {
         self.tracker.lock().increment_sent(&self.clock, bytes.len() as u64);
         let bytes_len = bytes.len();
         tracing::trace!(target: "network", msg_len = bytes_len);
-        metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
         if !self.framed.write(bytes) {
             #[cfg(feature = "performance_stats")]
             let tid = near_rust_allocator_proxy::get_tid();
@@ -240,6 +239,10 @@ impl PeerActor {
             let tid = 0;
             return Err(IOError::Send { tid, message_type: msg_type.to_string(), size: bytes_len });
         }
+        metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
+        metrics::PEER_MESSAGE_SENT_BY_TYPE_TOTAL.with_label_values(&[msg_type]).inc();
+        metrics::PEER_MESSAGE_SENT_BY_TYPE_BYTES.with_label_values(&[msg_type])
+            .inc_by(bytes_len as u64);
         Ok(())
     }
 
