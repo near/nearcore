@@ -6,6 +6,7 @@ use crate::db::{refcount, DBIterator, DBOp, DBTransaction, Database};
 use crate::{DBCol, StoreStatistics};
 
 /// An in-memory database intended for tests.
+#[derive(Default)]
 pub struct TestDB {
     // In order to ensure determinism when iterating over column's results
     // a BTreeMap is used since it is an ordered map. A HashMap would
@@ -15,7 +16,7 @@ pub struct TestDB {
 
 impl TestDB {
     pub fn new() -> Arc<dyn Database> {
-        Arc::new(Self { db: Default::default() })
+        Arc::new(Self::default())
     }
 }
 
