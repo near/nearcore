@@ -212,7 +212,7 @@ impl TrieViewer {
         };
         let action_receipt = ActionReceipt {
             signer_id: originator_id.clone(),
-            publisher_id: None,
+            relayer_id: None,
             signer_public_key: public_key,
             gas_price: 0,
             output_data_receivers: vec![],

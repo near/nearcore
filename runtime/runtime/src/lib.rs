@@ -251,7 +251,7 @@ impl Runtime {
                     receipt_id,
                     receipt: ReceiptEnum::Action(ActionReceipt {
                         signer_id: transaction.signer_id.clone(),
-                        publisher_id: None,
+                        relayer_id: None,
                         signer_public_key: transaction.public_key.clone(),
                         gas_price: verification_result.receipt_gas_price,
                         output_data_receivers: vec![],
@@ -805,8 +805,8 @@ impl Runtime {
 
         let signer_is_predecessor =
             action_receipt.signer_id.as_str() == receipt.predecessor_id.as_str();
-        let refund_id = if action_receipt.publisher_id.is_some() && signer_is_predecessor {
-            action_receipt.publisher_id.as_ref().unwrap()
+        let refund_id = if action_receipt.relayer_id.is_some() && signer_is_predecessor {
+            action_receipt.relayer_id.as_ref().unwrap()
         } else {
             &receipt.predecessor_id
         };
@@ -1521,7 +1521,7 @@ mod tests {
             receipt_id: CryptoHash::default(),
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: account_id,
-                publisher_id: None,
+                relayer_id: None,
                 signer_public_key: signer.public_key(),
                 gas_price: GAS_PRICE,
                 output_data_receivers: vec![],
@@ -1872,7 +1872,7 @@ mod tests {
                     receipt_id,
                     receipt: ReceiptEnum::Action(ActionReceipt {
                         signer_id: bob_account(),
-                        publisher_id: None,
+                        relayer_id: None,
                         signer_public_key: PublicKey::empty(KeyType::ED25519),
                         gas_price: GAS_PRICE,
                         output_data_receivers: vec![],
@@ -2188,7 +2188,7 @@ mod tests {
             receipt_id: CryptoHash::default(),
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: bob_account(),
-                publisher_id: None,
+                relayer_id: None,
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
                 gas_price,
                 output_data_receivers: vec![],
@@ -2258,7 +2258,7 @@ mod tests {
             receipt_id: CryptoHash::default(),
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: bob_account(),
-                publisher_id: None,
+                relayer_id: None,
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
                 gas_price,
                 output_data_receivers: vec![],

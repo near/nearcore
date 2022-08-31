@@ -254,7 +254,7 @@ pub(crate) fn action_function_call(
                 receipt_id: CryptoHash::default(),
                 receipt: ReceiptEnum::Action(ActionReceipt {
                     signer_id: action_receipt.signer_id.clone(),
-                    publisher_id: action_receipt.publisher_id.clone(),
+                    relayer_id: action_receipt.relayer_id.clone(),
                     signer_public_key: action_receipt.signer_public_key.clone(),
                     gas_price: action_receipt.gas_price,
                     output_data_receivers: receipt.output_data_receivers,

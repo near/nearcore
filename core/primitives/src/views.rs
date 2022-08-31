@@ -1498,7 +1498,7 @@ impl TryFrom<ReceiptView> for Receipt {
                     actions,
                 } => ReceiptEnum::Action(ActionReceipt {
                     signer_id,
-                    publisher_id: None,
+                    relayer_id: None,
                     signer_public_key,
                     gas_price,
                     output_data_receivers: output_data_receivers
