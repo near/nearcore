@@ -448,7 +448,10 @@ impl TrieCachingStorage {
         Ok((id, hash))
     }
 
-    pub fn get_key_from_shard_uid_and_hash(shard_uid: ShardUId, hash: &CryptoHash) -> [u8; 40] {
+    pub(crate) fn get_key_from_shard_uid_and_hash(
+        shard_uid: ShardUId,
+        hash: &CryptoHash,
+    ) -> [u8; 40] {
         let mut key = [0; 40];
         key[0..8].copy_from_slice(&shard_uid.to_bytes());
         key[8..].copy_from_slice(hash.as_ref());

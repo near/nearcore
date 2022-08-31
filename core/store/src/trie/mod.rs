@@ -140,6 +140,7 @@ impl TrieNode {
         }
     }
 
+    #[cfg(test)]
     fn print(
         &self,
         f: &mut dyn std::fmt::Write,
@@ -150,17 +151,9 @@ impl TrieNode {
             TrieNode::Empty => {
                 write!(f, "{}Empty", spaces)?;
             }
-            TrieNode::Leaf(key, value) => {
+            TrieNode::Leaf(key, _value) => {
                 let slice = NibbleSlice::from_encoded(key);
-                let value_info = match value {
-                    ValueHandle::InMemory(handle) => {
-                        format!("In memory, size: {}", memory.value_ref(*handle).len())
-                    }
-                    ValueHandle::HashAndSize(value_size, value_hash) => {
-                        format!("{:?} size: {}", value_hash, value_size)
-                    }
-                };
-                write!(f, "{}Leaf({:?}, {})", spaces, slice.0, value_info)?;
+                write!(f, "{}Leaf({:?}, val)", spaces, slice.0)?;
             }
             TrieNode::Branch(children, value) => {
                 writeln!(
@@ -208,7 +201,7 @@ impl TrieNode {
         }
         Ok(())
     }
-
+    #[cfg(test)]
     fn deep_to_string(&self, memory: &NodesStorage) -> String {
         let mut buf = String::new();
         self.print(&mut buf, memory, &mut "".to_string()).expect("printing failed");
@@ -471,8 +464,8 @@ pub struct TrieRefcountChange {
 pub struct TrieChanges {
     pub old_root: StateRoot,
     pub new_root: StateRoot,
-    pub insertions: Vec<TrieRefcountChange>,
-    pub deletions: Vec<TrieRefcountChange>,
+    insertions: Vec<TrieRefcountChange>,
+    deletions: Vec<TrieRefcountChange>,
 }
 
 impl TrieChanges {
@@ -593,6 +586,7 @@ impl Trie {
         Ok(())
     }
 
+    // Prints the trie nodes starting from hash, up to max_depth depth.
     pub fn print_recursive(&self, hash: &CryptoHash, max_depth: u32) -> String {
         let mut buf = String::new();
         let mut prefix: Vec<u8> = Vec::new();
@@ -601,7 +595,7 @@ impl Trie {
         buf
     }
 
-    fn prefix_to_hex(&self, prefix: &Vec<u8>) -> String {
+    fn escape_prefix(&self, prefix: &Vec<u8>) -> String {
         let mut result = String::new();
         for i in (0..prefix.len()).step_by(2) {
             if i + 1 < prefix.len() {
@@ -626,10 +620,10 @@ impl Trie {
         if max_depth == 0 {
             writeln!(
                 f,
-                "{} max depth reached hash:{} prefix:{}",
+                "{}max depth reached hash:{} prefix:{}",
                 spaces,
                 hash,
-                self.prefix_to_hex(prefix)
+                self.escape_prefix(prefix)
             )?;
             return Ok(());
         }
@@ -647,7 +641,7 @@ impl Trie {
                             slice,
                             value_length,
                             value_hash,
-                            self.prefix_to_hex(prefix)
+                            self.escape_prefix(prefix)
                         )?;
                         prefix.truncate(prefix.len() - slice.len());
                     }
@@ -657,7 +651,7 @@ impl Trie {
                             "{}Branch Value:{:?} prefix:{}",
                             spaces,
                             optional_value,
-                            self.prefix_to_hex(prefix)
+                            self.escape_prefix(prefix)
                         )?;
                         for (idx, child) in children.iter().enumerate() {
                             if let Some(child) = child {
@@ -684,7 +678,7 @@ impl Trie {
                             spaces,
                             slice,
                             child,
-                            self.prefix_to_hex(prefix)
+                            self.escape_prefix(prefix)
                         )?;
                         spaces.push(' ');
                         prefix.extend(slice.iter());
@@ -704,7 +698,7 @@ impl Trie {
                     spaces,
                     err.len,
                     err.data_prefix,
-                    self.prefix_to_hex(prefix)
+                    self.escape_prefix(prefix)
                 )?;
             }
             Err(err) => {
@@ -713,66 +707,6 @@ impl Trie {
         };
 
         Ok(())
-    }
-
-    fn fetch_recursive(
-        &self,
-        hash: &CryptoHash,
-        max_depth: u32,
-        memory: &mut NodesStorage,
-    ) -> Option<StorageHandle> {
-        if max_depth == 0 {
-            return None;
-        }
-
-        match self.move_node_to_mutable(memory, hash) {
-            Ok(handle) => {
-                let trie_node = &memory.node_ref(handle).node;
-                match trie_node {
-                    TrieNode::Empty => (),
-                    TrieNode::Leaf(_, _) => (),
-                    TrieNode::Branch(children, _) => {
-                        for entry in children.clone().iter().cloned() {
-                            if let Some(entry) = entry {
-                                match entry {
-                                    NodeHandle::InMemory(_) => (),
-                                    NodeHandle::Hash(child_hash) => {
-                                        self.fetch_recursive(
-                                            &child_hash.clone(),
-                                            max_depth - 1,
-                                            memory,
-                                        );
-                                        ()
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    TrieNode::Extension(_, handle) => {
-                        if let NodeHandle::Hash(child_hash) = handle {
-                            self.fetch_recursive(&child_hash.clone(), max_depth - 1, memory);
-                        }
-                    }
-                };
-                Some(handle)
-
-                //println!("{}", memory.node_ref(handle).node.deep_to_string(&memory));
-            }
-            Err(err) => {
-                println!("Failed to parse - probably a value:  {:?}", err);
-                None
-            }
-        }
-    }
-
-    pub fn print(&self, hash: &CryptoHash, max_depth: u32) {
-        let mut memory = NodesStorage::new();
-
-        if let Some(handle) = self.fetch_recursive(hash, max_depth, &mut memory) {
-            println!("{}", memory.node_ref(handle).node.deep_to_string(&memory));
-        } else {
-            println!("Failed to parse");
-        }
     }
 
     fn retrieve_raw_node(

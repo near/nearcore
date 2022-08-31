@@ -315,7 +315,7 @@ impl ShardTries {
 pub struct WrappedTrieChanges {
     tries: ShardTries,
     shard_uid: ShardUId,
-    pub trie_changes: TrieChanges,
+    trie_changes: TrieChanges,
     state_changes: Vec<RawStateChangesWithTrieKey>,
     block_hash: CryptoHash,
 }
