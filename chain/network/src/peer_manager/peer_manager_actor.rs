@@ -360,7 +360,7 @@ impl Actor for PeerManagerActor {
 impl PeerManagerActor {
     pub fn new(
         clock: time::Clock,
-        store: near_store::NodeStorage,
+        store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
