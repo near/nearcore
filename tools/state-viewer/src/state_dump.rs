@@ -613,7 +613,7 @@ mod test {
             setup(epoch_length, SimpleNightshade.protocol_version() - 1, true);
         for i in 1..=2 * epoch_length + 1 {
             let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
-            block.mut_header().set_lastest_protocol_version(SimpleNightshade.protocol_version());
+            block.mut_header().set_latest_protocol_version(SimpleNightshade.protocol_version());
             env.process_block(0, block, Provenance::PRODUCED);
             run_catchup(&mut env.clients[0], &vec![]).unwrap();
         }
