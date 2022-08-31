@@ -187,7 +187,7 @@ impl Default for MigrationSnapshot {
 /// Typical usage:
 ///
 /// ```ignore
-/// let store = Store::opener(&near_config.config.store)
+/// let store = NodeStorage::opener(&near_config.config.store)
 ///     .home(neard_home_dir)
 ///     .open();
 /// ```
@@ -195,7 +195,7 @@ pub struct StoreOpener<'a> {
     /// Path to the database.
     ///
     /// This is resolved from nearcore home directory and store configuration
-    /// passed to [`Store::opener`].
+    /// passed to [`NodeStorage::opener`].
     path: std::path::PathBuf,
 
     /// Configuration as provided by the user.
@@ -250,7 +250,7 @@ impl<'a> StoreOpener<'a> {
     }
 
     /// Opens the RocksDB database.
-    pub fn open(&self) -> io::Result<crate::Store> {
+    pub fn open(&self) -> io::Result<crate::NodeStorage> {
         let exists = self.check_if_exists();
         if !exists && matches!(self.mode, Mode::ReadOnly) {
             return Err(io::Error::new(
@@ -263,7 +263,7 @@ impl<'a> StoreOpener<'a> {
                        "{} RocksDB database",
                        if exists { "Opening" } else { "Creating a new" });
         crate::RocksDB::open(&self.path, &self.config, self.mode)
-            .map(|db| crate::Store::new(std::sync::Arc::new(db)))
+            .map(|db| crate::NodeStorage::new(std::sync::Arc::new(db)))
     }
 
     /// Creates a new snapshot which can be used to recover the database state.
