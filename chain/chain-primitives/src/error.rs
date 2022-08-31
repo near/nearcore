@@ -146,6 +146,9 @@ pub enum Error {
     /// `next_bps_hash` doens't correspond to the actual next block producers set
     #[error("Invalid Next BP Hash")]
     InvalidNextBPHash,
+    /// The block has a protocol version that's outdated
+    #[error("Invalid protocol version")]
+    InvalidProtocolVersion,
     /// The block doesn't have approvals from 50% of the block producers
     #[error("Not enough approvals")]
     NotEnoughApprovals,
@@ -281,6 +284,7 @@ impl Error {
             | Error::InvalidStateRequest(_)
             | Error::InvalidRandomnessBeaconOutput
             | Error::InvalidBlockMerkleRoot
+            | Error::InvalidProtocolVersion
             | Error::NotAValidator
             | Error::InvalidChallengeRoot => true,
         }

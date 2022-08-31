@@ -168,6 +168,8 @@ pub enum ProtocolFeature {
     /// Validate account id for function call access keys.
     #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
     AccountIdInFunctionCallPermission,
+    #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
+    RejectBlocksWithOutdatedProtocolVersions,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -187,7 +189,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 56;
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    131
+    132
 } else if cfg!(feature = "shardnet") {
     // For shardnet, enable `ChunkOnlyProducers` but nothing else.
     101
@@ -259,6 +261,8 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingCost => 129,
             #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
             ProtocolFeature::AccountIdInFunctionCallPermission => 130,
+            #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
+            ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
         }
     }
 }
