@@ -126,6 +126,9 @@ impl AllEpochConfig {
                 config.validator_max_kickout_stake_perc = 30;
             }
         }
+        if checked_feature!("shardnet", ShardNetShardLayoutUpgrade, protocol_version) {
+            config.shard_layout = ShardLayout::shardnet_upgrade_shard_layout();
+        }
         config
     }
 }

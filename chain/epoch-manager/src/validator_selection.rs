@@ -5,7 +5,7 @@ use near_primitives::epoch_manager::{EpochConfig, RngSeed};
 use near_primitives::errors::EpochError;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, NumShards, ProtocolVersion, ValidatorId, ValidatorKickoutReason,
+    AccountId, Balance, ProtocolVersion, ValidatorId, ValidatorKickoutReason,
 };
 use num_rational::Ratio;
 use std::cmp::{self, Ordering};
@@ -30,7 +30,7 @@ pub fn proposals_to_epoch_info(
         "Proposals should not have duplicates"
     );
 
-    let num_shards = epoch_config.num_block_producer_seats_per_shard.len() as NumShards;
+    let num_shards = epoch_config.shard_layout.num_shards();
     let min_stake_ratio = {
         let rational = epoch_config.validator_selection_config.minimum_stake_ratio;
         Ratio::new(*rational.numer() as u128, *rational.denom() as u128)
