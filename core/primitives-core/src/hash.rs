@@ -28,7 +28,7 @@ impl CryptoHash {
         CryptoHash(hasher.finalize().into())
     }
 
-    pub fn as_bytes(&self) -> &[u8; 32] {
+    pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
 

@@ -2,6 +2,7 @@ use std::io;
 
 use crate::DBCol;
 
+mod colddb;
 pub mod refcount;
 pub(crate) mod rocksdb;
 mod testdb;

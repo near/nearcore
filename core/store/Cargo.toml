@@ -38,6 +38,7 @@ near-metrics = { path = "../metrics" }
 [dev-dependencies]
 assert_matches = "1.5.0"
 bencher = "0.1.5"
+insta = "1"
 rand = "0.7"
 
 [[bench]]
