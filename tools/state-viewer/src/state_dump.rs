@@ -612,13 +612,15 @@ mod test {
         let (store, genesis, mut env, near_config) =
             setup(epoch_length, SimpleNightshade.protocol_version() - 1, true);
         for i in 1..=2 * epoch_length + 1 {
-            env.produce_block(0, i);
+            let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
+            block.mut_header().set_lastest_protocol_version(SimpleNightshade.protocol_version());
+            env.process_block(0, block, Provenance::PRODUCED);
             run_catchup(&mut env.clients[0], &vec![]).unwrap();
         }
         let head = env.clients[0].chain.head().unwrap();
         assert_eq!(
             env.clients[0].runtime_adapter.get_shard_layout(&head.epoch_id).unwrap(),
-            ShardLayout::v1_test()
+            ShardLayout::get_simple_nightshade_layout(),
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
 
