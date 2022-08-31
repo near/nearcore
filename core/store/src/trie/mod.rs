@@ -595,7 +595,8 @@ impl Trie {
         buf
     }
 
-    fn escape_prefix(&self, prefix: &Vec<u8>) -> String {
+    // Converts the list of Nibbles to a readable string.
+    fn nibbles_to_string(&self, prefix: &Vec<u8>) -> String {
         let mut result = String::new();
         for i in (0..prefix.len()).step_by(2) {
             if i + 1 < prefix.len() {
@@ -623,7 +624,7 @@ impl Trie {
                 "{}max depth reached hash:{} prefix:{}",
                 spaces,
                 hash,
-                self.escape_prefix(prefix)
+                self.nibbles_to_string(prefix)
             )?;
             return Ok(());
         }
@@ -641,7 +642,7 @@ impl Trie {
                             slice,
                             value_length,
                             value_hash,
-                            self.escape_prefix(prefix)
+                            self.nibbles_to_string(prefix)
                         )?;
                         prefix.truncate(prefix.len() - slice.len());
                     }
@@ -651,7 +652,7 @@ impl Trie {
                             "{}Branch Value:{:?} prefix:{}",
                             spaces,
                             optional_value,
-                            self.escape_prefix(prefix)
+                            self.nibbles_to_string(prefix)
                         )?;
                         for (idx, child) in children.iter().enumerate() {
                             if let Some(child) = child {
@@ -678,7 +679,7 @@ impl Trie {
                             spaces,
                             slice,
                             child,
-                            self.escape_prefix(prefix)
+                            self.nibbles_to_string(prefix)
                         )?;
                         spaces.push(' ');
                         prefix.extend(slice.iter());
@@ -698,7 +699,7 @@ impl Trie {
                     spaces,
                     err.len,
                     err.data_prefix,
-                    self.escape_prefix(prefix)
+                    self.nibbles_to_string(prefix)
                 )?;
             }
             Err(err) => {

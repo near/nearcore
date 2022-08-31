@@ -92,6 +92,8 @@ pub enum StorageError {
     /// panic in every place that produces this error.
     /// We can check if db is corrupted by verifying everything in the state trie.
     StorageInconsistentState(String),
+    /// Error thrown when a given value cannot be parsed as a TrieNode.
+    /// This probably means that this is a 'value' field (as we store both in the same colState).
     NotANode(NotANodeError),
 }
 
