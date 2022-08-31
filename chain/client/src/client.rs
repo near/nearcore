@@ -470,7 +470,7 @@ impl Client {
             .get_epoch_protocol_version(&epoch_id)
             .expect("Epoch info should be ready at this point");
         if protocol_version > PROTOCOL_VERSION {
-            panic!("The client protocol version {} is older than the protocol version of the network {}. Please update nearcore", PROTOCOL_VERSION, epoch_protocol_version);
+            panic!("The client protocol version {} is older than the protocol version of the network {}. Please update nearcore", PROTOCOL_VERSION, protocol_version);
         }
 
         let approvals = self
