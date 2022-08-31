@@ -1,9 +1,7 @@
 use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
-use near_o11y::backtrace::Backtrace;
 use near_metrics::prometheus;
 use near_metrics::prometheus::core::{GenericCounter, GenericGauge};
 use near_primitives::hash::CryptoHash;

@@ -67,7 +67,7 @@ pub enum StateViewerSubCommand {
     /// even if it's not included in any block on disk
     #[clap(alias = "apply_receipt")]
     ApplyReceipt(ApplyReceiptCmd),
-
+    /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
 }
@@ -101,7 +101,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::ViewTrie(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
         }
     }
 }
@@ -458,12 +458,14 @@ pub struct ViewTrieCmd {
     #[clap(long)]
     shard_id: u32,
     #[clap(long)]
+    shard_version: u32,
+    #[clap(long)]
     max_depth: u32,
 }
 
 impl ViewTrieCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+    pub fn run(self, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
-        view_trie(home_dir, near_config, store, hash, self.shard_id, self.max_depth).unwrap();
+        view_trie(store, hash, self.shard_id, self.shard_version, self.max_depth).unwrap();
     }
 }

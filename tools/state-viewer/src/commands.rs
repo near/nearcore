@@ -22,10 +22,9 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
-use near_store::Trie;
 use near_store::test_utils::create_test_store;
-use near_store::DBCol;
 use near_store::Store;
+use near_store::Trie;
 use near_store::TrieCache;
 use near_store::TrieCachingStorage;
 use nearcore::{NearConfig, NightshadeRuntime};
@@ -33,7 +32,6 @@ use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::i64::MAX;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -804,37 +802,16 @@ pub(crate) fn apply_receipt(
 }
 
 pub(crate) fn view_trie(
-    home_dir: &Path,
-    near_config: NearConfig,
     store: Store,
     hash: CryptoHash,
     shard_id: u32,
-    max_depth: u32
+    shard_version: u32,
+    max_depth: u32,
 ) -> anyhow::Result<()> {
-    let shard_uid = ShardUId { version: 0, shard_id };
-    let shard_cache = TrieCache::new();
-
-    let trie_storage = TrieCachingStorage::new(store, shard_cache, shard_uid);
-
+    let shard_uid = ShardUId { version: shard_version, shard_id };
+    let shard_cache = TrieCache::new(shard_id, true);
+    let trie_storage = TrieCachingStorage::new(store, shard_cache, shard_uid, true);
     let trie = Trie::new(Box::new(trie_storage), Trie::EMPTY_ROOT, None);
-
-    trie.print(&hash, max_depth);
-/* 
-    let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
-        ShardUId { version: 0, shard_id },
-        &hash,
-    );
-
-    let val = store.get(DBCol::State, key.as_ref()).unwrap().unwrap();
-    println!("Trie node found. Size: {:?}", val.len());
-
-    let val: Arc<[u8]> = val.into();
-    let node = RawTrieNodeWithSize::decode(&val).map_err(|err| {
-        println!("Failed to parse. Contents are {:?}", val);
-        err
-    })?;
-
-    println!("Parsed as node {:?}", node);*/
-
+    println!("{}", trie.print_recursive(&hash, max_depth));
     Ok(())
 }
