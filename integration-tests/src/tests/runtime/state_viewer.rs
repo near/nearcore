@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, io, sync::Arc};
 
 use crate::runtime_utils::{get_runtime_and_trie, get_test_trie_viewer, TEST_SHARD_UID};
 use near_primitives::{
@@ -26,16 +26,16 @@ struct ProofVerifier {
 }
 
 impl ProofVerifier {
-    fn new(proof: Vec<Arc<[u8]>>) -> Self {
+    fn new(proof: Vec<Arc<[u8]>>) -> Result<Self, io::Error> {
         let nodes = proof
             .into_iter()
             .map(|bytes| {
                 let hash = CryptoHash::hash_bytes(&bytes);
-                let node = RawTrieNodeWithSize::decode(&bytes).unwrap();
-                (hash, node)
+                let node = RawTrieNodeWithSize::decode(&bytes)?;
+                Ok((hash, node))
             })
-            .collect::<HashMap<_, _>>();
-        Self { nodes }
+            .collect::<Result<HashMap<_, _>, io::Error>>()?;
+        Ok(Self { nodes })
     }
 
     fn verify(
@@ -53,11 +53,9 @@ impl ProofVerifier {
             match &node.node {
                 RawTrieNode::Leaf(node_key, value_length, value_hash) => {
                     let nib = &NibbleSlice::from_encoded(&node_key).0;
-                    if &key != nib {
+                    return if &key != nib {
                         return expected.is_none();
-                    }
-
-                    return if let Some(value) = expected {
+                    } else if let Some(value) = expected {
                         if *value_length as usize != value.len() {
                             return false;
                         }
@@ -266,25 +264,25 @@ fn test_view_state() {
         ].into_iter().map(|x| from_base64(x).unwrap()).collect::<Vec<_>>()
     );
 
-    let proof_verifier = ProofVerifier::new(result.proof);
-    assert_eq!(
-        proof_verifier.verify(state_update.get_root(), &alice_account(), b"test123", Some(b"123")),
-        true
-    );
-    assert_eq!(
-        proof_verifier.verify(state_update.get_root(), &alice_account(), b"test123", None),
-        false
-    );
-
-    assert_eq!(
-        proof_verifier.verify(
-            state_update.get_root(),
-            &alice_account(),
-            b"non-found-key",
-            Some(b"123")
-        ),
-        false
-    );
+    let root = state_update.get_root();
+    let account = alice_account();
+    let proof_verifier =
+        ProofVerifier::new(result.proof).expect("could not create a ProofVerifier");
+    for (want, key, value) in [
+        (true, b"test123".as_ref(), Some(b"123".as_ref())),
+        (false, b"test123".as_ref(), Some(b"321".as_ref())),
+        (false, b"test123".as_ref(), Some(b"1234".as_ref())),
+        (false, b"test123".as_ref(), None),
+        // Shorter key:
+        (false, b"test12".as_ref(), Some(b"123".as_ref())),
+        (true, b"test12", None),
+        // Longer key:
+        (false, b"test1234", Some(b"123")),
+        (true, b"test1234", None),
+    ] {
+        let got = proof_verifier.verify(root, &account, key, value);
+        assert_eq!(want, got, "key: {key:x?}; value: {value:x?}");
+    }
 }
 
 #[test]
