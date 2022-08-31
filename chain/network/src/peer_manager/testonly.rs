@@ -60,10 +60,7 @@ pub(crate) struct RawConnection {
 }
 
 impl RawConnection {
-    pub async fn handshake(
-        self,
-        clock: &time::Clock,
-    ) -> peer::testonly::PeerHandle {
+    pub async fn handshake(self, clock: &time::Clock) -> peer::testonly::PeerHandle {
         let mut peer =
             peer::testonly::PeerHandle::start_endpoint(clock.clone(), self.cfg, self.stream).await;
         peer.complete_handshake().await;
@@ -162,7 +159,8 @@ pub(crate) async fn start(
                 fc.clone().recipient(),
                 fc.clone().recipient(),
                 genesis_id,
-            ).unwrap()
+            )
+            .unwrap()
         }
     })
     .await;

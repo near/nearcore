@@ -1,5 +1,4 @@
 use crate::accounts_data;
-use crate::sink::Sink;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
@@ -12,13 +11,14 @@ use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::private_actix::{
     PeersRequest, RegisterPeer, RegisterPeerResponse, SendMessage, Unregister,
 };
+use crate::sink::Sink;
 use crate::stats::metrics;
 use crate::types::{
     Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses, PeerMessage,
 };
 use actix::{
-    Actor, ActorContext, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner,
-    Handler, Running, StreamHandler, WrapFuture,
+    Actor, ActorContext, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler,
+    Running, StreamHandler, WrapFuture,
 };
 use anyhow::Context as _;
 use lru::LruCache;
@@ -161,7 +161,8 @@ impl PeerActor {
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<actix::Addr<Self>> {
-        let connection_guard = ConnectionGuard{event_sink:network_state.config.event_sink.clone()};
+        let connection_guard =
+            ConnectionGuard { event_sink: network_state.config.event_sink.clone() };
 
         let peer_addr = stream.peer_addr().context("stream.peer_addr()")?;
         let connecting_status = match &stream_config {
@@ -179,7 +180,7 @@ impl PeerActor {
                     .context("tier2.start_outbound()")?,
             ),
         };
-        
+
         let my_node_info = PeerInfo {
             id: network_state.config.node_id(),
             addr: network_state.config.node_addr.clone(),
@@ -187,19 +188,19 @@ impl PeerActor {
         };
         let (read, write) = tokio::io::split(stream);
         let rate_limiter = ThrottleController::new(MAX_MESSAGES_COUNT, MAX_MESSAGES_TOTAL_SIZE);
-        
+
         // Start PeerActor on separate thread.
         Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| {
             Self::add_stream(
-                ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone()).map_while(|x| {
-                    match x {
+                ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone()).map_while(
+                    |x| match x {
                         Ok(x) => Some(x),
                         Err(err) => {
                             warn!(target: "network", ?err, "Peer stream error");
                             None
                         }
-                    }
-                }),
+                    },
+                ),
                 ctx,
             );
             Self {
@@ -442,7 +443,8 @@ impl PeerActor {
                     Ok(NetworkViewClientResponses::TxStatus(tx_result)) => {
                         let body = Box::new(RoutedMessageBody::TxStatusResponse(*tx_result));
                         let _ = act
-                            .network_state.peer_manager_addr
+                            .network_state
+                            .peer_manager_addr
                             .do_send(PeerToManagerMsg::RouteBack(body, msg_hash.unwrap()));
                     }
                     Ok(NetworkViewClientResponses::StateResponse(state_response)) => {
@@ -454,10 +456,9 @@ impl PeerActor {
                                 RoutedMessageBody::VersionedStateResponse(state_response)
                             }
                         };
-                        let _ = act.network_state.peer_manager_addr.do_send(PeerToManagerMsg::RouteBack(
-                            Box::new(body),
-                            msg_hash.unwrap(),
-                        ));
+                        let _ = act.network_state.peer_manager_addr.do_send(
+                            PeerToManagerMsg::RouteBack(Box::new(body), msg_hash.unwrap()),
+                        );
                     }
                     Ok(NetworkViewClientResponses::Block(block)) => {
                         // MOO need protocol version
@@ -697,20 +698,22 @@ impl Actor for PeerActor {
                     ban_reason,
                 }));
             } else {
-                let _ = self.network_state.peer_manager_addr.do_send(PeerToManagerMsg::Unregister(Unregister {
-                    peer_id: peer_info.id.clone(),
-                    peer_type: self.peer_type,
-                    // If the PeerActor is no longer in the Connecting state this means
-                    // that the connection was consolidated at some point in the past.
-                    // Only if the connection was consolidated try to remove this peer from the
-                    // peer store. This avoids a situation in which both peers are connecting to
-                    // each other, and after resolving the tie, a peer tries to remove the other
-                    // peer from the active connection if it was added in the parallel connection.
-                    remove_from_peer_store: !matches!(
-                        &self.peer_status,
-                        PeerStatus::Connecting { .. }
-                    ),
-                }));
+                let _ = self.network_state.peer_manager_addr.do_send(PeerToManagerMsg::Unregister(
+                    Unregister {
+                        peer_id: peer_info.id.clone(),
+                        peer_type: self.peer_type,
+                        // If the PeerActor is no longer in the Connecting state this means
+                        // that the connection was consolidated at some point in the past.
+                        // Only if the connection was consolidated try to remove this peer from the
+                        // peer store. This avoids a situation in which both peers are connecting to
+                        // each other, and after resolving the tie, a peer tries to remove the other
+                        // peer from the active connection if it was added in the parallel connection.
+                        remove_from_peer_store: !matches!(
+                            &self.peer_status,
+                            PeerStatus::Connecting { .. }
+                        ),
+                    },
+                ));
             }
         }
         Running::Stop
@@ -828,7 +831,9 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     }
                     HandshakeFailureReason::InvalidTarget => {
                         debug!(target: "network", "Peer found was not what expected. Updating peer info with {:?}", peer_info);
-                        self.network_state.peer_manager_addr.do_send(PeerToManagerMsg::UpdatePeerInfo(peer_info));
+                        self.network_state
+                            .peer_manager_addr
+                            .do_send(PeerToManagerMsg::UpdatePeerInfo(peer_info));
                     }
                 }
                 ctx.stop();
@@ -1063,11 +1068,13 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             }
             (PeerStatus::Ready, PeerMessage::PeersResponse(peers)) => {
                 debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
-                self.network_state.peer_manager_addr
+                self.network_state
+                    .peer_manager_addr
                     .do_send(PeerToManagerMsg::PeersResponse(PeersResponse { peers }));
             }
             (PeerStatus::Ready, PeerMessage::RequestUpdateNonce(edge_info)) => self
-                .network_state.peer_manager_addr
+                .network_state
+                .peer_manager_addr
                 .send(PeerToManagerMsg::RequestUpdateNonce(
                     self.other_peer_id().unwrap().clone(),
                     edge_info,
@@ -1087,7 +1094,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 })
                 .spawn(ctx),
             (PeerStatus::Ready, PeerMessage::ResponseUpdateNonce(edge)) => self
-                .network_state.peer_manager_addr
+                .network_state
+                .peer_manager_addr
                 .send(PeerToManagerMsg::ResponseUpdateNonce(edge))
                 .into_actor(self)
                 .then(|res, act, ctx| {
@@ -1166,7 +1174,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 if !routed_message.verify() {
                     self.ban_peer(ctx, ReasonForBan::InvalidSignature);
                 } else {
-                    self.network_state.peer_manager_addr
+                    self.network_state
+                        .peer_manager_addr
                         .send(PeerToManagerMsg::RoutedMessageFrom(RoutedMessageFrom {
                             msg: routed_message.clone(),
                             from: self.other_peer_id().unwrap().clone(),

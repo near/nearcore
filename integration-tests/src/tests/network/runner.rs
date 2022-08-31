@@ -7,9 +7,9 @@ use near_chain_configs::ClientConfig;
 use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
+use near_network::actix::ActixSystem;
 use near_network::broadcast;
 use near_network::config;
-use near_network::actix::ActixSystem;
 use near_network::test_utils::{
     expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo,
 };
@@ -97,7 +97,8 @@ fn setup_network_node(
         client_actor.recipient(),
         view_client_actor.recipient(),
         genesis_id,
-    ).unwrap();
+    )
+    .unwrap();
     network_adapter.set_recipient(peer_manager.clone());
     peer_manager
 }
@@ -560,14 +561,12 @@ impl Runner {
         let account_id = config.account_id.clone();
         let validators = self.validators.clone();
         let chain_genesis = self.chain_genesis.clone();
-        
+
         Ok(NodeHandle {
-            actix: ActixSystem::spawn(||setup_network_node(
-                account_id,
-                validators,
-                chain_genesis,
-                network_config,
-            )).await,
+            actix: ActixSystem::spawn(|| {
+                setup_network_node(account_id, validators, chain_genesis, network_config)
+            })
+            .await,
             events: recv_events,
             pings: MultiSet::default(),
             pongs: MultiSet::default(),

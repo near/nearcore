@@ -282,7 +282,8 @@ pub fn start_with_config_and_synchronization(
         client_actor.clone().recipient(),
         view_client.clone().recipient(),
         genesis_id,
-    ).unwrap();
+    )
+    .unwrap();
     network_adapter.set_recipient(network_actor.clone());
 
     #[cfg(feature = "json_rpc")]

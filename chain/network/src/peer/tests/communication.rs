@@ -95,7 +95,10 @@ async fn test_peer_communication(
     // BlockHeadersRequest
     let want: Vec<_> = chain.blocks.iter().map(|b| b.hash().clone()).collect();
     outbound.send(PeerMessage::BlockHeadersRequest(want.clone())).await;
-    assert_eq!(Event::Client(CE::BlockHeadersRequest(want)), inbound.events.recv_until(filter).await);
+    assert_eq!(
+        Event::Client(CE::BlockHeadersRequest(want)),
+        inbound.events.recv_until(filter).await
+    );
 
     // BlockHeaders
     let want = chain.get_block_headers();
@@ -160,12 +163,15 @@ async fn test_peer_communication(
     // EpochSyncFinalizationRequest
     let want = EpochId(chain.blocks[1].hash().clone());
     outbound.send(PeerMessage::EpochSyncFinalizationRequest(want.clone())).await;
-    assert_eq!(Event::Client(CE::EpochSyncFinalizationRequest(want)), inbound.events.recv_until(filter).await);
+    assert_eq!(
+        Event::Client(CE::EpochSyncFinalizationRequest(want)),
+        inbound.events.recv_until(filter).await
+    );
 
     // TODO:
     // LastEdge, HandshakeFailure, Disconnect - affect the state of the PeerActor and are
     // observable only under specific conditions.
-    // ExpochSyncFinalizationResponse - unused. 
+    // ExpochSyncFinalizationResponse - unused.
     Ok(())
 }
 

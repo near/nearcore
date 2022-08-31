@@ -132,8 +132,7 @@ fn peer_recover() {
         let pm0 = Arc::new(make_peer_manager("test0", port0, vec![], 2));
         let _pm1 = make_peer_manager("test1", open_port(), vec![("test0", port0)], 1);
 
-        let mut pm2 =
-            Arc::new(make_peer_manager("test2", open_port(), vec![("test0", port0)], 1));
+        let mut pm2 = Arc::new(make_peer_manager("test2", open_port(), vec![("test0", port0)], 1));
 
         let state = Arc::new(AtomicUsize::new(0));
         let flag = Arc::new(AtomicBool::new(false));
@@ -164,9 +163,12 @@ fn peer_recover() {
                     }
                 } else if state.load(Ordering::Relaxed) == 3 {
                     // Start node2 from scratch again.
-                    pm2 = Arc::new(
-                        make_peer_manager("test2", open_port(), vec![("test0", port0)], 1),
-                    );
+                    pm2 = Arc::new(make_peer_manager(
+                        "test2",
+                        open_port(),
+                        vec![("test0", port0)],
+                        1,
+                    ));
 
                     state.store(4, Ordering::Relaxed);
                 } else if state.load(Ordering::Relaxed) == 4 {

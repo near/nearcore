@@ -25,7 +25,11 @@ use near_store::test_utils::create_test_store;
 type ClientMock = Mocker<ClientActor>;
 type ViewClientMock = Mocker<ViewClientActor>;
 
-fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> actix::Addr<PeerManagerActor> {
+fn make_peer_manager(
+    seed: &str,
+    port: u16,
+    boot_nodes: Vec<(&str, u16)>,
+) -> actix::Addr<PeerManagerActor> {
     let store = create_test_store();
     let mut config = config::NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
@@ -44,7 +48,8 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> act
         client_addr.recipient(),
         view_client_addr.recipient(),
         GenesisId::default(),
-    ).unwrap()
+    )
+    .unwrap()
 }
 
 /// This test spawns several (7) nodes but node 0 crash very frequently and restart.
@@ -79,13 +84,11 @@ fn stress_test() {
 
         let mut pms: Vec<_> = (0..num_nodes)
             .map(|ix| {
-                Arc::new(
-                    make_peer_manager(
-                        format!("test{}", ix).as_str(),
-                        ports[ix],
-                        boot_nodes.iter().map(|(acc, port)| (acc.as_str(), *port)).collect(),
-                    )
-                )
+                Arc::new(make_peer_manager(
+                    format!("test{}", ix).as_str(),
+                    ports[ix],
+                    boot_nodes.iter().map(|(acc, port)| (acc.as_str(), *port)).collect(),
+                ))
             })
             .collect();
 
@@ -134,13 +137,11 @@ fn stress_test() {
                         flag.store(false, Ordering::Relaxed);
                     }
 
-                    pms[0] = Arc::new(
-                        make_peer_manager(
-                            "test0",
-                            ports[0],
-                            boot_nodes.iter().map(|(acc, port)| (acc.as_str(), *port)).collect(),
-                        )
-                    );
+                    pms[0] = Arc::new(make_peer_manager(
+                        "test0",
+                        ports[0],
+                        boot_nodes.iter().map(|(acc, port)| (acc.as_str(), *port)).collect(),
+                    ));
 
                     let pm0 = pms[0].clone();
 

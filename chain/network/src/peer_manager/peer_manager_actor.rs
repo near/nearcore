@@ -210,29 +210,24 @@ impl NetworkState {
         PartialEdgeInfo::new(&self.config.node_id(), peer1, nonce, &self.config.node_key)
     }
     /// Connects peer with given TcpStream.
-    /// This might fail if the other peers drop listener at its endpoint while establishing connection.
-    pub fn try_connect_stream(
+    /// It will fail (and log) if we have too many connections already,
+    /// or if the peer drops the connection in the meantime.
+    fn spawn_peer_actor(
         self: &Arc<Self>,
         clock: &time::Clock,
         stream: TcpStream,
         stream_cfg: StreamConfig,
     ) {
-        if let Err(err) = PeerActor::spawn(
-            clock.clone(),
-            stream,
-            stream_cfg,
-            None,
-            self.clone(),
-        ) {
+        if let Err(err) = PeerActor::spawn(clock.clone(), stream, stream_cfg, None, self.clone()) {
             tracing::info!(target:"network", ?err, "PeerActor::spawn()");
         };
     }
 
-    pub async fn try_connect_to(
-        self: Arc<Self>,
-        clock: time::Clock,
-        peer_info: PeerInfo,
-    ) {
+    pub async fn spawn_inbound(self: &Arc<Self>, clock: &time::Clock, stream: TcpStream) {
+        self.spawn_peer_actor(clock, stream, StreamConfig::Inbound);
+    }
+
+    pub async fn spawn_outbound(self: Arc<Self>, clock: time::Clock, peer_info: PeerInfo) {
         let addr = match peer_info.addr {
             Some(addr) => addr,
             None => {
@@ -263,11 +258,7 @@ impl NetworkState {
                 }
             };
         debug!(target: "network", ?peer_info, "Connecting");
-        self.try_connect_stream(
-            &clock,
-            stream,
-            StreamConfig::Outbound { peer_id: peer_info.id },
-        );
+        self.spawn_peer_actor(&clock, stream, StreamConfig::Outbound { peer_id: peer_info.id });
     }
 }
 
@@ -368,11 +359,7 @@ impl Actor for PeerManagerActor {
                             // we would like to exchange set of connected peers even without establishing
                             // a proper connection.
                             debug!(target: "network", from = ?client_addr, "got new connection");
-                            state.try_connect_stream(
-                                &clock,
-                                conn,
-                                StreamConfig::Inbound,
-                            );
+                            state.spawn_inbound(&clock, conn).await;
                         }
                     }
                 }
@@ -1724,7 +1711,7 @@ impl PeerManagerActor {
                 ctx.spawn(
                     self.state
                         .clone()
-                        .try_connect_to(self.clock.clone(), msg.peer_info)
+                        .spawn_outbound(self.clock.clone(), msg.peer_info)
                         .into_actor(self),
                 );
                 PeerManagerMessageResponse::OutboundTcpConnect

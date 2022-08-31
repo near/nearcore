@@ -152,9 +152,7 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
                 self.event_sink.push(Event::PeersResponse(resp.peers));
                 PeerToManagerMsgResp::Empty
             }
-            PeerToManagerMsg::Unregister(_) => {
-                PeerToManagerMsgResp::Empty
-            }
+            PeerToManagerMsg::Unregister(_) => PeerToManagerMsgResp::Empty,
             _ => panic!("unsupported message"),
         }
     }
@@ -246,7 +244,8 @@ impl PeerHandle {
                 },
                 cfg.force_encoding,
                 network_state,
-            ).unwrap()
+            )
+            .unwrap()
         })
         .await;
         Self { actix, cfg: cfg_, events: recv }
