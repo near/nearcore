@@ -2657,8 +2657,8 @@ impl Chain {
     ) -> Result<Vec<u8>, Error> {
         // Check cache
         let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-        if let Ok(Some(state_part)) = self.store.store().get_vec(DBCol::StateParts, &key) {
-            return Ok(state_part);
+        if let Ok(Some(state_part)) = self.store.store().get(DBCol::StateParts, &key) {
+            return Ok(state_part.into());
         }
 
         let sync_block = self

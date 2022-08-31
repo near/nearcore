@@ -166,6 +166,12 @@ impl NodeStorage {
 }
 
 impl Store {
+    /// Fetches value from given column.
+    ///
+    /// If the key does not exist in the column returns `None`.  Otherwise
+    /// returns the data as [`DBBytes`] object.  The object dereferences into
+    /// a slice, for cases when caller doesn’t need to own the value, and
+    /// provides conversion into a vector or an Arc.
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBBytes<'_>>> {
         let value = if column.is_rc() {
             self.storage.get_with_rc_stripped(column, key)
@@ -180,10 +186,6 @@ impl Store {
             size = value.as_deref().map(<[u8]>::len)
         );
         Ok(value)
-    }
-
-    pub fn get_vec(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        self.get(column, key).map(|result| result.map(Vec::from))
     }
 
     pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
@@ -771,7 +773,7 @@ mod tests {
             store_update.increment_refcount(DBCol::State, &[3], &[3]);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get_vec(DBCol::State, &[1]).unwrap(), Some(vec![1]));
+        assert_eq!(store.get(DBCol::State, &[1]).unwrap().as_deref(), Some(&[1][..]));
         {
             let mut store_update = store.store_update();
             store_update.delete_all(DBCol::State);
