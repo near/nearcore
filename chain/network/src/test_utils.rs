@@ -323,7 +323,7 @@ pub mod test_features {
 
     // Make peer manager for unit tests
     pub fn make_peer_manager(
-        store: near_store::NodeStorage,
+        store: Arc<dyn near_store::db::Database>,
         mut config: config::NetworkConfig,
         boot_nodes: Vec<(&str, u16)>,
         peer_max_count: u32,
@@ -369,11 +369,4 @@ pub mod test_features {
 #[rtype(result = "()")]
 pub struct SetAdvOptions {
     pub set_max_peers: Option<u64>,
-}
-
-/// Creates an in-memory storage.
-#[cfg(test)]
-pub(crate) fn create_test_peer_store() -> crate::store::Store {
-    let storage = near_store::test_utils::create_test_node_storage();
-    crate::store::Store::from(storage)
 }
