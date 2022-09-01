@@ -170,6 +170,8 @@ pub enum ProtocolFeature {
     AccountIdInFunctionCallPermission,
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
+    #[cfg(feature = "shardnet")]
+    ShardnetShardLayoutUpgrade,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -192,7 +194,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protoco
     132
 } else if cfg!(feature = "shardnet") {
     // For shardnet, enable `ChunkOnlyProducers` but nothing else.
-    101
+    102
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION
@@ -206,6 +208,10 @@ const PROTOCOL_UPGRADE_SCHEDULE: Lazy<HashMap<ProtocolVersion, ProtocolUpgradeVo
         // Update to latest protocol version on release.
         schedule
             .insert(54, ProtocolUpgradeVotingSchedule::from_str("2022-06-27 15:00:00").unwrap());
+
+        // Final shardnet release. Do not include it in testnet or mainnet releases.
+        schedule
+            .insert(102, ProtocolUpgradeVotingSchedule::from_str("2022-09-05 15:00:00").unwrap());
         schedule
     });
 
@@ -263,6 +269,8 @@ impl ProtocolFeature {
             ProtocolFeature::AccountIdInFunctionCallPermission => 130,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
+            #[cfg(feature = "shardnet")]
+            ProtocolFeature::ShardnetShardLayoutUpgrade => 102,
         }
     }
 }
