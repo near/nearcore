@@ -76,6 +76,7 @@ use delay_detector::DelayDetector;
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
+use near_primitives::version::PROTOCOL_VERSION;
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -1134,6 +1135,26 @@ impl Chain {
             }
         }
 
+        #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
+        if let Ok(epoch_protocol_version) =
+            self.runtime_adapter.get_epoch_protocol_version(header.epoch_id())
+        {
+            if checked_feature!(
+                "protocol_feature_reject_blocks_with_outdated_protocol_version",
+                RejectBlocksWithOutdatedProtocolVersions,
+                epoch_protocol_version
+            ) {
+                if header.latest_protocol_version() < epoch_protocol_version {
+                    error!(
+                        "header protocol version {} smaller than epoch protocol version {}",
+                        header.latest_protocol_version(),
+                        epoch_protocol_version
+                    );
+                    return Err(Error::InvalidProtocolVersion);
+                }
+            }
+        }
+
         let prev_header = self.get_previous_header(header)?;
 
         // Check that epoch_id in the header does match epoch given previous header (only if previous header is present).
@@ -2134,6 +2155,12 @@ impl Chain {
             // TODO: enable after #3729 and #3863
             // self.verify_orphan_header_approvals(&block.header())?;
             return Err(Error::Orphan);
+        }
+
+        let epoch_protocol_version =
+            self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
+        if epoch_protocol_version > PROTOCOL_VERSION {
+            panic!("The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}", PROTOCOL_VERSION, epoch_protocol_version);
         }
 
         // First real I/O expense.
