@@ -42,6 +42,8 @@ runner = "serde"
 weight = 1
 flags = ["-len_control=0", "-prefer_small=0", "-max_len=4000000"]
 
+# TODO: Add current_vm_is_reproducible once switch to bolero complete
+
 # TODO(#1234): Enable the test again once <some condition>
 [[target]]
 crate = "chain/jsonrpc/fuzz"
