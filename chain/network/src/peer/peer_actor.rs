@@ -241,7 +241,8 @@ impl PeerActor {
         }
         metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
         metrics::PEER_MESSAGE_SENT_BY_TYPE_TOTAL.with_label_values(&[msg_type]).inc();
-        metrics::PEER_MESSAGE_SENT_BY_TYPE_BYTES.with_label_values(&[msg_type])
+        metrics::PEER_MESSAGE_SENT_BY_TYPE_BYTES
+            .with_label_values(&[msg_type])
             .inc_by(bytes_len as u64);
         Ok(())
     }
