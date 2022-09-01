@@ -17,12 +17,12 @@ tokio = { version = "1.16.1", features = ["full"]}
 tracing = "0.1.13"
 
 nearcore = { path = "../../nearcore" }
-near-chain-configs = { path = "../../core/chain-configs" }
 near-chain = { path = "../../chain/chain" }
-near-network-primitives = { path = "../../chain/network-primitives" }
+near-chain-configs = { path = "../../core/chain-configs" }
+near-crypto = { path = "../../core/crypto" }
 near-network = { path = "../../chain/network" }
+near-network-primitives = { path = "../../chain/network-primitives" }
+near-o11y = { path = "../../core/o11y" }
 near-primitives = { path = "../../core/primitives" }
 near-primitives-core = { path = "../../core/primitives-core" }
-near-o11y = { path = "../../core/o11y" }
 near-store = { path = "../../core/store" }
-near-crypto = { path = "../../core/crypto" }

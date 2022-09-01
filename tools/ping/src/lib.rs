@@ -556,6 +556,10 @@ impl AppInfo {
                     let state = e.get_mut();
                     if let Some(old) = state.account_id.as_ref() {
                         if old != account_id {
+                            // TODO: we should just keep track of all accounts that map
+                            // to this peer id, since it's valid for there to be more than one.
+                            // We only use the accounts in the account filter and when displaying
+                            // ping targets, so theres no reason we cant keep track of all of them
                             tracing::warn!(
                                 target: "ping", "Received Announce Account mapping {:?} to {:?}, but already \
                                 knew of account id {:?}. Keeping old value",
