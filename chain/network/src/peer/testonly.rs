@@ -25,7 +25,6 @@ use near_rate_limiter::{
     ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleFramedRead,
     ThrottleToken,
 };
-use near_store::test_utils::create_test_node_storage;
 
 use near_network_primitives::time;
 use std::sync::Arc;
@@ -219,7 +218,7 @@ impl PeerHandle {
             let (read, write) = tokio::io::split(stream);
             let fpm = FakePeerManagerActor { cfg: cfg.clone(), event_sink: send.sink() }.start();
             let fc = fake_client::start(send.sink().compose(Event::Client));
-            let store = store::Store::from(create_test_node_storage());
+            let store = store::Store::from(near_store::db::TestDB::new());
             let rate_limiter = ThrottleController::new(usize::MAX, usize::MAX);
             let read = ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone())
                 .take_while(|x| match x {
