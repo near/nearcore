@@ -14,6 +14,9 @@ pub(crate) struct EstimateConfig {
     /// temporary directory if unspecified.
     #[clap(long)]
     pub home: Option<String>,
+    /// Comma separated list of metrics to use in estimation.
+    #[clap(long, default_value = "icount,time", possible_values = &["icount", "time", "icount,time", "time,icount"])]
+    pub metrics: String,
 }
 
 pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result<()> {
@@ -54,8 +57,8 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
     let iters = 5.to_string();
     let warmup_iters = 1.to_string();
 
-    // time metric
-    {
+    let metrics: Vec<_> = config.metrics.split(',').collect();
+    if metrics.contains(&"time") {
         let mut maybe_drop_cache = vec![];
 
         #[cfg(target_family = "unix")]
@@ -77,8 +80,7 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
         )?;
     }
 
-    // icount metric
-    {
+    if metrics.contains(&"icount") {
         let estimation_output =
             cmd!(sh,
                 "{estimator_binary} --iters {iters} --warmup-iters {warmup_iters} --json-output --home {estimator_home} --metric icount --docker --full"
