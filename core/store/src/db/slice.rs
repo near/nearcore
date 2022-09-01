@@ -8,6 +8,9 @@ use super::refcount;
 /// [`Database::get_with_rc_stripped`] methods.  Operating on the value as
 /// a slice is free while converting it to a vector on an arc may requires an
 /// allocation and memory copy.
+///
+/// This is essentially a reference into a buffer owned by the database with an
+/// RAII guard which notifies the database when the buffer can be freed.
 pub struct DBSlice<'a>(Inner<'a>);
 
 enum Inner<'a> {
@@ -27,8 +30,8 @@ enum Inner<'a> {
 
         /// This is what owns the data.
         ///
-        /// This is never modified which is why we can have `data` field
-        /// pointing at the buffer this object holds.
+        /// This is never modified and has a stable deref which is why we can
+        /// have `data` field pointing at the buffer this object holds.
         db_slice: ::rocksdb::DBPinnableSlice<'a>,
     },
 }

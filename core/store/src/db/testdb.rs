@@ -22,7 +22,7 @@ impl TestDB {
 
 impl Database for TestDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
-        Ok(self.db.read().unwrap()[col].get(key).map(|vec| DBSlice::from_vec(vec.clone())))
+        Ok(self.db.read().unwrap()[col].get(key).cloned().map(DBSlice::from_vec))
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
