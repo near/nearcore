@@ -266,6 +266,7 @@ impl NetworkState {
         if let PeerIdOrHash::PeerId(target) = &msg.msg.target {
             if target == &my_peer_id {
                 debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?my_peer_id, ?msg, "Drop signed message to myself");
+                metrics::CONNECTED_TO_MYSELF.inc();
                 return false;
             }
         }

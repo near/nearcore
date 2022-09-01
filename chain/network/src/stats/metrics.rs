@@ -206,6 +206,15 @@ pub(crate) static ROUTING_TABLE_MESSAGES_TIME: Lazy<HistogramVec> = Lazy::new(||
     )
     .unwrap()
 });
+pub(crate) static ROUTED_MESSAGE_DROPPED: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_routed_message_dropped",
+        "Number of messages dropped due to TTL=0, by routed message type",
+        &["type"],
+    )
+    .unwrap()
+});
+
 pub(crate) static PEER_REACHABLE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_peer_reachable",
@@ -252,6 +261,14 @@ static NETWORK_ROUTED_MSG_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
         "Latency of network messages, assuming clocks are perfectly synchronized",
         &["routed"],
         Some(exponential_buckets(0.0001, 1.6, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static CONNECTED_TO_MYSELF: Lazy<IntCounter> = Lazy::new(|| {
+    try_create_int_counter(
+        "near_connected_to_myself",
+        "This node connected to itself, this shouldn't happen",
     )
     .unwrap()
 });

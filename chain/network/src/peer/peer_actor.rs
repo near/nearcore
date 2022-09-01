@@ -1101,7 +1101,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 }
                 let from = self.other_peer_id().unwrap().clone();
                 if msg.expect_response() {
-                    tracing::trace!(target: "network", route_back = ?msg.clone(), "Received peer message that requires");
+                    tracing::trace!(target: "network", route_back = ?msg.clone(), "Received peer message that requires response");
                     self.network_state.routing_table_view.add_route_back(
                         &self.clock,
                         msg.hash(),
@@ -1141,6 +1141,9 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     } else {
                         self.network_state.config.event_sink.push(Event::RoutedMessageDropped);
                         warn!(target: "network", ?msg, ?from, "Message dropped because TTL reached 0.");
+                        metrics::ROUTED_MESSAGE_DROPPED
+                            .with_label_values(&[msg.body_variant()])
+                            .inc();
                     }
                 }
             }
