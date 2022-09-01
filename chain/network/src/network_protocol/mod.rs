@@ -320,7 +320,7 @@ impl PeerMessage {
 
     pub fn msg_variant(&self) -> &'static str {
         match self {
-            PeerMessage::Routed(routed_msg) => routed_msg.msg.body_variant(),
+            PeerMessage::Routed(routed_msg) => routed_msg.body_variant(),
             _ => self.into(),
         }
     }
