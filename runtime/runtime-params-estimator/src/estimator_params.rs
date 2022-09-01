@@ -15,9 +15,12 @@ pub(crate) const GAS_IN_NS: Ratio<Gas> = Ratio::new_raw(1_000_000, 1);
 // time-based and icount-based metric as measured on 3.2Ghz Core i5.
 pub(crate) const GAS_IN_INSTR: Ratio<Gas> = Ratio::new_raw(1_000_000, 8);
 
-// See runtime/runtime-params-estimator/emu-cost/README.md for the motivation of constant values.
-pub(crate) const IO_READ_BYTE_COST: Ratio<Gas> = Ratio::new_raw(27_000_000, 8);
-pub(crate) const IO_WRITE_BYTE_COST: Ratio<Gas> = Ratio::new_raw(47_000_000, 8);
+// IO bytes as measured on the sys_call level are rather unstable when using
+// RocksDB as storage solution. Measuring it for debugging purposes is still useful
+// but a conversion from total read/written bytes to gas is always going to be inaccurate.
+// Consequently, set both values to 0 such that they do not influence gas costs.
+pub(crate) const IO_READ_BYTE_COST: Ratio<Gas> = Ratio::new_raw(0, 1);
+pub(crate) const IO_WRITE_BYTE_COST: Ratio<Gas> = Ratio::new_raw(0, 1);
 
 /// Measure the cost for running a sha256 Rust implementation (on an arbitrary input).
 ///
