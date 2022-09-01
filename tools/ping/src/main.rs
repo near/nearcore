@@ -5,7 +5,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use near_primitives::types::BlockHeight;
-use near_primitives_core::types::ProtocolVersion;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -39,6 +38,8 @@ struct Cli {
     ping_frequency_millis: u64,
     /// line-separated list of accounts to filter on.
     /// We will only try to send pings to these accounts
+    // TODO: add --track-validators or something, that will constantly keep track of
+    // which accounts are validators and ping those
     #[clap(long)]
     account_filter_file: Option<PathBuf>,
     /// filename to append CSV data to
@@ -84,7 +85,6 @@ struct ChainInfo {
     chain_id: &'static str,
     genesis_hash: CryptoHash,
     head_height: BlockHeight,
-    protocol_version: ProtocolVersion,
 }
 
 static CHAIN_INFO: &[ChainInfo] = &[
@@ -95,7 +95,6 @@ static CHAIN_INFO: &[ChainInfo] = &[
             137, 158, 50, 29, 253, 245, 254, 188, 251, 183, 49, 63, 20, 134,
         ]),
         head_height: 71112469,
-        protocol_version: 55,
     },
     ChainInfo {
         chain_id: "testnet",
@@ -104,7 +103,6 @@ static CHAIN_INFO: &[ChainInfo] = &[
             34, 162, 137, 113, 220, 51, 15, 0, 153, 223, 148, 55, 148, 16,
         ]),
         head_height: 96446588,
-        protocol_version: 56,
     },
     ChainInfo {
         chain_id: "shardnet",
@@ -113,7 +111,6 @@ static CHAIN_INFO: &[ChainInfo] = &[
             127, 219, 141, 160, 109, 150, 121, 215, 174, 108, 67, 47, 110,
         ]),
         head_height: 1622527,
-        protocol_version: 101,
     },
 ];
 
@@ -196,17 +193,8 @@ async fn main() -> anyhow::Result<()> {
             ),
         }
     };
-    let protocol_version = if let Some(v) = &args.protocol_version {
-        *v
-    } else {
-        match chain_info {
-            Some(chain_info) => chain_info.protocol_version,
-            None => {
-                tracing::warn!(target: "ping", "--protocol-version not given, and protocol version for --chain-id {} not known. using 55.", &args.chain_id);
-                55
-            }
-        }
-    };
+    let protocol_version =
+        args.protocol_version.unwrap_or(near_primitives::version::PROTOCOL_VERSION);
 
     let peer = match PeerInfo::from_str(&args.peer) {
         Ok(p) => p,

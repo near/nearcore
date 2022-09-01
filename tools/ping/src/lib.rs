@@ -3,7 +3,8 @@ use bytes::buf::{Buf, BufMut};
 use bytes::BytesMut;
 use near_crypto::{KeyType, SecretKey};
 use near_network::types::{
-    Encoding, Handshake, ParsePeerMessageError, PeerMessage, RoutingTableUpdate,
+    Encoding, Handshake, HandshakeFailureReason, ParsePeerMessageError, PeerMessage,
+    RoutingTableUpdate,
 };
 use near_network_primitives::time::Utc;
 use near_network_primitives::types::{
@@ -262,15 +263,33 @@ impl Peer {
         let (messages, stop) = self.recv_messages(&sigint_received).await?;
 
         if let Some((first, timestamp)) = messages.first() {
-            // TODO: maybe check the handshake for sanity
-            if !matches!(first, PeerMessage::Handshake(_)) {
-                return Err(anyhow::anyhow!(
+            match &first {
+                // TODO: maybe check the handshake for sanity
+                PeerMessage::Handshake(_) => {
+                    tracing::info!(target: "ping", "handshake latency: {:?}", *timestamp - start);
+                },
+                PeerMessage::HandshakeFailure(_peer_info, reason) => {
+                    match &reason {
+                        HandshakeFailureReason::ProtocolVersionMismatch { version, oldest_supported_version } => return Err(anyhow::anyhow!(
+                            "Received Handshake Failure: {:?}. Try running again with --protocol-version between {} and {}",
+                            reason, oldest_supported_version, version
+                        )),
+                        HandshakeFailureReason::GenesisMismatch(_) => return Err(anyhow::anyhow!(
+                            "Received Handshake Failure: {:?}. Try running again with --chain-id and --genesis-hash set to these values.",
+                            reason,
+                        )),
+                        HandshakeFailureReason::InvalidTarget => return Err(anyhow::anyhow!(
+                            "Received Handshake Failure: {:?}. Is the public key given with --peer correct?",
+                            reason,
+                        )),
+                    }
+                }
+                _ => return Err(anyhow::anyhow!(
                     "First message received from {:?} is not a handshake: {:?}",
                     self,
                     &first
-                ));
-            }
-            tracing::info!(target: "ping", "handshake latency: {:?}", *timestamp - start);
+                )),
+            };
         }
         for (msg, _timestamp) in messages.iter().skip(1) {
             tracing::warn!(
