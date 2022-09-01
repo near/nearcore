@@ -2,7 +2,6 @@
 use crate::network_protocol as mem;
 use crate::network_protocol::borsh as net;
 use near_network_primitives::types::RoutedMessageV2;
-use std::sync::Arc;
 use thiserror::Error;
 
 impl From<&net::Handshake> for mem::Handshake {
@@ -123,7 +122,7 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
             net::PeerMessage::Block(b) => mem::PeerMessage::Block(b),
             net::PeerMessage::Transaction(t) => mem::PeerMessage::Transaction(t),
             net::PeerMessage::Routed(r) => {
-                mem::PeerMessage::Routed(Arc::new(RoutedMessageV2 { msg: *r, created_at: None }))
+                mem::PeerMessage::Routed(Box::new(RoutedMessageV2 { msg: *r, created_at: None }))
             }
             net::PeerMessage::Disconnect => mem::PeerMessage::Disconnect,
             net::PeerMessage::Challenge(c) => mem::PeerMessage::Challenge(c),

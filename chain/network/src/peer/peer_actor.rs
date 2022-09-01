@@ -423,9 +423,15 @@ impl PeerActor {
         let _span = tracing::trace_span!(target: "network", "receive_client_message").entered();
         let peer_id =
             if let Some(peer_id) = self.other_peer_id() { peer_id.clone() } else { return };
+ 
+        // This is a fancy way to clone the message iff event_sink is non-null.
+        // If you have a better idea on how to achieve that, feel free to improve this.
+        let message_processed_event = self.network_state.config.event_sink.delayed_push(
+            ||Event::MessageProcessed(msg.clone())
+        );
 
         // Wrap peer message into what client expects.
-        let network_client_msg = match msg.clone() {
+        let network_client_msg = match msg {
             PeerMessage::Block(block) => {
                 let block_hash = *block.hash();
                 self.tracker.lock().push_received(block_hash);
@@ -551,7 +557,7 @@ impl PeerActor {
                         return actix::fut::ready(());
                     }
                     _ => {
-                        act.network_state.config.event_sink.push(Event::MessageProcessed(msg));
+                        message_processed_event();
                     }
                 };
                 actix::fut::ready(())
@@ -1087,7 +1093,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 })
                 .spawn(ctx);
             }
-            (PeerStatus::Ready, PeerMessage::Routed(msg)) => {
+            (PeerStatus::Ready, PeerMessage::Routed(mut msg)) => {
                 tracing::trace!(
                     target: "network",
                     "Received routed message from {} to {:?}.",
@@ -1135,9 +1141,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         }
                     }
                 } else {
-                    let mut msg = (*msg).clone();
                     if msg.decrease_ttl() {
-                        self.network_state.send_signed_message_to_peer(&self.clock, Arc::new(msg));
+                        self.network_state.send_signed_message_to_peer(&self.clock, msg);
                     } else {
                         self.network_state.config.event_sink.push(Event::RoutedMessageDropped);
                         warn!(target: "network", ?msg, ?from, "Message dropped because TTL reached 0.");

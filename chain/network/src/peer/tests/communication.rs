@@ -113,7 +113,7 @@ async fn test_peer_communication(
     assert_eq!(Event::RoutingTable(want), inbound.events.recv().await);
 
     // PartialEncodedChunkRequest
-    let want = Arc::new(outbound.routed_message(
+    let want = Box::new(outbound.routed_message(
         RoutedMessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
             chunk_hash: chain.blocks[5].chunks()[2].chunk_hash(),
             part_ords: vec![],
@@ -130,7 +130,7 @@ async fn test_peer_communication(
     // PartialEncodedChunkResponse
     let want_hash = chain.blocks[3].chunks()[0].chunk_hash();
     let want_parts = data::make_chunk_parts(chain.chunks[&want_hash].clone());
-    let want = PeerMessage::Routed(Arc::new(outbound.routed_message(
+    let want = PeerMessage::Routed(Box::new(outbound.routed_message(
         RoutedMessageBody::PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg {
             chunk_hash: want_hash,
             parts: want_parts.clone(),

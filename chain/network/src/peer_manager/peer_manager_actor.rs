@@ -244,7 +244,7 @@ impl NetworkState {
     pub fn send_message_to_peer(&self, clock: &time::Clock, msg: RawRoutedMessage) -> bool {
         self.send_signed_message_to_peer(
             clock,
-            Arc::new(msg.sign(
+            Box::new(msg.sign(
                 self.config.node_id(),
                 &self.config.node_key,
                 self.config.routed_message_ttl,
@@ -258,7 +258,7 @@ impl NetworkState {
     pub fn send_signed_message_to_peer(
         &self,
         clock: &time::Clock,
-        msg: Arc<RoutedMessageV2>,
+        msg: Box<RoutedMessageV2>,
     ) -> bool {
         let my_peer_id = self.config.node_id();
 
@@ -271,7 +271,7 @@ impl NetworkState {
             }
         }
 
-        match self.routing_table_view.find_route(&clock, &msg.msg.target) {
+        match self.routing_table_view.find_route(&clock, &msg.target) {
             Ok(peer_id) => {
                 // Remember if we expect a response for this message.
                 if msg.msg.author == my_peer_id && msg.expect_response() {

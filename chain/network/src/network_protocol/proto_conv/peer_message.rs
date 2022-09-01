@@ -289,7 +289,7 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::Transaction(t) => PeerMessage::Transaction(
                 SignedTransaction::try_from_slice(&t.borsh).map_err(Self::Error::Transaction)?,
             ),
-            ProtoMT::Routed(r) => PeerMessage::Routed(Arc::new(RoutedMessageV2 {
+            ProtoMT::Routed(r) => PeerMessage::Routed(Box::new(RoutedMessageV2 {
                 msg: RoutedMessage::try_from_slice(&r.borsh).map_err(Self::Error::Routed)?,
                 created_at: r
                     .created_at
