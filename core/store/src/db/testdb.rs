@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::sync::{Arc, RwLock};
 
-use crate::db::{refcount, DBSlice, DBIterator, DBOp, DBTransaction, Database};
+use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database};
 use crate::{DBCol, StoreStatistics};
 
 /// An in-memory database intended for tests.

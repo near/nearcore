@@ -12,7 +12,7 @@ use tracing::{error, warn};
 use near_primitives::version::DbVersion;
 
 use crate::config::Mode;
-use crate::db::{refcount, DBSlice, DBIterator, DBOp, DBTransaction, Database, StatsValue};
+use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue};
 use crate::{metrics, DBCol, StoreConfig, StoreStatistics};
 
 mod instance_tracker;

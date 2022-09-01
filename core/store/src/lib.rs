@@ -25,7 +25,7 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 
 use crate::db::{
-    refcount, DBSlice, DBIterator, DBOp, DBTransaction, Database, RocksDB, StoreStatistics,
+    refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, RocksDB, StoreStatistics,
     GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;

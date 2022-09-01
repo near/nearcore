@@ -1,4 +1,4 @@
-use crate::db::{DBSlice, DBIterator, DBOp, DBTransaction, Database};
+use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database};
 use crate::DBCol;
 
 /// A database which provides access to the cold storage.
