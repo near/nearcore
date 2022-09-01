@@ -61,7 +61,6 @@ impl PeerConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Event {
     HandshakeDone(Edge),
-    Routed(Box<RoutedMessageV2>),
     RoutingTable(RoutingTableUpdate),
     RequestUpdateNonce(PartialEdgeInfo),
     ResponseUpdateNonce(Edge),
@@ -123,11 +122,6 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
                         None => Some(this_edge_info),
                     },
                 ))
-            }
-            PeerToManagerMsg::RoutedMessageFrom(rmf) => {
-                self.event_sink.push(Event::Routed(rmf.msg.clone()));
-                // Reject all incoming routed messages.
-                PeerToManagerMsgResp::RoutedMessageFrom(false)
             }
             PeerToManagerMsg::SyncRoutingTable { routing_table_update, .. } => {
                 self.event_sink.push(Event::RoutingTable(routing_table_update));
@@ -192,7 +186,7 @@ impl PeerHandle {
         peer_id: PeerId,
         ttl: u8,
         utc: Option<time::Utc>,
-    ) -> Box<RoutedMessageV2> {
+    ) -> RoutedMessageV2 {
         RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id), body }.sign(
             self.cfg.id(),
             &self.cfg.network.node_key,
@@ -212,7 +206,7 @@ impl PeerHandle {
         let actix = ActixSystem::spawn(move || {
             let fpm = FakePeerManagerActor { cfg: cfg.clone(), event_sink: send.sink() }.start();
             let fc = fake_client::start(send.sink().compose(Event::Client));
-            let store = store::Store::from(create_test_store());
+            let store = store::Store::from(near_store::db::TestDB::new());
             let routing_table_view = RoutingTableView::new(store, cfg.id());
             // WARNING: this is a hack to make PeerActor use a specific nonce
             if let (Some(nonce), Some(peer_id)) = (&cfg.nonce, &cfg.start_handshake_with) {
