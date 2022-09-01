@@ -9,6 +9,7 @@ rust-version = "1.63.0"
 edition = "2021"
 
 [dependencies]
+anyhow = "1.0.62"
 byteorder = "1.2"
 bytesize = { version = "1.1", features = ["serde"] }
 derive_more = "0.99.3"
@@ -37,6 +38,7 @@ near-metrics = { path = "../metrics" }
 [dev-dependencies]
 assert_matches = "1.5.0"
 bencher = "0.1.5"
+insta = "1"
 rand = "0.7"
 
 [[bench]]

@@ -1,7 +1,7 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::Encoding;
-use crate::peer::peer_actor;
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
+use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::testonly::fake_client::Event as CE;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
@@ -27,16 +27,16 @@ async fn test_peer_communication(
 
     let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
     let inbound_cfg = PeerConfig {
-        signer: data::make_signer(&mut rng),
         chain: chain.clone(),
+        network: chain.make_config(&mut rng),
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: inbound_encoding,
         start_handshake_with: None,
         nonce: None,
     };
     let outbound_cfg = PeerConfig {
-        signer: data::make_signer(&mut rng),
         chain: chain.clone(),
+        network: chain.make_config(&mut rng),
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: outbound_encoding,
         start_handshake_with: Some(inbound_cfg.id()),
@@ -44,10 +44,9 @@ async fn test_peer_communication(
     };
 
     let (outbound_stream, inbound_stream) = PeerHandle::start_connection().await;
-    let mut inbound =
-        PeerHandle::start_endpoint(clock.clock(), &mut rng, inbound_cfg, inbound_stream).await;
+    let mut inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
     let mut outbound =
-        PeerHandle::start_endpoint(clock.clock(), &mut rng, outbound_cfg, outbound_stream).await;
+        PeerHandle::start_endpoint(clock.clock(), outbound_cfg, outbound_stream).await;
 
     outbound.complete_handshake().await;
     inbound.complete_handshake().await;
@@ -57,9 +56,14 @@ async fn test_peer_communication(
     // Once borsh support is removed, the initial SyncAccountsData should be consumed in
     // complete_handshake.
     let filter = |ev| match ev {
-        Event::Peer(peer_actor::Event::MessageProcessed(PeerMessage::SyncAccountsData(_))) => None,
+        Event::Network(PME::MessageProcessed(PeerMessage::SyncAccountsData(_))) => None,
         Event::RoutingTable(_) => None,
         ev => Some(ev),
+    };
+
+    let message_processed = |ev| match ev {
+        Event::Network(PME::MessageProcessed(msg)) => Some(msg),
+        _ => None,
     };
 
     // RequestUpdateNonce
@@ -88,8 +92,9 @@ async fn test_peer_communication(
 
     // Block
     let want = chain.blocks[5].clone();
-    outbound.send(PeerMessage::Block(want.clone())).await;
-    assert_eq!(Event::Client(CE::Block(want)), inbound.events.recv().await);
+    let want = PeerMessage::Block(want);
+    outbound.send(want.clone()).await;
+    assert_eq!(want, inbound.events.recv_until(message_processed).await);
 
     // BlockHeadersRequest
     let want: Vec<_> = chain.blocks.iter().map(|b| b.hash().clone()).collect();
@@ -98,8 +103,9 @@ async fn test_peer_communication(
 
     // BlockHeaders
     let want = chain.get_block_headers();
-    outbound.send(PeerMessage::BlockHeaders(want.clone())).await;
-    assert_eq!(Event::Client(CE::BlockHeaders(want)), inbound.events.recv().await);
+    let want = PeerMessage::BlockHeaders(want);
+    outbound.send(want.clone()).await;
+    assert_eq!(want, inbound.events.recv_until(message_processed).await);
 
     // SyncRoutingTable
     let want = data::make_routing_table(&mut rng);
@@ -107,7 +113,7 @@ async fn test_peer_communication(
     assert_eq!(Event::RoutingTable(want), inbound.events.recv().await);
 
     // PartialEncodedChunkRequest
-    let want = outbound.routed_message(
+    let want = Box::new(outbound.routed_message(
         RoutedMessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
             chunk_hash: chain.blocks[5].chunks()[2].chunk_hash(),
             part_ords: vec![],
@@ -116,14 +122,15 @@ async fn test_peer_communication(
         inbound.cfg.id(),
         1,    // ttl
         None, // TODO(gprusak): this should be clock.now_utc(), once borsh support is dropped.
-    );
-    outbound.send(PeerMessage::Routed(want.clone())).await;
-    assert_eq!(Event::Routed(want), inbound.events.recv().await);
+    ));
+    let want = PeerMessage::Routed(want);
+    outbound.send(want.clone()).await;
+    assert_eq!(want, inbound.events.recv_until(message_processed).await);
 
     // PartialEncodedChunkResponse
     let want_hash = chain.blocks[3].chunks()[0].chunk_hash();
     let want_parts = data::make_chunk_parts(chain.chunks[&want_hash].clone());
-    let want = outbound.routed_message(
+    let want = PeerMessage::Routed(Box::new(outbound.routed_message(
         RoutedMessageBody::PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg {
             chunk_hash: want_hash,
             parts: want_parts.clone(),
@@ -132,19 +139,20 @@ async fn test_peer_communication(
         inbound.cfg.id(),
         1,    // ttl
         None, // TODO(gprusak): this should be clock.now_utc(), once borsh support is dropped.
-    );
-    outbound.send(PeerMessage::Routed(want.clone())).await;
-    assert_eq!(Event::Routed(want), inbound.events.recv().await);
+    )));
+    outbound.send(want.clone()).await;
+    assert_eq!(want, inbound.events.recv_until(message_processed).await);
 
     // Transaction
     let want = data::make_signed_transaction(&mut rng);
-    outbound.send(PeerMessage::Transaction(want.clone())).await;
-    assert_eq!(Event::Client(CE::Transaction(want)), inbound.events.recv().await);
+    let want = PeerMessage::Transaction(want);
+    outbound.send(want.clone()).await;
+    assert_eq!(want, inbound.events.recv_until(message_processed).await);
 
     // Challenge
-    let want = data::make_challenge(&mut rng);
-    outbound.send(PeerMessage::Challenge(want.clone())).await;
-    assert_eq!(Event::Client(CE::Challenge(want)), inbound.events.recv().await);
+    let want = PeerMessage::Challenge(data::make_challenge(&mut rng));
+    outbound.send(want.clone()).await;
+    assert_eq!(want, inbound.events.recv_until(message_processed).await);
 
     // EpochSyncRequest
     let want = EpochId(chain.blocks[1].hash().clone());
@@ -152,9 +160,9 @@ async fn test_peer_communication(
     assert_eq!(Event::Client(CE::EpochSyncRequest(want)), inbound.events.recv().await);
 
     // EpochSyncResponse
-    let want = EpochSyncResponse::UpToDate;
-    outbound.send(PeerMessage::EpochSyncResponse(Box::new(want.clone()))).await;
-    assert_eq!(Event::Client(CE::EpochSyncResponse(want)), inbound.events.recv().await);
+    let want = PeerMessage::EpochSyncResponse(Box::new(EpochSyncResponse::UpToDate));
+    outbound.send(want.clone()).await;
+    assert_eq!(want, inbound.events.recv_until(message_processed).await);
 
     // EpochSyncFinalizationRequest
     let want = EpochId(chain.blocks[1].hash().clone());
@@ -194,7 +202,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
 
     let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
     let inbound_cfg = PeerConfig {
-        signer: data::make_signer(&mut rng),
+        network: chain.make_config(&mut rng),
         chain: chain.clone(),
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: inbound_encoding,
@@ -202,7 +210,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         nonce: None,
     };
     let outbound_cfg = PeerConfig {
-        signer: data::make_signer(&mut rng),
+        network: chain.make_config(&mut rng),
         chain: chain.clone(),
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: outbound_encoding,
@@ -210,8 +218,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         nonce: None,
     };
     let (outbound_stream, inbound_stream) = PeerHandle::start_connection().await;
-    let inbound =
-        PeerHandle::start_endpoint(clock.clock(), &mut rng, inbound_cfg, inbound_stream).await;
+    let inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
     let mut outbound = Stream::new(outbound_encoding, outbound_stream);
 
     // Send too old PROTOCOL_VERSION, expect ProtocolVersionMismatch

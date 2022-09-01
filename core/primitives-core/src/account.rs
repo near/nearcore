@@ -214,7 +214,6 @@ mod tests {
     use borsh::BorshSerialize;
 
     use crate::hash::hash;
-    use crate::serialize::to_base;
 
     use super::*;
 
@@ -222,7 +221,7 @@ mod tests {
     fn test_account_serialization() {
         let acc = Account::new(1_000_000, 1_000_000, CryptoHash::default(), 100);
         let bytes = acc.try_to_vec().unwrap();
-        assert_eq!(to_base(&hash(&bytes)), "EVk5UaxBe8LQ8r8iD5EAxVBs6TJcMDKqyH7PBuho6bBJ");
+        assert_eq!(hash(&bytes).to_string(), "EVk5UaxBe8LQ8r8iD5EAxVBs6TJcMDKqyH7PBuho6bBJ");
     }
 
     #[test]

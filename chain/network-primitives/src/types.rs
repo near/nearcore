@@ -114,7 +114,7 @@ impl RawRoutedMessage {
         secret_key: &SecretKey,
         routed_message_ttl: u8,
         now: Option<time::Utc>,
-    ) -> Box<RoutedMessageV2> {
+    ) -> RoutedMessageV2 {
         let target = self.target.peer_id_or_hash().unwrap();
         let hash = RoutedMessage::build_hash(&target, &author, &self.body);
         let signature = secret_key.sign(hash.as_ref());
@@ -128,19 +128,7 @@ impl RawRoutedMessage {
             },
             created_at: now,
         }
-        .into()
     }
-}
-
-/// Routed Message wrapped with previous sender of the message.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(actix::Message, Clone, Debug)]
-#[rtype(result = "bool")]
-pub struct RoutedMessageFrom {
-    /// Routed messages.
-    pub msg: Box<RoutedMessageV2>,
-    /// Previous hop in the route. Used for messages that needs routing back.
-    pub from: PeerId,
 }
 
 /// Status of the known peers.
@@ -370,7 +358,6 @@ mod tests {
         assert_size!(Pong);
         assert_size!(RawRoutedMessage);
         assert_size!(RoutedMessage);
-        assert_size!(RoutedMessageFrom);
         assert_size!(KnownPeerState);
         assert_size!(InboundTcpConnect);
         assert_size!(OutboundTcpConnect);

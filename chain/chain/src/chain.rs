@@ -76,6 +76,7 @@ use delay_detector::DelayDetector;
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
+use near_primitives::version::PROTOCOL_VERSION;
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -377,7 +378,7 @@ fn check_known_store(
     }
 }
 
-/// Check if block is known: head, orphan or in store.
+/// Check if block is known: head, orphan, in processing or in store.
 /// Returns Err(Error) if any error occurs when checking store
 ///         Ok(Err(BlockKnownError)) if the block is known
 ///         Ok(Ok()) otherwise
@@ -389,6 +390,9 @@ pub fn check_known(
     // Quick in-memory check for fast-reject any block handled recently.
     if block_hash == &head.last_block_hash || block_hash == &head.prev_block_hash {
         return Ok(Err(BlockKnownError::KnownInHead));
+    }
+    if chain.blocks_in_processing.contains(block_hash) {
+        return Ok(Err(BlockKnownError::KnownInProcessing));
     }
     // Check if this block is in the set of known orphans.
     if chain.orphans.contains(block_hash) {
@@ -1127,6 +1131,26 @@ impl Chain {
                         left_block_header: header.try_to_vec().expect("Failed to serialize"),
                         right_block_header: other_header.try_to_vec().expect("Failed to serialize"),
                     }));
+                }
+            }
+        }
+
+        #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
+        if let Ok(epoch_protocol_version) =
+            self.runtime_adapter.get_epoch_protocol_version(header.epoch_id())
+        {
+            if checked_feature!(
+                "protocol_feature_reject_blocks_with_outdated_protocol_version",
+                RejectBlocksWithOutdatedProtocolVersions,
+                epoch_protocol_version
+            ) {
+                if header.latest_protocol_version() < epoch_protocol_version {
+                    error!(
+                        "header protocol version {} smaller than epoch protocol version {}",
+                        header.latest_protocol_version(),
+                        epoch_protocol_version
+                    );
+                    return Err(Error::InvalidProtocolVersion);
                 }
             }
         }
@@ -2133,6 +2157,12 @@ impl Chain {
             return Err(Error::Orphan);
         }
 
+        let epoch_protocol_version =
+            self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
+        if epoch_protocol_version > PROTOCOL_VERSION {
+            panic!("The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}", PROTOCOL_VERSION, epoch_protocol_version);
+        }
+
         // First real I/O expense.
         let prev = self.get_previous_header(block.header())?;
         let prev_hash = *prev.hash();
@@ -2655,7 +2685,7 @@ impl Chain {
         // Check cache
         let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
         if let Ok(Some(state_part)) = self.store.store().get(DBCol::StateParts, &key) {
-            return Ok(state_part);
+            return Ok(state_part.into());
         }
 
         let sync_block = self

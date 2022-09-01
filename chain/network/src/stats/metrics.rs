@@ -4,7 +4,8 @@ use near_metrics::{
     try_create_int_counter_vec, try_create_int_gauge, Histogram, HistogramVec, IntCounter,
     IntCounterVec, IntGauge, IntGaugeVec,
 };
-use near_network_primitives::types::{PeerType, RoutedMessageBody};
+use near_network_primitives::time;
+use near_network_primitives::types::{PeerType, RoutedMessageBody, RoutedMessageV2};
 use once_cell::sync::Lazy;
 
 /// Labels represents a schema of an IntGaugeVec metric.
@@ -95,7 +96,23 @@ pub(crate) static PEER_MESSAGE_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
 pub(crate) static PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_peer_message_received_by_type_total",
-        "Number of messages received from peers, by message types",
+        "Number of messages received from peers by message types",
+        &["type"],
+    )
+    .unwrap()
+});
+pub(crate) static PEER_MESSAGE_SENT_BY_TYPE_BYTES: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_peer_message_sent_by_type_bytes",
+        "Total data sent to peers by message types",
+        &["type"],
+    )
+    .unwrap()
+});
+pub(crate) static PEER_MESSAGE_SENT_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_peer_message_sent_by_type_total",
+        "Number of messages sent to peers by message types",
         &["type"],
     )
     .unwrap()
@@ -163,6 +180,14 @@ pub(crate) static EDGE_TOMBSTONE_SENDING_SKIPPED: Lazy<IntCounter> = Lazy::new(|
     .unwrap()
 });
 
+pub(crate) static EDGE_TOMBSTONE_RECEIVING_SKIPPED: Lazy<IntCounter> = Lazy::new(|| {
+    try_create_int_counter(
+        "near_edge_tombstone_receiving_skip",
+        "Number of times that we pruned tombstones upon receiving.",
+    )
+    .unwrap()
+});
+
 pub(crate) static PEER_UNRELIABLE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_peer_unreliable",
@@ -197,6 +222,15 @@ pub(crate) static ROUTING_TABLE_MESSAGES_TIME: Lazy<HistogramVec> = Lazy::new(||
     )
     .unwrap()
 });
+pub(crate) static ROUTED_MESSAGE_DROPPED: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_routed_message_dropped",
+        "Number of messages dropped due to TTL=0, by routed message type",
+        &["type"],
+    )
+    .unwrap()
+});
+
 pub(crate) static PEER_REACHABLE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_peer_reachable",
@@ -237,7 +271,7 @@ pub(crate) static BROADCAST_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static NETWORK_ROUTED_MSG_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
+static NETWORK_ROUTED_MSG_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_network_routed_msg_latency",
         "Latency of network messages, assuming clocks are perfectly synchronized",
@@ -246,6 +280,26 @@ pub(crate) static NETWORK_ROUTED_MSG_LATENCY: Lazy<HistogramVec> = Lazy::new(|| 
     )
     .unwrap()
 });
+
+pub(crate) static CONNECTED_TO_MYSELF: Lazy<IntCounter> = Lazy::new(|| {
+    try_create_int_counter(
+        "near_connected_to_myself",
+        "This node connected to itself, this shouldn't happen",
+    )
+    .unwrap()
+});
+
+// The routed message received its destination. If the timestamp of creation of this message is
+// known, then update the corresponding latency metric histogram.
+pub(crate) fn record_routed_msg_latency(clock: &time::Clock, msg: &RoutedMessageV2) {
+    if let Some(created_at) = msg.created_at {
+        let now = clock.now_utc();
+        let duration = now - created_at;
+        NETWORK_ROUTED_MSG_LATENCY
+            .with_label_values(&[msg.body_variant()])
+            .observe(duration.as_seconds_f64());
+    }
+}
 
 #[derive(Clone, Copy, strum::AsRefStr)]
 pub(crate) enum MessageDropped {

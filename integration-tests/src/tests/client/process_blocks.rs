@@ -85,7 +85,7 @@ pub fn set_block_protocol_version(
         KeyType::ED25519,
         block_producer.as_ref(),
     );
-    block.mut_header().set_lastest_protocol_version(protocol_version);
+    block.mut_header().set_latest_protocol_version(protocol_version);
     block.mut_header().resign(&validator_signer);
 }
 
@@ -103,20 +103,30 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
 
 /// Produce `blocks_number` block in the given environment, starting from the given height.
 /// Returns the first unoccupied height in the chain after this operation.
-fn produce_blocks_from_height(
+fn produce_blocks_from_height_with_protocol_version(
     env: &mut TestEnv,
     blocks_number: u64,
     height: BlockHeight,
+    protocol_version: ProtocolVersion,
 ) -> BlockHeight {
     let next_height = height + blocks_number;
     for i in height..next_height {
-        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
+        block.mut_header().set_latest_protocol_version(protocol_version);
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         for j in 1..env.clients.len() {
             env.process_block(j, block.clone(), Provenance::NONE);
         }
     }
     next_height
+}
+
+fn produce_blocks_from_height(
+    env: &mut TestEnv,
+    blocks_number: u64,
+    height: BlockHeight,
+) -> BlockHeight {
+    produce_blocks_from_height_with_protocol_version(env, blocks_number, height, PROTOCOL_VERSION)
 }
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
@@ -135,12 +145,13 @@ fn check_tx_processing(
     next_height
 }
 
-pub(crate) fn deploy_test_contract(
+pub(crate) fn deploy_test_contract_with_protocol_version(
     env: &mut TestEnv,
     account_id: AccountId,
     wasm_code: &[u8],
     epoch_length: u64,
     height: BlockHeight,
+    protocol_version: ProtocolVersion,
 ) -> BlockHeight {
     let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
     let signer =
@@ -155,7 +166,24 @@ pub(crate) fn deploy_test_contract(
         *block.hash(),
     );
     env.clients[0].process_tx(tx, false, false);
-    produce_blocks_from_height(env, epoch_length, height)
+    produce_blocks_from_height_with_protocol_version(env, epoch_length, height, protocol_version)
+}
+
+pub(crate) fn deploy_test_contract(
+    env: &mut TestEnv,
+    account_id: AccountId,
+    wasm_code: &[u8],
+    epoch_length: u64,
+    height: BlockHeight,
+) -> BlockHeight {
+    deploy_test_contract_with_protocol_version(
+        env,
+        account_id,
+        wasm_code,
+        epoch_length,
+        height,
+        PROTOCOL_VERSION,
+    )
 }
 
 /// Create environment and set of transactions which cause congestion on the chain.
@@ -594,14 +622,35 @@ fn invalid_blocks_common(is_requested: bool) {
                         } else {
                             assert_eq!(block.header().height(), 1);
                             assert_eq!(block.header().chunk_mask().len(), 1);
+                            #[cfg(not(
+                                feature = "protocol_feature_reject_blocks_with_outdated_protocol_version"
+                            ))]
                             assert_eq!(ban_counter, 2);
+                            #[cfg(
+                                feature = "protocol_feature_reject_blocks_with_outdated_protocol_version"
+                            )]
+                            {
+                                assert_eq!(
+                                    block.header().latest_protocol_version(),
+                                    PROTOCOL_VERSION
+                                );
+                                assert_eq!(ban_counter, 3);
+                            }
                             System::current().stop();
                         }
                     }
                     NetworkRequests::BanPeer { ban_reason, .. } => {
                         assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
                         ban_counter += 1;
-                        if ban_counter == 3 && is_requested {
+                        #[cfg(
+                            feature = "protocol_feature_reject_blocks_with_outdated_protocol_version"
+                        )]
+                        let expected_ban_counter = 4;
+                        #[cfg(not(
+                            feature = "protocol_feature_reject_blocks_with_outdated_protocol_version"
+                        ))]
+                        let expected_ban_counter = 3;
+                        if ban_counter == expected_ban_counter && is_requested {
                             System::current().stop();
                         }
                     }
@@ -655,6 +704,20 @@ fn invalid_blocks_common(is_requested: bool) {
                 PeerInfo::random().id,
                 is_requested,
             ));
+
+            // Send blocks with invalid protocol version
+            #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
+            {
+                let mut block = valid_block.clone();
+                block.mut_header().get_mut().inner_rest.latest_protocol_version =
+                    PROTOCOL_VERSION - 1;
+                block.mut_header().get_mut().init();
+                client.do_send(NetworkClientMessages::Block(
+                    block.clone(),
+                    PeerInfo::random().id,
+                    is_requested,
+                ));
+            }
 
             // Send block with invalid chunk signature
             let mut block = valid_block.clone();
@@ -964,7 +1027,6 @@ fn client_sync_headers() {
             sent_bytes_per_sec: 0,
             received_bytes_per_sec: 0,
             known_producers: vec![],
-            peer_counter: 0,
             tier1_accounts: vec![],
         }));
         wait_or_panic(2000);
@@ -2085,7 +2147,7 @@ fn test_block_height_processed_orphan() {
 
 #[test]
 fn test_validate_chunk_extra() {
-    let mut capture = near_logger_utils::TracingCapture::enable();
+    let mut capture = near_o11y::TracingCapture::enable();
 
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -2176,18 +2238,7 @@ fn test_validate_chunk_extra() {
     // to try to produce chunks on top of block1, so we force the reorg case
     // using `capture`
 
-    let barrier = Arc::new(std::sync::Barrier::new(2));
-    capture.set_callback({
-        let block2_hash = *block2.hash();
-        let barrier = Arc::clone(&barrier);
-        move |msg| {
-            if msg.starts_with("do_apply_chunks")
-                && msg.contains(&format!("block_hash={block2_hash}"))
-            {
-                barrier.wait();
-            }
-        }
-    });
+    env.pause_block_processing(&mut capture, block2.hash());
 
     let mut chain_store =
         ChainStore::new(env.clients[0].chain.store().store().clone(), genesis_height, true);
@@ -2200,7 +2251,7 @@ fn test_validate_chunk_extra() {
     env.clients[0].process_blocks_with_missing_chunks(Arc::new(|_| {}));
     let accepted_blocks = env.clients[0].finish_block_in_processing(block1.hash());
     assert_eq!(accepted_blocks.len(), 1);
-    barrier.wait();
+    env.resume_block_processing(block2.hash());
     let accepted_blocks = env.clients[0].finish_block_in_processing(block2.hash());
     assert_eq!(accepted_blocks.len(), 1);
 
@@ -2550,7 +2601,7 @@ fn test_refund_receipts_processing() {
 
 #[test]
 fn test_wasmer2_upgrade() {
-    let mut capture = near_logger_utils::TracingCapture::enable();
+    let mut capture = near_o11y::TracingCapture::enable();
 
     let old_protocol_version =
         near_primitives::version::ProtocolFeature::Wasmer2.protocol_version() - 1;
@@ -4476,6 +4527,8 @@ mod lower_storage_key_limit_test {
     /// Check correctness of the protocol upgrade and ability to write 2 KB keys.
     #[test]
     fn protocol_upgrade() {
+        init_test_logger();
+
         let old_protocol_version =
             near_primitives::version::ProtocolFeature::LowerStorageKeyLimit.protocol_version() - 1;
         let new_protocol_version = old_protocol_version + 1;
@@ -4503,12 +4556,13 @@ mod lower_storage_key_limit_test {
                 )) as Arc<dyn RuntimeAdapter>];
             let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
 
-            deploy_test_contract(
+            deploy_test_contract_with_protocol_version(
                 &mut env,
                 "test0".parse().unwrap(),
                 near_test_contracts::base_rs_contract(),
                 epoch_length.clone(),
                 1,
+                old_protocol_version,
             );
             env
         };
@@ -4540,10 +4594,12 @@ mod lower_storage_key_limit_test {
             .sign(&signer);
             let tx_hash = signed_tx.get_hash().clone();
             env.clients[0].process_tx(signed_tx, false, false);
-            for i in 0..epoch_length {
-                let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
-                env.process_block(0, block.clone(), Provenance::PRODUCED);
-            }
+            produce_blocks_from_height_with_protocol_version(
+                &mut env,
+                epoch_length,
+                tip.height + 1,
+                old_protocol_version,
+            );
             let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
             assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
         }
