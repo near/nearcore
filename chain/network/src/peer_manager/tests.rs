@@ -275,7 +275,7 @@ async fn ttl() {
 
     for ttl in 0..5 {
         let msg = RoutedMessageBody::Ping(Ping { nonce: rng.gen(), source: peer.cfg.id() });
-        let msg = peer.routed_message(msg, peer.cfg.id(), ttl, Some(clock.now_utc()));
+        let msg = Box::new(peer.routed_message(msg, peer.cfg.id(), ttl, Some(clock.now_utc())));
         peer.send(PeerMessage::Routed(msg.clone())).await;
         // If TTL is <2, then the message will be dropped (at least 2 hops are required).
         if ttl < 2 {
@@ -289,7 +289,9 @@ async fn ttl() {
             let got = peer
                 .events
                 .recv_until(|ev| match ev {
-                    peer::testonly::Event::Routed(msg) => Some(msg),
+                    peer::testonly::Event::Network(PME::MessageProcessed(PeerMessage::Routed(
+                        msg,
+                    ))) => Some(msg),
                     _ => None,
                 })
                 .await;
