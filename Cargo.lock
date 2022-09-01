@@ -3440,6 +3440,7 @@ dependencies = [
  "fs2",
  "insta",
  "lru",
+ "near-chain-primitives",
  "near-crypto",
  "near-metrics",
  "near-o11y",

@@ -6,7 +6,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_cache::CellLruCache;
 use near_primitives::time::Utc;
 
-use near_chain_primitives::error::Error;
+use near_chain_primitives::error::{option_to_not_found, Error};
 use near_primitives::block::Tip;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -367,17 +367,6 @@ pub struct ChainStore {
     processed_block_heights: CellLruCache<Vec<u8>, ()>,
     /// Is this a non-archival node that needs to store to DBCol::TrieChanges?
     save_trie_changes: bool,
-}
-
-fn option_to_not_found<T, F>(res: io::Result<Option<T>>, field_name: F) -> Result<T, Error>
-where
-    F: std::string::ToString,
-{
-    match res {
-        Ok(Some(o)) => Ok(o),
-        Ok(None) => Err(Error::DBNotFoundErr(field_name.to_string())),
-        Err(e) => Err(e.into()),
-    }
 }
 
 impl ChainStore {

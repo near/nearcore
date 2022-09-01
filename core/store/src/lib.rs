@@ -13,6 +13,7 @@ pub use db::{
     CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
+use near_chain_primitives::error::{option_to_not_found, Error};
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
@@ -187,6 +188,18 @@ impl Store {
             Some(bytes) => Ok(Some(T::try_from_slice(&bytes)?)),
             None => Ok(None),
         }
+    }
+
+    pub fn get_or_err(&self, column: DBCol, key: &[u8]) -> Result<Vec<u8>, Error> {
+        option_to_not_found(self.get(column, key), format_args!("{:?}: {:?}", column, key))
+    }
+
+    pub fn get_ser_or_err<T: BorshDeserialize>(
+        &self,
+        column: DBCol,
+        key: &[u8],
+    ) -> Result<T, Error> {
+        option_to_not_found(self.get_ser(column, key), format_args!("{:?}: {:?}", column, key))
     }
 
     pub fn exists(&self, column: DBCol, key: &[u8]) -> io::Result<bool> {
@@ -779,6 +792,24 @@ mod tests {
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
     }
 
+    fn test_clear_column_err(store: Store) {
+        assert!(store.get_or_err(DBCol::State, &[1]).is_err());
+        {
+            let mut store_update = store.store_update();
+            store_update.increment_refcount(DBCol::State, &[1], &[1]);
+            store_update.increment_refcount(DBCol::State, &[2], &[2]);
+            store_update.increment_refcount(DBCol::State, &[3], &[3]);
+            store_update.commit().unwrap();
+        }
+        assert_eq!(store.get_or_err(DBCol::State, &[1]).unwrap(), vec![1]);
+        {
+            let mut store_update = store.store_update();
+            store_update.delete_all(DBCol::State);
+            store_update.commit().unwrap();
+        }
+        assert!(store.get_or_err(DBCol::State, &[1]).is_err());
+    }
+
     #[test]
     fn clear_column_rocksdb() {
         let (_tmp_dir, opener) = NodeStorage::test_opener();
@@ -788,6 +819,17 @@ mod tests {
     #[test]
     fn clear_column_testdb() {
         test_clear_column(crate::test_utils::create_test_store());
+    }
+
+    #[test]
+    fn clear_column_rocksdb_err() {
+        let (_tmp_dir, opener) = NodeStorage::test_opener();
+        test_clear_column_err(opener.open().unwrap().get_store(Temperature::Hot));
+    }
+
+    #[test]
+    fn clear_column_testdb_err() {
+        test_clear_column_err(crate::test_utils::create_test_store());
     }
 
     /// Asserts that elements in the vector are sorted.

@@ -217,6 +217,17 @@ pub enum Error {
     Other(String),
 }
 
+pub fn option_to_not_found<T, F>(res: io::Result<Option<T>>, field_name: F) -> Result<T, Error>
+where
+    F: std::string::ToString,
+{
+    match res {
+        Ok(Some(o)) => Ok(o),
+        Ok(None) => Err(Error::DBNotFoundErr(field_name.to_string())),
+        Err(e) => Err(e.into()),
+    }
+}
+
 /// For now StorageError can happen at any time from ViewClient because of
 /// the used isolation level + running ViewClient in a separate thread.
 pub trait LogTransientStorageError {
