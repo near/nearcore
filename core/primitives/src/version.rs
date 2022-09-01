@@ -171,7 +171,7 @@ pub enum ProtocolFeature {
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
     #[cfg(feature = "shardnet")]
-    ShardNetShardLayoutUpgrade,
+    ShardnetShardLayoutUpgrade,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -266,7 +266,7 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
             #[cfg(feature = "shardnet")]
-            ProtocolFeature::ShardNetShardLayoutUpgrade => 102,
+            ProtocolFeature::ShardnetShardLayoutUpgrade => 102,
         }
     }
 }
