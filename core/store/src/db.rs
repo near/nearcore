@@ -5,9 +5,11 @@ use crate::DBCol;
 mod colddb;
 pub mod refcount;
 pub(crate) mod rocksdb;
+mod slice;
 mod testdb;
 
 pub use self::rocksdb::RocksDB;
+pub use self::slice::DBSlice;
 pub use self::testdb::TestDB;
 
 pub const VERSION_KEY: &[u8; 7] = b"VERSION";
@@ -90,14 +92,14 @@ pub trait Database: Sync + Send {
     ///
     /// You most likely will want to use [`refcount::get_with_rc_logic`] to
     /// properly handle reference-counted columns.
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>>;
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>>;
 
     /// Returns value for given `key` forcing a reference count decoding.
     ///
     /// **Panics** if the column is not reference counted.
-    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
+    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         assert!(col.is_rc());
-        Ok(self.get_raw_bytes(col, key)?.and_then(crate::db::refcount::strip_refcount))
+        Ok(self.get_raw_bytes(col, key)?.and_then(DBSlice::strip_refcount))
     }
 
     /// Iterate over all items in given column in lexicographical order sorted

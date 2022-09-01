@@ -12,7 +12,7 @@ use tracing::{error, warn};
 use near_primitives::version::DbVersion;
 
 use crate::config::Mode;
-use crate::db::{refcount, DBIterator, DBOp, DBTransaction, Database, StatsValue};
+use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue};
 use crate::{metrics, DBCol, StoreConfig, StoreStatistics};
 
 mod instance_tracker;
@@ -179,12 +179,15 @@ impl<'a> Iterator for RocksDBIterator<'a> {
 impl<'a> std::iter::FusedIterator for RocksDBIterator<'a> {}
 
 impl Database for RocksDB {
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         let timer =
             metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
         let read_options = rocksdb_read_options();
-        let result =
-            self.db.get_cf_opt(self.cf_handle(col), key, &read_options).map_err(into_other)?;
+        let result = self
+            .db
+            .get_pinned_cf_opt(self.cf_handle(col), key, &read_options)
+            .map_err(into_other)?
+            .map(DBSlice::from_rocksdb_slice);
         timer.observe_duration();
         Ok(result)
     }
@@ -434,9 +437,9 @@ impl RocksDB {
 
     /// Returns version of the database state on disk.
     pub(crate) fn get_version(path: &Path, config: &StoreConfig) -> io::Result<DbVersion> {
-        let value = RocksDB::open(path, config, Mode::ReadOnly)?
-            .get_raw_bytes(DBCol::DbVersion, crate::db::VERSION_KEY)?
-            .ok_or_else(|| {
+        let db = RocksDB::open(path, config, Mode::ReadOnly)?;
+        let value =
+            db.get_raw_bytes(DBCol::DbVersion, crate::db::VERSION_KEY)?.ok_or_else(|| {
                 other_error(
                     "Failed to read database version; \
                      it’s not a neard database or database is corrupted."
@@ -665,20 +668,20 @@ mod tests {
             store_update.increment_refcount(DBCol::State, &[1], &[1]);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), Some(vec![1]));
+        assert_eq!(store.get(DBCol::State, &[1]).unwrap().as_deref(), Some(&[1][..]));
         assert_eq!(
-            rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap(),
-            Some(vec![1, 2, 0, 0, 0, 0, 0, 0, 0])
+            rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(),
+            Some(&[1, 2, 0, 0, 0, 0, 0, 0, 0][..])
         );
         {
             let mut store_update = store.store_update();
             store_update.decrement_refcount(DBCol::State, &[1]);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), Some(vec![1]));
+        assert_eq!(store.get(DBCol::State, &[1]).unwrap().as_deref(), Some(&[1][..]));
         assert_eq!(
-            rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap(),
-            Some(vec![1, 1, 0, 0, 0, 0, 0, 0, 0])
+            rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(),
+            Some(&[1, 1, 0, 0, 0, 0, 0, 0, 0][..])
         );
         {
             let mut store_update = store.store_update();
@@ -688,7 +691,7 @@ mod tests {
         // Refcount goes to 0 -> get() returns None
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
         // Internally there is an empty value
-        assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap(), Some(vec![]));
+        assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(), Some(&[][..]));
 
         // single_thread_rocksdb makes compact hang forever
         if !cfg!(feature = "single_thread_rocksdb") {
@@ -700,7 +703,10 @@ mod tests {
             // surprising because I assumed that compaction filter would discard
             // empty values.
             rocksdb.db.compact_range_cf(cf, none, none);
-            assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap(), Some(vec![]));
+            assert_eq!(
+                rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(),
+                Some(&[][..])
+            );
             assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
 
             rocksdb.db.compact_range_cf(cf, none, none);

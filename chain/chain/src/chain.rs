@@ -2685,7 +2685,7 @@ impl Chain {
         // Check cache
         let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
         if let Ok(Some(state_part)) = self.store.store().get(DBCol::StateParts, &key) {
-            return Ok(state_part);
+            return Ok(state_part.into());
         }
 
         let sync_block = self
