@@ -222,9 +222,13 @@ fn test_view_state() {
     let state_update = tries.new_trie_update(shard_uid, new_root);
     let trie_viewer = TrieViewer::default();
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
-    // there's a source of non determinism coming from the fact that
-    // we’re adding a test contract to the state and that contract is not built hermetically
-    // hence ignoring the first part of the proof
+    // The proof isn’t deterministic because the state contains test contracts
+    // which aren’t built hermetically.  Fortunately, only the first two items
+    // in the proof are affected.  First one is the state root which is an
+    // Extension("0x0", child_hash) node and the second one is child hash
+    // pointing to a Branch node which splits into four: 0x0 (accounts), 0x1
+    // (contract code; that’s what’s nondeterministic), 0x2 (access keys) and
+    // 0x9 (contract data; that’s what we care about).
     assert_proof(&result.proof[2..], &[
         "AwEAAAAQjHWWT6rXAXqUm14fjfDxo3286ApntHMI1eK0aQAJZPfJewEAAAAAAA==",
         "AQcCSXBK8DHIYBF47dz6xB2iFKLLsPjAIAo9syJTBC0/Y1OjJNvT5izZukYCmtq/AyVTeyWFl1Ei6yFZBf5yIJ0i96eYRr8PVilJ81MgJKvV/R1SxQuTfwwmbZ6sN/TC2XfL1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rmVewEAAAAAAA==",
