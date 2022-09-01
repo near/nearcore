@@ -32,7 +32,7 @@ mod imp {
     }
 
     impl FlatState {
-        fn get_raw_ref(&self, key: &[u8]) -> Result<Option<crate::db::DBBytes<'_>>, StorageError> {
+        fn get_raw_ref(&self, key: &[u8]) -> Result<Option<crate::db::DBSlice<'_>>, StorageError> {
             return self
                 .store
                 .get(crate::DBCol::FlatState, key)

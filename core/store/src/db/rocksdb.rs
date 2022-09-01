@@ -12,7 +12,7 @@ use tracing::{error, warn};
 use near_primitives::version::DbVersion;
 
 use crate::config::Mode;
-use crate::db::{refcount, DBBytes, DBIterator, DBOp, DBTransaction, Database, StatsValue};
+use crate::db::{refcount, DBSlice, DBIterator, DBOp, DBTransaction, Database, StatsValue};
 use crate::{metrics, DBCol, StoreConfig, StoreStatistics};
 
 mod instance_tracker;
@@ -179,7 +179,7 @@ impl<'a> Iterator for RocksDBIterator<'a> {
 impl<'a> std::iter::FusedIterator for RocksDBIterator<'a> {}
 
 impl Database for RocksDB {
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBBytes<'_>>> {
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         let timer =
             metrics::DATABASE_OP_LATENCY_HIST.with_label_values(&["get", col.into()]).start_timer();
         let read_options = rocksdb_read_options();
@@ -187,7 +187,7 @@ impl Database for RocksDB {
             .db
             .get_pinned_cf_opt(self.cf_handle(col), key, &read_options)
             .map_err(into_other)?
-            .map(DBBytes::from_rocksdb_slice);
+            .map(DBSlice::from_rocksdb_slice);
         timer.observe_duration();
         Ok(result)
     }

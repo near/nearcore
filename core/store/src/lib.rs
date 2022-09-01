@@ -25,7 +25,7 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 
 use crate::db::{
-    refcount, DBBytes, DBIterator, DBOp, DBTransaction, Database, RocksDB, StoreStatistics,
+    refcount, DBSlice, DBIterator, DBOp, DBTransaction, Database, RocksDB, StoreStatistics,
     GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;
@@ -169,10 +169,10 @@ impl Store {
     /// Fetches value from given column.
     ///
     /// If the key does not exist in the column returns `None`.  Otherwise
-    /// returns the data as [`DBBytes`] object.  The object dereferences into
+    /// returns the data as [`DBSlice`] object.  The object dereferences into
     /// a slice, for cases when caller doesn’t need to own the value, and
     /// provides conversion into a vector or an Arc.
-    pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBBytes<'_>>> {
+    pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         let value = if column.is_rc() {
             self.storage.get_with_rc_stripped(column, key)
         } else {

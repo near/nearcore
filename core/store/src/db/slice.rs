@@ -8,7 +8,7 @@ use super::refcount;
 /// [`Database::get_with_rc_stripped`] methods.  Operating on the value as
 /// a slice is free while converting it to a vector on an arc may requires an
 /// allocation and memory copy.
-pub struct DBBytes<'a>(Inner<'a>);
+pub struct DBSlice<'a>(Inner<'a>);
 
 enum Inner<'a> {
     /// Data held as a vector.
@@ -33,7 +33,7 @@ enum Inner<'a> {
     },
 }
 
-impl<'a> DBBytes<'a> {
+impl<'a> DBSlice<'a> {
     /// Returns slice view of the data.
     pub fn as_slice(&self) -> &[u8] {
         match self.0 {
@@ -59,7 +59,7 @@ impl<'a> DBBytes<'a> {
     /// implementation of the database interface.
     pub(super) fn from_rocksdb_slice(db_slice: ::rocksdb::DBPinnableSlice<'a>) -> Self {
         let data = &*db_slice as *const [u8];
-        DBBytes(Inner::Rocks { data, db_slice })
+        DBSlice(Inner::Rocks { data, db_slice })
     }
 
     /// Decodes and strips reference count from the data.
@@ -81,27 +81,27 @@ impl<'a> DBBytes<'a> {
     }
 }
 
-impl<'a> std::ops::Deref for DBBytes<'a> {
+impl<'a> std::ops::Deref for DBSlice<'a> {
     type Target = [u8];
     fn deref(&self) -> &[u8] {
         self.as_slice()
     }
 }
 
-impl<'a> From<DBBytes<'a>> for Arc<[u8]> {
-    /// Converts `DBBytes` into a thread-safe reference counted slice.
+impl<'a> From<DBSlice<'a>> for Arc<[u8]> {
+    /// Converts `DBSlice` into a thread-safe reference counted slice.
     ///
     /// This may need to allocate and copy data.
-    fn from(bytes: DBBytes<'a>) -> Self {
+    fn from(bytes: DBSlice<'a>) -> Self {
         bytes.as_slice().into()
     }
 }
 
-impl<'a> From<DBBytes<'a>> for Vec<u8> {
-    /// Converts `DBBytes` into a vector.
+impl<'a> From<DBSlice<'a>> for Vec<u8> {
+    /// Converts `DBSlice` into a vector.
     ///
     /// This may need to allocate and copy data.
-    fn from(bytes: DBBytes<'a>) -> Self {
+    fn from(bytes: DBSlice<'a>) -> Self {
         match bytes.0 {
             Inner::Vec(bytes) => bytes,
             Inner::Rocks { data, .. } => {
@@ -112,19 +112,19 @@ impl<'a> From<DBBytes<'a>> for Vec<u8> {
     }
 }
 
-impl<'a> std::fmt::Debug for DBBytes<'a> {
+impl<'a> std::fmt::Debug for DBSlice<'a> {
     fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self.as_slice(), fmtr)
     }
 }
 
-impl<'a> std::cmp::PartialEq<DBBytes<'a>> for DBBytes<'a> {
-    fn eq(&self, other: &DBBytes<'a>) -> bool {
+impl<'a> std::cmp::PartialEq<DBSlice<'a>> for DBSlice<'a> {
+    fn eq(&self, other: &DBSlice<'a>) -> bool {
         self.as_slice() == other.as_slice()
     }
 }
 
-impl<'a> std::cmp::PartialEq<[u8]> for DBBytes<'a> {
+impl<'a> std::cmp::PartialEq<[u8]> for DBSlice<'a> {
     fn eq(&self, other: &[u8]) -> bool {
         self.as_slice() == other
     }
