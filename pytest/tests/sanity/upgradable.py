@@ -86,8 +86,7 @@ def test_upgrade() -> None:
                               ("num_block_producer_seats", 10),
                               ("num_block_producer_seats_per_shard", [10]),
                               ("block_producer_kickout_threshold", 80),
-                              ("chunk_producer_kickout_threshold", 80),
-                              ("chain_id", "testnet")]
+                              ("chunk_producer_kickout_threshold", 80)]
     node_dirs = [os.path.join(node_root, 'test%d' % i) for i in range(4)]
     for i, node_dir in enumerate(node_dirs):
         cluster.apply_genesis_changes(node_dir, genesis_config_changes)
