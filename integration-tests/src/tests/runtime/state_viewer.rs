@@ -5,6 +5,7 @@ use near_primitives::{
     account::Account,
     hash::hash as sha256,
     hash::CryptoHash,
+    serialize::to_base64,
     trie_key::trie_key_parsers,
     types::{AccountId, StateRoot},
     views::{StateItem, ViewApplyState},
@@ -15,7 +16,6 @@ use near_primitives::{
     types::{EpochId, StateChangeCause},
     version::PROTOCOL_VERSION,
 };
-use near_primitives_core::serialize::from_base64;
 use near_store::{set_account, NibbleSlice, RawTrieNode, RawTrieNodeWithSize};
 use node_runtime::state_viewer::errors;
 use node_runtime::state_viewer::*;
@@ -184,6 +184,13 @@ fn test_view_call_with_args() {
     assert_eq!(view_call_result.unwrap(), 3u64.to_le_bytes().to_vec());
 }
 
+#[track_caller]
+fn assert_proof(proof: &[Arc<[u8]>], want: &[&'static str]) {
+    let got = proof.iter().map(|bytes| to_base64(bytes)).collect::<Vec<_>>();
+    let got = got.iter().map(String::as_str).collect::<Vec<_>>();
+    assert_eq!(want, &got[..]);
+}
+
 #[test]
 fn test_view_state() {
     // in order to ensure determinism under all conditions (compiler, build output, etc)
@@ -215,8 +222,10 @@ fn test_view_state() {
     let state_update = tries.new_trie_update(shard_uid, new_root);
     let trie_viewer = TrieViewer::default();
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
-    assert_eq!(result.proof.iter()
-    .map(|x| x.as_ref()).collect::<Vec<_>>(), [
+    // there's a source of non determinism coming from the fact that
+    // we’re adding a test contract to the state and that contract is not built hermetically
+    // hence ignoring the first part of the proof
+    assert_proof(&result.proof[1..], &[
         "AwEAAAAQjHWWT6rXAXqUm14fjfDxo3286ApntHMI1eK0aQAJZPfJewEAAAAAAA==",
         "AQcCSXBK8DHIYBF47dz6xB2iFKLLsPjAIAo9syJTBC0/Y1OjJNvT5izZukYCmtq/AyVTeyWFl1Ei6yFZBf5yIJ0i96eYRr8PVilJ81MgJKvV/R1SxQuTfwwmbZ6sN/TC2XfL1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rmVewEAAAAAAA==",
         "AwMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3gwDAAAAAAAA",
@@ -228,8 +237,7 @@ fn test_view_state() {
         "AAMAAAAgMjMDAAAApmWkWSBCL51Bfkhn79xPuKBKHz//H6B+mY6G9/eieuNtAAAAAAAAAA==",
         "AAMAAAAgMjEDAAAAjSPPbIboNKeqbt7VTCbOK7LnSQNTjGG91dIZeZerL3JtAAAAAAAAAA==",
         "AAYAAAAgYSxxcXEDAAAAjSPPbIboNKeqbt7VTCbOK7LnSQNTjGG91dIZeZerL3JzAAAAAAAAAA==",
-    ].into_iter()
-    .map(|x| from_base64(x).unwrap()).collect::<Vec<_>>());
+    ][1..]);
     assert_eq!(
         result.values,
         [
@@ -244,13 +252,10 @@ fn test_view_state() {
         result.values,
         [StateItem { key: b"test123".to_vec(), value: b"123".to_vec(), proof: vec![] }]
     );
-    assert_eq!(
-        result
-            .proof
-            .iter()
-            .map(|x| x.as_ref())
-            .collect::<Vec<_>>(),
-        [
+    assert_proof(
+        &result
+            .proof[1..],
+        &[
             "AwEAAAAQjHWWT6rXAXqUm14fjfDxo3286ApntHMI1eK0aQAJZPfJewEAAAAAAA==",
             "AQcCSXBK8DHIYBF47dz6xB2iFKLLsPjAIAo9syJTBC0/Y1OjJNvT5izZukYCmtq/AyVTeyWFl1Ei6yFZBf5yIJ0i96eYRr8PVilJ81MgJKvV/R1SxQuTfwwmbZ6sN/TC2XfL1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rmVewEAAAAAAA==",
             "AwMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3gwDAAAAAAAA",
@@ -261,7 +266,7 @@ fn test_view_state() {
             "AQoAVWCdny7wv/M1LvZASC3Fw0D/NNhI1NYwch9Ux+KZ2qRdQXPC1rNsCGRJ7nd66SfcNmRUVVvQY6EYCbsIiugO6gwBAAAAAAAA",
             "AAMAAAAgMjMDAAAApmWkWSBCL51Bfkhn79xPuKBKHz//H6B+mY6G9/eieuNtAAAAAAAAAA==",
             "AAMAAAAgMjEDAAAAjSPPbIboNKeqbt7VTCbOK7LnSQNTjGG91dIZeZerL3JtAAAAAAAAAA==",
-        ].into_iter().map(|x| from_base64(x).unwrap()).collect::<Vec<_>>()
+        ][1..]
     );
 
     let root = state_update.get_root();
