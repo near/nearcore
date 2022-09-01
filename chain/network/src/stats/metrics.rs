@@ -95,7 +95,23 @@ pub(crate) static PEER_MESSAGE_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
 pub(crate) static PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_peer_message_received_by_type_total",
-        "Number of messages received from peers, by message types",
+        "Number of messages received from peers by message types",
+        &["type"],
+    )
+    .unwrap()
+});
+pub(crate) static PEER_MESSAGE_SENT_BY_TYPE_BYTES: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_peer_message_sent_by_type_bytes",
+        "Total data sent to peers by message types",
+        &["type"],
+    )
+    .unwrap()
+});
+pub(crate) static PEER_MESSAGE_SENT_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_peer_message_sent_by_type_total",
+        "Number of messages sent to peers by message types",
         &["type"],
     )
     .unwrap()
