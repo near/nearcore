@@ -423,12 +423,14 @@ impl PeerActor {
         let _span = tracing::trace_span!(target: "network", "receive_client_message").entered();
         let peer_id =
             if let Some(peer_id) = self.other_peer_id() { peer_id.clone() } else { return };
- 
+
         // This is a fancy way to clone the message iff event_sink is non-null.
         // If you have a better idea on how to achieve that, feel free to improve this.
-        let message_processed_event = self.network_state.config.event_sink.delayed_push(
-            ||Event::MessageProcessed(msg.clone())
-        );
+        let message_processed_event = self
+            .network_state
+            .config
+            .event_sink
+            .delayed_push(|| Event::MessageProcessed(msg.clone()));
 
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
