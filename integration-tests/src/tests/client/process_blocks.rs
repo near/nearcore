@@ -37,8 +37,8 @@ use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::RngSeed;
+use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
-use near_primitives::errors::{ActionErrorKind, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{verify_hash, PartialMerkleTree};
 use near_primitives::receipt::DelayedReceiptIndices;
@@ -60,16 +60,14 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
 use near_store::test_utils::create_test_store;
 use near_store::{get, DBCol};
-use near_vm_errors::{CompilationError, FunctionCallErrorSer, PrepareError};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use nearcore::{TrackedConfig, NEAR_BASE};
+use nearcore::NEAR_BASE;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 
@@ -3189,90 +3187,6 @@ fn test_validator_stake_host_function() {
     for i in 0..3 {
         env.produce_block(0, block_height + i);
     }
-}
-
-fn verify_contract_limits_upgrade(
-    feature: ProtocolFeature,
-    function_limit: u32,
-    local_limit: u32,
-    expected_prepare_err: PrepareError,
-) {
-    let old_protocol_version = feature.protocol_version() - 1;
-    let new_protocol_version = feature.protocol_version();
-
-    let epoch_length = 5;
-    // Prepare TestEnv with a contract at the old protocol version.
-    let mut env = {
-        let mut genesis =
-            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        genesis.config.epoch_length = epoch_length;
-        genesis.config.protocol_version = old_protocol_version;
-        let chain_genesis = ChainGenesis::new(&genesis);
-        let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
-            vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
-                Path::new("../../../.."),
-                create_test_store(),
-                &genesis,
-                TrackedConfig::new_empty(),
-                RuntimeConfigStore::new(None),
-            ))];
-        let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
-
-        deploy_test_contract(
-            &mut env,
-            "test0".parse().unwrap(),
-            &near_test_contracts::LargeContract {
-                functions: function_limit + 1,
-                locals_per_function: local_limit + 1,
-                ..Default::default()
-            }
-            .make(),
-            epoch_length,
-            1,
-        );
-        env
-    };
-
-    let account = "test0".parse().unwrap();
-    let old_outcome = env.call_main(&account);
-
-    env.upgrade_protocol(new_protocol_version);
-
-    let new_outcome = env.call_main(&account);
-
-    assert_matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_));
-    let e = match new_outcome.status {
-        FinalExecutionStatus::Failure(TxExecutionError::ActionError(e)) => e,
-        status => panic!("expected transaction to fail, got {:?}", status),
-    };
-    match e.kind {
-        ActionErrorKind::FunctionCallError(FunctionCallErrorSer::CompilationError(
-            CompilationError::PrepareError(e),
-        )) if e == expected_prepare_err => (),
-        kind => panic!("got unexpected action error kind: {:?}", kind),
-    }
-}
-
-// Check that we can't call a contract exceeding functions number limit after upgrade.
-#[test]
-fn test_function_limit_change() {
-    verify_contract_limits_upgrade(
-        ProtocolFeature::LimitContractFunctionsNumber,
-        100_000,
-        0,
-        PrepareError::TooManyFunctions,
-    );
-}
-
-// Check that we can't call a contract exceeding functions number limit after upgrade.
-#[test]
-fn test_local_limit_change() {
-    verify_contract_limits_upgrade(
-        ProtocolFeature::LimitContractLocals,
-        64,
-        15625,
-        PrepareError::TooManyLocals,
-    );
 }
 
 #[test]

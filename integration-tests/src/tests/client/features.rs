@@ -9,6 +9,7 @@ mod chunk_nodes_cache;
 mod fix_contract_loading_cost;
 mod fix_storage_usage;
 mod increase_deployment_cost;
+mod limit_contract_functions_number;
 mod lower_storage_key_limit;
 mod restore_receipts_after_fix_apply_chunks;
 mod wasmer2;
