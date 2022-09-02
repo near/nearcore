@@ -8,7 +8,6 @@ use actix::System;
 use assert_matches::assert_matches;
 use futures::{future, FutureExt};
 use near_chain::test_utils::ValidatorSchedule;
-use near_primitives::config::VMConfig;
 use near_primitives::num_rational::{Ratio, Rational32};
 
 use near_actix_test_utils::run_actix;
@@ -103,7 +102,7 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
 
 /// Produce `blocks_number` block in the given environment, starting from the given height.
 /// Returns the first unoccupied height in the chain after this operation.
-fn produce_blocks_from_height_with_protocol_version(
+pub(crate) fn produce_blocks_from_height_with_protocol_version(
     env: &mut TestEnv,
     blocks_number: u64,
     height: BlockHeight,
@@ -187,7 +186,7 @@ pub(crate) fn deploy_test_contract(
 }
 
 /// Create environment and set of transactions which cause congestion on the chain.
-fn prepare_env_with_congestion(
+pub(crate) fn prepare_env_with_congestion(
     protocol_version: ProtocolVersion,
     gas_price_adjustment_rate: Option<Rational32>,
     number_of_transactions: u64,
@@ -2600,82 +2599,6 @@ fn test_refund_receipts_processing() {
 }
 
 #[test]
-fn test_wasmer2_upgrade() {
-    let mut capture = near_o11y::TracingCapture::enable();
-
-    let old_protocol_version =
-        near_primitives::version::ProtocolFeature::Wasmer2.protocol_version() - 1;
-    let new_protocol_version = old_protocol_version + 1;
-
-    // Prepare TestEnv with a contract at the old protocol version.
-    let mut env = {
-        let epoch_length = 5;
-        let mut genesis =
-            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        genesis.config.epoch_length = epoch_length;
-        genesis.config.protocol_version = old_protocol_version;
-        let chain_genesis = ChainGenesis::new(&genesis);
-        let mut env = TestEnv::builder(chain_genesis)
-            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
-            .build();
-
-        deploy_test_contract(
-            &mut env,
-            "test0".parse().unwrap(),
-            near_test_contracts::rs_contract(),
-            epoch_length,
-            1,
-        );
-        env
-    };
-
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let tx = Transaction {
-        signer_id: "test0".parse().unwrap(),
-        receiver_id: "test0".parse().unwrap(),
-        public_key: signer.public_key(),
-        actions: vec![Action::FunctionCall(FunctionCallAction {
-            method_name: "log_something".to_string(),
-            args: Vec::new(),
-            gas: 100_000_000_000_000,
-            deposit: 0,
-        })],
-
-        nonce: 0,
-        block_hash: CryptoHash::default(),
-    };
-
-    // Run the transaction & collect the logs.
-    let logs_at_old_version = {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction =
-            Transaction { nonce: 10, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
-        env.clients[0].process_tx(signed_transaction, false, false);
-        for i in 0..3 {
-            env.produce_block(0, tip.height + i + 1);
-        }
-        capture.drain()
-    };
-
-    env.upgrade_protocol(new_protocol_version);
-
-    // Re-run the transaction.
-    let logs_at_new_version = {
-        let tip = env.clients[0].chain.head().unwrap();
-        let signed_transaction =
-            Transaction { nonce: 11, block_hash: tip.last_block_hash, ..tx }.sign(&signer);
-        env.clients[0].process_tx(signed_transaction, false, false);
-        for i in 0..3 {
-            env.produce_block(0, tip.height + i + 1);
-        }
-        capture.drain()
-    };
-
-    assert!(logs_at_old_version.iter().any(|l| l.contains(&"vm_kind=Wasmer0")));
-    assert!(logs_at_new_version.iter().any(|l| l.contains(&"vm_kind=Wasmer2")));
-}
-
-#[test]
 fn test_execution_metadata() {
     // Prepare TestEnv with a very simple WASM contract.
     let wasm_code = wat::parse_str(
@@ -3396,55 +3319,6 @@ fn test_catchup_no_sharding_change() {
     }
 }
 
-/// Tests if the cost of deployment is higher after the protocol update 53
-#[test]
-fn test_deploy_cost_increased() {
-    let new_protocol_version = ProtocolFeature::IncreaseDeploymentCost.protocol_version();
-    let old_protocol_version = new_protocol_version - 1;
-
-    let contract_size = 1024 * 1024;
-    let test_contract = near_test_contracts::sized_contract(contract_size);
-    // Run code through preparation for validation. (Deploying will succeed either way).
-    near_vm_runner::prepare::prepare_contract(&test_contract, &VMConfig::test()).unwrap();
-
-    // Prepare TestEnv with a contract at the old protocol version.
-    let epoch_length = 5;
-    let mut env = {
-        let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
-        genesis.config.epoch_length = epoch_length;
-        genesis.config.protocol_version = old_protocol_version;
-        let chain_genesis = ChainGenesis::new(&genesis);
-        let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
-            vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
-                Path::new("../../../.."),
-                create_test_store(),
-                &genesis,
-                TrackedConfig::new_empty(),
-                RuntimeConfigStore::new(None),
-            ))];
-        TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build()
-    };
-
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let actions = vec![Action::DeployContract(DeployContractAction { code: test_contract })];
-
-    let tx = env.tx_from_actions(actions.clone(), &signer, signer.account_id.clone());
-    let old_outcome = env.execute_tx(tx);
-
-    env.upgrade_protocol(new_protocol_version);
-
-    let tx = env.tx_from_actions(actions, &signer, signer.account_id.clone());
-    let new_outcome = env.execute_tx(tx);
-
-    assert_matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_));
-    assert_matches!(new_outcome.status, FinalExecutionStatus::SuccessValue(_));
-
-    let old_deploy_gas = old_outcome.receipts_outcome[0].outcome.gas_burnt;
-    let new_deploy_gas = new_outcome.receipts_outcome[0].outcome.gas_burnt;
-    assert!(new_deploy_gas > old_deploy_gas);
-    assert_eq!(new_deploy_gas - old_deploy_gas, contract_size as u64 * (64_572_944 - 6_812_999));
-}
-
 mod access_key_nonce_range_tests {
     use super::*;
     use near_chain::chain::NUM_ORPHAN_ANCESTORS_CHECK;
@@ -4029,47 +3903,6 @@ mod access_key_nonce_range_tests {
     }
 }
 
-#[cfg(test)]
-mod cap_max_gas_price_tests {
-    use super::*;
-    use near_primitives::version::ProtocolFeature;
-
-    fn does_gas_price_exceed_limit(protocol_version: ProtocolVersion) -> bool {
-        let mut env =
-            prepare_env_with_congestion(protocol_version, Some(Ratio::new_raw(2, 1)), 7).0;
-        let mut was_congested = false;
-        let mut price_exceeded_limit = false;
-
-        for i in 3..20 {
-            env.produce_block(0, i);
-            let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
-            let protocol_version = env.clients[0]
-                .runtime_adapter
-                .get_epoch_protocol_version(block.header().epoch_id())
-                .unwrap();
-            let min_gas_price =
-                env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);
-            was_congested |= block.chunks()[0].gas_used() >= block.chunks()[0].gas_limit();
-            price_exceeded_limit |= block.header().gas_price() > 20 * min_gas_price;
-        }
-
-        assert!(was_congested);
-        price_exceeded_limit
-    }
-
-    #[test]
-    fn test_not_capped_gas_price() {
-        assert!(does_gas_price_exceed_limit(
-            ProtocolFeature::CapMaxGasPrice.protocol_version() - 1
-        ));
-    }
-
-    #[test]
-    fn test_capped_gas_price() {
-        assert!(!does_gas_price_exceed_limit(ProtocolFeature::CapMaxGasPrice.protocol_version()));
-    }
-}
-
 mod contract_precompilation_tests {
     use super::*;
     use near_primitives::contract::ContractCode;
@@ -4518,145 +4351,5 @@ mod chunk_nodes_cache_test {
         assert_eq!(tx_node_counts[1], TrieNodesCount { db_reads: 12, mem_reads: 0 });
         assert_eq!(tx_node_counts[2], TrieNodesCount { db_reads: 8, mem_reads: 4 });
         assert_eq!(tx_node_counts[3], TrieNodesCount { db_reads: 8, mem_reads: 4 });
-    }
-}
-
-mod lower_storage_key_limit_test {
-    use super::*;
-
-    /// Check correctness of the protocol upgrade and ability to write 2 KB keys.
-    #[test]
-    fn protocol_upgrade() {
-        init_test_logger();
-
-        let old_protocol_version =
-            near_primitives::version::ProtocolFeature::LowerStorageKeyLimit.protocol_version() - 1;
-        let new_protocol_version = old_protocol_version + 1;
-        let new_storage_key_limit = 2usize.pow(11); // 2 KB
-        let args: Vec<u8> = vec![1u8; new_storage_key_limit + 1]
-            .into_iter()
-            .chain(near_primitives::test_utils::encode(&[10u64]).into_iter())
-            .collect();
-        let epoch_length: BlockHeight = 5;
-
-        // Prepare TestEnv with a contract at the old protocol version.
-        let mut env = {
-            let mut genesis =
-                Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-            genesis.config.epoch_length = epoch_length;
-            genesis.config.protocol_version = old_protocol_version;
-            let chain_genesis = ChainGenesis::new(&genesis);
-            let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
-                vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
-                    Path::new("."),
-                    create_test_store(),
-                    &genesis,
-                    TrackedConfig::AllShards,
-                    RuntimeConfigStore::new(None),
-                )) as Arc<dyn RuntimeAdapter>];
-            let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
-
-            deploy_test_contract_with_protocol_version(
-                &mut env,
-                "test0".parse().unwrap(),
-                near_test_contracts::base_rs_contract(),
-                epoch_length.clone(),
-                1,
-                old_protocol_version,
-            );
-            env
-        };
-
-        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-        let tx = Transaction {
-            signer_id: "test0".parse().unwrap(),
-            receiver_id: "test0".parse().unwrap(),
-            public_key: signer.public_key(),
-            actions: vec![Action::FunctionCall(FunctionCallAction {
-                method_name: "write_key_value".to_string(),
-                args,
-                gas: 10u64.pow(14),
-                deposit: 0,
-            })],
-
-            nonce: 0,
-            block_hash: CryptoHash::default(),
-        };
-
-        // Run transaction writing storage key exceeding the limit. Check that execution succeeds.
-        {
-            let tip = env.clients[0].chain.head().unwrap();
-            let signed_tx = Transaction {
-                nonce: tip.height + 1,
-                block_hash: tip.last_block_hash,
-                ..tx.clone()
-            }
-            .sign(&signer);
-            let tx_hash = signed_tx.get_hash().clone();
-            env.clients[0].process_tx(signed_tx, false, false);
-            produce_blocks_from_height_with_protocol_version(
-                &mut env,
-                epoch_length,
-                tip.height + 1,
-                old_protocol_version,
-            );
-            let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
-            assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
-        }
-
-        env.upgrade_protocol(new_protocol_version);
-
-        // Re-run the transaction, check that execution fails.
-        {
-            let tip = env.clients[0].chain.head().unwrap();
-            let signed_tx =
-                Transaction { nonce: tip.height + 1, block_hash: tip.last_block_hash, ..tx }
-                    .sign(&signer);
-            let tx_hash = signed_tx.get_hash().clone();
-            env.clients[0].process_tx(signed_tx, false, false);
-            for i in 0..epoch_length {
-                let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
-                env.process_block(0, block.clone(), Provenance::PRODUCED);
-            }
-            let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
-            assert_matches!(
-                final_result.status,
-                FinalExecutionStatus::Failure(TxExecutionError::ActionError(_))
-            );
-        }
-
-        // Run transaction where storage key exactly fits the new limit, check that execution succeeds.
-        {
-            let args: Vec<u8> = vec![1u8; new_storage_key_limit]
-                .into_iter()
-                .chain(near_primitives::test_utils::encode(&[20u64]).into_iter())
-                .collect();
-            let tx = Transaction {
-                signer_id: "test0".parse().unwrap(),
-                receiver_id: "test0".parse().unwrap(),
-                public_key: signer.public_key(),
-                actions: vec![Action::FunctionCall(FunctionCallAction {
-                    method_name: "write_key_value".to_string(),
-                    args,
-                    gas: 10u64.pow(14),
-                    deposit: 0,
-                })],
-
-                nonce: 0,
-                block_hash: CryptoHash::default(),
-            };
-            let tip = env.clients[0].chain.head().unwrap();
-            let signed_tx =
-                Transaction { nonce: tip.height + 1, block_hash: tip.last_block_hash, ..tx }
-                    .sign(&signer);
-            let tx_hash = signed_tx.get_hash().clone();
-            env.clients[0].process_tx(signed_tx, false, false);
-            for i in 0..epoch_length {
-                let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
-                env.process_block(0, block.clone(), Provenance::PRODUCED);
-            }
-            let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
-            assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
-        }
     }
 }
