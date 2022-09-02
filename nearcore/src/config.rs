@@ -587,6 +587,7 @@ impl NearConfig {
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
+                preload_contract_data: config.store.preload_contract_data,
             },
             network_config: NetworkConfig::new(
                 config.network,

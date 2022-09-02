@@ -23,8 +23,8 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_client_primitives::types::{
-    Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
-    StatusError, StatusSyncInfo, SyncStatus,
+    Error, GetNetworkInfo, NetworkInfoResponse, PreloadAccountData, ShardSyncDownload,
+    ShardSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
 };
 
 #[cfg(feature = "test_features")]
@@ -43,7 +43,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::StatePartKey;
 use near_primitives::time::{Clock, Utc};
-use near_primitives::types::{BlockHeight, ValidatorInfoIdentifier};
+use near_primitives::types::{AccountId, BlockHeight, ValidatorInfoIdentifier};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -1961,6 +1961,48 @@ impl Handler<StateSplitResponse> for ClientActor {
     }
 }
 
+impl Handler<PreloadAccountData> for ClientActor {
+    type Result = Result<(), Error>;
+
+    fn handle(&mut self, msg: PreloadAccountData, _: &mut Self::Context) -> Self::Result {
+        let account_id = &msg.account_id;
+        let head = self.client.chain.head()?;
+        let head_header = self.client.chain.get_block_header(&head.last_block_hash)?;
+        let latest_state_root = *head_header.prev_state_root();
+        let prev_block_hash = *head_header.prev_hash();
+        let shard_id = self
+            .client
+            .runtime_adapter
+            .account_id_to_shard_id(account_id, head_header.epoch_id())?;
+        let trie = self.client.chain.runtime_adapter.get_trie_for_shard(
+            shard_id,
+            &prev_block_hash,
+            latest_state_root,
+        )?;
+
+        if trie.storage.as_caching_storage().is_none() {
+            return Err(Error::Other(
+                "account preloading attempt without a caching storage".to_owned(),
+            ));
+        }
+
+        let prefix = near_primitives::trie_key::trie_key_parsers::get_raw_prefix_for_contract_data(
+            account_id,
+            &[],
+        );
+        let mut state_iter = trie.iter().map_err(|e| Error::Other(e.to_string()))?;
+        state_iter.seek(prefix).map_err(|e| Error::Other(e.to_string()))?;
+
+        // TODO: Parallelize.
+        // Maybe a BFS iterator implementation with tokio threads spawned on each branch.
+        // Or maybe BFS to find 64 equally weighted sub-tries and then use 64 threads with DFS.
+        let n = state_iter.count();
+        info!(target: "store", "Preloaded cache with {n} trie nodes for account {account_id}");
+
+        Ok(())
+    }
+}
+
 /// Returns random seed sampled from the current thread
 pub fn random_seed_from_thread() -> RngSeed {
     let mut rng_seed: RngSeed = [0; 32];
@@ -1982,6 +2024,7 @@ pub fn start_client(
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
+    let accounts_to_preload = client_config.preload_contract_data.clone();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
         ClientActor::new(
             ctx.address(),
@@ -2000,5 +2043,12 @@ pub fn start_client(
         )
         .unwrap()
     });
+
+    for account_id in accounts_to_preload.into_iter() {
+        match AccountId::try_from(account_id) {
+            Ok(account_id) => client_addr.do_send(PreloadAccountData { account_id }),
+            Err(e) => error!(target: "client", "invalid account id to preload: {e}"),
+        }
+    }
     (client_addr, client_arbiter_handle)
 }

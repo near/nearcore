@@ -793,6 +793,15 @@ impl From<near_chain_primitives::Error> for GetProtocolConfigError {
     }
 }
 
+/// Load all state of an account's contract into trie cache.
+pub struct PreloadAccountData {
+    pub account_id: AccountId,
+}
+
+impl Message for PreloadAccountData {
+    type Result = Result<(), Error>;
+}
+
 #[cfg(feature = "sandbox")]
 #[derive(Debug)]
 pub enum SandboxMessage {

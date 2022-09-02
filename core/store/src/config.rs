@@ -71,6 +71,10 @@ pub struct StoreConfig {
     /// be copied between the databases.
     #[serde(skip_serializing_if = "MigrationSnapshot::is_default")]
     pub migration_snapshot: MigrationSnapshot,
+
+    /// Load data of accounts' contracts into cache after booting.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub preload_contract_data: Vec<String>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -142,6 +146,7 @@ impl Default for StoreConfig {
             trie_cache_capacities: vec![(ShardUId { version: 1, shard_id: 3 }, 45_000_000)],
 
             migration_snapshot: Default::default(),
+            preload_contract_data: vec![],
         }
     }
 }

@@ -156,6 +156,8 @@ pub struct ClientConfig {
     pub max_gas_burnt_view: Option<Gas>,
     /// Re-export storage layer statistics as prometheus metrics.
     pub enable_statistics_export: bool,
+    /// Load data of accounts' contracts into cache after booting.
+    pub preload_contract_data: Vec<String>,
 }
 
 impl ClientConfig {
@@ -215,6 +217,7 @@ impl ClientConfig {
             trie_viewer_state_size_limit: None,
             max_gas_burnt_view: None,
             enable_statistics_export: true,
+            preload_contract_data: vec![],
         }
     }
 }
