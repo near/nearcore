@@ -202,3 +202,48 @@ impl TriePrefetcher {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use near_primitives::{trie_key::TrieKey, types::AccountId};
+    use near_store::{
+        test_utils::{create_tries, test_populate_trie},
+        ShardUId, Trie,
+    };
+    use std::{rc::Rc, str::FromStr, time::Duration};
+
+    use super::{PrefetchSchedulerCmd, TriePrefetcher};
+
+    #[test]
+    fn test_basic_prefetch() {
+        let account_id = AccountId::from_str("alice.near").unwrap();
+        let trie_key = TrieKey::Account { account_id };
+        let storage_key = trie_key.to_vec();
+
+        let initial = vec![(storage_key.clone(), Some("value".as_bytes().to_vec()))];
+        let tries = create_tries();
+        let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), initial);
+        let trie = Rc::new(tries.get_trie_for_shard(ShardUId::single_shard(), root.clone()));
+
+        let mut prefetcher = TriePrefetcher::new(trie.clone()).unwrap();
+        let p = trie.storage.as_caching_storage().unwrap().prefetcher_storage();
+
+        assert_eq!(p.prefetched_staging_area_size(), 0);
+
+        prefetcher.prefetch(PrefetchSchedulerCmd::PrefetchTrieNode(trie_key));
+        prefetcher.end_input();
+
+        for _ in 0..1000 {
+            std::thread::sleep(Duration::from_micros(100));
+            if p.prefetched_staging_area_size() == 1 {
+                break;
+            }
+        }
+        assert_eq!(p.prefetched_staging_area_size(), 1);
+
+        let value = trie.get(&storage_key).unwrap();
+        assert_eq!(Some("value".as_bytes()), value.as_deref());
+
+        assert_eq!(p.prefetched_staging_area_size(), 0);
+    }
+}
