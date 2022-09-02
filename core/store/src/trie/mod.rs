@@ -684,7 +684,7 @@ impl Trie {
         let is_delayed = is_delayed_receipt_key(key);
         match &self.flat_state {
             Some(flat_state) if !is_delayed => {
-                let value = flat_state.get_ref(&self.root, &key);
+                let value = flat_state.get_ref(&key);
                 tracing::debug!(target: "client", "FS: {:?} {:?}", key, value);
                 value
             }

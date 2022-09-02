@@ -671,7 +671,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: StateRoot,
     ) -> Result<Trie, Error> {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
-        Ok(self.tries.get_trie_with_flat_state_for_shard(shard_uid, state_root))
+        Ok(self.tries.get_trie_with_flat_state_for_shard(shard_uid, state_root, prev_hash))
     }
 
     fn get_view_trie_for_shard(

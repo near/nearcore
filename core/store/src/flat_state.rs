@@ -29,6 +29,7 @@ mod imp {
     #[derive(Clone)]
     pub struct FlatState {
         store: Store,
+        prev_block_hash: CryptoHash,
     }
 
     impl FlatState {
@@ -46,11 +47,8 @@ mod imp {
         /// are stored in `DBCol::State`. Also the separation is done so we
         /// could charge users for the value length before loading the value.
         // TODO (#7327): support different roots (or block hashes).
-        pub fn get_ref(
-            &self,
-            _root: &CryptoHash,
-            key: &[u8],
-        ) -> Result<Option<ValueRef>, StorageError> {
+        pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
+            let _ = self.prev_block_hash;
             match self.get_raw_ref(key)? {
                 Some(bytes) => ValueRef::decode(&bytes)
                     .map(Some)
@@ -65,8 +63,13 @@ mod imp {
     /// Always returns `None` if the `protocol_feature_flat_state` Cargo feature is
     /// not enabled.  Otherwise, returns a new [`FlatState`] object backed by
     /// specified storage if `use_flat_state` argument is true.
-    pub fn maybe_new(use_flat_state: bool, store: &Store) -> Option<FlatState> {
-        use_flat_state.then(|| FlatState { store: store.clone() })
+    pub fn maybe_new(
+        use_flat_state: bool,
+        store: &Store,
+        prev_block_hash: &CryptoHash,
+    ) -> Option<FlatState> {
+        use_flat_state
+            .then(|| FlatState { store: store.clone(), prev_block_hash: prev_block_hash.clone() })
     }
 }
 
