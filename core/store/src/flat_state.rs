@@ -11,11 +11,13 @@
 
 #[cfg(feature = "protocol_feature_flat_state")]
 mod imp {
+    use crate::db::FLAT_STATE_HEAD_KEY;
+    use near_primitives::block_header::BlockHeader;
     use near_primitives::errors::StorageError;
     use near_primitives::hash::CryptoHash;
     use near_primitives::state::ValueRef;
 
-    use crate::Store;
+    use crate::{KeyForStateChanges, Store};
 
     /// Struct for getting value references from the flat storage.
     ///
@@ -34,6 +36,31 @@ mod imp {
 
     impl FlatState {
         fn get_raw_ref(&self, key: &[u8]) -> Result<Option<crate::db::DBSlice<'_>>, StorageError> {
+            let flat_state_head: CryptoHash = self
+                .store
+                .get_ser(crate::DBCol::BlockMisc, FLAT_STATE_HEAD_KEY)
+                .map_err(|_| StorageError::StorageInternalError)?
+                .unwrap();
+            let mut block_hash = self.prev_block_hash;
+            while block_hash != flat_state_head {
+                let flat_state_delta_key = KeyForStateChanges::from_raw_key(&block_hash, &key);
+                let value_from_delta = self
+                    .store
+                    .get(crate::DBCol::FlatStateDeltas, flat_state_delta_key.as_ref())
+                    .map_err(|_| StorageError::StorageInternalError)?;
+                match value_from_delta {
+                    Some(value) => {
+                        return Ok(Some(value));
+                    }
+                    None => {}
+                }
+                let block_header: BlockHeader = self
+                    .store
+                    .get_ser(crate::DBCol::BlockHeader, block_hash.as_ref())
+                    .map_err(|_| StorageError::StorageInternalError)?
+                    .unwrap();
+                block_hash = block_header.prev_hash().clone();
+            }
             return self
                 .store
                 .get(crate::DBCol::FlatState, key)
