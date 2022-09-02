@@ -4,17 +4,17 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_logger_utils::init_test_logger;
-use near_primitives::{
-    errors::TxExecutionError,
-    hash::CryptoHash,
-    runtime::config_store::RuntimeConfigStore,
-    transaction::{Action, FunctionCallAction, Transaction},
-    types::BlockHeight,
-    views::FinalExecutionStatus,
-};
+use near_primitives::errors::TxExecutionError;
+use near_primitives::hash::CryptoHash;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_primitives::transaction::{Action, FunctionCallAction, Transaction};
+use near_primitives::types::BlockHeight;
+use near_primitives::views::FinalExecutionStatus;
 use near_store::test_utils::create_test_store;
-use nearcore::{config::GenesisExt, TrackedConfig};
-use std::{path::Path, sync::Arc};
+use nearcore::config::GenesisExt;
+use nearcore::TrackedConfig;
+use std::path::Path;
+use std::sync::Arc;
 
 use crate::tests::client::process_blocks::{
     deploy_test_contract_with_protocol_version, produce_blocks_from_height_with_protocol_version,
