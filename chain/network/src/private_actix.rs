@@ -4,8 +4,7 @@ use crate::network_protocol::{PeerMessage, RoutingTableUpdate};
 use crate::peer_manager::connection;
 use conqueue::QueueSender;
 use near_network_primitives::types::{
-    Ban, Edge, InboundTcpConnect, PartialEdgeInfo, PeerInfo, PeerType, ReasonForBan,
-    RoutedMessageBody,
+    Ban, Edge, PartialEdgeInfo, PeerInfo, PeerType, ReasonForBan, RoutedMessageBody,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -27,7 +26,6 @@ pub(crate) enum PeerToManagerMsg {
     RegisterPeer(RegisterPeer),
     PeersRequest(PeersRequest),
     PeersResponse(PeersResponse),
-    InboundTcpConnect(InboundTcpConnect),
     Unregister(Unregister),
     Ban(Ban),
     RequestUpdateNonce(PeerId, PartialEdgeInfo),
