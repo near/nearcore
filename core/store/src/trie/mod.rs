@@ -4,7 +4,6 @@ use std::io::{Cursor, Read};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt};
-use tracing::trace;
 
 use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
@@ -686,13 +685,13 @@ impl Trie {
         match &self.flat_state {
             Some(flat_state) if !is_delayed => {
                 let value = flat_state.get_ref(&self.root, &key);
-                trace!(target: "client", "FS: {:?} {:?}", key, value);
+                tracing::debug!(target: "client", "FS: {:?} {:?}", key, value);
                 value
             }
             _ => {
                 let key = NibbleSlice::new(key);
                 let value = self.lookup(key);
-                trace!(target: "client", "TRIE: {:?} {:?}", key, value);
+                tracing::debug!(target: "client", "TRIE: {:?} {:?}", key, value);
                 value
             }
         }
