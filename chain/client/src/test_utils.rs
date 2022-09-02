@@ -1825,6 +1825,7 @@ pub fn run_catchup(
                 msg.shard_uid,
                 &msg.state_root,
                 &msg.next_epoch_shard_layout,
+                msg.state_split_status,
             );
             if let Some((sync, _, _)) = client.catchup_state_syncs.get_mut(&msg.sync_hash) {
                 // We are doing catchup

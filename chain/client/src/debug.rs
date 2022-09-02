@@ -150,7 +150,7 @@ impl Handler<DebugStatus> for ClientActor {
     fn handle(&mut self, msg: DebugStatus, _ctx: &mut Context<Self>) -> Self::Result {
         match msg {
             DebugStatus::SyncStatus => {
-                Ok(DebugStatusResponse::SyncStatus(self.client.sync_status.clone()))
+                Ok(DebugStatusResponse::SyncStatus(self.client.sync_status.clone().into()))
             }
             DebugStatus::TrackedShards => {
                 Ok(DebugStatusResponse::TrackedShards(self.get_tracked_shards_view()?))
@@ -163,6 +163,9 @@ impl Handler<DebugStatus> for ClientActor {
             }
             DebugStatus::ValidatorStatus => {
                 Ok(DebugStatusResponse::ValidatorStatus(self.get_validator_status()?))
+            }
+            DebugStatus::CatchupStatus => {
+                Ok(DebugStatusResponse::CatchupStatus(self.client.get_catchup_status()?))
             }
         }
     }

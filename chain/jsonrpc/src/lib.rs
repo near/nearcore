@@ -739,6 +739,7 @@ impl JsonRpcHandler {
             let debug_status = match path {
                 "/debug/api/tracked_shards" => self.client_send(DebugStatus::TrackedShards).await?,
                 "/debug/api/sync_status" => self.client_send(DebugStatus::SyncStatus).await?,
+                "/debug/api/catchup_status" => self.client_send(DebugStatus::CatchupStatus).await?,
                 "/debug/api/epoch_info" => self.client_send(DebugStatus::EpochInfo).await?,
                 "/debug/api/block_status" => self.client_send(DebugStatus::BlockStatus).await?,
                 "/debug/api/validator_status" => {

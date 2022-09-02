@@ -13,6 +13,7 @@ use tracing::debug;
 
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
+use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -1303,6 +1304,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_uid: ShardUId,
         _state_root: &StateRoot,
         _next_epoch_shard_layout: &ShardLayout,
+        _state_split_status: Arc<StateSplitApplyingStatus>,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         Ok(HashMap::new())
     }
