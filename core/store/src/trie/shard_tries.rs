@@ -267,6 +267,37 @@ impl ShardTries {
         self.apply_all_inner(trie_changes, shard_uid, true)
     }
 
+    #[cfg(feature = "protocol_feature_flat_state")]
+    pub fn apply_genesis_changes_to_flat_state(
+        &self,
+        changes: &[RawStateChangesWithTrieKey],
+        store_update: &mut StoreUpdate,
+    ) {
+        for change in changes.iter() {
+            let key = change.trie_key.to_vec();
+            if near_primitives::state_record::is_delayed_receipt_key(&key) {
+                continue;
+            }
+
+            // `RawStateChangesWithTrieKey` stores all sequential changes for a key within a chunk, so it is sufficient
+            // to take only the last change.
+            let last_change = &change
+                .changes
+                .last()
+                .expect("Committed entry should have at least one change")
+                .data;
+            match last_change {
+                Some(value) => {
+                    let value_ref_ser = near_primitives::state::ValueRef::create_serialized(value);
+                    store_update.set(DBCol::FlatState, &key, &value_ref_ser);
+                }
+                None => {
+                    store_update.delete(DBCol::FlatState, &key);
+                }
+            };
+        }
+    }
+
     // TODO(#7327): consider uniting with `apply_all`
     #[cfg(feature = "protocol_feature_flat_state")]
     pub fn apply_changes_to_flat_state(
