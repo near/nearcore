@@ -28,7 +28,6 @@ use near_store::DBCol;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 
-use crate::info::display_catchup_status;
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::time::Clock;
@@ -165,9 +164,9 @@ impl Handler<DebugStatus> for ClientActor {
             DebugStatus::ValidatorStatus => {
                 Ok(DebugStatusResponse::ValidatorStatus(self.get_validator_status()?))
             }
-            DebugStatus::CatchupStatus => Ok(DebugStatusResponse::CatchupStatus(
-                display_catchup_status(self.client.get_catchup_status()?),
-            )),
+            DebugStatus::CatchupStatus => {
+                Ok(DebugStatusResponse::CatchupStatus(self.client.get_catchup_status()?))
+            }
         }
     }
 }

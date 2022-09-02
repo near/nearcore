@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use crate::types::StatusError;
 use actix::Message;
 use chrono::DateTime;
-use near_primitives::views::{EpochValidatorInfo, SyncStatusView};
+use near_primitives::views::{CatchupStatusView, EpochValidatorInfo, SyncStatusView};
 use near_primitives::{
     block_header::ApprovalInner,
     hash::CryptoHash,
@@ -182,7 +182,7 @@ impl Message for DebugStatus {
 #[derive(Serialize, Debug)]
 pub enum DebugStatusResponse {
     SyncStatus(SyncStatusView),
-    CatchupStatus(String),
+    CatchupStatus(Vec<CatchupStatusView>),
     TrackedShards(TrackedShardsView),
     // List of epochs - in descending order (next epoch is first).
     EpochInfo(Vec<EpochInfoView>),

@@ -374,7 +374,7 @@ pub enum SyncStatusView {
         highest_height: BlockHeight,
     },
     /// State sync, with different states of state sync for different shards.
-    StateSync(CryptoHash, HashMap<ShardId, ShardSyncStatusView>),
+    StateSync(CryptoHash, HashMap<ShardId, ShardSyncDownloadView>),
     /// Sync state across all shards is done.
     StateSyncDone,
     /// Catch up on blocks.
@@ -383,52 +383,28 @@ pub enum SyncStatusView {
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct ShardSyncDownloadView {
+    pub downloads: Vec<DownloadStatusView>,
+    pub status: String,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct DownloadStatusView {
+    pub error: bool,
+    pub done: bool,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct CatchupStatusView {
+    // This is the first block of the epoch that we are catching up
     pub sync_block_hash: CryptoHash,
     pub sync_block_height: BlockHeight,
-    pub shard_sync_status: HashMap<ShardId, ShardSyncStatusView>,
+    // Status of all shards that need to sync
+    pub shard_sync_status: HashMap<ShardId, String>,
+    // Blocks that we need to catchup, if it is empty, it means catching up is done
     pub blocks_to_catchup: Vec<BlockStatusView>,
-}
-
-/// Various status of syncing a specific shard.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ShardSyncStatusView {
-    StateDownloadHeader,
-    StateDownloadParts,
-    StateDownloadScheduling,
-    StateDownloadApplying,
-    StateDownloadComplete,
-    StateSplitScheduling,
-    // first number is total number of state parts, second number is number of parts that finished
-    // applying
-    StateSplitApplying(StateSplitApplyingStatusView),
-    StateSyncDone,
-}
-
-impl ToString for ShardSyncStatusView {
-    fn to_string(&self) -> String {
-        match self {
-            ShardSyncStatusView::StateDownloadHeader => "header".to_string(),
-            ShardSyncStatusView::StateDownloadParts => "parts".to_string(),
-            ShardSyncStatusView::StateDownloadScheduling => "scheduling".to_string(),
-            ShardSyncStatusView::StateDownloadApplying => "applying".to_string(),
-            ShardSyncStatusView::StateDownloadComplete => "download complete".to_string(),
-            ShardSyncStatusView::StateSplitScheduling => "split scheduling".to_string(),
-            ShardSyncStatusView::StateSplitApplying(state_split_status) => format!(
-                "split applying (total parts {} done {})",
-                state_split_status.total_parts, state_split_status.done_parts,
-            ),
-            ShardSyncStatusView::StateSyncDone => "done".to_string(),
-        }
-    }
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StateSplitApplyingStatusView {
-    pub total_parts: u64,
-    pub done_parts: u64,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]

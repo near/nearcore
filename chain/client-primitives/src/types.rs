@@ -19,10 +19,10 @@ use near_primitives::types::{
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+    BlockView, ChunkView, DownloadStatusView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
-    QueryRequest, QueryResponse, ReceiptView, ShardSyncStatusView, StateChangesKindsView,
-    StateChangesRequestView, StateChangesView, StateSplitApplyingStatusView, SyncStatusView,
+    QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView, StateChangesKindsView,
+    StateChangesRequestView, StateChangesView, SyncStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use serde::Serialize;
@@ -98,12 +98,34 @@ impl ToString for ShardSyncStatus {
             ShardSyncStatus::StateDownloadApplying => "applying".to_string(),
             ShardSyncStatus::StateDownloadComplete => "download complete".to_string(),
             ShardSyncStatus::StateSplitScheduling => "split scheduling".to_string(),
-            ShardSyncStatus::StateSplitApplying(state_split_status) => format!(
-                "split applying (total parts {} done {})",
-                state_split_status.total_parts.get().cloned().unwrap_or_default(),
-                state_split_status.done_parts.load(Ordering::Relaxed)
-            ),
+            ShardSyncStatus::StateSplitApplying(state_split_status) => {
+                let str = if let Some(total_parts) = state_split_status.total_parts.get() {
+                    format!(
+                        "total parts {} done {}",
+                        total_parts,
+                        state_split_status.done_parts.load(Ordering::Relaxed)
+                    )
+                } else {
+                    "not started".to_string()
+                };
+                format!("split applying {}", str)
+            }
             ShardSyncStatus::StateSyncDone => "done".to_string(),
+        }
+    }
+}
+
+impl From<&DownloadStatus> for DownloadStatusView {
+    fn from(status: &DownloadStatus) -> Self {
+        DownloadStatusView { done: status.done, error: status.error }
+    }
+}
+
+impl From<ShardSyncDownload> for ShardSyncDownloadView {
+    fn from(download: ShardSyncDownload) -> Self {
+        ShardSyncDownloadView {
+            downloads: download.downloads.iter().map(|x| x.into()).collect(),
+            status: download.status.to_string(),
         }
     }
 }
@@ -119,28 +141,6 @@ pub struct StateSplitApplyingStatus {
 impl StateSplitApplyingStatus {
     pub fn new() -> Self {
         StateSplitApplyingStatus { total_parts: OnceCell::new(), done_parts: AtomicU64::new(0) }
-    }
-}
-
-impl From<ShardSyncStatus> for ShardSyncStatusView {
-    fn from(status: ShardSyncStatus) -> Self {
-        match status {
-            ShardSyncStatus::StateDownloadHeader => ShardSyncStatusView::StateDownloadHeader,
-            ShardSyncStatus::StateDownloadParts => ShardSyncStatusView::StateDownloadParts,
-            ShardSyncStatus::StateDownloadScheduling => {
-                ShardSyncStatusView::StateDownloadScheduling
-            }
-            ShardSyncStatus::StateDownloadApplying => ShardSyncStatusView::StateDownloadApplying,
-            ShardSyncStatus::StateDownloadComplete => ShardSyncStatusView::StateDownloadComplete,
-            ShardSyncStatus::StateSplitScheduling => ShardSyncStatusView::StateSplitScheduling,
-            ShardSyncStatus::StateSplitApplying(split_status) => {
-                ShardSyncStatusView::StateSplitApplying(StateSplitApplyingStatusView {
-                    total_parts: split_status.total_parts.get().cloned().unwrap_or_default(),
-                    done_parts: split_status.done_parts.load(Ordering::Relaxed),
-                })
-            }
-            ShardSyncStatus::StateSyncDone => ShardSyncStatusView::StateSyncDone,
-        }
     }
 }
 
@@ -224,7 +224,7 @@ impl From<SyncStatus> for SyncStatusView {
                 hash,
                 sync_status
                     .into_iter()
-                    .map(|(shard_id, shard_sync)| (shard_id, shard_sync.status.into()))
+                    .map(|(shard_id, shard_sync)| (shard_id, shard_sync.into()))
                     .collect(),
             ),
             SyncStatus::StateSyncDone => SyncStatusView::StateSyncDone,

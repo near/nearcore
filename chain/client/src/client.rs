@@ -2070,7 +2070,7 @@ impl Client {
             let sync_block_height = self.chain.get_block_header(sync_hash)?.height();
             let shard_sync_status: HashMap<_, _> = shard_sync_state
                 .iter()
-                .map(|(shard_id, state)| (*shard_id, state.status.clone().into()))
+                .map(|(shard_id, state)| (*shard_id, state.status.to_string()))
                 .collect();
             ret.push(CatchupStatusView {
                 sync_block_hash: *sync_hash,

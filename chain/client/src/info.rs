@@ -321,7 +321,7 @@ pub fn display_catchup_status(catchup_status: Vec<CatchupStatusView>) -> String 
                 .shard_sync_status
                 .iter()
                 .sorted_by_key(|x| x.0)
-                .map(|(shard_id, status)| format!("Shard {} {}", shard_id, status.to_string()))
+                .map(|(shard_id, status_string)| format!("Shard {} {}", shard_id, status_string))
                 .join(", ");
             let block_catchup_string = if catchup_status.blocks_to_catchup.len() == 0 {
                 "done".to_string()
@@ -333,11 +333,11 @@ pub fn display_catchup_status(catchup_status: Vec<CatchupStatusView>) -> String 
                     .join(", ")
             };
             format!(
-                "Sync block {:?}@{:?} \nShard sync status: {:?}\nNext blocks to catch up: {:?}",
+                "Sync block {:?}@{:?} \nShard sync status: {}\nNext blocks to catch up: {}",
                 catchup_status.sync_block_hash,
                 catchup_status.sync_block_height,
-                &shard_sync_string,
-                &block_catchup_string,
+                shard_sync_string,
+                block_catchup_string,
             )
         })
         .join("\n")
