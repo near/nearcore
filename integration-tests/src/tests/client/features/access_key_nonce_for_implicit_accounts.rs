@@ -271,7 +271,6 @@ fn test_transaction_nonce_too_large() {
     );
 }
 
-#[test]
 /// This test tests the logic regarding requesting chunks for orphan.
 /// The test tests the following scenario, there is one validator(test0) and one non-validator node(test1)
 /// test0 produces and processes 20 blocks and test1 processes these blocks with some delays. We
@@ -294,6 +293,7 @@ fn test_transaction_nonce_too_large() {
 /// - check that test1 sends missing chunk requests for block 11 to 10+NUM_ORPHAN_ANCESTORS+CHECK,
 ///   since now they satisfy the the requirements for requesting chunks for orphans
 /// - process the rest of blocks
+#[test]
 fn test_request_chunks_for_orphan() {
     init_test_logger();
 
