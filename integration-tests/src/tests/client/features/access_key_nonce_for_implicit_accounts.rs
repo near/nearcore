@@ -1,6 +1,3 @@
-use std::path::Path;
-use std::sync::Arc;
-
 use crate::tests::client::process_blocks::{
     create_nightshade_runtimes, produce_blocks_from_height,
 };
@@ -25,6 +22,8 @@ use nearcore::config::GenesisExt;
 use nearcore::{TrackedConfig, NEAR_BASE};
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
+use std::path::Path;
+use std::sync::Arc;
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
 /// Return height of the next block.

@@ -1,3 +1,4 @@
+use crate::tests::client::process_blocks::deploy_test_contract;
 use assert_matches::assert_matches;
 use near_chain::{ChainGenesis, RuntimeAdapter};
 use near_chain_configs::Genesis;
@@ -12,8 +13,6 @@ use nearcore::config::GenesisExt;
 use nearcore::TrackedConfig;
 use std::path::Path;
 use std::sync::Arc;
-
-use crate::tests::client::process_blocks::deploy_test_contract;
 
 fn verify_contract_limits_upgrade(
     feature: ProtocolFeature,
