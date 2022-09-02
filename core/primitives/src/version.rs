@@ -264,8 +264,16 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingCost => 129,
             #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
             ProtocolFeature::AccountIdInFunctionCallPermission => 130,
-            #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
+            #[cfg(all(
+                feature = "protocol_feature_reject_blocks_with_outdated_protocol_version",
+                not(feature = "shardnet")
+            ))]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
+            #[cfg(all(
+                feature = "protocol_feature_reject_blocks_with_outdated_protocol_version",
+                feature = "shardnet"
+            ))]
+            ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 102,
             #[cfg(feature = "shardnet")]
             ProtocolFeature::ShardnetShardLayoutUpgrade => 102,
         }
