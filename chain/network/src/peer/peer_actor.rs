@@ -37,7 +37,6 @@ use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
-use crate::peer::framed_read::ThrottleController;
 use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::io;
@@ -95,8 +94,6 @@ pub(crate) struct PeerActor {
     partial_edge_info: Option<PartialEdgeInfo>,
     /// Cache of recently routed messages, this allows us to drop duplicates
     routed_message_cache: LruCache<(PeerId, PeerIdOrHash, Signature), time::Instant>,
-    /// A helper data structure for limiting reading
-    throttle_controller: ThrottleController,
     /// Whether we detected support for protocol buffers during handshake.
     protocol_buffers_supported: bool,
     /// Whether the PeerActor should skip protobuf support detection and use
@@ -132,7 +129,6 @@ impl PeerActor {
         connecting_status: ConnectingStatus,
         framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
         peer_manager_addr: Recipient<PeerToManagerMsg>,
-        throttle_controller: ThrottleController,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
     ) -> Self {
@@ -154,7 +150,6 @@ impl PeerActor {
                 .map(|info| network_state.propose_edge(&info.id, None)),
             peer_info: peer_info.into(),
             routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
-            throttle_controller,
             protocol_buffers_supported: false,
             force_encoding,
             connection: None,
@@ -873,7 +868,6 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     last_time_peer_requested: AtomicCell::new(self.clock.now()),
                     last_time_received_message: AtomicCell::new(self.clock.now()),
                     connection_established_time: self.clock.now(),
-                    throttle_controller: self.throttle_controller.clone(),
                     send_accounts_data_demux: demux::Demux::new(
                         self.network_state.send_accounts_data_rl,
                     ),

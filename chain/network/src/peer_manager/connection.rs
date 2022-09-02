@@ -13,7 +13,6 @@ use near_network_primitives::types::{
     PeerType, ReasonForBan,
 };
 use near_primitives::network::PeerId;
-use crate::peer::framed_read::ThrottleController;
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
 use std::future::Future;
@@ -56,7 +55,6 @@ pub(crate) struct Connection {
     pub _peer_connections_metric: metrics::GaugePoint,
 
     /// A helper data structure for limiting reading, reporting stats.
-    pub throttle_controller: ThrottleController,
     pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
 }
 

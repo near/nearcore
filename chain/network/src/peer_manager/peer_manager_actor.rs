@@ -42,12 +42,11 @@ use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{AccountId, EpochId};
-use crate::peer::message_wrapper::{ActixMessageResponse, ActixMessageWrapper};
-use crate::peer::framed_read::{ThrottleController, ThrottleFramedRead, ThrottleToken};
+use crate::peer::framed_read::{FramedRead};
 use parking_lot::RwLock;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
-use std::cmp::{max, min};
+use std::cmp::{min};
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 //use std::ops::Sub;
@@ -88,14 +87,14 @@ const REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL: time::Duration =
 
 /// Max number of messages we received from peer, and they are in progress, before we start throttling.
 /// Disabled for now (TODO PUT UNDER FEATURE FLAG)
-const MAX_MESSAGES_COUNT: usize = usize::MAX;
+// const MAX_MESSAGES_COUNT: usize = usize::MAX;
 /// Max total size of all messages that are in progress, before we start throttling.
 /// Disabled for now (TODO PUT UNDER FEATURE FLAG)
-const MAX_MESSAGES_TOTAL_SIZE: usize = usize::MAX;
+// const MAX_MESSAGES_TOTAL_SIZE: usize = usize::MAX;
 /// If we received more than `REPORT_BANDWIDTH_THRESHOLD_BYTES` of data from given peer it's bandwidth stats will be reported.
-const REPORT_BANDWIDTH_THRESHOLD_BYTES: usize = 10_000_000;
+// const REPORT_BANDWIDTH_THRESHOLD_BYTES: usize = 10_000_000;
 /// If we received more than REPORT_BANDWIDTH_THRESHOLD_COUNT` of messages from given peer it's bandwidth stats will be reported.
-const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
+// const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
 /// How long a peer has to be unreachable, until we prune it from the in-memory graph.
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
@@ -580,21 +579,11 @@ impl PeerManagerActor {
         let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
             .with_label_values(&["report_bandwidth_stats"])
             .start_timer();
-        let mut total_bandwidth_used_by_all_peers: usize = 0;
-        let mut total_msg_received_count: usize = 0;
-        let mut max_max_record_num_messages_in_progress: usize = 0;
-        for (peer_id, connected_peer) in &self.state.tier2.load().ready {
-            // consume methods of the throttle_controller require &mut self,
-            // but in fact they modify internal Arc<Atomic...> values,
-            // so if we clone the throttle_controller we can call them. This doesn't make
-            // much sense.
-            // TODO(gprusak): make it more reasonable.
-            let mut throttle_controller = connected_peer.throttle_controller.clone();
-            let bandwidth_used = throttle_controller.consume_bandwidth_used();
-            let msg_received_count = throttle_controller.consume_msg_seen();
-            let max_record = throttle_controller.consume_max_messages_in_progress();
-
-            if bandwidth_used > REPORT_BANDWIDTH_THRESHOLD_BYTES
+        let total_bandwidth_used_by_all_peers: usize = 0;
+        let total_msg_received_count: usize = 0;
+        let max_max_record_num_messages_in_progress: usize = 0;
+        for (_peer_id, _connected_peer) in &self.state.tier2.load().ready {
+            /*if bandwidth_used > REPORT_BANDWIDTH_THRESHOLD_BYTES
                 || total_msg_received_count > REPORT_BANDWIDTH_THRESHOLD_COUNT
             {
                 debug!(target: "bandwidth",
@@ -606,6 +595,7 @@ impl PeerManagerActor {
             total_msg_received_count += msg_received_count;
             max_max_record_num_messages_in_progress =
                 max(max_max_record_num_messages_in_progress, max_record);
+            */
         }
 
         info!(
@@ -905,9 +895,8 @@ impl PeerManagerActor {
             let (read, write) = tokio::io::split(stream);
 
             // TODO: check if peer is banned or known based on IP address and port.
-            let rate_limiter = ThrottleController::new(MAX_MESSAGES_COUNT, MAX_MESSAGES_TOTAL_SIZE);
             PeerActor::add_stream(
-                ThrottleFramedRead::new(read, rate_limiter.clone()).map_while(
+                FramedRead::new(read).map_while(
                     |x| match x {
                         Ok(x) => Some(x),
                         Err(err) => {
@@ -927,7 +916,6 @@ impl PeerManagerActor {
                 connecting_status,
                 FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
                 recipient.clone().recipient(),
-                rate_limiter,
                 None,
                 state,
             )
@@ -1258,20 +1246,18 @@ impl PeerManagerActor {
         &self,
         peer_id: PeerId,
         edges: Vec<Edge>,
-        throttle_controller: Option<ThrottleController>,
     ) {
         if edges.is_empty() {
             return;
         }
-        self.routing_table_addr.do_send(ActixMessageWrapper::new_without_size(
+        self.routing_table_addr.do_send(
             routing::actor::Message::ValidateEdgeList(ValidateEdgeList {
                 source_peer_id: peer_id,
                 edges,
                 edges_info_shared: self.routing_table_exchange_helper.edges_info_shared.clone(),
                 sender: self.routing_table_exchange_helper.edges_to_add_sender.clone(),
             }),
-            throttle_controller,
-        ));
+        );
     }
 
     /// Return whether the message is sent or not.
@@ -1394,7 +1380,6 @@ impl PeerManagerActor {
         &mut self,
         msg: NetworkRequests,
         _ctx: &mut Context<Self>,
-        _throttle_controller: Option<ThrottleController>,
     ) -> NetworkResponses {
         let _span =
             tracing::trace_span!(target: "network", "handle_msg_network_requests").entered();
@@ -1819,7 +1804,6 @@ impl PeerManagerActor {
         &mut self,
         msg: PeerManagerMessageRequest,
         ctx: &mut Context<Self>,
-        throttle_controller: Option<ThrottleController>,
     ) -> PeerManagerMessageResponse {
         let _span =
             tracing::trace_span!(target: "network", "handle_peer_manager_message").entered();
@@ -1828,7 +1812,6 @@ impl PeerManagerActor {
                 PeerManagerMessageResponse::NetworkResponses(self.handle_msg_network_requests(
                     msg,
                     ctx,
-                    throttle_controller,
                 ))
             }
             PeerManagerMessageRequest::OutboundTcpConnect(msg) => {
@@ -1856,7 +1839,6 @@ impl PeerManagerActor {
         &mut self,
         msg: PeerToManagerMsg,
         ctx: &mut Context<Self>,
-        throttle_controller: Option<ThrottleController>,
     ) -> PeerToManagerMsgResp {
         match msg {
             PeerToManagerMsg::RegisterPeer(msg) => {
@@ -1990,7 +1972,7 @@ impl PeerManagerActor {
                         actix::fut::ready(())
                     }).spawn(ctx);
 
-                self.validate_edges_and_add_to_routing_table(peer_id, edges, throttle_controller);
+                self.validate_edges_and_add_to_routing_table(peer_id, edges);
                 PeerToManagerMsgResp::Empty
             }
         }
@@ -2105,32 +2087,6 @@ impl Handler<SetChainInfo> for PeerManagerActor {
     }
 }
 
-impl Handler<ActixMessageWrapper<PeerToManagerMsg>> for PeerManagerActor {
-    type Result = ActixMessageResponse<PeerToManagerMsgResp>;
-
-    fn handle(
-        &mut self,
-        msg: ActixMessageWrapper<PeerToManagerMsg>,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
-        // Unpack throttle controller
-        let (msg, throttle_token) = msg.take();
-        let _timer =
-            metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
-        let _span = tracing::trace_span!(target: "network", "handle", handler = "PeerToManagerMsg")
-            .entered();
-
-        let throttle_controller = throttle_token.throttle_controller().cloned();
-        let result = self.handle_peer_to_manager_msg(msg, ctx, throttle_controller);
-
-        // TODO(#5155) Add support for DeepSizeOf to result
-        ActixMessageResponse::new(
-            result,
-            ThrottleToken::new_without_size(throttle_token.throttle_controller().cloned()),
-        )
-    }
-}
-
 impl Handler<PeerToManagerMsg> for PeerManagerActor {
     type Result = PeerToManagerMsgResp;
     fn handle(&mut self, msg: PeerToManagerMsg, ctx: &mut Self::Context) -> Self::Result {
@@ -2138,7 +2094,7 @@ impl Handler<PeerToManagerMsg> for PeerManagerActor {
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         let _span = tracing::trace_span!(target: "network", "handle", handler = "PeerToManagerMsg")
             .entered();
-        self.handle_peer_to_manager_msg(msg, ctx, None)
+        self.handle_peer_to_manager_msg(msg, ctx)
     }
 }
 
@@ -2148,6 +2104,6 @@ impl Handler<PeerManagerMessageRequest> for PeerManagerActor {
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         let _span = tracing::trace_span!(target: "network", "handle", handler = "PeerManagerMessageRequest").entered();
-        self.handle_peer_manager_message(msg, ctx, None)
+        self.handle_peer_manager_message(msg, ctx)
     }
 }

@@ -20,9 +20,8 @@ use near_network_primitives::types::{
     RoutedMessageV2,
 };
 use near_performance_metrics::framed_write::FramedWrite;
+use crate::peer::framed_read::FramedRead;
 use near_primitives::network::PeerId;
-use crate::peer::message_wrapper::{ActixMessageResponse, ActixMessageWrapper};
-use crate::peer::framed_read::{ThrottleController, ThrottleFramedRead, ThrottleToken};
 
 use near_network_primitives::time;
 use std::sync::Arc;
@@ -80,22 +79,6 @@ struct FakePeerManagerActor {
 
 impl Actor for FakePeerManagerActor {
     type Context = Context<Self>;
-}
-
-impl Handler<ActixMessageWrapper<PeerToManagerMsg>> for FakePeerManagerActor {
-    type Result = ActixMessageResponse<PeerToManagerMsgResp>;
-
-    fn handle(
-        &mut self,
-        msg: ActixMessageWrapper<PeerToManagerMsg>,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
-        let (msg, throttle_token) = msg.take();
-        ActixMessageResponse::new(
-            self.handle(msg, ctx),
-            ThrottleToken::new_without_size(throttle_token.throttle_controller().cloned()),
-        )
-    }
 }
 
 impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
@@ -217,8 +200,7 @@ impl PeerHandle {
             let fpm = FakePeerManagerActor { cfg: cfg.clone(), event_sink: send.sink() }.start();
             let fc = fake_client::start(send.sink().compose(Event::Client));
             let store = store::Store::from(near_store::db::TestDB::new());
-            let rate_limiter = ThrottleController::new(usize::MAX, usize::MAX);
-            let read = ThrottleFramedRead::new(read, rate_limiter.clone())
+            let read = FramedRead::new(read)
                 .take_while(|x| match x {
                     Ok(_) => true,
                     Err(_) => false,
@@ -270,7 +252,6 @@ impl PeerHandle {
                     },
                     FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
                     fpm.clone().recipient(),
-                    rate_limiter,
                     cfg.force_encoding,
                     network_state,
                 )
