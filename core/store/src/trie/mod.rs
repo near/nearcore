@@ -691,7 +691,9 @@ impl Trie {
             }
             _ => {
                 let key = NibbleSlice::new(key);
-                self.lookup(key)
+                let value = self.lookup(key);
+                trace!(target: "client", "TRIE: {:?} {:?}", key, value);
+                value
             }
         }
     }
