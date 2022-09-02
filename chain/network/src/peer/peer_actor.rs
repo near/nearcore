@@ -186,21 +186,26 @@ impl PeerActor {
             addr: network_state.config.node_addr.clone(),
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
+
+        let metric_label = &peer_addr.to_string();
+        let read_buf_size = metrics::PEER_DATA_READ_BUFFER_SIZE.with_label_values(&[metric_label]);
+        let write_buf_size =
+            metrics::PEER_DATA_WRITE_BUFFER_SIZE.with_label_values(&[metric_label]);
+
         let (read, write) = tokio::io::split(stream);
         let rate_limiter = ThrottleController::new(MAX_MESSAGES_COUNT, MAX_MESSAGES_TOTAL_SIZE);
 
         // Start PeerActor on separate thread.
         Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| {
             Self::add_stream(
-                ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone()).map_while(
-                    |x| match x {
+                ThrottleFramedRead::new(read, Codec::new(read_buf_size), rate_limiter.clone())
+                    .map_while(|x| match x {
                         Ok(x) => Some(x),
                         Err(err) => {
                             warn!(target: "network", ?err, "Peer stream error");
                             None
                         }
-                    },
-                ),
+                    }),
                 ctx,
             );
             Self {
@@ -213,7 +218,12 @@ impl PeerActor {
                 },
                 peer_status: PeerStatus::Connecting(connecting_status),
                 protocol_version: PROTOCOL_VERSION,
-                framed: FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
+                framed: FramedWrite::new(
+                    write,
+                    Codec::new(write_buf_size.clone()),
+                    Codec::new(write_buf_size),
+                    ctx,
+                ),
                 tracker: Default::default(),
                 partial_edge_info: match &stream_config {
                     StreamConfig::Inbound => None,
@@ -742,6 +752,11 @@ impl Actor for PeerActor {
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
         actix::Arbiter::current().stop();
+        let metric_label = &self.peer_addr.to_string();
+        // Garbage collect our metrics, ignoring the case where the metric is
+        // already deleted, to avoid races when a peer tries to reconnect.
+        let _ = metrics::PEER_DATA_READ_BUFFER_SIZE.remove_label_values(&[metric_label]);
+        let _ = metrics::PEER_DATA_WRITE_BUFFER_SIZE.remove_label_values(&[metric_label]);
     }
 }
 
