@@ -22,7 +22,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -124,15 +123,12 @@ impl Peer {
         Ok((len as usize, first_byte_time.unwrap_or(Instant::now())))
     }
 
+    // drains anything still available to be read without blocking and
     // returns a vec of message lengths currently ready
-    // bool returned says whether we read `stop` = true
     fn read_remaining_messages(
         &mut self,
         first_msg_length: usize,
-        stop: &AtomicBool,
-    ) -> anyhow::Result<(Vec<(usize, Instant)>, bool)> {
-        // drain anything still available to be read without blocking
-        let mut stopped = false;
+    ) -> anyhow::Result<Vec<(usize, Instant)>> {
         let mut pos = first_msg_length + 4;
         let mut lengths = Vec::new();
         let mut pending_msg_length = None;
@@ -168,39 +164,23 @@ impl Peer {
                     _ => return Err(e.into()),
                 },
             };
-            if stop.load(Ordering::Relaxed) {
-                stopped = true;
-                break;
-            }
         }
-
-        Ok((lengths, stopped))
+        Ok(lengths)
     }
 
     // Reads from the socket until there is at least one full PeerMessage available.
     // After that point, continues to read any bytes available to be read without blocking
     // and appends any extra messages to the returned Vec. Usually there is only one in there
-
-    // The bool returned is true if we should stop now
-    async fn recv_messages(
-        &mut self,
-        stop: &AtomicBool,
-    ) -> anyhow::Result<(Vec<(PeerMessage, Instant)>, bool)> {
-        if stop.load(Ordering::Relaxed) {
-            return Ok((Vec::new(), true));
-        }
+    async fn recv_messages(&mut self) -> anyhow::Result<Vec<(PeerMessage, Instant)>> {
         let mut messages = Vec::new();
         let (msg_length, first_byte_time) = self.read_msg_length().await?;
 
         while self.buf.remaining() < msg_length + 4 {
-            if stop.load(Ordering::Relaxed) {
-                return Ok((messages, true));
-            }
             // TODO: measure time to last byte here
             self.do_read().await?;
         }
 
-        let (more_messages, stopped) = self.read_remaining_messages(msg_length, stop)?;
+        let more_messages = self.read_remaining_messages(msg_length)?;
 
         let msg = self
             .extract_msg(msg_length)
@@ -221,7 +201,7 @@ impl Peer {
         if max_len_after_next_read < 512 {
             self.buf.reserve(512 - max_len_after_next_read);
         }
-        Ok((messages, stopped))
+        Ok(messages)
     }
 
     async fn send_ping(
@@ -240,11 +220,7 @@ impl Peer {
         Ok(())
     }
 
-    async fn do_handshake(
-        &mut self,
-        app_info: &mut AppInfo,
-        sigint_received: &AtomicBool,
-    ) -> anyhow::Result<bool> {
+    async fn do_handshake(&mut self, app_info: &mut AppInfo) -> anyhow::Result<()> {
         let handshake = PeerMessage::Handshake(Handshake::new(
             app_info.protocol_version,
             app_info.my_peer_id.clone(),
@@ -260,7 +236,7 @@ impl Peer {
 
         let start = Instant::now();
 
-        let (messages, stop) = self.recv_messages(&sigint_received).await?;
+        let messages = self.recv_messages().await?;
 
         if let Some((first, timestamp)) = messages.first() {
             match &first {
@@ -301,7 +277,7 @@ impl Peer {
                 app_info.add_announce_accounts(r);
             }
         }
-        Ok(stop)
+        Ok(())
     }
 }
 
@@ -691,21 +667,15 @@ pub async fn ping_via_node(
         }
     };
 
-    let sigint_received = AtomicBool::new(false);
-
     tokio::select! {
-        res = peer.do_handshake(&mut app_info, &sigint_received) => {
-            match res {
-                Ok(true) => return vec![],
-                Ok(false) => {}
-                Err(e) => {
+        res = peer.do_handshake(&mut app_info) => {
+            if let Err(e) = res {
                     tracing::error!(target: "ping", "{:#}", e);
                     return vec![];
-                }
             }
         }
         _ = tokio::signal::ctrl_c() => {
-            sigint_received.store(true, Ordering::Relaxed);
+            return vec![];
         }
     }
 
@@ -729,8 +699,8 @@ pub async fn ping_via_node(
                 nonce += 1;
                 next_ping.as_mut().reset(tokio::time::Instant::now() + Duration::from_millis(ping_frequency_millis));
             }
-            res = peer.recv_messages(&sigint_received) => {
-                let (messages, stop) = match res {
+            res = peer.recv_messages() => {
+                let messages = match res {
                     Ok(x) => x,
                     Err(e) => {
                         tracing::error!(target: "ping", "Failed receiving messages: {:#}", e);
@@ -742,9 +712,6 @@ pub async fn ping_via_node(
                         tracing::error!(target: "ping", "{:#}", e);
                         break;
                     }
-                }
-                if stop {
-                    break;
                 }
             }
             _ = &mut next_timeout, if pending_timeout.is_some() => {
@@ -759,7 +726,7 @@ pub async fn ping_via_node(
                 }
             }
             _ = tokio::signal::ctrl_c() => {
-                sigint_received.store(true, Ordering::Relaxed);
+                break;
             }
         }
     }
