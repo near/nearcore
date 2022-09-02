@@ -522,7 +522,7 @@ impl Runner {
     }
 
     async fn setup_node(&self, node_id: usize) -> anyhow::Result<NodeHandle> {
-        tracing::debug!(target:"dupa", "starting {node_id}");
+        tracing::debug!("starting {node_id}");
         let config = &self.test_config[node_id];
 
         let boot_nodes =
@@ -601,7 +601,7 @@ pub fn start_test(runner: Runner) -> anyhow::Result<()> {
         let step = tokio::time::Duration::from_millis(10);
         let start = tokio::time::Instant::now();
         for (i, a) in actions.into_iter().enumerate() {
-            tracing::debug!(target:"dupa", "[starting action {i}]");
+            tracing::debug!("[starting action {i}]");
             loop {
                 let done =
                     tokio::time::timeout_at(start + timeout, a(&mut info)).await.with_context(
@@ -627,7 +627,7 @@ impl RunningInfo {
         self.nodes[node_id].as_ref().ok_or(anyhow!("node is down"))
     }
     fn stop_node(&mut self, node_id: usize) {
-        tracing::debug!(target:"dupa", "stopping {node_id}");
+        tracing::debug!("stopping {node_id}");
         self.nodes[node_id].take();
     }
 
