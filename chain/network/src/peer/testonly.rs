@@ -218,7 +218,7 @@ impl PeerHandle {
             let fc = fake_client::start(send.sink().compose(Event::Client));
             let store = store::Store::from(near_store::db::TestDB::new());
             let rate_limiter = ThrottleController::new(usize::MAX, usize::MAX);
-            let read = ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone())
+            let read = ThrottleFramedRead::new(read, rate_limiter.clone())
                 .take_while(|x| match x {
                     Ok(_) => true,
                     Err(_) => false,

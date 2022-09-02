@@ -12,25 +12,123 @@ use tokio_util::codec::Decoder;
 use tokio_util::io::poll_read_buf;
 use tokio_util::sync::PollSemaphore;
 use tracing::trace;
+use near_network_primitives::types::ReasonForBan;
+use std::io;
+use crate::peer::codec::NETWORK_MESSAGE_MAX_SIZE_BYTES;
 
 // Initial capacity of read buffer.
 const INITIAL_CAPACITY: usize = 8 * 1024;
 
-pin_project! {
-    pub(crate) struct ThrottleFramedRead<T, D> {
-        #[pin]
-        inner: FramedImpl<T, D, ReadFrame>,
-    }
+struct State {
+    eof: bool,
+    is_readable: bool,
+    buffer: BytesMut,
 }
 
 pin_project! {
     #[derive(Debug)]
-    pub(crate) struct FramedImpl<T, U, State> {
+    pub(crate) struct ThrottleFramedRead<T> {
         #[pin]
-        pub(crate) inner: T,
-        pub(crate) state: State,
-        pub(crate) codec: U,
-        pub(crate) throttle_controller: ThrottleController,
+        inner: T,
+        state: State,
+        throttle_controller: ThrottleController,
+    }
+}
+
+impl<T:AsyncRead> ThrottleFramedRead<T> {
+    /// Creates a new `ThrottleFramedRead`.
+    pub fn new(
+        inner: T,
+        throttle_controller: ThrottleController,
+    ) -> ThrottleFramedRead<T> {
+        ThrottleFramedRead {
+            inner,
+            state: Default::default(),
+            throttle_controller,
+        }
+    }
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self { eof: false, is_readable: false, buffer: BytesMut::with_capacity(INITIAL_CAPACITY) }
+    }
+}
+
+impl<T:AsyncRead> ThrottleFramedRead<T> {
+    fn decode(&mut self) -> Result<Option<Vec<u8>>, io::Error> {
+        let buf = &mut self.state.buffer;
+        let len_buf = match buf.get(..4).and_then(|s| <[u8; 4]>::try_from(s).ok()) {
+            // not enough bytes to start decoding
+            None => return Ok(None),
+            Some(res) => res,
+        };
+
+        let len = u32::from_le_bytes(len_buf) as usize;
+        if len > NETWORK_MESSAGE_MAX_SIZE_BYTES {
+            // If this point is reached, abusive peer is banned.
+            return Ok(Some(Err(ReasonForBan::Abusive)));
+        }
+
+        if let Some(data_buf) = buf.get(4..4 + len) {
+            let res = Some(Ok(data_buf.to_vec()));
+            buf.advance(4 + len);
+            if buf.is_empty() && buf.capacity() > 0 {
+                *buf = BytesMut::new();
+            }
+            Ok(res)
+        } else {
+            // not enough bytes, keep waiting
+            Ok(None)
+        }
+    }
+}
+
+impl<T:AsyncRead> Stream for ThrottleFramedRead<T> {
+    type Item = Result<Vec<u8>, ReasonForBan>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut pinned = self.project();
+        let state: &mut State = pinned.state.borrow_mut();
+        loop {
+            while !pinned.throttle_controller.is_ready() {
+                // This will cause us to subscribe to notifier when something gets pushed to
+                // `pinned.receiver`. If there is an element in the queue, we will check again.
+                ready!(pinned.throttle_controller.semaphore.poll_acquire(cx));
+            }
+
+            // Repeatedly call `decode` or `decode_eof` as long as it is
+            // "readable". Readable is defined as not having returned `None`. If
+            // the upstream has returned EOF, and the decoder is no longer
+            // readable, it can be assumed that the decoder will never become
+            // readable again, at which point the stream is terminated.
+            if state.is_readable {
+                if state.eof {
+                    return Poll::Ready(pinned.decode(&mut state.buffer)?.map(Ok));
+                }
+                trace!("attempting to decode a frame");
+                if let Some(frame) = pinned.decode(&mut state.buffer)? {
+                    trace!("frame decoded from buffer");
+                    pinned.throttle_controller.report_msg_seen();
+                    return Poll::Ready(Some(Ok(frame)));
+                }
+
+                state.is_readable = false;
+            }
+
+            assert!(!state.eof);
+
+            // Otherwise, try to read more data and try again. Make sure we've
+            // got room for at least one byte to read to ensure that we don't
+            // get a spurious 0 that looks like EOF
+            state.buffer.reserve(1);
+            let bytect = ready!(poll_read_buf(pinned.inner.as_mut(), cx, &mut state.buffer)?);
+            pinned.throttle_controller.report_bandwidth_used(bytect);
+            if bytect == 0 {
+                state.eof = true;
+            }
+            state.is_readable = true;
+        }
     }
 }
 
@@ -146,7 +244,7 @@ impl ThrottleController {
     }
 
     /// Un-tracks the message and decreases limits by size of the message and notifies
-    /// `ThrottleFramedReader` to try to read again
+    /// `ThrottleFramedRead` to try to read again
     pub fn remove_msg(&mut self, msg_size: usize) {
         self.num_messages_in_progress.fetch_sub(1, Ordering::Relaxed);
         if msg_size != 0 {
@@ -175,112 +273,6 @@ impl ThrottleController {
 
     pub fn consume_max_messages_in_progress(&mut self) -> usize {
         self.max_messages_in_progress.swap(0, Ordering::Relaxed)
-    }
-}
-
-impl<T, D> ThrottleFramedRead<T, D>
-where
-    T: AsyncRead,
-    D: Decoder,
-{
-    /// Creates a new `NearFramedRead` with the given `decoder`.
-    pub fn new(
-        inner: T,
-        decoder: D,
-        throttle_controller: ThrottleController,
-    ) -> ThrottleFramedRead<T, D> {
-        ThrottleFramedRead {
-            inner: FramedImpl {
-                inner,
-                codec: decoder,
-                state: Default::default(),
-                throttle_controller,
-            },
-        }
-    }
-}
-
-// This impl just defers to the underlying FramedImpl
-impl<T, D> Stream for ThrottleFramedRead<T, D>
-where
-    T: AsyncRead,
-    D: Decoder,
-{
-    type Item = Result<D::Item, D::Error>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.project().inner.poll_next(cx)
-    }
-}
-
-pub(crate) struct ReadFrame {
-    pub(crate) eof: bool,
-    pub(crate) is_readable: bool,
-    pub(crate) buffer: BytesMut,
-}
-
-impl Default for ReadFrame {
-    fn default() -> Self {
-        Self { eof: false, is_readable: false, buffer: BytesMut::with_capacity(INITIAL_CAPACITY) }
-    }
-}
-
-impl<T, U, R> Stream for FramedImpl<T, U, R>
-where
-    T: AsyncRead,
-    U: Decoder,
-    R: BorrowMut<ReadFrame>,
-{
-    type Item = Result<U::Item, U::Error>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut pinned = self.project();
-        let state: &mut ReadFrame = pinned.state.borrow_mut();
-        loop {
-            while !pinned.throttle_controller.is_ready() {
-                // This will cause us to subscribe to notifier when something gets pushed to
-                // `pinned.receiver`. If there is an element in the queue, we will check again.
-                ready!(pinned.throttle_controller.semaphore.poll_acquire(cx));
-            }
-
-            // Repeatedly call `decode` or `decode_eof` as long as it is
-            // "readable". Readable is defined as not having returned `None`. If
-            // the upstream has returned EOF, and the decoder is no longer
-            // readable, it can be assumed that the decoder will never become
-            // readable again, at which point the stream is terminated.
-            if state.is_readable {
-                if state.eof {
-                    let frame = pinned.codec.decode_eof(&mut state.buffer)?;
-                    return Poll::Ready(frame.map(Ok));
-                }
-                trace!("attempting to decode a frame");
-
-                if let Some(frame) = pinned.codec.decode(&mut state.buffer)? {
-                    trace!("frame decoded from buffer");
-                    pinned.throttle_controller.report_msg_seen();
-                    return Poll::Ready(Some(Ok(frame)));
-                }
-
-                state.is_readable = false;
-            }
-
-            assert!(!state.eof);
-
-            // Otherwise, try to read more data and try again. Make sure we've
-            // got room for at least one byte to read to ensure that we don't
-            // get a spurious 0 that looks like EOF
-            state.buffer.reserve(1);
-
-            let bytect = ready!(poll_read_buf(pinned.inner.as_mut(), cx, &mut state.buffer)?);
-
-            pinned.throttle_controller.report_bandwidth_used(bytect);
-
-            if bytect == 0 {
-                state.eof = true;
-            }
-
-            state.is_readable = true;
-        }
     }
 }
 
