@@ -13,7 +13,7 @@ use near_network_primitives::types::{
     PeerType, ReasonForBan,
 };
 use near_primitives::network::PeerId;
-use near_rate_limiter::ThrottleController;
+use crate::peer::framed_read::ThrottleController;
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
 use std::future::Future;

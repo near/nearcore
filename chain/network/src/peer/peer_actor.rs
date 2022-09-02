@@ -37,7 +37,7 @@ use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
-use near_rate_limiter::ThrottleController;
+use crate::peer::framed_read::ThrottleController;
 use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::io;

@@ -21,10 +21,8 @@ use near_network_primitives::types::{
 };
 use near_performance_metrics::framed_write::FramedWrite;
 use near_primitives::network::PeerId;
-use near_rate_limiter::{
-    ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleFramedRead,
-    ThrottleToken,
-};
+use crate::peer::message_wrapper::{ActixMessageResponse, ActixMessageWrapper};
+use crate::peer::framed_read::{ThrottleController, ThrottleFramedRead, ThrottleToken};
 
 use near_network_primitives::time;
 use std::sync::Arc;

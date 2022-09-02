@@ -17,7 +17,7 @@ use tracing::trace;
 const INITIAL_CAPACITY: usize = 8 * 1024;
 
 pin_project! {
-    pub struct ThrottleFramedRead<T, D> {
+    pub(crate) struct ThrottleFramedRead<T, D> {
         #[pin]
         inner: FramedImpl<T, D, ReadFrame>,
     }
@@ -41,7 +41,7 @@ pin_project! {
 ///
 /// TODO (#5155) Add throttling by bandwidth.
 #[derive(Clone, Debug)]
-pub struct ThrottleController {
+pub(crate) struct ThrottleController {
     /// Total count of all messages that are tracked by `RateLimiterHelper`
     num_messages_in_progress: Arc<AtomicUsize>,
     /// Maximum value of `num_messages_in_progress` recorded since last `consume` call.
@@ -64,7 +64,7 @@ pub struct ThrottleController {
 
 /// Stores metadata about size of message, which is currently tracked by `ThrottleController`.
 /// Only one instance of this struct should exist, that's why there is no close.
-pub struct ThrottleToken {
+pub(crate) struct ThrottleToken {
     /// Represents limits for `PeerActorManager`
     throttle_controller: Option<ThrottleController>,
     /// Size of message tracked.
@@ -200,24 +200,6 @@ where
     }
 }
 
-impl<T, D> ThrottleFramedRead<T, D> {
-    pub fn get_ref(&self) -> &T {
-        &self.inner.inner
-    }
-
-    pub fn into_inner(self) -> T {
-        self.inner.inner
-    }
-
-    pub fn decoder(&self) -> &D {
-        &self.inner.codec
-    }
-
-    pub fn read_buffer(&self) -> &BytesMut {
-        &self.inner.state.buffer
-    }
-}
-
 // This impl just defers to the underlying FramedImpl
 impl<T, D> Stream for ThrottleFramedRead<T, D>
 where
@@ -304,7 +286,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{ThrottleController, ThrottleFramedRead};
+    use super::{ThrottleController, ThrottleFramedRead};
     use bytes::{Buf, BytesMut};
     use futures_core::Stream;
     use std::error::Error;

@@ -42,10 +42,8 @@ use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{AccountId, EpochId};
-use near_rate_limiter::{
-    ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleFramedRead,
-    ThrottleToken,
-};
+use crate::peer::message_wrapper::{ActixMessageResponse, ActixMessageWrapper};
+use crate::peer::framed_read::{ThrottleController, ThrottleFramedRead, ThrottleToken};
 use parking_lot::RwLock;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;

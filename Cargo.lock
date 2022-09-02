@@ -3181,6 +3181,7 @@ dependencies = [
  "deepsize",
  "delay-detector",
  "futures",
+ "futures-core",
  "futures-util",
  "im",
  "itertools",
@@ -3193,13 +3194,13 @@ dependencies = [
  "near-performance-metrics",
  "near-performance-metrics-macros",
  "near-primitives",
- "near-rate-limiter",
  "near-rust-allocator-proxy",
  "near-stable-hasher",
  "near-store",
  "once_cell",
  "opentelemetry",
  "parking_lot 0.12.1",
+ "pin-project-lite",
  "pretty_assertions",
  "protobuf 3.0.2",
  "protobuf-codegen",
@@ -3345,20 +3346,6 @@ dependencies = [
  "serde_repr",
  "sha2 0.10.2",
  "strum",
-]
-
-[[package]]
-name = "near-rate-limiter"
-version = "0.0.0"
-dependencies = [
- "actix",
- "bytes",
- "futures-core",
- "pin-project-lite",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tracing",
 ]
 
 [[package]]
