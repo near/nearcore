@@ -41,7 +41,7 @@ use near_store::{
 
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeAdapter};
-use near_store::db::StoreStatistics;
+use near_store::db::{StoreStatistics, FLAT_STATE_HEAD_KEY};
 use std::sync::Arc;
 
 /// lru cache size
@@ -87,6 +87,7 @@ pub trait ChainStoreAccess {
     fn head_header(&self) -> Result<BlockHeader, Error>;
     /// The chain final head. It is guaranteed to be monotonically increasing.
     fn final_head(&self) -> Result<Tip, Error>;
+    fn flat_state_head(&self) -> Result<CryptoHash, Error>;
     /// Largest approval target height sent by us
     fn largest_target_height(&self) -> Result<BlockHeight, Error>;
     /// Get full block.
@@ -875,6 +876,13 @@ impl ChainStoreAccess for ChainStore {
         option_to_not_found(self.store.get_ser(DBCol::BlockMisc, FINAL_HEAD_KEY), "FINAL HEAD")
     }
 
+    fn flat_state_head(&self) -> Result<CryptoHash, Error> {
+        option_to_not_found(
+            self.store.get_ser(DBCol::BlockMisc, FLAT_STATE_HEAD_KEY),
+            "FLAT STATE HEAD",
+        )
+    }
+
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Block, Error> {
         option_to_not_found(
@@ -1160,6 +1168,7 @@ pub struct ChainStoreUpdate<'a> {
     fork_tail: Option<BlockHeight>,
     header_head: Option<Tip>,
     final_head: Option<Tip>,
+    flat_state_head: Option<CryptoHash>,
     largest_target_height: Option<BlockHeight>,
     trie_changes: Vec<WrappedTrieChanges>,
     // All state changes made by a chunk, this is only used for splitting states
@@ -1187,6 +1196,7 @@ impl<'a> ChainStoreUpdate<'a> {
             fork_tail: None,
             header_head: None,
             final_head: None,
+            flat_state_head: None,
             largest_target_height: None,
             trie_changes: vec![],
             add_state_changes_for_split_states: HashMap::new(),
@@ -1256,6 +1266,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(final_head.clone())
         } else {
             self.chain_store.final_head()
+        }
+    }
+
+    fn flat_state_head(&self) -> Result<CryptoHash, Error> {
+        if let Some(flat_state_head) = self.flat_state_head.as_ref() {
+            Ok(flat_state_head.clone())
+        } else {
+            self.chain_store.flat_state_head()
         }
     }
 
@@ -1555,6 +1573,11 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn save_final_head(&mut self, t: &Tip) -> Result<(), Error> {
         self.final_head = Some(t.clone());
+        Ok(())
+    }
+
+    pub fn save_flat_state_head(&mut self, flat_state_head: &CryptoHash) -> Result<(), Error> {
+        self.flat_state_head = Some(flat_state_head.clone());
         Ok(())
     }
 
@@ -2441,7 +2464,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 unreachable!();
             }
             #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatState => {
+            DBCol::FlatState | DBCol::FlatStateDeltas => {
                 unreachable!();
             }
         }
@@ -2492,6 +2515,7 @@ impl<'a> ChainStoreUpdate<'a> {
         chain_store_update.fork_tail = Some(height);
         chain_store_update.header_head = Some(tip.clone());
         chain_store_update.final_head = Some(tip);
+        // TODO: update chain_store_update.flat_state_head
         chain_store_update.chain_store_cache_update.blocks.insert(*block_hash, block.clone());
         chain_store_update.chain_store_cache_update.headers.insert(*block_hash, header.clone());
         // store all headers until header.last_final_block
@@ -2587,6 +2611,7 @@ impl<'a> ChainStoreUpdate<'a> {
         Self::write_col_misc(&mut store_update, FORK_TAIL_KEY, &mut self.fork_tail)?;
         Self::write_col_misc(&mut store_update, HEADER_HEAD_KEY, &mut self.header_head)?;
         Self::write_col_misc(&mut store_update, FINAL_HEAD_KEY, &mut self.final_head)?;
+        Self::write_col_misc(&mut store_update, FLAT_STATE_HEAD_KEY, &mut self.flat_state_head)?;
         Self::write_col_misc(
             &mut store_update,
             LARGEST_TARGET_HEIGHT_KEY,

@@ -24,6 +24,7 @@ pub const GENESIS_STATE_ROOTS_KEY: &[u8; 19] = b"GENESIS_STATE_ROOTS";
 /// Boolean stored in DBCol::BlockMisc indicating whether the database is for an
 /// archival node.  The default value (if missing) is false.
 pub const IS_ARCHIVE_KEY: &[u8; 10] = b"IS_ARCHIVE";
+pub const FLAT_STATE_HEAD_KEY: &[u8; 15] = b"FLAT_STATE_HEAD";
 
 #[derive(Default)]
 pub struct DBTransaction {

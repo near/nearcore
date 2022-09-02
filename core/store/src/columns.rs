@@ -255,6 +255,8 @@ pub enum DBCol {
     /// - *Column type*: ValueRef
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatState,
+    #[cfg(feature = "protocol_feature_flat_state")]
+    FlatStateDeltas,
 }
 
 impl DBCol {
