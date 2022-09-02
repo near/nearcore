@@ -36,24 +36,29 @@ mod imp {
 
     impl FlatState {
         fn get_raw_ref(&self, key: &[u8]) -> Result<Option<crate::db::DBSlice<'_>>, StorageError> {
+            tracing::debug!(target: "client", "fs_get_raw_ref: {:?}", key);
             let flat_state_head: CryptoHash = self
                 .store
                 .get_ser(crate::DBCol::BlockMisc, FLAT_STATE_HEAD_KEY)
                 .map_err(|_| StorageError::StorageInternalError)?
                 .unwrap();
+            tracing::debug!(target: "client", "fs_get_raw_ref: flat_state_head: {:?}", flat_state_head);
             let mut block_hash = self.prev_block_hash;
             while block_hash != flat_state_head {
+                tracing::debug!(target: "client", "fs_get_raw_ref: block_hash: {:?}", block_hash);
                 let flat_state_delta_key = KeyForStateChanges::from_raw_key(&block_hash, &key);
                 let value_from_delta = self
                     .store
                     .get(crate::DBCol::FlatStateDeltas, flat_state_delta_key.as_ref())
                     .map_err(|_| StorageError::StorageInternalError)?;
+                tracing::debug!(target: "client", "fs_get_raw_ref: block_hash: {:?}", value_from_delta);
                 match value_from_delta {
                     Some(value) => {
                         return Ok(Some(value));
                     }
                     None => {}
                 }
+                tracing::debug!(target: "client", "fs_get_raw_ref: getting header");
                 let block_header: BlockHeader = self
                     .store
                     .get_ser(crate::DBCol::BlockHeader, block_hash.as_ref())
@@ -75,8 +80,10 @@ mod imp {
         /// could charge users for the value length before loading the value.
         // TODO (#7327): support different roots (or block hashes).
         pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
-            let _ = self.prev_block_hash;
-            match self.get_raw_ref(key)? {
+            tracing::debug!(target: "client", "fs_get_ref: {:?}", key);
+            let raw_ref = self.get_raw_ref(key);
+            tracing::debug!(target: "client", "fs_get_ref: raw_ref: {:?}", raw_ref);
+            match raw_ref? {
                 Some(bytes) => ValueRef::decode(&bytes)
                     .map(Some)
                     .map_err(|_| StorageError::StorageInternalError),
@@ -113,7 +120,8 @@ mod imp {
     pub enum FlatState {}
 
     impl FlatState {
-        pub fn get_ref(&self, _root: &CryptoHash, _key: &[u8]) -> ! {
+        pub fn get_ref(&self, _root: &CryptoHash, key: &[u8]) -> ! {
+            tracing::debug!(target: "client", "fs_wrong_get_ref: {:?}", key);
             match *self {}
         }
     }
