@@ -20,12 +20,30 @@ const NETWORK_MESSAGE_MAX_SIZE_BYTES: usize = 512 * MIB as usize;
 /// Maximum capacity of write buffer in bytes.
 const MAX_WRITE_BUFFER_CAPACITY_BYTES: usize = GIB as usize;
 
-#[derive(Default)]
-pub(crate) struct Codec {}
+pub(crate) struct Codec {
+    /// Metric which tracks the size of the read or write buffer this codec is
+    /// used for.
+    ///
+    /// This is perhaps a bit hacky -- ideally, the owner of the buffer should
+    /// track it's size. But `Codec` already doubles as a size-tracking callback
+    /// (`EncoderCallBack`), so sticking a gauge here works well with the
+    /// current shape of the code. Note, however, that this means we might want
+    /// to report a metric even when the `Codec` doesn't modify the buffer (eg,
+    /// when more data was added to the buffer, but not enough to form a full
+    /// message).
+    buf_size_metric: near_metrics::IntGauge,
+}
+
+impl Codec {
+    pub fn new(buf_size_metric: near_metrics::IntGauge) -> Codec {
+        Codec { buf_size_metric }
+    }
+}
 
 impl EncoderCallBack for Codec {
     #[allow(unused)]
     fn drained(&mut self, bytes: usize, buf_len: usize, buf_capacity: usize) {
+        self.buf_size_metric.set(buf_len as i64);
         #[cfg(feature = "performance_stats")]
         {
             let stat = near_performance_metrics::stats_enabled::get_thread_stats_logger();
@@ -70,6 +88,7 @@ impl Encoder<Vec<u8>> for Codec {
         buf.reserve(item.len() + 4);
         buf.put_u32_le(item.len() as u32);
         buf.put(&item[..]);
+        self.buf_size_metric.set(buf.len() as i64);
         Ok(())
     }
 }
@@ -79,6 +98,9 @@ impl Decoder for Codec {
     type Error = Error;
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        // Notify about current buffer size even if we won't drain it.
+        self.buf_size_metric.set(buf.len() as i64);
+
         let len_buf = match buf.get(..4).and_then(|s| <[u8; 4]>::try_from(s).ok()) {
             // not enough bytes to start decoding
             None => return Ok(None),
@@ -97,6 +119,7 @@ impl Decoder for Codec {
             if buf.is_empty() && buf.capacity() > 0 {
                 *buf = BytesMut::new();
             }
+            self.buf_size_metric.set(buf.len() as i64);
             Ok(res)
         } else {
             // not enough bytes, keep waiting
@@ -105,9 +128,16 @@ impl Decoder for Codec {
     }
 }
 
+impl Drop for Codec {
+    fn drop(&mut self) {
+        self.buf_size_metric.set(0)
+    }
+}
+
 #[cfg(test)]
 mod test {
-    use crate::peer::codec::{Codec, NETWORK_MESSAGE_MAX_SIZE_BYTES};
+    use super::Codec;
+    use crate::peer::codec::NETWORK_MESSAGE_MAX_SIZE_BYTES;
     use crate::types::{Handshake, PeerMessage, RoutingTableUpdate};
     use bytes::{BufMut, BytesMut};
     use near_crypto::{KeyType, SecretKey};
@@ -122,11 +152,18 @@ mod test {
     use near_primitives::version::{PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION};
     use tokio_util::codec::{Decoder, Encoder};
 
+    pub(crate) fn make_codec() -> Codec {
+        use near_metrics::prometheus;
+        let opts = prometheus::Opts::new("test", "test");
+        let gauge = prometheus::IntGaugeVec::new(opts, &["test"]).unwrap();
+        Codec::new(gauge.with_label_values(&["127.0.0.1:3030"]))
+    }
+
     fn test_codec(msg: PeerMessage) {
         for enc in
             [crate::network_protocol::Encoding::Proto, crate::network_protocol::Encoding::Borsh]
         {
-            let mut codec = Codec::default();
+            let mut codec = make_codec();
             let mut buffer = BytesMut::new();
             codec.encode(msg.serialize(enc), &mut buffer).unwrap();
             let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
@@ -140,7 +177,7 @@ mod test {
         buffer.put_u8(4u8);
         buffer.put_u8(0u8);
         buffer.put_u8(0u8);
-        let mut codec = Codec::default();
+        let mut codec = make_codec();
         // length is too short
         match codec.decode(&mut buffer) {
             Ok(None) => {}
@@ -245,7 +282,7 @@ mod test {
 
     #[test]
     fn test_abusive() {
-        let mut codec = Codec::default();
+        let mut codec = make_codec();
         let mut buffer = BytesMut::new();
         buffer.reserve(4);
         buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE_BYTES as u32 + 1);
@@ -254,7 +291,7 @@ mod test {
 
     #[test]
     fn test_not_abusive() {
-        let mut codec = Codec::default();
+        let mut codec = make_codec();
         let mut buffer = BytesMut::new();
         buffer.reserve(4);
         buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE_BYTES as u32);
