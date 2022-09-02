@@ -11,7 +11,6 @@ use crate::testonly::fake_client;
 use crate::testonly::Rng;
 use crate::types::{ChainInfo, GetNetworkInfo, PeerManagerMessageRequest, SetChainInfo};
 use crate::PeerManagerActor;
-use actix::Actor;
 use near_network_primitives::time;
 use near_network_primitives::types::{OutboundTcpConnect, PeerInfo};
 use near_primitives::network::PeerId;
@@ -61,21 +60,11 @@ pub(crate) struct RawConnection {
 }
 
 impl RawConnection {
-    pub async fn handshake(
-        self,
-        clock: &time::Clock,
-    ) -> (peer::testonly::PeerHandle, SyncAccountsData) {
+    pub async fn handshake(self, clock: &time::Clock) -> peer::testonly::PeerHandle {
         let mut peer =
             peer::testonly::PeerHandle::start_endpoint(clock.clone(), self.cfg, self.stream).await;
         peer.complete_handshake().await;
-        // TODO(gprusak): this should be part of complete_handshake, once Borsh support is removed.
-        let msg = match peer.events.recv().await {
-            peer::testonly::Event::Network(PME::MessageProcessed(
-                PeerMessage::SyncAccountsData(msg),
-            )) => msg,
-            ev => panic!("expected SyncAccountsData, got {ev:?}"),
-        };
-        (peer, msg)
+        peer
     }
 
     pub async fn fail_handshake(self, clock: &time::Clock) {
@@ -163,7 +152,7 @@ pub(crate) async fn start(
             let genesis_id = chain.genesis_id.clone();
             let fc = fake_client::start(send.sink().compose(Event::Client));
             cfg.event_sink = send.sink().compose(Event::PeerManager);
-            PeerManagerActor::new(
+            PeerManagerActor::spawn(
                 clock,
                 store,
                 cfg,
@@ -172,7 +161,6 @@ pub(crate) async fn start(
                 genesis_id,
             )
             .unwrap()
-            .start()
         }
     })
     .await;
