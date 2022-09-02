@@ -20,7 +20,6 @@ use near_network_primitives::types::{
 };
 use near_primitives::network::PeerId;
 use near_rate_limiter::{ActixMessageResponse, ActixMessageWrapper, ThrottleToken};
-use near_store::test_utils::create_test_store;
 
 use near_network_primitives::time;
 use std::sync::Arc;

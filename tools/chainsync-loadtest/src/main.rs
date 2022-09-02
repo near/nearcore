@@ -53,7 +53,8 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
             chain_id: config.client_config.chain_id.clone(),
             hash: genesis_hash(&config.client_config.chain_id),
         },
-    ).context("PeerManagerActor::spawn()")?;
+    )
+    .context("PeerManagerActor::spawn()")?;
     network_adapter.set_recipient(network_actor);
     return Ok(network);
 }
