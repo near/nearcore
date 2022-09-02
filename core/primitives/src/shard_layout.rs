@@ -165,6 +165,18 @@ impl ShardLayout {
         )
     }
 
+    pub fn shardnet_upgrade_shard_layout() -> ShardLayout {
+        ShardLayout::v1(
+            vec!["v3sweat.shardnet.near".parse().unwrap()],
+            vec!["fffffffffffff", "mmmmmmmmmmmmm", "uuuuuuuuuuuuu"]
+                .into_iter()
+                .map(|s| s.parse().unwrap())
+                .collect(),
+            Some(vec![vec![1], vec![2], vec![3], vec![0, 4]]),
+            2,
+        )
+    }
+
     /// Given a parent shard id, return the shard uids for the shards in the current shard layout that
     /// are split from this parent shard. If this shard layout has no parent shard layout, return None
     pub fn get_split_shard_uids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
