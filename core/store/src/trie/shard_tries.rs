@@ -269,6 +269,7 @@ impl ShardTries {
     #[cfg(feature = "protocol_feature_flat_state")]
     pub fn apply_changes_to_flat_state(
         &self,
+        block_hash: &CryptoHash,
         changes: &[RawStateChangesWithTrieKey],
         store_update: &mut StoreUpdate,
     ) {
@@ -285,13 +286,20 @@ impl ShardTries {
                 .last()
                 .expect("Committed entry should have at least one change")
                 .data;
+            let flat_state_delta_key = KeyForStateChanges::from_raw_key(block_hash, &key);
             match last_change {
                 Some(value) => {
                     let value_ref_ser = near_primitives::state::ValueRef::create_serialized(value);
-                    store_update.set(DBCol::FlatState, &key, &value_ref_ser)
+                    store_update.set(
+                        DBCol::FlatStateDeltas,
+                        flat_state_delta_key.as_ref(),
+                        &value_ref_ser,
+                    );
                 }
-                None => store_update.delete(DBCol::FlatState, &key),
-            }
+                None => {
+                    store_update.set(DBCol::FlatStateDeltas, flat_state_delta_key.as_ref(), &[]);
+                }
+            };
         }
     }
 }
@@ -334,7 +342,7 @@ impl WrappedTrieChanges {
     /// NOTE: the changes are drained from `self`.
     pub fn state_changes_into(&mut self, store_update: &mut StoreUpdate) {
         #[cfg(feature = "protocol_feature_flat_state")]
-        self.tries.apply_changes_to_flat_state(&self.state_changes, store_update);
+        self.tries.apply_changes_to_flat_state(&self.block_hash, &self.state_changes, store_update);
 
         for change_with_trie_key in self.state_changes.drain(..) {
             assert!(

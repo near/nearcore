@@ -4,6 +4,7 @@ use borsh::BorshSerialize;
 
 use near_chain_configs::Genesis;
 use near_crypto::PublicKey;
+use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::fees::StorageUsageConfig;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::{
@@ -98,7 +99,11 @@ impl GenesisStateApplier {
             let (trie_changes, state_changes) =
                 state_update.finalize().expect("Genesis state update failed");
             let (mut store_update, new_state_root) = tries.apply_all(&trie_changes, shard_uid);
-            tries.apply_changes_to_flat_state(&state_changes, &mut store_update);
+            tries.apply_changes_to_flat_state(
+                &CryptoHash::default(),
+                &state_changes,
+                &mut store_update,
+            );
             (store_update, new_state_root)
         };
 
