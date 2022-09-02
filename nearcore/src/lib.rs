@@ -16,7 +16,7 @@ use near_primitives::version::DbVersion;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
 use near_store::migrations::{migrate_28_to_29, migrate_29_to_30, set_store_version};
-use near_store::{DBCol, Mode, Store, StoreOpener};
+use near_store::{DBCol, Mode, NodeStorage, StoreOpener, Temperature};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -172,7 +172,8 @@ fn apply_store_migrations_if_exists(
     if cfg!(feature = "nightly") || cfg!(feature = "nightly_protocol") {
         let store = store_opener
             .open()
-            .with_context(|| format!("Opening database at {}", store_opener.path().display()))?;
+            .with_context(|| format!("Opening database at {}", store_opener.path().display()))?
+            .get_store(Temperature::Hot);
         // set some dummy value to avoid conflict with other migrations from nightly features
         set_store_version(&store, 10000)?;
     } else {
@@ -189,14 +190,18 @@ fn apply_store_migrations_if_exists(
     Ok(true)
 }
 
-fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Store> {
-    let opener = Store::opener(home_dir, &near_config.config.store);
+fn init_and_migrate_store(
+    home_dir: &Path,
+    near_config: &NearConfig,
+) -> anyhow::Result<NodeStorage> {
+    let opener = NodeStorage::opener(home_dir, &near_config.config.store);
     let exists = apply_store_migrations_if_exists(&opener, near_config)?;
     let store = opener
         .open()
         .with_context(|| format!("Opening database at {}", opener.path().display()))?;
+    let hot = store.get_store(Temperature::Hot);
     if !exists {
-        set_store_version(&store, near_primitives::version::DB_VERSION)
+        set_store_version(&hot, near_primitives::version::DB_VERSION)
             .with_context(|| format!("Initialising database at {}", opener.path().display()))?;
     }
 
@@ -204,14 +209,14 @@ fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::
     // If the store is not marked as archive but we are an archival node that is
     // fine and we just need to mark the store as archival.
     let store_is_archive: bool =
-        store.get_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY)?.unwrap_or_default();
+        hot.get_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY)?.unwrap_or_default();
     let client_is_archive = near_config.client_config.archive;
     anyhow::ensure!(
         !store_is_archive || client_is_archive,
         "The node is configured as non-archival but is using database of an archival node."
     );
     if !store_is_archive && client_is_archive {
-        let mut update = store.store_update();
+        let mut update = hot.store_update();
         update.set_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY, &true)?;
         update.commit()?;
     }
@@ -239,7 +244,11 @@ pub fn start_with_config_and_synchronization(
 ) -> anyhow::Result<NearNode> {
     let store = init_and_migrate_store(home_dir, &config)?;
 
-    let runtime = Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &config));
+    let runtime = Arc::new(NightshadeRuntime::from_config(
+        home_dir,
+        store.get_store(Temperature::Hot),
+        &config,
+    ));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(&config.genesis);
@@ -282,7 +291,7 @@ pub fn start_with_config_and_synchronization(
         move |_ctx| {
             PeerManagerActor::new(
                 time::Clock::real(),
-                store,
+                store.into_inner(near_store::Temperature::Hot),
                 config.network_config,
                 client_actor.recipient(),
                 view_client.recipient(),
@@ -358,7 +367,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         skip_columns.push(DBCol::TrieChanges);
     }
 
-    let src_opener = Store::opener(home_dir, &config.store).mode(Mode::ReadOnly);
+    let src_opener = NodeStorage::opener(home_dir, &config.store).mode(Mode::ReadOnly);
     let src_path = src_opener.path();
     if let Some(db_version) = src_opener.get_version_if_exists()? {
         anyhow::ensure!(
@@ -377,7 +386,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     // Note: opts.dest_dir is resolved relative to current working directory
     // (since it’s a command line option) which is why we set home to cwd.
     let cwd = std::env::current_dir()?;
-    let dst_opener = Store::opener(&cwd, &dst_config);
+    let dst_opener = NodeStorage::opener(&cwd, &dst_config);
     let dst_path = dst_opener.path();
     anyhow::ensure!(
         !dst_opener.check_if_exists(),
@@ -391,7 +400,8 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
 
     let src_store = src_opener
         .open()
-        .with_context(|| format!("Opening database at {}", src_opener.path().display()))?;
+        .with_context(|| format!("Opening database at {}", src_opener.path().display()))?
+        .get_store(Temperature::Hot);
 
     let final_head_height = if skip_columns.contains(&DBCol::PartialChunks) {
         let tip: Option<near_primitives::block::Tip> =
@@ -409,7 +419,8 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
 
     let dst_store = dst_opener
         .open()
-        .with_context(|| format!("Opening database at {}", dst_opener.path().display()))?;
+        .with_context(|| format!("Opening database at {}", dst_opener.path().display()))?
+        .get_store(Temperature::Hot);
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
 

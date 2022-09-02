@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 use std::io;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
-use crate::db::{refcount, DBIterator, DBOp, DBTransaction, Database};
+use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database};
 use crate::{DBCol, StoreStatistics};
 
 /// An in-memory database intended for tests.
+#[derive(Default)]
 pub struct TestDB {
     // In order to ensure determinism when iterating over column's results
     // a BTreeMap is used since it is an ordered map. A HashMap would
@@ -14,14 +15,14 @@ pub struct TestDB {
 }
 
 impl TestDB {
-    pub fn new() -> Self {
-        Self { db: Default::default() }
+    pub fn new() -> Arc<dyn Database> {
+        Arc::new(Self::default())
     }
 }
 
 impl Database for TestDB {
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        Ok(self.db.read().unwrap()[col].get(key).cloned())
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+        Ok(self.db.read().unwrap()[col].get(key).cloned().map(DBSlice::from_vec))
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
@@ -85,6 +86,10 @@ impl Database for TestDB {
     }
 
     fn flush(&self) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn compact(&self) -> io::Result<()> {
         Ok(())
     }
 

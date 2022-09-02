@@ -25,7 +25,6 @@ use near_rate_limiter::{
     ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleFramedRead,
     ThrottleToken,
 };
-use near_store::test_utils::create_test_store;
 
 use near_network_primitives::time;
 use std::sync::Arc;
@@ -67,7 +66,6 @@ impl PeerConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Event {
     HandshakeDone(Edge),
-    Routed(Box<RoutedMessageV2>),
     RoutingTable(RoutingTableUpdate),
     RequestUpdateNonce(PartialEdgeInfo),
     ResponseUpdateNonce(Edge),
@@ -130,11 +128,6 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
                         None => Some(this_edge_info),
                     },
                 ))
-            }
-            PeerToManagerMsg::RoutedMessageFrom(rmf) => {
-                self.event_sink.push(Event::Routed(rmf.msg.clone()));
-                // Reject all incoming routed messages.
-                PeerToManagerMsgResp::RoutedMessageFrom(false)
             }
             PeerToManagerMsg::SyncRoutingTable { routing_table_update, .. } => {
                 self.event_sink.push(Event::RoutingTable(routing_table_update));
@@ -202,7 +195,7 @@ impl PeerHandle {
         peer_id: PeerId,
         ttl: u8,
         utc: Option<time::Utc>,
-    ) -> Box<RoutedMessageV2> {
+    ) -> RoutedMessageV2 {
         RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id), body }.sign(
             self.cfg.id(),
             &self.cfg.network.node_key,
@@ -225,7 +218,7 @@ impl PeerHandle {
             let (read, write) = tokio::io::split(stream);
             let fpm = FakePeerManagerActor { cfg: cfg.clone(), event_sink: send.sink() }.start();
             let fc = fake_client::start(send.sink().compose(Event::Client));
-            let store = store::Store::from(create_test_store());
+            let store = store::Store::from(near_store::db::TestDB::new());
             let rate_limiter = ThrottleController::new(usize::MAX, usize::MAX);
             let read = ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone())
                 .take_while(|x| match x {

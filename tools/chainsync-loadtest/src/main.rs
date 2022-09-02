@@ -7,7 +7,6 @@ use std::sync::Arc;
 use actix::{Actor, Arbiter};
 use anyhow::{anyhow, Context};
 use clap::Parser;
-use near_store::test_utils::create_test_store;
 use openssl_probe;
 
 use concurrency::{Ctx, Scope};
@@ -37,8 +36,6 @@ fn genesis_hash(chain_id: &str) -> CryptoHash {
 }
 
 pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<Arc<Network>> {
-    let store = create_test_store();
-
     let network_adapter = Arc::new(NetworkRecipient::default());
     let network = Network::new(&config, network_adapter.clone(), qps_limit);
     let client_actor = FakeClientActor::start_in_arbiter(&Arbiter::new().handle(), {
@@ -49,7 +46,7 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
     let network_actor = PeerManagerActor::start_in_arbiter(&Arbiter::new().handle(), move |_ctx| {
         PeerManagerActor::new(
             time::Clock::real(),
-            store,
+            near_store::db::TestDB::new(),
             config.network_config,
             client_actor.clone().recipient(),
             client_actor.clone().recipient(),

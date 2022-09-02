@@ -151,7 +151,7 @@ impl ActorHandler {
 
 pub(crate) async fn start(
     clock: time::Clock,
-    store: near_store::Store,
+    store: Arc<dyn near_store::db::Database>,
     cfg: config::NetworkConfig,
     chain: Arc<data::Chain>,
 ) -> ActorHandler {
