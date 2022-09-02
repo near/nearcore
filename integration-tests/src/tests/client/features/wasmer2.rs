@@ -1,3 +1,4 @@
+use crate::tests::client::process_blocks::{create_nightshade_runtimes, deploy_test_contract};
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -5,8 +6,6 @@ use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, FunctionCallAction, Transaction};
 use nearcore::config::GenesisExt;
-
-use crate::tests::client::process_blocks::{create_nightshade_runtimes, deploy_test_contract};
 
 #[test]
 fn test_wasmer2_upgrade() {
