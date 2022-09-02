@@ -1,8 +1,8 @@
 use crate::network_protocol::Encoding;
 use near_metrics::{
     exponential_buckets, try_create_histogram, try_create_histogram_vec, try_create_int_counter,
-    try_create_int_counter_vec, try_create_int_gauge, Histogram, HistogramVec, IntCounter,
-    IntCounterVec, IntGauge, IntGaugeVec,
+    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec, Histogram,
+    HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
 };
 use near_network_primitives::time;
 use near_network_primitives::types::{PeerType, RoutedMessageBody, RoutedMessageV2};
@@ -77,6 +77,22 @@ pub(crate) static PEER_DATA_RECEIVED_BYTES: Lazy<IntCounter> = Lazy::new(|| {
 });
 pub(crate) static PEER_DATA_SENT_BYTES: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter("near_peer_data_sent_bytes", "Total data sent to peers").unwrap()
+});
+pub(crate) static PEER_DATA_READ_BUFFER_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_peer_read_buffer_size",
+        "Size of the incoming buffer for this peer",
+        &["addr"],
+    )
+    .unwrap()
+});
+pub(crate) static PEER_DATA_WRITE_BUFFER_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_peer_write_buffer_size",
+        "Size of the outgoing buffer for this peer",
+        &["addr"],
+    )
+    .unwrap()
 });
 pub(crate) static PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
