@@ -187,7 +187,7 @@ pub(crate) fn deploy_test_contract(
 }
 
 /// Create environment and set of transactions which cause congestion on the chain.
-fn prepare_env_with_congestion(
+pub(crate) fn prepare_env_with_congestion(
     protocol_version: ProtocolVersion,
     gas_price_adjustment_rate: Option<Rational32>,
     number_of_transactions: u64,
@@ -4026,47 +4026,6 @@ mod access_key_nonce_range_tests {
         }
 
         assert_eq!(env.clients[1].chain.head().unwrap().height, 20);
-    }
-}
-
-#[cfg(test)]
-mod cap_max_gas_price_tests {
-    use super::*;
-    use near_primitives::version::ProtocolFeature;
-
-    fn does_gas_price_exceed_limit(protocol_version: ProtocolVersion) -> bool {
-        let mut env =
-            prepare_env_with_congestion(protocol_version, Some(Ratio::new_raw(2, 1)), 7).0;
-        let mut was_congested = false;
-        let mut price_exceeded_limit = false;
-
-        for i in 3..20 {
-            env.produce_block(0, i);
-            let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
-            let protocol_version = env.clients[0]
-                .runtime_adapter
-                .get_epoch_protocol_version(block.header().epoch_id())
-                .unwrap();
-            let min_gas_price =
-                env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);
-            was_congested |= block.chunks()[0].gas_used() >= block.chunks()[0].gas_limit();
-            price_exceeded_limit |= block.header().gas_price() > 20 * min_gas_price;
-        }
-
-        assert!(was_congested);
-        price_exceeded_limit
-    }
-
-    #[test]
-    fn test_not_capped_gas_price() {
-        assert!(does_gas_price_exceed_limit(
-            ProtocolFeature::CapMaxGasPrice.protocol_version() - 1
-        ));
-    }
-
-    #[test]
-    fn test_capped_gas_price() {
-        assert!(!does_gas_price_exceed_limit(ProtocolFeature::CapMaxGasPrice.protocol_version()));
     }
 }
 
