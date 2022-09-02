@@ -689,8 +689,8 @@ impl Trie {
                 value
             }
             _ => {
-                let key = NibbleSlice::new(key);
-                let value = self.lookup(key);
+                let nibble_key = NibbleSlice::new(key.clone());
+                let value = self.lookup(nibble_key);
                 tracing::debug!(target: "client", "TRIE: {:?} {:?}", key, value);
                 value
             }
