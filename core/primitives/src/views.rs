@@ -3,6 +3,7 @@
 //! These types should only change when we cannot avoid this. Thus, when the counterpart internal
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -357,6 +358,81 @@ pub struct NetworkInfoView {
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub enum SyncStatusView {
+    /// Initial state. Not enough peers to do anything yet.
+    AwaitingPeers,
+    /// Not syncing / Done syncing.
+    NoSync,
+    /// Syncing using light-client headers to a recent epoch
+    // TODO #3488
+    // Bowen: why do we use epoch ordinal instead of epoch id?
+    EpochSync { epoch_ord: u64 },
+    /// Downloading block headers for fast sync.
+    HeaderSync {
+        start_height: BlockHeight,
+        current_height: BlockHeight,
+        highest_height: BlockHeight,
+    },
+    /// State sync, with different states of state sync for different shards.
+    StateSync(CryptoHash, HashMap<ShardId, ShardSyncStatusView>),
+    /// Sync state across all shards is done.
+    StateSyncDone,
+    /// Catch up on blocks.
+    BodySync { start_height: BlockHeight, current_height: BlockHeight, highest_height: BlockHeight },
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct CatchupStatusView {
+    pub sync_block_hash: CryptoHash,
+    pub sync_block_height: BlockHeight,
+    pub shard_sync_status: HashMap<ShardId, ShardSyncStatusView>,
+    pub blocks_to_catchup: Vec<BlockStatusView>,
+}
+
+/// Various status of syncing a specific shard.
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ShardSyncStatusView {
+    StateDownloadHeader,
+    StateDownloadParts,
+    StateDownloadScheduling,
+    StateDownloadApplying,
+    StateDownloadComplete,
+    StateSplitScheduling,
+    // first number is total number of state parts, second number is number of parts that finished
+    // applying
+    StateSplitApplying(StateSplitApplyingStatusView),
+    StateSyncDone,
+}
+
+impl ToString for ShardSyncStatusView {
+    fn to_string(&self) -> String {
+        match self {
+            ShardSyncStatusView::StateDownloadHeader => "header".to_string(),
+            ShardSyncStatusView::StateDownloadParts => "parts".to_string(),
+            ShardSyncStatusView::StateDownloadScheduling => "scheduling".to_string(),
+            ShardSyncStatusView::StateDownloadApplying => "applying".to_string(),
+            ShardSyncStatusView::StateDownloadComplete => "download complete".to_string(),
+            ShardSyncStatusView::StateSplitScheduling => "split scheduling".to_string(),
+            ShardSyncStatusView::StateSplitApplying(state_split_status) => format!(
+                "split applying (total parts {} done {})",
+                state_split_status.total_parts, state_split_status.done_parts,
+            ),
+            ShardSyncStatusView::StateSyncDone => "done".to_string(),
+        }
+    }
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StateSplitApplyingStatusView {
+    pub total_parts: u64,
+    pub done_parts: u64,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct BlockStatusView {
     pub height: BlockHeight,
     pub hash: CryptoHash,
@@ -474,6 +550,7 @@ pub enum ChunkProcessingStatus {
 pub struct DetailedDebugStatus {
     pub network_info: NetworkInfoView,
     pub sync_status: String,
+    pub catchup_status: Vec<CatchupStatusView>,
     pub current_head_status: BlockStatusView,
     pub current_header_head_status: BlockStatusView,
     pub block_production_delay_millis: u64,

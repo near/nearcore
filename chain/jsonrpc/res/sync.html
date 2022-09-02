@@ -150,6 +150,11 @@
 
         }
 
+        function process_catchup_status(data) {
+            let catchup_status = data.status_response.CatchupStatus;
+            $('.catchup-body').text(catchup_status);
+        }
+
         $(document).ready(() => {
             $('.div-progress').hide();
             $('span').text("Loading...");
@@ -170,6 +175,18 @@
                 url: "/debug/api/tracked_shards",
                 success: data => {
                     process_tracked_shards(data);
+                },
+                dataType: "json",
+                error: function (errMsg, textStatus, errorThrown) {
+                    alert("Failed: " + textStatus + " :" + errorThrown);
+                },
+                contentType: "application/json; charset=utf-8",
+            })
+            $.ajax({
+                type: "GET",
+                url: "/debug/api/catchup_status",
+                success: data => {
+                    process_catchup_status(data);
                 },
                 dataType: "json",
                 error: function (errMsg, textStatus, errorThrown) {
@@ -226,6 +243,10 @@
             </tbody>
         </table>
     </div>
+    <h2>
+        <p>Catchup</p>
+    </h2>
+    <span class="catchup-body"></span>
 
     Header sync is a fast process, where we fetch 512 'headers' at a time from the network (basically header consists of
     a few hashes).

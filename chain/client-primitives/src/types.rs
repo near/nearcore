@@ -1,5 +1,6 @@
+use once_cell::sync::OnceCell;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use actix::Message;
@@ -20,8 +21,8 @@ use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
-    QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView, StateChangesRequestView,
-    StateChangesView,
+    QueryRequest, QueryResponse, ReceiptView, ShardSyncStatusView, StateChangesKindsView,
+    StateChangesRequestView, StateChangesView, StateSplitApplyingStatusView, SyncStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use serde::Serialize;
@@ -67,7 +68,7 @@ impl Clone for DownloadStatus {
 }
 
 /// Various status of syncing a specific shard.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug)]
 pub enum ShardSyncStatus {
     StateDownloadHeader,
     StateDownloadParts,
@@ -75,18 +76,82 @@ pub enum ShardSyncStatus {
     StateDownloadApplying,
     StateDownloadComplete,
     StateSplitScheduling,
-    StateSplitApplying,
+    StateSplitApplying(Arc<StateSplitApplyingStatus>),
     StateSyncDone,
 }
 
-#[derive(Clone, Debug, Serialize)]
+/// Manually implement compare for ShardSyncStatus to compare only based on variant name
+impl PartialEq<Self> for ShardSyncStatus {
+    fn eq(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
+impl Eq for ShardSyncStatus {}
+
+impl ToString for ShardSyncStatus {
+    fn to_string(&self) -> String {
+        match self {
+            ShardSyncStatus::StateDownloadHeader => "header".to_string(),
+            ShardSyncStatus::StateDownloadParts => "parts".to_string(),
+            ShardSyncStatus::StateDownloadScheduling => "scheduling".to_string(),
+            ShardSyncStatus::StateDownloadApplying => "applying".to_string(),
+            ShardSyncStatus::StateDownloadComplete => "download complete".to_string(),
+            ShardSyncStatus::StateSplitScheduling => "split scheduling".to_string(),
+            ShardSyncStatus::StateSplitApplying(state_split_status) => format!(
+                "split applying (total parts {} done {})",
+                state_split_status.total_parts.get().cloned().unwrap_or_default(),
+                state_split_status.done_parts.load(Ordering::Relaxed)
+            ),
+            ShardSyncStatus::StateSyncDone => "done".to_string(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct StateSplitApplyingStatus {
+    /// total number of parts to be applied
+    pub total_parts: OnceCell<u64>,
+    /// number of parts that are done
+    pub done_parts: AtomicU64,
+}
+
+impl StateSplitApplyingStatus {
+    pub fn new() -> Self {
+        StateSplitApplyingStatus { total_parts: OnceCell::new(), done_parts: AtomicU64::new(0) }
+    }
+}
+
+impl From<ShardSyncStatus> for ShardSyncStatusView {
+    fn from(status: ShardSyncStatus) -> Self {
+        match status {
+            ShardSyncStatus::StateDownloadHeader => ShardSyncStatusView::StateDownloadHeader,
+            ShardSyncStatus::StateDownloadParts => ShardSyncStatusView::StateDownloadParts,
+            ShardSyncStatus::StateDownloadScheduling => {
+                ShardSyncStatusView::StateDownloadScheduling
+            }
+            ShardSyncStatus::StateDownloadApplying => ShardSyncStatusView::StateDownloadApplying,
+            ShardSyncStatus::StateDownloadComplete => ShardSyncStatusView::StateDownloadComplete,
+            ShardSyncStatus::StateSplitScheduling => ShardSyncStatusView::StateSplitScheduling,
+            ShardSyncStatus::StateSplitApplying(split_status) => {
+                ShardSyncStatusView::StateSplitApplying(StateSplitApplyingStatusView {
+                    total_parts: split_status.total_parts.get().cloned().unwrap_or_default(),
+                    done_parts: split_status.done_parts.load(Ordering::Relaxed),
+                })
+            }
+            ShardSyncStatus::StateSyncDone => ShardSyncStatusView::StateSyncDone,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct ShardSyncDownload {
     pub downloads: Vec<DownloadStatus>,
     pub status: ShardSyncStatus,
 }
 
 /// Various status sync can be in, whether it's fast sync or archival.
-#[derive(Clone, Debug, strum::AsRefStr, Serialize)]
+#[derive(Clone, Debug, strum::AsRefStr)]
 pub enum SyncStatus {
     /// Initial state. Not enough peers to do anything yet.
     AwaitingPeers,
@@ -142,6 +207,30 @@ impl SyncStatus {
             SyncStatus::HeaderSync { start_height, .. } => Some(*start_height),
             SyncStatus::BodySync { start_height, .. } => Some(*start_height),
             _ => None,
+        }
+    }
+}
+
+impl From<SyncStatus> for SyncStatusView {
+    fn from(status: SyncStatus) -> Self {
+        match status {
+            SyncStatus::AwaitingPeers => SyncStatusView::AwaitingPeers,
+            SyncStatus::NoSync => SyncStatusView::NoSync,
+            SyncStatus::EpochSync { epoch_ord } => SyncStatusView::EpochSync { epoch_ord },
+            SyncStatus::HeaderSync { start_height, current_height, highest_height } => {
+                SyncStatusView::HeaderSync { start_height, current_height, highest_height }
+            }
+            SyncStatus::StateSync(hash, sync_status) => SyncStatusView::StateSync(
+                hash,
+                sync_status
+                    .into_iter()
+                    .map(|(shard_id, shard_sync)| (shard_id, shard_sync.status.into()))
+                    .collect(),
+            ),
+            SyncStatus::StateSyncDone => SyncStatusView::StateSyncDone,
+            SyncStatus::BodySync { start_height, current_height, highest_height } => {
+                SyncStatusView::BodySync { start_height, current_height, highest_height }
+            }
         }
     }
 }

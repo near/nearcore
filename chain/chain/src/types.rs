@@ -11,6 +11,7 @@ use num_rational::Rational32;
 use crate::{metrics, DoomslugThresholdMode};
 use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
+use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::Signature;
 use near_pool::types::PoolIterator;
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
@@ -739,6 +740,7 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_uid: ShardUId,
         state_root: &StateRoot,
         next_epoch_shard_layout: &ShardLayout,
+        state_split_status: Arc<StateSplitApplyingStatus>,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error>;
 
     /// Should be executed after accepting all the parts to set up a new state.

@@ -176,12 +176,8 @@ pub enum ProtocolFeature {
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
 /// protocol version is lower than this.
-pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "shardnet") {
-    // For shardnet, enable `ChunkOnlyProducers` but nothing else.
-    PROTOCOL_VERSION - 1
-} else {
-    STABLE_PROTOCOL_VERSION - 2
-};
+pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion =
+    if cfg!(feature = "shardnet") { PROTOCOL_VERSION - 1 } else { STABLE_PROTOCOL_VERSION - 2 };
 
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
@@ -193,7 +189,6 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protoco
     // On nightly, pick big enough version to support all features.
     132
 } else if cfg!(feature = "shardnet") {
-    // For shardnet, enable `ChunkOnlyProducers` but nothing else.
     102
 } else {
     // Enable all stable features.

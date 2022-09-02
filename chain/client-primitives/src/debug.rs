@@ -3,10 +3,10 @@
 
 use std::collections::HashMap;
 
-use crate::types::{StatusError, SyncStatus};
+use crate::types::StatusError;
 use actix::Message;
 use chrono::DateTime;
-use near_primitives::views::EpochValidatorInfo;
+use near_primitives::views::{EpochValidatorInfo, SyncStatusView};
 use near_primitives::{
     block_header::ApprovalInner,
     hash::CryptoHash,
@@ -171,6 +171,8 @@ pub enum DebugStatus {
     BlockStatus,
     // Consensus related information.
     ValidatorStatus,
+    // Request for the current catchup status
+    CatchupStatus,
 }
 
 impl Message for DebugStatus {
@@ -179,7 +181,8 @@ impl Message for DebugStatus {
 
 #[derive(Serialize, Debug)]
 pub enum DebugStatusResponse {
-    SyncStatus(SyncStatus),
+    SyncStatus(SyncStatusView),
+    CatchupStatus(String),
     TrackedShards(TrackedShardsView),
     // List of epochs - in descending order (next epoch is first).
     EpochInfo(Vec<EpochInfoView>),
