@@ -1,5 +1,6 @@
 //! Collection of feature specific tests
 
+mod access_key_nonce_for_implicit_accounts;
 #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
 mod account_id_in_function_call_permission;
 mod cap_max_gas_price;
