@@ -23,6 +23,11 @@ pub(crate) mod snapshot;
 /// In the end, they are exported as Prometheus metrics.
 pub const CF_STAT_NAMES: [&'static str; 1] = [::rocksdb::properties::LIVE_SST_FILES_SIZE];
 
+/// How many writes before we execute a pre-write check.
+const CHECK_FREE_SPACE_INTERVAL: u16 = 256;
+/// How much free space is required for a write to be allowed.
+const FREE_SPACE_THRESHOLD: bytesize::ByteSize = bytesize::ByteSize::mb(16);
+
 pub struct RocksDB {
     db: DB,
     db_opt: Options,
@@ -35,8 +40,6 @@ pub struct RocksDB {
     cf_handles: enum_map::EnumMap<DBCol, std::ptr::NonNull<ColumnFamily>>,
 
     check_free_space_counter: std::sync::atomic::AtomicU16,
-    check_free_space_interval: u16,
-    free_space_threshold: bytesize::ByteSize,
 
     // RAII-style of keeping track of the number of instances of RocksDB and
     // counting total sum of max_open_files.
@@ -61,9 +64,7 @@ impl RocksDB {
             db,
             db_opt,
             cf_handles,
-            check_free_space_interval: 256,
-            check_free_space_counter: std::sync::atomic::AtomicU16::new(0),
-            free_space_threshold: bytesize::ByteSize::mb(16),
+            check_free_space_counter: std::sync::atomic::AtomicU16::new(CHECK_FREE_SPACE_INTERVAL),
             _instance_tracker: counter,
         })
     }
@@ -459,18 +460,18 @@ impl RocksDB {
     /// unrecoverable in most cases.
     fn pre_write_check(&self) -> Result<(), PreWriteCheckErr> {
         let counter = self.check_free_space_counter.fetch_add(1, Ordering::Relaxed);
-        if self.check_free_space_interval >= counter {
+        if CHECK_FREE_SPACE_INTERVAL >= counter {
             return Ok(());
         }
         self.check_free_space_counter.swap(0, Ordering::Relaxed);
 
         let available = available_space(self.db.path())?;
 
-        if available < 16_u64 * self.free_space_threshold {
+        if available < 16_u64 * FREE_SPACE_THRESHOLD {
             warn!("remaining disk space is running low ({} left)", available);
         }
 
-        if available < self.free_space_threshold {
+        if available < FREE_SPACE_THRESHOLD {
             Err(PreWriteCheckErr::LowDiskSpace(available))
         } else {
             Ok(())
