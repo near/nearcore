@@ -3,6 +3,7 @@ use near_primitives::receipt::ReceiptResult;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::types::Gas;
 use near_primitives::utils::index_to_bytes;
+use near_primitives::version::DbVersion;
 use near_store::migrations::{set_store_version, BatchedStoreUpdate};
 use near_store::{DBCol, Temperature};
 
@@ -16,7 +17,7 @@ pub fn migrate_30_to_31(
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         do_migrate_30_to_31(&store, &near_config.genesis.config)?;
     }
-    set_store_version(&store, 31)?;
+    set_store_version(&store, DbVersion(31))?;
     Ok(())
 }
 

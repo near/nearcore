@@ -446,9 +446,9 @@ impl RocksDB {
                         .into(),
                 )
             })?;
-        serde_json::from_slice(&value).map_err(|_err| {
+        DbVersion::deserialise(&value).map_err(|err| {
             other_error(format!(
-                "Failed to parse database version: {value:?}; \
+                "Failed to parse database version: {err}; \
                  it’s not a neard database or database is corrupted."
             ))
         })

@@ -124,7 +124,7 @@ fn apply_store_migrations_if_exists(
     // For given db version, latest neard release which supported that version.
     // If you’re removing support for a database version from neard put an entry
     // here so that we can inform user which version they need.
-    const LATEST_DB_SUPPORTED: [(DbVersion, &'static str); 1] = [(26, "1.26")];
+    const LATEST_DB_SUPPORTED: [(DbVersion, &'static str); 1] = [(DbVersion(26), "1.26")];
     if let Some((_, release)) =
         LATEST_DB_SUPPORTED.iter().filter(|(ver, _)| db_version <= *ver).next()
     {
@@ -141,29 +141,29 @@ fn apply_store_migrations_if_exists(
     let snapshot = create_db_checkpoint(store_opener, near_config)?;
 
     // Add migrations here based on `db_version`.
-    if db_version <= 26 {
+    if db_version <= DbVersion(26) {
         // Unreachable since we should have bailed when checking
         // LATEST_DB_SUPPORTED above.
         unreachable!();
     }
-    if db_version <= 27 {
+    if db_version <= DbVersion(27) {
         // version 27 => 28: add DBCol::StateChangesForSplitStates
         // Does not need to do anything since open db with option
         // `create_missing_column_families`.  Nevertheless need to bump db
         // version, because db_version 27 binary can't open db_version 28 db.
         // Combine it with migration from 28 to 29; don’t do anything here.
     }
-    if db_version <= 28 {
+    if db_version <= DbVersion(28) {
         // version 28 => 29: delete ColNextBlockWithNewChunk, ColLastBlockWithNewChunk
         info!(target: "near", "Migrate DB from version 28 to 29");
         migrate_28_to_29(store_opener)?;
     }
-    if db_version <= 29 {
+    if db_version <= DbVersion(29) {
         // version 29 => 30: migrate all structures that use ValidatorStake to versionized version
         info!(target: "near", "Migrate DB from version 29 to 30");
         migrate_29_to_30(store_opener)?;
     }
-    if db_version <= 30 {
+    if db_version <= DbVersion(30) {
         // version 30 => 31: recompute block ordinal due to a bug fixed in #5761
         info!(target: "near", "Migrate DB from version 30 to 31");
         migrate_30_to_31(store_opener, &near_config)?;
@@ -175,7 +175,7 @@ fn apply_store_migrations_if_exists(
             .with_context(|| format!("Opening database at {}", store_opener.path().display()))?
             .get_store(Temperature::Hot);
         // set some dummy value to avoid conflict with other migrations from nightly features
-        set_store_version(&store, 10000)?;
+        set_store_version(&store, DbVersion(10000))?;
     } else {
         debug_assert_eq!(
             Some(near_primitives::version::DB_VERSION),

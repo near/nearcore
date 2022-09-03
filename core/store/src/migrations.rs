@@ -6,14 +6,13 @@ use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochInfoV1};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::AccountId;
+use near_primitives::version::DbVersion;
 
 use crate::{DBCol, Store, StoreOpener, StoreUpdate};
 
-pub fn set_store_version(store: &Store, db_version: u32) -> std::io::Result<()> {
+pub fn set_store_version(store: &Store, db_version: DbVersion) -> std::io::Result<()> {
     let mut store_update = store.store_update();
-    // Contrary to other integers, we’re using textual representation for
-    // storing DbVersion in VERSION_KEY thus to_string rather than to_le_bytes.
-    store_update.set(DBCol::DbVersion, crate::db::VERSION_KEY, db_version.to_string().as_bytes());
+    store_update.set(DBCol::DbVersion, crate::db::VERSION_KEY, &db_version.serialise());
     store_update.commit()
 }
 
@@ -85,7 +84,7 @@ pub fn migrate_28_to_29(store_opener: &StoreOpener) -> anyhow::Result<()> {
     store_update.delete_all(DBCol::_LastBlockWithNewChunk);
     store_update.commit()?;
 
-    set_store_version(&store, 29)?;
+    set_store_version(&store, DbVersion(29))?;
     Ok(())
 }
 
@@ -177,6 +176,6 @@ pub fn migrate_29_to_30(store_opener: &StoreOpener) -> anyhow::Result<()> {
 
     store_update.finish()?;
 
-    set_store_version(&store, 30)?;
+    set_store_version(&store, DbVersion(30))?;
     Ok(())
 }
