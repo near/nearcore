@@ -32,7 +32,7 @@ pub struct RocksDB {
     /// Rather than accessing this field directly, use [`RocksDB::cf_handle`]
     /// method instead.  It returns `&ColumnFamily` which is what you usually
     /// want.
-    cf_handles: enum_map::EnumMap<DBCol, std::ptr::NonNull<ColumnFamily>>,
+    cf_handles: enum_map::EnumMap<DBCol, Option<std::ptr::NonNull<ColumnFamily>>>,
 
     check_free_space_counter: std::sync::atomic::AtomicU16,
     check_free_space_interval: u16,
@@ -55,7 +55,7 @@ impl RocksDB {
         let counter = instance_tracker::InstanceTracker::try_new(store_config.max_open_files)
             .map_err(other_error)?;
         let (db, db_opt) = Self::open_db(path, store_config, mode)?;
-        let cf_handles = Self::get_cf_handles(&db);
+        let cf_handles = Self::get_cf_handles(&db, DBCol::iter());
 
         Ok(Self {
             db,
@@ -103,26 +103,50 @@ impl RocksDB {
     }
 
     /// Returns mapping from [`DBCol`] to cf handle used with RocksDB calls.
-    fn get_cf_handles(db: &DB) -> enum_map::EnumMap<DBCol, std::ptr::NonNull<ColumnFamily>> {
+    fn get_cf_handles(
+        db: &DB,
+        cols: impl IntoIterator<Item = DBCol>,
+    ) -> enum_map::EnumMap<DBCol, Option<std::ptr::NonNull<ColumnFamily>>> {
         let mut cf_handles = enum_map::EnumMap::default();
-        for col in DBCol::iter() {
+        for col in cols {
             let ptr = db
                 .cf_handle(&col_name(col))
-                .map_or(std::ptr::null(), |cf| cf as *const ColumnFamily);
-            cf_handles[col] = std::ptr::NonNull::new(ptr as *mut ColumnFamily);
+                .and_then(|cf| std::ptr::NonNull::new(cf as *const _ as *mut _))
+                .unwrap_or_else(|| panic!("Missing cf handle for {col}"));
+            cf_handles[col] = Some(ptr);
         }
-        cf_handles.map(|col, ptr| {
-            ptr.unwrap_or_else(|| {
-                panic!("Missing cf handle for {col}");
-            })
-        })
+        cf_handles
     }
 
     /// Returns column family handler to use with RocsDB for given column.
-    fn cf_handle(&self, col: DBCol) -> &ColumnFamily {
-        let ptr = self.cf_handles[col];
-        // SAFETY: The pointers are valid so long as self.db is valid.
-        unsafe { ptr.as_ref() }
+    ///
+    /// If the database has not been setup to access given column, panics if
+    /// debug assertions are enabled or returns an error otherwise.
+    fn cf_handle(&self, col: DBCol) -> io::Result<&ColumnFamily> {
+        if let Some(ptr) = self.cf_handles[col] {
+            // SAFETY: The pointers are valid so long as self.db is valid.
+            Ok(unsafe { ptr.as_ref() })
+        } else if cfg!(debug_assertions) {
+            panic!("The database instance isn’t setup to access {col}");
+        } else {
+            Err(other_error(format!("{col}: no such column")))
+        }
+    }
+
+    /// Returns iterator over all column families and their handles.
+    ///
+    /// This is kind of like iterating over all [`DBCol`] variants and calling
+    /// [`Self::cf_handle`] except this method takes care of properly filtering
+    /// out column families that the database instance isn’t setup to handle.
+    fn cf_handles(&self) -> impl Iterator<Item = (DBCol, &ColumnFamily)> {
+        self.cf_handles.iter().filter_map(|(col, ptr)| {
+            if let Some(ptr) = *ptr {
+                // SAFETY: The pointers are valid so long as self.db is valid.
+                Some((col, unsafe { ptr.as_ref() }))
+            } else {
+                None
+            }
+        })
     }
 
     fn iter_raw_bytes_impl<'a>(
@@ -130,7 +154,7 @@ impl RocksDB {
         col: DBCol,
         prefix: Option<&'a [u8]>,
     ) -> RocksDBIterator<'a> {
-        let cf_handle = self.cf_handle(col);
+        let cf_handle = self.cf_handle(col).unwrap();
         let mut read_options = rocksdb_read_options();
         let mode = if let Some(prefix) = prefix {
             // prefix_same_as_start doesn’t do anything for us.  It takes effect
@@ -185,7 +209,7 @@ impl Database for RocksDB {
         let read_options = rocksdb_read_options();
         let result = self
             .db
-            .get_pinned_cf_opt(self.cf_handle(col), key, &read_options)
+            .get_pinned_cf_opt(self.cf_handle(col)?, key, &read_options)
             .map_err(into_other)?
             .map(DBSlice::from_rocksdb_slice);
         timer.observe_duration();
@@ -218,7 +242,7 @@ impl Database for RocksDB {
         for op in transaction.ops {
             match op {
                 DBOp::Set { col, key, value } => {
-                    batch.put_cf(self.cf_handle(col), key, value);
+                    batch.put_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::Insert { col, key, value } => {
                     if cfg!(debug_assertions) {
@@ -226,16 +250,16 @@ impl Database for RocksDB {
                             super::assert_no_overwrite(col, &key, &value, &*old_value)
                         }
                     }
-                    batch.put_cf(self.cf_handle(col), key, value);
+                    batch.put_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    batch.merge_cf(self.cf_handle(col), key, value);
+                    batch.merge_cf(self.cf_handle(col)?, key, value);
                 }
                 DBOp::Delete { col, key } => {
-                    batch.delete_cf(self.cf_handle(col), key);
+                    batch.delete_cf(self.cf_handle(col)?, key);
                 }
                 DBOp::DeleteAll { col } => {
-                    let cf_handle = self.cf_handle(col);
+                    let cf_handle = self.cf_handle(col)?;
                     let opt_first = self.db.iterator_cf(cf_handle, IteratorMode::Start).next();
                     let opt_last = self.db.iterator_cf(cf_handle, IteratorMode::End).next();
                     assert_eq!(opt_first.is_some(), opt_last.is_some());
@@ -253,7 +277,7 @@ impl Database for RocksDB {
     fn compact(&self) -> io::Result<()> {
         let none = Option::<&[u8]>::None;
         for col in DBCol::iter() {
-            self.db.compact_range_cf(self.cf_handle(col), none, none);
+            self.db.compact_range_cf(self.cf_handle(col)?, none, none);
         }
         Ok(())
     }
@@ -262,7 +286,7 @@ impl Database for RocksDB {
         // Need to iterator over all CFs because the normal `flush()` only
         // flushes the default column family.
         for col in DBCol::iter() {
-            self.db.flush_cf(self.cf_handle(col)).map_err(into_other)?;
+            self.db.flush_cf(self.cf_handle(col)?).map_err(into_other)?;
         }
         Ok(())
     }
@@ -480,13 +504,13 @@ impl RocksDB {
     /// Gets every int property in CF_STAT_NAMES for every column in DBCol.
     fn get_cf_statistics(&self, result: &mut StoreStatistics) {
         for stat_name in CF_STAT_NAMES {
-            let mut values = vec![];
-            for col in DBCol::iter() {
-                let size = self.db.property_int_value_cf(self.cf_handle(col), stat_name);
-                if let Ok(Some(value)) = size {
-                    values.push(StatsValue::ColumnValue(col, value as i64));
-                }
-            }
+            let values = self
+                .cf_handles()
+                .filter_map(|(col, handle)| {
+                    let property = self.db.property_int_value_cf(handle, stat_name);
+                    Some(StatsValue::ColumnValue(col, property.ok()?? as i64))
+                })
+                .collect::<Vec<_>>();
             if !values.is_empty() {
                 result.data.push((stat_name.to_string(), values));
             }
@@ -696,7 +720,7 @@ mod tests {
         // single_thread_rocksdb makes compact hang forever
         if !cfg!(feature = "single_thread_rocksdb") {
             let none = Option::<&[u8]>::None;
-            let cf = rocksdb.cf_handle(DBCol::State);
+            let cf = rocksdb.cf_handle(DBCol::State).unwrap();
 
             // I’m not sure why but we need to run compaction twice.  If we run
             // it only once, we end up with an empty value for the key.  This is
