@@ -356,10 +356,11 @@ impl<'a> HeavySubTrieIterator<'a> {
         Ok(HeavySubTrieIterator { target_size_bytes, trie_iterator })
     }
 
+    // TODO: Instead return `SendTrieIterator` that contains only Send fields and has an into_iter() -> TrieIterator method.
     fn spawn_sub_trie_iter(&mut self) -> TrieIterator<'a> {
         let key_nibbles = self.trie_iterator.key_nibbles.clone();
-        self.trie_iterator.trail.pop();
-        return TrieIterator { trie: self.trie_iterator.trie, trail: vec![], key_nibbles };
+        let node = self.trie_iterator.trail.pop().unwrap();
+        return TrieIterator { trie: self.trie_iterator.trie, trail: vec![node], key_nibbles };
     }
 }
 
