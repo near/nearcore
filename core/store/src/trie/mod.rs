@@ -1039,6 +1039,18 @@ mod tests {
                 trie_changes.clone(),
             );
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root.clone());
+
+            // Those known keys.
+            for (key, value) in trie_changes.into_iter().collect::<HashMap<_, _>>() {
+                if let Some(value) = value {
+                    let want = Some(Ok((key.clone(), value)));
+                    let mut iterator = trie.iter().unwrap();
+                    iterator.seek(&key).unwrap();
+                    assert_eq!(want, iterator.next(), "key: {key:x?}");
+                }
+            }
+
+            // Test some more random keys.
             let queries = gen_changes(&mut rng, 500).into_iter().map(|(key, _)| key);
             for query in queries {
                 let mut iterator = trie.iter().unwrap();
