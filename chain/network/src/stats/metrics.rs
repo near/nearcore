@@ -1,7 +1,7 @@
 use crate::network_protocol::Encoding;
-use crate::network_protocol::{RoutedMessageV2,RoutedMessageBody};
-use crate::types::PeerType;
+use crate::network_protocol::{RoutedMessageBody, RoutedMessageV2};
 use crate::time;
+use crate::types::PeerType;
 use near_metrics::{
     exponential_buckets, try_create_histogram, try_create_histogram_vec, try_create_int_counter,
     try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec, Histogram,

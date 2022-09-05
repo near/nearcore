@@ -5,7 +5,8 @@ use crate::network_protocol::{Encoding, PeerAddr, SyncAccountsData};
 use crate::network_protocol::{Ping, RoutedMessageBody, EDGE_MIN_TIMESTAMP_NONCE};
 use crate::peer;
 use crate::peer_manager;
-use crate::peer_manager::peer_manager_actor::{Event as PME, LIMIT_PENDING_PEERS};
+use crate::peer_manager::network_state::LIMIT_PENDING_PEERS;
+use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::{Event, NormalAccountData};
 use crate::testonly::{assert_is_superset, make_rng, AsSet as _};
 use crate::time;
@@ -329,7 +330,8 @@ async fn accounts_data_broadcast() {
     let data = chain.make_tier1_data(rng, clock);
 
     // Connect peer, expect initial sync to be empty.
-    let mut peer1 = pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
+    let mut peer1 =
+        pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
     let got1 = peer1.events.recv_until(take_sync).await;
     assert_eq!(got1.accounts_data, vec![]);
 
@@ -344,7 +346,8 @@ async fn accounts_data_broadcast() {
     pm.wait_for_accounts_data(&want.iter().map(|d| d.into()).collect()).await;
 
     // Connect another peer and perform initial full sync.
-    let mut peer2 = pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
+    let mut peer2 =
+        pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
     let got2 = peer2.events.recv_until(take_sync).await;
     assert_eq!(got2.accounts_data.as_set(), want.as_set());
 
@@ -558,8 +561,13 @@ async fn connection_spam_security_test() {
     let mut cfg = chain.make_config(rng);
     // Make sure that connections will never get dropped.
     cfg.handshake_timeout = time::Duration::hours(1);
-    let pm =
-        peer_manager::testonly::start(clock.clock(), near_store::db::TestDB::new(), cfg, chain.clone()).await;
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        near_store::db::TestDB::new(),
+        cfg,
+        chain.clone(),
+    )
+    .await;
 
     // Saturate the pending connections limit.
     let mut conns = vec![];

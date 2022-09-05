@@ -7,7 +7,8 @@ use crate::network_protocol::{PeerChainInfoV2, PeerInfo, RoutedMessage, RoutedMe
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
-use crate::peer_manager::peer_manager_actor::{Event, NetworkState};
+use crate::peer_manager::network_state::NetworkState;
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::private_actix::PeersResponse;
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::private_actix::{
@@ -166,7 +167,6 @@ struct HandshakeSpec {
     partial_edge_info: PartialEdgeInfo,
 }
 
-
 impl PeerActor {
     pub(crate) fn spawn(
         clock: time::Clock,
@@ -178,8 +178,10 @@ impl PeerActor {
         let peer_addr = stream.peer_addr().context("stream.peer_addr()")?;
         // WARNING: connection guard is reported AFTER peer_addr is resolved,
         // so if resolving fails, Event::ConnectionClosed won't be emitted.
-        let connection_guard =
-            ConnectionGuard { event_sink: network_state.config.event_sink.clone(), peer_addr: peer_addr.clone() };
+        let connection_guard = ConnectionGuard {
+            event_sink: network_state.config.event_sink.clone(),
+            peer_addr: peer_addr.clone(),
+        };
 
         let connecting_status = match &stream_config {
             StreamConfig::Inbound => ConnectingStatus::Inbound(
@@ -201,9 +203,8 @@ impl PeerActor {
                         .start_outbound(peer_id.clone())
                         .context("tier2.start_outbound()")?
                 })
-            },
+            }
         };
-            
 
         let my_node_info = PeerInfo {
             id: network_state.config.node_id(),
@@ -866,7 +867,10 @@ impl PeerActor {
             chain_height: AtomicU64::new(handshake.sender_chain_info.height),
             edge,
             peer_type: self.peer_type,
-            stats: AtomicCell::new(connection::Stats { sent_bytes_per_sec: 0, received_bytes_per_sec: 0 }),
+            stats: AtomicCell::new(connection::Stats {
+                sent_bytes_per_sec: 0,
+                received_bytes_per_sec: 0,
+            }),
             _peer_connections_metric: metrics::PEER_CONNECTIONS.new_point(&metrics::Connection {
                 type_: self.peer_type,
                 encoding: self.encoding(),

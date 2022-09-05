@@ -130,7 +130,6 @@ pub struct NetworkConfig {
     /// If true - connect only to the bootnodes.
     pub connect_only_to_boot_nodes: bool,
 
-
     // Whether to ignore tombstones some time after startup.
     //
     // Ignoring tombstones means:

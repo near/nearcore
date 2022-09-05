@@ -149,10 +149,7 @@ impl RoutingTableView {
 
     /// Find peer that owns this AccountId.
     pub(crate) fn account_owner(&self, account_id: &AccountId) -> Option<PeerId> {
-        self.0
-            .lock()
-            .get_announce(account_id)
-            .map(|announce_account| announce_account.peer_id)
+        self.0.lock().get_announce(account_id).map(|announce_account| announce_account.peer_id)
     }
 
     /// Adds accounts to the routing table.

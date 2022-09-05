@@ -6,8 +6,8 @@ use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
 };
 use crate::peer::peer_actor::{PeerActor, StreamConfig};
+use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
-use crate::peer_manager::peer_manager_actor::NetworkState;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::routing::routing_table_view::RoutingTableView;

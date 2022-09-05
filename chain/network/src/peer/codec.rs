@@ -141,7 +141,7 @@ mod test {
         RoutedMessageV2,
     };
     use crate::peer::codec::{Codec, NETWORK_MESSAGE_MAX_SIZE_BYTES};
-    use crate::types::{Handshake, ReasonForBan, PeerMessage, RoutingTableUpdate};
+    use crate::types::{Handshake, PeerMessage, ReasonForBan, RoutingTableUpdate};
     use bytes::{BufMut, BytesMut};
     use near_crypto::{KeyType, SecretKey};
     use near_primitives::block::{Approval, ApprovalInner};

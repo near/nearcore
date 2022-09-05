@@ -60,10 +60,7 @@ pub(crate) struct RawConnection {
 }
 
 impl RawConnection {
-    pub async fn handshake(
-        mut self,
-        clock: &time::Clock,
-    ) -> peer::testonly::PeerHandle {
+    pub async fn handshake(mut self, clock: &time::Clock) -> peer::testonly::PeerHandle {
         let node_id = self.cfg.network.node_id();
         let mut peer =
             peer::testonly::PeerHandle::start_endpoint(clock.clone(), self.cfg, self.stream).await;
