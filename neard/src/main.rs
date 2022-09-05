@@ -1,7 +1,8 @@
 mod cli;
 mod log_config_watcher;
 
-use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
+use near_primitives::version::{Version, PROTOCOL_VERSION};
+use near_store::version::DB_VERSION;
 
 use self::cli::NeardCmd;
 use crate::cli::RunError;

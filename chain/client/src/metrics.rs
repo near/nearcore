@@ -310,8 +310,8 @@ pub static PRODUCE_AND_DISTRIBUTE_CHUNK_TIME: Lazy<near_o11y::metrics::Histogram
 /// database version and build information.  The latter is taken from
 /// `neard_version` argument.
 pub(crate) fn export_version(neard_version: &near_primitives::version::Version) {
-    NODE_PROTOCOL_VERSION.set(near_primitives::version::PROTOCOL_VERSION as i64);
-    NODE_DB_VERSION.set(near_primitives::version::DB_VERSION as i64);
+    NODE_PROTOCOL_VERSION.set(near_primitives::version::PROTOCOL_VERSION.into());
+    NODE_DB_VERSION.set(near_store::version::DB_VERSION.into());
     NODE_BUILD_INFO.reset();
     NODE_BUILD_INFO
         .with_label_values(&[

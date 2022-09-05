@@ -44,6 +44,7 @@ mod metrics;
 pub mod migrations;
 pub mod test_utils;
 mod trie;
+pub mod version;
 
 pub use crate::config::{Mode, StoreConfig, StoreOpener};
 pub use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError};
