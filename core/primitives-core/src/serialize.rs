@@ -92,40 +92,6 @@ fn test_option_base64_format() {
     assert_round_trip("{\"field\":null}", Test { field: None });
 }
 
-pub mod base58_format {
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    use super::{from_base58, to_base58};
-
-    pub fn serialize<S>(data: &[u8], serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&to_base58(data))
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        from_base58(&s).map_err(|err| de::Error::custom(err.to_string()))
-    }
-}
-
-#[test]
-fn test_base_bytes_format() {
-    #[derive(PartialEq, Debug, serde::Deserialize, serde::Serialize)]
-    struct Test {
-        #[serde(with = "base58_format")]
-        field: Vec<u8>,
-    }
-
-    assert_round_trip("{\"field\":\"bQbp\"}", Test { field: b"foo".to_vec() });
-    assert_de_error::<Test>("{\"field\":null}");
-}
-
 /// Serialises number as a string; deserialises either as a string or number.
 ///
 /// This format works for `u64`, `u128`, `Option<u64>` and `Option<u128>` types.
