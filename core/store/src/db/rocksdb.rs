@@ -11,7 +11,6 @@ use tracing::{error, warn};
 
 use crate::config::Mode;
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue};
-use crate::version::DbVersion;
 use crate::{metrics, DBCol, StoreConfig, StoreStatistics};
 
 mod instance_tracker;
@@ -526,15 +525,18 @@ impl RocksDB {
 
     /// Returns version of the database state on disk.  Returns `None` if the
     /// database does not exist.
-    pub(crate) fn get_version(path: &Path, config: &StoreConfig) -> io::Result<Option<DbVersion>> {
+    pub(crate) fn get_version(
+        path: &Path,
+        config: &StoreConfig,
+    ) -> io::Result<Option<crate::version::DbVersion>> {
         if !path.join("CURRENT").is_file() {
             return Ok(None);
         }
 
         // Specify only DBCol::DbVersion because it’s ok to open database in
         // read-only mode without specifying all column families the database
-        // contains but it’s an error to provide a descriptor for column family
-        // which does note exist.
+        // contains but it’s an error to provide a descriptor for a column
+        // family which doesn’t exist.
         let cols = [DBCol::DbVersion];
         let db = Self::open_with_columns(path, config, Mode::ReadOnly, &cols)?;
         match crate::version::get_db_version(&db)? {
