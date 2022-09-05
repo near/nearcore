@@ -2028,6 +2028,7 @@ fn preload_account_state(
         let root = trie.get_root().clone();
         let handle = tokio::spawn(async move {
             trace!(target: "store", "Preload subtrie at {root}");
+            tokio::task::yield_now().await;
             let trie = Trie::new(Box::new(storage), root, None);
             let n = TrieIterator { trie: &trie, trail, key_nibbles }.count();
             trace!(target: "store", "Preload subtrie at {root} done");
