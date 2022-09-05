@@ -1119,6 +1119,56 @@ impl<'a> VMLogic<'a> {
         Ok(false as u64)
     }
 
+    /// Verify an ED25519 signature given a message and a public key.
+    /// # Returns
+    /// - 1 meaning the boolean expression true to encode that the signature was properly verified
+    /// - 0 meaning the boolean expression false to encode that the signature failed to be verified
+    ///
+    /// # Cost
+    ///
+    /// Each input can either be in memory or in a register. Set the length of the input to `u64::MAX`
+    /// to declare that the input is a register number and not a pointer.
+    /// Each input has a gas cost input_cost(num_bytes) that depends on whether it is from memory
+    /// or from a register. It is either read_memory_base + num_bytes * read_memory_byte in the
+    /// former case or read_register_base + num_bytes * read_register_byte in the latter. This function
+    /// is labeled as `input_cost` below.
+    ///
+    /// `input_cost(num_bytes_signature) + input_cost(num_bytes_message) + input_cost(num_bytes_public_key) +
+    ///  ed25519_verify_base + ed25519_verify_byte * (num_bytes_signature + num_bytes_message)`
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    pub fn ed25519_verify(
+        &mut self,
+        sig_len: u64,
+        sig_ptr: u64,
+        msg_len: u64,
+        msg_ptr: u64,
+        pub_key_len: u64,
+        pub_key_ptr: u64,
+    ) -> Result<u64> {
+        use ed25519_dalek::{PublicKey, Signature, Verifier};
+
+        self.gas_counter.pay_base(ed25519_verify_base)?;
+        let msg = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
+        let signature_array = self.get_vec_from_memory_or_register(sig_ptr, sig_len)?;
+        let num_bytes = msg
+            .len()
+            .checked_add(signature_array.len())
+            .ok_or_else(|| VMLogicError::HostError(HostError::IntegerOverflow))?;
+        self.gas_counter.pay_per(ed25519_verify_byte, num_bytes as _)?;
+
+        let pub_key_array = self.get_vec_from_memory_or_register(pub_key_ptr, pub_key_len)?;
+        let pub_key = PublicKey::from_bytes(&pub_key_array).map_err(|e| {
+            VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput { msg: e.to_string() })
+        })?;
+        let signature = Signature::from_bytes(&signature_array).map_err(|e| {
+            VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput { msg: e.to_string() })
+        })?;
+        match pub_key.verify(&msg, &signature) {
+            Err(_) => Ok(0 as _),
+            Ok(()) => Ok(1 as _),
+        }
+    }
+
     /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
     ///
     /// # Errors
@@ -2785,56 +2835,6 @@ impl<'a> VMLogic<'a> {
             }
         }
         Ok(())
-    }
-
-    /// Verify an ED25519 signature given a message and a public key.
-    /// # Returns
-    /// - 1 meaning the boolean expression true to encode that the signature was properly verified
-    /// - 0 meaning the boolean expression false to encode that the signature failed to be verified
-    ///
-    /// # Cost
-    ///
-    /// Each input can either be in memory or in a register. Set the length of the input to `u64::MAX`
-    /// to declare that the input is a register number and not a pointer.
-    /// Each input has a gas cost input_cost(num_bytes) that depends on whether it is from memory
-    /// or from a register. It is either read_memory_base + num_bytes * read_memory_byte in the
-    /// former case or read_register_base + num_bytes * read_register_byte in the latter. This function
-    /// is labeled as `input_cost` below.
-    ///
-    /// `input_cost(num_bytes_signature) + input_cost(num_bytes_message) + input_cost(num_bytes_public_key) +
-    ///  ed25519_verify_base + ed25519_verify_byte * (num_bytes_signature + num_bytes_message)`
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
-    pub fn ed25519_verify(
-        &mut self,
-        sig_len: u64,
-        sig_ptr: u64,
-        msg_len: u64,
-        msg_ptr: u64,
-        pub_key_len: u64,
-        pub_key_ptr: u64,
-    ) -> Result<u64> {
-        use ed25519_dalek::{PublicKey, Signature, Verifier};
-
-        self.gas_counter.pay_base(ed25519_verify_base)?;
-        let msg = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
-        let signature_array = self.get_vec_from_memory_or_register(sig_ptr, sig_len)?;
-        let num_bytes = msg
-            .len()
-            .checked_add(signature_array.len())
-            .ok_or_else(|| VMLogicError::HostError(HostError::IntegerOverflow))?;
-        self.gas_counter.pay_per(ed25519_verify_byte, num_bytes as _)?;
-
-        let pub_key_array = self.get_vec_from_memory_or_register(pub_key_ptr, pub_key_len)?;
-        let pub_key = PublicKey::from_bytes(&pub_key_array).map_err(|e| {
-            VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput { msg: e.to_string() })
-        })?;
-        let signature = Signature::from_bytes(&signature_array).map_err(|e| {
-            VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput { msg: e.to_string() })
-        })?;
-        match pub_key.verify(&msg, &signature) {
-            Err(_) => Ok(0 as _),
-            Ok(()) => Ok(1 as _),
-        }
     }
 }
 
