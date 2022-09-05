@@ -316,9 +316,9 @@ mod tests {
     use near_chain_configs::Genesis;
     use near_client::GetBlock;
     use near_crypto::{InMemorySigner, KeyType};
-    use near_logger_utils::init_integration_logger;
     use near_network::test_utils::{open_port, WaitOrTimeoutActor};
     use near_network::types::NetworkClientMessages;
+    use near_o11y::testonly::init_integration_logger;
     use near_primitives::hash::CryptoHash;
     use near_primitives::transaction::SignedTransaction;
     use near_store::test_utils::gen_account;

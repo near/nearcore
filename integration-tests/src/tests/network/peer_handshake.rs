@@ -11,7 +11,7 @@ use near_primitives::block::GenesisId;
 
 use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
-use near_logger_utils::init_test_logger;
+use near_o11y::testonly::init_test_logger;
 
 use near_network::config;
 use near_network::test_utils::{

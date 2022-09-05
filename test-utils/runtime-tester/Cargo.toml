@@ -24,8 +24,8 @@ near-client-primitives = { path = "../../chain/client-primitives" }
 nearcore = { path = "../../nearcore" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
+near-o11y = { path = "../../core/o11y" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
 
 [dev-dependencies]
-near-logger-utils = { path = "../logger" }
 testlib = { path = "../testlib" }

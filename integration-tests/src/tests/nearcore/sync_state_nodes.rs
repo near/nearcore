@@ -8,8 +8,8 @@ use crate::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::Genesis;
 use near_client::GetBlock;
-use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
+use near_o11y::testonly::init_integration_logger;
 use nearcore::{config::GenesisExt, load_test_config, start_with_config};
 
 /// One client is in front, another must sync to it using state (fast) sync.

@@ -8,11 +8,11 @@ use crate::testonly::stream::Stream;
 use crate::types::{Handshake, HandshakeFailureReason, PeerMessage};
 use anyhow::Context as _;
 use assert_matches::assert_matches;
-use near_logger_utils::init_test_logger;
 use near_network_primitives::time;
 use near_network_primitives::types::{
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, RoutedMessageBody,
 };
+use near_o11y::testonly::init_test_logger;
 use near_primitives::syncing::EpochSyncResponse;
 use near_primitives::types::EpochId;
 use near_primitives::version::{PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION};

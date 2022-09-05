@@ -19,9 +19,7 @@ use tracing_subscriber::{EnvFilter, Layer, Registry};
 
 /// Custom tracing subscriber implementation that produces IO traces.
 mod io_tracer;
-mod tracing_capture;
-
-pub use tracing_capture::TracingCapture;
+pub mod testonly;
 
 /// Produce a tracing-event for target "io_tracer" that will be consumed by the
 /// IO-tracer, if the feature has been enabled.

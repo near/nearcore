@@ -469,8 +469,8 @@ mod test {
     use near_chain::{Chain, RuntimeAdapter};
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
-    use near_logger_utils::init_test_logger;
     use near_network_primitives::types::PartialEncodedChunkRequestMsg;
+    use near_o11y::testonly::init_test_logger;
     use near_primitives::types::EpochId;
     use near_store::test_utils::create_test_store;
     use nearcore::config::GenesisExt;

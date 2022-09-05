@@ -4,7 +4,7 @@ use crate::{Block, BlockProcessingArtifact, ChainStoreAccess, Error};
 use assert_matches::assert_matches;
 use chrono;
 use chrono::TimeZone;
-use near_logger_utils::init_test_logger;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::time::MockClockGuard;
 use near_primitives::version::PROTOCOL_VERSION;

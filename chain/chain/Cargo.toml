@@ -40,8 +40,6 @@ near-client-primitives = { path = "../client-primitives"}
 insta = "1"
 assert_matches = "1.5.0"
 
-near-logger-utils = {path = "../../test-utils/logger"}
-
 [features]
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
 byzantine_asserts = []

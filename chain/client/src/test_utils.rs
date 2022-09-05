@@ -1,7 +1,7 @@
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::DateTime;
 use futures::{future, FutureExt};
-use near_o11y::TracingCapture;
+use near_o11y::testonly::TracingCapture;
 use near_primitives::time::Utc;
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;

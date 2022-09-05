@@ -25,7 +25,6 @@ use near_client::test_utils::{
 };
 use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
-use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
     ConnectedPeerInfo, NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
@@ -34,6 +33,7 @@ use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
 use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
+use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::RngSeed;
@@ -2127,7 +2127,7 @@ fn test_block_height_processed_orphan() {
 
 #[test]
 fn test_validate_chunk_extra() {
-    let mut capture = near_o11y::TracingCapture::enable();
+    let mut capture = near_o11y::testonly::TracingCapture::enable();
 
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);

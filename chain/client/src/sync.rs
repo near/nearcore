@@ -1312,7 +1312,7 @@ mod test {
     use near_chain::{BlockProcessingArtifact, ChainGenesis, Provenance};
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
-    use near_o11y::TracingCapture;
+    use near_o11y::testonly::TracingCapture;
     use near_primitives::block::{Approval, Block, GenesisId};
     use near_primitives::network::PeerId;
     use near_primitives::utils::MaybeValidated;

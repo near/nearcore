@@ -65,7 +65,6 @@ delay-detector = { path = "../tools/delay-detector" }
 
 [dev-dependencies]
 bencher = "0.1.5"
-near-logger-utils = { path = "../test-utils/logger" }
 near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
 testlib = { path = "../test-utils/testlib" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }

@@ -22,7 +22,6 @@ tokio = { version = "1.1", features = ["net", "rt-multi-thread"] }
 
 near-jsonrpc = { path = ".." }
 near-jsonrpc-tests = { path = "../jsonrpc-tests" }
-near-logger-utils = { path = "../../../test-utils/logger" }
 near-primitives = { path = "../../../core/primitives" }
 
 [[bin]]

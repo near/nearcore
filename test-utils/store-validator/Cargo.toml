@@ -12,9 +12,9 @@ ansi_term = "0.12"
 clap = { version = "3.1.6", features = ["derive"] }
 
 near-chain-configs = { path = "../../core/chain-configs" }
-near-logger-utils = { path = "../../test-utils/logger" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
+near-o11y = { path = "../../core/o11y" }
 near-chain = { path = "../../chain/chain" }
 nearcore = { path = "../../nearcore" }
 

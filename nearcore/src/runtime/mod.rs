@@ -1949,7 +1949,7 @@ mod test {
 
     use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
     use near_crypto::{InMemorySigner, KeyType, Signer};
-    use near_logger_utils::init_test_logger;
+    use near_o11y::testonly::init_test_logger;
     use near_primitives::block::Tip;
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
