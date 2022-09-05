@@ -9,10 +9,9 @@ use ::rocksdb::{
 use strum::IntoEnumIterator;
 use tracing::{error, warn};
 
-use near_primitives::version::DbVersion;
-
 use crate::config::Mode;
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue};
+use crate::version::DbVersion;
 use crate::{metrics, DBCol, StoreConfig, StoreStatistics};
 
 mod instance_tracker;
@@ -525,23 +524,27 @@ impl RocksDB {
         instance_tracker::block_until_all_instances_are_dropped();
     }
 
-    /// Returns version of the database state on disk.
-    pub(crate) fn get_version(path: &Path, config: &StoreConfig) -> io::Result<DbVersion> {
-        let db = RocksDB::open(path, config, Mode::ReadOnly)?;
-        let value =
-            db.get_raw_bytes(DBCol::DbVersion, crate::db::VERSION_KEY)?.ok_or_else(|| {
-                other_error(
-                    "Failed to read database version; \
-                     it’s not a neard database or database is corrupted."
-                        .into(),
-                )
-            })?;
-        serde_json::from_slice(&value).map_err(|_err| {
-            other_error(format!(
-                "Failed to parse database version: {value:?}; \
+    /// Returns version of the database state on disk.  Returns `None` if the
+    /// database does not exist.
+    pub(crate) fn get_version(path: &Path, config: &StoreConfig) -> io::Result<Option<DbVersion>> {
+        if !path.join("CURRENT").is_file() {
+            return Ok(None);
+        }
+
+        // Specify only DBCol::DbVersion because it’s ok to open database in
+        // read-only mode without specifying all column families the database
+        // contains but it’s an error to provide a descriptor for column family
+        // which does note exist.
+        let cols = [DBCol::DbVersion];
+        let db = Self::open_with_columns(path, config, Mode::ReadOnly, &cols)?;
+        match crate::version::get_db_version(&db)? {
+            Some(db_version) => Ok(Some(db_version)),
+            None => Err(other_error(
+                "missing DbVersion; \
                  it’s not a neard database or database is corrupted."
-            ))
-        })
+                    .into(),
+            )),
+        }
     }
 
     /// Checks if there is enough memory left to perform a write. Not having enough memory left can
