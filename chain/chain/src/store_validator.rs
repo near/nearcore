@@ -328,8 +328,7 @@ impl StoreValidator {
                 }
                 DBCol::StateParts => {
                     let key = StatePartKey::try_from_slice(key_ref)?;
-                    let part = value_ref.to_vec();
-                    self.check(&validate::state_part_header_exists, &key, &part, col);
+                    self.check(&validate::state_part_header_exists, &key, value_ref, col);
                 }
                 _ => {}
             }
@@ -393,7 +392,7 @@ impl StoreValidator {
         }
     }
 
-    fn check<K: std::fmt::Debug, V>(
+    fn check<K: std::fmt::Debug + ?Sized, V: ?Sized>(
         &mut self,
         f: &dyn Fn(&mut StoreValidator, &K, &V) -> Result<(), StoreValidatorError>,
         key: &K,
