@@ -1150,6 +1150,9 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(ed25519_verify_base)?;
         let msg = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
         let signature_array = self.get_vec_from_memory_or_register(sig_ptr, sig_len)?;
+        let signature = Signature::from_bytes(&signature_array).map_err(|e| {
+            VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput { msg: e.to_string() })
+        })?;
         let num_bytes = msg
             .len()
             .checked_add(signature_array.len())
@@ -1160,12 +1163,9 @@ impl<'a> VMLogic<'a> {
         let pub_key = PublicKey::from_bytes(&pub_key_array).map_err(|e| {
             VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput { msg: e.to_string() })
         })?;
-        let signature = Signature::from_bytes(&signature_array).map_err(|e| {
-            VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput { msg: e.to_string() })
-        })?;
         match pub_key.verify(&msg, &signature) {
-            Err(_) => Ok(0 as _),
-            Ok(()) => Ok(1 as _),
+            Err(_) => Ok(0),
+            Ok(()) => Ok(1),
         }
     }
 
