@@ -2,8 +2,8 @@ use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
-use near_metrics::prometheus;
-use near_metrics::prometheus::core::{GenericCounter, GenericGauge};
+use near_o11y::metrics::prometheus;
+use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
 use near_primitives::hash::CryptoHash;
 
 use crate::db::refcount::decode_value_with_rc;
