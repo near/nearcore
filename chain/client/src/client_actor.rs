@@ -2026,9 +2026,8 @@ fn preload_account_state(
             .expect("preload called without caching storage")
             .clone();
         let root = trie.get_root().clone();
-        let handle = tokio::spawn(async move {
+        let handle = std::thread::spawn(move || {
             trace!(target: "store", "Preload subtrie at {root}");
-            tokio::task::yield_now().await;
             let trie = Trie::new(Box::new(storage), root, None);
             let n = TrieIterator { trie: &trie, trail, key_nibbles }.count();
             trace!(target: "store", "Preload subtrie at {root} done");
@@ -2037,13 +2036,11 @@ fn preload_account_state(
         handles.push(handle);
     }
 
-    tokio::spawn(async move {
-        let mut n = 0;
-        for handle in handles {
-            n += handle.await.expect("tokio thread failed");
-        }
-        info!(target: "store", "Preloaded cache with {n} trie nodes for account {account_id}");
-    });
+    let mut n = 0;
+    for handle in handles {
+        n += handle.join().expect("thread failed");
+    }
+    info!(target: "store", "Preloaded cache with {n} trie nodes for account {account_id}");
 
     Ok(())
 }
