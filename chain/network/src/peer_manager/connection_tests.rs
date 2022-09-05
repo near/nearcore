@@ -3,7 +3,6 @@ use crate::peer_manager;
 use crate::testonly::make_rng;
 use crate::time;
 use near_logger_utils::init_test_logger;
-use near_store::test_utils::create_test_store;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -19,7 +18,7 @@ async fn connection_tie_break() {
 
     let pm = peer_manager::testonly::start(
         clock.clock(),
-        create_test_store(),
+        near_store::db::TestDB::new(),
         cfgs[1].clone(),
         chain.clone(),
     )
@@ -39,7 +38,7 @@ async fn connection_tie_break() {
     let inbound_conn = pm.start_inbound(chain.clone(), cfgs[0].clone()).await;
     // inbound should be accepted, outbound rejected by PM.
     tracing::debug!("PHASE2b");
-    let (inbound, _) = inbound_conn.handshake(&clock.clock()).await;
+    let inbound = inbound_conn.handshake(&clock.clock()).await;
     tracing::debug!("PHASE2c");
     outbound_conn.fail_handshake(&clock.clock()).await;
     drop(inbound);
@@ -57,7 +56,7 @@ async fn duplicate_connections() {
 
     let pm = peer_manager::testonly::start(
         clock.clock(),
-        create_test_store(),
+        near_store::db::TestDB::new(),
         chain.make_config(rng),
         chain.clone(),
     )
@@ -74,7 +73,7 @@ async fn duplicate_connections() {
     // Double inbound.
     let cfg = chain.make_config(rng);
     let conn1 = pm.start_inbound(chain.clone(), cfg.clone()).await;
-    let (conn1, _) = conn1.handshake(&clock.clock()).await;
+    let conn1 = conn1.handshake(&clock.clock()).await;
     // Second inbound should be rejected. conn1 handshake has to
     // be completed first though, otherwise we would have a race condition.
     let conn2 = pm.start_inbound(chain.clone(), cfg.clone()).await;
@@ -84,7 +83,7 @@ async fn duplicate_connections() {
     // Inbound then outbound.
     let cfg = chain.make_config(rng);
     let conn1 = pm.start_inbound(chain.clone(), cfg.clone()).await;
-    let (conn1, _) = conn1.handshake(&clock.clock()).await;
+    let conn1 = conn1.handshake(&clock.clock()).await;
     let conn2 = pm.start_outbound(chain.clone(), cfg.clone()).await;
     conn2.fail_handshake(&clock.clock()).await;
     drop(conn1);
@@ -92,7 +91,7 @@ async fn duplicate_connections() {
     // Outbound then inbound.
     let cfg = chain.make_config(rng);
     let conn1 = pm.start_outbound(chain.clone(), cfg.clone()).await;
-    let (conn1, _) = conn1.handshake(&clock.clock()).await;
+    let conn1 = conn1.handshake(&clock.clock()).await;
     let conn2 = pm.start_inbound(chain.clone(), cfg.clone()).await;
     conn2.fail_handshake(&clock.clock()).await;
     drop(conn1);

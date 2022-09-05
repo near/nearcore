@@ -1,7 +1,7 @@
 /// This file is contains all types used for communication between `Actors` within this crate.
 /// They are not meant to be used outside.
 use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PeerInfo, PeerMessage, RoutedMessageBody, RoutedMessageV2,
+    Edge, PartialEdgeInfo, PeerInfo, PeerMessage, RoutedMessageBody, 
     RoutingTableUpdate,
 };
 use crate::peer_manager::connection::{Connection, PoolError};
@@ -13,16 +13,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Mutex};
-
-/// Routed Message wrapped with previous sender of the message.
-#[derive(actix::Message, Clone, Debug)]
-#[rtype(result = "bool")]
-pub(crate) struct RoutedMessageFrom {
-    /// Routed messages.
-    pub msg: Box<RoutedMessageV2>,
-    /// Previous hop in the route. Used for messages that needs routing back.
-    pub from: PeerId,
-}
 
 /// Received new peers from another peer.
 #[derive(Debug, Clone)]

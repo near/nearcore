@@ -12,7 +12,6 @@ use crate::time;
 use crate::types::OutboundTcpConnect;
 use crate::types::{ChainInfo, GetNetworkInfo, PeerManagerMessageRequest, SetChainInfo};
 use crate::PeerManagerActor;
-use actix::{Actor as _};
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, EpochId};
 use std::collections::HashSet;

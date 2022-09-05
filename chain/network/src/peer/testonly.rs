@@ -5,7 +5,6 @@ use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
 };
-use crate::peer::peer_actor;
 use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_manager_actor::NetworkState;
@@ -20,7 +19,6 @@ use crate::types::{PeerMessage, RoutingTableUpdate};
 use actix::{Actor, Context, Handler};
 use near_crypto::{InMemorySigner, Signature};
 use near_primitives::network::PeerId;
-use near_store::test_utils::create_test_store;
 
 use crate::time;
 use std::sync::Arc;
@@ -208,7 +206,7 @@ impl PeerHandle {
                 stream,
                 match &cfg.start_handshake_with {
                     None => StreamConfig::Inbound,
-                    Some(id) => StreamConfig::Outbound { peer_id: id.clone() },
+                    Some(id) => StreamConfig::Outbound { peer_id: id.clone(), is_tier1: false },
                 },
                 cfg.force_encoding,
                 network_state,

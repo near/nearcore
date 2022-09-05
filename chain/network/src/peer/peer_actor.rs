@@ -11,7 +11,7 @@ use crate::peer_manager::peer_manager_actor::{Event, NetworkState};
 use crate::private_actix::PeersResponse;
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::private_actix::{
-    PeersRequest, RegisterPeer, RegisterPeerResponse, RoutedMessageFrom, SendMessage, Unregister,
+    PeersRequest, RegisterPeer, RegisterPeerResponse, SendMessage, Unregister,
 };
 use crate::routing::edge::verify_nonce;
 use crate::sink::Sink;
@@ -85,12 +85,13 @@ const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::millisec
 // TCP connection can be closed even before the PeerActor is started,
 // and we want to report that.
 struct ConnectionGuard {
+    peer_addr: SocketAddr,
     event_sink: Sink<Event>,
 }
 
 impl Drop for ConnectionGuard {
     fn drop(&mut self) {
-        self.event_sink.push(Event::PeerActorStopped);
+        self.event_sink.push(Event::ConnectionClosed(self.peer_addr.clone()));
     }
 }
 
@@ -174,10 +175,12 @@ impl PeerActor {
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<actix::Addr<Self>> {
-        let connection_guard =
-            ConnectionGuard { event_sink: network_state.config.event_sink.clone() };
-
         let peer_addr = stream.peer_addr().context("stream.peer_addr()")?;
+        // WARNING: connection guard is reported AFTER peer_addr is resolved,
+        // so if resolving fails, Event::ConnectionClosed won't be emitted.
+        let connection_guard =
+            ConnectionGuard { event_sink: network_state.config.event_sink.clone(), peer_addr: peer_addr.clone() };
+
         let connecting_status = match &stream_config {
             StreamConfig::Inbound => ConnectingStatus::Inbound(
                 network_state
@@ -187,18 +190,17 @@ impl PeerActor {
                     .context("too many connections in Connecting state")?,
             ),
             StreamConfig::Outbound { is_tier1, peer_id } => {
-                    ConnectingStatus::Outbound(if *is_tier1 {
-                        network_state
-                            .tier1
-                            .start_outbound(peer_id.clone())
-                            .context("tier1.start_outbound()")?
-                    } else {
-                        network_state
-                            .tier2
-                            .start_outbound(peer_id.clone())
-                            .context("tier2.start_outbound()")?
-                    })
-                }
+                ConnectingStatus::Outbound(if *is_tier1 {
+                    network_state
+                        .tier1
+                        .start_outbound(peer_id.clone())
+                        .context("tier1.start_outbound()")?
+                } else {
+                    network_state
+                        .tier2
+                        .start_outbound(peer_id.clone())
+                        .context("tier2.start_outbound()")?
+                })
             },
         };
             
@@ -238,18 +240,17 @@ impl PeerActor {
                     StreamConfig::Inbound => PeerType::Inbound,
                     StreamConfig::Outbound { .. } => PeerType::Outbound,
                 },
-                handshake_spec: match &cfg.stream_config {
+                handshake_spec: match &stream_config {
                     StreamConfig::Inbound => None,
                     StreamConfig::Outbound { is_tier1, peer_id } => Some(HandshakeSpec {
-                        partial_edge_info: cfg.network_state.propose_edge(peer_id, None),
+                        partial_edge_info: network_state.propose_edge(peer_id, None),
                         protocol_version: PROTOCOL_VERSION,
                         peer_id: peer_id.clone(),
-                        genesis_id: cfg.network_state.genesis_id.clone(),
+                        genesis_id: network_state.genesis_id.clone(),
                         is_tier1: *is_tier1,
                     }),
                 },
                 peer_status: PeerStatus::Connecting(connecting_status),
-                protocol_version: PROTOCOL_VERSION,
                 framed: FramedWrite::new(
                     write,
                     Codec::new(write_buf_size.clone()),
@@ -257,19 +258,13 @@ impl PeerActor {
                     ctx,
                 ),
                 tracker: Default::default(),
-                partial_edge_info: match &stream_config {
-                    StreamConfig::Inbound => None,
-                    StreamConfig::Outbound { peer_id } => {
-                        Some(network_state.propose_edge(peer_id, None))
-                    }
-                },
                 routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
                 throttle_controller: rate_limiter,
                 protocol_buffers_supported: false,
                 force_encoding,
                 peer_info: match &stream_config {
                     StreamConfig::Inbound => None,
-                    StreamConfig::Outbound { peer_id } => Some(PeerInfo {
+                    StreamConfig::Outbound { peer_id, .. } => Some(PeerInfo {
                         id: peer_id.clone(),
                         addr: Some(peer_addr.clone()),
                         account_id: None,
@@ -924,7 +919,7 @@ impl PeerActor {
             .into_actor(self)
         });
 
-        self.peer_manager_addr
+        self.network_state.peer_manager_addr
             .send(PeerToManagerMsg::RegisterPeer(RegisterPeer {
                 connection: connection.clone(),
             }))
@@ -1030,7 +1025,6 @@ impl Actor for PeerActor {
         // already deleted, to avoid races when a peer tries to reconnect.
         let _ = metrics::PEER_DATA_READ_BUFFER_SIZE.remove_label_values(&[metric_label]);
         let _ = metrics::PEER_DATA_WRITE_BUFFER_SIZE.remove_label_values(&[metric_label]);
-        self.network_state.config.event_sink.push(Event::ConnectionClosed(self.peer_addr))
     }
 }
 
@@ -1162,7 +1156,6 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         self.network_state
                             .peer_manager_addr
                             .do_send(PeerToManagerMsg::UpdatePeerInfo(peer_info));
-                        self.peer_manager_addr.do_send(PeerToManagerMsg::UpdatePeerInfo(peer_info));
                         ctx.stop();
                         return;
                     }
@@ -1366,7 +1359,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     }
                 } else {
                     if msg.decrease_ttl() {
-                        self.network_state.send_signed_message_to_peer(&self.clock, msg);
+                        self.network_state.send_message_to_peer(&self.clock, msg);
                     } else {
                         self.network_state.config.event_sink.push(Event::RoutedMessageDropped);
                         warn!(target: "network", ?msg, ?from, "Message dropped because TTL reached 0.");

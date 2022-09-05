@@ -7,13 +7,12 @@ use crate::network_protocol::{
     RoutedMessageV2,
 };
 use crate::network_protocol::{EdgeState, PartialEdgeInfo};
-use crate::peer::peer_actor;
 use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
     PeerRequestResult, PeerToManagerMsg, PeerToManagerMsgResp, PeersRequest, PeersResponse,
-    RegisterPeer, RegisterPeerError, RegisterPeerResponse, RoutedMessageFrom, StopMsg, Unregister,
+    RegisterPeer, RegisterPeerError, RegisterPeerResponse, StopMsg, Unregister,
     ValidateEdgeList,
 };
 use crate::routing;
@@ -186,12 +185,11 @@ impl NetworkState {
             chain_info: Default::default(),
             tier2: connection::Pool::new(config.node_id()),
             tier1: connection::Pool::new(config.node_id()),
+            inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             accounts_data: Arc::new(accounts_data::Cache::new()),
             routing_table_view,
             send_accounts_data_rl,
-            inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             config,
-            inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             txns_since_last_block: AtomicUsize::new(0),
         }
     }
@@ -219,7 +217,6 @@ impl NetworkState {
     pub async fn tier1_daemon_tick(
         self: &Arc<Self>,
         clock: &time::Clock,
-        peer_manager_addr: Addr<PeerManagerActor>,
         cfg: &config::Tier1,
     ) {
         let accounts_data = self.accounts_data.load();
@@ -297,9 +294,8 @@ impl NetworkState {
                 if let Some(peer_addr) = peers.choose(&mut rng) {
                     new_connections += 1;
                     self.clone()
-                        .try_connect_to(
+                        .spawn_outbound(
                             clock.clone(),
-                            peer_manager_addr.clone(),
                             PeerInfo {
                                 id: peer_addr.peer_id.clone(),
                                 addr: Some(peer_addr.addr),
@@ -360,7 +356,7 @@ impl NetworkState {
         self.spawn_peer_actor(clock, stream, StreamConfig::Inbound);
     }
 
-    pub async fn spawn_outbound(self: Arc<Self>, clock: time::Clock, peer_info: PeerInfo) {
+    pub async fn spawn_outbound(self: Arc<Self>, clock: time::Clock, peer_info: PeerInfo, is_tier1: bool) {
         let addr = match peer_info.addr {
             Some(addr) => addr,
             None => {
@@ -391,7 +387,7 @@ impl NetworkState {
                 }
             };
         debug!(target: "network", ?peer_info, "Connecting");
-        self.spawn_peer_actor(&clock, stream, StreamConfig::Outbound { peer_id: peer_info.id });
+        self.spawn_peer_actor(&clock, stream, StreamConfig::Outbound { peer_id: peer_info.id, is_tier1 });
     }
 
     // Determine if the given target is referring to us.
@@ -408,22 +404,22 @@ impl NetworkState {
     pub fn send_ping(&self, clock: &time::Clock, nonce: u64, target: PeerId) {
         let body = RoutedMessageBody::Ping(Ping { nonce, source: self.config.node_id() });
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body };
-        self.send_message_to_peer(clock, msg);
+        self.send_message_to_peer(clock, self.sign_message(clock, msg));
     }
 
     pub fn send_pong(&self, clock: &time::Clock, nonce: u64, target: CryptoHash) {
         let body = RoutedMessageBody::Pong(Pong { nonce, source: self.config.node_id() });
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body };
-        self.send_message_to_peer(clock, msg);
+        self.send_message_to_peer(clock, self.sign_message(clock, msg));
     }
 
-    fn sign_message(&self, msg: RawRoutedMessage) -> Box<RoutedMessageV2> {
-        msg.sign(&self.config.node_key, self.config.routed_message_ttl, Some(self.clock.now_utc()))
+    fn sign_message(&self, clock: &time::Clock, msg: RawRoutedMessage) -> Box<RoutedMessageV2> {
+        Box::new(msg.sign(&self.config.node_key, self.config.routed_message_ttl, Some(clock.now_utc())))
     }
 
     /// Route signed message to target peer.
     /// Return whether the message is sent or not.
-    pub fn send_signed_message_to_peer(
+    pub fn send_message_to_peer(
         &self,
         clock: &time::Clock,
         msg: Box<RoutedMessageV2>,
@@ -577,7 +573,6 @@ impl Actor for PeerManagerActor {
             // TIER1 daemon, which closes/initiates TIER1 connections.
             let clock = self.clock.clone();
             let state = self.state.clone();
-            let self_addr = ctx.address();
             ctx.spawn(
                 async move {
                     let mut interval =
@@ -585,7 +580,7 @@ impl Actor for PeerManagerActor {
                     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                     loop {
                         interval.tick().await;
-                        state.tier1_daemon_tick(&clock, self_addr.clone(), &cfg).await;
+                        state.tier1_daemon_tick(&clock, &cfg).await;
                     }
                 }
                 .into_actor(self),
@@ -1052,6 +1047,23 @@ impl PeerManagerActor {
             .any(|wn| wn.account_id.is_none() || wn.account_id == peer_info.account_id)
     }
 
+    // predicate checking whether we should allow an inbound connection from peer_info.
+    fn is_inbound_allowed(&self, peer_info: &PeerInfo) -> bool {
+        // Check if we have spare inbound connections capacity.
+        let tier2 = self.state.tier2.load();
+        if tier2.ready.len() + tier2.outbound_handshakes.len() < self.max_num_peers as usize
+            && !self.config.inbound_disabled
+        {
+            return true;
+        }
+        // Whitelisted nodes are allowed to connect, even if the inbound connections limit has
+        // been reached.
+        if self.is_peer_whitelisted(peer_info) {
+            return true;
+        }
+        false
+    }
+
     /// Returns peers close to the highest height
     fn highest_height_peers(&self) -> Vec<FullPeerInfo> {
         let infos: Vec<_> =
@@ -1363,7 +1375,7 @@ impl PeerManagerActor {
             peer_or_hash @ AccountOrPeerIdOrHash::PeerId(_)
             | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) => self.state.send_message_to_peer(
                 &self.clock,
-                RawRoutedMessage { target: peer_or_hash.clone(), body: msg },
+                self.state.sign_message(&self.clock,RawRoutedMessage { target: peer_or_hash.clone(), body: msg }),
             ),
         }
     }
@@ -1374,6 +1386,7 @@ impl PeerManagerActor {
         if msg.is_tier1() {
             if let Some((target, conn)) = self.state.get_tier1_connection(account_id) {
                 conn.send_message(Arc::new(PeerMessage::Routed(self.state.sign_message(
+                    &self.clock,
                     RawRoutedMessage {
                         target: AccountOrPeerIdOrHash::PeerId(target),
                         body: msg.clone(),
@@ -1398,7 +1411,7 @@ impl PeerManagerActor {
         };
 
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body: msg };
-        let msg = self.state.sign_message(msg);
+        let msg = self.state.sign_message(&self.clock, msg);
         if msg.body.is_important() {
             let mut success = false;
             for _ in 0..IMPORTANT_MESSAGE_RESENT_COUNT {
@@ -1547,7 +1560,7 @@ impl PeerManagerActor {
                         RoutedMessageBody::VersionedStateResponse(response)
                     }
                 };
-                if self.state.send_message_to_peer(self.state.sign_message(RawRoutedMessage {
+                if self.state.send_message_to_peer(&self.clock,self.state.sign_message(&self.clock,RawRoutedMessage {
                     target: AccountOrPeerIdOrHash::Hash(route_back),
                     body,
                 })) {
@@ -1618,7 +1631,7 @@ impl PeerManagerActor {
 
                         if let Some(matching_peer) = matching_peers.iter().choose(&mut thread_rng())
                         {
-                            if self.state.send_message_to_peer(self.state.sign_message(RawRoutedMessage {
+                            if self.state.send_message_to_peer(&self.clock,self.state.sign_message(&self.clock,RawRoutedMessage {
                                 target: AccountOrPeerIdOrHash::PeerId(matching_peer.clone()),
                                 body: RoutedMessageBody::PartialEncodedChunkRequest(
                                     request.clone(),
@@ -1641,7 +1654,7 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
-                if self.state.send_message_to_peer(self.state.sign_message(RawRoutedMessage {
+                if self.state.send_message_to_peer(&self.clock,self.state.sign_message(&self.clock,RawRoutedMessage {
                     target: AccountOrPeerIdOrHash::Hash(route_back),
                     body: RoutedMessageBody::PartialEncodedChunkResponse(response),
                 })) {
@@ -1807,7 +1820,7 @@ impl PeerManagerActor {
                 ctx.spawn(
                     self.state
                         .clone()
-                        .spawn_outbound(self.clock.clone(), msg.peer_info)
+                        .spawn_outbound(self.clock.clone(), msg.0, false)
                         .into_actor(self),
                 );
                 PeerManagerMessageResponse::OutboundTcpConnect
@@ -1848,7 +1861,7 @@ impl PeerManagerActor {
             }
             PeerToManagerMsg::RouteBack(body, target) => {
                 trace!(target: "network", ?target, "Sending message to route back");
-                self.state.send_message_to_peer(self.state.sign_message(RawRoutedMessage {
+                self.state.send_message_to_peer(&self.clock, self.state.sign_message(&self.clock, RawRoutedMessage {
                     target: AccountOrPeerIdOrHash::Hash(target),
                     body: *body,
                 }));

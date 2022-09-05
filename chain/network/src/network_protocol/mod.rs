@@ -752,7 +752,7 @@ impl RawRoutedMessage {
         node_key: &near_crypto::SecretKey,
         routed_message_ttl: u8,
         now: Option<time::Utc>,
-    ) -> Box<RoutedMessageV2> {
+    ) -> RoutedMessageV2 {
         let author = PeerId::new(node_key.public_key());
         let target = self.target.peer_id_or_hash().unwrap();
         let hash = RoutedMessage::build_hash(&target, &author, &self.body);
@@ -767,6 +767,5 @@ impl RawRoutedMessage {
             },
             created_at: now,
         }
-        .into()
     }
 }

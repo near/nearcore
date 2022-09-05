@@ -1,6 +1,5 @@
 use crate::blacklist;
 use near_crypto::{KeyType, SecretKey};
-use near_network_primitives::types::{Blacklist, BlacklistEntry};
 use near_store::{NodeStorage, StoreOpener};
 use std::collections::HashSet;
 use std::net::{Ipv4Addr, SocketAddrV4};
