@@ -148,9 +148,9 @@ pub(crate) enum StreamConfig {
 }
 
 #[derive(thiserror::Error, Debug)]
-enum RecvLoopError {
-    #[error("error while receiving message")]
-    Receiving(io::Error),
+enum RecvError {
+    #[error("IO error")]
+    IO(io::Error),
     #[error("message too large: got {got_bytes}B, want <={want_max_bytes}B")]
     MessageTooLarge { got_bytes: usize, want_max_bytes: usize },
 }
@@ -238,6 +238,7 @@ impl PeerActor {
                 _connection_guard: connection_guard,
             };
             let addr = ctx.address();
+            let clock = pa.clock.clone();
             let stats = pa.stats.clone();
             // Event loop receiving and processing messages.
             // After dispatching a message, loop starts parsing the next message immediately
@@ -248,47 +249,40 @@ impl PeerActor {
             // directly from the stream.
             ctx.spawn(
                 async move {
-                    const READ_BUFFER_CAPACITY: usize = 8 * 1024;
-                    let mut read = tokio::io::BufReader::with_capacity(READ_BUFFER_CAPACITY, read);
-                    loop {
-                        let n =
-                            read.read_u32_le().await.map_err(RecvLoopError::Receiving)? as usize;
-                        if n > NETWORK_MESSAGE_MAX_SIZE_BYTES {
-                            addr.do_send(RecvMessage(Err(ReasonForBan::Abusive)));
-                            return Err(RecvLoopError::MessageTooLarge {
-                                got_bytes: n,
-                                want_max_bytes: NETWORK_MESSAGE_MAX_SIZE_BYTES,
-                            });
+                    if let Err(err) = async {
+                        const READ_BUFFER_CAPACITY: usize = 8 * 1024;
+                        let mut read =
+                            tokio::io::BufReader::with_capacity(READ_BUFFER_CAPACITY, read);
+                        loop {
+                            let n = read.read_u32_le().await.map_err(RecvError::IO)? as usize;
+                            if n > NETWORK_MESSAGE_MAX_SIZE_BYTES {
+                                return Err(RecvError::MessageTooLarge {
+                                    got_bytes: n,
+                                    want_max_bytes: NETWORK_MESSAGE_MAX_SIZE_BYTES,
+                                });
+                            }
+                            let mut buf = vec![0; n];
+                            let t0 = clock.now();
+                            read.read_exact(&mut buf[..]).await.map_err(RecvError::IO)?;
+                            metrics::PEER_MSG_READ_LATENCY
+                                .observe((clock.now() - t0).as_seconds_f64());
+                            stats.received_messages.fetch_add(1, Ordering::Relaxed);
+                            stats.received_bytes.fetch_add(n as u64, Ordering::Relaxed);
+                            if let Err(_) = addr.send(RecvMessage(Ok(buf))).await {
+                                // We got mailbox error, which means that Actor has stopped,
+                                // so we should just close the stream.
+                                return Ok(());
+                            }
                         }
-                        let mut buf = Vec::new();
-                        buf.resize(n, 0);
-                        read.read_exact(&mut buf[..]).await.map_err(RecvLoopError::Receiving)?;
-                        stats.received_messages.fetch_add(1, Ordering::Relaxed);
-                        stats.received_bytes.fetch_add(n as u64, Ordering::Relaxed);
-                        addr.do_send(RecvMessage(Ok(buf)));
+                    }
+                    .await
+                    {
+                        // Send the critical error to the PeerActor (best effort).
+                        // PeerActor is responsible for calling ctx.stop() afterwards.
+                        addr.do_send(RecvMessage(Err(err)));
                     }
                 }
-                .into_actor(&pa)
-                .then(move |res: Result<(), RecvLoopError>, act, ctx| {
-                    if let Err(err) = res {
-                        match err {
-                            RecvLoopError::Receiving(err)
-                                if err.kind() == io::ErrorKind::UnexpectedEof => {}
-                            err => error!(
-                                target: "network",
-                                ?err,
-                                "{}",
-                                act.peer_info,
-                            ),
-                        }
-                    }
-                    // Here we rely on the fact that this ctx.stop() is executed AFTER
-                    // all dispatched message are processed (i.e. we rely on in-order
-                    // execution of the actix queue), or at least first phase of processing
-                    // is done (since the RecvMessage handler can schedule next messages).
-                    ctx.stop();
-                    actix::fut::ready(())
-                }),
+                .into_actor(&pa),
             );
             pa
         }))
@@ -807,7 +801,7 @@ impl WriteHandler<io::Error> for PeerActor {}
 
 #[derive(actix::Message)]
 #[rtype(result = "()")]
-struct RecvMessage(Result<Vec<u8>, ReasonForBan>);
+struct RecvMessage(Result<Vec<u8>, RecvError>);
 
 impl actix::Handler<RecvMessage> for PeerActor {
     type Result = ();
@@ -816,8 +810,12 @@ impl actix::Handler<RecvMessage> for PeerActor {
         let _span = tracing::trace_span!(target: "network", "handle", handler = "bytes").entered();
         let msg = match msg.0 {
             Ok(msg) => msg,
-            Err(ban_reason) => {
-                self.ban_peer(ctx, ban_reason);
+            Err(err) => {
+                error!(target: "network", ?err, "Closing connection to {}", self.peer_info);
+                if let RecvError::MessageTooLarge { .. } = err {
+                    self.ban_peer(ctx, ReasonForBan::Abusive);
+                }
+                ctx.stop();
                 return;
             }
         };
