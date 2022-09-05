@@ -2,7 +2,7 @@ use crate::tests::client::process_blocks::set_block_protocol_version;
 use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
-use near_logger_utils::init_test_logger;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::types::BlockHeight;
