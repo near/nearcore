@@ -282,11 +282,15 @@ impl std::fmt::Debug for TrieNode {
         let indent = fmtr.width().unwrap_or(0);
         match self {
             TrieNode::Empty => write!(fmtr, "{empty:indent$}Empty"),
-            TrieNode::Leaf(key, value) => write!(fmtr, "{empty:indent$}Leaf({:?}, {value:?})", NibbleSlice::from_encoded(key).0),
+            TrieNode::Leaf(key, value) => write!(
+                fmtr,
+                "{empty:indent$}Leaf({:?}, {value:?})",
+                NibbleSlice::from_encoded(key).0
+            ),
             TrieNode::Branch(children, value) => {
                 match value {
                     Some(value) => write!(fmtr, "{empty:indent$}Branch({value:?}):"),
-                    None => write!(fmtr, "{empty:indent$}Branch:")
+                    None => write!(fmtr, "{empty:indent$}Branch:"),
                 }?;
                 for (idx, child) in children.iter().enumerate() {
                     if let Some(child) = child {
