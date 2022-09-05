@@ -15,6 +15,10 @@
 * Added `near_peer_message_sent_by_type_bytes` and
   `near_peer_message_sent_by_type_total` Prometheus metrics measuring
   size and number of messages sent to peers.
+* `near_peer_message_received_total` Prometheus metric is now deprecated.
+  Instead of it aggregate `near_peer_message_received_by_type_total` metric
+  instead.  For example, to get total rate of received messages use
+  `sum(rate(near_peer_message_received_by_type_total{...}[5m]))`.
 
 ## 1.28.0 [2022-07-27]
 
