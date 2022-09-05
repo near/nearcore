@@ -80,9 +80,9 @@ const REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL: time::Duration =
     time::Duration::milliseconds(60_000);
 
 /// If we received more than `REPORT_BANDWIDTH_THRESHOLD_BYTES` of data from given peer it's bandwidth stats will be reported.
-// const REPORT_BANDWIDTH_THRESHOLD_BYTES: usize = 10_000_000;
+const REPORT_BANDWIDTH_THRESHOLD_BYTES: usize = 10_000_000;
 /// If we received more than REPORT_BANDWIDTH_THRESHOLD_COUNT` of messages from given peer it's bandwidth stats will be reported.
-// const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
+const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
 /// How long a peer has to be unreachable, until we prune it from the in-memory graph.
 const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
@@ -626,12 +626,13 @@ impl PeerManagerActor {
         let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
             .with_label_values(&["report_bandwidth_stats"])
             .start_timer();
-        let total_bandwidth_used_by_all_peers: usize = 0;
-        let total_msg_received_count: usize = 0;
-        let max_max_record_num_messages_in_progress: usize = 0;
-        for (_peer_id, _connected_peer) in &self.state.tier2.load().ready {
-            /*if bandwidth_used > REPORT_BANDWIDTH_THRESHOLD_BYTES
-                || total_msg_received_count > REPORT_BANDWIDTH_THRESHOLD_COUNT
+        let mut total_bandwidth_used_by_all_peers: usize = 0;
+        let mut total_msg_received_count: usize = 0;
+        for (peer_id, connected_peer) in &self.state.tier2.load().ready {
+            let bandwidth_used = connected_peer.stats.received_bytes.swap(0,Ordering::Relaxed) as usize;
+            let msg_received_count = connected_peer.stats.received_messages.swap(0,Ordering::Relaxed) as usize;
+            if bandwidth_used > REPORT_BANDWIDTH_THRESHOLD_BYTES
+                || msg_received_count > REPORT_BANDWIDTH_THRESHOLD_COUNT
             {
                 debug!(target: "bandwidth",
                     ?peer_id,
@@ -640,15 +641,12 @@ impl PeerManagerActor {
             }
             total_bandwidth_used_by_all_peers += bandwidth_used;
             total_msg_received_count += msg_received_count;
-            max_max_record_num_messages_in_progress =
-                max(max_max_record_num_messages_in_progress, max_record);
-            */
         }
 
         info!(
             target: "bandwidth",
             total_bandwidth_used_by_all_peers,
-            total_msg_received_count, max_max_record_num_messages_in_progress, "Bandwidth stats"
+            total_msg_received_count, "Bandwidth stats"
         );
 
         near_performance_metrics::actix::run_later(
@@ -1282,17 +1280,14 @@ impl PeerManagerActor {
             connected_peers: tier2
                 .ready
                 .values()
-                .map(|cp| {
-                    let stats = cp.stats.load();
-                    ConnectedPeerInfo {
-                        full_peer_info: cp.full_peer_info(),
-                        received_bytes_per_sec: stats.received_bytes_per_sec,
-                        sent_bytes_per_sec: stats.sent_bytes_per_sec,
-                        last_time_peer_requested: cp.last_time_peer_requested.load(),
-                        last_time_received_message: cp.last_time_received_message.load(),
-                        connection_established_time: cp.connection_established_time,
-                        peer_type: cp.peer_type,
-                    }
+                .map(|cp| ConnectedPeerInfo {
+                    full_peer_info: cp.full_peer_info(),
+                    received_bytes_per_sec: cp.stats.received_bytes_per_sec.load(Ordering::Relaxed),
+                    sent_bytes_per_sec: cp.stats.sent_bytes_per_sec.load(Ordering::Relaxed),
+                    last_time_peer_requested: cp.last_time_peer_requested.load(),
+                    last_time_received_message: cp.last_time_received_message.load(),
+                    connection_established_time: cp.connection_established_time,
+                    peer_type: cp.peer_type,
                 })
                 .collect(),
             num_connected_peers: tier2.ready.len(),
@@ -1301,12 +1296,12 @@ impl PeerManagerActor {
             sent_bytes_per_sec: tier2
                 .ready
                 .values()
-                .map(|x| x.stats.load().sent_bytes_per_sec)
+                .map(|x| x.stats.sent_bytes_per_sec.load(Ordering::Relaxed))
                 .sum(),
             received_bytes_per_sec: tier2
                 .ready
                 .values()
-                .map(|x| x.stats.load().received_bytes_per_sec)
+                .map(|x| x.stats.received_bytes_per_sec.load(Ordering::Relaxed))
                 .sum(),
             known_producers: self
                 .state

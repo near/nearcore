@@ -109,6 +109,8 @@ pub(crate) struct PeerActor {
 
     /// Tracker for requests and responses.
     tracker: Arc<Mutex<Tracker>>,
+    /// Network bandwidth stats.
+    stats: Arc<connection::Stats>,
     /// Edge information needed to build the real edge. This is relevant for handshake.
     partial_edge_info: Option<PartialEdgeInfo>,
     /// Cache of recently routed messages, this allows us to drop duplicates
@@ -149,8 +151,6 @@ pub(crate) enum StreamConfig {
 enum RecvLoopError {
     #[error("error while receiving message")]
     Receiving(io::Error),
-    #[error("error while processing message")]
-    Processing(actix::MailboxError),
     #[error("message too large: got {got_bytes}B, want <={want_max_bytes}B")]
     MessageTooLarge { got_bytes: usize, want_max_bytes: usize },
 }
@@ -214,6 +214,7 @@ impl PeerActor {
                     ctx,
                 ),
                 tracker: Default::default(),
+                stats: Arc::new(connection::Stats::default()),
                 partial_edge_info: match &stream_config {
                     StreamConfig::Inbound => None,
                     StreamConfig::Outbound { peer_id } => {
@@ -237,7 +238,10 @@ impl PeerActor {
                 _connection_guard: connection_guard,
             };
             let addr = ctx.address();
+            let stats = pa.stats.clone();
             // Event loop receiving and processing messages.
+            // After dispatching a message, loop starts parsing the next message immediately
+            // (i.e. it doesn't wait for the message to be processed).
             // It uses a fixed small buffer allocated by BufReader.
             // For each message it allocates a Vec with exact size of the message.
             // TODO(gprusak): once borsh support is dropped, we can parse a proto
@@ -250,9 +254,7 @@ impl PeerActor {
                         let n =
                             read.read_u32_le().await.map_err(RecvLoopError::Receiving)? as usize;
                         if n > NETWORK_MESSAGE_MAX_SIZE_BYTES {
-                            addr.send(RecvMessage(Err(ReasonForBan::Abusive)))
-                                .await
-                                .map_err(RecvLoopError::Processing)?;
+                            addr.do_send(RecvMessage(Err(ReasonForBan::Abusive)));
                             return Err(RecvLoopError::MessageTooLarge {
                                 got_bytes: n,
                                 want_max_bytes: NETWORK_MESSAGE_MAX_SIZE_BYTES,
@@ -261,12 +263,13 @@ impl PeerActor {
                         let mut buf = Vec::new();
                         buf.resize(n, 0);
                         read.read_exact(&mut buf[..]).await.map_err(RecvLoopError::Receiving)?;
-                        addr.send(RecvMessage(Ok(buf))).await.map_err(RecvLoopError::Processing)?;
+                        stats.received_messages.fetch_add(1,Ordering::Relaxed);
+                        stats.received_bytes.fetch_add(n as u64,Ordering::Relaxed);
+                        addr.do_send(RecvMessage(Ok(buf)));
                     }
                 }
                 .into_actor(&pa)
-                .then(move |res: Result<(), RecvLoopError>, act, ctx| {
-                    // Ban peer if client thinks received data is bad.
+                .then(move |res: Result<(), RecvLoopError>, act, ctx| { 
                     if let Err(err) = res {
                         match err {
                             RecvLoopError::Receiving(err) if err.kind()==io::ErrorKind::UnexpectedEof => {}
@@ -277,7 +280,11 @@ impl PeerActor {
                                 act.peer_info,
                             ),
                         }
-                    } 
+                    }
+                    // Here we rely on the fact that this ctx.stop() is executed AFTER
+                    // all dispatched message are processed (i.e. we rely on in-order
+                    // execution of the actix queue), or at least first phase of processing
+                    // is done (since the RecvMessage handler can schedule next messages).
                     ctx.stop();
                     actix::fut::ready(())
                 }),
@@ -1000,10 +1007,7 @@ impl actix::Handler<RecvMessage> for PeerActor {
                     chain_height: AtomicU64::new(handshake.sender_chain_info.height),
                     partial_edge_info: handshake.partial_edge_info.clone(),
                     peer_type: self.peer_type,
-                    stats: AtomicCell::new(connection::Stats {
-                        sent_bytes_per_sec: 0,
-                        received_bytes_per_sec: 0,
-                    }),
+                    stats: self.stats.clone(),
                     _peer_connections_metric: metrics::PEER_CONNECTIONS.new_point(
                         &metrics::Connection { type_: self.peer_type, encoding: self.encoding() },
                     ),
@@ -1031,10 +1035,8 @@ impl actix::Handler<RecvMessage> for PeerActor {
                             // TODO(gprusak): this stuff requires cleanup: only chain_info.height is
                             // expected to change. Rest of the content of chain_info is not relevant
                             // after handshake.
-                            connection.stats.store(connection::Stats {
-                                received_bytes_per_sec: received.bytes_per_min / 60,
-                                sent_bytes_per_sec: sent.bytes_per_min / 60,
-                            });
+                            connection.stats.received_bytes_per_sec.store(received.bytes_per_min / 60, Ordering::Relaxed);
+                            connection.stats.sent_bytes_per_sec.store(sent.bytes_per_min / 60, Ordering::Relaxed);
                             // Whether the peer is considered abusive due to sending too many messages.
                             // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
                             // some day be less than `u64::MAX`.
