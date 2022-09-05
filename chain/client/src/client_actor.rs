@@ -1986,23 +1986,31 @@ impl Handler<PreloadAccountData> for ClientActor {
             ));
         }
 
-        info!(target: "store", "Preloading cache with trie nodes for account {account_id}...");
+        let res = preload_account_state(account_id, &trie);
+        if let Err(e) = &res {
+            info!(target: "store", "Preloading cache with trie nodes for account {account_id} failed: {e}");
+        }
 
-        let prefix = near_primitives::trie_key::trie_key_parsers::get_raw_prefix_for_contract_data(
-            account_id,
-            &[],
-        );
-        let mut state_iter = trie.iter().map_err(|e| Error::Other(e.to_string()))?;
-        state_iter.seek(prefix).map_err(|e| Error::Other(e.to_string()))?;
-
-        // TODO: Parallelize.
-        // Maybe a BFS iterator implementation with tokio threads spawned on each branch.
-        // Or maybe BFS to find 64 equally weighted sub-tries and then use 64 threads with DFS.
-        let n = state_iter.count();
-        info!(target: "store", "Preloaded cache with {n} trie nodes for account {account_id}");
-
-        Ok(())
+        res
     }
+}
+
+fn preload_account_state(account_id: &AccountId, trie: &near_store::Trie) -> Result<(), Error> {
+    info!(target: "store", "Preloading cache with trie nodes for account {account_id}...");
+
+    let prefix = near_primitives::trie_key::trie_key_parsers::get_raw_prefix_for_contract_data(
+        account_id,
+        &[],
+    );
+    let mut state_iter = trie.iter().map_err(|e| Error::Other(e.to_string()))?;
+    state_iter.seek(prefix).map_err(|e| Error::Other(e.to_string()))?;
+
+    // TODO: Parallelize.
+    // Maybe a BFS iterator implementation with tokio threads spawned on each branch.
+    // Or maybe BFS to find 64 equally weighted sub-tries and then use 64 threads with DFS.
+    let n = state_iter.count();
+    info!(target: "store", "Preloaded cache with {n} trie nodes for account {account_id}");
+    Ok(())
 }
 
 /// Returns random seed sampled from the current thread
