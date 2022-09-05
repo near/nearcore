@@ -63,7 +63,8 @@ impl RocksDB {
     /// doesn’t exist nor any migrations will be performed if the database has
     /// database version different than expected.
     pub fn open(path: &Path, store_config: &StoreConfig, mode: Mode) -> io::Result<Self> {
-        Self::open_with_columns(path, store_config, mode, DBCol::iter())
+        let columns: Vec<DBCol> = DBCol::iter().collect();
+        Self::open_with_columns(path, store_config, mode, &columns)
     }
 
     /// Opens the database with given set of column families configured.
@@ -86,11 +87,11 @@ impl RocksDB {
         path: &Path,
         store_config: &StoreConfig,
         mode: Mode,
-        columns: impl Iterator<Item = DBCol> + Clone,
+        columns: &[DBCol],
     ) -> io::Result<Self> {
         let counter = instance_tracker::InstanceTracker::try_new(store_config.max_open_files)
             .map_err(other_error)?;
-        let (db, db_opt) = Self::open_db(path, store_config, mode, columns.clone())?;
+        let (db, db_opt) = Self::open_db(path, store_config, mode, columns)?;
         let cf_handles = Self::get_cf_handles(&db, columns);
         Ok(Self {
             db,
@@ -108,10 +109,12 @@ impl RocksDB {
         path: &Path,
         store_config: &StoreConfig,
         mode: Mode,
-        columns: impl Iterator<Item = DBCol>,
+        columns: &[DBCol],
     ) -> io::Result<(DB, Options)> {
         let options = rocksdb_options(store_config, mode);
         let cf_descriptors = columns
+            .iter()
+            .copied()
             .map(|col| {
                 rocksdb::ColumnFamilyDescriptor::new(
                     col_name(col),
@@ -144,8 +147,8 @@ impl RocksDB {
 
     /// Returns mapping from [`DBCol`] to cf handle used with RocksDB calls.
     ///
-    /// The mapping is created for column families given in the `columns`
-    /// iterator only.  All other columns will map to `None`.
+    /// The mapping is created for column families given in the `columns` list
+    /// only.  All other columns will map to `None`.
     ///
     /// ## Safety
     ///
@@ -154,10 +157,10 @@ impl RocksDB {
     /// relies on `db` returning stable mapping for column families.
     fn get_cf_handles(
         db: &DB,
-        columns: impl Iterator<Item = DBCol>,
+        columns: &[DBCol],
     ) -> enum_map::EnumMap<DBCol, Option<std::ptr::NonNull<ColumnFamily>>> {
         let mut cf_handles = enum_map::EnumMap::default();
-        for col in columns {
+        for col in columns.iter().copied() {
             let ptr = db
                 .cf_handle(&col_name(col))
                 .and_then(|cf| std::ptr::NonNull::new(cf as *const _ as *mut _))
