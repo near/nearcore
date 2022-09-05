@@ -659,7 +659,7 @@ mod tests {
     fn check_combine_state_parts(
         state_root: &CryptoHash,
         num_parts: u64,
-        parts: &Vec<Vec<Arc<[u8]>>>,
+        parts: &[Vec<Arc<[u8]>>],
     ) -> TrieChanges {
         let trie_changes = Trie::combine_state_parts_naive(state_root, parts).unwrap();
 

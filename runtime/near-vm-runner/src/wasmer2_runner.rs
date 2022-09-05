@@ -540,7 +540,7 @@ impl crate::runner::VM for Wasmer2VM {
         into_vm_result(result).err()
     }
 
-    fn check_compile(&self, code: &Vec<u8>) -> bool {
+    fn check_compile(&self, code: &[u8]) -> bool {
         self.compile_uncached(code).is_ok()
     }
 }

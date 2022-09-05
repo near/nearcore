@@ -85,7 +85,7 @@ impl ProgressReporter {
 
 fn old_outcomes(
     store: Store,
-    new_outcomes: &Vec<ExecutionOutcomeWithId>,
+    new_outcomes: &[ExecutionOutcomeWithId],
 ) -> Vec<ExecutionOutcomeWithId> {
     new_outcomes
         .iter()

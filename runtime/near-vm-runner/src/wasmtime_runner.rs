@@ -315,7 +315,7 @@ impl crate::runner::VM for WasmtimeVM {
         )))
     }
 
-    fn check_compile(&self, code: &Vec<u8>) -> bool {
+    fn check_compile(&self, code: &[u8]) -> bool {
         let mut config = default_config();
         let engine = get_engine(&mut config);
         Module::new(&engine, code).is_ok()

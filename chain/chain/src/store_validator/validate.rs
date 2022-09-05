@@ -652,7 +652,7 @@ pub(crate) fn header_hash_of_height_exists(
 pub(crate) fn outcome_by_outcome_id_exists(
     sv: &mut StoreValidator,
     block_hash: &CryptoHash,
-    outcome_ids: &Vec<CryptoHash>,
+    outcome_ids: &[CryptoHash],
 ) -> Result<(), StoreValidatorError> {
     for outcome_id in outcome_ids {
         let outcomes = unwrap_or_err_db!(
@@ -673,7 +673,7 @@ pub(crate) fn outcome_by_outcome_id_exists(
 pub(crate) fn outcome_id_block_exists(
     sv: &mut StoreValidator,
     block_hash: &CryptoHash,
-    _outcome_ids: &Vec<CryptoHash>,
+    _outcome_ids: &[CryptoHash],
 ) -> Result<(), StoreValidatorError> {
     unwrap_or_err_db!(
         sv.store.get_ser::<Block>(DBCol::Block, block_hash.as_ref()),
@@ -685,7 +685,7 @@ pub(crate) fn outcome_id_block_exists(
 pub(crate) fn outcome_indexed_by_block_hash(
     sv: &mut StoreValidator,
     outcome_id: &CryptoHash,
-    outcomes: &Vec<ExecutionOutcomeWithIdAndProof>,
+    outcomes: &[ExecutionOutcomeWithIdAndProof],
 ) -> Result<(), StoreValidatorError> {
     for outcome in outcomes {
         let block = unwrap_or_err_db!(
@@ -874,7 +874,7 @@ pub(crate) fn state_header_block_exists(
 pub(crate) fn state_part_header_exists(
     sv: &mut StoreValidator,
     key: &StatePartKey,
-    _part: &Vec<u8>,
+    _part: &[u8],
 ) -> Result<(), StoreValidatorError> {
     let StatePartKey(block_hash, shard_id, part_id) = *key;
     let state_header_key = unwrap_or_err!(

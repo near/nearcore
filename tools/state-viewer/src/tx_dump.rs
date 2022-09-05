@@ -8,7 +8,7 @@ use near_primitives::transaction::SignedTransaction;
 pub fn dump_tx_from_block(
     chain_store: &ChainStore,
     block: &Block,
-    select_account_ids: Option<&Vec<AccountId>>,
+    select_account_ids: Option<&[AccountId]>,
 ) -> Vec<SignedTransaction> {
     let chunks = block.chunks();
     let mut res = vec![];
@@ -31,7 +31,7 @@ pub fn dump_tx_from_block(
 
 fn should_include_signed_transaction(
     signed_transaction: &SignedTransaction,
-    select_account_ids: Option<&Vec<AccountId>>,
+    select_account_ids: Option<&[AccountId]>,
 ) -> bool {
     match select_account_ids {
         None => true,

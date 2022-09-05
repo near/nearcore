@@ -391,7 +391,7 @@ impl StoreUpdate {
     ///
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
-    pub fn set_ser<T: BorshSerialize>(
+    pub fn set_ser<T: BorshSerialize + ?Sized>(
         &mut self,
         column: DBCol,
         key: &[u8],
@@ -716,9 +716,9 @@ pub fn set_genesis_hash(store_update: &mut StoreUpdate, genesis_hash: &CryptoHas
         .expect("Borsh cannot fail");
 }
 
-pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &Vec<StateRoot>) {
+pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &[StateRoot]) {
     store_update
-        .set_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
+        .set_ser(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
         .expect("Borsh cannot fail");
 }
 

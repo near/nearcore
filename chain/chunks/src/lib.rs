@@ -952,11 +952,7 @@ impl ShardsManager {
         self.pool_for_shard(shard_id).insert_transaction(tx)
     }
 
-    pub fn remove_transactions(
-        &mut self,
-        shard_id: ShardId,
-        transactions: &Vec<SignedTransaction>,
-    ) {
+    pub fn remove_transactions(&mut self, shard_id: ShardId, transactions: &[SignedTransaction]) {
         if let Some(pool) = self.tx_pools.get_mut(&shard_id) {
             pool.remove_transactions(transactions)
         }
@@ -982,9 +978,9 @@ impl ShardsManager {
     pub fn reintroduce_transactions(
         &mut self,
         shard_id: ShardId,
-        transactions: &Vec<SignedTransaction>,
+        transactions: &[SignedTransaction],
     ) {
-        self.pool_for_shard(shard_id).reintroduce_transactions(transactions.clone());
+        self.pool_for_shard(shard_id).reintroduce_transactions(transactions.to_vec());
     }
 
     pub fn receipts_recipient_filter<T>(
@@ -992,7 +988,7 @@ impl ShardsManager {
         from_shard_id: ShardId,
         tracking_shards: T,
         receipts_by_shard: &HashMap<ShardId, Vec<Receipt>>,
-        proofs: &Vec<MerklePath>,
+        proofs: &[MerklePath],
     ) -> Vec<ReceiptProof>
     where
         T: IntoIterator<Item = ShardId>,
@@ -2018,7 +2014,7 @@ impl ShardsManager {
         balance_burnt: Balance,
         validator_proposals: Vec<ValidatorStake>,
         transactions: Vec<SignedTransaction>,
-        outgoing_receipts: &Vec<Receipt>,
+        outgoing_receipts: &[Receipt],
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         signer: &dyn ValidatorSigner,
@@ -2115,7 +2111,7 @@ impl ShardsManager {
             self.create_and_persist_partial_chunk(
                 &encoded_chunk,
                 merkle_paths,
-                shard_chunk.receipts().clone(),
+                shard_chunk.receipts().to_vec(),
                 &mut store_update,
             )?;
 

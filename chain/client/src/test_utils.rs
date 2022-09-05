@@ -1785,7 +1785,7 @@ pub fn create_chunk(
 /// and the catchup process can't catch up on these blocks yet.
 pub fn run_catchup(
     client: &mut Client,
-    highest_height_peers: &Vec<FullPeerInfo>,
+    highest_height_peers: &[FullPeerInfo],
 ) -> Result<(), Error> {
     let f = |_| {};
     let block_messages = Arc::new(RwLock::new(vec![]));

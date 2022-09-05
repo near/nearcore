@@ -1227,7 +1227,7 @@ impl Chain {
                 .get_epoch_block_approvers_ordered(header.prev_hash())?
                 .iter()
                 .map(|(x, is_slashed)| (x.stake_this_epoch, x.stake_next_epoch, *is_slashed))
-                .collect();
+                .collect::<Vec<_>>();
             if !Doomslug::can_approved_block_be_produced(
                 self.doomslug_threshold_mode,
                 header.approvals(),
@@ -1298,7 +1298,7 @@ impl Chain {
     /// upgrade.
     pub fn verify_challenges(
         &self,
-        challenges: &Vec<Challenge>,
+        challenges: &[Challenge],
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
     ) -> Result<(ChallengesResult, Vec<CryptoHash>), Error> {
@@ -2906,7 +2906,7 @@ impl Chain {
         shard_id: ShardId,
         sync_hash: CryptoHash,
         part_id: PartId,
-        data: &Vec<u8>,
+        data: &[u8],
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let chunk = shard_state_header.take_chunk();
@@ -3128,7 +3128,7 @@ impl Chain {
         epoch_first_block: &CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
-        affected_blocks: &Vec<CryptoHash>,
+        affected_blocks: &[CryptoHash],
     ) -> Result<(), Error> {
         debug!(
             "Finishing catching up blocks after syncing pre {:?}, me: {:?}",

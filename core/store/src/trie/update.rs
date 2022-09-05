@@ -34,7 +34,7 @@ pub struct TrieUpdate {
 
 pub enum TrieUpdateValuePtr<'a> {
     HashAndSize(&'a Trie, u32, CryptoHash),
-    MemoryRef(&'a Vec<u8>),
+    MemoryRef(&'a [u8]),
 }
 
 impl<'a> TrieUpdateValuePtr<'a> {
@@ -47,7 +47,7 @@ impl<'a> TrieUpdateValuePtr<'a> {
 
     pub fn deref_value(&self) -> Result<Vec<u8>, StorageError> {
         match self {
-            TrieUpdateValuePtr::MemoryRef(value) => Ok((*value).clone()),
+            TrieUpdateValuePtr::MemoryRef(value) => Ok(value.to_vec()),
             TrieUpdateValuePtr::HashAndSize(trie, _, hash) => {
                 trie.storage.retrieve_raw_bytes(hash).map(|bytes| bytes.to_vec())
             }
@@ -67,10 +67,10 @@ impl TrieUpdate {
     pub fn get_ref(&self, key: &TrieKey) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
         let key = key.to_vec();
         if let Some(key_value) = self.prospective.get(&key) {
-            return Ok(key_value.value.as_ref().map(TrieUpdateValuePtr::MemoryRef));
+            return Ok(key_value.value.as_deref().map(TrieUpdateValuePtr::MemoryRef));
         } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
             if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
-                return Ok(data.as_ref().map(TrieUpdateValuePtr::MemoryRef));
+                return Ok(data.as_deref().map(TrieUpdateValuePtr::MemoryRef));
             }
         }
 
@@ -170,12 +170,12 @@ impl crate::TrieAccess for TrieUpdate {
 }
 
 struct MergeIter<'a> {
-    left: Peekable<Box<dyn Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)> + 'a>>,
-    right: Peekable<Box<dyn Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)> + 'a>>,
+    left: Peekable<Box<dyn Iterator<Item = (&'a [u8], Option<&'a [u8]>)> + 'a>>,
+    right: Peekable<Box<dyn Iterator<Item = (&'a [u8], Option<&'a [u8]>)> + 'a>>,
 }
 
 impl<'a> Iterator for MergeIter<'a> {
-    type Item = (&'a Vec<u8>, &'a Option<Vec<u8>>);
+    type Item = (&'a [u8], Option<&'a [u8]>);
 
     fn next(&mut self) -> Option<Self::Item> {
         let res = match (self.left.peek(), self.right.peek()) {
@@ -228,20 +228,21 @@ impl<'a> TrieUpdateIterator<'a> {
         let committed_iter = state_update.committed.range(start_offset.clone()..).map(
             |(raw_key, changes_with_trie_key)| {
                 (
-                    raw_key,
-                    &changes_with_trie_key
+                    raw_key.as_slice(),
+                    changes_with_trie_key
                         .changes
                         .last()
                         .as_ref()
                         .expect("Committed entry should have at least one change.")
-                        .data,
+                        .data
+                        .as_deref(),
                 )
             },
         );
         let prospective_iter = state_update
             .prospective
             .range(start_offset..)
-            .map(|(raw_key, key_value)| (raw_key, &key_value.value));
+            .map(|(raw_key, key_value)| (raw_key.as_slice(), key_value.value.as_deref()));
         let overlay_iter = MergeIter {
             left: (Box::new(committed_iter) as Box<dyn Iterator<Item = _>>).peekable(),
             right: (Box::new(prospective_iter) as Box<dyn Iterator<Item = _>>).peekable(),
@@ -260,12 +261,8 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
     type Item = Result<Vec<u8>, StorageError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let stop_cond = |key: &Vec<u8>, prefix: &Vec<u8>, end_offset: &Option<Vec<u8>>| {
-            !key.starts_with(prefix)
-                || match end_offset {
-                    Some(end) => key >= end,
-                    None => false,
-                }
+        let stop_cond = |key: &[u8], prefix: &[u8], end_offset: &Option<Vec<u8>>| {
+            !key.starts_with(prefix) || end_offset.as_deref().map_or(false, |end| key >= end)
         };
         enum Ordering {
             Trie,
@@ -281,15 +278,11 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
                             stop_cond(left_key, &self.prefix, &self.end_offset),
                             stop_cond(*right_key, &self.prefix, &self.end_offset),
                         ) {
-                            (false, false) => {
-                                if left_key < *right_key {
-                                    Ordering::Trie
-                                } else if &left_key == right_key {
-                                    Ordering::Both
-                                } else {
-                                    Ordering::Overlay
-                                }
-                            }
+                            (false, false) => match left_key.as_slice().cmp(right_key) {
+                                std::cmp::Ordering::Less => Ordering::Trie,
+                                std::cmp::Ordering::Equal => Ordering::Both,
+                                std::cmp::Ordering::Greater => Ordering::Overlay,
+                            },
                             (false, true) => Ordering::Trie,
                             (true, false) => Ordering::Overlay,
                             (true, true) => {
@@ -322,14 +315,14 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
                     _ => None,
                 },
                 Ordering::Overlay => match self.overlay_iter.next() {
-                    Some((key, Some(_))) => Some(Ok(key.clone())),
+                    Some((key, Some(_))) => Some(Ok(key.to_vec())),
                     Some((_, None)) => continue,
                     None => None,
                 },
                 Ordering::Both => {
                     self.trie_iter.next();
                     match self.overlay_iter.next() {
-                        Some((key, Some(_))) => Some(Ok(key.clone())),
+                        Some((key, Some(_))) => Some(Ok(key.to_vec())),
                         Some((_, None)) => continue,
                         None => None,
                     }

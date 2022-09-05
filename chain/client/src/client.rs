@@ -1820,7 +1820,7 @@ impl Client {
     /// Walks through all the ongoing state syncs for future epochs and processes them
     pub fn run_catchup(
         &mut self,
-        highest_height_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &[FullPeerInfo],
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),

@@ -340,7 +340,7 @@ impl crate::runner::VM for Wasmer0VM {
         into_vm_result(result).err()
     }
 
-    fn check_compile(&self, code: &Vec<u8>) -> bool {
+    fn check_compile(&self, code: &[u8]) -> bool {
         wasmer_runtime::compile_with_config(
             code,
             wasmer_runtime::CompilerConfig { features: WASMER_FEATURES, ..Default::default() },

@@ -147,7 +147,10 @@ impl ShardTries {
                     if *col == DBCol::State {
                         let (shard_uid, hash) =
                             TrieCachingStorage::get_shard_uid_and_hash_from_key(key)?;
-                        shards.entry(shard_uid).or_insert(vec![]).push((hash, Some(value)));
+                        shards
+                            .entry(shard_uid)
+                            .or_insert(vec![])
+                            .push((hash, Some(value.as_slice())));
                     }
                 }
                 DBOp::DeleteAll { col } => {
@@ -175,7 +178,7 @@ impl ShardTries {
 
     fn apply_deletions_inner(
         &self,
-        deletions: &Vec<TrieRefcountChange>,
+        deletions: &[TrieRefcountChange],
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
@@ -191,7 +194,7 @@ impl ShardTries {
 
     fn apply_insertions_inner(
         &self,
-        insertions: &Vec<TrieRefcountChange>,
+        insertions: &[TrieRefcountChange],
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {

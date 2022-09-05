@@ -1612,7 +1612,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(result)
     }
 
-    fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &Vec<u8>) -> bool {
+    fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &[u8]) -> bool {
         match BorshDeserialize::try_from_slice(data) {
             Ok(trie_nodes) => {
                 match Trie::validate_trie_nodes_for_part(state_root, part_id, trie_nodes) {
