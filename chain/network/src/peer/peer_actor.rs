@@ -148,7 +148,7 @@ pub(crate) enum StreamConfig {
 #[derive(thiserror::Error, Debug)]
 enum RecvLoopError {
     #[error("error while receiving message")]
-    Receiving(tokio::io::Error),
+    Receiving(io::Error),
     #[error("error while processing message")]
     Processing(actix::MailboxError),
     #[error("message too large: got {got_bytes}B, want <={want_max_bytes}B")]
@@ -238,9 +238,14 @@ impl PeerActor {
             };
             let addr = ctx.address();
             // Event loop receiving and processing messages.
+            // It uses a fixed small buffer allocated by BufReader.
+            // For each message it allocates a Vec with exact size of the message.
+            // TODO(gprusak): once borsh support is dropped, we can parse a proto
+            // directly from the stream.
             ctx.spawn(
                 async move {
-                    let mut read = tokio::io::BufReader::new(read);
+                    const READ_BUFFER_CAPACITY : usize = 8 * 1024;
+                    let mut read = tokio::io::BufReader::with_capacity(READ_BUFFER_CAPACITY,read);
                     loop {
                         let n =
                             read.read_u32_le().await.map_err(RecvLoopError::Receiving)? as usize;
@@ -263,13 +268,16 @@ impl PeerActor {
                 .then(move |res: Result<(), RecvLoopError>, act, ctx| {
                     // Ban peer if client thinks received data is bad.
                     if let Err(err) = res {
-                        error!(
-                            target: "network",
-                            ?err,
-                            "{}",
-                            act.peer_info,
-                        );
-                    }
+                        match err {
+                            RecvLoopError::Receiving(err) if err.kind()==io::ErrorKind::UnexpectedEof => {}
+                            err => error!(
+                                target: "network",
+                                ?err,
+                                "{}",
+                                act.peer_info,
+                            ),
+                        }
+                    } 
                     ctx.stop();
                     actix::fut::ready(())
                 }),
