@@ -24,7 +24,7 @@
 //! ```rust
 //! use once_cell::sync::Lazy;
 //!
-//! use near_metrics::*;
+//! use near_o11y::metrics::*;
 //!
 //! // These metrics are "magically" linked to the global registry defined in `lighthouse_metrics`.
 //! pub static RUN_COUNT: Lazy<IntCounter> = Lazy::new(|| {

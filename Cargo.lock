@@ -2807,7 +2807,6 @@ dependencies = [
  "near-chain-primitives",
  "near-client-primitives",
  "near-crypto",
- "near-metrics",
  "near-o11y",
  "near-pool",
  "near-primitives",
@@ -2862,7 +2861,6 @@ dependencies = [
  "near-chain",
  "near-chunks-primitives",
  "near-crypto",
- "near-metrics",
  "near-network",
  "near-network-primitives",
  "near-o11y",
@@ -2904,7 +2902,6 @@ dependencies = [
  "near-chunks",
  "near-client-primitives",
  "near-crypto",
- "near-metrics",
  "near-network",
  "near-network-primitives",
  "near-o11y",
@@ -3039,7 +3036,6 @@ dependencies = [
  "near-jsonrpc-adversarial-primitives",
  "near-jsonrpc-client",
  "near-jsonrpc-primitives",
- "near-metrics",
  "near-network",
  "near-network-primitives",
  "near-o11y",
@@ -3144,15 +3140,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-metrics"
-version = "0.0.0"
-dependencies = [
- "once_cell",
- "prometheus",
- "tracing",
-]
-
-[[package]]
 name = "near-network"
 version = "0.0.0"
 dependencies = [
@@ -3175,7 +3162,6 @@ dependencies = [
  "itertools",
  "lru",
  "near-crypto",
- "near-metrics",
  "near-network-primitives",
  "near-o11y",
  "near-performance-metrics",
@@ -3237,6 +3223,7 @@ dependencies = [
  "once_cell",
  "opentelemetry",
  "opentelemetry-jaeger",
+ "prometheus",
  "strum",
  "thiserror",
  "tokio",
@@ -3279,7 +3266,7 @@ version = "0.0.0"
 dependencies = [
  "borsh",
  "near-crypto",
- "near-metrics",
+ "near-o11y",
  "near-primitives",
  "once_cell",
  "rand 0.7.3",
@@ -3429,7 +3416,6 @@ dependencies = [
  "insta",
  "lru",
  "near-crypto",
- "near-metrics",
  "near-o11y",
  "near-primitives",
  "num_cpus",
@@ -3452,7 +3438,7 @@ dependencies = [
  "actix",
  "awc",
  "futures",
- "near-metrics",
+ "near-o11y",
  "near-performance-metrics",
  "near-performance-metrics-macros",
  "near-primitives",
@@ -3595,7 +3581,6 @@ dependencies = [
  "near-jsonrpc",
  "near-jsonrpc-primitives",
  "near-mainnet-res",
- "near-metrics",
  "near-network",
  "near-network-primitives",
  "near-o11y",
@@ -3681,7 +3666,7 @@ dependencies = [
  "indicatif",
  "near-chain-configs",
  "near-crypto",
- "near-metrics",
+ "near-o11y",
  "near-primitives",
  "near-store",
  "near-test-contracts",

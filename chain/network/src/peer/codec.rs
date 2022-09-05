@@ -31,11 +31,11 @@ pub(crate) struct Codec {
     /// to report a metric even when the `Codec` doesn't modify the buffer (eg,
     /// when more data was added to the buffer, but not enough to form a full
     /// message).
-    buf_size_metric: near_metrics::IntGauge,
+    buf_size_metric: near_o11y::metrics::IntGauge,
 }
 
 impl Codec {
-    pub fn new(buf_size_metric: near_metrics::IntGauge) -> Codec {
+    pub fn new(buf_size_metric: near_o11y::metrics::IntGauge) -> Codec {
         Codec { buf_size_metric }
     }
 }
@@ -153,7 +153,7 @@ mod test {
     use tokio_util::codec::{Decoder, Encoder};
 
     pub(crate) fn make_codec() -> Codec {
-        use near_metrics::prometheus;
+        use near_o11y::metrics::prometheus;
         let opts = prometheus::Opts::new("test", "test");
         let gauge = prometheus::IntGaugeVec::new(opts, &["test"]).unwrap();
         Codec::new(gauge.with_label_values(&["127.0.0.1:3030"]))

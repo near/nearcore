@@ -23,7 +23,6 @@ tracing-subscriber = { version = "0.3.9", features = ["fmt", "env-filter", "std"
 near-chain-configs = { path = "../../core/chain-configs" }
 near-client-primitives = { path = "../client-primitives" }
 near-primitives = { path = "../../core/primitives" }
-near-metrics = { path = "../../core/metrics" }
 near-client = { path = "../client" }
 near-network = { path = "../network" }
 near-o11y = { path = "../../core/o11y" }
