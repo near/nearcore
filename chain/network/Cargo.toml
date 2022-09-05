@@ -57,7 +57,6 @@ near-primitives = { path = "../../core/primitives" }
 near-rate-limiter = { path = "../../utils/near-rate-limiter" }
 near-stable-hasher = { path = "../../utils/near-stable-hasher"}
 near-store = { path = "../../core/store" }
-near-logger-utils = { path = "../../test-utils/logger" }
 
 [dev-dependencies]
 criterion = { version = "0.3.5", default_features = false, features = ["html_reports", "cargo_bench_support"] }

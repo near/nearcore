@@ -185,7 +185,7 @@ impl DumpTxCmd {
             home_dir,
             near_config,
             store,
-            self.account_ids.as_ref(),
+            self.account_ids.as_deref(),
             self.output_path,
         )
         .expect("Failed to dump transaction...")
