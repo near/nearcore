@@ -174,7 +174,11 @@ pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
 
 /// Attempts to crate a `Histogram`, returning `Err` if the registry does not accept the counter
 /// (potentially due to naming conflict).
-pub fn try_create_histogram_with_buckets(name: &str, help: &str, buckets: Vec<f64>) -> Result<Histogram> {
+pub fn try_create_histogram_with_buckets(
+    name: &str,
+    help: &str,
+    buckets: Vec<f64>,
+) -> Result<Histogram> {
     let opts = HistogramOpts::new(name, help).buckets(buckets);
     let histogram = Histogram::with_opts(opts)?;
     prometheus::register(Box::new(histogram.clone()))?;
