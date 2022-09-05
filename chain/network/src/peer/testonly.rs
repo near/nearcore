@@ -167,16 +167,26 @@ impl PeerHandle {
     }
 
     pub async fn complete_handshake(&mut self) -> Edge {
-        match self.events.recv().await {
-            Event::HandshakeDone(edge) => edge,
-            ev => panic!("want HandshakeDone, got {ev:?}"),
-        }
+        self.events
+            .recv_until(|ev| match ev {
+                Event::HandshakeDone(edge) => Some(edge),
+                Event::Network(peer_manager_actor::Event::ConnectionClosed(_)) => {
+                    panic!("handshake failed")
+                }
+                _ => None,
+            })
+            .await
     }
     pub async fn fail_handshake(&mut self) {
-        match self.events.recv().await {
-            Event::Network(peer_manager_actor::Event::PeerActorStopped) => (),
-            ev => panic!("want PeerActorStopped, got {ev:?}"),
-        }
+        self.events
+            .recv_until(|ev| match ev {
+                Event::Network(peer_manager_actor::Event::ConnectionClosed(_)) => Some(()),
+                // HandshakeDone means that handshake succeeded locally,
+                // but in case this is an inbound connection, it can still
+                // fail on the other side. Therefore we cannot panic on HandshakeDone.
+                _ => None,
+            })
+            .await
     }
 
     pub fn routed_message(

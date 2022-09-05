@@ -329,7 +329,8 @@ async fn accounts_data_broadcast() {
     let data = chain.make_tier1_data(rng, clock);
 
     // Connect peer, expect initial sync to be empty.
-    let mut peer1 = pm.start_connection(rng, chain.clone()).await.handshake(clock).await;
+    let mut peer1 =
+        pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
     let got1 = peer1.events.recv_until(take_sync).await;
     assert_eq!(got1.accounts_data, vec![]);
 
@@ -344,7 +345,8 @@ async fn accounts_data_broadcast() {
     pm.wait_for_accounts_data(&want.iter().map(|d| d.into()).collect()).await;
 
     // Connect another peer and perform initial full sync.
-    let mut peer2 = pm.start_connection(rng, chain.clone()).await.handshake(clock).await;
+    let mut peer2 =
+        pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
     let got2 = peer2.events.recv_until(take_sync).await;
     assert_eq!(got2.accounts_data.as_set(), want.as_set());
 
@@ -567,18 +569,18 @@ async fn connection_spam_security_test() {
     .await;
 
     // Saturate the pending connections limit.
-    tracing::debug!("PHASE1");
     let mut conns = vec![];
     for _ in 0..LIMIT_PENDING_PEERS {
-        conns.push(pm.start_connection(rng, chain.clone()).await);
+        conns.push(pm.start_inbound(chain.clone(), chain.make_config(rng)).await);
     }
     // Try to establish additional connections. Should fail.
-    tracing::debug!("PHASE2");
     for _ in 0..10 {
-        pm.start_connection(rng, chain.clone()).await.fail_handshake(&clock.clock()).await;
+        pm.start_inbound(chain.clone(), chain.make_config(rng))
+            .await
+            .fail_handshake(&clock.clock())
+            .await;
     }
     // Terminate the pending connections. Should succeed.
-    tracing::debug!("PHASE3");
     for c in conns {
         c.handshake(&clock.clock()).await;
     }
