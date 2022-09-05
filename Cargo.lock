@@ -2941,6 +2941,7 @@ dependencies = [
  "near-crypto",
  "near-network-primitives",
  "near-primitives",
+ "once_cell",
  "serde",
  "serde_json",
  "strum",
@@ -3588,6 +3589,7 @@ dependencies = [
  "near-chain-configs",
  "near-chunks",
  "near-client",
+ "near-client-primitives",
  "near-crypto",
  "near-epoch-manager",
  "near-jsonrpc",
@@ -3802,9 +3804,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.12.0"
+version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7709cef83f0c1f58f666e746a08b21e0085f7440fa6a29cc194d68aac97a4225"
+checksum = "074864da206b4973b84eb91683020dbefd6a8c3f0f38e054d93954e891935e4e"
 
 [[package]]
 name = "oorandom"

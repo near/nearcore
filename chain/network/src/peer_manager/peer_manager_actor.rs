@@ -2,8 +2,7 @@ use crate::accounts_data;
 use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::{AccountData, SyncAccountsData};
-use crate::peer::codec::Codec;
-use crate::peer::peer_actor::{ConnectingStatus, PeerActor};
+use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
@@ -23,37 +22,32 @@ use crate::types::{
 };
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
-    Recipient, Running, StreamHandler, WrapFuture,
+    Recipient, Running, WrapFuture,
 };
 use anyhow::bail;
 use anyhow::Context as _;
 use arc_swap::ArcSwap;
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, Ban, Edge, InboundTcpConnect, KnownPeerStatus, KnownProducer,
-    NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash,
-    PeerInfo, PeerType, Ping, Pong, RawRoutedMessage, ReasonForBan, RoutedMessageBody,
-    RoutedMessageV2, StateResponseInfo,
+    AccountOrPeerIdOrHash, Ban, Edge, KnownPeerStatus, KnownProducer, NetworkViewClientMessages,
+    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerInfo, PeerType, Ping, Pong,
+    RawRoutedMessage, ReasonForBan, RoutedMessageBody, RoutedMessageV2, StateResponseInfo,
 };
 use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
-use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{AccountId, EpochId};
-use crate::peer::framed_read::{FramedRead};
 use parking_lot::RwLock;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
-use std::cmp::{min};
+use std::cmp::min;
 use std::collections::{HashMap, HashSet};
-use std::net::{IpAddr, SocketAddr};
-//use std::ops::Sub;
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
-use tokio_stream::StreamExt;
 use tracing::{debug, error, info, trace, warn, Instrument};
 
 /// How often to request peers from active peers.
@@ -85,12 +79,6 @@ const UPDATE_ROUTING_TABLE_INTERVAL: time::Duration = time::Duration::millisecon
 const REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL: time::Duration =
     time::Duration::milliseconds(60_000);
 
-/// Max number of messages we received from peer, and they are in progress, before we start throttling.
-/// Disabled for now (TODO PUT UNDER FEATURE FLAG)
-// const MAX_MESSAGES_COUNT: usize = usize::MAX;
-/// Max total size of all messages that are in progress, before we start throttling.
-/// Disabled for now (TODO PUT UNDER FEATURE FLAG)
-// const MAX_MESSAGES_TOTAL_SIZE: usize = usize::MAX;
 /// If we received more than `REPORT_BANDWIDTH_THRESHOLD_BYTES` of data from given peer it's bandwidth stats will be reported.
 // const REPORT_BANDWIDTH_THRESHOLD_BYTES: usize = 10_000_000;
 /// If we received more than REPORT_BANDWIDTH_THRESHOLD_COUNT` of messages from given peer it's bandwidth stats will be reported.
@@ -147,6 +135,8 @@ pub(crate) struct NetworkState {
     pub client_addr: Recipient<NetworkClientMessages>,
     /// Address of the view client actor.
     pub view_client_addr: Recipient<NetworkViewClientMessages>,
+    /// Address of the peer manager actor.
+    pub peer_manager_addr: Recipient<PeerToManagerMsg>,
 
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<ChainInfo>,
@@ -175,6 +165,7 @@ impl NetworkState {
         genesis_id: GenesisId,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
+        peer_manager_addr: Recipient<PeerToManagerMsg>,
         routing_table_view: RoutingTableView,
         send_accounts_data_rl: demux::RateLimit,
     ) -> Self {
@@ -182,6 +173,7 @@ impl NetworkState {
             genesis_id,
             client_addr,
             view_client_addr,
+            peer_manager_addr,
             chain_info: Default::default(),
             tier2: connection::Pool::new(config.node_id()),
             accounts_data: Arc::new(accounts_data::Cache::new()),
@@ -211,6 +203,58 @@ impl NetworkState {
             self.routing_table_view.get_local_edge(peer1).map_or(1, |edge| edge.next())
         });
         PartialEdgeInfo::new(&self.config.node_id(), peer1, nonce, &self.config.node_key)
+    }
+
+    /// Connects peer with given TcpStream.
+    /// It will fail (and log) if we have too many connections already,
+    /// or if the peer drops the connection in the meantime.
+    fn spawn_peer_actor(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+        stream: TcpStream,
+        stream_cfg: StreamConfig,
+    ) {
+        if let Err(err) = PeerActor::spawn(clock.clone(), stream, stream_cfg, None, self.clone()) {
+            tracing::info!(target:"network", ?err, "PeerActor::spawn()");
+        };
+    }
+
+    pub async fn spawn_inbound(self: &Arc<Self>, clock: &time::Clock, stream: TcpStream) {
+        self.spawn_peer_actor(clock, stream, StreamConfig::Inbound);
+    }
+
+    pub async fn spawn_outbound(self: Arc<Self>, clock: time::Clock, peer_info: PeerInfo) {
+        let addr = match peer_info.addr {
+            Some(addr) => addr,
+            None => {
+                warn!(target: "network", ?peer_info, "Trying to connect to peer with no public address");
+                return;
+            }
+        };
+        // The `connect` may take several minutes. This happens when the
+        // `SYN` packet for establishing a TCP connection gets silently
+        // dropped, in which case the default TCP timeout is applied. That's
+        // too long for us, so we shorten it to one second.
+        //
+        // Why exactly a second? It was hard-coded in a library we used
+        // before, so we keep it to preserve behavior. Removing the timeout
+        // completely was observed to break stuff for real on the testnet.
+        let stream =
+            match tokio::time::timeout(std::time::Duration::from_secs(1), TcpStream::connect(addr))
+                .await
+            {
+                Ok(Ok(it)) => it,
+                Ok(Err(err)) => {
+                    info!(target: "network", ?addr, ?err, "Error connecting to");
+                    return;
+                }
+                Err(err) => {
+                    info!(target: "network", ?addr, ?err, "Error connecting to");
+                    return;
+                }
+            };
+        debug!(target: "network", ?peer_info, "Connecting");
+        self.spawn_peer_actor(&clock, stream, StreamConfig::Outbound { peer_id: peer_info.id });
     }
 
     // Determine if the given target is referring to us.
@@ -370,9 +414,8 @@ impl Actor for PeerManagerActor {
         // Start server if address provided.
         if let Some(server_addr) = self.config.node_addr {
             debug!(target: "network", at = ?server_addr, "starting public server");
-            let peer_manager_addr = ctx.address();
+            let clock = self.clock.clone();
             let state = self.state.clone();
-
             ctx.spawn(
                 async move {
                     let listener = match TcpListener::bind(server_addr).await {
@@ -387,10 +430,13 @@ impl Actor for PeerManagerActor {
                     state.config.event_sink.push(Event::ServerStarted);
                     loop {
                         if let Ok((conn, client_addr)) = listener.accept().await {
-                            peer_manager_addr.do_send(PeerToManagerMsg::InboundTcpConnect(
-                                InboundTcpConnect::new(conn),
-                            ));
+                            // Always let the new peer to send a handshake message.
+                            // Only then we can decide whether we should accept a connection.
+                            // It is expected to be reasonably cheap: eventually, for TIER2 network
+                            // we would like to exchange set of connected peers even without establishing
+                            // a proper connection.
                             debug!(target: "network", from = ?client_addr, "got new connection");
+                            state.spawn_inbound(&clock, conn).await;
                         }
                     }
                 }
@@ -436,14 +482,14 @@ impl Actor for PeerManagerActor {
 }
 
 impl PeerManagerActor {
-    pub fn new(
+    pub fn spawn(
         clock: time::Clock,
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         genesis_id: GenesisId,
-    ) -> anyhow::Result<Self> {
+    ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
         let store = store::Store::from(store);
         let peer_store = PeerStore::new(
@@ -480,7 +526,7 @@ impl PeerManagerActor {
         };
         let config = Arc::new(config);
         let rl = config.accounts_data_broadcast_rate_limit;
-        Ok(Self {
+        Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| Self {
             clock,
             my_peer_id: my_peer_id.clone(),
             config: config.clone(),
@@ -497,10 +543,11 @@ impl PeerManagerActor {
                 genesis_id,
                 client_addr,
                 view_client_addr,
+                ctx.address().recipient(),
                 RoutingTableView::new(store, my_peer_id.clone()),
                 rl,
             )),
-        })
+        }))
     }
 
     fn update_routing_table(
@@ -855,73 +902,6 @@ impl PeerManagerActor {
         };
     }
 
-    /// Connects peer with given TcpStream and optional information if it's outbound.
-    /// This might fail if the other peers drop listener at its endpoint while establishing connection.
-    fn try_connect_peer(
-        &self,
-        recipient: Addr<Self>,
-        stream: TcpStream,
-        connecting_status: ConnectingStatus,
-        peer_info: Option<PeerInfo>,
-    ) {
-        let my_peer_id = self.my_peer_id.clone();
-        let account_id = self.config.validator.as_ref().map(|v| v.account_id());
-        let server_addr = self.config.node_addr;
-
-        let server_addr = match server_addr {
-            Some(server_addr) => server_addr,
-            None => match stream.local_addr() {
-                Ok(server_addr) => server_addr,
-                _ => {
-                    warn!(target: "network", ?peer_info, "Failed establishing connection with");
-                    return;
-                }
-            },
-        };
-
-        let remote_addr = match stream.peer_addr() {
-            Ok(remote_addr) => remote_addr,
-            _ => {
-                warn!(target: "network", ?peer_info, "Failed establishing connection with");
-                return;
-            }
-        };
-
-        // Start every peer actor on separate thread.
-        let arbiter = Arbiter::new();
-        let clock = self.clock.clone();
-        let state = self.state.clone();
-        PeerActor::start_in_arbiter(&arbiter.handle(), move |ctx| {
-            let (read, write) = tokio::io::split(stream);
-
-            // TODO: check if peer is banned or known based on IP address and port.
-            PeerActor::add_stream(
-                FramedRead::new(read).map_while(
-                    |x| match x {
-                        Ok(x) => Some(x),
-                        Err(err) => {
-                            warn!(target: "network", ?err, "Peer stream error");
-                            None
-                        }
-                    },
-                ),
-                ctx,
-            );
-
-            PeerActor::new(
-                clock,
-                PeerInfo { id: my_peer_id, addr: Some(server_addr), account_id },
-                remote_addr,
-                peer_info,
-                connecting_status,
-                FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
-                recipient.clone().recipient(),
-                None,
-                state,
-            )
-        });
-    }
-
     /// Check if it is needed to create a new outbound connection.
     /// If the number of active connections is less than `ideal_connections_lo` or
     /// (the number of outgoing connections is less than `minimum_outbound_peers`
@@ -954,15 +934,6 @@ impl PeerManagerActor {
             .filter(|wn| wn.id == peer_info.id)
             .filter(|wn| Some(wn.addr) == peer_info.addr)
             .any(|wn| wn.account_id.is_none() || wn.account_id == peer_info.account_id)
-    }
-
-    /// is_ip_whitelisted checks whether the IP address of an inbound
-    /// connection may belong to a whitelisted node. All whitelisted nodes
-    /// are required to have IP:port specified. We consider only IPs since
-    /// the port of an inbound TCP connection is assigned at random.
-    /// This predicate should be evaluated BEFORE the Handshake.
-    fn is_ip_whitelisted(&self, ip: &IpAddr) -> bool {
-        self.whitelist_nodes.iter().any(|wn| wn.addr.ip() == *ip)
     }
 
     /// Returns peers close to the highest height
@@ -1242,22 +1213,18 @@ impl PeerManagerActor {
     /// Bans peer `peer_id` if an invalid edge is found.
     /// `PeerManagerActor` periodically runs `broadcast_validated_edges_trigger`, which gets edges
     /// from `EdgeValidatorActor` concurrent queue and sends edges to be added to `RoutingTableActor`.
-    fn validate_edges_and_add_to_routing_table(
-        &self,
-        peer_id: PeerId,
-        edges: Vec<Edge>,
-    ) {
+    fn validate_edges_and_add_to_routing_table(&self, peer_id: PeerId, edges: Vec<Edge>) {
         if edges.is_empty() {
             return;
         }
-        self.routing_table_addr.do_send(
-            routing::actor::Message::ValidateEdgeList(ValidateEdgeList {
+        self.routing_table_addr.do_send(routing::actor::Message::ValidateEdgeList(
+            ValidateEdgeList {
                 source_peer_id: peer_id,
                 edges,
                 edges_info_shared: self.routing_table_exchange_helper.edges_info_shared.clone(),
                 sender: self.routing_table_exchange_helper.edges_to_add_sender.clone(),
-            }),
-        );
+            },
+        ));
     }
 
     /// Return whether the message is sent or not.
@@ -1604,90 +1571,6 @@ impl PeerManagerActor {
     }
 
     #[perf]
-    fn handle_msg_inbound_tcp_connect(&self, msg: InboundTcpConnect, ctx: &mut Context<Self>) {
-        let _d = delay_detector::DelayDetector::new(|| "inbound tcp connect".into());
-        let handshake_permit = match self
-            .state
-            .inbound_handshake_permits
-            .clone()
-            .try_acquire_owned()
-        {
-            Ok(it) => it,
-            Err(_) => {
-                debug!(target: "network", "Inbound connection dropped (too many ongoing inbound handshakes");
-                return;
-            }
-        };
-        if self.is_inbound_allowed()
-            || msg
-                .stream
-                .peer_addr()
-                .map(|addr| self.is_ip_whitelisted(&addr.ip()))
-                .unwrap_or(false)
-        {
-            self.try_connect_peer(
-                ctx.address(),
-                msg.stream,
-                ConnectingStatus::Inbound(handshake_permit),
-                None,
-            );
-        } else {
-            // TODO(1896): Gracefully drop inbound connection for other peer.
-            debug!(target: "network", "Inbound connection dropped (network at max capacity).");
-        }
-    }
-
-    #[perf]
-    fn handle_msg_outbound_tcp_connect(&self, msg: OutboundTcpConnect, ctx: &mut Context<Self>) {
-        let _d = delay_detector::DelayDetector::new(|| "outbound tcp connect".into());
-        debug!(target: "network", to = ?msg.peer_info, "Trying to connect");
-        if let Some(addr) = msg.peer_info.addr {
-            let handshake_permit = match self.state.tier2.start_outbound(msg.peer_info.id.clone()) {
-                Ok(it) => it,
-                Err(err) => {
-                    tracing::warn!(target: "network", peer_info = ?msg.peer_info, "cannot connect: {err}");
-                    return;
-                }
-            };
-            // The `connect` may take several minutes. This happens when the
-            // `SYN` packet for establishing a TCP connection gets silently
-            // dropped, in which case the default TCP timeout is applied. That's
-            // too long for us, so we shorten it to one second.
-            //
-            // Why exactly a second? It was hard-coded in a library we used
-            // before, so we keep it to preserve behavior. Removing the timeout
-            // completely was observed to break stuff for real on the testnet.
-            tokio::time::timeout(std::time::Duration::from_secs(1), TcpStream::connect(addr))
-                .into_actor(self)
-                .then(move |res, act, ctx| match res {
-                    Ok(res) => match res {
-                        Ok(stream) => {
-                            debug!(target: "network", peer_info = ?msg.peer_info, "Connecting");
-                            act.try_connect_peer(
-                                ctx.address(),
-                                stream,
-                                ConnectingStatus::Outbound(handshake_permit),
-                                Some(msg.peer_info),
-                            );
-                            actix::fut::ready(())
-                        }
-                        Err(err) => {
-                            info!(target: "network", ?addr, ?err, "Error connecting to");
-                            actix::fut::ready(())
-                        }
-                    },
-                    Err(err) => {
-                        info!(target: "network", ?addr, ?err, "Error connecting to");
-                        actix::fut::ready(())
-                    }
-                })
-                .wait(ctx);
-        } else {
-            warn!(target: "network", peer_info = ?msg.peer_info, "Trying to connect to peer with no public address");
-        }
-    }
-
-    #[perf]
     fn handle_msg_register_peer(
         &mut self,
         msg: RegisterPeer,
@@ -1809,13 +1692,18 @@ impl PeerManagerActor {
             tracing::trace_span!(target: "network", "handle_peer_manager_message").entered();
         match msg {
             PeerManagerMessageRequest::NetworkRequests(msg) => {
-                PeerManagerMessageResponse::NetworkResponses(self.handle_msg_network_requests(
-                    msg,
-                    ctx,
-                ))
+                PeerManagerMessageResponse::NetworkResponses(
+                    self.handle_msg_network_requests(msg, ctx),
+                )
             }
+            // TEST-ONLY
             PeerManagerMessageRequest::OutboundTcpConnect(msg) => {
-                self.handle_msg_outbound_tcp_connect(msg, ctx);
+                ctx.spawn(
+                    self.state
+                        .clone()
+                        .spawn_outbound(self.clock.clone(), msg.peer_info)
+                        .into_actor(self),
+                );
                 PeerManagerMessageResponse::OutboundTcpConnect
             }
             // TEST-ONLY
@@ -1863,10 +1751,6 @@ impl PeerManagerActor {
                 if let Err(err) = self.peer_store.add_direct_peer(&self.clock, peer_info) {
                     error!(target: "network", ?err, "Fail to update peer store");
                 }
-                PeerToManagerMsgResp::Empty
-            }
-            PeerToManagerMsg::InboundTcpConnect(msg) => {
-                self.handle_msg_inbound_tcp_connect(msg, ctx);
                 PeerToManagerMsgResp::Empty
             }
             PeerToManagerMsg::Unregister(msg) => {
