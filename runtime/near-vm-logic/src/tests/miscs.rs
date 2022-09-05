@@ -863,6 +863,8 @@ fn test_contract_size_limit() {
 #[cfg(feature = "protocol_feature_ed25519_verify")]
 #[test]
 fn test_ed25519_verify() {
+    use near_vm_errors::VMLogicError;
+
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
 
@@ -903,7 +905,7 @@ fn test_ed25519_verify() {
         ExtCosts::read_memory_byte: 128,
         ExtCosts::read_memory_base: 3,
         ExtCosts::ed25519_verify_base: 1,
-        ExtCosts::ed25519_verify_byte: 96,
+        ExtCosts::ed25519_verify_byte: 32,
     });
 
     let result = logic
@@ -923,6 +925,22 @@ fn test_ed25519_verify() {
         ExtCosts::read_memory_byte: 128,
         ExtCosts::read_memory_base: 3,
         ExtCosts::ed25519_verify_base: 1,
-        ExtCosts::ed25519_verify_byte: 96,
+        ExtCosts::ed25519_verify_byte: 32,
     });
+
+    let result = logic.ed25519_verify(
+        (signature.len() - 1) as _,
+        signature.as_ptr() as _,
+        message.len() as _,
+        message.as_ptr() as _,
+        public_key.len() as _,
+        public_key.as_ptr() as _,
+    );
+
+    assert_eq!(
+        result,
+        Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
+            msg: "invalid signature length".to_string()
+        }))
+    );
 }
