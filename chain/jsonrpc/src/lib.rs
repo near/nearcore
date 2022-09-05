@@ -25,10 +25,9 @@ pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
-use near_metrics::{prometheus, Encoder, TextEncoder};
 use near_network::types::{NetworkClientMessages, NetworkClientResponses};
+use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
@@ -271,7 +270,7 @@ impl JsonRpcHandler {
             "block" => process_method_call(request, |params| self.block(params)).await,
             "broadcast_tx_async" => {
                 process_method_call(request, |params| async {
-                    let tx = self.send_tx_async(params).await.to_base();
+                    let tx = self.send_tx_async(params).await.to_string();
                     Result::<_, std::convert::Infallible>::Ok(tx)
                 })
                 .await
@@ -740,6 +739,7 @@ impl JsonRpcHandler {
             let debug_status = match path {
                 "/debug/api/tracked_shards" => self.client_send(DebugStatus::TrackedShards).await?,
                 "/debug/api/sync_status" => self.client_send(DebugStatus::SyncStatus).await?,
+                "/debug/api/catchup_status" => self.client_send(DebugStatus::CatchupStatus).await?,
                 "/debug/api/epoch_info" => self.client_send(DebugStatus::EpochInfo).await?,
                 "/debug/api/block_status" => self.client_send(DebugStatus::BlockStatus).await?,
                 "/debug/api/validator_status" => {
@@ -1069,8 +1069,8 @@ impl JsonRpcHandler {
     async fn adv_set_sync_info(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let height = crate::api::parse_params::<u64>(params)?;
         actix::spawn(
-            self.view_client_addr
-                .send(near_network_primitives::types::NetworkViewClientMessages::Adversarial(
+            self.client_addr
+                .send(near_network::types::NetworkClientMessages::Adversarial(
                     near_network_primitives::types::NetworkAdversarialMessage::AdvSetSyncInfo(
                         height,
                     ),

@@ -9,6 +9,16 @@
 * `network.external_address` field in `config.json` file is
   deprecated.  In fact it has never been used and only served to
   confuse everyone [#7300](https://github.com/near/nearcore/pull/7300)
+* Due to increasing state size, improved shard cache for Trie nodes to
+  put more nodes in memory. Requires 3 GB more RAM
+  [#7429](https://github.com/near/nearcore/pull/7429)
+* Added `near_peer_message_sent_by_type_bytes` and
+  `near_peer_message_sent_by_type_total` Prometheus metrics measuring
+  size and number of messages sent to peers.
+* `near_peer_message_received_total` Prometheus metric is now deprecated.
+  Instead of it aggregate `near_peer_message_received_by_type_total` metric
+  instead.  For example, to get total rate of received messages use
+  `sum(rate(near_peer_message_received_by_type_total{...}[5m]))`.
 
 ## 1.28.0 [2022-07-27]
 

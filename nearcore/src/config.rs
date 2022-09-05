@@ -107,8 +107,8 @@ pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 /// Initial gas limit.
 pub const INITIAL_GAS_LIMIT: Gas = 1_000_000_000_000_000;
 
-/// Initial gas price.
-pub const MIN_GAS_PRICE: Balance = 1_000_000_000;
+/// Initial and minimum gas price.
+pub const MIN_GAS_PRICE: Balance = 100_000_000;
 
 /// Protocol treasury account
 pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
@@ -197,10 +197,6 @@ fn default_view_client_throttle_period() -> Duration {
 
 fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
-}
-
-fn default_use_checkpoints_for_db_migration() -> bool {
-    true
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -317,17 +313,20 @@ pub struct Config {
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gas_burnt_view: Option<Gas>,
-    /// Checkpoints let the user recover from interrupted DB migrations.
-    #[serde(default = "default_use_checkpoints_for_db_migration")]
-    pub use_db_migration_snapshot: bool,
-    /// Location of the DB checkpoint for the DB migrations. This can be one of the following:
-    /// * Empty, the checkpoint will be created in the database location, i.e. '$home/data'.
-    /// * Absolute path that points to an existing directory. The checkpoint will be a sub-directory in that directory.
-    /// For example, setting "use_db_migration_snapshot" to "/tmp/" will create a directory "/tmp/db_migration_snapshot" and populate it with the database files.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub db_migration_snapshot_path: Option<PathBuf>,
     /// Different parameters to configure/optimize underlying storage.
     pub store: near_store::StoreConfig,
+
+    // TODO(mina86): Remove those two altogether at some point.  We need to be
+    // somewhat careful though and make sure that we don’t start silently
+    // ignoring this option without users setting corresponding store option.
+    // For the time being, we’re failing inside of create_db_checkpoint if this
+    // option is set.
+    /// Deprecated; use `store.migration_snapshot` instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub use_db_migration_snapshot: Option<bool>,
+    /// Deprecated; use `store.migration_snapshot` instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub db_migration_snapshot_path: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -355,7 +354,7 @@ impl Default for Config {
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
             db_migration_snapshot_path: None,
-            use_db_migration_snapshot: true,
+            use_db_migration_snapshot: None,
             store: near_store::StoreConfig::default(),
         }
     }
@@ -851,8 +850,13 @@ pub fn init_configs(
     match chain_id.as_ref() {
         "mainnet" => {
             if test_seed.is_some() {
-                bail!("Test seed is not supported for MainNet");
+                bail!("Test seed is not supported for {chain_id}");
             }
+
+            // Make sure node tracks all shards, see
+            // https://github.com/near/nearcore/issues/7388
+            config.tracked_shards = vec![0];
+
             config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
             config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
@@ -868,8 +872,13 @@ pub fn init_configs(
         }
         "testnet" | "betanet" | "shardnet" => {
             if test_seed.is_some() {
-                bail!("Test seed is not supported for official testnet");
+                bail!("Test seed is not supported for {chain_id}");
             }
+
+            // Make sure node tracks all shards, see
+            // https://github.com/near/nearcore/issues/7388
+            config.tracked_shards = vec![0];
+
             config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
             config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
@@ -1234,20 +1243,21 @@ pub fn load_config(
         format!("Failed reading node key file from {}", node_key_path.display())
     })?;
 
-    let genesis_records_file = config.genesis_records_file.clone();
-    NearConfig::new(
-        config,
-        match genesis_records_file {
-            Some(genesis_records_file) => Genesis::from_files(
-                &genesis_file,
-                &dir.join(genesis_records_file),
-                genesis_validation,
-            ),
-            None => Genesis::from_file(&genesis_file, genesis_validation),
-        },
-        network_signer.into(),
-        validator_signer,
-    )
+    let genesis = match &config.genesis_records_file {
+        Some(records_file) => {
+            Genesis::from_files(&genesis_file, &dir.join(records_file), genesis_validation)
+        }
+        None => Genesis::from_file(&genesis_file, genesis_validation),
+    };
+
+    if matches!(genesis.config.chain_id.as_ref(), "mainnet" | "testnet" | "betanet" | "shardnet") {
+        // Make sure validators tracks all shards, see
+        // https://github.com/near/nearcore/issues/7388
+        anyhow::ensure!(!config.tracked_shards.is_empty(),
+                        "Validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
+    }
+
+    NearConfig::new(config, genesis, network_signer.into(), validator_signer)
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {

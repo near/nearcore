@@ -30,11 +30,6 @@ use near_primitives::time::Clock;
 
 mod validate;
 
-fn to_string<T: std::fmt::Debug>(v: &T) -> String {
-    format!("{:?}", v)
-}
-
-#[derive(Debug)]
 pub struct StoreValidatorCache {
     head: BlockHeight,
     header_head: BlockHeight,
@@ -124,12 +119,9 @@ impl StoreValidator {
         for col in DBCol::iter() {
             if col.is_gc() && self.inner.gc_count[col] == 0 {
                 if col.is_gc_optional() {
-                    res.push((
-                        to_string(&col) + " (skipping is acceptable)",
-                        self.inner.gc_count[col],
-                    ))
+                    res.push((format!("{col} (skipping is acceptable)"), self.inner.gc_count[col]))
                 } else {
-                    res.push((to_string(&col), self.inner.gc_count[col]))
+                    res.push((col.to_string(), self.inner.gc_count[col]))
                 }
             }
         }
@@ -143,7 +135,7 @@ impl StoreValidator {
         self.tests
     }
     fn process_error<K: std::fmt::Debug>(&mut self, err: StoreValidatorError, key: K, col: DBCol) {
-        self.errors.push(ErrorMessage { key: to_string(&key), col: to_string(&col), err })
+        self.errors.push(ErrorMessage { key: format!("{key:?}"), col: col.to_string(), err })
     }
     fn validate_col(&mut self, col: DBCol) -> Result<(), StoreValidatorError> {
         for item in self.store.clone().iter_raw_bytes(col) {
@@ -336,8 +328,7 @@ impl StoreValidator {
                 }
                 DBCol::StateParts => {
                     let key = StatePartKey::try_from_slice(key_ref)?;
-                    let part = value_ref.to_vec();
-                    self.check(&validate::state_part_header_exists, &key, &part, col);
+                    self.check(&validate::state_part_header_exists, &key, value_ref, col);
                 }
                 _ => {}
             }
@@ -366,7 +357,7 @@ impl StoreValidator {
             }
             if let Some(timeout) = self.timeout {
                 if self.start_time.elapsed() > Duration::from_millis(timeout) {
-                    warn!(target: "adversary", "Store validator hit timeout at {} ({}/{})", col.variant_name(), col.into_usize(), DBCol::LENGTH);
+                    warn!(target: "adversary", "Store validator hit timeout at {col} ({}/{})", col.into_usize(), DBCol::LENGTH);
                     return;
                 }
             }
@@ -401,7 +392,7 @@ impl StoreValidator {
         }
     }
 
-    fn check<K: std::fmt::Debug, V>(
+    fn check<K: std::fmt::Debug + ?Sized, V: ?Sized>(
         &mut self,
         f: &dyn Fn(&mut StoreValidator, &K, &V) -> Result<(), StoreValidatorError>,
         key: &K,
@@ -487,7 +478,7 @@ mod tests {
     #[test]
     fn test_discrepancy() {
         let (chain, mut sv) = init();
-        let block_header = chain.get_header_by_height(0).unwrap();
+        let block_header = chain.get_block_header_by_height(0).unwrap();
         assert!(validate::block_header_hash_validity(&mut sv, block_header.hash(), &block_header)
             .is_ok());
         match validate::block_header_hash_validity(&mut sv, &CryptoHash::default(), &block_header) {

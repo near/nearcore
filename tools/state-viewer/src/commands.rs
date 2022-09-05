@@ -15,7 +15,6 @@ use near_network::iter_peers_from_store;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::to_base;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
@@ -24,7 +23,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
 use near_store::test_utils::create_test_store;
-use near_store::Store;
+use near_store::{NodeStorage, Store};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
@@ -34,7 +33,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub(crate) fn peers(store: Store) {
+pub(crate) fn peers(store: NodeStorage) {
     iter_peers_from_store(store, |(peer_id, peer_info)| {
         println!("{} {:?}", peer_id, peer_info);
     })
@@ -44,9 +43,10 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
     let (runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
     println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
     for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
-        let trie = trie.iter(state_root).unwrap();
-        for item in trie {
+        let trie = runtime
+            .get_trie_for_shard(shard_id as u64, header.prev_hash(), state_root.clone())
+            .unwrap();
+        for item in trie.iter().unwrap() {
             let (key, value) = item.unwrap();
             if let Some(state_record) = StateRecord::from_raw_key_value(key, value) {
                 println!("{}", state_record);
@@ -118,7 +118,7 @@ pub(crate) fn dump_tx(
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
-    select_account_ids: Option<&Vec<AccountId>>,
+    select_account_ids: Option<&[AccountId]>,
     output_path: Option<String>,
 ) -> Result<(), Error> {
     let chain_store = ChainStore::new(
@@ -220,12 +220,14 @@ pub(crate) fn dump_account_storage(
     let (runtime, state_roots, header) =
         load_trie_stop_at_height(store, home_dir, &near_config, block_height);
     for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
+        let trie = runtime
+            .get_trie_for_shard(shard_id as u64, header.prev_hash(), state_root.clone())
+            .unwrap();
         let key = TrieKey::ContractData {
             account_id: account_id.parse().unwrap(),
             key: storage_key.as_bytes().to_vec(),
         };
-        let item = trie.get(state_root, &key.to_vec());
+        let item = trie.get(&key.to_vec());
         let value = item.unwrap();
         if let Some(value) = value {
             let record = StateRecord::from_raw_key_value(key.to_vec(), value).unwrap();
@@ -432,7 +434,7 @@ pub(crate) fn apply_block(
                 *block.header().random_value(),
                 true,
                 is_first_block_with_chunk_of_version,
-                None,
+                Default::default(),
             )
             .unwrap()
     } else {
@@ -456,7 +458,7 @@ pub(crate) fn apply_block(
                 *block.header().random_value(),
                 false,
                 false,
-                None,
+                Default::default(),
             )
             .unwrap()
     };
@@ -549,7 +551,7 @@ pub(crate) fn view_chain(
     let mut chunks = vec![];
     for (i, chunk_header) in block.chunks().iter().enumerate() {
         if chunk_header.height_included() == block.header().height() {
-            let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, shard_layout);
+            let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, &shard_layout);
             chunk_extras
                 .push((i, chain_store.get_chunk_extra(block.hash(), &shard_uid).unwrap().clone()));
             chunks.push((i, chain_store.get_chunk(&chunk_header.chunk_hash()).unwrap().clone()));
@@ -561,7 +563,7 @@ pub(crate) fn view_chain(
         .enumerate()
         .filter_map(|(i, chunk_header)| {
             if chunk_header.height_included() == block.header().height() {
-                let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, shard_layout);
+                let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, &shard_layout);
                 Some((i, chain_store.get_chunk_extra(block.hash(), &shard_uid).unwrap()))
             } else {
                 None
@@ -589,7 +591,7 @@ pub(crate) fn view_chain(
     }
 }
 
-pub(crate) fn check_block_chunk_existence(store: Store, near_config: NearConfig) {
+pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store) {
     let genesis_height = near_config.genesis.config.genesis_height;
     let chain_store = ChainStore::new(store, genesis_height, !near_config.client_config.archive);
     let head = chain_store.head().unwrap();
@@ -743,12 +745,12 @@ fn load_trie_stop_at_height(
     (runtime, state_roots, last_block.header().clone())
 }
 
-pub fn format_hash(h: CryptoHash, show_full_hashes: bool) -> String {
-    if show_full_hashes {
-        to_base(&h).to_string()
-    } else {
-        to_base(&h)[..7].to_string()
+fn format_hash(h: CryptoHash, show_full_hashes: bool) -> String {
+    let mut hash = h.to_string();
+    if !show_full_hashes {
+        hash.truncate(7);
     }
+    hash
 }
 
 pub fn chunk_mask_to_str(mask: &[bool]) -> String {

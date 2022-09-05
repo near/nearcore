@@ -9,9 +9,9 @@ use near_chunks::ShardsManager;
 use near_client::test_utils::{create_chunk, create_chunk_with_transactions, TestEnv};
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_logger_utils::init_test_logger;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::NetworkRequests;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk, StateItem,
 };
@@ -19,7 +19,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::num_rational::Ratio;
 use near_primitives::receipt::Receipt;
-use near_primitives::serialize::BaseDecode;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
@@ -183,7 +182,7 @@ fn create_invalid_proofs_chunk(
     create_chunk(
         client,
         None,
-        Some(CryptoHash::from_base("F5SvmQcKqekuKPJgLUNFgjB4ZgVmmiHsbDhTBSQbiywf").unwrap()),
+        Some("F5SvmQcKqekuKPJgLUNFgjB4ZgVmmiHsbDhTBSQbiywf".parse::<CryptoHash>().unwrap()),
     )
 }
 

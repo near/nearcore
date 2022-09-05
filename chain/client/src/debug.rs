@@ -4,7 +4,6 @@ use crate::ClientActor;
 use actix::{Context, Handler};
 use borsh::BorshSerialize;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
-use near_chain::types::ValidatorInfoIdentifier;
 use near_chain::{near_chain_primitives, ChainStoreAccess, RuntimeAdapter};
 use near_client_primitives::debug::{
     ApprovalAtHeightStatus, BlockProduction, ChunkCollection, DebugStatus, DebugStatusResponse,
@@ -18,7 +17,7 @@ use near_client_primitives::{
 use near_o11y::log_assert;
 use near_performance_metrics_macros::perf;
 use near_primitives::syncing::get_num_state_parts;
-use near_primitives::types::{AccountId, BlockHeight, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, ShardId, ValidatorInfoIdentifier};
 use near_primitives::{
     hash::CryptoHash,
     syncing::{ShardStateSyncResponseHeader, StateHeaderKey},
@@ -151,7 +150,7 @@ impl Handler<DebugStatus> for ClientActor {
     fn handle(&mut self, msg: DebugStatus, _ctx: &mut Context<Self>) -> Self::Result {
         match msg {
             DebugStatus::SyncStatus => {
-                Ok(DebugStatusResponse::SyncStatus(self.client.sync_status.clone()))
+                Ok(DebugStatusResponse::SyncStatus(self.client.sync_status.clone().into()))
             }
             DebugStatus::TrackedShards => {
                 Ok(DebugStatusResponse::TrackedShards(self.get_tracked_shards_view()?))
@@ -164,6 +163,9 @@ impl Handler<DebugStatus> for ClientActor {
             }
             DebugStatus::ValidatorStatus => {
                 Ok(DebugStatusResponse::ValidatorStatus(self.get_validator_status()?))
+            }
+            DebugStatus::CatchupStatus => {
+                Ok(DebugStatusResponse::CatchupStatus(self.client.get_catchup_status()?))
             }
         }
     }
@@ -488,7 +490,7 @@ impl ClientActor {
                 let mut production = ProductionAtHeight::default();
 
                 // The block may be in the last epoch from head, we need to account for that.
-                if let Ok(header) = self.client.chain.get_header_by_height(height) {
+                if let Ok(header) = self.client.chain.get_block_header_by_height(height) {
                     epoch_id = header.epoch_id().clone();
                 }
 

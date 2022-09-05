@@ -1,0 +1,39 @@
+[package]
+name = "near-epoch-manager"
+version = "0.0.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.63.0"
+edition = "2021"
+
+
+[dependencies]
+# Changing this version will lead to change to the protocol, as will change how validators get shuffled.
+protocol_defining_rand = { package = "rand", version = "0.6.5", default-features = false }
+tracing = "0.1.13"
+borsh = "0.9"
+rand = "0.7"
+serde_json = "1"
+smart-default = "0.6"
+primitive-types = { version = "0.10", default-features = false }
+num-rational = "0.3"
+chrono = { version = "0.4.4", optional = true}
+
+near-crypto = { path = "../../core/crypto" }
+near-primitives = { path = "../../core/primitives" }
+near-store = { path = "../../core/store" }
+near-chain-configs = { path = "../../core/chain-configs" }
+near-cache = { path = "../../utils/near-cache" }
+
+[features]
+expensive_tests = []
+protocol_feature_fix_staking_threshold = ["near-primitives/protocol_feature_fix_staking_threshold"]
+nightly = [
+  "nightly_protocol",
+  "near-primitives/nightly",
+  "protocol_feature_fix_staking_threshold",
+]
+mock_node = []
+nightly_protocol = ["near-primitives/nightly_protocol"]
+no_cache = []

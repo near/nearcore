@@ -38,6 +38,17 @@
 //! costs and don't want to just run everything in order (as that would be to
 //! slow), we have a very simple manual caching infrastructure in place.
 //!
+//! To run estimations on a non-empty DB with standardised content, we first
+//! dump all records to a `StateDump` written to a file. Then for each
+//! iteration of a an estimation, we first load the records from this dump into
+//! a fresh database. Afterwards, it is crucial to run compaction on RocksDB
+//! before starting measurements. Otherwise, the SST file layout can be very
+//! inefficient, as there was no time to restructure them. We assume that in
+//! production, the inflow of new data is not as bulky and therefore it should
+//! always be reasonably compacted. Also, without forcing it before
+//! measurements start, compaction may start during the measurement and makes
+//! the results unstable.
+//!
 //! Notes on code architecture:
 //!
 //! To keep estimations comprehensible, each estimation has a simple function
@@ -218,12 +229,10 @@ pub fn run(config: Config) -> CostTable {
     let mut res = CostTable::default();
 
     for (cost, f) in ALL_COSTS.iter().copied() {
-        let skip = match &ctx.config.costs_to_measure {
-            None => false,
-            Some(costs) => !costs.contains(&format!("{:?}", cost)),
-        };
-        if skip {
-            continue;
+        if let Some(costs) = &ctx.config.costs_to_measure {
+            if !costs.contains(&format!("{:?}", cost)) {
+                continue;
+            }
         }
 
         let start = Instant::now();

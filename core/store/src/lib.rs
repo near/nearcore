@@ -19,39 +19,70 @@ use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
-use near_primitives::serialize::to_base;
+use near_primitives::serialize::to_base58;
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 
 use crate::db::{
-    refcount, DBIterator, DBOp, DBTransaction, Database, RocksDB, StoreStatistics,
+    refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, RocksDB, StoreStatistics,
     GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
     estimator, split_state, ApplyStatePartResult, KeyForStateChanges, PartialStorage, ShardTries,
-    Trie, TrieCache, TrieCacheFactory, TrieCachingStorage, TrieChanges, TrieStorage,
+    Trie, TrieAccess, TrieCache, TrieCacheFactory, TrieCachingStorage, TrieChanges, TrieStorage,
     WrappedTrieChanges,
 };
 
 mod columns;
-mod config;
+pub mod config;
 pub mod db;
+pub mod flat_state;
 mod metrics;
 pub mod migrations;
 pub mod test_utils;
 mod trie;
+pub mod version;
 
 pub use crate::config::{Mode, StoreConfig, StoreOpener};
+pub use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError};
 
+/// Specifies temperature of a storage.
+///
+/// Since currently only hot storage is implemented, this has only one variant.
+/// In the future, certain parts of the code may need to access hot or cold
+/// storage.  Specifically, querying an old block will require reading it from
+/// the cold storage.
+pub enum Temperature {
+    Hot,
+}
+
+/// Node’s storage holding chain and all other necessary data.
+///
+/// The eventual goal is to implement cold storage at which point this structure
+/// will provide interface to access hot and cold storage.  This is in contrast
+/// to [`Store`] which will abstract access to only one of the temperatures of
+/// the storage.
+pub struct NodeStorage {
+    storage: Arc<dyn Database>,
+}
+
+/// Node’s single storage source.
+///
+/// Currently, this is somewhat equivalent to [`NodeStorage`] in that for given
+/// note storage you can get only a single [`Store`] object.  This will change
+/// as we implement cold storage in which case this structure will provide an
+/// interface to access either hot or cold data.  At that point, [`NodeStorage`]
+/// will map to one of two [`Store`] objects depending on the temperature of the
+/// data.
 #[derive(Clone)]
 pub struct Store {
     storage: Arc<dyn Database>,
 }
 
-impl Store {
+impl NodeStorage {
     /// Initialises a new opener with given home directory and store config.
     pub fn opener<'a>(home_dir: &std::path::Path, config: &'a StoreConfig) -> StoreOpener<'a> {
         StoreOpener::new(home_dir, config)
@@ -72,34 +103,94 @@ impl Store {
         (dir, opener)
     }
 
-    pub(crate) fn new(storage: Arc<dyn Database>) -> Store {
-        Store { storage }
+    /// Constructs new object backed by given database.
+    ///
+    /// Note that you most likely don’t want to use this method.  If you’re
+    /// opening an on-disk storage, you want to use [`Self::opener`] instead
+    /// which takes scare of opening the on-disk database and applying all the
+    /// necessary configuration.  If you need an in-memory database for testing,
+    /// you want either [`crate::test_utils::create_test_node_storage`] or
+    /// possibly [`crate::test_utils::create_test_store`] (depending whether you
+    /// need [`NodeStorage`] or [`Store`] object.
+    pub fn new(storage: Arc<dyn Database>) -> Self {
+        Self { storage }
     }
 
-    pub fn into_inner(self) -> Arc<dyn Database> {
-        self.storage
+    /// Returns storage for given temperature.
+    ///
+    /// Some data live only in hot and some only in cold storage (which is at
+    /// the moment not implemented but is planned soon).  Hot data is anything
+    /// at the head of the chain.  Cold data, if node is configured with split
+    /// storage, is anything archival.
+    ///
+    /// Based on block in whose context database access are going to be made,
+    /// you will either need to access hot or cold storage.  Temperature of the
+    /// data is, simplifying slightly, determined based on height of the block.
+    /// Anything above the tail of hot storage is hot and everything else is
+    /// cold.
+    pub fn get_store(&self, temp: Temperature) -> Store {
+        match temp {
+            Temperature::Hot => Store { storage: self.storage.clone() },
+        }
     }
 
-    pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
-        let value = self
-            .storage
-            .get_raw_bytes(column, key)
-            .map(|result| refcount::get_with_rc_logic(column, result))?;
+    /// Returns underlying database for given temperature.
+    ///
+    /// With (currently unimplemented) cold storage, this allows accessing
+    /// underlying hot and cold databases directly bypassing any abstractions
+    /// offered by [`NodeStorage`] or [`Store`] interfaces.
+    ///
+    /// This is useful for certain data which only lives in hot storage and
+    /// interfaces which deal with it.  For example, peer store uses hot
+    /// storage’s [`Database`] interface directly.
+    ///
+    /// Note that this is not appropriate for code which only ever accesses hot
+    /// storage but touches information kinds which live in cold storage as
+    /// well.  For example, garbage collection only ever touches hot storage but
+    /// it should go through [`Store`] interface since data it manipulates
+    /// (e.g. blocks) are live in both databases.
+    pub fn get_inner(&self, temp: Temperature) -> Arc<dyn Database> {
+        match temp {
+            Temperature::Hot => self.storage.clone(),
+        }
+    }
+
+    /// Returns underlying database for given temperature.
+    ///
+    /// This is like [`Self::get_inner`] but consumes `self` thus avoiding
+    /// `Arc::clone`.
+    pub fn into_inner(self, temp: Temperature) -> Arc<dyn Database> {
+        match temp {
+            Temperature::Hot => self.storage,
+        }
+    }
+}
+
+impl Store {
+    /// Fetches value from given column.
+    ///
+    /// If the key does not exist in the column returns `None`.  Otherwise
+    /// returns the data as [`DBSlice`] object.  The object dereferences into
+    /// a slice, for cases when caller doesn’t need to own the value, and
+    /// provides conversion into a vector or an Arc.
+    pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+        let value = if column.is_rc() {
+            self.storage.get_with_rc_stripped(column, key)
+        } else {
+            self.storage.get_raw_bytes(column, key)
+        }?;
         tracing::trace!(
             target: "store",
             db_op = "get",
-            col = ?column,
-            key = %to_base(key),
-            size = value.as_ref().map(Vec::len)
+            col = %column,
+            key = %to_base58(key),
+            size = value.as_deref().map(<[u8]>::len)
         );
         Ok(value)
     }
 
     pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
-        match self.get(column, key)? {
-            Some(bytes) => Ok(Some(T::try_from_slice(&bytes)?)),
-            None => Ok(None),
-        }
+        self.get(column, key)?.as_deref().map(T::try_from_slice).transpose()
     }
 
     pub fn exists(&self, column: DBCol, key: &[u8]) -> io::Result<bool> {
@@ -178,6 +269,11 @@ impl Store {
         self.storage.flush()
     }
 
+    /// Blocking compaction request if supported by storage.
+    pub fn compact(&self) -> io::Result<()> {
+        self.storage.compact()
+    }
+
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
         self.storage.get_store_statistics()
     }
@@ -214,7 +310,7 @@ impl StoreUpdate {
     /// It is a programming error if `insert` overwrites an existing, different
     /// value. Use it for insert-only columns.
     pub fn insert(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
-        assert!(column.is_insert_only(), "can't insert: {column:?}");
+        assert!(column.is_insert_only(), "can't insert: {column}");
         self.transaction.insert(column, key.to_vec(), value.to_vec())
     }
 
@@ -224,7 +320,7 @@ impl StoreUpdate {
         key: &[u8],
         value: &T,
     ) -> io::Result<()> {
-        assert!(column.is_insert_only(), "can't insert_ser: {column:?}");
+        assert!(column.is_insert_only(), "can't insert_ser: {column}");
         let data = value.try_to_vec()?;
         self.insert(column, key, &data);
         Ok(())
@@ -246,7 +342,7 @@ impl StoreUpdate {
         data: &[u8],
         increase: std::num::NonZeroU32,
     ) {
-        assert!(column.is_rc(), "can't update refcount: {column:?}");
+        assert!(column.is_rc(), "can't update refcount: {column}");
         let value = refcount::add_positive_refcount(data, increase);
         self.transaction.update_refcount(column, key.to_vec(), value);
     }
@@ -269,7 +365,7 @@ impl StoreUpdate {
         key: &[u8],
         decrease: std::num::NonZeroU32,
     ) {
-        assert!(column.is_rc(), "can't update refcount: {column:?}");
+        assert!(column.is_rc(), "can't update refcount: {column}");
         let value = refcount::encode_negative_refcount(decrease);
         self.transaction.update_refcount(column, key.to_vec(), value)
     }
@@ -288,7 +384,7 @@ impl StoreUpdate {
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
-        assert!(!(column.is_rc() || column.is_insert_only()), "can't set: {column:?}");
+        assert!(!(column.is_rc() || column.is_insert_only()), "can't set: {column}");
         self.transaction.set(column, key.to_vec(), value.to_vec())
     }
 
@@ -296,13 +392,13 @@ impl StoreUpdate {
     ///
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
-    pub fn set_ser<T: BorshSerialize>(
+    pub fn set_ser<T: BorshSerialize + ?Sized>(
         &mut self,
         column: DBCol,
         key: &[u8],
         value: &T,
     ) -> io::Result<()> {
-        assert!(!(column.is_rc() || column.is_insert_only()), "can't set_ser: {column:?}");
+        assert!(!(column.is_rc() || column.is_insert_only()), "can't set_ser: {column}");
         let data = value.try_to_vec()?;
         self.set(column, key, &data);
         Ok(())
@@ -323,7 +419,7 @@ impl StoreUpdate {
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn delete(&mut self, column: DBCol, key: &[u8]) {
-        assert!(!column.is_rc(), "can't delete: {column:?}");
+        assert!(!column.is_rc(), "can't delete: {column}");
         self.transaction.delete(column, key.to_vec());
     }
 
@@ -355,6 +451,17 @@ impl StoreUpdate {
         self.transaction.merge(other.transaction)
     }
 
+    pub fn update_cache(&self) -> io::Result<()> {
+        if let Some(tries) = &self.shard_tries {
+            // Note: avoid comparing wide pointers here to work-around
+            // https://github.com/rust-lang/rust/issues/69757
+            let addr = |arc| Arc::as_ptr(arc) as *const u8;
+            assert_eq!(addr(&tries.get_store().storage), addr(&self.storage),);
+            tries.update_cache(&self.transaction)?;
+        }
+        Ok(())
+    }
+
     pub fn commit(self) -> io::Result<()> {
         debug_assert!(
             {
@@ -375,30 +482,24 @@ impl StoreUpdate {
             "Transaction overwrites itself: {:?}",
             self
         );
-        if let Some(tries) = self.shard_tries {
-            // Note: avoid comparing wide pointers here to work-around
-            // https://github.com/rust-lang/rust/issues/69757
-            let addr = |arc| Arc::as_ptr(arc) as *const u8;
-            assert_eq!(addr(&tries.get_store().storage), addr(&self.storage),);
-            tries.update_cache(&self.transaction)?;
-        }
+        self.update_cache()?;
         let _span = tracing::trace_span!(target: "store", "commit").entered();
         for op in &self.transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "insert", col = ?col, key =  %to_base(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %to_base58(key), size = value.len())
                 }
                 DBOp::Set { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "set", col = ?col, key =  %to_base(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %to_base58(key), size = value.len())
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "update_rc", col = ?col, key =  %to_base(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %to_base58(key), size = value.len())
                 }
                 DBOp::Delete { col, key } => {
-                    tracing::trace!(target: "store", db_op = "delete", col = ?col, key =  %to_base(key))
+                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %to_base58(key))
                 }
                 DBOp::DeleteAll { col } => {
-                    tracing::trace!(target: "store", db_op = "delete_all", col = ?col)
+                    tracing::trace!(target: "store", db_op = "delete_all", col = %col)
                 }
             }
         }
@@ -411,13 +512,13 @@ impl fmt::Debug for StoreUpdate {
         writeln!(f, "Store Update {{")?;
         for op in self.transaction.ops.iter() {
             match op {
-                DBOp::Insert { col, key, .. } => writeln!(f, "  + {:?} {}", col, to_base(key))?,
-                DBOp::Set { col, key, .. } => writeln!(f, "  * {:?} {}", col, to_base(key))?,
+                DBOp::Insert { col, key, .. } => writeln!(f, "  + {col} {}", to_base58(key))?,
+                DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", to_base58(key))?,
                 DBOp::UpdateRefcount { col, key, .. } => {
-                    writeln!(f, "  +- {:?} {}", col, to_base(key))?
+                    writeln!(f, "  ± {col} {}", to_base58(key))?
                 }
-                DBOp::Delete { col, key } => writeln!(f, "  - {:?} {}", col, to_base(key))?,
-                DBOp::DeleteAll { col } => writeln!(f, "  delete all {:?}", col)?,
+                DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", to_base58(key))?,
+                DBOp::DeleteAll { col } => writeln!(f, "  - {col} (all)")?,
             }
         }
         writeln!(f, "}}")
@@ -428,10 +529,10 @@ impl fmt::Debug for StoreUpdate {
 /// # Errors
 /// see StorageError
 pub fn get<T: BorshDeserialize>(
-    state_update: &TrieUpdate,
+    trie: &dyn TrieAccess,
     key: &TrieKey,
 ) -> Result<Option<T>, StorageError> {
-    match state_update.get(key)? {
+    match trie.get(key)? {
         None => Ok(None),
         Some(data) => match T::try_from_slice(&data) {
             Err(_err) => {
@@ -453,10 +554,10 @@ pub fn set_account(state_update: &mut TrieUpdate, account_id: AccountId, account
 }
 
 pub fn get_account(
-    state_update: &TrieUpdate,
+    trie: &dyn TrieAccess,
     account_id: &AccountId,
 ) -> Result<Option<Account>, StorageError> {
-    get(state_update, &TrieKey::Account { account_id: account_id.clone() })
+    get(trie, &TrieKey::Account { account_id: account_id.clone() })
 }
 
 pub fn set_received_data(
@@ -469,11 +570,11 @@ pub fn set_received_data(
 }
 
 pub fn get_received_data(
-    state_update: &TrieUpdate,
+    trie: &dyn TrieAccess,
     receiver_id: &AccountId,
     data_id: CryptoHash,
 ) -> Result<Option<ReceivedData>, StorageError> {
-    get(state_update, &TrieKey::ReceivedData { receiver_id: receiver_id.clone(), data_id })
+    get(trie, &TrieKey::ReceivedData { receiver_id: receiver_id.clone(), data_id })
 }
 
 pub fn set_postponed_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
@@ -493,17 +594,17 @@ pub fn remove_postponed_receipt(
 }
 
 pub fn get_postponed_receipt(
-    state_update: &TrieUpdate,
+    trie: &dyn TrieAccess,
     receiver_id: &AccountId,
     receipt_id: CryptoHash,
 ) -> Result<Option<Receipt>, StorageError> {
-    get(state_update, &TrieKey::PostponedReceipt { receiver_id: receiver_id.clone(), receipt_id })
+    get(trie, &TrieKey::PostponedReceipt { receiver_id: receiver_id.clone(), receipt_id })
 }
 
 pub fn get_delayed_receipt_indices(
-    state_update: &TrieUpdate,
+    trie: &dyn TrieAccess,
 ) -> Result<DelayedReceiptIndices, StorageError> {
-    Ok(get(state_update, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default())
+    Ok(get(trie, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default())
 }
 
 pub fn set_access_key(
@@ -524,22 +625,22 @@ pub fn remove_access_key(
 }
 
 pub fn get_access_key(
-    state_update: &TrieUpdate,
+    trie: &dyn TrieAccess,
     account_id: &AccountId,
     public_key: &PublicKey,
 ) -> Result<Option<AccessKey>, StorageError> {
     get(
-        state_update,
+        trie,
         &TrieKey::AccessKey { account_id: account_id.clone(), public_key: public_key.clone() },
     )
 }
 
 pub fn get_access_key_raw(
-    state_update: &TrieUpdate,
+    trie: &dyn TrieAccess,
     raw_key: &[u8],
 ) -> Result<Option<AccessKey>, StorageError> {
     get(
-        state_update,
+        trie,
         &trie_key_parsers::parse_trie_key_access_key_from_raw_key(raw_key)
             .expect("access key in the state should be correct"),
     )
@@ -550,13 +651,12 @@ pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &Con
 }
 
 pub fn get_code(
-    state_update: &TrieUpdate,
+    trie: &dyn TrieAccess,
     account_id: &AccountId,
     code_hash: Option<CryptoHash>,
 ) -> Result<Option<ContractCode>, StorageError> {
-    state_update
-        .get(&TrieKey::ContractCode { account_id: account_id.clone() })
-        .map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
+    let key = TrieKey::ContractCode { account_id: account_id.clone() };
+    trie.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
 }
 
 /// Removes account, code and all access keys associated to it.
@@ -617,9 +717,9 @@ pub fn set_genesis_hash(store_update: &mut StoreUpdate, genesis_hash: &CryptoHas
         .expect("Borsh cannot fail");
 }
 
-pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &Vec<StateRoot>) {
+pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &[StateRoot]) {
     store_update
-        .set_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
+        .set_ser(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
         .expect("Borsh cannot fail");
 }
 
@@ -640,12 +740,16 @@ impl StoreCompiledContractCache {
 impl CompiledContractCache for StoreCompiledContractCache {
     fn put(&self, key: &CryptoHash, value: Vec<u8>) -> io::Result<()> {
         let mut update = crate::db::DBTransaction::new();
-        update.insert(DBCol::CachedContractCode, key.as_ref().to_vec(), value);
+        // We intentionally use `.set` here, rather than `.insert`. We don't yet
+        // guarantee deterministic compilation, so, if we happen to compile the
+        // same contract concurrently on two threads, the `value`s might differ,
+        // but this doesn't matter.
+        update.set(DBCol::CachedContractCode, key.as_ref().to_vec(), value);
         self.db.write(update)
     }
 
     fn get(&self, key: &CryptoHash) -> io::Result<Option<Vec<u8>>> {
-        self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref())
+        Ok(self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref())?.map(Vec::from))
     }
 }
 
@@ -653,7 +757,7 @@ impl CompiledContractCache for StoreCompiledContractCache {
 mod tests {
     use near_primitives::hash::CryptoHash;
 
-    use super::{DBCol, Store};
+    use super::{DBCol, NodeStorage, Store, Temperature};
 
     #[test]
     fn test_no_cache_disabled() {
@@ -670,7 +774,7 @@ mod tests {
             store_update.increment_refcount(DBCol::State, &[3], &[3]);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), Some(vec![1]));
+        assert_eq!(store.get(DBCol::State, &[1]).unwrap().as_deref(), Some(&[1][..]));
         {
             let mut store_update = store.store_update();
             store_update.delete_all(DBCol::State);
@@ -681,8 +785,8 @@ mod tests {
 
     #[test]
     fn clear_column_rocksdb() {
-        let (_tmp_dir, opener) = Store::test_opener();
-        test_clear_column(opener.open());
+        let (_tmp_dir, opener) = NodeStorage::test_opener();
+        test_clear_column(opener.open().unwrap().get_store(Temperature::Hot));
     }
 
     #[test]
@@ -753,7 +857,8 @@ mod tests {
 
     #[test]
     fn rocksdb_iter_order() {
-        test_iter_order_impl(Store::test_opener().1.open());
+        let (_tempdir, opener) = NodeStorage::test_opener();
+        test_iter_order_impl(opener.open().unwrap().get_store(Temperature::Hot));
     }
 
     #[test]

@@ -127,14 +127,6 @@ impl FromStr for PeerInfo {
     }
 }
 
-impl TryFrom<&str> for PeerInfo {
-    type Error = ParsePeerInfoError;
-
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        Self::from_str(s)
-    }
-}
-
 /// Peer chain information.
 /// TODO: Remove in next version
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -201,14 +193,22 @@ pub enum RoutedMessageBody {
     TxStatusRequest(AccountId, CryptoHash),
     TxStatusResponse(FinalExecutionOutcomeView),
 
-    // Kept for backwards borsh compatibility.
+    /// Not used, but needed for borsh backward compatibility.
     _UnusedQueryRequest,
-    // Kept for backwards borsh compatibility.
+    /// Not used, but needed for borsh backward compatibility.
     _UnusedQueryResponse,
 
+    /// Not used any longer and ignored when received.
+    ///
+    /// We’ve been still sending those messages at protocol version 56 so we
+    /// need to wait until 59 before we can remove the variant completely.
+    /// Until then we need to be able to decode those messages (even though we
+    /// will ignore them).
     ReceiptOutcomeRequest(CryptoHash),
-    /// Not used, but needed to preserve backward compatibility.
-    Unused,
+
+    /// Not used, but needed to borsh backward compatibility.
+    _UnusedReceiptOutcomeResponse,
+
     StateRequestHeader(ShardId, CryptoHash),
     StateRequestPart(ShardId, CryptoHash, u64),
     StateResponse(StateResponseInfoV1),
@@ -267,9 +267,10 @@ impl Debug for RoutedMessageBody {
             RoutedMessageBody::TxStatusResponse(response) => {
                 write!(f, "TxStatusResponse({})", response.transaction.hash)
             }
-            RoutedMessageBody::_UnusedQueryRequest { .. } => write!(f, "QueryRequest"),
-            RoutedMessageBody::_UnusedQueryResponse { .. } => write!(f, "QueryResponse"),
+            RoutedMessageBody::_UnusedQueryRequest => write!(f, "QueryRequest"),
+            RoutedMessageBody::_UnusedQueryResponse => write!(f, "QueryResponse"),
             RoutedMessageBody::ReceiptOutcomeRequest(hash) => write!(f, "ReceiptRequest({})", hash),
+            RoutedMessageBody::_UnusedReceiptOutcomeResponse => write!(f, "ReceiptResponse"),
             RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
                 write!(f, "StateRequestHeader({}, {})", shard_id, sync_hash)
             }
@@ -308,7 +309,6 @@ impl Debug for RoutedMessageBody {
             ),
             RoutedMessageBody::Ping(_) => write!(f, "Ping"),
             RoutedMessageBody::Pong(_) => write!(f, "Pong"),
-            RoutedMessageBody::Unused => write!(f, "Unused"),
         }
     }
 }

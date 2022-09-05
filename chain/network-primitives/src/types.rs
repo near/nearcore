@@ -16,7 +16,6 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 use serde::Serialize;
@@ -34,7 +33,9 @@ pub use crate::network_protocol::{
 };
 
 pub use crate::blacklist::{Blacklist, Entry as BlacklistEntry};
-pub use crate::network_protocol::edge::{Edge, EdgeState, PartialEdgeInfo};
+pub use crate::network_protocol::edge::{
+    Edge, EdgeState, PartialEdgeInfo, EDGE_MIN_TIMESTAMP_NONCE,
+};
 
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
@@ -113,7 +114,7 @@ impl RawRoutedMessage {
         secret_key: &SecretKey,
         routed_message_ttl: u8,
         now: Option<time::Utc>,
-    ) -> Box<RoutedMessageV2> {
+    ) -> RoutedMessageV2 {
         let target = self.target.peer_id_or_hash().unwrap();
         let hash = RoutedMessage::build_hash(&target, &author, &self.body);
         let signature = secret_key.sign(hash.as_ref());
@@ -127,19 +128,7 @@ impl RawRoutedMessage {
             },
             created_at: now,
         }
-        .into()
     }
-}
-
-/// Routed Message wrapped with previous sender of the message.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(actix::Message, Clone, Debug)]
-#[rtype(result = "bool")]
-pub struct RoutedMessageFrom {
-    /// Routed messages.
-    pub msg: Box<RoutedMessageV2>,
-    /// Previous hop in the route. Used for messages that needs routing back.
-    pub from: PeerId,
 }
 
 /// Status of the known peers.
@@ -292,10 +281,6 @@ pub enum NetworkViewClientMessages {
     TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
     /// Transaction status response
     TxStatusResponse(Box<FinalExecutionOutcomeView>),
-    /// Request for receipt outcome
-    ReceiptOutcomeRequest(CryptoHash),
-    /// Receipt outcome response
-    ReceiptOutcomeResponse(Box<ExecutionOutcomeWithIdAndProof>),
     /// Request a block.
     BlockRequest(CryptoHash),
     /// Request headers.
@@ -318,8 +303,6 @@ pub enum NetworkViewClientMessages {
 pub enum NetworkViewClientResponses {
     /// Transaction execution outcome
     TxStatus(Box<FinalExecutionOutcomeView>),
-    /// Receipt outcome response
-    ReceiptOutcomeResponse(Box<ExecutionOutcomeWithIdAndProof>),
     /// Block response.
     Block(Box<Block>),
     /// Headers response.
@@ -375,7 +358,6 @@ mod tests {
         assert_size!(Pong);
         assert_size!(RawRoutedMessage);
         assert_size!(RoutedMessage);
-        assert_size!(RoutedMessageFrom);
         assert_size!(KnownPeerState);
         assert_size!(InboundTcpConnect);
         assert_size!(OutboundTcpConnect);

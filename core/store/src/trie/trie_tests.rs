@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 /// TrieMemoryPartialStorage, but contains only the first n requested nodes.
 pub struct IncompletePartialStorage {
-    pub(crate) recorded_storage: HashMap<CryptoHash, Vec<u8>>,
+    pub(crate) recorded_storage: HashMap<CryptoHash, Arc<[u8]>>,
     pub(crate) visited_nodes: RefCell<HashSet<CryptoHash>>,
     pub node_count_to_fail_after: usize,
 }
@@ -34,10 +34,7 @@ impl IncompletePartialStorage {
 
 impl TrieStorage for IncompletePartialStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let result = self
-            .recorded_storage
-            .get(hash)
-            .map_or_else(|| Err(StorageError::TrieNodeMissing), |val| Ok(val.as_slice().into()));
+        let result = self.recorded_storage.get(hash).cloned().ok_or(StorageError::TrieNodeMissing);
 
         if result.is_ok() {
             self.visited_nodes.borrow_mut().insert(*hash);
@@ -80,10 +77,11 @@ where
     print!("Test touches {} nodes, expected result {:?}...", size, expected);
     for i in 0..(size + 1) {
         let storage = IncompletePartialStorage::new(storage.clone(), i);
-        let trie = Trie { storage: Box::new(storage) };
+        let new_trie =
+            Trie { storage: Box::new(storage), root: trie.get_root().clone(), flat_state: None };
         let expected_result =
             if i < size { Err(&StorageError::TrieNodeMissing) } else { Ok(&expected) };
-        assert_eq!(test(Rc::new(trie)).as_ref(), expected_result);
+        assert_eq!(test(Rc::new(new_trie)).as_ref(), expected_result);
     }
     println!("Success");
 }
@@ -94,27 +92,25 @@ fn test_reads_with_incomplete_storage() {
     for _ in 0..50 {
         let tries = create_tries_complex(1, 2);
         let shard_uid = ShardUId { version: 1, shard_id: 0 };
-        let trie = tries.get_trie_for_shard(shard_uid);
-        let trie = Rc::new(trie);
-        let mut state_root = Trie::EMPTY_ROOT;
         let trie_changes = gen_changes(&mut rng, 20);
         let trie_changes = simplify_changes(&trie_changes);
         if trie_changes.is_empty() {
             continue;
         }
-        state_root = test_populate_trie(&tries, &state_root, shard_uid, trie_changes.clone());
+        let state_root =
+            test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes.clone());
+        let trie = Rc::new(tries.get_trie_for_shard(shard_uid, state_root));
 
         {
             let (key, _) = trie_changes.choose(&mut rng).unwrap();
             println!("Testing lookup {:?}", key);
-            let lookup_test =
-                |trie: Rc<Trie>| -> Result<_, StorageError> { trie.get(&state_root, key) };
+            let lookup_test = |trie: Rc<Trie>| -> Result<_, StorageError> { trie.get(key) };
             test_incomplete_storage(Rc::clone(&trie), lookup_test);
         }
         {
             println!("Testing TrieIterator over whole trie");
             let trie_records = |trie: Rc<Trie>| -> Result<_, StorageError> {
-                let iterator = trie.iter(&state_root)?;
+                let iterator = trie.iter()?;
                 iterator.collect::<Result<Vec<_>, _>>()
             };
             test_incomplete_storage(Rc::clone(&trie), trie_records);
@@ -124,7 +120,7 @@ fn test_reads_with_incomplete_storage() {
             let key_prefix = &key[0..rng.gen_range(0, key.len() + 1)];
             println!("Testing TrieUpdateIterator over prefix {:?}", key_prefix);
             let trie_update_keys = |trie: Rc<Trie>| -> Result<_, StorageError> {
-                let trie_update = TrieUpdate::new(trie, state_root);
+                let trie_update = TrieUpdate::new(trie);
                 let keys = trie_update.iter(key_prefix)?.collect::<Result<Vec<_>, _>>()?;
                 Ok(keys)
             };
@@ -143,28 +139,22 @@ mod nodes_counter_tests {
         NibbleSlice::encode_nibbles(&nibbles, false).into_vec()
     }
 
-    fn create_trie(items: &[(Vec<u8>, Option<Vec<u8>>)]) -> (Rc<Trie>, CryptoHash) {
+    fn create_trie(items: &[(Vec<u8>, Option<Vec<u8>>)]) -> Rc<Trie> {
         let tries = create_tries();
         let shard_uid = ShardUId { version: 1, shard_id: 0 };
-        let trie = tries.get_trie_for_shard(shard_uid);
-        let trie = Rc::new(trie);
-        let state_root = Trie::EMPTY_ROOT;
         let trie_changes = simplify_changes(&items);
-        let state_root = test_populate_trie(&tries, &state_root, shard_uid, trie_changes);
-        (trie, state_root)
+        let state_root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes);
+        let trie = tries.get_trie_for_shard(shard_uid, state_root);
+        Rc::new(trie)
     }
 
     // Get values corresponding to keys one by one, returning vector of numbers of touched nodes for each `get`.
-    fn get_touched_nodes_numbers(
-        trie: Rc<Trie>,
-        state_root: CryptoHash,
-        items: &[(Vec<u8>, Option<Vec<u8>>)],
-    ) -> Vec<u64> {
+    fn get_touched_nodes_numbers(trie: Rc<Trie>, items: &[(Vec<u8>, Option<Vec<u8>>)]) -> Vec<u64> {
         items
             .iter()
             .map(|(key, value)| {
                 let initial_count = trie.get_trie_nodes_count().db_reads;
-                let got_value = trie.get(&state_root, key).unwrap();
+                let got_value = trie.get(key).unwrap();
                 assert_eq!(*value, got_value);
                 trie.get_trie_nodes_count().db_reads - initial_count
             })
@@ -182,8 +172,8 @@ mod nodes_counter_tests {
             (create_trie_key(&vec![0, 1, 1]), Some(vec![1])),
             (create_trie_key(&vec![1, 0, 0]), Some(vec![2])),
         ];
-        let (trie, state_root) = create_trie(&trie_items);
-        assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, &trie_items), vec![5, 5, 4]);
+        let trie = create_trie(&trie_items);
+        assert_eq!(get_touched_nodes_numbers(trie.clone(), &trie_items), vec![5, 5, 4]);
 
         let storage = trie.storage.as_caching_storage().unwrap();
         assert_eq!(storage.shard_cache.len(), 9);
@@ -199,8 +189,8 @@ mod nodes_counter_tests {
             (create_trie_key(&vec![0, 0]), Some(vec![1])),
             (create_trie_key(&vec![1, 1]), Some(vec![1])),
         ];
-        let (trie, state_root) = create_trie(&trie_items);
-        assert_eq!(get_touched_nodes_numbers(trie.clone(), state_root, &trie_items), vec![4, 4]);
+        let trie = create_trie(&trie_items);
+        assert_eq!(get_touched_nodes_numbers(trie.clone(), &trie_items), vec![4, 4]);
 
         let storage = trie.storage.as_caching_storage().unwrap();
         assert_eq!(storage.shard_cache.len(), 5);
@@ -241,8 +231,9 @@ mod caching_storage_tests {
         let values = vec![value.clone()];
         let shard_uid = ShardUId::single_shard();
         let store = create_store_with_values(&values, shard_uid);
-        let trie_cache = TrieCache::new();
-        let trie_caching_storage = TrieCachingStorage::new(store, trie_cache.clone(), shard_uid);
+        let trie_cache = TrieCache::new(0, false);
+        let trie_caching_storage =
+            TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false);
         let key = hash(&value);
         assert_eq!(trie_cache.get(&key), None);
 
@@ -262,7 +253,8 @@ mod caching_storage_tests {
     fn test_retrieve_error() {
         let shard_uid = ShardUId::single_shard();
         let store = create_test_store();
-        let trie_caching_storage = TrieCachingStorage::new(store, TrieCache::new(), shard_uid);
+        let trie_caching_storage =
+            TrieCachingStorage::new(store, TrieCache::new(0, false), shard_uid, false);
         let value = vec![1u8];
         let key = hash(&value);
 
@@ -277,8 +269,9 @@ mod caching_storage_tests {
         let values = vec![value.clone()];
         let shard_uid = ShardUId::single_shard();
         let store = create_store_with_values(&values, shard_uid);
-        let trie_cache = TrieCache::new();
-        let trie_caching_storage = TrieCachingStorage::new(store, trie_cache.clone(), shard_uid);
+        let trie_cache = TrieCache::new(0, false);
+        let trie_caching_storage =
+            TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false);
         let key = hash(&value);
 
         trie_caching_storage.set_mode(TrieCacheMode::CachingChunk);
@@ -299,8 +292,9 @@ mod caching_storage_tests {
         let values = vec![vec![1u8]];
         let shard_uid = ShardUId::single_shard();
         let store = create_store_with_values(&values, shard_uid);
-        let trie_cache = TrieCache::new();
-        let trie_caching_storage = TrieCachingStorage::new(store, trie_cache.clone(), shard_uid);
+        let trie_cache = TrieCache::new(0, false);
+        let trie_caching_storage =
+            TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false);
         let value = &values[0];
         let key = hash(&value);
 
@@ -347,8 +341,9 @@ mod caching_storage_tests {
         let values: Vec<Vec<u8>> = (0..shard_cache_size as u8 + 1).map(|i| vec![i]).collect();
         let shard_uid = ShardUId::single_shard();
         let store = create_store_with_values(&values, shard_uid);
-        let trie_cache = TrieCache::with_capacity(shard_cache_size);
-        let trie_caching_storage = TrieCachingStorage::new(store, trie_cache.clone(), shard_uid);
+        let trie_cache = TrieCache::with_capacities(shard_cache_size, 0, false);
+        let trie_caching_storage =
+            TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false);
 
         let value = &values[0];
         let key = hash(&value);
