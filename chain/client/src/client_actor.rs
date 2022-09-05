@@ -1986,6 +1986,8 @@ impl Handler<PreloadAccountData> for ClientActor {
             ));
         }
 
+        info!(target: "store", "Preloading cache with trie nodes for account {account_id}...");
+
         let prefix = near_primitives::trie_key::trie_key_parsers::get_raw_prefix_for_contract_data(
             account_id,
             &[],
