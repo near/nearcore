@@ -536,10 +536,11 @@ impl RocksDB {
             return Ok(None);
         }
 
-        // Specify only DBCol::DbVersion because it’s ok to open database in
-        // read-only mode without specifying all column families the database
-        // contains but it’s an error to provide a descriptor for a column
-        // family which doesn’t exist.
+        // Specify only DBCol::DbVersion.  It’s ok to open db in read-only mode
+        // without specifying all column families but it’s an error to provide
+        // a descriptor for a column family which doesn’t exist.  This allows us
+        // to read the version without modifying the database before we figure
+        // out if there are any necessary migrations to perform.
         let cols = [DBCol::DbVersion];
         let db = Self::open_with_columns(path, config, Mode::ReadOnly, &cols)?;
         match crate::version::get_db_version(&db)? {
