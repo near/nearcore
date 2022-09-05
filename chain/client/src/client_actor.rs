@@ -2009,9 +2009,10 @@ fn preload_account_state(
         &[],
     );
 
-    let min_num_subtries = 128;
-    let root_node = trie.retrieve_root_node()?;
-    let sub_trie_size = root_node.memory_usage / min_num_subtries;
+    // let min_num_subtries = 128;
+    // let root_node = trie.retrieve_root_node();
+    // let sub_trie_size = root_node.memory_usage / min_num_subtries;
+    let sub_trie_size = 10_000_000;
 
     let mut state_iter = trie.iter()?;
     state_iter.seek(prefix)?;
