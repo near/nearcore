@@ -1968,16 +1968,19 @@ impl Handler<PreloadAccountData> for ClientActor {
         let account_id = &msg.account_id;
         let head = self.client.chain.head()?;
         let head_header = self.client.chain.get_block_header(&head.last_block_hash)?;
-        let latest_state_root = *head_header.prev_state_root();
         let prev_block_hash = *head_header.prev_hash();
         let shard_id = self
             .client
             .runtime_adapter
             .account_id_to_shard_id(account_id, head_header.epoch_id())?;
+        let shard_uid =
+            self.client.runtime_adapter.shard_id_to_uid(shard_id, head_header.epoch_id())?;
+        let shard_state_root =
+            *self.client.chain.get_chunk_extra(&prev_block_hash, &shard_uid)?.state_root();
         let trie = self.client.chain.runtime_adapter.get_trie_for_shard(
             shard_id,
             &prev_block_hash,
-            latest_state_root,
+            shard_state_root,
         )?;
 
         if trie.storage.as_caching_storage().is_none() {
