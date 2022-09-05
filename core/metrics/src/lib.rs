@@ -109,24 +109,6 @@ pub fn try_create_counter(name: &str, help: &str) -> Result<Counter> {
     Ok(counter)
 }
 
-/// Creates 'IntCounterVec' - if it has trouble registering to Prometheus
-/// it will keep appending a number until the name is unique.
-pub fn do_create_int_counter_vec(name: &str, help: &str, labels: &[&str]) -> IntCounterVec {
-    if let Ok(value) = try_create_int_counter_vec(name, help, labels) {
-        return value;
-    }
-    let mut suffix = 0;
-
-    loop {
-        if let Ok(value) =
-            try_create_int_counter_vec(format!("{}_{}", name, suffix).as_str(), help, labels)
-        {
-            return value;
-        }
-        suffix += 1;
-    }
-}
-
 /// Attempts to crate an `IntGauge`, returning `Err` if the registry does not accept the gauge
 /// (potentially due to naming conflict).
 pub fn try_create_int_gauge(name: &str, help: &str) -> Result<IntGauge> {
