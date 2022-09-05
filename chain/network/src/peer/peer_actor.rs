@@ -248,8 +248,8 @@ impl PeerActor {
             // directly from the stream.
             ctx.spawn(
                 async move {
-                    const READ_BUFFER_CAPACITY : usize = 8 * 1024;
-                    let mut read = tokio::io::BufReader::with_capacity(READ_BUFFER_CAPACITY,read);
+                    const READ_BUFFER_CAPACITY: usize = 8 * 1024;
+                    let mut read = tokio::io::BufReader::with_capacity(READ_BUFFER_CAPACITY, read);
                     loop {
                         let n =
                             read.read_u32_le().await.map_err(RecvLoopError::Receiving)? as usize;
@@ -263,16 +263,17 @@ impl PeerActor {
                         let mut buf = Vec::new();
                         buf.resize(n, 0);
                         read.read_exact(&mut buf[..]).await.map_err(RecvLoopError::Receiving)?;
-                        stats.received_messages.fetch_add(1,Ordering::Relaxed);
-                        stats.received_bytes.fetch_add(n as u64,Ordering::Relaxed);
+                        stats.received_messages.fetch_add(1, Ordering::Relaxed);
+                        stats.received_bytes.fetch_add(n as u64, Ordering::Relaxed);
                         addr.do_send(RecvMessage(Ok(buf)));
                     }
                 }
                 .into_actor(&pa)
-                .then(move |res: Result<(), RecvLoopError>, act, ctx| { 
+                .then(move |res: Result<(), RecvLoopError>, act, ctx| {
                     if let Err(err) = res {
                         match err {
-                            RecvLoopError::Receiving(err) if err.kind()==io::ErrorKind::UnexpectedEof => {}
+                            RecvLoopError::Receiving(err)
+                                if err.kind() == io::ErrorKind::UnexpectedEof => {}
                             err => error!(
                                 target: "network",
                                 ?err,
@@ -1035,8 +1036,14 @@ impl actix::Handler<RecvMessage> for PeerActor {
                             // TODO(gprusak): this stuff requires cleanup: only chain_info.height is
                             // expected to change. Rest of the content of chain_info is not relevant
                             // after handshake.
-                            connection.stats.received_bytes_per_sec.store(received.bytes_per_min / 60, Ordering::Relaxed);
-                            connection.stats.sent_bytes_per_sec.store(sent.bytes_per_min / 60, Ordering::Relaxed);
+                            connection
+                                .stats
+                                .received_bytes_per_sec
+                                .store(received.bytes_per_min / 60, Ordering::Relaxed);
+                            connection
+                                .stats
+                                .sent_bytes_per_sec
+                                .store(sent.bytes_per_min / 60, Ordering::Relaxed);
                             // Whether the peer is considered abusive due to sending too many messages.
                             // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
                             // some day be less than `u64::MAX`.

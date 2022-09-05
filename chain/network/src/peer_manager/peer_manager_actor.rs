@@ -629,8 +629,10 @@ impl PeerManagerActor {
         let mut total_bandwidth_used_by_all_peers: usize = 0;
         let mut total_msg_received_count: usize = 0;
         for (peer_id, connected_peer) in &self.state.tier2.load().ready {
-            let bandwidth_used = connected_peer.stats.received_bytes.swap(0,Ordering::Relaxed) as usize;
-            let msg_received_count = connected_peer.stats.received_messages.swap(0,Ordering::Relaxed) as usize;
+            let bandwidth_used =
+                connected_peer.stats.received_bytes.swap(0, Ordering::Relaxed) as usize;
+            let msg_received_count =
+                connected_peer.stats.received_messages.swap(0, Ordering::Relaxed) as usize;
             if bandwidth_used > REPORT_BANDWIDTH_THRESHOLD_BYTES
                 || msg_received_count > REPORT_BANDWIDTH_THRESHOLD_COUNT
             {
