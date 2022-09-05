@@ -2815,9 +2815,9 @@ impl<'a> VMLogic<'a> {
     ) -> Result<u64> {
         use ed25519_dalek::{PublicKey, Signature, Verifier};
 
+        self.gas_counter.pay_base(ed25519_verify_base)?;
         let msg = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
         let signature_array = self.get_vec_from_memory_or_register(sig_ptr, sig_len)?;
-        self.gas_counter.pay_base(ed25519_verify_base)?;
         let num_bytes = msg
             .len()
             .checked_add(signature_array.len())
