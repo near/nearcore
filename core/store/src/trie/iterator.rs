@@ -5,7 +5,7 @@ use crate::trie::{TrieNode, TrieNodeWithSize, ValueHandle};
 use crate::{StorageError, Trie};
 
 #[derive(Debug)]
-struct Crumb {
+pub struct Crumb {
     node: TrieNodeWithSize,
     status: CrumbStatus,
 }
@@ -33,9 +33,17 @@ impl Crumb {
 }
 
 pub struct TrieIterator<'a> {
-    trie: &'a Trie,
-    trail: Vec<Crumb>,
-    pub(crate) key_nibbles: Vec<u8>,
+    pub trie: &'a Trie,
+    pub trail: Vec<Crumb>,
+    pub key_nibbles: Vec<u8>,
+}
+
+/// Divides the sub trie at the given iterator into the smallest set of subtries that each has a memory usage below the threshold.
+///
+/// Note that the nodes between the root and the subtrie nodes are not contained in the result.
+pub struct HeavySubTrieIterator<'a> {
+    trie_iterator: TrieIterator<'a>,
+    target_size_bytes: u64,
 }
 
 pub type TrieItem = (Vec<u8>, Vec<u8>);
@@ -295,6 +303,14 @@ impl<'a> TrieIterator<'a> {
         }
         Ok(nodes_list)
     }
+
+    /// Iterate over subtries with memory usage below a certain threshold.
+    pub fn heavy_sub_tries(
+        self,
+        max_memory_usage: u64,
+    ) -> Result<HeavySubTrieIterator<'a>, StorageError> {
+        HeavySubTrieIterator::new(self, max_memory_usage)
+    }
 }
 
 enum IterStep {
@@ -326,6 +342,59 @@ impl<'a> Iterator for TrieIterator<'a> {
                             .retrieve_raw_bytes(&hash)
                             .map(|value| (self.key(), value.to_vec())),
                     )
+                }
+            }
+        }
+    }
+}
+
+impl<'a> HeavySubTrieIterator<'a> {
+    pub(super) fn new(
+        trie_iterator: TrieIterator<'a>,
+        target_size_bytes: u64,
+    ) -> Result<Self, StorageError> {
+        Ok(HeavySubTrieIterator { target_size_bytes, trie_iterator })
+    }
+
+    fn spawn_sub_trie_iter(&mut self) -> TrieIterator<'a> {
+        let key_nibbles = self.trie_iterator.key_nibbles.clone();
+        self.trie_iterator.trail.pop();
+        return TrieIterator { trie: self.trie_iterator.trie, trail: vec![], key_nibbles };
+    }
+}
+
+impl<'a> Iterator for HeavySubTrieIterator<'a> {
+    type Item = Result<TrieIterator<'a>, StorageError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let iter_step = self.trie_iterator.iter_step()?;
+            match iter_step {
+                IterStep::PopTrail => {
+                    // Leaving a branch after its last child. At this point, all
+                    // sub tries have been included in a returned subtrie root.
+                    self.trie_iterator.trail.pop();
+                }
+                IterStep::Descend(hash) => match self.trie_iterator.descend_into_node(&hash) {
+                    Ok(()) => {
+                        if self.trie_iterator.trail.last().unwrap().node.memory_usage
+                            < self.target_size_bytes
+                        {
+                            return Some(Ok(self.spawn_sub_trie_iter()));
+                        }
+                    }
+                    Err(err) => return Some(Err(err)),
+                },
+                IterStep::Continue => {}
+                IterStep::Value(_hash) => {
+                    match &self.trie_iterator.trail.last().unwrap().node.node {
+                        TrieNode::Leaf(_, _) => {
+                            // Leaf alone is heavy enough to be its own subtrie.
+                            return Some(Ok(self.spawn_sub_trie_iter()));
+                        }
+                        // values in other places are ignored
+                        TrieNode::Empty | TrieNode::Branch(_, _) | TrieNode::Extension(_, _) => (),
+                    }
                 }
             }
         }

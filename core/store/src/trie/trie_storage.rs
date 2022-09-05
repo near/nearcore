@@ -367,6 +367,7 @@ const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize = 1;
 /// Note that most of Trie inner nodes are smaller than this - e.g. branches use around 32 * 16 = 512 bytes.
 pub(crate) const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 1000;
 
+#[derive(Clone)]
 pub struct TrieCachingStorage {
     pub(crate) store: Store,
     pub(crate) shard_uid: ShardUId,
@@ -393,6 +394,7 @@ pub struct TrieCachingStorage {
     metrics: TrieCacheInnerMetrics,
 }
 
+#[derive(Clone)]
 struct TrieCacheInnerMetrics {
     chunk_cache_hits: GenericCounter<prometheus::core::AtomicU64>,
     chunk_cache_misses: GenericCounter<prometheus::core::AtomicU64>,

@@ -49,7 +49,7 @@ use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
-use near_store::DBCol;
+use near_store::{DBCol, Trie, TrieIterator};
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
@@ -1989,30 +1989,60 @@ impl Handler<PreloadAccountData> for ClientActor {
             ));
         }
 
-        let res = preload_account_state(account_id, &trie);
+        let res = preload_account_state(account_id.clone(), &trie);
         if let Err(e) = &res {
             info!(target: "store", "Preloading cache with trie nodes for account {account_id} failed: {e}");
         }
 
-        res
+        res.map_err(|e| Error::Other(e.to_string()))
     }
 }
 
-fn preload_account_state(account_id: &AccountId, trie: &near_store::Trie) -> Result<(), Error> {
+fn preload_account_state(
+    account_id: AccountId,
+    trie: &near_store::Trie,
+) -> Result<(), near_store::StorageError> {
     info!(target: "store", "Preloading cache with trie nodes for account {account_id}...");
 
     let prefix = near_primitives::trie_key::trie_key_parsers::get_raw_prefix_for_contract_data(
-        account_id,
+        &account_id,
         &[],
     );
-    let mut state_iter = trie.iter().map_err(|e| Error::Other(e.to_string()))?;
-    state_iter.seek(prefix).map_err(|e| Error::Other(e.to_string()))?;
 
-    // TODO: Parallelize.
-    // Maybe a BFS iterator implementation with tokio threads spawned on each branch.
-    // Or maybe BFS to find 64 equally weighted sub-tries and then use 64 threads with DFS.
-    let n = state_iter.count();
-    info!(target: "store", "Preloaded cache with {n} trie nodes for account {account_id}");
+    let min_num_subtries = 128;
+    let root_node = trie.retrieve_root_node()?;
+    let sub_trie_size = root_node.memory_usage / min_num_subtries;
+
+    let mut state_iter = trie.iter()?;
+    state_iter.seek(prefix)?;
+
+    let mut handles = vec![];
+    for sub_trie in state_iter.heavy_sub_tries(sub_trie_size)? {
+        let TrieIterator { trie, trail, key_nibbles } = sub_trie?;
+        let storage = trie
+            .storage
+            .as_caching_storage()
+            .expect("preload called without caching storage")
+            .clone();
+        let root = trie.get_root().clone();
+        let handle = tokio::spawn(async move {
+            trace!(target: "store", "Preload subtrie at {root}");
+            let trie = Trie::new(Box::new(storage), root, None);
+            let n = TrieIterator { trie: &trie, trail, key_nibbles }.count();
+            trace!(target: "store", "Preload subtrie at {root} done");
+            n
+        });
+        handles.push(handle);
+    }
+
+    tokio::spawn(async move {
+        let mut n = 0;
+        for handle in handles {
+            n += handle.await.expect("tokio thread failed");
+        }
+        info!(target: "store", "Preloaded cache with {n} trie nodes for account {account_id}");
+    });
+
     Ok(())
 }
 
