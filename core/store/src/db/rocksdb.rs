@@ -27,6 +27,8 @@ pub const CF_STAT_NAMES: [&'static str; 1] = [::rocksdb::properties::LIVE_SST_FI
 const CHECK_FREE_SPACE_INTERVAL: u16 = 256;
 /// How much free space is required for a write to be allowed.
 const FREE_SPACE_THRESHOLD: bytesize::ByteSize = bytesize::ByteSize::mb(16);
+/// Threshold at which code will start warning about low disk space.
+const FREE_SPACE_WARN_THRESHOLD: bytesize::ByteSize = bytesize::ByteSize::mb(16 * 16);
 
 pub struct RocksDB {
     db: DB,
@@ -467,7 +469,7 @@ impl RocksDB {
 
         let available = available_space(self.db.path())?;
 
-        if available < 16_u64 * FREE_SPACE_THRESHOLD {
+        if available < FREE_SPACE_WARN_THRESHOLD {
             warn!("remaining disk space is running low ({} left)", available);
         }
 
