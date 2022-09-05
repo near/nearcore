@@ -53,7 +53,6 @@ use rand::thread_rng;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::ops::Sub;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
@@ -144,6 +143,8 @@ pub(crate) struct NetworkState {
     pub client_addr: Recipient<NetworkClientMessages>,
     /// Address of the view client actor.
     pub view_client_addr: Recipient<NetworkViewClientMessages>,
+    /// Address of the peer manager actor.
+    pub peer_manager_addr: Recipient<PeerToManagerMsg>,
 
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<ChainInfo>,
@@ -152,6 +153,8 @@ pub(crate) struct NetworkState {
     /// Connected peers (inbound and outbound) with their full peer information.
     pub tier2: connection::Pool,
     pub tier1: connection::Pool,
+    /// Semaphore limiting inflight inbound handshakes.
+    pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
 
     /// View of the Routing table. It keeps:
     /// - routing information - how to route messages
@@ -163,8 +166,6 @@ pub(crate) struct NetworkState {
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
     /// messages sincce last block.
     pub txns_since_last_block: AtomicUsize,
-    /// Semaphore limiting inflight inbound handshakes.
-    pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
 }
 
 impl NetworkState {
@@ -173,6 +174,7 @@ impl NetworkState {
         genesis_id: GenesisId,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
+        peer_manager_addr: Recipient<PeerToManagerMsg>,
         routing_table_view: RoutingTableView,
         send_accounts_data_rl: demux::RateLimit,
     ) -> Self {
@@ -180,12 +182,14 @@ impl NetworkState {
             genesis_id,
             client_addr,
             view_client_addr,
+            peer_manager_addr,
             chain_info: Default::default(),
             tier2: connection::Pool::new(config.node_id()),
             tier1: connection::Pool::new(config.node_id()),
             accounts_data: Arc::new(accounts_data::Cache::new()),
             routing_table_view,
             send_accounts_data_rl,
+            inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             config,
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             txns_since_last_block: AtomicUsize::new(0),
@@ -339,44 +343,24 @@ impl NetworkState {
     }
 
     /// Connects peer with given TcpStream.
-    /// This might fail if the other peers drop listener at its endpoint while establishing connection.
-    pub fn try_connect_stream(
+    /// It will fail (and log) if we have too many connections already,
+    /// or if the peer drops the connection in the meantime.
+    fn spawn_peer_actor(
         self: &Arc<Self>,
         clock: &time::Clock,
-        peer_manager_addr: Addr<PeerManagerActor>,
         stream: TcpStream,
         stream_cfg: StreamConfig,
     ) {
-        // Start every peer actor on separate thread.
-        let peer_addr = match stream.peer_addr() {
-            Ok(it) => it,
-            Err(err) => {
-                error!("stream.peer_addr(): {err}");
-                return;
-            }
+        if let Err(err) = PeerActor::spawn(clock.clone(), stream, stream_cfg, None, self.clone()) {
+            tracing::info!(target:"network", ?err, "PeerActor::spawn()");
         };
-        let arbiter = Arbiter::new();
-        let peer_cfg = match peer_actor::Config::new(stream, stream_cfg, None, self.clone()) {
-            Ok(cfg) => cfg,
-            Err(err) => {
-                warn!("peer_actor::Config::new(): {err}");
-                self.config.event_sink.push(Event::ConnectionClosed(peer_addr));
-                return;
-            }
-        };
-        let clock = clock.clone();
-        PeerActor::start_in_arbiter(&arbiter.handle(), move |ctx| {
-            PeerActor::new(clock, ctx, peer_cfg, peer_manager_addr.clone().recipient())
-        });
     }
 
-    pub async fn try_connect_to(
-        self: Arc<Self>,
-        clock: time::Clock,
-        peer_manager_addr: Addr<PeerManagerActor>,
-        peer_info: PeerInfo,
-        is_tier1: bool,
-    ) {
+    pub async fn spawn_inbound(self: &Arc<Self>, clock: &time::Clock, stream: TcpStream) {
+        self.spawn_peer_actor(clock, stream, StreamConfig::Inbound);
+    }
+
+    pub async fn spawn_outbound(self: Arc<Self>, clock: time::Clock, peer_info: PeerInfo) {
         let addr = match peer_info.addr {
             Some(addr) => addr,
             None => {
@@ -407,12 +391,78 @@ impl NetworkState {
                 }
             };
         debug!(target: "network", ?peer_info, "Connecting");
-        self.try_connect_stream(
-            &clock,
-            peer_manager_addr,
-            stream,
-            StreamConfig::Outbound { peer_id: peer_info.id, is_tier1 },
-        );
+        self.spawn_peer_actor(&clock, stream, StreamConfig::Outbound { peer_id: peer_info.id });
+    }
+
+    // Determine if the given target is referring to us.
+    pub fn message_for_me(&self, target: &PeerIdOrHash) -> bool {
+        let my_peer_id = self.config.node_id();
+        match target {
+            PeerIdOrHash::PeerId(peer_id) => &my_peer_id == peer_id,
+            PeerIdOrHash::Hash(hash) => {
+                self.routing_table_view.compare_route_back(*hash, &my_peer_id)
+            }
+        }
+    }
+
+    pub fn send_ping(&self, clock: &time::Clock, nonce: u64, target: PeerId) {
+        let body = RoutedMessageBody::Ping(Ping { nonce, source: self.config.node_id() });
+        let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body };
+        self.send_message_to_peer(clock, msg);
+    }
+
+    pub fn send_pong(&self, clock: &time::Clock, nonce: u64, target: CryptoHash) {
+        let body = RoutedMessageBody::Pong(Pong { nonce, source: self.config.node_id() });
+        let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body };
+        self.send_message_to_peer(clock, msg);
+    }
+
+    fn sign_message(&self, msg: RawRoutedMessage) -> Box<RoutedMessageV2> {
+        msg.sign(&self.config.node_key, self.config.routed_message_ttl, Some(self.clock.now_utc()))
+    }
+
+    /// Route signed message to target peer.
+    /// Return whether the message is sent or not.
+    pub fn send_signed_message_to_peer(
+        &self,
+        clock: &time::Clock,
+        msg: Box<RoutedMessageV2>,
+    ) -> bool {
+        let my_peer_id = self.config.node_id();
+
+        // Check if the message is for myself and don't try to send it in that case.
+        if let PeerIdOrHash::PeerId(target) = &msg.msg.target {
+            if target == &my_peer_id {
+                debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?my_peer_id, ?msg, "Drop signed message to myself");
+                metrics::CONNECTED_TO_MYSELF.inc();
+                return false;
+            }
+        }
+
+        match self.routing_table_view.find_route(&clock, &msg.target) {
+            Ok(peer_id) => {
+                // Remember if we expect a response for this message.
+                if msg.msg.author == my_peer_id && msg.expect_response() {
+                    trace!(target: "network", ?msg, "initiate route back");
+                    self.routing_table_view.add_route_back(&clock, msg.hash(), my_peer_id);
+                }
+                self.tier2.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)))
+            }
+            Err(find_route_error) => {
+                // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
+                metrics::MessageDropped::NoRouteFound.inc(&msg.msg.body);
+
+                debug!(target: "network",
+                      account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
+                      to = ?msg.msg.target,
+                      reason = ?find_route_error,
+                      known_peers = ?self.routing_table_view.reachable_peers(),
+                      msg = ?msg.msg.body,
+                    "Drop signed message"
+                );
+                false
+            }
+        }
     }
 }
 
@@ -495,8 +545,6 @@ impl Actor for PeerManagerActor {
             debug!(target: "network", at = ?server_addr, "starting public server");
             let clock = self.clock.clone();
             let state = self.state.clone();
-            let self_addr = ctx.address();
-
             ctx.spawn(
                 async move {
                     let listener = match TcpListener::bind(server_addr).await {
@@ -517,12 +565,7 @@ impl Actor for PeerManagerActor {
                             // we would like to exchange set of connected peers even without establishing
                             // a proper connection.
                             debug!(target: "network", from = ?client_addr, "got new connection");
-                            state.try_connect_stream(
-                                &clock,
-                                self_addr.clone(),
-                                conn,
-                                StreamConfig::Inbound,
-                            );
+                            state.spawn_inbound(&clock, conn).await;
                         }
                     }
                 }
@@ -587,14 +630,14 @@ impl Actor for PeerManagerActor {
 }
 
 impl PeerManagerActor {
-    pub fn new(
+    pub fn spawn(
         clock: time::Clock,
-        store: near_store::Store,
+        store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         genesis_id: GenesisId,
-    ) -> anyhow::Result<Self> {
+    ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
         let store = store::Store::from(store);
         let peer_store = PeerStore::new(
@@ -631,7 +674,7 @@ impl PeerManagerActor {
         };
         let config = Arc::new(config);
         let rl = config.accounts_data_broadcast_rate_limit;
-        Ok(Self {
+        Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| Self {
             clock,
             my_peer_id: my_peer_id.clone(),
             config: config.clone(),
@@ -648,10 +691,11 @@ impl PeerManagerActor {
                 genesis_id,
                 client_addr,
                 view_client_addr,
+                ctx.address().recipient(),
                 RoutingTableView::new(store, my_peer_id.clone()),
                 rl,
             )),
-        })
+        }))
     }
 
     fn update_routing_table(
@@ -1008,23 +1052,6 @@ impl PeerManagerActor {
             .any(|wn| wn.account_id.is_none() || wn.account_id == peer_info.account_id)
     }
 
-    // predicate checking whether we should allow an inbound connection from peer_info.
-    fn is_inbound_allowed(&self, peer_info: &PeerInfo) -> bool {
-        // Check if we have spare inbound connections capacity.
-        let tier2 = self.state.tier2.load();
-        if tier2.ready.len() + tier2.outbound_handshakes.len() < self.max_num_peers as usize
-            && !self.config.inbound_disabled
-        {
-            return true;
-        }
-        // Whitelisted nodes are allowed to connect, even if the inbound connections limit has
-        // been reached.
-        if self.is_peer_whitelisted(peer_info) {
-            return true;
-        }
-        false
-    }
-
     /// Returns peers close to the highest height
     fn highest_height_peers(&self) -> Vec<FullPeerInfo> {
         let infos: Vec<_> =
@@ -1334,56 +1361,11 @@ impl PeerManagerActor {
                 self.send_message_to_account(account_id, msg)
             }
             peer_or_hash @ AccountOrPeerIdOrHash::PeerId(_)
-            | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) => self.send_message_to_peer(
-                self.sign_message(RawRoutedMessage { target: peer_or_hash.clone(), body: msg }),
+            | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) => self.state.send_message_to_peer(
+                &self.clock,
+                RawRoutedMessage { target: peer_or_hash.clone(), body: msg },
             ),
         }
-    }
-
-    /// Route signed message to target peer.
-    /// Return whether the message is sent or not.
-    fn send_message_to_peer(&mut self, msg: Box<RoutedMessageV2>) -> bool {
-        // Check if the message is for myself and don't try to send it in that case.
-        if let PeerIdOrHash::PeerId(target) = &msg.msg.target {
-            if target == &self.my_peer_id {
-                debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), my_peer_id = ?self.my_peer_id, ?msg, "Drop signed message to myself");
-                return false;
-            }
-        }
-
-        match self.state.routing_table_view.find_route(&self.clock, &msg.msg.target) {
-            Ok(peer_id) => {
-                // Remember if we expect a response for this message.
-                if msg.msg.author == self.my_peer_id && msg.expect_response() {
-                    trace!(target: "network", ?msg, "initiate route back");
-                    self.state.routing_table_view.add_route_back(
-                        &self.clock,
-                        msg.hash(),
-                        self.my_peer_id.clone(),
-                    );
-                }
-
-                self.state.tier2.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)))
-            }
-            Err(find_route_error) => {
-                // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                metrics::MessageDropped::NoRouteFound.inc(&msg.msg.body);
-
-                debug!(target: "network",
-                      account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
-                      to = ?msg.msg.target,
-                      reason = ?find_route_error,
-                      known_peers = ?self.state.routing_table_view.reachable_peers(),
-                      msg = ?msg.msg.body,
-                    "Drop signed message"
-                );
-                false
-            }
-        }
-    }
-
-    fn sign_message(&self, msg: RawRoutedMessage) -> Box<RoutedMessageV2> {
-        msg.sign(&self.config.node_key, self.config.routed_message_ttl, Some(self.clock.now_utc()))
     }
 
     /// Send message to specific account.
@@ -1391,7 +1373,7 @@ impl PeerManagerActor {
     fn send_message_to_account(&mut self, account_id: &AccountId, msg: RoutedMessageBody) -> bool {
         if msg.is_tier1() {
             if let Some((target, conn)) = self.state.get_tier1_connection(account_id) {
-                conn.send_message(Arc::new(PeerMessage::Routed(self.sign_message(
+                conn.send_message(Arc::new(PeerMessage::Routed(self.state.sign_message(
                     RawRoutedMessage {
                         target: AccountOrPeerIdOrHash::PeerId(target),
                         body: msg.clone(),
@@ -1416,39 +1398,16 @@ impl PeerManagerActor {
         };
 
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body: msg };
-        let msg = self.sign_message(msg);
+        let msg = self.state.sign_message(msg);
         if msg.body.is_important() {
             let mut success = false;
             for _ in 0..IMPORTANT_MESSAGE_RESENT_COUNT {
-                success |= self.send_message_to_peer(msg.clone());
+                success |= self.state.send_message_to_peer(&self.clock, msg.clone());
             }
             success
         } else {
-            self.send_message_to_peer(msg)
+            self.state.send_message_to_peer(&self.clock, msg)
         }
-    }
-
-    // Determine if the given target is referring to us.
-    fn message_for_me(&self, target: &PeerIdOrHash) -> bool {
-        match target {
-            PeerIdOrHash::PeerId(peer_id) => &self.my_peer_id == peer_id,
-            PeerIdOrHash::Hash(hash) => {
-                self.state.routing_table_view.compare_route_back(*hash, &self.my_peer_id)
-            }
-        }
-    }
-
-    fn send_ping(&mut self, nonce: u64, target: PeerId) {
-        let body = RoutedMessageBody::Ping(Ping { nonce, source: self.my_peer_id.clone() });
-        let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body };
-        self.send_message_to_peer(self.sign_message(msg));
-    }
-
-    fn send_pong(&mut self, nonce: usize, target: CryptoHash) {
-        let body =
-            RoutedMessageBody::Pong(Pong { nonce: nonce as u64, source: self.my_peer_id.clone() });
-        let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body };
-        self.send_message_to_peer(self.sign_message(msg));
     }
 
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
@@ -1588,7 +1547,7 @@ impl PeerManagerActor {
                         RoutedMessageBody::VersionedStateResponse(response)
                     }
                 };
-                if self.send_message_to_peer(self.sign_message(RawRoutedMessage {
+                if self.state.send_message_to_peer(self.state.sign_message(RawRoutedMessage {
                     target: AccountOrPeerIdOrHash::Hash(route_back),
                     body,
                 })) {
@@ -1659,7 +1618,7 @@ impl PeerManagerActor {
 
                         if let Some(matching_peer) = matching_peers.iter().choose(&mut thread_rng())
                         {
-                            if self.send_message_to_peer(self.sign_message(RawRoutedMessage {
+                            if self.state.send_message_to_peer(self.state.sign_message(RawRoutedMessage {
                                 target: AccountOrPeerIdOrHash::PeerId(matching_peer.clone()),
                                 body: RoutedMessageBody::PartialEncodedChunkRequest(
                                     request.clone(),
@@ -1682,7 +1641,7 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
-                if self.send_message_to_peer(self.sign_message(RawRoutedMessage {
+                if self.state.send_message_to_peer(self.state.sign_message(RawRoutedMessage {
                     target: AccountOrPeerIdOrHash::Hash(route_back),
                     body: RoutedMessageBody::PartialEncodedChunkResponse(response),
                 })) {
@@ -1848,12 +1807,7 @@ impl PeerManagerActor {
                 ctx.spawn(
                     self.state
                         .clone()
-                        .try_connect_to(
-                            self.clock.clone(),
-                            ctx.address(),
-                            msg.0,
-                            /*is_tier1=*/ false,
-                        )
+                        .spawn_outbound(self.clock.clone(), msg.peer_info)
                         .into_actor(self),
                 );
                 PeerManagerMessageResponse::OutboundTcpConnect
@@ -1869,7 +1823,7 @@ impl PeerManagerActor {
             }
             // TEST-ONLY
             PeerManagerMessageRequest::PingTo { nonce, target } => {
-                self.send_ping(nonce, target);
+                self.state.send_ping(&self.clock, nonce, target);
                 PeerManagerMessageResponse::PingTo
             }
         }
@@ -1882,9 +1836,6 @@ impl PeerManagerActor {
         throttle_controller: Option<ThrottleController>,
     ) -> PeerToManagerMsgResp {
         match msg {
-            PeerToManagerMsg::RoutedMessageFrom(msg) => {
-                PeerToManagerMsgResp::RoutedMessageFrom(self.handle_msg_routed_from(msg))
-            }
             PeerToManagerMsg::RegisterPeer(msg) => {
                 PeerToManagerMsgResp::RegisterPeer(self.handle_msg_register_peer(msg, ctx))
             }
@@ -1897,7 +1848,7 @@ impl PeerManagerActor {
             }
             PeerToManagerMsg::RouteBack(body, target) => {
                 trace!(target: "network", ?target, "Sending message to route back");
-                self.send_message_to_peer(self.sign_message(RawRoutedMessage {
+                self.state.send_message_to_peer(self.state.sign_message(RawRoutedMessage {
                     target: AccountOrPeerIdOrHash::Hash(target),
                     body: *body,
                 }));
@@ -2015,58 +1966,6 @@ impl PeerManagerActor {
                 self.validate_edges_and_add_to_routing_table(peer_id, edges, throttle_controller);
                 PeerToManagerMsgResp::Empty
             }
-        }
-    }
-
-    /// "Return" true if this message is for this peer and should be sent to the client.
-    /// Otherwise try to route this message to the final receiver and return false.
-    fn handle_msg_routed_from(&mut self, msg: RoutedMessageFrom) -> bool {
-        let _d = delay_detector::DelayDetector::new(|| {
-            format!("routed message from {}", msg.msg.body_variant()).into()
-        });
-        let RoutedMessageFrom { mut msg, from } = msg;
-
-        if msg.expect_response() {
-            trace!(target: "network", route_back = ?PeerMessage::Routed(msg.clone()), "Received peer message that requires");
-            self.state.routing_table_view.add_route_back(&self.clock, msg.hash(), from.clone());
-        }
-
-        if self.message_for_me(&msg.msg.target) {
-            self.record_routed_msg_latency(&msg);
-            // Handle Ping and Pong message if they are for us without sending to client.
-            // i.e. Return false in case of Ping and Pong
-            match &msg.msg.body {
-                RoutedMessageBody::Ping(ping) => {
-                    self.send_pong(ping.nonce as usize, msg.hash());
-                    self.config.event_sink.push(Event::Ping(ping.clone()));
-                    false
-                }
-                RoutedMessageBody::Pong(pong) => {
-                    self.config.event_sink.push(Event::Pong(pong.clone()));
-                    false
-                }
-                _ => true,
-            }
-        } else {
-            if msg.decrease_ttl() {
-                self.send_message_to_peer(msg);
-            } else {
-                self.config.event_sink.push(Event::RoutedMessageDropped);
-                warn!(target: "network", ?msg, ?from, "Message dropped because TTL reached 0.");
-            }
-            false
-        }
-    }
-
-    // The routed message received its destination. If the timestamp of creation of this message is
-    // known, then update the corresponding latency metric histogram.
-    fn record_routed_msg_latency(&self, msg: &RoutedMessageV2) {
-        if let Some(created_at) = msg.created_at {
-            let now = self.clock.now_utc();
-            let duration = now.sub(created_at);
-            metrics::NETWORK_ROUTED_MSG_LATENCY
-                .with_label_values(&[msg.body_variant()])
-                .observe(duration.as_seconds_f64());
         }
     }
 }

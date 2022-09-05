@@ -17,7 +17,6 @@ use near_chain::chain::{
     BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
 };
 use near_chain::test_utils::format_hash;
-use near_chain::types::ValidatorInfoIdentifier;
 use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
     ChainGenesis, DoneApplyChunkCallback, Provenance, RuntimeAdapter,
@@ -30,11 +29,11 @@ use near_client_primitives::types::{
 
 #[cfg(feature = "test_features")]
 use near_chain::ChainStoreAccess;
+use near_network::types::ReasonForBan;
 use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_network::types::ReasonForBan;
 use near_performance_metrics;
 use near_performance_metrics_macros::{perf, perf_with_debug};
 use near_primitives::block_header::ApprovalType;
@@ -44,7 +43,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::StatePartKey;
 use near_primitives::time::{Clock, Utc};
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{BlockHeight, ValidatorInfoIdentifier};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -299,7 +298,10 @@ impl ClientActor {
                         self.adv.set_disable_header_sync(true);
                         NetworkClientResponses::NoResponse
                     }
-                    near_network::types::NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid) => {
+                    near_network::types::NetworkAdversarialMessage::AdvProduceBlocks(
+                        num_blocks,
+                        only_valid,
+                    ) => {
                         info!(target: "adversary", "Producing {} blocks", num_blocks);
                         self.client.adv_produce_blocks = true;
                         self.client.adv_produce_blocks_only_valid = only_valid;
@@ -321,8 +323,11 @@ impl ClientActor {
                                     NetworkRequests::Block { block: block.clone() },
                                 ),
                             );
-                            let _ =
-                                self.client.start_process_block(block.into(), Provenance::PRODUCED, self.get_apply_chunks_done_callback());
+                            let _ = self.client.start_process_block(
+                                block.into(),
+                                Provenance::PRODUCED,
+                                self.get_apply_chunks_done_callback(),
+                            );
                             blocks_produced += 1;
                             if blocks_produced == num_blocks {
                                 break;
@@ -736,6 +741,7 @@ impl Handler<Status> for ClientActor {
                     self.client.sync_status.as_variant_name().to_string(),
                     display_sync_status(&self.client.sync_status, &self.client.chain.head()?,),
                 ),
+                catchup_status: self.client.get_catchup_status()?,
                 current_head_status: head.clone().into(),
                 current_header_head_status: self.client.chain.header_head()?.into(),
                 block_production_delay_millis: self
@@ -1806,6 +1812,7 @@ impl ClientActor {
         self.info_helper.info(
             &head,
             &self.client.sync_status,
+            self.client.get_catchup_status().unwrap_or_default(),
             &self.node_id,
             &self.network_info,
             validator_info,
@@ -1939,6 +1946,7 @@ impl Handler<StateSplitRequest> for SyncJobsActor {
             msg.shard_uid,
             &msg.state_root,
             &msg.next_epoch_shard_layout,
+            msg.state_split_status,
         );
 
         self.client_addr.do_send(StateSplitResponse {

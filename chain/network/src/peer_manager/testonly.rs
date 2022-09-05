@@ -12,7 +12,7 @@ use crate::time;
 use crate::types::OutboundTcpConnect;
 use crate::types::{ChainInfo, GetNetworkInfo, PeerManagerMessageRequest, SetChainInfo};
 use crate::PeerManagerActor;
-use actix::Actor;
+use actix::{Actor as _};
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, EpochId};
 use std::collections::HashSet;
@@ -64,7 +64,7 @@ impl RawConnection {
     pub async fn handshake(
         mut self,
         clock: &time::Clock,
-    ) -> (peer::testonly::PeerHandle, SyncAccountsData) {
+    ) -> peer::testonly::PeerHandle {
         let node_id = self.cfg.network.node_id();
         let mut peer =
             peer::testonly::PeerHandle::start_endpoint(clock.clone(), self.cfg, self.stream).await;
@@ -79,15 +79,7 @@ impl RawConnection {
                 _ => None,
             })
             .await;
-
-        // TODO(gprusak): this should be part of complete_handshake, once Borsh support is removed.
-        let msg = match peer.events.recv().await {
-            peer::testonly::Event::Network(PME::MessageProcessed(
-                PeerMessage::SyncAccountsData(msg),
-            )) => msg,
-            ev => panic!("expected SyncAccountsData, got {ev:?}"),
-        };
-        (peer, msg)
+        peer
     }
 
     pub async fn fail_handshake(self, clock: &time::Clock) {
@@ -239,7 +231,7 @@ impl ActorHandler {
 
 pub(crate) async fn start(
     clock: time::Clock,
-    store: near_store::Store,
+    store: Arc<dyn near_store::db::Database>,
     cfg: config::NetworkConfig,
     chain: Arc<data::Chain>,
 ) -> ActorHandler {
@@ -251,7 +243,7 @@ pub(crate) async fn start(
             let genesis_id = chain.genesis_id.clone();
             let fc = fake_client::start(send.sink().compose(Event::Client));
             cfg.event_sink = send.sink().compose(Event::PeerManager);
-            PeerManagerActor::new(
+            PeerManagerActor::spawn(
                 clock,
                 store,
                 cfg,
@@ -260,7 +252,6 @@ pub(crate) async fn start(
                 genesis_id,
             )
             .unwrap()
-            .start()
         }
     })
     .await;

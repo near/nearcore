@@ -9,7 +9,7 @@ use crate::peer::peer_actor;
 use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_manager_actor::NetworkState;
-use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage, Unregister};
+use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::store;
@@ -61,14 +61,12 @@ impl PeerConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Event {
     HandshakeDone(Edge),
-    Routed(Box<RoutedMessageV2>),
     RoutingTable(RoutingTableUpdate),
     RequestUpdateNonce(PartialEdgeInfo),
     ResponseUpdateNonce(Edge),
     PeersResponse(Vec<PeerInfo>),
     Client(fake_client::Event),
     Network(peer_manager_actor::Event),
-    Unregister(Unregister),
 }
 
 struct FakePeerManagerActor {
@@ -89,11 +87,6 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
             PeerToManagerMsg::RegisterPeer(msg) => {
                 self.event_sink.push(Event::HandshakeDone(msg.connection.edge.clone()));
                 PeerToManagerMsgResp::RegisterPeer(RegisterPeerResponse::Accept)
-            }
-            PeerToManagerMsg::RoutedMessageFrom(rmf) => {
-                self.event_sink.push(Event::Routed(rmf.msg.clone()));
-                // Reject all incoming routed messages.
-                PeerToManagerMsgResp::RoutedMessageFrom(false)
             }
             PeerToManagerMsg::SyncRoutingTable { routing_table_update, .. } => {
                 self.event_sink.push(Event::RoutingTable(routing_table_update));
@@ -118,10 +111,7 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
                 self.event_sink.push(Event::PeersResponse(resp.peers));
                 PeerToManagerMsgResp::Empty
             }
-            PeerToManagerMsg::Unregister(unregister) => {
-                self.event_sink.push(Event::Unregister(unregister));
-                PeerToManagerMsgResp::Empty
-            }
+            PeerToManagerMsg::Unregister(_) => PeerToManagerMsgResp::Empty,
             _ => panic!("unsupported message"),
         }
     }
@@ -171,7 +161,7 @@ impl PeerHandle {
         peer_id: PeerId,
         ttl: u8,
         utc: Option<time::Utc>,
-    ) -> Box<RoutedMessageV2> {
+    ) -> RoutedMessageV2 {
         RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id), body }.sign(
             &self.cfg.network.node_key,
             ttl,
@@ -190,7 +180,7 @@ impl PeerHandle {
         let actix = ActixSystem::spawn(move || {
             let fpm = FakePeerManagerActor { cfg: cfg.clone(), event_sink: send.sink() }.start();
             let fc = fake_client::start(send.sink().compose(Event::Client));
-            let store = store::Store::from(create_test_store());
+            let store = store::Store::from(near_store::db::TestDB::new());
             let routing_table_view = RoutingTableView::new(store, cfg.id());
             // WARNING: this is a hack to make PeerActor use a specific nonce
             if let (Some(nonce), Some(peer_id)) = (&cfg.nonce, &cfg.start_handshake_with) {
@@ -209,28 +199,21 @@ impl PeerHandle {
                 cfg.chain.genesis_id.clone(),
                 fc.clone().recipient(),
                 fc.clone().recipient(),
+                fpm.recipient(),
                 routing_table_view,
                 demux::RateLimit { qps: 100., burst: 1 },
             ));
-            PeerActor::create(move |ctx| {
-                PeerActor::new(
-                    clock,
-                    ctx,
-                    peer_actor::Config::new(
-                        stream,
-                        match &cfg.start_handshake_with {
-                            None => StreamConfig::Inbound,
-                            Some(id) => {
-                                StreamConfig::Outbound { peer_id: id.clone(), is_tier1: false }
-                            }
-                        },
-                        cfg.force_encoding,
-                        network_state,
-                    )
-                    .unwrap(),
-                    fpm.clone().recipient(),
-                )
-            })
+            PeerActor::spawn(
+                clock,
+                stream,
+                match &cfg.start_handshake_with {
+                    None => StreamConfig::Inbound,
+                    Some(id) => StreamConfig::Outbound { peer_id: id.clone() },
+                },
+                cfg.force_encoding,
+                network_state,
+            )
+            .unwrap()
         })
         .await;
         Self { actix, cfg: cfg_, events: recv }

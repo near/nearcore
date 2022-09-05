@@ -13,11 +13,9 @@ use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_integration_logger;
+use near_network::types::{AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, PeerInfo};
 use near_network::types::{
     NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
-};
-use near_network::types::{
-    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, PeerInfo,
 };
 use near_primitives::hash::{hash as hash_func, CryptoHash};
 use near_primitives::receipt::Receipt;

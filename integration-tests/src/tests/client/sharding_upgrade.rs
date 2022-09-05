@@ -13,7 +13,7 @@ use near_primitives::account::id::AccountId;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
-use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid, ShardLayout};
+use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -444,7 +444,7 @@ fn setup_genesis(
     genesis.config.chunk_producer_kickout_threshold = 0;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = SIMPLE_NIGHTSHADE_PROTOCOL_VERSION - 1;
-    genesis.config.simple_nightshade_shard_layout = Some(ShardLayout::v1_test());
+    genesis.config.use_production_config = true;
 
     if let Some(gas_limit) = gas_limit {
         genesis.config.gas_limit = gas_limit;

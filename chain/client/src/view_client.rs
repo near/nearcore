@@ -12,7 +12,6 @@ use std::time::{Duration, Instant};
 
 use tracing::{debug, error, info, trace, warn};
 
-use near_chain::types::ValidatorInfoIdentifier;
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
     RuntimeAdapter,
@@ -26,9 +25,9 @@ use near_client_primitives::types::{
     GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
     GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
 };
-use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
+use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_network::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
     StateResponseInfoV1, StateResponseInfoV2,
@@ -45,7 +44,7 @@ use near_primitives::syncing::{
 };
 use near_primitives::types::{
     AccountId, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId, ShardId,
-    SyncCheckpoint, TransactionOrReceiptId,
+    SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{

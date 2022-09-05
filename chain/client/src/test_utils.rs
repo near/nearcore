@@ -24,11 +24,11 @@ use near_chain::{
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::test_utils::MockPeerManagerAdapter;
+use near_network::types::PartialEdgeInfo;
 use near_network::types::{
     ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkClientResponses,
     NetworkRecipient, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
-use near_network::types::PartialEdgeInfo;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
@@ -52,12 +52,12 @@ use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor}
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_client_primitives::types::Error;
 use near_network::types::{
-    NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
-};
-use near_network::types::{
     AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses,
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo,
     PeerType,
+};
+use near_network::types::{
+    NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
 };
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::network::PeerId;
@@ -1489,7 +1489,7 @@ impl TestEnv {
             self.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
 
         let mut block = self.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
-        block.mut_header().set_lastest_protocol_version(protocol_version);
+        block.mut_header().set_latest_protocol_version(protocol_version);
         block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
             block_producer.clone(),
             KeyType::ED25519,
@@ -1825,6 +1825,7 @@ pub fn run_catchup(
                 msg.shard_uid,
                 &msg.state_root,
                 &msg.next_epoch_shard_layout,
+                msg.state_split_status,
             );
             if let Some((sync, _, _)) = client.catchup_state_syncs.get_mut(&msg.sync_hash) {
                 // We are doing catchup

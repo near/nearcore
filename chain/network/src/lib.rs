@@ -10,6 +10,7 @@ mod peer;
 mod peer_manager;
 
 pub mod blacklist;
+pub mod actix;
 pub mod config;
 pub mod config_json;
 pub(crate) mod private_actix;

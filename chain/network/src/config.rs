@@ -335,7 +335,7 @@ impl NetworkConfig {
         self.accounts_data_broadcast_rate_limit
             .validate()
             .context("accounts_Data_broadcast_rate_limit")?;
-        Ok(VerifiedConfig(self))
+        Ok(VerifiedConfig { node_id: self.node_id(), inner: self })
     }
 }
 
@@ -345,12 +345,23 @@ impl NetworkConfig {
 pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: time::Duration = time::Duration::seconds(60);
 
 #[derive(Clone)]
-pub struct VerifiedConfig(NetworkConfig);
+pub struct VerifiedConfig {
+    inner: NetworkConfig,
+    /// Cached inner.node_id().
+    /// It allows to avoid recomputing the public key every time.
+    node_id: PeerId,
+}
+
+impl VerifiedConfig {
+    pub fn node_id(&self) -> PeerId {
+        self.node_id.clone()
+    }
+}
 
 impl std::ops::Deref for VerifiedConfig {
     type Target = NetworkConfig;
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.inner
     }
 }
 

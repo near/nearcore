@@ -13,7 +13,6 @@ use crate::types::{PeerMessage, RoutingTableUpdate};
 use itertools::Itertools;
 use near_logger_utils::init_test_logger;
 use near_primitives::network::PeerId;
-use near_store::test_utils::create_test_store;
 use pretty_assertions::assert_eq;
 use rand::seq::SliceRandom as _;
 use rand::Rng as _;
@@ -32,7 +31,7 @@ async fn repeated_data_in_sync_routing_table() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let pm = peer_manager::testonly::start(
         clock.clock(),
-        create_test_store(),
+        near_store::db::TestDB::new(),
         chain.make_config(rng),
         chain.clone(),
     )
@@ -108,7 +107,7 @@ async fn no_edge_broadcast_after_restart() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let mut total_edges = vec![];
-    let store = create_test_store();
+    let store = near_store::db::TestDB::new();
 
     for i in 0..3 {
         println!("iteration {i}");
@@ -182,13 +181,10 @@ async fn test_nonces() {
     let mut clock = time::FakeClock::new(*EDGE_MIN_TIMESTAMP_NONCE + time::Duration::days(2));
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    //let mut total_edges = vec![];
-    let store = create_test_store();
-
     // Start a PeerManager and connect a peer to it.
     let pm = peer_manager::testonly::start(
         clock.clock(),
-        store.clone(),
+        near_store::db::TestDB::new(),
         chain.make_config(rng),
         chain.clone(),
     )
@@ -245,7 +241,7 @@ async fn ttl() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
     let mut pm = peer_manager::testonly::start(
         clock.clock(),
-        create_test_store(),
+        near_store::db::TestDB::new(),
         chain.make_config(rng),
         chain.clone(),
     )
@@ -279,7 +275,7 @@ async fn ttl() {
 
     for ttl in 0..5 {
         let msg = RoutedMessageBody::Ping(Ping { nonce: rng.gen(), source: peer.cfg.id() });
-        let msg = peer.routed_message(msg, peer.cfg.id(), ttl, Some(clock.now_utc()));
+        let msg = Box::new(peer.routed_message(msg, peer.cfg.id(), ttl, Some(clock.now_utc())));
         peer.send(PeerMessage::Routed(msg.clone())).await;
         // If TTL is <2, then the message will be dropped (at least 2 hops are required).
         if ttl < 2 {
@@ -293,7 +289,9 @@ async fn ttl() {
             let got = peer
                 .events
                 .recv_until(|ev| match ev {
-                    peer::testonly::Event::Routed(msg) => Some(msg),
+                    peer::testonly::Event::Network(PME::MessageProcessed(PeerMessage::Routed(
+                        msg,
+                    ))) => Some(msg),
                     _ => None,
                 })
                 .await;
@@ -315,7 +313,7 @@ async fn accounts_data_broadcast() {
 
     let mut pm = peer_manager::testonly::start(
         clock.clone(),
-        create_test_store(),
+        near_store::db::TestDB::new(),
         chain.make_config(rng),
         chain.clone(),
     )
@@ -331,8 +329,8 @@ async fn accounts_data_broadcast() {
     let data = chain.make_tier1_data(rng, clock);
 
     // Connect peer, expect initial sync to be empty.
-    let (mut peer1, got1) =
-        pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
+    let mut peer1 = pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
+    let got1 = peer1.events.recv_until(take_sync).await;
     assert_eq!(got1.accounts_data, vec![]);
 
     // Send some data. It won't be broadcasted back.
@@ -346,8 +344,8 @@ async fn accounts_data_broadcast() {
     pm.wait_for_accounts_data(&want.iter().map(|d| d.into()).collect()).await;
 
     // Connect another peer and perform initial full sync.
-    let (mut peer2, got2) =
-        pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
+    let mut peer2 = pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
+    let got2 = peer2.events.recv_until(take_sync).await;
     assert_eq!(got2.accounts_data.as_set(), want.as_set());
 
     // Send a mix of new and old data. Only new data should be broadcasted.
@@ -400,7 +398,7 @@ async fn accounts_data_gradual_epoch_change() {
         pms.push(
             peer_manager::testonly::start(
                 clock.clock(),
-                create_test_store(),
+                near_store::db::TestDB::new(),
                 chain.make_config(rng),
                 chain.clone(),
             )
@@ -472,8 +470,13 @@ async fn accounts_data_rate_limiting() {
         let mut cfg = chain.make_config(rng);
         cfg.accounts_data_broadcast_rate_limit = demux::RateLimit { qps: 0.5, burst: 1 };
         pms.push(
-            peer_manager::testonly::start(clock.clock(), create_test_store(), cfg, chain.clone())
-                .await,
+            peer_manager::testonly::start(
+                clock.clock(),
+                near_store::db::TestDB::new(),
+                cfg,
+                chain.clone(),
+            )
+            .await,
         );
     }
     // Construct a 4-layer bipartite graph.

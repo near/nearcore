@@ -739,6 +739,7 @@ impl JsonRpcHandler {
             let debug_status = match path {
                 "/debug/api/tracked_shards" => self.client_send(DebugStatus::TrackedShards).await?,
                 "/debug/api/sync_status" => self.client_send(DebugStatus::SyncStatus).await?,
+                "/debug/api/catchup_status" => self.client_send(DebugStatus::CatchupStatus).await?,
                 "/debug/api/epoch_info" => self.client_send(DebugStatus::EpochInfo).await?,
                 "/debug/api/block_status" => self.client_send(DebugStatus::BlockStatus).await?,
                 "/debug/api/validator_status" => {
@@ -1070,9 +1071,7 @@ impl JsonRpcHandler {
         actix::spawn(
             self.client_addr
                 .send(near_network::types::NetworkClientMessages::Adversarial(
-                    near_network::types::NetworkAdversarialMessage::AdvSetSyncInfo(
-                        height,
-                    ),
+                    near_network::types::NetworkAdversarialMessage::AdvSetSyncInfo(height),
                 ))
                 .map(|_| ()),
         );
@@ -1134,18 +1133,14 @@ impl JsonRpcHandler {
         actix::spawn(
             self.client_addr
                 .send(NetworkClientMessages::Adversarial(
-                    near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(
-                        height,
-                    ),
+                    near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height),
                 ))
                 .map(|_| ()),
         );
         actix::spawn(
             self.view_client_addr
                 .send(near_network::types::NetworkViewClientMessages::Adversarial(
-                    near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(
-                        height,
-                    ),
+                    near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height),
                 ))
                 .map(|_| ()),
         );

@@ -175,7 +175,7 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
             mem::PeerMessage::BlockRequest(bh) => net::PeerMessage::BlockRequest(bh),
             mem::PeerMessage::Block(b) => net::PeerMessage::Block(b),
             mem::PeerMessage::Transaction(t) => net::PeerMessage::Transaction(t),
-            mem::PeerMessage::Routed(r) => net::PeerMessage::Routed(Box::new(r.msg)),
+            mem::PeerMessage::Routed(r) => net::PeerMessage::Routed(Box::new(r.msg.clone())),
             mem::PeerMessage::Disconnect => net::PeerMessage::Disconnect,
             mem::PeerMessage::Challenge(c) => net::PeerMessage::Challenge(c),
             mem::PeerMessage::EpochSyncRequest(epoch_id) => {

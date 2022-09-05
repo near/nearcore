@@ -19,9 +19,7 @@ use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
-use near_network::types::{
-    NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo,
-};
+use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::time::Utc;
 use near_primitives::transaction::SignedTransaction;

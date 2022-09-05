@@ -28,10 +28,10 @@ use near_primitives::utils::to_timestamp;
 
 use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
 use near_client_primitives::types::{
-    DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus,
+    DownloadStatus, ShardSyncDownload, ShardSyncStatus, StateSplitApplyingStatus, SyncStatus,
 };
-use near_network::types::PeerManagerMessageRequest;
 use near_network::types::AccountOrPeerIdOrHash;
+use near_network::types::PeerManagerMessageRequest;
 use near_primitives::shard_layout::ShardUId;
 
 /// Maximum number of block headers send over the network.
@@ -275,7 +275,8 @@ impl HeaderSync {
                                         PeerManagerMessageRequest::NetworkRequests(
                                             NetworkRequests::BanPeer {
                                                 peer_id: peer.peer_info.id.clone(),
-                                                ban_reason: near_network::types::ReasonForBan::HeightFraud,
+                                                ban_reason:
+                                                    near_network::types::ReasonForBan::HeightFraud,
                                             },
                                         ),
                                     );
@@ -739,9 +740,9 @@ impl StateSync {
                 update_sync_status = true;
                 init_sync_download.clone()
             });
-            let old_status = shard_sync_download.status;
+            let old_status = shard_sync_download.status.clone();
             let mut this_done = false;
-            match shard_sync_download.status {
+            match &shard_sync_download.status {
                 ShardSyncStatus::StateDownloadHeader => {
                     if shard_sync_download.downloads[0].done {
                         let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
@@ -877,18 +878,20 @@ impl StateSync {
                 }
                 ShardSyncStatus::StateSplitScheduling => {
                     debug_assert!(split_states);
+                    let status = Arc::new(StateSplitApplyingStatus::new());
                     chain.build_state_for_split_shards_preprocessing(
                         &sync_hash,
                         shard_id,
                         state_split_scheduler,
+                        status.clone(),
                     )?;
                     debug!(target: "sync", "State sync split scheduled: me {:?}, shard = {}, hash = {}", me, shard_id, sync_hash);
                     *shard_sync_download = ShardSyncDownload {
                         downloads: vec![],
-                        status: ShardSyncStatus::StateSplitApplying,
+                        status: ShardSyncStatus::StateSplitApplying(status),
                     };
                 }
-                ShardSyncStatus::StateSplitApplying => {
+                ShardSyncStatus::StateSplitApplying(_status) => {
                     debug_assert!(split_states);
                     let result = self.split_state_roots.remove(&shard_id);
                     if let Some(state_roots) = result {
