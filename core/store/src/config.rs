@@ -41,7 +41,7 @@ pub struct StoreConfig {
     /// Default value: ShardUId {version: 1, shard_id: 3} -> 45_000_000
     /// We're still experimenting with this parameter and it seems decreasing its value can improve
     /// the performance of the storage
-    pub trie_cache_capacities: Vec<(ShardUId, usize)>,
+    pub trie_cache_capacities: Vec<(ShardUId, u64)>,
 
     /// Path where to create RocksDB checkpoints during database migrations or
     /// `false` to disable that feature.

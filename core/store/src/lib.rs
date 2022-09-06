@@ -32,7 +32,7 @@ pub use crate::trie::iterator::TrieIterator;
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
     estimator, split_state, ApplyStatePartResult, KeyForStateChanges, PartialStorage, ShardTries,
-    Trie, TrieAccess, TrieCache, TrieCacheFactory, TrieCachingStorage, TrieChanges, TrieStorage,
+    Trie, TrieAccess, TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieStorage,
     WrappedTrieChanges,
 };
 
