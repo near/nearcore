@@ -41,7 +41,13 @@ struct CliArgs {
     #[clap(long)]
     skip_build_test_contract: bool,
     /// What metric to use.
-    #[clap(long, default_value = "icount", possible_values = &["icount", "time"])]
+    ///
+    /// `time` measures wall-clock time elapsed.
+    /// `icount` counts the CPU instructions and syscall-level IO bytes executed
+    ///  using qemu instrumentation.
+    /// Note that `icount` measurements are not accurate when translating to gas. The main purpose of it is to
+    /// have a stable output that can be used to detect performance regressions.
+    #[clap(long, default_value = "time", possible_values = &["icount", "time"])]
     metric: String,
     /// Which VM to test.
     #[clap(long, possible_values = &["wasmer", "wasmer2", "wasmtime"])]
@@ -131,8 +137,10 @@ fn main() -> anyhow::Result<()> {
 
         let near_config = nearcore::load_config(&state_dump_path, GenesisValidationMode::Full)
             .context("Error loading config")?;
-        let store =
-            near_store::Store::opener(&state_dump_path, &near_config.config.store).open().unwrap();
+        let store = near_store::NodeStorage::opener(&state_dump_path, &near_config.config.store)
+            .open()
+            .unwrap()
+            .get_store(near_store::Temperature::Hot);
         GenesisBuilder::from_config_and_store(&state_dump_path, near_config, store)
             .add_additional_accounts(cli_args.additional_accounts_num)
             .add_additional_accounts_contract(contract_code.to_vec())

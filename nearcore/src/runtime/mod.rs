@@ -11,8 +11,10 @@ use near_chain_configs::{
     Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
     MIN_GC_NUM_EPOCHS_TO_KEEP,
 };
+use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
+use near_o11y::log_assert;
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, ApprovalInner};
@@ -1610,7 +1612,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(result)
     }
 
-    fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &Vec<u8>) -> bool {
+    fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &[u8]) -> bool {
         match BorshDeserialize::try_from_slice(data) {
             Ok(trie_nodes) => {
                 match Trie::validate_trie_nodes_for_part(state_root, part_id, trie_nodes) {
@@ -1658,6 +1660,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_uid: ShardUId,
         state_root: &StateRoot,
         next_epoch_shard_layout: &ShardLayout,
+        state_split_status: Arc<StateSplitApplyingStatus>,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         let trie = self.tries.get_view_trie_for_shard(shard_uid, state_root.clone());
         let shard_id = shard_uid.shard_id();
@@ -1683,6 +1686,9 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let state_root_node = trie.retrieve_root_node()?;
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
+        if state_split_status.total_parts.set(num_parts).is_err() {
+            log_assert!(false, "splitting state was done twice for shard {}", shard_id);
+        }
         debug!(target: "runtime", "splitting state for shard {} to {} parts to build new states", shard_id, num_parts);
         for part_id in 0..num_parts {
             let trie_items = trie.get_trie_items_for_part(PartId::new(part_id, num_parts))?;
@@ -1693,6 +1699,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             )?;
             state_roots = new_state_roots;
             store_update.commit()?;
+            state_split_status.done_parts.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         }
         state_roots = apply_delayed_receipts(
             &self.tries,
@@ -1942,7 +1949,7 @@ mod test {
 
     use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
     use near_crypto::{InMemorySigner, KeyType, Signer};
-    use near_logger_utils::init_test_logger;
+    use near_o11y::testonly::init_test_logger;
     use near_primitives::block::Tip;
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
@@ -1951,6 +1958,7 @@ mod test {
     use near_primitives::views::{
         AccountView, CurrentEpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
     };
+    use near_store::{NodeStorage, Temperature};
 
     use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
@@ -2081,8 +2089,8 @@ mod test {
             has_reward: bool,
             minimum_stake_divisor: Option<u64>,
         ) -> Self {
-            let (dir, opener) = Store::test_opener();
-            let store = opener.open().unwrap();
+            let (dir, opener) = NodeStorage::test_opener();
+            let store = opener.open().unwrap().get_store(Temperature::Hot);
             let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
                 acc.union(&x.iter().cloned().collect()).cloned().collect()
             });

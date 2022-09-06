@@ -1,7 +1,7 @@
 use crate::test_utils::setup;
 use crate::{Block, Error, Provenance};
 use assert_matches::assert_matches;
-use near_logger_utils::init_test_logger;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::time::Clock;
 use near_primitives::utils::MaybeValidated;
 

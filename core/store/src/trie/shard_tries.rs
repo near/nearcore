@@ -12,13 +12,6 @@ use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_primitives::state::ValueRef;
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_primitives::state_record::is_delayed_receipt_key;
-
-#[cfg(feature = "protocol_feature_flat_state")]
-use crate::flat_state::FlatState;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
 use crate::{metrics, DBCol, DBOp, DBTransaction};
@@ -121,16 +114,7 @@ impl ShardTries {
         };
         let storage =
             Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid, is_view));
-        let flat_state = {
-            #[cfg(feature = "protocol_feature_flat_state")]
-            if use_flat_state {
-                Some(FlatState::new(self.0.store.clone()))
-            } else {
-                None
-            }
-            #[cfg(not(feature = "protocol_feature_flat_state"))]
-            None
-        };
+        let flat_state = crate::flat_state::maybe_new(use_flat_state, &self.0.store);
         Trie::new(storage, state_root, flat_state)
     }
 
@@ -163,7 +147,10 @@ impl ShardTries {
                     if *col == DBCol::State {
                         let (shard_uid, hash) =
                             TrieCachingStorage::get_shard_uid_and_hash_from_key(key)?;
-                        shards.entry(shard_uid).or_insert(vec![]).push((hash, Some(value)));
+                        shards
+                            .entry(shard_uid)
+                            .or_insert(vec![])
+                            .push((hash, Some(value.as_slice())));
                     }
                 }
                 DBOp::DeleteAll { col } => {
@@ -191,7 +178,7 @@ impl ShardTries {
 
     fn apply_deletions_inner(
         &self,
-        deletions: &Vec<TrieRefcountChange>,
+        deletions: &[TrieRefcountChange],
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
@@ -207,7 +194,7 @@ impl ShardTries {
 
     fn apply_insertions_inner(
         &self,
-        insertions: &Vec<TrieRefcountChange>,
+        insertions: &[TrieRefcountChange],
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
@@ -290,7 +277,7 @@ impl ShardTries {
     ) {
         for change in changes.iter() {
             let key = change.trie_key.to_vec();
-            if is_delayed_receipt_key(&key) {
+            if near_primitives::state_record::is_delayed_receipt_key(&key) {
                 continue;
             }
 
@@ -303,7 +290,7 @@ impl ShardTries {
                 .data;
             match last_change {
                 Some(value) => {
-                    let value_ref_ser = ValueRef::create_serialized(value);
+                    let value_ref_ser = near_primitives::state::ValueRef::create_serialized(value);
                     store_update.set(DBCol::FlatState, &key, &value_ref_ser)
                 }
                 None => store_update.delete(DBCol::FlatState, &key),

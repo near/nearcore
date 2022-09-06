@@ -74,30 +74,31 @@ impl StateViewerSubCommand {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
         let store_opener =
-            near_store::Store::opener(home_dir, &near_config.config.store).mode(mode);
+            near_store::NodeStorage::opener(home_dir, &near_config.config.store).mode(mode);
         let store = store_opener.open().unwrap();
+        let hot = store.get_store(near_store::Temperature::Hot);
         match self {
             StateViewerSubCommand::Peers => peers(store),
-            StateViewerSubCommand::State => state(home_dir, near_config, store),
-            StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::ApplyRange(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::Apply(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
-            StateViewerSubCommand::CheckBlock => check_block_chunk_existence(store, near_config),
-            StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::State => state(home_dir, near_config, hot),
+            StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::ApplyRange(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::Apply(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, hot),
+            StateViewerSubCommand::CheckBlock => check_block_chunk_existence(near_config, hot),
+            StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, hot),
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(&store_opener.path()),
-            StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
-            StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
-            StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
-            StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, hot),
+            StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, hot),
+            StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, hot),
+            StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, hot),
         }
     }
 }
@@ -184,7 +185,7 @@ impl DumpTxCmd {
             home_dir,
             near_config,
             store,
-            self.account_ids.as_ref(),
+            self.account_ids.as_deref(),
             self.output_path,
         )
         .expect("Failed to dump transaction...")

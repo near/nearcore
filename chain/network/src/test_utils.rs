@@ -313,7 +313,6 @@ pub mod test_features {
     use near_network_primitives::time;
     use near_network_primitives::types::{NetworkViewClientMessages, NetworkViewClientResponses};
     use near_primitives::block::GenesisId;
-    use near_store::Store;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
@@ -323,12 +322,12 @@ pub mod test_features {
     type ViewClientMock = Mocker<NetworkViewClientMessages>;
 
     // Make peer manager for unit tests
-    pub fn make_peer_manager(
-        store: Store,
+    pub fn spawn_peer_manager(
+        store: Arc<dyn near_store::db::Database>,
         mut config: config::NetworkConfig,
         boot_nodes: Vec<(&str, u16)>,
         peer_max_count: u32,
-    ) -> PeerManagerActor {
+    ) -> actix::Addr<PeerManagerActor> {
         config.boot_nodes = convert_boot_nodes(boot_nodes);
         config.max_num_peers = peer_max_count;
         let counter = Arc::new(AtomicUsize::new(0));
@@ -353,7 +352,7 @@ pub mod test_features {
             }
         }))
         .start();
-        PeerManagerActor::new(
+        PeerManagerActor::spawn(
             time::Clock::real(),
             store,
             config,
