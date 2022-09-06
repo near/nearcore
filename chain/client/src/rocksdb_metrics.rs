@@ -1,4 +1,4 @@
-use near_metrics::{
+use near_o11y::metrics::{
     try_create_gauge_vec, try_create_int_gauge, try_create_int_gauge_vec, GaugeVec, IntGauge,
     IntGaugeVec,
 };

@@ -16,12 +16,6 @@ pub struct Version {
     pub rustc_version: String,
 }
 
-/// Database version.
-pub type DbVersion = u32;
-
-/// Current version of the database.
-pub const DB_VERSION: DbVersion = 31;
-
 use crate::upgrade_schedule::{get_protocol_version_internal, ProtocolUpgradeVotingSchedule};
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;

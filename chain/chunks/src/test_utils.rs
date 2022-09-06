@@ -264,7 +264,7 @@ impl ChunkTestFixture {
             mock_chunk_part_owner,
             mock_shard_tracker,
             mock_chunk_header: encoded_chunk.cloned_header(),
-            mock_chunk_parts: encoded_chunk.parts().clone(),
+            mock_chunk_parts: encoded_chunk.parts().to_vec(),
             mock_chain_head: Tip {
                 height: 0,
                 last_block_hash: CryptoHash::default(),
