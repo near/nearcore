@@ -509,6 +509,7 @@ impl Chain {
             apply_chunks_receiver: rc,
             last_time_head_updated: Clock::instant(),
             pending_state_patch: Default::default(),
+            flat_state_lock: Arc::new(Default::default()),
         })
     }
 
@@ -647,6 +648,7 @@ impl Chain {
             apply_chunks_receiver: rc,
             last_time_head_updated: Clock::instant(),
             pending_state_patch: Default::default(),
+            flat_state_lock: Arc::new(Default::default()),
         })
     }
 
