@@ -354,7 +354,6 @@ pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> Rout
     let signer = make_signer(rng);
     let peer_id = PeerId::new(signer.public_key);
     RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id.clone()), body }.sign(
-        peer_id,
         &signer.secret_key,
         /*ttl=*/ 1,
         None,
