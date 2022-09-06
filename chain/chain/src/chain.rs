@@ -446,7 +446,7 @@ pub struct Chain {
     /// impossible to have non-empty state patch on non-sandbox builds.
     pending_state_patch: SandboxStatePatch,
 
-    flat_state_lock: Arc<RwLock<()>>,
+    flat_state_head: Arc<RwLock<CryptoHash>>,
 }
 
 impl Drop for Chain {
@@ -509,7 +509,7 @@ impl Chain {
             apply_chunks_receiver: rc,
             last_time_head_updated: Clock::instant(),
             pending_state_patch: Default::default(),
-            flat_state_lock: Arc::new(Default::default()),
+            flat_state_head: Arc::new(Default::default()),
         })
     }
 
@@ -648,7 +648,7 @@ impl Chain {
             apply_chunks_receiver: rc,
             last_time_head_updated: Clock::instant(),
             pending_state_patch: Default::default(),
-            flat_state_lock: Arc::new(Default::default()),
+            flat_state_head: Arc::new(Default::default()),
         })
     }
 
@@ -2036,9 +2036,9 @@ impl Chain {
             height = block.header().height())
         .entered();
 
-        let _ = self.flat_state_lock.write().expect("Flat state lock was poisoned.");
         let prev_head = self.store.head()?;
         let mut chain_update = self.chain_update();
+        let _ = chain_update.flat_state_head.write().expect("Flat state lock was poisoned.");
         let provenance = block_preprocess_info.provenance.clone();
         let block_start_processing_time = block_preprocess_info.block_start_processing_time.clone();
         let new_head =
@@ -3588,7 +3588,7 @@ impl Chain {
                     let random_seed = *block.header().random_value();
                     let height = chunk_header.height_included();
                     let prev_block_hash = chunk_header.prev_block_hash().clone();
-                    let flat_state_lock = self.flat_state_lock.clone();
+                    let flat_state_lock = self.flat_state_head.clone();
 
                     result.push(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
                         let _span = tracing::debug_span!(
@@ -3760,6 +3760,7 @@ impl Chain {
             self.runtime_adapter.clone(),
             self.doomslug_threshold_mode,
             self.transaction_validity_period,
+            self.flat_state_head.clone(),
         )
     }
 
@@ -4337,6 +4338,7 @@ pub struct ChainUpdate<'a> {
     doomslug_threshold_mode: DoomslugThresholdMode,
     #[allow(unused)]
     transaction_validity_period: BlockHeightDelta,
+    flat_state_head: Arc<RwLock<CryptoHash>>,
 }
 
 pub struct SameHeightResult {
@@ -4370,6 +4372,7 @@ impl<'a> ChainUpdate<'a> {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
         transaction_validity_period: BlockHeightDelta,
+        flat_state_head: Arc<RwLock<CryptoHash>>,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
         Self::new_impl(
@@ -4377,6 +4380,7 @@ impl<'a> ChainUpdate<'a> {
             doomslug_threshold_mode,
             transaction_validity_period,
             chain_store_update,
+            flat_state_head,
         )
     }
 
@@ -4385,12 +4389,14 @@ impl<'a> ChainUpdate<'a> {
         doomslug_threshold_mode: DoomslugThresholdMode,
         transaction_validity_period: BlockHeightDelta,
         chain_store_update: ChainStoreUpdate<'a>,
+        flat_state_head: Arc<RwLock<CryptoHash>>,
     ) -> Self {
         ChainUpdate {
             runtime_adapter,
             chain_store_update,
             doomslug_threshold_mode,
             transaction_validity_period,
+            flat_state_head,
         }
     }
 
@@ -4853,12 +4859,28 @@ impl<'a> ChainUpdate<'a> {
         }
     }
 
+    fn update_flat_state_head(&mut self) -> Result<(), Error> {
+        let mut flat_state_head = self.chain_store_update.flat_state_head()?;
+        let final_head_height = self.chain_store_update.final_head()?.height;
+        for _ in 0..2 {
+            let next_candidate_head =
+                self.chain_store_update.get_next_block_hash(&flat_state_head)?;
+            if self.chain_store_update.get_block_height(&next_candidate_head)? > final_head_height {
+                break;
+            }
+            flat_state_head = next_candidate_head;
+        }
+        self.chain_store_update.save_flat_state_head(&flat_state_head)
+    }
+
     /// Directly updates the head if we've just appended a new block to it or handle
     /// the situation where the block has higher height to have a fork
     fn update_head(&mut self, header: &BlockHeader) -> Result<Option<Tip>, Error> {
         // if we made a fork with higher height than the head (which should also be true
         // when extending the head), update it
         self.update_final_head_from_block(header)?;
+        self.update_flat_state_head()?;
+
         let head = self.chain_store_update.head()?;
         if header.height() > head.height {
             let tip = Tip::from_header(header);

@@ -42,7 +42,12 @@ mod imp {
                 .get_ser(crate::DBCol::BlockMisc, FLAT_STATE_HEAD_KEY)
                 .map_err(|_| StorageError::StorageInternalError)?
                 .unwrap();
-            tracing::debug!(target: "client", "fs_get_raw_ref: flat_state_head: {:?}", flat_state_head);
+            let block_header: BlockHeader = self
+                .store
+                .get_ser(crate::DBCol::BlockHeader, flat_state_head.as_ref())
+                .map_err(|_| StorageError::StorageInternalError)?
+                .unwrap();
+            tracing::debug!(target: "client", "fs_get_raw_ref: flat_state_head: {:?} height: {}", flat_state_head, block_header.height());
             let mut block_hash = self.prev_block_hash;
             while block_hash != flat_state_head {
                 tracing::debug!(target: "client", "fs_get_raw_ref: block_hash: {:?}", block_hash);
