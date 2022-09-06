@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration as TimeDuration, Instant};
 
 use borsh::BorshSerialize;
@@ -445,6 +445,8 @@ pub struct Chain {
     /// was empty and could not hold any records (which it cannot).  It’s
     /// impossible to have non-empty state patch on non-sandbox builds.
     pending_state_patch: SandboxStatePatch,
+
+    flat_state_lock: Arc<RwLock<()>>,
 }
 
 impl Drop for Chain {
@@ -2032,6 +2034,7 @@ impl Chain {
             height = block.header().height())
         .entered();
 
+        let _ = self.flat_state_lock.write().expect("Flat state lock was poisoned.");
         let prev_head = self.store.head()?;
         let mut chain_update = self.chain_update();
         let provenance = block_preprocess_info.provenance.clone();
@@ -3583,6 +3586,7 @@ impl Chain {
                     let random_seed = *block.header().random_value();
                     let height = chunk_header.height_included();
                     let prev_block_hash = chunk_header.prev_block_hash().clone();
+                    let flat_state_lock = self.flat_state_lock.clone();
 
                     result.push(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
                         let _span = tracing::debug_span!(
@@ -3592,6 +3596,8 @@ impl Chain {
                             shard_id)
                         .entered();
                         let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
+
+                        let _ = flat_state_lock.read().expect("Flat state lock was poisoned.");
                         match runtime_adapter.apply_transactions(
                             shard_id,
                             chunk_inner.prev_state_root(),
