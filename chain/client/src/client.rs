@@ -1057,7 +1057,8 @@ impl Client {
         header: &ShardChunkHeader,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), Error> {
-        let process_result = self.shards_mgr.process_cached_chunk_forwards_for_header(
+        self.shards_mgr.insert_header_if_not_exists_and_process_cached_chunk_forwards(header);
+        let process_result = self.shards_mgr.try_process_chunk_parts_and_receipts(
             header,
             self.chain.mut_store(),
             &mut self.rs,
