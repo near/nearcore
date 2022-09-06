@@ -191,14 +191,14 @@ async fn get_predecessor_id_from_receipt_hash(
     receipt_id: CryptoHash,
 ) -> Option<AccountId> {
     match view_client.send(near_client::GetReceipt { receipt_id }).await.ok()? {
-        Ok(result) => {
-            if let Some(result) = result {
-                Some(result.predecessor_id)
+        Ok(receipt_view) => {
+            if let Some(receipt_view) = receipt_view {
+                Some(receipt_view.predecessor_id)
             } else {
                 None
             }
         }
-        Err(GetReceiptError) => None,
+        _ => None,
     }
 }
 
