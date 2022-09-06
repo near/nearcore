@@ -687,15 +687,13 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix::actors::mocker::Mocker;
-    type ViewClientMock = Mocker<ViewClientActor>;
-    #[test]
-    fn test_convert_block_changes_to_transactions() {
+    use near_client::test_utils::setup_no_network;
+
+    #[actix_rt::test]
+    async fn test_convert_block_changes_to_transactions() {
         let runtime_config = near_primitives::runtime::config::RuntimeConfig::test();
-        let view_client_addr = ViewClientMock::mock(Box::new(|_msg, _ctx| {
-            Box::new(Some(near_network_primitives::types::NetworkViewClientResponses::NoResponse))
-        }))
-        .start();
+        let (_client, view_client) =
+            setup_no_network(vec!["test".parse().unwrap()], "other".parse().unwrap(), true, false);
         let block_hash = near_primitives::hash::CryptoHash::default();
         let nfvalidator1_receipt_processing_hash = near_primitives::hash::CryptoHash([1u8; 32]);
         let nfvalidator2_action_receipt_gas_reward_hash =
@@ -780,13 +778,14 @@ mod tests {
             },
         );
         let transactions = super::transactions::convert_block_changes_to_transactions(
-            view_client_addr,
+            &view_client,
             &runtime_config,
             &block_hash,
             accounts_changes,
             accounts_previous_state,
             super::transactions::ExecutionToReceipts::empty(),
         )
+        .await
         .unwrap();
         assert_eq!(transactions.len(), 3);
         assert!(transactions.iter().all(|(transaction_hash, transaction)| {
