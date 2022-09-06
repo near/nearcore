@@ -81,6 +81,13 @@
         "msg": ""
       }
     },
+    "Ed25519VerifyInvalidInput": {
+      "name": "Ed25519VerifyInvalidInput",
+      "subtypes": [],
+      "props": {
+        "msg": ""
+      }
+    },
     "EmptyMethodName": {
       "name": "EmptyMethodName",
       "subtypes": [],
@@ -147,7 +154,8 @@
         "ContractSizeExceeded",
         "Deprecated",
         "ECRecoverError",
-        "AltBn128InvalidInput"
+        "AltBn128InvalidInput",
+        "Ed25519VerifyInvalidInput"
       ],
       "props": {}
     },

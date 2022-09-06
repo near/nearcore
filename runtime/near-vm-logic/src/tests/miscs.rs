@@ -859,3 +859,88 @@ fn test_contract_size_limit() {
         .into())
     );
 }
+
+#[cfg(feature = "protocol_feature_ed25519_verify")]
+#[test]
+fn test_ed25519_verify() {
+    use near_vm_errors::VMLogicError;
+
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
+
+    let signature: [u8; 64] = [
+        145, 193, 203, 18, 114, 227, 14, 117, 33, 213, 121, 66, 130, 14, 25, 4, 36, 120, 46, 142,
+        226, 215, 7, 66, 122, 112, 97, 30, 249, 135, 61, 165, 221, 249, 252, 23, 105, 40, 56, 70,
+        31, 152, 236, 141, 154, 122, 207, 20, 75, 118, 79, 90, 168, 6, 221, 122, 213, 29, 126, 196,
+        216, 104, 191, 6,
+    ];
+
+    let bad_signature: [u8; 64] = [1; 64];
+
+    let public_key: [u8; 32] = [
+        32, 122, 6, 120, 146, 130, 30, 37, 215, 112, 241, 251, 160, 196, 124, 17, 255, 75, 129, 62,
+        84, 22, 46, 206, 158, 184, 57, 224, 118, 35, 26, 182,
+    ];
+
+    // 32 bytes message
+    let message: [u8; 32] = [
+        107, 97, 106, 100, 108, 102, 107, 106, 97, 108, 107, 102, 106, 97, 107, 108, 102, 106, 100,
+        107, 108, 97, 100, 106, 102, 107, 108, 106, 97, 100, 115, 107,
+    ];
+
+    let result = logic
+        .ed25519_verify(
+            signature.len() as _,
+            signature.as_ptr() as _,
+            message.len() as _,
+            message.as_ptr() as _,
+            public_key.len() as _,
+            public_key.as_ptr() as _,
+        )
+        .unwrap();
+
+    assert_eq!(result, 1);
+
+    assert_costs(map! {
+        ExtCosts::read_memory_byte: 128,
+        ExtCosts::read_memory_base: 3,
+        ExtCosts::ed25519_verify_base: 1,
+        ExtCosts::ed25519_verify_byte: 32,
+    });
+
+    let result = logic
+        .ed25519_verify(
+            bad_signature.len() as _,
+            bad_signature.as_ptr() as _,
+            message.len() as _,
+            message.as_ptr() as _,
+            public_key.len() as _,
+            public_key.as_ptr() as _,
+        )
+        .unwrap();
+
+    assert_eq!(result, 0);
+
+    assert_costs(map! {
+        ExtCosts::read_memory_byte: 128,
+        ExtCosts::read_memory_base: 3,
+        ExtCosts::ed25519_verify_base: 1,
+        ExtCosts::ed25519_verify_byte: 32,
+    });
+
+    let result = logic.ed25519_verify(
+        (signature.len() - 1) as _,
+        signature.as_ptr() as _,
+        message.len() as _,
+        message.as_ptr() as _,
+        public_key.len() as _,
+        public_key.as_ptr() as _,
+    );
+
+    assert_eq!(
+        result,
+        Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
+            msg: "invalid signature length".to_string()
+        }))
+    );
+}

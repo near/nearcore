@@ -162,6 +162,8 @@ pub enum ProtocolFeature {
     /// Validate account id for function call access keys.
     #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
     AccountIdInFunctionCallPermission,
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    Ed25519Verify,
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
     #[cfg(feature = "shardnet")]
@@ -258,6 +260,8 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingCost => 129,
             #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
             ProtocolFeature::AccountIdInFunctionCallPermission => 130,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
+            ProtocolFeature::Ed25519Verify => 131,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => {
                 if cfg!(feature = "shardnet") {

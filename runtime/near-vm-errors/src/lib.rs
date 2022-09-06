@@ -224,6 +224,9 @@ pub enum HostError {
     /// Invalid input to alt_bn128 familiy of functions (e.g., point which isn't
     /// on the curve).
     AltBn128InvalidInput { msg: String },
+    /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
+    /// derived from bytes).
+    Ed25519VerifyInvalidInput { msg: String },
 }
 
 #[derive(Debug, PartialEq)]
@@ -421,6 +424,7 @@ impl std::fmt::Display for HostError {
             Deprecated {method_name}=> write!(f, "Attempted to call deprecated host function {}", method_name),
             AltBn128InvalidInput { msg } => write!(f, "AltBn128 invalid input: {}", msg),
             ECRecoverError { msg } => write!(f, "ECDSA recover error: {}", msg),
+            Ed25519VerifyInvalidInput { msg } => write!(f, "ED25519 signature verification error: {}", msg),
         }
     }
 }

@@ -31,6 +31,8 @@ serde_json = "1"
 
 [features]
 default = []
+protocol_feature_ed25519_verify = []
+
 deepsize_feature = [
   "deepsize",
   "near-account-id/deepsize_feature",
