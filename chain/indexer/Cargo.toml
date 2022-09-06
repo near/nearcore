@@ -24,7 +24,7 @@ near-client = { path = "../client" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-indexer-primitives = { path = "../indexer-primitives" }
-near-metrics = { path = "../../core/metrics" }
+near-o11y = { path = "../../core/o11y" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 node-runtime = { path = "../../runtime/runtime" }
