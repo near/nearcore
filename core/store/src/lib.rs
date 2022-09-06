@@ -42,12 +42,14 @@ pub mod db;
 pub mod flat_state;
 mod metrics;
 pub mod migrations;
+mod opener;
 pub mod test_utils;
 mod trie;
 pub mod version;
 
-pub use crate::config::{Mode, StoreConfig, StoreOpener};
+pub use crate::config::{Mode, StoreConfig};
 pub use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError};
+pub use crate::opener::StoreOpener;
 
 /// Specifies temperature of a storage.
 ///
