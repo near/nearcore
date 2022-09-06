@@ -2294,7 +2294,6 @@ dependencies = [
  "near-jsonrpc",
  "near-jsonrpc-client",
  "near-jsonrpc-primitives",
- "near-logger-utils",
  "near-network",
  "near-network-primitives",
  "near-o11y",
@@ -2706,9 +2705,9 @@ dependencies = [
  "near-crypto",
  "near-epoch-manager",
  "near-jsonrpc",
- "near-logger-utils",
  "near-network",
  "near-network-primitives",
+ "near-o11y",
  "near-performance-metrics",
  "near-primitives",
  "near-store",
@@ -2808,8 +2807,6 @@ dependencies = [
  "near-chain-primitives",
  "near-client-primitives",
  "near-crypto",
- "near-logger-utils",
- "near-metrics",
  "near-o11y",
  "near-pool",
  "near-primitives",
@@ -2864,10 +2861,9 @@ dependencies = [
  "near-chain",
  "near-chunks-primitives",
  "near-crypto",
- "near-logger-utils",
- "near-metrics",
  "near-network",
  "near-network-primitives",
+ "near-o11y",
  "near-pool",
  "near-primitives",
  "near-store",
@@ -2906,8 +2902,6 @@ dependencies = [
  "near-chunks",
  "near-client-primitives",
  "near-crypto",
- "near-logger-utils",
- "near-metrics",
  "near-network",
  "near-network-primitives",
  "near-o11y",
@@ -2941,6 +2935,7 @@ dependencies = [
  "near-crypto",
  "near-network-primitives",
  "near-primitives",
+ "once_cell",
  "serde",
  "serde_json",
  "strum",
@@ -3043,7 +3038,6 @@ dependencies = [
  "near-jsonrpc-adversarial-primitives",
  "near-jsonrpc-client",
  "near-jsonrpc-primitives",
- "near-metrics",
  "near-network",
  "near-network-primitives",
  "near-o11y",
@@ -3091,7 +3085,6 @@ dependencies = [
  "libfuzzer-sys",
  "near-jsonrpc",
  "near-jsonrpc-tests",
- "near-logger-utils",
  "near-primitives",
  "once_cell",
  "serde",
@@ -3128,22 +3121,14 @@ dependencies = [
  "near-crypto",
  "near-jsonrpc",
  "near-jsonrpc-primitives",
- "near-logger-utils",
  "near-network",
  "near-network-primitives",
+ "near-o11y",
  "near-primitives",
  "near-store",
  "once_cell",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "near-logger-utils"
-version = "0.0.0"
-dependencies = [
- "near-o11y",
- "tracing",
 ]
 
 [[package]]
@@ -3154,15 +3139,6 @@ dependencies = [
  "near-chain-configs",
  "near-primitives",
  "serde_json",
-]
-
-[[package]]
-name = "near-metrics"
-version = "0.0.0"
-dependencies = [
- "once_cell",
- "prometheus",
- "tracing",
 ]
 
 [[package]]
@@ -3188,8 +3164,6 @@ dependencies = [
  "itertools",
  "lru",
  "near-crypto",
- "near-logger-utils",
- "near-metrics",
  "near-network-primitives",
  "near-o11y",
  "near-performance-metrics",
@@ -3251,6 +3225,7 @@ dependencies = [
  "once_cell",
  "opentelemetry",
  "opentelemetry-jaeger",
+ "prometheus",
  "strum",
  "thiserror",
  "tokio",
@@ -3293,7 +3268,7 @@ version = "0.0.0"
 dependencies = [
  "borsh",
  "near-crypto",
- "near-metrics",
+ "near-o11y",
  "near-primitives",
  "once_cell",
  "rand 0.7.3",
@@ -3443,7 +3418,6 @@ dependencies = [
  "insta",
  "lru",
  "near-crypto",
- "near-metrics",
  "near-o11y",
  "near-primitives",
  "num_cpus",
@@ -3466,7 +3440,7 @@ dependencies = [
  "actix",
  "awc",
  "futures",
- "near-metrics",
+ "near-o11y",
  "near-performance-metrics",
  "near-performance-metrics-macros",
  "near-primitives",
@@ -3603,13 +3577,12 @@ dependencies = [
  "near-chain-configs",
  "near-chunks",
  "near-client",
+ "near-client-primitives",
  "near-crypto",
  "near-epoch-manager",
  "near-jsonrpc",
  "near-jsonrpc-primitives",
- "near-logger-utils",
  "near-mainnet-res",
- "near-metrics",
  "near-network",
  "near-network-primitives",
  "near-o11y",
@@ -3695,7 +3668,7 @@ dependencies = [
  "indicatif",
  "near-chain-configs",
  "near-crypto",
- "near-metrics",
+ "near-o11y",
  "near-primitives",
  "near-store",
  "near-test-contracts",
@@ -3817,9 +3790,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.12.0"
+version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7709cef83f0c1f58f666e746a08b21e0085f7440fa6a29cc194d68aac97a4225"
+checksum = "074864da206b4973b84eb91683020dbefd6a8c3f0f38e054d93954e891935e4e"
 
 [[package]]
 name = "oorandom"
@@ -4887,7 +4860,7 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-crypto",
- "near-logger-utils",
+ "near-o11y",
  "near-primitives",
  "near-store",
  "near-test-contracts",
@@ -5345,7 +5318,6 @@ dependencies = [
  "near-client",
  "near-crypto",
  "near-epoch-manager",
- "near-logger-utils",
  "near-network",
  "near-primitives",
  "near-primitives-core",
@@ -5392,7 +5364,7 @@ dependencies = [
  "near-chain",
  "near-chain-configs",
  "near-client",
- "near-logger-utils",
+ "near-o11y",
  "near-primitives",
  "near-store",
  "nearcore",

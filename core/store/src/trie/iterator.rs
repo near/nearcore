@@ -10,7 +10,7 @@ struct Crumb {
     status: CrumbStatus,
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub(crate) enum CrumbStatus {
     Entering,
     At,
@@ -151,9 +151,9 @@ impl<'a> TrieIterator<'a> {
     }
 
     fn iter_step(&mut self) -> Option<IterStep> {
-        self.trail.last_mut()?.increment();
-        let b = self.trail.last().expect("Trail finished.");
-        match (b.status.clone(), &b.node.node) {
+        let last = self.trail.last_mut()?;
+        last.increment();
+        match (last.status, &last.node.node) {
             (CrumbStatus::Exiting, n) => {
                 match n {
                     TrieNode::Leaf(ref key, _) | TrieNode::Extension(ref key, _) => {

@@ -14,5 +14,5 @@ once_cell = "1.5.2"
 rand = "0.7"
 
 near-crypto = { path = "../../core/crypto" }
-near-metrics = { path = "../../core/metrics" }
+near-o11y = { path = "../../core/o11y" }
 near-primitives = { path = "../../core/primitives" }

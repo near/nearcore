@@ -225,12 +225,10 @@ pub fn run(config: Config) -> CostTable {
     let mut res = CostTable::default();
 
     for (cost, f) in ALL_COSTS.iter().copied() {
-        let skip = match &ctx.config.costs_to_measure {
-            None => false,
-            Some(costs) => !costs.contains(&format!("{:?}", cost)),
-        };
-        if skip {
-            continue;
+        if let Some(costs) = &ctx.config.costs_to_measure {
+            if !costs.contains(&format!("{:?}", cost)) {
+                continue;
+            }
         }
 
         let start = Instant::now();

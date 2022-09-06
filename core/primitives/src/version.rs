@@ -16,12 +16,6 @@ pub struct Version {
     pub rustc_version: String,
 }
 
-/// Database version.
-pub type DbVersion = u32;
-
-/// Current version of the database.
-pub const DB_VERSION: DbVersion = 31;
-
 use crate::upgrade_schedule::{get_protocol_version_internal, ProtocolUpgradeVotingSchedule};
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
@@ -170,16 +164,14 @@ pub enum ProtocolFeature {
     AccountIdInFunctionCallPermission,
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
+    #[cfg(feature = "shardnet")]
+    ShardnetShardLayoutUpgrade,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
 /// protocol version is lower than this.
-pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "shardnet") {
-    // For shardnet, enable `ChunkOnlyProducers` but nothing else.
-    PROTOCOL_VERSION - 1
-} else {
-    STABLE_PROTOCOL_VERSION - 2
-};
+pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion =
+    if cfg!(feature = "shardnet") { PROTOCOL_VERSION - 1 } else { STABLE_PROTOCOL_VERSION - 2 };
 
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
@@ -191,8 +183,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protoco
     // On nightly, pick big enough version to support all features.
     132
 } else if cfg!(feature = "shardnet") {
-    // For shardnet, enable `ChunkOnlyProducers` but nothing else.
-    101
+    102
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION
@@ -206,6 +197,12 @@ const PROTOCOL_UPGRADE_SCHEDULE: Lazy<HashMap<ProtocolVersion, ProtocolUpgradeVo
         // Update to latest protocol version on release.
         schedule
             .insert(54, ProtocolUpgradeVotingSchedule::from_str("2022-06-27 15:00:00").unwrap());
+
+        /*
+        // Final shardnet release. Do not include it in testnet or mainnet releases.
+        schedule
+            .insert(102, ProtocolUpgradeVotingSchedule::from_str("2022-09-05 15:00:00").unwrap());
+         */
         schedule
     });
 
@@ -262,7 +259,15 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
             ProtocolFeature::AccountIdInFunctionCallPermission => 130,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
-            ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
+            ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => {
+                if cfg!(feature = "shardnet") {
+                    102
+                } else {
+                    132
+                }
+            }
+            #[cfg(feature = "shardnet")]
+            ProtocolFeature::ShardnetShardLayoutUpgrade => 102,
         }
     }
 }

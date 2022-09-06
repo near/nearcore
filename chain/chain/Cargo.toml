@@ -28,7 +28,6 @@ delay-detector = { path = "../../tools/delay-detector"}
 near-chain-configs = { path = "../../core/chain-configs" }
 near-chain-primitives = { path = "../chain-primitives" }
 near-crypto = { path = "../../core/crypto" }
-near-metrics = { path = "../../core/metrics" }
 near-o11y = { path = "../../core/o11y" }
 near-pool = { path = "../pool" }
 near-primitives = { path = "../../core/primitives" }
@@ -40,8 +39,6 @@ near-client-primitives = { path = "../client-primitives"}
 insta = "1"
 assert_matches = "1.5.0"
 
-near-logger-utils = {path = "../../test-utils/logger"}
-
 [features]
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
 byzantine_asserts = []
@@ -51,6 +48,8 @@ delay_detector = ["delay-detector/delay_detector"]
 no_cache = ["near-store/no_cache"]
 protocol_feature_flat_state = ["near-store/protocol_feature_flat_state"]
 protocol_feature_reject_blocks_with_outdated_protocol_version = ["near-primitives/protocol_feature_reject_blocks_with_outdated_protocol_version"]
+
+shardnet = ["protocol_feature_reject_blocks_with_outdated_protocol_version"]
 
 nightly = [
   "nightly_protocol",

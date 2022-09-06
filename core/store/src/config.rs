@@ -1,7 +1,6 @@
 use std::io;
 
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::version::DbVersion;
 
 const STORE_PATH: &str = "data";
 
@@ -241,12 +240,8 @@ impl<'a> StoreOpener<'a> {
     }
 
     /// Returns version of the database; or `None` if it does not exist.
-    pub fn get_version_if_exists(&self) -> io::Result<Option<DbVersion>> {
-        if self.check_if_exists() {
-            Some(crate::RocksDB::get_version(&self.path, &self.config)).transpose()
-        } else {
-            Ok(None)
-        }
+    pub fn get_version_if_exists(&self) -> io::Result<Option<crate::version::DbVersion>> {
+        crate::RocksDB::get_version(&self.path, &self.config)
     }
 
     /// Opens the RocksDB database.

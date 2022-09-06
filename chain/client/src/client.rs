@@ -54,6 +54,7 @@ use near_o11y::log_assert;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::views::CatchupStatusView;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -1819,7 +1820,7 @@ impl Client {
     /// Walks through all the ongoing state syncs for future epochs and processes them
     pub fn run_catchup(
         &mut self,
-        highest_height_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &[FullPeerInfo],
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
@@ -2057,5 +2058,27 @@ impl Client {
             tier1_accounts,
         }));
         Ok(())
+    }
+}
+
+impl Client {
+    pub fn get_catchup_status(&self) -> Result<Vec<CatchupStatusView>, near_chain::Error> {
+        let mut ret = vec![];
+        for (sync_hash, (_, shard_sync_state, block_catchup_state)) in
+            self.catchup_state_syncs.iter()
+        {
+            let sync_block_height = self.chain.get_block_header(sync_hash)?.height();
+            let shard_sync_status: HashMap<_, _> = shard_sync_state
+                .iter()
+                .map(|(shard_id, state)| (*shard_id, state.status.to_string()))
+                .collect();
+            ret.push(CatchupStatusView {
+                sync_block_hash: *sync_hash,
+                sync_block_height,
+                shard_sync_status,
+                blocks_to_catchup: self.chain.get_block_catchup_status(block_catchup_state),
+            });
+        }
+        Ok(ret)
     }
 }

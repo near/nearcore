@@ -1,4 +1,4 @@
-use crate::db::{DBIterator, DBOp, DBTransaction, Database};
+use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database};
 use crate::DBCol;
 
 /// A database which provides access to the cold storage.
@@ -44,7 +44,7 @@ impl<D: Database> ColdDatabase<D> {
     /// corresponding to it from the database and returns it as it resides in
     /// the database.  This is common code used by [`Self::get_raw_bytes`] and
     /// [`Self::get_with_rc_stripped`] methods.
-    fn get_impl(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<Vec<u8>>> {
+    fn get_impl(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
         let mut buffer = [0; 32];
         let key = get_cold_key(col, key, &mut buffer).unwrap_or(key);
         self.0.get_raw_bytes(col, key)
@@ -52,21 +52,22 @@ impl<D: Database> ColdDatabase<D> {
 }
 
 impl<D: Database> super::Database for ColdDatabase<D> {
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<Vec<u8>>> {
-        let mut result = self.get_impl(col, key);
-        if let Ok(Some(ref mut value)) = result {
-            // Since we’ve stripped the reference count from the data stored in
-            // the database, we need to reintroduce it.  Note that in practice
-            // this should be never called in production since reading of
-            // reference counted columns is done by get_with_rc_stripped.
-            if col.is_rc() {
-                value.extend_from_slice(&1i64.to_le_bytes());
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
+        match self.get_impl(col, key) {
+            Ok(Some(value)) if col.is_rc() => {
+                // Since we’ve stripped the reference count from the data stored
+                // in the database, we need to reintroduce it.  In practice this
+                // should be never called in production since reading of rc
+                // columns is done with get_with_rc_stripped.
+                const ONE: [u8; 8] = 1i64.to_le_bytes();
+                let vec = [value.as_slice(), &ONE[..]].concat();
+                Ok(Some(DBSlice::from_vec(vec)))
             }
+            result => result,
         }
-        result
     }
 
-    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<Vec<u8>>> {
+    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
         assert!(col.is_rc());
         self.get_impl(col, key)
     }
@@ -485,6 +486,6 @@ mod test {
 
         // When fetching raw bytes, refcount of 1 is returned.
         let got = db.get_raw_bytes(col, key).unwrap();
-        assert_eq!(Some([VALUE, &1i64.to_le_bytes()].concat()), got);
+        assert_eq!(Some([VALUE, &1i64.to_le_bytes()].concat()).as_deref(), got.as_deref());
     }
 }

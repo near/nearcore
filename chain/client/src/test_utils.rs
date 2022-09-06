@@ -1,7 +1,7 @@
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::DateTime;
 use futures::{future, FutureExt};
-use near_o11y::TracingCapture;
+use near_o11y::testonly::TracingCapture;
 use near_primitives::time::Utc;
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;
@@ -1785,7 +1785,7 @@ pub fn create_chunk(
 /// and the catchup process can't catch up on these blocks yet.
 pub fn run_catchup(
     client: &mut Client,
-    highest_height_peers: &Vec<FullPeerInfo>,
+    highest_height_peers: &[FullPeerInfo],
 ) -> Result<(), Error> {
     let f = |_| {};
     let block_messages = Arc::new(RwLock::new(vec![]));
@@ -1825,6 +1825,7 @@ pub fn run_catchup(
                 msg.shard_uid,
                 &msg.state_root,
                 &msg.next_epoch_shard_layout,
+                msg.state_split_status,
             );
             if let Some((sync, _, _)) = client.catchup_state_syncs.get_mut(&msg.sync_hash) {
                 // We are doing catchup

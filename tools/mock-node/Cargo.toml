@@ -34,10 +34,10 @@ near-jsonrpc = { path = "../../chain/jsonrpc" }
 near-network = { path = "../../chain/network" }
 near-network-primitives = { path = "../../chain/network-primitives" }
 near-store = { path = "../../core/store" }
+near-o11y = { path = "../../core/o11y" }
 near-telemetry = { path = "../../chain/telemetry" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-primitives = { path = "../../core/primitives" }
-near-logger-utils = { path = "../../test-utils/logger" }
 nearcore = { path = "../../nearcore" }
 
 [dev-dependencies]

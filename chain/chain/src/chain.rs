@@ -44,7 +44,7 @@ use near_primitives::types::{
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::views::{
-    ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
+    BlockStatusView, ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
     SignedTransactionView,
 };
@@ -73,6 +73,7 @@ use crate::{metrics, DoomslugThresholdMode};
 use actix::Message;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use delay_detector::DelayDetector;
+use near_client_primitives::types::StateSplitApplyingStatus;
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
@@ -1226,7 +1227,7 @@ impl Chain {
                 .get_epoch_block_approvers_ordered(header.prev_hash())?
                 .iter()
                 .map(|(x, is_slashed)| (x.stake_this_epoch, x.stake_next_epoch, *is_slashed))
-                .collect();
+                .collect::<Vec<_>>();
             if !Doomslug::can_approved_block_be_produced(
                 self.doomslug_threshold_mode,
                 header.approvals(),
@@ -1297,7 +1298,7 @@ impl Chain {
     /// upgrade.
     pub fn verify_challenges(
         &self,
-        challenges: &Vec<Challenge>,
+        challenges: &[Challenge],
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
     ) -> Result<(ChallengesResult, Vec<CryptoHash>), Error> {
@@ -2685,7 +2686,7 @@ impl Chain {
         // Check cache
         let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
         if let Ok(Some(state_part)) = self.store.store().get(DBCol::StateParts, &key) {
-            return Ok(state_part);
+            return Ok(state_part.into());
         }
 
         let sync_block = self
@@ -2905,7 +2906,7 @@ impl Chain {
         shard_id: ShardId,
         sync_hash: CryptoHash,
         part_id: PartId,
-        data: &Vec<u8>,
+        data: &[u8],
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let chunk = shard_state_header.take_chunk();
@@ -2983,6 +2984,7 @@ impl Chain {
         sync_hash: &CryptoHash,
         shard_id: ShardId,
         state_split_scheduler: &dyn Fn(StateSplitRequest),
+        state_split_status: Arc<StateSplitApplyingStatus>,
     ) -> Result<(), Error> {
         let (epoch_id, next_epoch_id) = {
             let block_header = self.get_block_header(sync_hash)?;
@@ -3000,8 +3002,9 @@ impl Chain {
             sync_hash: *sync_hash,
             shard_id,
             shard_uid,
-            state_root: state_root,
+            state_root,
             next_epoch_shard_layout,
+            state_split_status,
         });
 
         Ok(())
@@ -3125,7 +3128,7 @@ impl Chain {
         epoch_first_block: &CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
-        affected_blocks: &Vec<CryptoHash>,
+        affected_blocks: &[CryptoHash],
     ) -> Result<(), Error> {
         debug!(
             "Finishing catching up blocks after syncing pre {:?}, me: {:?}",
@@ -5162,6 +5165,7 @@ pub struct StateSplitRequest {
     pub shard_uid: ShardUId,
     pub state_root: StateRoot,
     pub next_epoch_shard_layout: ShardLayout,
+    pub state_split_status: Arc<StateSplitApplyingStatus>,
 }
 
 #[derive(Message)]
@@ -5215,5 +5219,27 @@ impl BlocksCatchUpState {
         self.pending_blocks.is_empty()
             && self.scheduled_blocks.is_empty()
             && self.processed_blocks.is_empty()
+    }
+}
+
+impl Chain {
+    // Get status for debug page
+    pub fn get_block_catchup_status(
+        &self,
+        block_catchup_state: &BlocksCatchUpState,
+    ) -> Vec<BlockStatusView> {
+        block_catchup_state
+            .pending_blocks
+            .iter()
+            .chain(block_catchup_state.scheduled_blocks.iter())
+            .chain(block_catchup_state.processed_blocks.keys())
+            .map(|block_hash| BlockStatusView {
+                height: self
+                    .get_block_header(block_hash)
+                    .map(|header| header.height())
+                    .unwrap_or_default(),
+                hash: *block_hash,
+            })
+            .collect()
     }
 }

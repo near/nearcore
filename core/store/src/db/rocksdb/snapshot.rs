@@ -176,7 +176,7 @@ fn test_snapshot_recovery() {
         config.path = Some(path);
         let opener = crate::StoreOpener::new(tmpdir.path(), &config);
         let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
-        assert_eq!(Some(b"value".to_vec()), store.get(COL, KEY).unwrap());
+        assert_eq!(Some(&b"value"[..]), store.get(COL, KEY).unwrap().as_deref());
     }
 
     snapshot.remove();
