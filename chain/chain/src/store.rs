@@ -1169,6 +1169,7 @@ pub struct ChainStoreUpdate<'a> {
     header_head: Option<Tip>,
     final_head: Option<Tip>,
     flat_state_head: Option<CryptoHash>,
+    flat_state_update: HashMap<Vec<u8>, Vec<u8>>,
     largest_target_height: Option<BlockHeight>,
     trie_changes: Vec<WrappedTrieChanges>,
     // All state changes made by a chunk, this is only used for splitting states
@@ -1197,6 +1198,7 @@ impl<'a> ChainStoreUpdate<'a> {
             header_head: None,
             final_head: None,
             flat_state_head: None,
+            flat_state_update: HashMap::new(),
             largest_target_height: None,
             trie_changes: vec![],
             add_state_changes_for_split_states: HashMap::new(),
@@ -1578,6 +1580,20 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn save_flat_state_head(&mut self, flat_state_head: &CryptoHash) -> Result<(), Error> {
         self.flat_state_head = Some(flat_state_head.clone());
+        Ok(())
+    }
+
+    pub fn save_flat_state_update(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
+        let flat_state_deltas_key = KeyForStateChanges::for_block(&block_hash);
+        let key_prefix = flat_state_deltas_key.as_ref();
+        let updates: Vec<_> =
+            self.store().iter_prefix(DBCol::FlatStateDeltas, key_prefix).collect();
+        for update in updates {
+            let (key, value) = update?;
+            debug_assert!(key.starts_with(key_prefix));
+            let flat_state_key = key.split_at(key_prefix.len()).1;
+            self.flat_state_update.insert(flat_state_key.to_vec(), value.to_vec());
+        }
         Ok(())
     }
 
@@ -2817,6 +2833,14 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
         deletions_store_update.update_cache()?;
+
+        for (key, value) in self.flat_state_update.drain() {
+            if value.is_empty() {
+                store_update.delete(DBCol::FlatState, &key);
+            } else {
+                store_update.set(DBCol::FlatState, &key, &value);
+            }
+        }
 
         for ((block_hash, shard_id), state_changes) in
             self.add_state_changes_for_split_states.drain()

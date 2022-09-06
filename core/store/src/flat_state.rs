@@ -56,7 +56,7 @@ mod imp {
                     .store
                     .get(crate::DBCol::FlatStateDeltas, flat_state_delta_key.as_ref())
                     .map_err(|_| StorageError::StorageInternalError)?;
-                tracing::debug!(target: "client", "fs_get_raw_ref: block_hash: {:?}", value_from_delta);
+                tracing::debug!(target: "client", "fs_get_raw_ref: value_from_delta: {:?}", value_from_delta);
                 match value_from_delta {
                     Some(value) => {
                         return Ok(Some(value));

@@ -48,7 +48,7 @@ use near_primitives::views::{
     FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
     SignedTransactionView,
 };
-use near_store::{DBCol, ShardTries, StoreUpdate};
+use near_store::{DBCol, KeyForStateChanges, ShardTries, StoreUpdate};
 
 use crate::block_processing_utils::{
     BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing, DoneApplyChunkCallback,
@@ -4868,7 +4868,9 @@ impl<'a> ChainUpdate<'a> {
             if self.chain_store_update.get_block_height(&next_candidate_head)? > final_head_height {
                 break;
             }
+
             flat_state_head = next_candidate_head;
+            self.chain_store_update.save_flat_state_update(&flat_state_head)?;
         }
         self.chain_store_update.save_flat_state_head(&flat_state_head)
     }
