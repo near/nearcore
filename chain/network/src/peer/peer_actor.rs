@@ -19,8 +19,9 @@ use crate::types::{
 };
 use actix::{
     Actor, ActorContext, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler,
-    Running, StreamHandler, WrapFuture,
+    Running, StreamHandler, WrapFuture, 
 };
+use actix::fut::future::wrap_future;
 use anyhow::Context as _;
 use lru::LruCache;
 use near_crypto::Signature;
@@ -31,7 +32,6 @@ use near_network_primitives::types::{
     ReasonForBan, RoutedMessage, RoutedMessageBody, StateResponseInfo,
 };
 use near_network_primitives::types::{Edge, PartialEdgeInfo};
-use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
 use near_primitives::logging;
 use near_primitives::network::PeerId;
@@ -47,7 +47,6 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicI64,AtomicU64, Ordering};
 use std::sync::Arc;
-use thiserror::Error;
 use tokio::io::AsyncWriteExt;
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
@@ -105,7 +104,7 @@ struct FramedWriter {
 struct SendMessageError(io::Error);
 
 impl FramedWriter {
-    fn spawn(write:tokio::io::WriteHalf<tokio::net::TcpStream>, pa: &PeerActor, ctx: &mut <PeerActor as actix::Actor>::Context) -> Self {
+    fn spawn(write:WriteHalf, ctx: &mut <PeerActor as actix::Actor>::Context) -> Self {
         let (send,mut recv) = tokio::sync::mpsc::unbounded_channel();
         let messages = Arc::new(AtomicI64::new(0));
         let total_size = Arc::new(AtomicI64::new(0));
@@ -115,7 +114,7 @@ impl FramedWriter {
             total_size: total_size.clone(),
         };
         let addr = ctx.address();
-        ctx.spawn(async move {
+        ctx.spawn(wrap_future(async move {
             const WRITE_BUFFER_CAPACITY : usize = 8 * 1024;
             let mut writer = tokio::io::BufWriter::with_capacity(WRITE_BUFFER_CAPACITY,write);
             if let Err(err) = async {
@@ -143,14 +142,14 @@ impl FramedWriter {
             }.await {
                 addr.do_send(SendMessageError(err));
             }
-        }.into_actor(pa));
+        }));
         this
     }
 
-    fn write(&self, msg: Vec<u8>) {
+    fn write(&self, msg: Vec<u8>) -> Result<(),()> {
         self.messages.fetch_add(1,Ordering::Acquire);
         self.total_size.fetch_add(msg.len() as i64,Ordering::Acquire);
-        self.send.send(msg);
+        self.send.send(msg).map_err(|_|())
     }
 }
 
@@ -173,7 +172,7 @@ pub(crate) struct PeerActor {
     /// Protocol version to communicate with this peer.
     protocol_version: ProtocolVersion,
     /// Framed wrapper to send messages through the TCP connection.
-    framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
+    framed: FramedWriter,
 
     /// Tracker for requests and responses.
     tracker: Arc<Mutex<Tracker>>,
@@ -198,15 +197,6 @@ impl Debug for PeerActor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{:?}", self.my_node_info)
     }
-}
-
-/// A custom IOError type because FramedWrite is hiding the actual
-/// underlying std::io::Error.
-/// TODO: replace FramedWrite with sth more reasonable.
-#[derive(Error, Debug)]
-pub enum IOError {
-    #[error("{tid} Failed to send message {message_type} of size {size}")]
-    Send { tid: usize, message_type: String, size: usize },
 }
 
 #[derive(Debug)]
@@ -251,8 +241,6 @@ impl PeerActor {
 
         let metric_label = &peer_addr.to_string();
         let read_buf_size = metrics::PEER_DATA_READ_BUFFER_SIZE.with_label_values(&[metric_label]);
-        let write_buf_size =
-            metrics::PEER_DATA_WRITE_BUFFER_SIZE.with_label_values(&[metric_label]);
 
         let (read, write) = tokio::io::split(stream);
         let rate_limiter = ThrottleController::new(MAX_MESSAGES_COUNT, MAX_MESSAGES_TOTAL_SIZE);
@@ -280,12 +268,7 @@ impl PeerActor {
                 },
                 peer_status: PeerStatus::Connecting(connecting_status),
                 protocol_version: PROTOCOL_VERSION,
-                framed: FramedWrite::new(
-                    write,
-                    Codec::new(write_buf_size.clone()),
-                    Codec::new(write_buf_size),
-                    ctx,
-                ),
+                framed: FramedWriter::spawn(write,ctx),
                 tracker: Default::default(),
                 partial_edge_info: match &stream_config {
                     StreamConfig::Inbound => None,
@@ -343,28 +326,25 @@ impl PeerActor {
     }
 
     fn send_message_or_log(&mut self, msg: &PeerMessage) {
-        if let Err(err) = self.send_message(msg) {
-            warn!(target: "network", "send_message(): {}", err);
-        }
+        self.send_message(msg);
     }
 
-    fn send_message(&mut self, msg: &PeerMessage) -> Result<(), IOError> {
+    fn send_message(&mut self, msg: &PeerMessage) {
         if let PeerMessage::PeersRequest = msg {
             self.connection.as_mut().unwrap().last_time_peer_requested.store(self.clock.now());
         }
         if let Some(enc) = self.encoding() {
             return self.send_message_with_encoding(msg, enc);
         }
-        self.send_message_with_encoding(msg, Encoding::Proto)?;
-        self.send_message_with_encoding(msg, Encoding::Borsh)?;
-        Ok(())
+        self.send_message_with_encoding(msg, Encoding::Proto);
+        self.send_message_with_encoding(msg, Encoding::Borsh);
     }
 
     fn send_message_with_encoding(
         &mut self,
         msg: &PeerMessage,
         enc: Encoding,
-    ) -> Result<(), IOError> {
+    ) {
         let msg_type: &str = msg.msg_variant();
         let _span = tracing::trace_span!(
             target: "network",
@@ -374,7 +354,7 @@ impl PeerActor {
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
         match msg {
-            PeerMessage::Block(b) if self.tracker.lock().has_received(b.hash()) => return Ok(()),
+            PeerMessage::Block(b) if self.tracker.lock().has_received(b.hash()) => return,
             PeerMessage::BlockRequest(h) => self.tracker.lock().push_request(*h),
             _ => (),
         };
@@ -383,19 +363,14 @@ impl PeerActor {
         self.tracker.lock().increment_sent(&self.clock, bytes.len() as u64);
         let bytes_len = bytes.len();
         tracing::trace!(target: "network", msg_len = bytes_len);
-        if !self.framed.write(bytes) {
-            #[cfg(feature = "performance_stats")]
-            let tid = near_rust_allocator_proxy::get_tid();
-            #[cfg(not(feature = "performance_stats"))]
-            let tid = 0;
-            return Err(IOError::Send { tid, message_type: msg_type.to_string(), size: bytes_len });
+        if let Err(_) = self.framed.write(bytes) {
+            tracing::info!(target: "network", "Failed to send a message, because TCP writer is closed. PeerActor should be stopping now.");
         }
         metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
         metrics::PEER_MESSAGE_SENT_BY_TYPE_TOTAL.with_label_values(&[msg_type]).inc();
         metrics::PEER_MESSAGE_SENT_BY_TYPE_BYTES
             .with_label_values(&[msg_type])
             .inc_by(bytes_len as u64);
-        Ok(())
     }
 
     fn send_handshake(&mut self) {
@@ -821,8 +796,6 @@ impl Actor for PeerActor {
         let _ = metrics::PEER_DATA_WRITE_BUFFER_SIZE.remove_label_values(&[metric_label]);
     }
 }
-
-impl WriteHandler<io::Error> for PeerActor {}
 
 impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
     #[perf]
