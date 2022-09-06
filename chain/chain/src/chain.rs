@@ -2038,7 +2038,7 @@ impl Chain {
 
         let prev_head = self.store.head()?;
         let mut chain_update = self.chain_update();
-        let _ = chain_update.flat_state_head.write().expect("Flat state lock was poisoned.");
+        let _ = chain_update.flat_state_lock.write().expect("Flat state lock was poisoned.");
         let provenance = block_preprocess_info.provenance.clone();
         let block_start_processing_time = block_preprocess_info.block_start_processing_time.clone();
         let new_head =
@@ -4338,7 +4338,7 @@ pub struct ChainUpdate<'a> {
     doomslug_threshold_mode: DoomslugThresholdMode,
     #[allow(unused)]
     transaction_validity_period: BlockHeightDelta,
-    flat_state_head: Arc<RwLock<CryptoHash>>,
+    flat_state_lock: Arc<RwLock<()>>,
 }
 
 pub struct SameHeightResult {
@@ -4372,7 +4372,7 @@ impl<'a> ChainUpdate<'a> {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
         transaction_validity_period: BlockHeightDelta,
-        flat_state_head: Arc<RwLock<CryptoHash>>,
+        flat_state_lock: Arc<RwLock<()>>,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
         Self::new_impl(
@@ -4380,7 +4380,7 @@ impl<'a> ChainUpdate<'a> {
             doomslug_threshold_mode,
             transaction_validity_period,
             chain_store_update,
-            flat_state_head,
+            flat_state_lock,
         )
     }
 
@@ -4389,14 +4389,14 @@ impl<'a> ChainUpdate<'a> {
         doomslug_threshold_mode: DoomslugThresholdMode,
         transaction_validity_period: BlockHeightDelta,
         chain_store_update: ChainStoreUpdate<'a>,
-        flat_state_head: Arc<RwLock<CryptoHash>>,
+        flat_state_lock: Arc<RwLock<()>>,
     ) -> Self {
         ChainUpdate {
             runtime_adapter,
             chain_store_update,
             doomslug_threshold_mode,
             transaction_validity_period,
-            flat_state_head,
+            flat_state_lock,
         }
     }
 
