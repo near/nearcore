@@ -11,6 +11,7 @@ use num_rational::Rational32;
 use crate::{metrics, DoomslugThresholdMode};
 use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
+use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::Signature;
 use near_pool::types::PoolIterator;
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
@@ -30,6 +31,7 @@ use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, Gas,
     MerkleHash, NumBlocks, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
+    ValidatorInfoIdentifier,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
@@ -723,7 +725,7 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Validate state part that expected to be given state root with provided data.
     /// Returns false if the resulting part doesn't match the expected one.
-    fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &Vec<u8>) -> bool;
+    fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &[u8]) -> bool;
 
     fn apply_update_to_split_states(
         &self,
@@ -738,6 +740,7 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_uid: ShardUId,
         state_root: &StateRoot,
         next_epoch_shard_layout: &ShardLayout,
+        state_split_status: Arc<StateSplitApplyingStatus>,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error>;
 
     /// Should be executed after accepting all the parts to set up a new state.
@@ -800,17 +803,6 @@ pub trait RuntimeAdapter: Send + Sync {
 pub struct LatestKnown {
     pub height: BlockHeight,
     pub seen: u64,
-}
-
-/// Either an epoch id or latest block hash.  When `EpochId` variant is used it
-/// must be an identifier of a past epoch.  When `BlockHeight` is used it must
-/// be hash of the latest block in the current epoch.  Using current epoch id
-/// with `EpochId` or arbitrary block hash in past or present epochs will result
-/// in errors.
-#[derive(Debug)]
-pub enum ValidatorInfoIdentifier {
-    EpochId(EpochId),
-    BlockHash(CryptoHash),
 }
 
 #[cfg(test)]

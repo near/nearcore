@@ -1,13 +1,16 @@
 use crate::broadcast;
 use crate::config;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{PeerAddr, PeerMessage, SignedAccountData, SyncAccountsData};
+use crate::network_protocol::{
+    Encoding, PeerAddr, PeerMessage, SignedAccountData, SyncAccountsData,
+};
+use crate::peer;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
+use crate::testonly::Rng;
 use crate::types::{ChainInfo, GetNetworkInfo, PeerManagerMessageRequest, SetChainInfo};
 use crate::PeerManagerActor;
-use actix::Actor;
 use near_network_primitives::time;
 use near_network_primitives::types::{OutboundTcpConnect, PeerInfo};
 use near_primitives::network::PeerId;
@@ -51,6 +54,26 @@ impl From<&Arc<SignedAccountData>> for NormalAccountData {
     }
 }
 
+pub(crate) struct RawConnection {
+    stream: tokio::net::TcpStream,
+    cfg: peer::testonly::PeerConfig,
+}
+
+impl RawConnection {
+    pub async fn handshake(self, clock: &time::Clock) -> peer::testonly::PeerHandle {
+        let mut peer =
+            peer::testonly::PeerHandle::start_endpoint(clock.clone(), self.cfg, self.stream).await;
+        peer.complete_handshake().await;
+        peer
+    }
+
+    pub async fn fail_handshake(self, clock: &time::Clock) {
+        let mut peer =
+            peer::testonly::PeerHandle::start_endpoint(clock.clone(), self.cfg, self.stream).await;
+        peer.fail_handshake().await;
+    }
+}
+
 impl ActorHandler {
     pub fn peer_info(&self) -> PeerInfo {
         PeerInfo {
@@ -59,6 +82,7 @@ impl ActorHandler {
             account_id: None,
         }
     }
+
     pub async fn connect_to(&mut self, peer_info: &PeerInfo) {
         self.actix
             .addr
@@ -73,6 +97,20 @@ impl ActorHandler {
                 _ => None,
             })
             .await;
+    }
+
+    pub async fn start_connection(&self, rng: &mut Rng, chain: Arc<data::Chain>) -> RawConnection {
+        RawConnection {
+            stream: tokio::net::TcpStream::connect(self.cfg.node_addr.unwrap()).await.unwrap(),
+            cfg: peer::testonly::PeerConfig {
+                network: chain.make_config(rng),
+                chain,
+                peers: vec![],
+                start_handshake_with: Some(PeerId::new(self.cfg.node_key.public_key())),
+                force_encoding: Some(Encoding::Proto),
+                nonce: None,
+            },
+        }
     }
 
     pub async fn set_chain_info(&mut self, chain_info: ChainInfo) {
@@ -102,7 +140,7 @@ impl ActorHandler {
 
 pub(crate) async fn start(
     clock: time::Clock,
-    store: near_store::Store,
+    store: Arc<dyn near_store::db::Database>,
     cfg: config::NetworkConfig,
     chain: Arc<data::Chain>,
 ) -> ActorHandler {
@@ -114,7 +152,7 @@ pub(crate) async fn start(
             let genesis_id = chain.genesis_id.clone();
             let fc = fake_client::start(send.sink().compose(Event::Client));
             cfg.event_sink = send.sink().compose(Event::PeerManager);
-            PeerManagerActor::new(
+            PeerManagerActor::spawn(
                 clock,
                 store,
                 cfg,
@@ -123,7 +161,6 @@ pub(crate) async fn start(
                 genesis_id,
             )
             .unwrap()
-            .start()
         }
     })
     .await;

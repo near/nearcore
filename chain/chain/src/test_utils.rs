@@ -13,6 +13,7 @@ use tracing::debug;
 
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
+use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -35,6 +36,7 @@ use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Gas, Nonce, NumBlocks,
     NumShards, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
+    ValidatorInfoIdentifier,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
@@ -52,7 +54,6 @@ use crate::chain::Chain;
 use crate::store::ChainStoreAccess;
 use crate::types::{
     AcceptedBlock, ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ChainGenesis,
-    ValidatorInfoIdentifier,
 };
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
 use crate::{BlockProcessingArtifact, Doomslug, Provenance};
@@ -1020,12 +1021,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(data)
     }
 
-    fn validate_state_part(
-        &self,
-        _state_root: &StateRoot,
-        _part_id: PartId,
-        _data: &Vec<u8>,
-    ) -> bool {
+    fn validate_state_part(&self, _state_root: &StateRoot, _part_id: PartId, _data: &[u8]) -> bool {
         // We do not care about deeper validation in test_utils
         true
     }
@@ -1303,6 +1299,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_uid: ShardUId,
         _state_root: &StateRoot,
         _next_epoch_shard_layout: &ShardLayout,
+        _state_split_status: Arc<StateSplitApplyingStatus>,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         Ok(HashMap::new())
     }

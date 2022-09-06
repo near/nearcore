@@ -25,8 +25,8 @@ pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
-use near_metrics::{prometheus, Encoder, TextEncoder};
 use near_network::types::{NetworkClientMessages, NetworkClientResponses};
+use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
@@ -739,6 +739,7 @@ impl JsonRpcHandler {
             let debug_status = match path {
                 "/debug/api/tracked_shards" => self.client_send(DebugStatus::TrackedShards).await?,
                 "/debug/api/sync_status" => self.client_send(DebugStatus::SyncStatus).await?,
+                "/debug/api/catchup_status" => self.client_send(DebugStatus::CatchupStatus).await?,
                 "/debug/api/epoch_info" => self.client_send(DebugStatus::EpochInfo).await?,
                 "/debug/api/block_status" => self.client_send(DebugStatus::BlockStatus).await?,
                 "/debug/api/validator_status" => {

@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-pub mod actix;
+pub use super::actix;
 pub mod fake_client;
 pub mod stream;
 

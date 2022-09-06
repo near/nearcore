@@ -23,7 +23,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
 use near_store::test_utils::create_test_store;
-use near_store::Store;
+use near_store::{NodeStorage, Store};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
@@ -33,7 +33,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub(crate) fn peers(store: Store) {
+pub(crate) fn peers(store: NodeStorage) {
     iter_peers_from_store(store, |(peer_id, peer_info)| {
         println!("{} {:?}", peer_id, peer_info);
     })
@@ -118,7 +118,7 @@ pub(crate) fn dump_tx(
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
-    select_account_ids: Option<&Vec<AccountId>>,
+    select_account_ids: Option<&[AccountId]>,
     output_path: Option<String>,
 ) -> Result<(), Error> {
     let chain_store = ChainStore::new(
@@ -591,7 +591,7 @@ pub(crate) fn view_chain(
     }
 }
 
-pub(crate) fn check_block_chunk_existence(store: Store, near_config: NearConfig) {
+pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store) {
     let genesis_height = near_config.genesis.config.genesis_height;
     let chain_store = ChainStore::new(store, genesis_height, !near_config.client_config.archive);
     let head = chain_store.head().unwrap();
