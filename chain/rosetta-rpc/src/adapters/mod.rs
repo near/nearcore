@@ -692,7 +692,10 @@ mod tests {
     #[test]
     fn test_convert_block_changes_to_transactions() {
         let runtime_config = near_primitives::runtime::config::RuntimeConfig::test();
-        let view_client_addr = ViewClientMock::mock(Box::new(|_msg, _ctx| {})).start();
+        let view_client_addr = ViewClientMock::mock(Box::new(|_msg, _ctx| {
+            Box::new(Some(near_network_primitives::types::NetworkViewClientResponses::NoResponse))
+        }))
+        .start();
         let block_hash = near_primitives::hash::CryptoHash::default();
         let nfvalidator1_receipt_processing_hash = near_primitives::hash::CryptoHash([1u8; 32]);
         let nfvalidator2_action_receipt_gas_reward_hash =
