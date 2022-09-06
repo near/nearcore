@@ -46,14 +46,6 @@ impl ExecutionToReceipts {
                 transactions.extend(chunk.transactions.into_iter().map(|t| (t.hash, t)));
                 receipts
                     .extend(chunk.receipts.into_iter().map(|t| (t.receipt_id, t.predecessor_id)));
-                println!(
-                    "These are the receipts coming from chunk {:?}, receipts: {:?}",
-                    block.chunks[shard_id].chunk_hash, receipts
-                );
-                println!(
-                    "These are the transactions coming from chunk {:?}, transactions: {:?}",
-                    block.chunks[shard_id].chunk_hash, transactions
-                )
             }
         }
         let map = view_client_addr
@@ -65,8 +57,6 @@ impl ExecutionToReceipts {
             .filter(|exec| !exec.outcome.receipt_ids.is_empty())
             .map(|exec| (exec.id, exec.outcome.receipt_ids))
             .collect();
-        let receipt_ids = println!("These are the execution outcomes {:?}", map);
-        println!("These are the transactions and receipts: {:?} and {:?}", transactions, receipts);
         Ok(Self { map, transactions, receipts })
     }
 
@@ -248,7 +238,6 @@ impl<'a> RosettaTransactions<'a> {
                 },
             }
         });
-        println!("These are the txs from get_for_cause {:?}", tx);
         Ok(tx)
     }
 }
@@ -296,9 +285,6 @@ pub(crate) async fn convert_block_changes_to_transactions(
                     }),
                     _ => None,
                 };
-                println!("This is the transactions_in_block value: {:?}", transactions_in_block);
-                println!("This is the receipts and accoundId {:?}", &receipts_in_block);
-                println!("This is ROSETTA TRANSACTIONS before operations{:?}", transactions.map);
                 let predecessor_id = get_predecessor_id_from_receipt_or_transaction(
                     view_client_addr,
                     &account_change.cause,
@@ -335,8 +321,6 @@ pub(crate) async fn convert_block_changes_to_transactions(
             }
         }
     }
-    println!("This is ROSETTA TRANSACTIONS {:?}", transactions.map);
-
     Ok(transactions.map)
 }
 
@@ -461,7 +445,6 @@ fn convert_account_update_to_operations(
             metadata: crate::models::OperationMetadata::from_predecessor(predecessor_id.clone()),
         });
     }
-    println!("Current operations vector: {:?}", operations);
 }
 
 fn convert_account_delete_to_operations(
@@ -539,5 +522,4 @@ fn convert_account_delete_to_operations(
             metadata: None,
         });
     }
-    println!("Current operations DELETE vector {:?}", operations);
 }
