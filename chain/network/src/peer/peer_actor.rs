@@ -45,9 +45,10 @@ use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64,AtomicU64, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
+use tokio::io::AsyncWriteExt;
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -95,36 +96,60 @@ impl Drop for ConnectionGuard {
 
 struct FramedWriter {
     send: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
-    messages: Arc<AtomicU64>,
-    total_size: Arc<AtomicU64>,
+    messages: Arc<AtomicI64>,
+    total_size: Arc<AtomicI64>,
 }
 
+#[derive(actix::Message)]
+#[rtype(result = "()")]
+struct SendMessageError(io::Error);
+
 impl FramedWriter {
-    fn spawn<W:AsyncWrite>(write:W) {
-        let (send,recv) = tokio::sync::mpsc::unbounded_channel();
-        let messages = Arc::new(AtomicU64::new(0));
-        let total_size = Arc::new(AtomicU64::new(0));
+    fn spawn(write:tokio::io::WriteHalf<tokio::net::TcpStream>, pa: &PeerActor, ctx: &mut <PeerActor as actix::Actor>::Context) -> Self {
+        let (send,mut recv) = tokio::sync::mpsc::unbounded_channel();
+        let messages = Arc::new(AtomicI64::new(0));
+        let total_size = Arc::new(AtomicI64::new(0));
         let this = Self {
             send,
             messages: messages.clone(),
             total_size: total_size.clone(),
         };
+        let addr = ctx.address();
         ctx.spawn(async move {
             const WRITE_BUFFER_CAPACITY : usize = 8 * 1024;
-            let write = tokio::io::BufWriter::with_capacity(write,WRITE_BUFFER_CAPACITY);
-            loop {
-                let msg = match recv.recv().await {
-                    Some(msg) => msg,
-                    None => return Ok(()),
-                };
-                
+            let mut writer = tokio::io::BufWriter::with_capacity(WRITE_BUFFER_CAPACITY,write);
+            if let Err(err) = async {
+                loop {
+                    tokio::select! {
+                        biased;
+                        // Receive the next message.
+                        // "biased" should ensure that write.flush() won't be polled at all
+                        // if there is a ready message in the channel.
+                        msg = recv.recv() => { match msg {
+                            Some(msg) => {
+                                // Write the frame to the buffer. 
+                                writer.write_u32_le(msg.len() as u32).await?;
+                                writer.write_all(&msg[..]).await?;
+                                messages.fetch_sub(1,Ordering::Release);
+                                total_size.fetch_sub(msg.len() as i64,Ordering::Release);
+                            }
+                            // There will be no new messages: flush and return.
+                            None => return writer.flush().await,
+                        } }
+                        // Flush the buffer iff it is non-empty.
+                        res = writer.flush(), if writer.buffer().len()>0 => { res?; }
+                    }
+                }
+            }.await {
+                addr.do_send(SendMessageError(err));
             }
-        });
+        }.into_actor(pa));
+        this
     }
 
     fn write(&self, msg: Vec<u8>) {
-        self.messages.fetch_add(1,Ordering::Relaxed);
-        self.total_size.fetch_add(msg.len(),Ordering::Relaxed);
+        self.messages.fetch_add(1,Ordering::Acquire);
+        self.total_size.fetch_add(msg.len() as i64,Ordering::Acquire);
         self.send.send(msg);
     }
 }
@@ -1302,6 +1327,14 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 warn!(target: "network", "Received {} while {:?} from {:?} connection.", msg, self.peer_status, self.peer_type);
             }
         }
+    }
+}
+
+impl Handler<SendMessageError> for PeerActor {
+    type Result = ();
+    
+    fn handle(&mut self, _msg: SendMessageError, ctx: &mut Self::Context) {
+        ctx.stop();
     }
 }
 
