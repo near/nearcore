@@ -585,7 +585,7 @@ impl Trie {
         }
         let TrieNodeWithSize { node, memory_usage } = match handle {
             NodeHandle::InMemory(h) => memory.node_ref(h).clone(),
-            NodeHandle::Hash(h) => self.retrieve_node(&h).expect("storage failure"),
+            NodeHandle::Hash(h) => self.retrieve_node(&h).expect("storage failure").1,
         };
 
         let mut memory_usage_naive = node.memory_usage_direct(memory);
@@ -667,10 +667,19 @@ impl Trie {
         }
     }
 
-    fn retrieve_node(&self, hash: &CryptoHash) -> Result<TrieNodeWithSize, StorageError> {
+    /// Retrieves decoded node alongside with its raw bytes representation.
+    ///
+    /// Note that because Empty nodes (those which are referenced by
+    /// [`Self::EMPTY_ROOT`] hash) aren’t stored in the database, they don’t
+    /// have a bytes representation.  For those nodes the first return value
+    /// will be `None`.
+    fn retrieve_node(
+        &self,
+        hash: &CryptoHash,
+    ) -> Result<(Option<std::sync::Arc<[u8]>>, TrieNodeWithSize), StorageError> {
         match self.retrieve_raw_node(hash)? {
-            None => Ok(TrieNodeWithSize::empty()),
-            Some((_bytes, node)) => Ok(TrieNodeWithSize::from_raw(node)),
+            None => Ok((None, TrieNodeWithSize::empty())),
+            Some((bytes, node)) => Ok((Some(bytes), TrieNodeWithSize::from_raw(node))),
         }
     }
 
