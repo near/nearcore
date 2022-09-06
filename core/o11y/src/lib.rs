@@ -194,8 +194,10 @@ async fn make_opentelemetry_layer<S>(
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span>,
 {
+    let exporter = opentelemetry_otlp::new_exporter().tonic();
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
+        .with_exporter(exporter)
         .with_trace_config(
             trace::config()
                 .with_sampler(Sampler::AlwaysOn)
