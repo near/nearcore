@@ -306,10 +306,15 @@ impl<'a> TrieIterator<'a> {
 
     /// Iterate over subtries with memory usage below a certain threshold.
     pub fn heavy_sub_tries(
-        self,
+        mut self,
         max_memory_usage: u64,
     ) -> Result<HeavySubTrieIterator<'a>, StorageError> {
-        HeavySubTrieIterator::new(self, max_memory_usage)
+        // fuse the trail to stop iterator to go up from current position.
+        let fused_trail =
+            if self.trail.is_empty() { vec![] } else { vec![self.trail.pop().unwrap()] };
+        let fused_self =
+            TrieIterator { trie: self.trie, trail: fused_trail, key_nibbles: self.key_nibbles };
+        HeavySubTrieIterator::new(fused_self, max_memory_usage)
     }
 }
 
@@ -405,6 +410,7 @@ impl<'a> Iterator for HeavySubTrieIterator<'a> {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::iter;
 
     use rand::seq::SliceRandom;
     use rand::Rng;
@@ -533,6 +539,69 @@ mod tests {
                     _ => {}
                 }
             }
+        }
+    }
+
+    #[test]
+    fn test_heavy_sub_trie_iterator() {
+        let tries = create_tries();
+        let value_size = 1000;
+        let value: Vec<u8> = iter::repeat('x' as u8).take(value_size).collect();
+        // 16 keys with equal values,
+        //   L0: one branch with 2 children at level 0, weight 8x per child
+        //   L1: one extension for each child in L0
+        //   L2: one branch for each extension in L1, each with 4 children, 2x weight per child
+        //   L3: one branches for each child in L2, each with 2 children, 1x weight per child
+        //   L4: one leaf for each child in L3
+        let input_keys: Vec<_> = (0..16).map(|i| vec![n2b(i / 8, 0), n2b(i / 2, i)]).collect();
+        let trie_changes: Vec<_> =
+            input_keys.iter().map(|key| (key.clone(), Some(value.clone()))).collect();
+
+        let state_root = test_populate_trie(
+            &tries,
+            &Trie::EMPTY_ROOT,
+            ShardUId::single_shard(),
+            trie_changes.clone(),
+        );
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
+
+        // Start a global iterator.
+        let mut iterator = trie.iter().unwrap();
+
+        // Select subtrie with weight 8.
+        let key = vec![n2b(0, 0)];
+        iterator.seek(key).unwrap();
+
+        // Allow two children per sub trie.
+        // (1000b per child + key length + some extra per entry)
+        let max_memory_usage = 2500;
+
+        // Find heavy subtries from current position.
+        let sub_tries_iterator = iterator
+            .heavy_sub_tries(max_memory_usage)
+            .expect("heavy sub tries iterator creation failed");
+        let sub_tries =
+            sub_tries_iterator.map(|st| st.expect("sub trie iteration failed")).collect::<Vec<_>>();
+
+        assert_eq!(sub_tries.len(), 4);
+
+        let output_keys: Vec<_> = sub_tries
+            .into_iter()
+            .flatten()
+            .map(|kv| {
+                let (key, _value) = kv.expect("iterator failed");
+                key
+            })
+            .collect();
+
+        let expected_keys = &input_keys[..8];
+        assert_eq!(output_keys, expected_keys);
+
+        // nibbles to bytes
+        fn n2b(nibble_a: u8, nibble_b: u8) -> u8 {
+            assert!(nibble_a < 16);
+            assert!(nibble_b < 16);
+            (nibble_a << 4) + nibble_b
         }
     }
 }
