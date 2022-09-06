@@ -354,7 +354,12 @@ pub enum Cost {
     /// function `ecrecover` to verify an ECDSA signature and extract the
     /// signer.
     EcrecoverBase,
-
+    /// Estimates `ed25519_verify_base`, which covers the base cost of the host
+    /// function `ed25519_verify` to verify an ED25519 signatures.
+    Ed25519VerifyBase,
+    /// Estimates `ed25519_verify_byte`, the cost charged per input byte in calls to the
+    /// ed25519_verify host function.
+    Ed25519VerifyByte,
     // `storage_write` records a single key-value pair, initially in the
     // prospective changes in-memory hash map, and then once a full block has
     // been processed, in the on-disk trie. If there was already a value
