@@ -14,17 +14,17 @@ use near_primitives::state_record::is_delayed_receipt_key;
 use near_primitives::types::{StateRoot, StateRootNode};
 
 use crate::flat_state::FlatState;
+pub use crate::trie::config::TrieConfig;
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
-pub use crate::trie::shard_tries::{
-    KeyForStateChanges, ShardTries, TrieCacheFactory, WrappedTrieChanges,
-};
+pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
 use crate::StorageError;
 pub use near_primitives::types::TrieNodesCount;
 
+mod config;
 mod insert_delete;
 pub mod iterator;
 mod nibble_slice;
