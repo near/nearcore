@@ -31,8 +31,6 @@ const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 1000;
 
 /// Stores necessary configuration for the creation of tries.
 pub struct TrieConfig {
-    // pub num_shards: NumShards,
-    // pub shard_version: ShardVersion,
     pub shard_cache_config: ShardCacheConfig,
     pub view_shard_cache_config: ShardCacheConfig,
 }
