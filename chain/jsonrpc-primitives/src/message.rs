@@ -16,7 +16,6 @@ use serde::de::{Deserializer, Error, Unexpected, Visitor};
 use serde::ser::{SerializeStruct, Serializer};
 use serde::{Deserialize, Serialize};
 use serde_json::{Result as JsonResult, Value};
-use uuid::Uuid;
 
 use crate::errors::RpcError;
 
@@ -190,12 +189,8 @@ impl Message {
     ///
     /// The ID is auto-generated.
     pub fn request(method: String, params: Option<Value>) -> Self {
-        Message::Request(Request {
-            jsonrpc: Version,
-            method,
-            params,
-            id: Value::String(Uuid::new_v4().to_hyphenated().to_string()),
-        })
+        let id = Value::from(near_primitives::utils::generate_random_string(9));
+        Message::Request(Request { jsonrpc: Version, method, params, id })
     }
     /// Create a top-level error (without an ID).
     pub fn error(error: RpcError) -> Self {

@@ -13,7 +13,6 @@ actix-http = "3.0.4"
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-uuid = { version = "~0.8", features = ["v4"] }
 
 near-jsonrpc-primitives = { path = "../../jsonrpc-primitives" }
 near-primitives = { path = "../../../core/primitives" }
