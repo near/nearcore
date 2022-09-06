@@ -163,7 +163,7 @@ pub(crate) async fn convert_block_to_transactions(
         .await?
         .runtime_config;
     let exec_to_rx =
-        transactions::ExecutionToReceipts::for_block(view_client_addr, block.header.hash).await?;
+        transactions::ExecutionToReceipts::for_block(&view_client_addr, block.header.hash).await?;
     transactions::convert_block_changes_to_transactions(
         &view_client_addr,
         &runtime_config,
