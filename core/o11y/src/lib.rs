@@ -7,7 +7,6 @@ use once_cell::sync::OnceCell;
 use opentelemetry::sdk::trace::{self, IdGenerator, Sampler, Tracer};
 use opentelemetry::sdk::Resource;
 use opentelemetry::KeyValue;
-use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use std::borrow::Cow;
 use std::path::PathBuf;
 use tracing::level_filters::LevelFilter;
@@ -195,15 +194,13 @@ async fn make_opentelemetry_layer<S>(
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span>,
 {
-    let exporter = opentelemetry_otlp::new_exporter().tonic();
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
-        .with_exporter(exporter)
         .with_trace_config(
             trace::config()
                 .with_sampler(Sampler::AlwaysOn)
                 .with_id_generator(IdGenerator::default())
-                .with_resource(Resource::new(vec![KeyValue::new(SERVICE_NAME, "neard")])),
+                .with_resource(Resource::new(vec![KeyValue::new("service", "neard")])),
         )
         .install_batch(opentelemetry::runtime::Tokio)
         .unwrap();
