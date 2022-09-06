@@ -446,7 +446,7 @@ pub struct Chain {
     /// impossible to have non-empty state patch on non-sandbox builds.
     pending_state_patch: SandboxStatePatch,
 
-    flat_state_head: Arc<RwLock<CryptoHash>>,
+    flat_state_lock: Arc<RwLock<()>>,
 }
 
 impl Drop for Chain {
@@ -509,7 +509,7 @@ impl Chain {
             apply_chunks_receiver: rc,
             last_time_head_updated: Clock::instant(),
             pending_state_patch: Default::default(),
-            flat_state_head: Arc::new(Default::default()),
+            flat_state_lock: Arc::new(Default::default()),
         })
     }
 
@@ -648,7 +648,7 @@ impl Chain {
             apply_chunks_receiver: rc,
             last_time_head_updated: Clock::instant(),
             pending_state_patch: Default::default(),
-            flat_state_head: Arc::new(Default::default()),
+            flat_state_lock: Arc::new(Default::default()),
         })
     }
 
@@ -3588,7 +3588,7 @@ impl Chain {
                     let random_seed = *block.header().random_value();
                     let height = chunk_header.height_included();
                     let prev_block_hash = chunk_header.prev_block_hash().clone();
-                    let flat_state_lock = self.flat_state_head.clone();
+                    let flat_state_lock = self.flat_state_lock.clone();
 
                     result.push(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
                         let _span = tracing::debug_span!(
@@ -3760,7 +3760,7 @@ impl Chain {
             self.runtime_adapter.clone(),
             self.doomslug_threshold_mode,
             self.transaction_validity_period,
-            self.flat_state_head.clone(),
+            self.flat_state_lock.clone(),
         )
     }
 
