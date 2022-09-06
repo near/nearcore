@@ -7,10 +7,10 @@ use futures::{future, FutureExt, TryFutureExt};
 use near_actix_test_utils::run_actix;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
-use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::test_utils::WaitOrTimeoutActor;
+use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::serialize::{to_base, to_base64};
+use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockReference;
 use near_primitives::views::FinalExecutionStatus;
@@ -190,7 +190,7 @@ fn test_replay_protection() {
 #[test]
 fn test_tx_status_missing_tx() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
-        match client.tx(to_base(&CryptoHash::default()), "test1".parse().unwrap()).await {
+        match client.tx(CryptoHash::new().to_string(), "test1".parse().unwrap()).await {
             Err(e) => {
                 let s = serde_json::to_string(&e.data.unwrap()).unwrap();
                 assert_eq!(s, "\"Transaction 11111111111111111111111111111111 doesn't exist\"");

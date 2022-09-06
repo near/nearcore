@@ -38,6 +38,17 @@
 //! costs and don't want to just run everything in order (as that would be to
 //! slow), we have a very simple manual caching infrastructure in place.
 //!
+//! To run estimations on a non-empty DB with standardised content, we first
+//! dump all records to a `StateDump` written to a file. Then for each
+//! iteration of a an estimation, we first load the records from this dump into
+//! a fresh database. Afterwards, it is crucial to run compaction on RocksDB
+//! before starting measurements. Otherwise, the SST file layout can be very
+//! inefficient, as there was no time to restructure them. We assume that in
+//! production, the inflow of new data is not as bulky and therefore it should
+//! always be reasonably compacted. Also, without forcing it before
+//! measurements start, compaction may start during the measurement and makes
+//! the results unstable.
+//!
 //! Notes on code architecture:
 //!
 //! To keep estimations comprehensible, each estimation has a simple function
@@ -157,6 +168,10 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::Ripemd160Base, ripemd160_base),
     (Cost::Ripemd160Block, ripemd160_block),
     (Cost::EcrecoverBase, ecrecover_base),
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    (Cost::Ed25519VerifyBase, ed25519_verify_base),
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    (Cost::Ed25519VerifyByte, ed25519_verify_byte),
     (Cost::AltBn128G1MultiexpBase, alt_bn128g1_multiexp_base),
     (Cost::AltBn128G1MultiexpElement, alt_bn128g1_multiexp_element),
     (Cost::AltBn128G1SumBase, alt_bn128g1_sum_base),
@@ -214,12 +229,10 @@ pub fn run(config: Config) -> CostTable {
     let mut res = CostTable::default();
 
     for (cost, f) in ALL_COSTS.iter().copied() {
-        let skip = match &ctx.config.costs_to_measure {
-            None => false,
-            Some(costs) => !costs.contains(&format!("{:?}", cost)),
-        };
-        if skip {
-            continue;
+        if let Some(costs) = &ctx.config.costs_to_measure {
+            if !costs.contains(&format!("{:?}", cost)) {
+                continue;
+            }
         }
 
         let start = Instant::now();
@@ -912,6 +925,18 @@ fn ripemd160_block(ctx: &mut EstimatorContext) -> GasCost {
 
 fn ecrecover_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "ecrecover_10k", ExtCosts::ecrecover_base, 10_000)
+}
+
+#[cfg(feature = "protocol_feature_ed25519_verify")]
+// TODO: gas estimation will be calculated later -> setting a placeholder for now
+fn ed25519_verify_base(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "ed25519_verify_10k", ExtCosts::ed25519_verify_base, 10_000)
+}
+
+#[cfg(feature = "protocol_feature_ed25519_verify")]
+// TODO: gas estimation will be calculated later -> setting a placeholder for now
+fn ed25519_verify_byte(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "ed25519_verify_10k", ExtCosts::ed25519_verify_byte, 960000)
 }
 
 fn alt_bn128g1_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {

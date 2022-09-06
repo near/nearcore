@@ -166,7 +166,7 @@ fn validate(
     verify_epochs(&epoch_infos);
 }
 
-fn verify_epochs(epoch_infos: &Vec<Arc<EpochInfo>>) {
+fn verify_epochs(epoch_infos: &[Arc<EpochInfo>]) {
     for i in 1..epoch_infos.len() {
         let epoch_info = &epoch_infos[i];
         let prev_epoch_info = &epoch_infos[i - 1];
@@ -224,7 +224,7 @@ fn verify_epochs(epoch_infos: &Vec<Arc<EpochInfo>>) {
     }
 }
 
-fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<Arc<BlockInfo>>) {
+fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &[Arc<BlockInfo>]) {
     let mut proposals = BTreeMap::default();
     for i in 1..block_infos.len() {
         let prev_block_info = &block_infos[i - 1];
@@ -256,8 +256,8 @@ fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<Arc<Bloc
 
 fn verify_slashes(
     epoch_manager: &mut EpochManager,
-    block_infos: &Vec<Arc<BlockInfo>>,
-    slashes_per_block: &Vec<Vec<SlashedValidator>>,
+    block_infos: &[Arc<BlockInfo>],
+    slashes_per_block: &[Vec<SlashedValidator>],
 ) {
     for i in 1..block_infos.len() {
         let prev_slashes_set = block_infos[i - 1].slashed();
@@ -314,7 +314,7 @@ fn verify_slashes(
 fn verify_block_stats(
     epoch_manager: &mut EpochManager,
     heights: Vec<u64>,
-    block_infos: &Vec<Arc<BlockInfo>>,
+    block_infos: &[Arc<BlockInfo>],
     block_hashes: &[CryptoHash],
 ) {
     for i in 1..block_infos.len() {

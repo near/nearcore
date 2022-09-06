@@ -9,7 +9,8 @@ use tracing::info;
 
 use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
-use near_logger_utils::init_test_logger_allow_panic;
+use near_network_primitives::time;
+use near_o11y::testonly::init_test_logger_allow_panic;
 use near_primitives::block::GenesisId;
 
 use near_network::config;
@@ -19,13 +20,15 @@ use near_network::test_utils::{
 use near_network::types::NetworkClientResponses;
 use near_network::PeerManagerActor;
 use near_network_primitives::types::NetworkViewClientResponses;
-use near_store::test_utils::create_test_store;
 
 type ClientMock = Mocker<ClientActor>;
 type ViewClientMock = Mocker<ViewClientActor>;
 
-fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> PeerManagerActor {
-    let store = create_test_store();
+fn make_peer_manager(
+    seed: &str,
+    port: u16,
+    boot_nodes: Vec<(&str, u16)>,
+) -> actix::Addr<PeerManagerActor> {
     let mut config = config::NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
     let client_addr = ClientMock::mock(Box::new(move |_msg, _ctx| {
@@ -36,8 +39,9 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
         Box::new(Some(NetworkViewClientResponses::NoResponse))
     }))
     .start();
-    PeerManagerActor::new(
-        store,
+    PeerManagerActor::spawn(
+        time::Clock::real(),
+        near_store::db::TestDB::new(),
         config,
         client_addr.recipient(),
         view_client_addr.recipient(),
@@ -78,14 +82,11 @@ fn stress_test() {
 
         let mut pms: Vec<_> = (0..num_nodes)
             .map(|ix| {
-                Arc::new(
-                    make_peer_manager(
-                        format!("test{}", ix).as_str(),
-                        ports[ix],
-                        boot_nodes.iter().map(|(acc, port)| (acc.as_str(), *port)).collect(),
-                    )
-                    .start(),
-                )
+                Arc::new(make_peer_manager(
+                    format!("test{}", ix).as_str(),
+                    ports[ix],
+                    boot_nodes.iter().map(|(acc, port)| (acc.as_str(), *port)).collect(),
+                ))
             })
             .collect();
 
@@ -134,14 +135,11 @@ fn stress_test() {
                         flag.store(false, Ordering::Relaxed);
                     }
 
-                    pms[0] = Arc::new(
-                        make_peer_manager(
-                            "test0",
-                            ports[0],
-                            boot_nodes.iter().map(|(acc, port)| (acc.as_str(), *port)).collect(),
-                        )
-                        .start(),
-                    );
+                    pms[0] = Arc::new(make_peer_manager(
+                        "test0",
+                        ports[0],
+                        boot_nodes.iter().map(|(acc, port)| (acc.as_str(), *port)).collect(),
+                    ));
 
                     let pm0 = pms[0].clone();
 

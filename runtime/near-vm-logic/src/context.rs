@@ -1,12 +1,10 @@
 use crate::types::PublicKey;
 use near_primitives_core::config::ViewConfig;
-use near_primitives_core::serialize;
 use near_primitives_core::types::{
     AccountId, Balance, BlockHeight, EpochHeight, Gas, StorageUsage,
 };
-use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Clone)]
 /// Context for the contract execution.
 pub struct VMContext {
     /// The account id of the current contract that we are executing.
@@ -14,7 +12,6 @@ pub struct VMContext {
     /// The account id of that signed the original transaction that led to this
     /// execution.
     pub signer_account_id: AccountId,
-    #[serde(with = "serialize::base_bytes_format")]
     /// The public key that was used to sign the original transaction that led to
     /// this execution.
     pub signer_account_pk: PublicKey,
@@ -25,33 +22,27 @@ pub struct VMContext {
     pub predecessor_account_id: AccountId,
     /// The input to the contract call.
     /// Encoded as base64 string to be able to pass input in borsh binary format.
-    #[serde(with = "serialize::base64_format")]
     pub input: Vec<u8>,
     /// The current block height.
     // TODO #1903 rename to `block_height`
     pub block_index: BlockHeight,
     /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
-    #[serde(with = "serialize::dec_format")]
     pub block_timestamp: u64,
     /// The current epoch height.
     pub epoch_height: EpochHeight,
 
     /// The balance attached to the given account. Excludes the `attached_deposit` that was
     /// attached to the transaction.
-    #[serde(with = "serialize::dec_format")]
     pub account_balance: Balance,
     /// The balance of locked tokens on the given account.
-    #[serde(with = "serialize::dec_format")]
     pub account_locked_balance: Balance,
     /// The account's storage usage before the contract execution
     pub storage_usage: StorageUsage,
     /// The balance that was attached to the call that will be immediately deposited before the
     /// contract execution starts.
-    #[serde(with = "serialize::dec_format")]
     pub attached_deposit: Balance,
     /// The gas attached to the call that can be used to pay for the gas fees.
     pub prepaid_gas: Gas,
-    #[serde(with = "serialize::base_bytes_format")]
     /// Initial seed for randomness
     pub random_seed: Vec<u8>,
     /// If Some, it means that execution is made in a view mode and defines its configuration.

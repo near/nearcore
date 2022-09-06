@@ -13,6 +13,7 @@ use tracing::debug;
 
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
+use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -24,7 +25,6 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
-use near_primitives::serialize::to_base;
 use near_primitives::shard_layout;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ChunkHash;
@@ -36,6 +36,7 @@ use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Gas, Nonce, NumBlocks,
     NumShards, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
+    ValidatorInfoIdentifier,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
@@ -53,7 +54,6 @@ use crate::chain::Chain;
 use crate::store::ChainStoreAccess;
 use crate::types::{
     AcceptedBlock, ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ChainGenesis,
-    ValidatorInfoIdentifier,
 };
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
 use crate::{BlockProcessingArtifact, Doomslug, Provenance};
@@ -305,7 +305,7 @@ impl KeyValueRuntime {
         }
         let prev_block_header = self
             .get_block_header(&prev_hash)?
-            .ok_or_else(|| Error::DBNotFoundErr(to_base(&prev_hash)))?;
+            .ok_or_else(|| Error::DBNotFoundErr(prev_hash.to_string()))?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
         let mut hash_to_next_epoch_approvals_req =
@@ -1021,12 +1021,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(data)
     }
 
-    fn validate_state_part(
-        &self,
-        _state_root: &StateRoot,
-        _part_id: PartId,
-        _data: &Vec<u8>,
-    ) -> bool {
+    fn validate_state_part(&self, _state_root: &StateRoot, _part_id: PartId, _data: &[u8]) -> bool {
         // We do not care about deeper validation in test_utils
         true
     }
@@ -1056,18 +1051,18 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error> {
-        Ok(StateRootNode {
-            data: self
-                .state
-                .read()
-                .unwrap()
-                .get(state_root)
-                .unwrap()
-                .clone()
-                .try_to_vec()
-                .expect("should never fall"),
-            memory_usage: *self.state_size.read().unwrap().get(state_root).unwrap(),
-        })
+        let data = self
+            .state
+            .read()
+            .unwrap()
+            .get(state_root)
+            .unwrap()
+            .clone()
+            .try_to_vec()
+            .expect("should never fall")
+            .into();
+        let memory_usage = *self.state_size.read().unwrap().get(state_root).unwrap();
+        Ok(StateRootNode { data, memory_usage })
     }
 
     fn validate_state_root_node(
@@ -1274,7 +1269,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         loop {
             let header = self
                 .get_block_header(&candidate_hash)?
-                .ok_or_else(|| Error::DBNotFoundErr(to_base(&candidate_hash)))?;
+                .ok_or_else(|| Error::DBNotFoundErr(candidate_hash.to_string()))?;
             candidate_hash = *header.prev_hash();
             if self.is_next_block_epoch_start(&candidate_hash)? {
                 break Ok(self.get_epoch_and_valset(candidate_hash)?.0);
@@ -1304,6 +1299,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_uid: ShardUId,
         _state_root: &StateRoot,
         _next_epoch_shard_layout: &ShardLayout,
+        _state_split_status: Arc<StateSplitApplyingStatus>,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         Ok(HashMap::new())
     }
@@ -1394,8 +1390,10 @@ pub fn setup_with_validators(
     (chain, runtime, signers)
 }
 
-pub fn format_hash(h: CryptoHash) -> String {
-    to_base(&h)[..6].to_string()
+pub fn format_hash(hash: CryptoHash) -> String {
+    let mut hash = hash.to_string();
+    hash.truncate(6);
+    hash
 }
 
 /// Displays chain from given store.

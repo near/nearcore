@@ -2,7 +2,7 @@ use near_primitives::shard_layout::ShardUId;
 use std::collections::HashMap;
 
 use near_primitives::transaction::SignedTransaction;
-use near_store::{TrieCache, TrieCachingStorage};
+use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_logic::ExtCosts;
 
 use crate::config::{Config, GasMetric};
@@ -123,8 +123,12 @@ impl<'c> Testbed<'c> {
 
     pub(crate) fn trie_caching_storage(&mut self) -> TrieCachingStorage {
         let store = self.inner.store();
-        let caching_storage =
-            TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
+        let caching_storage = TrieCachingStorage::new(
+            store,
+            TrieCache::new(&TrieConfig::default(), ShardUId::single_shard(), false),
+            ShardUId::single_shard(),
+            false,
+        );
         caching_storage
     }
 

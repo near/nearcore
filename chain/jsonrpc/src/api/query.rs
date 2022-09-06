@@ -14,14 +14,14 @@ const QUERY_DATA_MAX_SIZE: usize = 10 * 1024;
 
 impl RpcRequest for RpcQueryRequest {
     fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
-        let query_request = if let Ok((path, data)) =
-            parse_params::<(String, String)>(value.clone())
-        {
+        let params = parse_params::<(String, String)>(value.clone());
+        let query_request = if let Ok((path, data)) = params {
             // Handle a soft-deprecated version of the query API, which is based on
             // positional arguments with a "path"-style first argument.
             //
             // This whole block can be removed one day, when the new API is 100% adopted.
-            let data = serialize::from_base(&data).map_err(|err| RpcParseError(err.to_string()))?;
+            let data =
+                serialize::from_base58(&data).map_err(|err| RpcParseError(err.to_string()))?;
             let query_data_size = path.len() + data.len();
             if query_data_size > QUERY_DATA_MAX_SIZE {
                 return Err(RpcParseError(format!(

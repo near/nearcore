@@ -3,7 +3,7 @@ extern crate bencher;
 
 use bencher::{black_box, Bencher};
 use near_primitives::errors::StorageError;
-use near_store::{DBCol, Store};
+use near_store::{DBCol, NodeStorage, Store, Temperature};
 use std::time::{Duration, Instant};
 
 /// Run a benchmark to generate `num_keys` keys, each of size `key_size`, then write then
@@ -17,9 +17,12 @@ fn benchmark_write_then_read_successful(
     col: DBCol,
 ) {
     let tmp_dir = tempfile::tempdir().unwrap();
-    // Use default StoreConfig rather than Store::test_opener so we’re using the
+    // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
     // same configuration as in production.
-    let store = Store::opener(tmp_dir.path(), &Default::default()).open();
+    let store = NodeStorage::opener(tmp_dir.path(), &Default::default())
+        .open()
+        .unwrap()
+        .get_store(Temperature::Hot);
     let keys = generate_keys(num_keys, key_size);
     write_to_db(&store, &keys, max_value_size, col);
 
@@ -51,7 +54,7 @@ fn generate_keys(count: usize, key_size: usize) -> Vec<Vec<u8>> {
 
 /// Read from DB value for given `kyes` in random order for `col`.
 /// Works only for column configured without reference counting, that is `.is_rc() == false`.
-fn read_from_db(store: &Store, keys: &Vec<Vec<u8>>, col: DBCol) -> usize {
+fn read_from_db(store: &Store, keys: &[Vec<u8>], col: DBCol) -> usize {
     let mut read = 0;
     for _k in 0..keys.len() {
         let r = rand::random::<u32>() % (keys.len() as u32);

@@ -4,14 +4,14 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-pub mod actix;
+pub use super::actix;
 pub mod fake_client;
 pub mod stream;
 
-pub type Rng = rand_pcg::Pcg32;
+pub type Rng = rand_xorshift::XorShiftRng;
 
 pub fn make_rng(seed: u64) -> Rng {
-    Rng::new(seed, 0xa02bdbf7bb3c0a7)
+    rand::SeedableRng::seed_from_u64(seed)
 }
 
 pub trait AsSet<'a, T> {

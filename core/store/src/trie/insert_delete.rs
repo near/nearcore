@@ -57,7 +57,7 @@ impl NodesStorage {
         StorageValueHandle(self.values.len() - 1)
     }
 
-    pub(crate) fn value_ref(&self, handle: StorageValueHandle) -> &Vec<u8> {
+    pub(crate) fn value_ref(&self, handle: StorageValueHandle) -> &[u8] {
         self.values
             .get(handle.0)
             .expect(INVALID_STORAGE_HANDLE)
@@ -637,7 +637,7 @@ impl Trie {
     fn flatten_value(memory: &mut NodesStorage, value: ValueHandle) -> (u32, CryptoHash) {
         match value {
             ValueHandle::InMemory(value_handle) => {
-                let value = memory.value_ref(value_handle).clone();
+                let value = memory.value_ref(value_handle).to_vec();
                 let value_length = value.len() as u32;
                 let value_hash = hash(&value);
                 let (_value, rc) =

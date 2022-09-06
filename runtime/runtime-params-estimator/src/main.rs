@@ -41,7 +41,13 @@ struct CliArgs {
     #[clap(long)]
     skip_build_test_contract: bool,
     /// What metric to use.
-    #[clap(long, default_value = "icount", possible_values = &["icount", "time"])]
+    ///
+    /// `time` measures wall-clock time elapsed.
+    /// `icount` counts the CPU instructions and syscall-level IO bytes executed
+    ///  using qemu instrumentation.
+    /// Note that `icount` measurements are not accurate when translating to gas. The main purpose of it is to
+    /// have a stable output that can be used to detect performance regressions.
+    #[clap(long, default_value = "time", possible_values = &["icount", "time"])]
     metric: String,
     /// Which VM to test.
     #[clap(long, possible_values = &["wasmer", "wasmer2", "wasmtime"])]
@@ -131,7 +137,10 @@ fn main() -> anyhow::Result<()> {
 
         let near_config = nearcore::load_config(&state_dump_path, GenesisValidationMode::Full)
             .context("Error loading config")?;
-        let store = near_store::Store::opener(&state_dump_path, &near_config.config.store).open();
+        let store = near_store::NodeStorage::opener(&state_dump_path, &near_config.config.store)
+            .open()
+            .unwrap()
+            .get_store(near_store::Temperature::Hot);
         GenesisBuilder::from_config_and_store(&state_dump_path, near_config, store)
             .add_additional_accounts(cli_args.additional_accounts_num)
             .add_additional_accounts_contract(contract_code.to_vec())
@@ -273,10 +282,7 @@ fn main_docker(
     exec("docker --version").context("please install `docker`")?;
 
     let project_root = project_root();
-
-    let image = "rust-emu";
-    let tag = "rust-1.62.1"; //< Update this when Dockerfile changes
-    let tagged_image = format!("{}:{}", image, tag);
+    let tagged_image = docker_image()?;
     if exec(&format!("docker images -q {}", tagged_image))?.is_empty() {
         // Build a docker image if there isn't one already.
         let status = Command::new("docker")
@@ -376,6 +382,26 @@ fn main_docker(
 
     cmd.status()?;
     Ok(())
+}
+
+/// Creates a docker image tag that is unique for each rust version to force re-build when it changes.
+fn docker_image() -> Result<String, anyhow::Error> {
+    let image = "rust-emu";
+    let dockerfile =
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("emu-cost/Dockerfile"))?;
+    // The Dockerfile is expected to have a line like this:
+    // ```
+    // FROM rust:x.y.z
+    // ```
+    // and the result should be `rust-x.y.z`
+    let tag = dockerfile
+        .lines()
+        .find_map(|line| line.split_once("FROM "))
+        .context("could not parse rustc version from Dockerfile")?
+        .1
+        .replace(":", "-");
+
+    Ok(format!("{}:{}", image, tag))
 }
 
 fn read_costs_table(path: &Path) -> anyhow::Result<CostTable> {

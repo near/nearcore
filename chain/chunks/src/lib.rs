@@ -952,11 +952,7 @@ impl ShardsManager {
         self.pool_for_shard(shard_id).insert_transaction(tx)
     }
 
-    pub fn remove_transactions(
-        &mut self,
-        shard_id: ShardId,
-        transactions: &Vec<SignedTransaction>,
-    ) {
+    pub fn remove_transactions(&mut self, shard_id: ShardId, transactions: &[SignedTransaction]) {
         if let Some(pool) = self.tx_pools.get_mut(&shard_id) {
             pool.remove_transactions(transactions)
         }
@@ -982,9 +978,9 @@ impl ShardsManager {
     pub fn reintroduce_transactions(
         &mut self,
         shard_id: ShardId,
-        transactions: &Vec<SignedTransaction>,
+        transactions: &[SignedTransaction],
     ) {
-        self.pool_for_shard(shard_id).reintroduce_transactions(transactions.clone());
+        self.pool_for_shard(shard_id).reintroduce_transactions(transactions.to_vec());
     }
 
     pub fn receipts_recipient_filter<T>(
@@ -992,7 +988,7 @@ impl ShardsManager {
         from_shard_id: ShardId,
         tracking_shards: T,
         receipts_by_shard: &HashMap<ShardId, Vec<Receipt>>,
-        proofs: &Vec<MerklePath>,
+        proofs: &[MerklePath],
     ) -> Vec<ReceiptProof>
     where
         T: IntoIterator<Item = ShardId>,
@@ -1452,9 +1448,7 @@ impl ShardsManager {
                         warn!(target: "chunks", "Received chunk part with part_ord greater than the the total number of chunks");
                         continue;
                     }
-                    if existing_parts.insert(part_ord, part).is_some() {
-                        warn!(target: "chunks", "Part ord {} for chunk {:?} was forwarded multiple times", part_ord, chunk_hash.0);
-                    }
+                    existing_parts.insert(part_ord, part);
                 }
             }
         }
@@ -1678,7 +1672,8 @@ impl ShardsManager {
         store_update.commit()?;
 
         // Merge parts and receipts included in the partial encoded chunk into chunk cache
-        self.encoded_chunks.merge_in_partial_encoded_chunk(partial_encoded_chunk);
+        let new_part_ords =
+            self.encoded_chunks.merge_in_partial_encoded_chunk(partial_encoded_chunk);
 
         // 3. Forward my parts to others tracking this chunk's shard
         // It's possible that the previous block has not been processed yet. We will want to
@@ -1693,6 +1688,7 @@ impl ShardsManager {
         {
             self.send_partial_encoded_chunk_to_chunk_trackers(
                 partial_encoded_chunk,
+                new_part_ords,
                 &epoch_id,
                 &partial_encoded_chunk.header.prev_block_hash(),
             )?;
@@ -1701,6 +1697,7 @@ impl ShardsManager {
                 self.runtime_adapter.get_epoch_id_from_prev_block(&chain_head.last_block_hash)?;
             self.send_partial_encoded_chunk_to_chunk_trackers(
                 partial_encoded_chunk,
+                new_part_ords,
                 &epoch_id,
                 &chain_head.last_block_hash,
             )?;
@@ -1877,6 +1874,7 @@ impl ShardsManager {
     pub fn send_partial_encoded_chunk_to_chunk_trackers(
         &mut self,
         partial_encoded_chunk: &PartialEncodedChunkV2,
+        part_ords: HashSet<u64>,
         epoch_id: &EpochId,
         lastest_block_hash: &CryptoHash,
     ) -> Result<(), Error> {
@@ -1888,9 +1886,11 @@ impl ShardsManager {
             .parts
             .iter()
             .filter(|part| {
-                self.runtime_adapter
-                    .get_part_owner(epoch_id, part.part_ord)
-                    .map_or(false, |owner| &owner == me)
+                part_ords.contains(&part.part_ord)
+                    && self
+                        .runtime_adapter
+                        .get_part_owner(epoch_id, part.part_ord)
+                        .map_or(false, |owner| &owner == me)
             })
             .cloned()
             .collect();
@@ -2014,7 +2014,7 @@ impl ShardsManager {
         balance_burnt: Balance,
         validator_proposals: Vec<ValidatorStake>,
         transactions: Vec<SignedTransaction>,
-        outgoing_receipts: &Vec<Receipt>,
+        outgoing_receipts: &[Receipt],
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         signer: &dyn ValidatorSigner,
@@ -2111,7 +2111,7 @@ impl ShardsManager {
             self.create_and_persist_partial_chunk(
                 &encoded_chunk,
                 merkle_paths,
-                shard_chunk.receipts().clone(),
+                shard_chunk.receipts().to_vec(),
                 &mut store_update,
             )?;
 
@@ -2259,9 +2259,9 @@ mod test {
     use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
     use near_chain::{ChainStore, RuntimeAdapter};
     use near_crypto::KeyType;
-    use near_logger_utils::init_test_logger;
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_network::types::NetworkRequests;
+    use near_o11y::testonly::init_test_logger;
     use near_primitives::block::Tip;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::merkle::merklize;
@@ -2650,6 +2650,75 @@ mod test {
         shards_manager.resend_chunk_requests(&head);
         let (_, requests_count) = count_forwards_and_requests(&fixture);
         assert!(requests_count > 0);
+    }
+
+    #[test]
+    fn test_chunk_forwarding_dedup() {
+        // Tests that we only forward a chunk if it's the first time we receive it.
+        let mut fixture = ChunkTestFixture::default();
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_chunk_part_owner.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+            TEST_SEED,
+        );
+        let count_num_forward_msgs = |fixture: &ChunkTestFixture| {
+            fixture
+                .mock_network
+                .requests
+                .read()
+                .unwrap()
+                .iter()
+                .filter(|request| match request.as_network_requests_ref() {
+                    NetworkRequests::PartialEncodedChunkForward { .. } => true,
+                    _ => false,
+                })
+                .count()
+        };
+        let non_owned_part_ords: Vec<u64> = (0..(fixture.mock_runtime.num_total_parts() as u64))
+            .filter(|ord| !fixture.mock_part_ords.contains(ord))
+            .collect();
+        // Received 3 partial encoded chunks; the owned part is received 3 times, but should
+        // only forward the part on receiving it the first time.
+        let partial_encoded_chunks = [
+            fixture
+                .make_partial_encoded_chunk(&[non_owned_part_ords[0], fixture.mock_part_ords[0]]),
+            fixture
+                .make_partial_encoded_chunk(&[non_owned_part_ords[1], fixture.mock_part_ords[0]]),
+            fixture
+                .make_partial_encoded_chunk(&[non_owned_part_ords[2], fixture.mock_part_ords[0]]),
+        ];
+        shards_manager
+            .process_partial_encoded_chunk(
+                MaybeValidated::from(&partial_encoded_chunks[0]),
+                None,
+                &mut fixture.chain_store,
+                &mut fixture.rs,
+            )
+            .unwrap();
+        let num_forward_msgs_after_first_receiving = count_num_forward_msgs(&fixture);
+        assert!(num_forward_msgs_after_first_receiving > 0);
+        shards_manager
+            .process_partial_encoded_chunk(
+                MaybeValidated::from(&partial_encoded_chunks[1]),
+                None,
+                &mut fixture.chain_store,
+                &mut fixture.rs,
+            )
+            .unwrap();
+        shards_manager
+            .process_partial_encoded_chunk(
+                MaybeValidated::from(&partial_encoded_chunks[2]),
+                None,
+                &mut fixture.chain_store,
+                &mut fixture.rs,
+            )
+            .unwrap();
+        let num_forward_msgs_after_receiving_duplicates = count_num_forward_msgs(&fixture);
+        assert_eq!(
+            num_forward_msgs_after_receiving_duplicates,
+            num_forward_msgs_after_first_receiving
+        );
     }
 
     fn check_request_chunks(
