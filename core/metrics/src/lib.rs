@@ -68,9 +68,9 @@
 //! ```
 
 pub use prometheus::{
-    self, exponential_buckets, linear_buckets, Counter, Encoder, Gauge, GaugeVec, Histogram,
-    HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts, Result,
-    TextEncoder, core::MetricVecBuilder, core::MetricVec,
+    self, core::MetricVec, core::MetricVecBuilder, exponential_buckets, linear_buckets, Counter,
+    Encoder, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec,
+    IntGauge, IntGaugeVec, Opts, Result, TextEncoder,
 };
 
 /// Collect all the metrics for reporting.
