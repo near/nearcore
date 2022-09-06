@@ -47,8 +47,7 @@ impl<T: Send + Sync + 'static> Sender<T> {
 }
 
 impl<T: Clone + Send> Receiver<T> {
-    // Returns a copy of the receiver which
-    // ignores all the events until now.
+    /// Returns a copy of the receiver which ignores all the events until now.
     // TODO(gprusak): this still doesn't solve
     // the events being mixed in the stream.
     // Without actix, awaiting the expected state
