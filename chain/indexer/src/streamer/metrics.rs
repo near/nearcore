@@ -1,4 +1,4 @@
-use near_metrics::{
+use near_o11y::metrics::{
     try_create_histogram, try_create_int_counter, try_create_int_gauge, Histogram, IntCounter,
     IntGauge,
 };
