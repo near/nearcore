@@ -93,6 +93,42 @@ impl Drop for ConnectionGuard {
     }
 }
 
+struct FramedWriter {
+    send: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+    messages: Arc<AtomicU64>,
+    total_size: Arc<AtomicU64>,
+}
+
+impl FramedWriter {
+    fn spawn<W:AsyncWrite>(write:W) {
+        let (send,recv) = tokio::sync::mpsc::unbounded_channel();
+        let messages = Arc::new(AtomicU64::new(0));
+        let total_size = Arc::new(AtomicU64::new(0));
+        let this = Self {
+            send,
+            messages: messages.clone(),
+            total_size: total_size.clone(),
+        };
+        ctx.spawn(async move {
+            const WRITE_BUFFER_CAPACITY : usize = 8 * 1024;
+            let write = tokio::io::BufWriter::with_capacity(write,WRITE_BUFFER_CAPACITY);
+            loop {
+                let msg = match recv.recv().await {
+                    Some(msg) => msg,
+                    None => return Ok(()),
+                };
+                
+            }
+        });
+    }
+
+    fn write(&self, msg: Vec<u8>) {
+        self.messages.fetch_add(1,Ordering::Relaxed);
+        self.total_size.fetch_add(msg.len(),Ordering::Relaxed);
+        self.send.send(msg);
+    }
+}
+
 pub(crate) struct PeerActor {
     clock: time::Clock,
 
