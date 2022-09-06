@@ -1,3 +1,4 @@
+mod metrics_benchmark;
 mod node_cluster;
 mod rpc_error_structs;
 mod rpc_nodes;
