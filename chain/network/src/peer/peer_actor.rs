@@ -238,7 +238,6 @@ impl PeerActor {
                 _connection_guard: connection_guard,
             };
             let addr = ctx.address();
-            let clock = pa.clock.clone();
             let stats = pa.stats.clone();
             // Event loop receiving and processing messages.
             // After dispatching a message, loop starts parsing the next message immediately
@@ -253,6 +252,11 @@ impl PeerActor {
                         const READ_BUFFER_CAPACITY: usize = 8 * 1024;
                         let mut read =
                             tokio::io::BufReader::with_capacity(READ_BUFFER_CAPACITY, read);
+
+                        let msg_size_metric = metrics::MetricGuard::new(
+                            &metrics::PEER_MSG_SIZE_BYTES,
+                            vec![peer_addr.to_string()],
+                        );
                         loop {
                             let n = read.read_u32_le().await.map_err(RecvError::IO)? as usize;
                             if n > NETWORK_MESSAGE_MAX_SIZE_BYTES {
@@ -261,11 +265,11 @@ impl PeerActor {
                                     want_max_bytes: NETWORK_MESSAGE_MAX_SIZE_BYTES,
                                 });
                             }
+                            msg_size_metric.observe(n as f64);
                             let mut buf = vec![0; n];
-                            let t0 = clock.now();
+                            let t = metrics::PEER_MSG_READ_LATENCY.start_timer();
                             read.read_exact(&mut buf[..]).await.map_err(RecvError::IO)?;
-                            metrics::PEER_MSG_READ_LATENCY
-                                .observe((clock.now() - t0).as_seconds_f64());
+                            t.observe_duration();
                             stats.received_messages.fetch_add(1, Ordering::Relaxed);
                             stats.received_bytes.fetch_add(n as u64, Ordering::Relaxed);
                             if let Err(_) = addr.send(RecvMessage(Ok(buf))).await {
@@ -792,7 +796,6 @@ impl Actor for PeerActor {
         let metric_label = &self.peer_addr.to_string();
         // Garbage collect our metrics, ignoring the case where the metric is
         // already deleted, to avoid races when a peer tries to reconnect.
-        let _ = metrics::PEER_DATA_READ_BUFFER_SIZE.remove_label_values(&[metric_label]);
         let _ = metrics::PEER_DATA_WRITE_BUFFER_SIZE.remove_label_values(&[metric_label]);
     }
 }
@@ -812,8 +815,9 @@ impl actix::Handler<RecvMessage> for PeerActor {
             Ok(msg) => msg,
             Err(err) => {
                 error!(target: "network", ?err, "Closing connection to {}", self.peer_info);
-                if let RecvError::MessageTooLarge { .. } = err {
-                    self.ban_peer(ctx, ReasonForBan::Abusive);
+                match err {
+                    RecvError::MessageTooLarge { .. } => self.ban_peer(ctx, ReasonForBan::Abusive),
+                    RecvError::IO(_) => {}
                 }
                 ctx.stop();
                 return;

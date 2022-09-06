@@ -3,7 +3,7 @@ use near_metrics::{
     exponential_buckets, try_create_histogram, try_create_histogram_vec,
     try_create_histogram_with_buckets, try_create_int_counter, try_create_int_counter_vec,
     try_create_int_gauge, try_create_int_gauge_vec, Histogram, HistogramVec, IntCounter,
-    IntCounterVec, IntGauge, IntGaugeVec,
+    IntCounterVec, IntGauge, IntGaugeVec, MetricVec, MetricVecBuilder,
 };
 use near_network_primitives::time;
 use near_network_primitives::types::{PeerType, RoutedMessageBody, RoutedMessageV2};
@@ -66,6 +66,33 @@ impl Labels for Connection {
     }
 }
 
+pub(crate) struct MetricGuard<T: MetricVecBuilder + 'static> {
+    metric: T::M,
+    metric_vec: &'static MetricVec<T>,
+    labels: Vec<String>,
+}
+
+impl<T: MetricVecBuilder> MetricGuard<T> {
+    pub fn new(metric_vec: &'static MetricVec<T>, labels: Vec<String>) -> Self {
+        let labels_str: Vec<_> = labels.iter().map(String::as_str).collect();
+        Self { metric: metric_vec.with_label_values(&labels_str[..]), metric_vec, labels }
+    }
+}
+
+impl<T: MetricVecBuilder> Drop for MetricGuard<T> {
+    fn drop(&mut self) {
+        let labels: Vec<_> = self.labels.iter().map(String::as_str).collect();
+        self.metric_vec.remove_label_values(&labels[..]).unwrap();
+    }
+}
+
+impl<T: MetricVecBuilder> std::ops::Deref for MetricGuard<T> {
+    type Target = T::M;
+    fn deref(&self) -> &Self::Target {
+        &self.metric
+    }
+}
+
 pub static PEER_CONNECTIONS: Lazy<Gauge<Connection>> =
     Lazy::new(|| Gauge::new("near_peer_connections", "Number of connected peers").unwrap());
 
@@ -76,6 +103,20 @@ pub(crate) static PEER_DATA_RECEIVED_BYTES: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter("near_peer_data_received_bytes", "Total data received from peers")
         .unwrap()
 });
+
+pub(crate) static PEER_MSG_SIZE_BYTES: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_peer_msg_size",
+        "Histogram of message sizes in bytes",
+        &["addr"],
+        // very coarse buckets, because we keep them for every connection
+        // separately.
+        // TODO(gprusak): this might get too expensive with TIER1 connections.
+        Some(exponential_buckets(100., 10., 6).unwrap()),
+    )
+    .unwrap()
+});
+
 pub(crate) static PEER_MSG_READ_LATENCY: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram_with_buckets(
         "near_peer_msg_read_latency",
@@ -87,14 +128,6 @@ pub(crate) static PEER_MSG_READ_LATENCY: Lazy<Histogram> = Lazy::new(|| {
 
 pub(crate) static PEER_DATA_SENT_BYTES: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter("near_peer_data_sent_bytes", "Total data sent to peers").unwrap()
-});
-pub(crate) static PEER_DATA_READ_BUFFER_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
-    try_create_int_gauge_vec(
-        "near_peer_read_buffer_size",
-        "Size of the incoming buffer for this peer",
-        &["addr"],
-    )
-    .unwrap()
 });
 pub(crate) static PEER_DATA_WRITE_BUFFER_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
