@@ -4,8 +4,8 @@ use std::sync::{Arc, RwLock};
 use actix::System;
 
 use near_client::{GetBlock, GetChunk};
-use near_logger_utils::init_integration_logger;
 use near_network::test_utils::wait_or_timeout;
+use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 
 use crate::tests::nearcore::node_cluster::NodeCluster;

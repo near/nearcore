@@ -103,7 +103,7 @@ pub trait VM {
     /// Verify the `code` contract can be compiled with this [`Runtime`].
     ///
     /// This is intended primarily for testing purposes.
-    fn check_compile(&self, code: &Vec<u8>) -> bool;
+    fn check_compile(&self, code: &[u8]) -> bool;
 }
 
 impl VMKind {

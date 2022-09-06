@@ -48,7 +48,6 @@ near-crypto = { path = "../core/crypto" }
 near-epoch-manager = { path = "../chain/epoch-manager" }
 near-jsonrpc = { path = "../chain/jsonrpc", optional = true }
 near-mainnet-res = { path = "../utils/mainnet-res" }
-near-metrics = { path = "../core/metrics" }
 near-network = { path = "../chain/network" }
 near-network-primitives = { path = "../chain/network-primitives" }
 near-o11y = { path = "../core/o11y" }
@@ -65,7 +64,6 @@ delay-detector = { path = "../tools/delay-detector" }
 
 [dev-dependencies]
 bencher = "0.1.5"
-near-logger-utils = { path = "../test-utils/logger" }
 near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
 testlib = { path = "../test-utils/testlib" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
