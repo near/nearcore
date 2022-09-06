@@ -257,6 +257,7 @@ impl PeerActor {
                             &metrics::PEER_MSG_SIZE_BYTES,
                             vec![peer_addr.to_string()],
                         );
+                        msg_size_metric.observe(1000.);
                         loop {
                             let n = read.read_u32_le().await.map_err(RecvError::IO)? as usize;
                             if n > NETWORK_MESSAGE_MAX_SIZE_BYTES {
@@ -814,10 +815,19 @@ impl actix::Handler<RecvMessage> for PeerActor {
         let msg = match msg.0 {
             Ok(msg) => msg,
             Err(err) => {
-                error!(target: "network", ?err, "Closing connection to {}", self.peer_info);
-                match err {
-                    RecvError::MessageTooLarge { .. } => self.ban_peer(ctx, ReasonForBan::Abusive),
-                    RecvError::IO(_) => {}
+                let expected = match &err {
+                    RecvError::MessageTooLarge { .. } => {
+                        self.ban_peer(ctx, ReasonForBan::Abusive);
+                        true
+                    }
+                    RecvError::IO(err) => match err.kind() {
+                        io::ErrorKind::UnexpectedEof => true,
+                        io::ErrorKind::ConnectionReset => true,
+                        _ => false,
+                    }
+                };
+                if !expected {
+                    error!(target: "network", ?err, "Closing connection to {}", self.peer_info);
                 }
                 ctx.stop();
                 return;

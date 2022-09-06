@@ -82,7 +82,7 @@ impl<T: MetricVecBuilder> MetricGuard<T> {
 impl<T: MetricVecBuilder> Drop for MetricGuard<T> {
     fn drop(&mut self) {
         let labels: Vec<_> = self.labels.iter().map(String::as_str).collect();
-        self.metric_vec.remove_label_values(&labels[..]).unwrap();
+        let _ = self.metric_vec.remove_label_values(&labels[..]);
     }
 }
 
@@ -106,7 +106,7 @@ pub(crate) static PEER_DATA_RECEIVED_BYTES: Lazy<IntCounter> = Lazy::new(|| {
 
 pub(crate) static PEER_MSG_SIZE_BYTES: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "near_peer_msg_size",
+        "near_peer_msg_size_bytes",
         "Histogram of message sizes in bytes",
         &["addr"],
         // very coarse buckets, because we keep them for every connection
