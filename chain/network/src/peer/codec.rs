@@ -9,7 +9,6 @@ use crate::stats::metrics;
 use bytes::{Buf, BufMut, BytesMut};
 use bytesize::{GIB, MIB};
 use near_network_primitives::types::ReasonForBan;
-use near_performance_metrics::framed_write::EncoderCallBack;
 use std::io::{Error, ErrorKind};
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::error;
@@ -37,18 +36,6 @@ pub(crate) struct Codec {
 impl Codec {
     pub fn new(buf_size_metric: near_o11y::metrics::IntGauge) -> Codec {
         Codec { buf_size_metric }
-    }
-}
-
-impl EncoderCallBack for Codec {
-    #[allow(unused)]
-    fn drained(&mut self, bytes: usize, buf_len: usize, buf_capacity: usize) {
-        self.buf_size_metric.set(buf_len as i64);
-        #[cfg(feature = "performance_stats")]
-        {
-            let stat = near_performance_metrics::stats_enabled::get_thread_stats_logger();
-            stat.lock().unwrap().log_drain_write_buffer(bytes, buf_len, buf_capacity);
-        }
     }
 }
 
