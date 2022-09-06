@@ -45,7 +45,15 @@ impl ExecutionToReceipts {
                     .map_err(|e| crate::errors::ErrorKind::InternalInvariantError(e.to_string()))?;
                 transactions.extend(chunk.transactions.into_iter().map(|t| (t.hash, t)));
                 receipts
-                    .extend(chunk.receipts.into_iter().map(|t| (t.receipt_id, t.predecessor_id)))
+                    .extend(chunk.receipts.into_iter().map(|t| (t.receipt_id, t.predecessor_id)));
+                println!(
+                    "These are the receipts coming from chunk {:?}, receipts: {:?}",
+                    block.chunks[shard_id].chunk_hash, receipts
+                );
+                println!(
+                    "These are the transactions coming from chunk {:?}, transactions: {:?}",
+                    block.chunks[shard_id].chunk_hash, transactions
+                )
             }
         }
         let map = view_client_addr
@@ -57,6 +65,8 @@ impl ExecutionToReceipts {
             .filter(|exec| !exec.outcome.receipt_ids.is_empty())
             .map(|exec| (exec.id, exec.outcome.receipt_ids))
             .collect();
+        let receipt_ids = println!("These are the execution outcomes {:?}", map);
+        println!("These are the transactions and receipts: {:?} and {:?}", transactions, receipts);
         Ok(Self { map, transactions, receipts })
     }
 
@@ -137,7 +147,8 @@ fn convert_cause_to_transaction_id(
     }
 }
 
-fn get_predecessor_id_from_receipt_or_transaction(
+async fn get_predecessor_id_from_receipt_or_transaction(
+    view_client: &Addr<near_client::ViewClientActor>,
     cause: &near_primitives::views::StateChangeCauseView,
     transactions_in_block: &HashMap<CryptoHash, SignedTransactionView>,
     receipts_in_block: &HashMap<CryptoHash, AccountId>,
@@ -149,28 +160,56 @@ fn get_predecessor_id_from_receipt_or_transaction(
                 .and_then(|t| Some(crate::models::AccountIdentifier::from(t.signer_id.clone())))
         }
         near_primitives::views::StateChangeCauseView::ReceiptProcessing { receipt_hash } => {
-            receipts_in_block
-                .get(receipt_hash)
-                .and_then(|t| Some(crate::models::AccountIdentifier::from(t.clone())))
+            match receipts_in_block.get(receipt_hash) {
+                Some(t) => Some(crate::models::AccountIdentifier::from(t.clone())),
+                None => Some(crate::models::AccountIdentifier::from(
+                    get_predecessor_id_from_receipt_hash(view_client, *receipt_hash).await?,
+                )),
+            }
         }
         near_primitives::views::StateChangeCauseView::PostponedReceipt { receipt_hash } => {
-            receipts_in_block
-                .get(receipt_hash)
-                .and_then(|t| Some(crate::models::AccountIdentifier::from(t.clone())))
+            match receipts_in_block.get(receipt_hash) {
+                Some(t) => Some(crate::models::AccountIdentifier::from(t.clone())),
+                None => Some(crate::models::AccountIdentifier::from(
+                    get_predecessor_id_from_receipt_hash(view_client, *receipt_hash).await?,
+                )),
+            }
         }
         near_primitives::views::StateChangeCauseView::ActionReceiptProcessingStarted {
             receipt_hash,
-        } => receipts_in_block
-            .get(receipt_hash)
-            .and_then(|t| Some(crate::models::AccountIdentifier::from(t.clone()))),
+        } => match receipts_in_block.get(receipt_hash) {
+            Some(t) => Some(crate::models::AccountIdentifier::from(t.clone())),
+            None => Some(crate::models::AccountIdentifier::from(
+                get_predecessor_id_from_receipt_hash(view_client, *receipt_hash).await?,
+            )),
+        },
         near_primitives::views::StateChangeCauseView::ActionReceiptGasReward { receipt_hash } => {
-            receipts_in_block
-                .get(receipt_hash)
-                .and_then(|t| Some(crate::models::AccountIdentifier::from(t.clone())))
+            match receipts_in_block.get(receipt_hash) {
+                Some(t) => Some(crate::models::AccountIdentifier::from(t.clone())),
+                None => Some(crate::models::AccountIdentifier::from(
+                    get_predecessor_id_from_receipt_hash(view_client, *receipt_hash).await?,
+                )),
+            }
         }
         _ => None,
     };
     predecessor_id
+}
+
+async fn get_predecessor_id_from_receipt_hash(
+    view_client: &Addr<near_client::ViewClientActor>,
+    receipt_id: CryptoHash,
+) -> Option<AccountId> {
+    match view_client.send(near_client::GetReceipt { receipt_id }).await.ok()? {
+        Ok(result) => {
+            if let Some(result) = result {
+                Some(result.predecessor_id)
+            } else {
+                None
+            }
+        }
+        Err(GetReceiptError) => None,
+    }
 }
 
 type RosettaTransactionsMap = std::collections::HashMap<String, crate::models::Transaction>;
@@ -209,12 +248,14 @@ impl<'a> RosettaTransactions<'a> {
                 },
             }
         });
+        println!("These are the txs from get_for_cause {:?}", tx);
         Ok(tx)
     }
 }
 
 /// Returns Rosetta transactions which map to given account changes.
-pub(crate) fn convert_block_changes_to_transactions(
+pub(crate) async fn convert_block_changes_to_transactions(
+    view_client_addr: &Addr<near_client::ViewClientActor>,
     runtime_config: &near_primitives::runtime::config::RuntimeConfig,
     block_hash: &CryptoHash,
     accounts_changes: near_primitives::views::StateChangesView,
@@ -255,11 +296,16 @@ pub(crate) fn convert_block_changes_to_transactions(
                     }),
                     _ => None,
                 };
+                println!("This is the transactions_in_block value: {:?}", transactions_in_block);
+                println!("This is the receipts and accoundId {:?}", &receipts_in_block);
+                println!("This is ROSETTA TRANSACTIONS before operations{:?}", transactions.map);
                 let predecessor_id = get_predecessor_id_from_receipt_or_transaction(
+                    view_client_addr,
                     &account_change.cause,
                     &transactions_in_block,
                     &receipts_in_block,
-                );
+                )
+                .await;
                 let previous_account_state = accounts_previous_state.get(&account_id);
                 convert_account_update_to_operations(
                     runtime_config,
@@ -289,6 +335,7 @@ pub(crate) fn convert_block_changes_to_transactions(
             }
         }
     }
+    println!("This is ROSETTA TRANSACTIONS {:?}", transactions.map);
 
     Ok(transactions.map)
 }
@@ -308,7 +355,6 @@ fn convert_account_update_to_operations(
 
     let new_account_balances =
         crate::utils::RosettaAccountBalances::from_account(account, runtime_config);
-
     if previous_account_balances.liquid != new_account_balances.liquid {
         // Transfers would only lead to change in liquid balance, so it is sufficient to
         // have the check here only. If deposit is not `None` then we separate it into its own
@@ -415,6 +461,7 @@ fn convert_account_update_to_operations(
             metadata: crate::models::OperationMetadata::from_predecessor(predecessor_id.clone()),
         });
     }
+    println!("Current operations vector: {:?}", operations);
 }
 
 fn convert_account_delete_to_operations(
@@ -492,4 +539,5 @@ fn convert_account_delete_to_operations(
             metadata: None,
         });
     }
+    println!("Current operations DELETE vector {:?}", operations);
 }

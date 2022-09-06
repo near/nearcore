@@ -245,7 +245,7 @@ async fn block_details(
         &block,
     )
     .await?;
-
+    println!("FINAL TRANSACTIONS: {:?}", transactions);
     Ok(Json(models::BlockResponse {
         block: Some(models::Block {
             block_identifier,

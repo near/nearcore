@@ -165,12 +165,14 @@ pub(crate) async fn convert_block_to_transactions(
     let exec_to_rx =
         transactions::ExecutionToReceipts::for_block(view_client_addr, block.header.hash).await?;
     transactions::convert_block_changes_to_transactions(
+        view_client_addr,
         &runtime_config,
         &block.header.hash,
         accounts_changes,
         accounts_previous_state,
         exec_to_rx,
     )
+    .await
     .map(|dict| dict.into_values().collect())
 }
 
@@ -686,10 +688,14 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
 mod tests {
 
     use super::*;
-
+    type ViewClientMock = Mocker<ViewClientActor>;
     #[test]
     fn test_convert_block_changes_to_transactions() {
         let runtime_config = near_primitives::runtime::config::RuntimeConfig::test();
+        let view_client_addr = ViewClientMock::mock(Box::new(|_msg, _ctx| {
+            Box::new(Some(NetworkViewClientResponses::NoResponse))
+        }))
+        .start();
         let block_hash = near_primitives::hash::CryptoHash::default();
         let nfvalidator1_receipt_processing_hash = near_primitives::hash::CryptoHash([1u8; 32]);
         let nfvalidator2_action_receipt_gas_reward_hash =
@@ -774,6 +780,7 @@ mod tests {
             },
         );
         let transactions = super::transactions::convert_block_changes_to_transactions(
+            view_client_addr,
             &runtime_config,
             &block_hash,
             accounts_changes,
