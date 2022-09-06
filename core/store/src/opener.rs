@@ -39,15 +39,6 @@ impl<'a> StoreOpener<'a> {
         self
     }
 
-    /// Returns whether database exists.
-    ///
-    /// It performs only basic file-system-level checks and may result in false
-    /// positives if some but not all database files exist.  In particular, this
-    /// is not a guarantee that the database can be opened without an error.
-    pub fn check_if_exists(&self) -> bool {
-        self.path.join("CURRENT").is_file()
-    }
-
     /// Returns path to the underlying RocksDB database.
     ///
     /// Does not check whether the database actually exists.
@@ -66,15 +57,50 @@ impl<'a> StoreOpener<'a> {
     }
 
     /// Opens the RocksDB database.
+    ///
+    /// When opening in read-only mode, verifies that the database version is
+    /// what the node expects and fails if it isn’t.  If database doesn’t exist,
+    /// creates a new one unless mode is [`Mode::ReadWriteExisting`].
     pub fn open(&self) -> std::io::Result<crate::NodeStorage> {
-        let exists = self.check_if_exists();
-        if !exists && matches!(self.mode, Mode::ReadOnly) {
+        self.open_impl(false)
+    }
+
+    /// Creates a new RocksDB database.
+    ///
+    /// Works like `open` except that it fails if the database already exists.
+    /// Note that this is a best-effort check and the creation is not atomic.
+    pub fn create(&self) -> std::io::Result<crate::NodeStorage> {
+        self.open_impl(true)
+    }
+
+    fn open_impl(&self, create: bool) -> std::io::Result<crate::NodeStorage> {
+        let db_version = crate::RocksDB::get_version(&self.path, self.config)?;
+        let exists = if let Some(db_version) = db_version {
+            if create {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Cannot create already existing database",
+                ));
+            }
+            if self.mode == Mode::ReadOnly && db_version != crate::version::DB_VERSION {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!(
+                        "Cannot open database version {} (expected {})",
+                        db_version,
+                        crate::version::DB_VERSION
+                    ),
+                ));
+            }
+            true
+        } else if self.mode == Mode::ReadOnly {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "Cannot open non-existent database for reading",
             ));
-        }
-
+        } else {
+            false
+        };
         tracing::info!(target: "near", path=%self.path.display(),
                        "{} RocksDB database",
                        if exists { "Opening" } else { "Creating a new" });
