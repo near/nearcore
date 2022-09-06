@@ -142,7 +142,11 @@ impl NightshadeRuntime {
         );
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
-        let tries = ShardTries::new(store.clone(), trie_config, &genesis_config.shard_layout);
+        let tries = ShardTries::new(
+            store.clone(),
+            trie_config,
+            &genesis_config.shard_layout.get_shard_uids(),
+        );
         let epoch_manager = EpochManager::new_from_genesis_config(store.clone(), &genesis_config)
             .expect("Failed to start Epoch Manager")
             .into_handle();
@@ -254,7 +258,11 @@ impl NightshadeRuntime {
             }
         });
         assert!(has_protocol_account, "Genesis spec doesn't have protocol treasury account");
-        let tries = ShardTries::new(store, TrieConfig::default(), &genesis.config.shard_layout);
+        let tries = ShardTries::new(
+            store,
+            TrieConfig::default(),
+            &genesis.config.shard_layout.get_shard_uids(),
+        );
         let runtime = Runtime::new();
         let runtime_config_store =
             NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id);

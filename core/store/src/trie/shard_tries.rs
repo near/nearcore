@@ -5,8 +5,7 @@ use std::sync::{Arc, RwLock};
 use borsh::BorshSerialize;
 use near_primitives::borsh::maybestd::collections::HashMap;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{self, ShardLayout};
-use near_primitives::shard_layout::{ShardUId, ShardVersion};
+use near_primitives::shard_layout::{self, ShardUId, ShardVersion};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
@@ -31,8 +30,7 @@ struct ShardTriesInner {
 pub struct ShardTries(Arc<ShardTriesInner>);
 
 impl ShardTries {
-    pub fn new(store: Store, trie_config: TrieConfig, initial_shard_layout: &ShardLayout) -> Self {
-        let shard_uids = initial_shard_layout.get_shard_uids();
+    pub fn new(store: Store, trie_config: TrieConfig, shard_uids: &[ShardUId]) -> Self {
         let caches = Self::create_initial_caches(&trie_config, &shard_uids, false);
         let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
         ShardTries(Arc::new(ShardTriesInner {
@@ -45,10 +43,10 @@ impl ShardTries {
 
     /// Create `ShardTries` with a fixed number of shards with shard version 0.
     ///
-    /// If you test cares about the shard version, use `test_shard_version` instead.
+    /// If your test cares about the shard version, use `test_shard_version` instead.
     pub fn test(store: Store, num_shards: NumShards) -> Self {
-        let version = 0;
-        Self::test_shard_version(store, version, num_shards)
+        let shard_version = 0;
+        Self::test_shard_version(store, shard_version, num_shards)
     }
 
     pub fn test_shard_version(store: Store, version: ShardVersion, num_shards: NumShards) -> Self {
@@ -56,14 +54,7 @@ impl ShardTries {
         let shard_uids: Vec<ShardUId> =
             (0..num_shards as u32).map(|shard_id| ShardUId { shard_id, version }).collect();
         let trie_config = TrieConfig::default();
-        let caches = Self::create_initial_caches(&trie_config, &shard_uids, false);
-        let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
-        ShardTries(Arc::new(ShardTriesInner {
-            store,
-            trie_config,
-            caches: RwLock::new(caches),
-            view_caches: RwLock::new(view_caches),
-        }))
+        ShardTries::new(store, trie_config, &shard_uids)
     }
 
     /// Create caches for all shards according to the trie config.

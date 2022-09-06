@@ -6,30 +6,24 @@ use std::collections::HashMap;
 /// TRIE_LIMIT_CACHED_VALUE_SIZE * 2 (number of caches - for regular and view client) = 0.4 GB.
 /// In our tests on a single shard, it barely occupied 40 MB, which is dominated by state cache size
 /// with 512 MB limit. The total RAM usage for a single shard was 1 GB.
-#[cfg(not(feature = "no_cache"))]
-const TRIE_DEFAULT_SHARD_CACHE_SIZE: u64 = 50000;
-#[cfg(feature = "no_cache")]
-const TRIE_DEFAULT_SHARD_CACHE_SIZE: u64 = 1;
+const TRIE_DEFAULT_SHARD_CACHE_SIZE: u64 = if cfg!(feature = "no_cache") { 1 } else { 50000 };
 
 /// Default total size of values which may simultaneously exist the cache.
 /// It is chosen by the estimation of the largest contract storage size we are aware as of 23/08/2022.
-#[cfg(not(feature = "no_cache"))]
-const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: u64 = 3_000_000_000;
-#[cfg(feature = "no_cache")]
-const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: u64 = 1;
+const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: u64 =
+    if cfg!(feature = "no_cache") { 1 } else { 3_000_000_000 };
 
 /// Capacity for the deletions queue.
 /// It is chosen to fit all hashes of deleted nodes for 3 completely full blocks.
-#[cfg(not(feature = "no_cache"))]
-const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize = 100_000;
-#[cfg(feature = "no_cache")]
-const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize = 1;
+const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize =
+    if cfg!(feature = "no_cache") { 1 } else { 100_000 };
 
 /// Values above this size (in bytes) are never cached.
 /// Note that most of Trie inner nodes are smaller than this - e.g. branches use around 32 * 16 = 512 bytes.
 const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 1000;
 
 /// Stores necessary configuration for the creation of tries.
+#[derive(Default)]
 pub struct TrieConfig {
     pub shard_cache_config: ShardCacheConfig,
     pub view_shard_cache_config: ShardCacheConfig,
@@ -77,15 +71,6 @@ impl TrieConfig {
     /// delays the actual eviction.
     pub fn deletions_queue_capacity(&self) -> usize {
         DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY
-    }
-}
-
-impl Default for TrieConfig {
-    fn default() -> Self {
-        Self {
-            shard_cache_config: ShardCacheConfig::default(),
-            view_shard_cache_config: ShardCacheConfig::default(),
-        }
     }
 }
 
