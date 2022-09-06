@@ -110,14 +110,14 @@ impl RawRoutedMessage {
     /// Panics if the target is an AccountId instead of a PeerId.
     pub fn sign(
         self,
-        author: PeerId,
-        secret_key: &SecretKey,
+        node_key: &SecretKey,
         routed_message_ttl: u8,
         now: Option<time::Utc>,
     ) -> RoutedMessageV2 {
+        let author = PeerId::new(node_key.public_key());
         let target = self.target.peer_id_or_hash().unwrap();
         let hash = RoutedMessage::build_hash(&target, &author, &self.body);
-        let signature = secret_key.sign(hash.as_ref());
+        let signature = node_key.sign(hash.as_ref());
         RoutedMessageV2 {
             msg: RoutedMessage {
                 target,
