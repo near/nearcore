@@ -9,7 +9,6 @@ rust-version = "1.63.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.62"
 byteorder = "1.2"
 bytesize = { version = "1.1", features = ["serde"] }
 derive_more = "0.99.3"

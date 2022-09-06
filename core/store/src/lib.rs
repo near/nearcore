@@ -25,7 +25,7 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 
 use crate::db::{
-    refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, RocksDB, StoreStatistics,
+    refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics,
     GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;
@@ -49,7 +49,9 @@ pub mod version;
 
 pub use crate::config::{Mode, StoreConfig};
 pub use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError};
-pub use crate::opener::StoreOpener;
+pub use crate::opener::{
+    NullStoreMigrator, StoreMigrationFunction, StoreMigrator, StoreOpener, StoreOpenerError,
+};
 
 /// Specifies temperature of a storage.
 ///
@@ -86,8 +88,28 @@ pub struct Store {
 
 impl NodeStorage {
     /// Initialises a new opener with given home directory and store config.
-    pub fn opener<'a>(home_dir: &std::path::Path, config: &'a StoreConfig) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, config)
+    ///
+    /// If the database is not of the exact version that we’re expecting, the
+    /// opening will fail.  No migration will be attempted.  If you want to
+    /// perform migrations when opening a database, use
+    /// [`Self::opener_with_migrator`].
+    pub fn opener<'a>(
+        home_dir: &std::path::Path,
+        config: &'a StoreConfig,
+    ) -> StoreOpener<'a, NullStoreMigrator> {
+        StoreOpener::new(home_dir, config, None)
+    }
+
+    /// Initialises a new opener with given database migrator.
+    ///
+    /// When database is open and it has incorrect database version, migration
+    /// will be attempted with the help of the specified `migrator`.
+    pub fn opener_with_migrator<'a, M: StoreMigrator>(
+        home_dir: &std::path::Path,
+        config: &'a StoreConfig,
+        migrator: M,
+    ) -> StoreOpener<'a, M> {
+        StoreOpener::new(home_dir, config, Some(migrator))
     }
 
     /// Initialises an opener for a new temporary test store.
@@ -98,10 +120,10 @@ impl NodeStorage {
     ///
     /// Note that the caller must hold the temporary directory returned as first
     /// element of the tuple while the store is open.
-    pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
+    pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static, NullStoreMigrator>) {
         static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = Self::opener(dir.path(), &CONFIG);
+        let opener = StoreOpener::new(dir.path(), &CONFIG, None);
         (dir, opener)
     }
 
@@ -151,9 +173,9 @@ impl NodeStorage {
     /// well.  For example, garbage collection only ever touches hot storage but
     /// it should go through [`Store`] interface since data it manipulates
     /// (e.g. blocks) are live in both databases.
-    pub fn get_inner(&self, temp: Temperature) -> Arc<dyn Database> {
+    pub fn get_inner(&self, temp: Temperature) -> &Arc<dyn Database> {
         match temp {
-            Temperature::Hot => self.storage.clone(),
+            Temperature::Hot => &self.storage,
         }
     }
 

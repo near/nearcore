@@ -4,22 +4,25 @@ use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::types::Gas;
 use near_primitives::utils::index_to_bytes;
 use near_store::migrations::BatchedStoreUpdate;
-use near_store::{DBCol, Temperature};
+use near_store::version::{DbVersion, DB_VERSION};
+use near_store::{DBCol, NodeStorage, Temperature};
 
 /// Fix an issue with block ordinal (#5761)
 // This migration takes at least 3 hours to complete on mainnet
 pub fn migrate_30_to_31(
-    store_opener: &near_store::StoreOpener,
+    storage: &NodeStorage,
     near_config: &crate::NearConfig,
 ) -> anyhow::Result<()> {
-    let store = store_opener.open()?.get_store(Temperature::Hot);
+    let store = storage.get_store(Temperature::Hot);
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         do_migrate_30_to_31(&store, &near_config.genesis.config)?;
     }
-    near_store::version::set_store_version(&store, 31)?;
     Ok(())
 }
 
+/// Migrates the database from version 30 to 31.
+///
+/// Recomputes block ordinal due to a bug fixed in #5761.
 pub fn do_migrate_30_to_31(
     store: &near_store::Store,
     genesis_config: &near_chain_configs::GenesisConfig,
@@ -74,6 +77,87 @@ pub fn load_migration_data(chain_id: &str) -> MigrationData {
         } else {
             ReceiptResult::default()
         },
+    }
+}
+
+pub(super) struct Migrator<'a> {
+    config: &'a crate::config::NearConfig,
+}
+
+impl<'a> Migrator<'a> {
+    pub fn new(config: &'a crate::config::NearConfig) -> Self {
+        Self { config }
+    }
+}
+
+/// Asserts that node’s configuration does not use deprecated snapshot config
+/// options.
+///
+/// The `use_db_migration_snapshot` and `db_migration_snapshot_path`
+/// configuration options have been deprecated in favour of
+/// `store.migration_snapshot`.
+///
+/// This function panics if the old options are set and shows instruction how to
+/// migrate to the new options.
+///
+/// This is a hack which stops `StoreOpener` before it attempts migration.
+/// Ideally we would propagate errors nicely but that would complicate the API
+/// a wee bit so instead we’re panicking.  This shouldn’t be a big deal since
+/// the deprecated options are going away ‘soon’.
+fn assert_no_deprecated_config(config: &crate::config::NearConfig) {
+    use near_store::config::MigrationSnapshot;
+
+    let example = match (
+        config.config.use_db_migration_snapshot,
+        config.config.db_migration_snapshot_path.as_ref(),
+    ) {
+        (None, None) => return,
+        (Some(false), _) => MigrationSnapshot::Enabled(false),
+        (_, None) => MigrationSnapshot::Enabled(true),
+        (_, Some(path)) => MigrationSnapshot::Path(path.join("migration-snapshot")),
+    };
+    panic!(
+        "‘use_db_migration_snapshot’ and ‘db_migration_snapshot_path’ options \
+         are deprecated.\nSet ‘store.migration_snapshot’ to instead, e.g.:\n{}",
+        example.format_example()
+    )
+}
+
+impl<'a> near_store::StoreMigrator for Migrator<'a> {
+    type Err = anyhow::Error;
+    type Func = Self;
+
+    fn get_function(&self, version: DbVersion) -> Result<&Self::Func, &'static str> {
+        assert_no_deprecated_config(self.config);
+        match version {
+            0..=26 => Err("1.26"),
+            DB_VERSION.. => unreachable!(),
+            _ => Ok(self),
+        }
+    }
+}
+
+impl<'a> near_store::StoreMigrationFunction for Migrator<'a> {
+    type Err = anyhow::Error;
+
+    fn migrate(&self, storage: &NodeStorage, version: DbVersion) -> Result<(), Self::Err> {
+        match version {
+            0..=26 => unreachable!(),
+            27 => {
+                // version 27 => 28: add DBCol::StateChangesForSplitStates
+                //
+                // Does not need to do anything since open db with option
+                // `create_missing_column_families`.  Nevertheless need to bump
+                // db version, because db_version 27 binary can't open
+                // db_version 28 db.  Combine it with migration from 28 to 29;
+                // don’t do anything here.
+                Ok(())
+            }
+            28 => near_store::migrations::migrate_28_to_29(storage).map_err(|err| err.into()),
+            29 => near_store::migrations::migrate_29_to_30(storage).map_err(|err| err.into()),
+            30 => migrate_30_to_31(storage, &self.config),
+            DB_VERSION.. => unreachable!(),
+        }
     }
 }
 

@@ -1,5 +1,4 @@
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
-use crate::migrations::migrate_30_to_31;
 pub use crate::runtime::NightshadeRuntime;
 pub use crate::shard_tracker::TrackedConfig;
 use actix::{Actor, Addr};
@@ -14,9 +13,7 @@ use near_network_primitives::time;
 use near_primitives::block::GenesisId;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
-use near_store::migrations::{migrate_28_to_29, migrate_29_to_30};
-use near_store::version::{set_store_version, DbVersion, DB_VERSION};
-use near_store::{DBCol, Mode, NodeStorage, StoreOpener, Temperature};
+use near_store::{DBCol, Mode, NodeStorage, StoreOpenerError, Temperature};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -44,35 +41,17 @@ pub fn get_default_home() -> PathBuf {
     PathBuf::default()
 }
 
-/// Creates a consistent DB checkpoint and returns its path.
-/// By default it creates checkpoints in the DB directory, but can be overridden by the config.
-fn create_db_checkpoint(
-    opener: &StoreOpener,
-    near_config: &NearConfig,
-) -> anyhow::Result<near_store::Snapshot> {
-    use near_store::config::MigrationSnapshot;
-
-    let example = match (
-        near_config.config.use_db_migration_snapshot,
-        near_config.config.db_migration_snapshot_path.as_ref(),
-    ) {
-        (None, None) => None,
-        (Some(false), _) => Some(MigrationSnapshot::Enabled(false)),
-        (_, None) => Some(MigrationSnapshot::Enabled(true)),
-        (_, Some(path)) => Some(MigrationSnapshot::Path(path.join("migration-snapshot"))),
-    };
-    if let Some(example) = example {
-        anyhow::bail!(
-            "‘use_db_migration_snapshot’ and ‘db_migration_snapshot_path’ \
-             options are deprecated.\n\
-             Set ‘store.migration_snapshot’ to instead, e.g.:\n{}",
-            example.format_example()
-        )
-    }
-
-    match opener.new_migration_snapshot() {
-        Ok(snapshot) => Ok(snapshot),
-        Err(near_store::SnapshotError::AlreadyExists(snap_path)) => {
+/// Opens node’s storage performing migrations and checks when necessary.
+fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<NodeStorage> {
+    let migrator = migrations::Migrator::new(near_config);
+    let opener = NodeStorage::opener_with_migrator(home_dir, &near_config.config.store, migrator);
+    let res = match opener.open() {
+        Ok(storage) => Ok(storage),
+        Err(StoreOpenerError::IO(err)) => {
+            Err(anyhow::anyhow!("{err}"))
+        }
+        Err(StoreOpenerError::DbDoesNotExist) => unreachable!(),
+        Err(StoreOpenerError::SnapshotAlreadyExists(snap_path)) => {
             Err(anyhow::anyhow!(
                 "Detected an existing database migration snapshot at ‘{}’.\n\
                  Probably a database migration got interrupted and your database is corrupted.\n\
@@ -80,126 +59,45 @@ fn create_db_checkpoint(
                 snap_path.display(),
                 opener.path().display(),
             ))
-        }
-        Err(near_store::SnapshotError::IOError(err)) => {
+        },
+        Err(StoreOpenerError::SnapshotError(err)) => {
+            use near_store::config::MigrationSnapshot;
             let path = std::path::PathBuf::from("/path/to/snapshot/dir");
             let on = MigrationSnapshot::Path(path).format_example();
             let off = MigrationSnapshot::Enabled(false).format_example();
-            anyhow::bail!(
+            Err(anyhow::anyhow!(
                 "Failed to create a database migration snapshot: {err}.\n\
                  To change the location of snapshot adjust \
-                 ‘store.migration_snapshot’ property in ‘config.json’:\n\
-                 {on}\n\
-                 Alternatively, you can disable database migration snapshots in `config.json`:\n\
-                 {off}"
-            )
-        }
-    }
-}
-
-/// Checks current version of the database and applies migrations if needed.
-///
-/// Returns whether the database exists in the first place.  If it doesn’t,
-/// returns false and does nothing.  If it does, performs any necessary
-/// migrations and returns true.
-///
-/// Other than regular database errors, returns an error if the database has
-/// unsupported version: either too far in the past or a future version.
-fn apply_store_migrations_if_exists(
-    store_opener: &StoreOpener,
-    near_config: &NearConfig,
-) -> anyhow::Result<()> {
-    let db_version = match store_opener.get_version_if_exists()? {
-        None | Some(DB_VERSION) => return Ok(()),
-        Some(db_version) => db_version,
+                 ‘store.migration_snapshot’ property in ‘config.json’:\n{on}\n\
+                 Alternatively, you can disable database migration snapshots \
+                 in `config.json`:\n{off}"
+            ))
+        },
+        Err(StoreOpenerError::DbVersionMismatchOnRead { .. }) => unreachable!(),
+        Err(StoreOpenerError::DbVersionMismatch { .. }) => unreachable!(),
+        Err(StoreOpenerError::DbVersionTooOld { got, latest_release, .. }) => {
+            Err(anyhow::anyhow!(
+                "Database version {got} is created by an old version \
+                 of neard and is no longer supported, please migrate using \
+                 {latest_release} release"
+            ))
+        },
+        Err(StoreOpenerError::DbVersionTooNew { got, .. }) => {
+            Err(anyhow::anyhow!(
+                "Database version {got} is created by a newer version of \
+                 neard, please update neard"
+            ))
+        },
+        Err(StoreOpenerError::MigrationError(err)) => {
+            Err(err)
+        },
     };
-
-    anyhow::ensure!(
-        db_version < DB_VERSION,
-        "DB version {db_version} is created by a newer version of neard, \
-         please update neard"
-    );
-
-    // For given db version, latest neard release which supported that version.
-    // If you’re removing support for a database version from neard put an entry
-    // here so that we can inform user which version they need.
-    const LATEST_DB_SUPPORTED: [(DbVersion, &'static str); 1] = [(26, "1.26")];
-    if let Some((_, release)) =
-        LATEST_DB_SUPPORTED.iter().filter(|(ver, _)| db_version <= *ver).next()
-    {
-        anyhow::bail!(
-            "DB version {db_version} is created by an ancient version of neard \
-             and is no longer supported by this version, please migrate using \
-             {release} release"
-        );
-    }
-
-    // Before starting a DB migration, create a snapshot of the database.  If
-    // the migration fails, the snapshot can be used to restore the database to
-    // its original state.
-    let snapshot = create_db_checkpoint(store_opener, near_config)?;
-
-    // Add migrations here based on `db_version`.
-    if db_version <= 26 {
-        // Unreachable since we should have bailed when checking
-        // LATEST_DB_SUPPORTED above.
-        unreachable!();
-    }
-    if db_version <= 27 {
-        // version 27 => 28: add DBCol::StateChangesForSplitStates
-        // Does not need to do anything since open db with option
-        // `create_missing_column_families`.  Nevertheless need to bump db
-        // version, because db_version 27 binary can't open db_version 28 db.
-        // Combine it with migration from 28 to 29; don’t do anything here.
-    }
-    if db_version <= 28 {
-        // version 28 => 29: delete ColNextBlockWithNewChunk, ColLastBlockWithNewChunk
-        info!(target: "near", "Migrate DB from version 28 to 29");
-        migrate_28_to_29(store_opener)?;
-    }
-    if db_version <= 29 {
-        // version 29 => 30: migrate all structures that use ValidatorStake to versionized version
-        info!(target: "near", "Migrate DB from version 29 to 30");
-        migrate_29_to_30(store_opener)?;
-    }
-    if db_version <= 30 {
-        // version 30 => 31: recompute block ordinal due to a bug fixed in #5761
-        info!(target: "near", "Migrate DB from version 30 to 31");
-        migrate_30_to_31(store_opener, &near_config)?;
-    }
-
-    if cfg!(feature = "nightly") || cfg!(feature = "nightly_protocol") {
-        let store = store_opener
-            .open()
-            .with_context(|| format!("Opening database at {}", store_opener.path().display()))?
-            .get_store(Temperature::Hot);
-        // set some dummy value to avoid conflict with other migrations from nightly features
-        set_store_version(&store, 10000)?;
-    } else {
-        debug_assert_eq!(Some(DB_VERSION), store_opener.get_version_if_exists()?);
-    }
-
-    // DB migration was successful, remove the snapshot to avoid it taking up
-    // precious disk space.
-    snapshot.remove();
-
-    Ok(())
-}
-
-fn init_and_migrate_store(
-    home_dir: &Path,
-    near_config: &NearConfig,
-) -> anyhow::Result<NodeStorage> {
-    let opener = NodeStorage::opener(home_dir, &near_config.config.store);
-    apply_store_migrations_if_exists(&opener, near_config)?;
-    let store = opener
-        .open()
-        .with_context(|| format!("Opening database at {}", opener.path().display()))?;
-    let hot = store.get_store(Temperature::Hot);
+    let storage = res.context(format!("unable to open database at {}", opener.path().display()))?;
 
     // Check if the storage is an archive and if it is make sure we are too.
     // If the store is not marked as archive but we are an archival node that is
     // fine and we just need to mark the store as archival.
+    let hot = storage.get_store(Temperature::Hot);
     let store_is_archive: bool =
         hot.get_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY)?.unwrap_or_default();
     let client_is_archive = near_config.client_config.archive;
@@ -213,7 +111,7 @@ fn init_and_migrate_store(
         update.commit()?;
     }
 
-    Ok(store)
+    Ok(storage)
 }
 
 pub struct NearNode {
@@ -234,7 +132,7 @@ pub fn start_with_config_and_synchronization(
     // `ClientActor` gets dropped.
     shutdown_signal: Option<oneshot::Sender<()>>,
 ) -> anyhow::Result<NearNode> {
-    let store = init_and_migrate_store(home_dir, &config)?;
+    let store = open_storage(home_dir, &config)?;
 
     let runtime = Arc::new(NightshadeRuntime::from_config(
         home_dir,

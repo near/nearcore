@@ -3390,7 +3390,6 @@ version = "0.0.0"
 name = "near-store"
 version = "0.0.0"
 dependencies = [
- "anyhow",
  "assert_matches",
  "bencher",
  "borsh",

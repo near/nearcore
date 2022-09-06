@@ -7,8 +7,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::AccountId;
 
-use crate::version::set_store_version;
-use crate::{DBCol, Store, StoreOpener, StoreUpdate};
+use crate::{DBCol, Store, StoreUpdate};
 
 pub struct BatchedStoreUpdate<'a> {
     batch_size_limit: usize,
@@ -71,18 +70,22 @@ where
     store_update.finish()
 }
 
-pub fn migrate_28_to_29(store_opener: &StoreOpener) -> anyhow::Result<()> {
-    let store = store_opener.open().unwrap().get_store(crate::Temperature::Hot);
-    let mut store_update = store.store_update();
-    store_update.delete_all(DBCol::_NextBlockWithNewChunk);
-    store_update.delete_all(DBCol::_LastBlockWithNewChunk);
-    store_update.commit()?;
-
-    set_store_version(&store, 29)?;
+/// Migrates database from version 28 to 29.
+///
+/// Deletes all data from _NextBlockWithNewChunk and _LastBlockWithNewChunk
+/// columns.
+pub fn migrate_28_to_29(storage: &crate::NodeStorage) -> std::io::Result<()> {
+    let mut update = storage.get_store(crate::Temperature::Hot).store_update();
+    update.delete_all(DBCol::_NextBlockWithNewChunk);
+    update.delete_all(DBCol::_LastBlockWithNewChunk);
+    update.commit()?;
     Ok(())
 }
 
-pub fn migrate_29_to_30(store_opener: &StoreOpener) -> anyhow::Result<()> {
+/// Migrates database from version 29 to 30.
+///
+/// Migrates all structures that use ValidatorStake to versionized version.
+pub fn migrate_29_to_30(storage: &crate::NodeStorage) -> std::io::Result<()> {
     use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::epoch_manager::epoch_info::EpochSummary;
     use near_primitives::epoch_manager::AGGREGATOR_KEY;
@@ -94,7 +97,7 @@ pub fn migrate_29_to_30(store_opener: &StoreOpener) -> anyhow::Result<()> {
     };
     use std::collections::BTreeMap;
 
-    let store = store_opener.open()?.get_store(crate::Temperature::Hot);
+    let store = storage.get_store(crate::Temperature::Hot);
 
     #[derive(BorshDeserialize)]
     pub struct OldEpochSummary {
@@ -169,7 +172,5 @@ pub fn migrate_29_to_30(store_opener: &StoreOpener) -> anyhow::Result<()> {
     }
 
     store_update.finish()?;
-
-    set_store_version(&store, 30)?;
     Ok(())
 }

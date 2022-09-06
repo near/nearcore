@@ -66,7 +66,7 @@ impl Snapshot {
             return Err(SnapshotError::AlreadyExists(snapshot_path));
         }
 
-        let db = super::RocksDB::open(db_path, config, crate::Mode::ReadWrite)?;
+        let db = super::RocksDB::open(db_path, config, crate::Mode::ReadWriteExisting)?;
         let cp = Checkpoint::new(&db.db).map_err(super::into_other)?;
         cp.create_checkpoint(&snapshot_path)?;
 
@@ -121,23 +121,29 @@ fn test_snapshot_creation() {
 
     let (_tmpdir, opener) = crate::NodeStorage::test_opener();
 
+    // Creating snapshot fails if database doesn’t exist.
+    let err = format!("{:?}", opener.db.new_migration_snapshot().unwrap_err());
+    assert!(err.contains("create_if_missing is false"), "err: {err:?}");
+
     // Create the database
     core::mem::drop(opener.open().unwrap());
 
     // Creating snapshot should work now.
-    let snapshot = opener.new_migration_snapshot().unwrap();
+    let snapshot = opener.db.new_migration_snapshot().unwrap();
 
     // Snapshot already exists so cannot create a new one.
-    assert_matches!(opener.new_migration_snapshot(), Err(SnapshotError::AlreadyExists(_)));
+    let err = opener.db.new_migration_snapshot().unwrap_err();
+    assert_matches!(err, SnapshotError::AlreadyExists(_));
 
     snapshot.remove();
 
     // This should work correctly again since the snapshot has been removed.
-    opener.new_migration_snapshot().unwrap();
+    core::mem::drop(opener.db.new_migration_snapshot().unwrap());
 
     // And this again should fail.  We don’t remove the snapshot in
     // Snapshot::drop.
-    assert_matches!(opener.new_migration_snapshot(), Err(SnapshotError::AlreadyExists(_)));
+    let err = opener.db.new_migration_snapshot().unwrap_err();
+    assert_matches!(err, SnapshotError::AlreadyExists(_));
 }
 
 /// Tests that reading data from a snapshot is possible.
@@ -158,7 +164,7 @@ fn test_snapshot_recovery() {
     }
 
     // Create snapshot
-    let snapshot = opener.new_migration_snapshot().unwrap();
+    let snapshot = opener.db.new_migration_snapshot().unwrap();
 
     // Delete the data from the database.
     {
@@ -174,7 +180,8 @@ fn test_snapshot_recovery() {
     {
         let mut config = opener.config().clone();
         config.path = Some(path);
-        let opener = crate::StoreOpener::new(tmpdir.path(), &config);
+        let opener: crate::StoreOpener<'_, crate::opener::NullStoreMigrator> =
+            crate::StoreOpener::new(tmpdir.path(), &config, None);
         let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
         assert_eq!(Some(&b"value"[..]), store.get(COL, KEY).unwrap().as_deref());
     }

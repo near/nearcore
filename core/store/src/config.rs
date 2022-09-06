@@ -76,7 +76,7 @@ pub enum MigrationSnapshot {
 }
 
 /// Mode in which to open the storage.
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Mode {
     /// Open an existing database in read-only mode.  Fail if it doesn’t exist.
     ReadOnly,
