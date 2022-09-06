@@ -2009,9 +2009,8 @@ fn preload_account_state(
         &[],
     );
 
-    // let min_num_subtries = 128;
-    // let root_node = trie.retrieve_root_node();
-    // let sub_trie_size = root_node.memory_usage / min_num_subtries;
+    // less than 10MB per thread should make it fairly quick.
+    // TODO: limit number of threads to something sensible.
     let sub_trie_size = 10_000_000;
 
     let mut state_iter = trie.iter()?;
