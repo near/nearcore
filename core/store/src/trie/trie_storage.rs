@@ -97,7 +97,7 @@ impl TrieCacheInner {
         is_view: bool,
     ) -> Self {
         assert!(cache_capacity > 0 && total_size_limit > 0);
-        let metrics_labels: [&str; 2] = [&format!("{}", shard_id), &format!("{}", is_view as u8)];
+        let metrics_labels: [&str; 2] = [&shard_id.to_string(), if is_view { "1" } else { "0" }];
         let metrics = TrieCacheMetrics {
             shard_cache_too_large: metrics::SHARD_CACHE_TOO_LARGE
                 .with_label_values(&metrics_labels),
@@ -382,7 +382,7 @@ impl TrieCachingStorage {
         is_view: bool,
     ) -> TrieCachingStorage {
         let metrics_labels: [&str; 2] =
-            [&format!("{}", shard_uid.shard_id), &format!("{}", is_view as u8)];
+            [&shard_uid.shard_id.to_string(), if is_view { "1" } else { "0" }];
         let metrics = TrieCacheInnerMetrics {
             chunk_cache_hits: metrics::CHUNK_CACHE_HITS.with_label_values(&metrics_labels),
             chunk_cache_misses: metrics::CHUNK_CACHE_MISSES.with_label_values(&metrics_labels),

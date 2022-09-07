@@ -14,7 +14,7 @@ const NUM_SHARDS: usize = 8;
 fn inc_counter_vec_with_label_values(bench: &mut Bencher) {
     bench.iter(|| {
         for shard_id in 0..NUM_SHARDS {
-            COUNTERS.with_label_values(&[&format!("{}", shard_id)]).inc();
+            COUNTERS.with_label_values(&[&shard_id.to_string()]).inc();
         }
     });
 }
@@ -75,7 +75,7 @@ fn inc_counter_vec_with_label_values_stack_no_format(bench: &mut Bencher) {
 fn inc_counter_vec_cached(bench: &mut Bencher) {
     const NUM_SHARDS: usize = 8;
     let counters: Vec<IntCounter> = (0..NUM_SHARDS)
-        .map(|shard_id| COUNTERS.with_label_values(&[&format!("{}", shard_id)]))
+        .map(|shard_id| COUNTERS.with_label_values(&[&shard_id.to_string()]))
         .collect();
     bench.iter(|| {
         for shard_id in 0..NUM_SHARDS {
@@ -86,7 +86,7 @@ fn inc_counter_vec_cached(bench: &mut Bencher) {
 
 fn inc_counter_vec_cached_str(bench: &mut Bencher) {
     const NUM_SHARDS: usize = 8;
-    let shard_ids: Vec<String> = (0..NUM_SHARDS).map(|shard_id| format!("{}", shard_id)).collect();
+    let shard_ids: Vec<String> = (0..NUM_SHARDS).map(|shard_id| shard_id.to_string()).collect();
     bench.iter(|| {
         for shard_id in 0..NUM_SHARDS {
             COUNTERS.with_label_values(&[&shard_ids[shard_id]]).inc();

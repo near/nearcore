@@ -216,7 +216,7 @@ impl ShardTries {
         store_update: &mut StoreUpdate,
     ) {
         metrics::APPLIED_TRIE_INSERTIONS
-            .with_label_values(&[&format!("{}", shard_uid.shard_id)])
+            .with_label_values(&[&shard_uid.shard_id.to_string()])
             .inc_by(trie_changes.insertions.len() as u64);
         self.apply_insertions_inner(&trie_changes.insertions, shard_uid, store_update)
     }
@@ -228,7 +228,7 @@ impl ShardTries {
         store_update: &mut StoreUpdate,
     ) {
         metrics::APPLIED_TRIE_DELETIONS
-            .with_label_values(&[&format!("{}", shard_uid.shard_id)])
+            .with_label_values(&[&shard_uid.shard_id.to_string()])
             .inc_by(trie_changes.deletions.len() as u64);
         self.apply_deletions_inner(&trie_changes.deletions, shard_uid, store_update)
     }
@@ -240,7 +240,7 @@ impl ShardTries {
         store_update: &mut StoreUpdate,
     ) {
         metrics::REVERTED_TRIE_INSERTIONS
-            .with_label_values(&[&format!("{}", shard_uid.shard_id)])
+            .with_label_values(&[&shard_uid.shard_id.to_string()])
             .inc_by(trie_changes.insertions.len() as u64);
         self.apply_deletions_inner(&trie_changes.insertions, shard_uid, store_update)
     }

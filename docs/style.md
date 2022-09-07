@@ -153,6 +153,23 @@ mind that compilers are pretty good at optimising and in practice may generate
 optimal code anyway.  Furthermore, optimising code for readability may be more
 important (especially outside of hot path) than small performance gains.
 
+### Prefer `to_string` to `format!("{}")`
+
+Prefer calling `to_string` method on an object rather than passing it through
+`format!("{}")` if all you’re doing is converting it to a `String`.
+
+```rust
+// GOOD
+lat hash = block_hash.to_string();
+let msg = format!("{}: failed to open", path.display());
+
+// BAD
+lat hash = format!("{block_hash}");
+let msg = path.display() + ": failed to open";
+```
+
+**Rationale:** `to_string` is shorter to type and also faster.
+
 ### Import Granularity
 
 Group import by module, but not deeper:

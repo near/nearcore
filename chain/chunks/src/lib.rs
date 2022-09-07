@@ -2180,7 +2180,7 @@ impl ShardsManager {
         shard_id: ShardId,
     ) -> Result<(), Error> {
         let _timer = metrics::DISTRIBUTE_ENCODED_CHUNK_TIME
-            .with_label_values(&[&format!("{}", shard_id)])
+            .with_label_values(&[&shard_id.to_string()])
             .start_timer();
         // TODO: if the number of validators exceeds the number of parts, this logic must be changed
         let chunk_header = encoded_chunk.cloned_header();

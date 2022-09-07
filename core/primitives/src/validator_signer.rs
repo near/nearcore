@@ -180,7 +180,7 @@ impl ValidatorSigner for InMemoryValidatorSigner {
     fn sign_telemetry(&self, info: &TelemetryInfo) -> serde_json::Value {
         let mut value = serde_json::to_value(info).expect("Telemetry must serialize to JSON");
         let content = serde_json::to_string(&value).expect("Telemetry must serialize to JSON");
-        value["signature"] = format!("{}", self.signer.sign(content.as_bytes())).into();
+        value["signature"] = self.signer.sign(content.as_bytes()).to_string().into();
         value
     }
 
