@@ -19,7 +19,6 @@ use near_network_primitives::types::{
     RoutedMessageV2,
 };
 use near_primitives::network::PeerId;
-use near_rate_limiter::{ActixMessageResponse, ActixMessageWrapper, ThrottleToken};
 
 use near_network_primitives::time;
 use std::sync::Arc;
@@ -75,22 +74,6 @@ struct FakePeerManagerActor {
 
 impl Actor for FakePeerManagerActor {
     type Context = Context<Self>;
-}
-
-impl Handler<ActixMessageWrapper<PeerToManagerMsg>> for FakePeerManagerActor {
-    type Result = ActixMessageResponse<PeerToManagerMsgResp>;
-
-    fn handle(
-        &mut self,
-        msg: ActixMessageWrapper<PeerToManagerMsg>,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
-        let (msg, throttle_token) = msg.take();
-        ActixMessageResponse::new(
-            self.handle(msg, ctx),
-            ThrottleToken::new_without_size(throttle_token.throttle_controller().cloned()),
-        )
-    }
 }
 
 impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
