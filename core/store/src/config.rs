@@ -213,7 +213,7 @@ impl serde::Serialize for ShardUIdShortSerialization {
     where
         S: serde::Serializer,
     {
-        let s = format!("v{}.s{}", self.0, self.1);
+        let s = format!("shard{}.v{}", self.0, self.1);
         serializer.serialize_str(&s)
     }
 }
