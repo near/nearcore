@@ -54,7 +54,6 @@ members = [
     "tools/themis",
     "utils/mainnet-res",
     "utils/near-cache",
-    "utils/near-rate-limiter",
 ]
 
 [workspace.metadata.workspaces]
