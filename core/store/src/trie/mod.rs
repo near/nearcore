@@ -26,6 +26,7 @@ pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
 use crate::StorageError;
 pub use near_primitives::types::TrieNodesCount;
+use std::fmt::Write;
 
 mod insert_delete;
 pub mod iterator;
@@ -201,6 +202,7 @@ impl TrieNode {
         }
         Ok(())
     }
+
     #[cfg(test)]
     fn deep_to_string(&self, memory: &NodesStorage) -> String {
         let mut buf = String::new();
@@ -596,16 +598,16 @@ impl Trie {
     }
 
     // Converts the list of Nibbles to a readable string.
-    fn nibbles_to_string(&self, prefix: &Vec<u8>) -> String {
+    fn nibbles_to_string(&self, prefix: &[u8]) -> String {
         let mut result = String::new();
-        for i in (0..prefix.len()).step_by(2) {
-            if i + 1 < prefix.len() {
-                let chr: char = ((prefix[i] * 16) + prefix[i + 1]).into();
-                result.push_str(&format!("{}", chr.escape_default()));
+        for chunk in prefix.chunks(2) {
+            if chunk.len() == 2 {
+                let chr: char = ((chunk[0] * 16) + chunk[1]).into();
+                write!(&mut result, "{}", chr.escape_default()).unwrap();
+            } else {
+                // Final, sole nibble
+                write!(&mut result, " + {:x}", chunk[0]).unwrap();
             }
-        }
-        if prefix.len() % 2 == 1 {
-            result.push_str(&format!(" + {}", prefix[prefix.len() - 1]));
         }
         result
     }
@@ -619,13 +621,6 @@ impl Trie {
         prefix: &mut Vec<u8>,
     ) -> std::fmt::Result {
         if max_depth == 0 {
-            writeln!(
-                f,
-                "{}max depth reached hash:{} prefix:{}",
-                spaces,
-                hash,
-                self.nibbles_to_string(prefix)
-            )?;
             return Ok(());
         }
 
@@ -656,8 +651,8 @@ impl Trie {
                         )?;
                         for (idx, child) in children.iter().enumerate() {
                             if let Some(child) = child {
-                                writeln!(f, "{}{:01x}->", spaces, idx)?;
-                                spaces.push(' ');
+                                writeln!(f, "{} {:01x}->", spaces, idx)?;
+                                spaces.push_str("  ");
                                 prefix.push(idx as u8);
                                 self.print_recursive_internal(
                                     f,
@@ -667,7 +662,7 @@ impl Trie {
                                     prefix,
                                 )?;
                                 prefix.pop();
-                                spaces.remove(spaces.len() - 1);
+                                spaces.truncate(spaces.len() - 2);
                             }
                         }
                     }
@@ -681,16 +676,16 @@ impl Trie {
                             child,
                             self.nibbles_to_string(prefix)
                         )?;
-                        spaces.push(' ');
+                        spaces.push_str("  ");
                         prefix.extend(slice.iter());
                         self.print_recursive_internal(f, &child, max_depth - 1, spaces, prefix)?;
                         prefix.truncate(prefix.len() - slice.len());
-                        spaces.remove(spaces.len() - 1);
+                        spaces.truncate(spaces.len() - 2);
                     }
                 };
             }
             Ok(None) => {
-                writeln!(f, "none")?;
+                writeln!(f, "{spaces}EmptyNode")?;
             }
             Err(StorageError::NotANode(err)) => {
                 writeln!(
@@ -723,7 +718,7 @@ impl Trie {
                 hash: hash.clone(),
                 len: bytes.len(),
                 data_prefix: format!("{:?}", &bytes[..std::cmp::min(10, bytes.len())]),
-                error: format!("Failed to decode node {hash}.: {err}"),
+                error: format!("Failed to decode node {hash}.: err: {:?}", err),
             })
         })?;
         Ok(Some((bytes, node)))
