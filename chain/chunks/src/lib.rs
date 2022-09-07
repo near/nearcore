@@ -1568,13 +1568,15 @@ impl ShardsManager {
     }
 
     /// Inserts the header if it is not already known, and process the forwarded chunk parts cached
-    /// for this chunk, if any.
+    /// for this chunk, if any. Returns true if the header was newly inserted or forwarded parts
+    /// were newly processed.
     pub fn insert_header_if_not_exists_and_process_cached_chunk_forwards(
         &mut self,
         header: &ShardChunkHeader,
-    ) {
+    ) -> bool {
+        let header_known_before = self.encoded_chunks.get(&header.chunk_hash()).is_some();
         if self.encoded_chunks.get_or_insert_from_header(header).complete {
-            return;
+            return false;
         }
         if let Some(parts) = self.chunk_forwards_cache.pop(&header.chunk_hash()) {
             // Note that we don't need any further validation for the forwarded part.
@@ -1590,7 +1592,9 @@ impl ShardsManager {
                 parts: parts.into_values().collect(),
                 receipts: vec![],
             });
+            return true;
         }
+        !header_known_before
     }
 
     /// Processes a partial encoded chunk message, which means

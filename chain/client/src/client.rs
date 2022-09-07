@@ -917,7 +917,10 @@ impl Client {
             .flat_map(|block| block.missing_chunks.iter())
             .chain(orphans_missing_chunks.iter().flat_map(|block| block.missing_chunks.iter()));
         for chunk in missing_chunks {
-            match self.process_missing_chunk_from_block(chunk, apply_chunks_done_callback.clone()) {
+            match self.process_chunk_header_from_block_for_shards_manager(
+                chunk,
+                apply_chunks_done_callback.clone(),
+            ) {
                 Ok(_) => {}
                 Err(err) => {
                     warn!(target: "client", "Failed to process missing chunk from block: {:?}", err)
@@ -1052,22 +1055,25 @@ impl Client {
         Ok(())
     }
 
-    pub fn process_missing_chunk_from_block(
+    /// Let the ShardsManager know about the chunk header, when encountering that chunk header
+    /// from the block and the chunk is possibly not yet known to the ShardsManager.
+    pub fn process_chunk_header_from_block_for_shards_manager(
         &mut self,
         header: &ShardChunkHeader,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), Error> {
-        self.shards_mgr.insert_header_if_not_exists_and_process_cached_chunk_forwards(header);
-        let process_result = self.shards_mgr.try_process_chunk_parts_and_receipts(
-            header,
-            self.chain.mut_store(),
-            &mut self.rs,
-        )?;
-        self.process_process_partial_encoded_chunk_result(
-            header,
-            process_result,
-            apply_chunks_done_callback,
-        );
+        if self.shards_mgr.insert_header_if_not_exists_and_process_cached_chunk_forwards(header) {
+            let process_result = self.shards_mgr.try_process_chunk_parts_and_receipts(
+                header,
+                self.chain.mut_store(),
+                &mut self.rs,
+            )?;
+            self.process_process_partial_encoded_chunk_result(
+                header,
+                process_result,
+                apply_chunks_done_callback,
+            );
+        }
         Ok(())
     }
 
