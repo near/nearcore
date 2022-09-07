@@ -101,9 +101,15 @@ protocol_feature_fix_contract_loading_cost = [
 nightly = [
     "near-primitives/nightly",
     "protocol_feature_fix_contract_loading_cost",
+    "protocol_feature_ed25519_verify",
 ]
 sandbox = ["near-vm-logic/sandbox"]
 io_trace = ["near-vm-logic/io_trace"]
+
+protocol_feature_ed25519_verify = [
+    "near-primitives/protocol_feature_ed25519_verify",
+    "near-vm-logic/protocol_feature_ed25519_verify"
+] 
 
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate
