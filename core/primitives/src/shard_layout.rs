@@ -1,4 +1,5 @@
 use std::cmp::Ordering::Greater;
+use std::{fmt, str};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use serde::{Deserialize, Serialize};
@@ -287,7 +288,7 @@ fn is_top_level_account(top_account: &AccountId, account: &AccountId) -> bool {
 }
 
 /// ShardUId is an unique representation for shards from different shard layout
-#[derive(Serialize, Deserialize, Hash, Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ShardUId {
     pub version: ShardVersion,
     pub shard_id: u32,
@@ -353,6 +354,65 @@ pub fn get_block_shard_uid_rev(
     let block_hash = CryptoHash::try_from(&key[..32])?;
     let shard_id = ShardUId::try_from(&key[32..])?;
     Ok((block_hash, shard_id))
+}
+
+impl fmt::Display for ShardUId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "s{}v{}", self.shard_id, self.version)
+    }
+}
+
+impl fmt::Debug for ShardUId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "{}", self)
+    }
+}
+
+impl str::FromStr for ShardUId {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (shard_str, version_str) = s
+            .split_once(".")
+            .ok_or_else(|| format!("shard version and number must be separated by \".\""))?;
+        if !version_str.starts_with("v") {
+            return Err(format!("shard version must start with \"v\""));
+        }
+        let version = version_str[1..]
+            .parse::<ShardVersion>()
+            .map_err(|e| format!("shard version after \"v\" must be a number, {e}"))?;
+
+        if !shard_str.starts_with("s") {
+            return Err(format!("shard id must start with \"s\""));
+        }
+        let shard_id = shard_str[1..].parse::<u32>().map_err(|e| e.to_string())?;
+
+        Ok(ShardUId { shard_id, version })
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ShardUId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let string_value = <String as serde::Deserialize>::deserialize(deserializer)?;
+        string_value.parse().map_err(|_| 
+            serde::de::Error::invalid_value(
+                serde::de::Unexpected::Other(&string_value),
+                &"a shard version and ID and in a short form string, such as \"s0.v1\" for shard 0 version 1",
+            )
+        )
+    }
+}
+
+impl serde::Serialize for ShardUId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
 }
 
 #[cfg(test)]

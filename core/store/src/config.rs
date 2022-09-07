@@ -1,5 +1,4 @@
-use near_primitives::shard_layout::{ShardUId, ShardVersion};
-use near_primitives::types::ShardId;
+use near_primitives::shard_layout::ShardUId;
 use std::{collections::HashMap, iter::FromIterator};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -43,9 +42,9 @@ pub struct StoreConfig {
     pub trie_cache_capacities: Vec<(ShardUId, u64)>,
 
     /// Trie cache configuration per shard for normal (non-view) caches.
-    pub trie_cache: HashMap<ShardUIdShortSerialization, TrieCacheConfig>,
+    pub trie_cache: HashMap<ShardUId, TrieCacheConfig>,
     /// Trie cache configuration per shard for view caches.
-    pub view_trie_cache: HashMap<ShardUIdShortSerialization, TrieCacheConfig>,
+    pub view_trie_cache: HashMap<ShardUId, TrieCacheConfig>,
 
     /// Path where to create RocksDB checkpoints during database migrations or
     /// `false` to disable that feature.
@@ -145,7 +144,7 @@ impl Default for StoreConfig {
             // patterns on shard 3 more stable. Can be removed after
             // implementing flat storage.
             trie_cache: HashMap::from_iter([(
-                ShardUIdShortSerialization(1, 3),
+                ShardUId { version: 1, shard_id: 3 },
                 TrieCacheConfig { max_entries: Some(45_000_000), max_bytes: None },
             )]),
             view_trie_cache: HashMap::default(),
@@ -197,67 +196,4 @@ pub struct TrieCacheConfig {
     pub max_entries: Option<u64>,
     /// Limit the sum of all value sizes that fit in the cache.
     pub max_bytes: Option<u64>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ShardUIdShortSerialization(ShardVersion, ShardId);
-
-impl From<ShardUIdShortSerialization> for ShardUId {
-    fn from(other: ShardUIdShortSerialization) -> Self {
-        Self { version: other.0, shard_id: other.1 as u32 }
-    }
-}
-
-impl serde::Serialize for ShardUIdShortSerialization {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let s = format!("shard{}.v{}", self.0, self.1);
-        serializer.serialize_str(&s)
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for ShardUIdShortSerialization {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_str(ShardUIdVisitor)
-    }
-}
-
-struct ShardUIdVisitor;
-impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
-    type Value = ShardUIdShortSerialization;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str(
-            "a shard version and ID and in a short form string, such as \"shard0.v1\" for shard 0 version 1",
-        )
-    }
-
-    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        let (shard, version) = v.split_once(".").ok_or_else(|| {
-            E::custom(format!("shard version and number must be separated by \".\""))
-        })?;
-        if !version.starts_with("v") {
-            return Err(E::custom(format!("shard version must start with \"v\"")));
-        }
-        let version_num = version[1..]
-            .parse::<ShardVersion>()
-            .map_err(|e| E::custom(format!("shard version after \"v\" must be a number, {e}")))?;
-
-        if !shard.starts_with("shard") {
-            return Err(E::custom(format!("shard id must start with \"shard\"")));
-        }
-        let shard_id = shard[5..]
-            .parse::<ShardId>()
-            .map_err(|e| E::custom(format!("shard id after \"shard\" must be a number, {e}")))?;
-
-        Ok(ShardUIdShortSerialization(version_num, shard_id))
-    }
 }
