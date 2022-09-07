@@ -1,4 +1,4 @@
-use crate::{Mode, StoreConfig};
+use crate::{version, Mode, StoreConfig};
 
 const STORE_PATH: &str = "data";
 
@@ -39,15 +39,6 @@ impl<'a> StoreOpener<'a> {
         self
     }
 
-    /// Returns whether database exists.
-    ///
-    /// It performs only basic file-system-level checks and may result in false
-    /// positives if some but not all database files exist.  In particular, this
-    /// is not a guarantee that the database can be opened without an error.
-    pub fn check_if_exists(&self) -> bool {
-        self.path.join("CURRENT").is_file()
-    }
-
     /// Returns path to the underlying RocksDB database.
     ///
     /// Does not check whether the database actually exists.
@@ -61,25 +52,68 @@ impl<'a> StoreOpener<'a> {
     }
 
     /// Returns version of the database; or `None` if it does not exist.
-    pub fn get_version_if_exists(&self) -> std::io::Result<Option<crate::version::DbVersion>> {
+    pub fn get_version_if_exists(&self) -> std::io::Result<Option<version::DbVersion>> {
         crate::RocksDB::get_version(&self.path, &self.config)
     }
 
     /// Opens the RocksDB database.
+    ///
+    /// When opening in read-only mode, verifies that the database version is
+    /// what the node expects and fails if it isn’t.  If database doesn’t exist,
+    /// creates a new one unless mode is [`Mode::ReadWriteExisting`].
     pub fn open(&self) -> std::io::Result<crate::NodeStorage> {
-        let exists = self.check_if_exists();
-        if !exists && matches!(self.mode, Mode::ReadOnly) {
+        self.open_impl(false)
+    }
+
+    /// Creates a new RocksDB database.
+    ///
+    /// Works like `open` except that it fails if the database already exists.
+    /// Note that this is a best-effort check and the creation is not atomic.
+    pub fn create(&self) -> std::io::Result<crate::NodeStorage> {
+        self.open_impl(true)
+    }
+
+    fn open_impl(&self, create: bool) -> std::io::Result<crate::NodeStorage> {
+        let db_version = crate::RocksDB::get_version(&self.path, self.config)?;
+        let exists = if let Some(db_version) = db_version {
+            if create {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Cannot create already existing database",
+                ));
+            }
+            if self.mode == Mode::ReadOnly && db_version != crate::version::DB_VERSION {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!(
+                        "Cannot open database version {} (expected {})",
+                        db_version,
+                        crate::version::DB_VERSION
+                    ),
+                ));
+            }
+            true
+        } else if self.mode == Mode::ReadOnly {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "Cannot open non-existent database for reading",
             ));
-        }
-
+        } else {
+            false
+        };
         tracing::info!(target: "near", path=%self.path.display(),
                        "{} RocksDB database",
                        if exists { "Opening" } else { "Creating a new" });
-        crate::RocksDB::open(&self.path, &self.config, self.mode)
-            .map(|db| crate::NodeStorage::new(std::sync::Arc::new(db)))
+        let storage =
+            std::sync::Arc::new(crate::RocksDB::open(&self.path, &self.config, self.mode)?);
+        if !exists && version::get_db_version(storage.as_ref())?.is_none() {
+            // Initialise newly created database by setting it’s version.
+            let store = crate::Store { storage };
+            version::set_store_version(&store, version::DB_VERSION)?;
+            Ok(crate::NodeStorage { storage: store.storage })
+        } else {
+            Ok(crate::NodeStorage { storage })
+        }
     }
 
     /// Creates a new snapshot which can be used to recover the database state.

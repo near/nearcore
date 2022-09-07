@@ -11,7 +11,6 @@ use near_network_primitives::time;
 use near_network_primitives::types::Edge;
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
-use near_rate_limiter::{ActixMessageResponse, ActixMessageWrapper, ThrottleToken};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -317,26 +316,5 @@ impl actix::Handler<Message> for Actor {
                 Response::Empty
             }
         }
-    }
-}
-
-impl actix::Handler<ActixMessageWrapper<Message>> for Actor {
-    type Result = ActixMessageResponse<Response>;
-
-    fn handle(
-        &mut self,
-        msg: ActixMessageWrapper<Message>,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
-        // Unpack throttle controller
-        let (msg, throttle_token) = msg.take();
-
-        let result = self.handle(msg, ctx);
-
-        // TODO(#5155) Add support for DeepSizeOf to result
-        ActixMessageResponse::new(
-            result,
-            ThrottleToken::new(throttle_token.throttle_controller().cloned(), 0),
-        )
     }
 }

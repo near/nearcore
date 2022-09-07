@@ -8,7 +8,6 @@ use crate::peer;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
-use crate::testonly::Rng;
 use crate::types::{ChainInfo, GetNetworkInfo, PeerManagerMessageRequest, SetChainInfo};
 use crate::PeerManagerActor;
 use near_network_primitives::time;
@@ -55,15 +54,27 @@ impl From<&Arc<SignedAccountData>> for NormalAccountData {
 }
 
 pub(crate) struct RawConnection {
+    events: broadcast::Receiver<Event>,
     stream: tokio::net::TcpStream,
     cfg: peer::testonly::PeerConfig,
 }
 
 impl RawConnection {
-    pub async fn handshake(self, clock: &time::Clock) -> peer::testonly::PeerHandle {
+    pub async fn handshake(mut self, clock: &time::Clock) -> peer::testonly::PeerHandle {
+        let node_id = self.cfg.network.node_id();
         let mut peer =
             peer::testonly::PeerHandle::start_endpoint(clock.clone(), self.cfg, self.stream).await;
+
+        // Wait for the new peer to complete the handshake.
         peer.complete_handshake().await;
+
+        // Wait for the peer manager to complete the handshake.
+        self.events
+            .recv_until(|ev| match ev {
+                Event::PeerManager(PME::PeerRegistered(info)) if node_id == info.id => Some(()),
+                _ => None,
+            })
+            .await;
         peer
     }
 
@@ -83,7 +94,8 @@ impl ActorHandler {
         }
     }
 
-    pub async fn connect_to(&mut self, peer_info: &PeerInfo) {
+    pub async fn connect_to(&self, peer_info: &PeerInfo) {
+        let mut events = self.events.from_now();
         self.actix
             .addr
             .send(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect {
@@ -91,7 +103,7 @@ impl ActorHandler {
             }))
             .await
             .unwrap();
-        self.events
+        events
             .recv_until(|ev| match &ev {
                 Event::PeerManager(PME::PeerRegistered(info)) if peer_info == info => Some(()),
                 _ => None,
@@ -99,18 +111,93 @@ impl ActorHandler {
             .await;
     }
 
-    pub async fn start_connection(&self, rng: &mut Rng, chain: Arc<data::Chain>) -> RawConnection {
-        RawConnection {
-            stream: tokio::net::TcpStream::connect(self.cfg.node_addr.unwrap()).await.unwrap(),
+    pub async fn start_inbound(
+        &self,
+        chain: Arc<data::Chain>,
+        network_cfg: config::NetworkConfig,
+    ) -> RawConnection {
+        // To avoid race condition:
+        // 1. reserve a TCP port
+        // 2. snapshot event stream
+        // 3. establish connection.
+        let socket = tokio::net::TcpSocket::new_v4().unwrap();
+        socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        let local_addr = socket.local_addr().unwrap();
+        let events = self.events.from_now();
+        let conn = RawConnection {
+            events,
+            stream: socket.connect(self.cfg.node_addr.unwrap()).await.unwrap(),
             cfg: peer::testonly::PeerConfig {
-                network: chain.make_config(rng),
+                network: network_cfg,
                 chain,
                 peers: vec![],
                 start_handshake_with: Some(PeerId::new(self.cfg.node_key.public_key())),
                 force_encoding: Some(Encoding::Proto),
                 nonce: None,
             },
-        }
+        };
+        // Wait until the TCP connection is accepted or rejected.
+        // The Handshake is not performed yet.
+        conn.events
+            .clone()
+            .recv_until(|ev| match ev {
+                Event::PeerManager(PME::PeerActorStarted(addr))
+                | Event::PeerManager(PME::ConnectionClosed(addr))
+                    if addr == local_addr =>
+                {
+                    Some(())
+                }
+                _ => None,
+            })
+            .await;
+        tracing::debug!("PHASE handshake started");
+        conn
+    }
+
+    pub async fn start_outbound(
+        &self,
+        chain: Arc<data::Chain>,
+        network_cfg: config::NetworkConfig,
+    ) -> RawConnection {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let events = self.events.from_now();
+        let peer_info = PeerInfo {
+            id: network_cfg.node_id(),
+            addr: Some(listener.local_addr().unwrap()),
+            account_id: None,
+        };
+        self.actix.addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(
+            OutboundTcpConnect { peer_info: peer_info.clone() },
+        ));
+        let (stream, _) = listener.accept().await.unwrap();
+        let conn = RawConnection {
+            events,
+            stream,
+            cfg: peer::testonly::PeerConfig {
+                network: network_cfg,
+                chain,
+                peers: vec![],
+                start_handshake_with: None,
+                force_encoding: Some(Encoding::Proto),
+                nonce: None,
+            },
+        };
+        // Wait until the handshake started or connection is closed.
+        // The Handshake is not performed yet.
+        let local_addr = listener.local_addr().unwrap();
+        conn.events
+            .clone()
+            .recv_until(|ev| match ev {
+                Event::PeerManager(PME::PeerActorStarted(addr))
+                | Event::PeerManager(PME::ConnectionClosed(addr))
+                    if addr == local_addr =>
+                {
+                    Some(())
+                }
+                _ => None,
+            })
+            .await;
+        conn
     }
 
     pub async fn set_chain_info(&mut self, chain_info: ChainInfo) {

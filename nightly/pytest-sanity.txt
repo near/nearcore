@@ -89,9 +89,8 @@ pytest sanity/repro_2916.py
 pytest sanity/repro_2916.py --features nightly
 pytest --timeout=240 sanity/switch_node_key.py
 pytest --timeout=240 sanity/switch_node_key.py --features nightly
-# TODO: re-enable after #2949 is fixed
-# pytest --timeout=240 sanity/validator_switch_key.py
-# pytest --timeout=240 sanity/validator_switch_key.py --features nightly
+pytest --timeout=240 sanity/validator_switch_key.py
+pytest --timeout=240 sanity/validator_switch_key.py --features nightly
 pytest sanity/proxy_simple.py
 pytest sanity/proxy_simple.py --features nightly
 pytest sanity/proxy_restart.py
@@ -121,10 +120,10 @@ pytest sanity/state_sync_fail.py
 
 pytest sanity/restart.py
 pytest sanity/restart.py --features nightly
+pytest sanity/rpc_finality.py
+pytest sanity/rpc_finality.py --features nightly
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
 # working on a fix / deciding whether to remove them.
-#pytest sanity/rpc_finality.py
-#pytest sanity/rpc_finality.py --features nightly
 #pytest sanity/state_migration.py
 #pytest sanity/state_migration.py --features nightly
 
