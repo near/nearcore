@@ -19,6 +19,14 @@ fn inc_counter_vec_with_label_values(bench: &mut Bencher) {
     });
 }
 
+fn inc_counter_vec_with_label_values_to_string(bench: &mut Bencher) {
+    bench.iter(|| {
+        for shard_id in 0..NUM_SHARDS {
+            COUNTERS.with_label_values(&[&shard_id.to_string()]).inc();
+        }
+    });
+}
+
 fn inc_counter_vec_with_label_values_smartstring(bench: &mut Bencher) {
     use std::fmt::Write;
     bench.iter(|| {
@@ -89,6 +97,7 @@ fn inc_counter_vec_cached_str(bench: &mut Bencher) {
 benchmark_group!(
     benches,
     inc_counter_vec_with_label_values,
+    inc_counter_vec_with_label_values_to_string,
     inc_counter_vec_with_label_values_smartstring,
     inc_counter_vec_with_label_values_stack,
     inc_counter_vec_with_label_values_stack_no_format,
