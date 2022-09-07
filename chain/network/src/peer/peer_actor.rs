@@ -2,8 +2,6 @@ use crate::accounts_data;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
-use crate::peer::codec::Codec;
-use crate::peer::codec::NETWORK_MESSAGE_MAX_SIZE_BYTES;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
@@ -24,6 +22,7 @@ use actix::{
     Running, WrapFuture,
 };
 use anyhow::Context as _;
+use bytesize::MIB;
 use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::time;
@@ -50,11 +49,14 @@ use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::io::AsyncReadExt as _;
 use tokio::io::AsyncWriteExt;
-use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
+
+/// Maximum size of network message in encoded format.
+/// We encode length as `u32`, and therefore maximum size can't be larger than `u32::MAX`.
+pub(crate) const NETWORK_MESSAGE_MAX_SIZE_BYTES: usize = 512 * MIB as usize;
 
 /// Maximum number of messages per minute from single peer.
 // TODO(#5453): current limit is way to high due to us sending lots of messages during sync.
@@ -290,8 +292,6 @@ impl PeerActor {
             addr: network_state.config.node_addr.clone(),
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
-
-        let metric_label = &peer_addr.to_string();
 
         let (read, write) = tokio::io::split(stream);
 

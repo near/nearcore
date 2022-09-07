@@ -376,21 +376,11 @@ pub(crate) fn record_routed_msg_latency(clock: &time::Clock, msg: &RoutedMessage
 pub(crate) enum MessageDropped {
     NoRouteFound,
     UnknownAccount,
-    InputTooLong,
-    MaxCapacityExceeded,
 }
 
 impl MessageDropped {
     pub fn inc(self, msg: &RoutedMessageBody) {
-        self.inc_msg_type(msg.into())
-    }
-
-    pub fn inc_unknown_msg(self) {
-        self.inc_msg_type("unknown")
-    }
-
-    fn inc_msg_type(self, msg_type: &str) {
         let reason = self.as_ref();
-        DROPPED_MESSAGE_COUNT.with_label_values(&[msg_type, reason]).inc();
+        DROPPED_MESSAGE_COUNT.with_label_values(&[msg.into(), reason]).inc();
     }
 }
