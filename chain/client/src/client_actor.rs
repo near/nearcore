@@ -2011,8 +2011,8 @@ fn preload_account_state(
 
     // less than 10MB per thread should make it fairly quick.
     // TODO: limit number of threads to something sensible.
-    // let sub_trie_size = 10_000_000;
-    let sub_trie_size = 100_000;
+    let sub_trie_size = 10_000_000;
+    // let sub_trie_size = 100_000;
 
     let mut state_iter = trie.iter()?;
     state_iter.seek(prefix)?;

@@ -497,6 +497,7 @@ impl TrieStorage for TrieCachingStorage {
                 val.clone()
             }
             None => {
+                drop(guard);
                 self.metrics.shard_cache_misses.inc();
                 near_o11y::io_trace!(count: "shard_cache_miss");
                 // If value is not present in cache, get it from the storage.
@@ -515,7 +516,7 @@ impl TrieStorage for TrieCachingStorage {
                 // is always a value hash, so for each key there could be only one value, and it is impossible to have
                 // **different** values for the given key in shard and chunk caches.
                 if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
-                    guard.put(*hash, val.clone());
+                    self.shard_cache.0.lock().expect(POISONED_LOCK_ERR).put(*hash, val.clone());
                 } else {
                     self.metrics.shard_cache_too_large.inc();
                     near_o11y::io_trace!(count: "shard_cache_too_large");
