@@ -104,7 +104,8 @@ impl<'a> StoreOpener<'a> {
         tracing::info!(target: "near", path=%self.path.display(),
                        "{} RocksDB database",
                        if exists { "Opening" } else { "Creating a new" });
-        let storage = std::sync::Arc::new(crate::RocksDB::open(&self.path, &self.config, self.mode)?);
+        let storage =
+            std::sync::Arc::new(crate::RocksDB::open(&self.path, &self.config, self.mode)?);
         if !exists && version::get_db_version(storage.as_ref())?.is_none() {
             // Initialise newly created database by setting it’s version.
             let store = crate::Store { storage };
