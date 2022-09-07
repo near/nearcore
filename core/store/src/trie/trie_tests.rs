@@ -202,8 +202,8 @@ mod caching_storage_tests {
     use super::*;
     use crate::test_utils::{create_test_store, create_tries};
     use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
-    use crate::trie::TrieRefcountChange;
-    use crate::{Store, TrieChanges, TrieConfig};
+    use crate::trie::{TrieConfig, TrieRefcountChange};
+    use crate::{Store, TrieChanges};
     use assert_matches::assert_matches;
     use near_primitives::hash::hash;
     use near_primitives::types::TrieCacheMode;
