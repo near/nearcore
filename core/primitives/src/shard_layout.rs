@@ -358,7 +358,7 @@ pub fn get_block_shard_uid_rev(
 
 impl fmt::Display for ShardUId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "s{}v{}", self.shard_id, self.version)
+        writeln!(f, "s{}.v{}", self.shard_id, self.version)
     }
 }
 
