@@ -108,10 +108,9 @@ fn create_db_checkpoint(
 fn apply_store_migrations_if_exists(
     store_opener: &StoreOpener,
     near_config: &NearConfig,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<()> {
     let db_version = match store_opener.get_version_if_exists()? {
-        None => return Ok(false),
-        Some(DB_VERSION) => return Ok(true),
+        None | Some(DB_VERSION) => return Ok(()),
         Some(db_version) => db_version,
     };
 
@@ -184,7 +183,7 @@ fn apply_store_migrations_if_exists(
     // precious disk space.
     snapshot.remove();
 
-    Ok(true)
+    Ok(())
 }
 
 fn init_and_migrate_store(
@@ -192,15 +191,11 @@ fn init_and_migrate_store(
     near_config: &NearConfig,
 ) -> anyhow::Result<NodeStorage> {
     let opener = NodeStorage::opener(home_dir, &near_config.config.store);
-    let exists = apply_store_migrations_if_exists(&opener, near_config)?;
+    apply_store_migrations_if_exists(&opener, near_config)?;
     let store = opener
         .open()
         .with_context(|| format!("Opening database at {}", opener.path().display()))?;
     let hot = store.get_store(Temperature::Hot);
-    if !exists {
-        set_store_version(&hot, DB_VERSION)
-            .with_context(|| format!("Initialising database at {}", opener.path().display()))?;
-    }
 
     // Check if the storage is an archive and if it is make sure we are too.
     // If the store is not marked as archive but we are an archival node that is
@@ -359,17 +354,6 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
 
     let src_opener = NodeStorage::opener(home_dir, &config.store).mode(Mode::ReadOnly);
     let src_path = src_opener.path();
-    if let Some(db_version) = src_opener.get_version_if_exists()? {
-        anyhow::ensure!(
-            db_version == DB_VERSION,
-            "{}: expected DB version {} but got {}",
-            src_path.display(),
-            DB_VERSION,
-            db_version
-        );
-    } else {
-        anyhow::bail!("{}: source storage doesn’t exist", src_path.display());
-    }
 
     let mut dst_config = config.store.clone();
     dst_config.path = Some(opts.dest_dir);
@@ -378,11 +362,6 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     let cwd = std::env::current_dir()?;
     let dst_opener = NodeStorage::opener(&cwd, &dst_config);
     let dst_path = dst_opener.path();
-    anyhow::ensure!(
-        !dst_opener.check_if_exists(),
-        "{}: directory already exists",
-        dst_path.display()
-    );
 
     info!(target: "recompress",
           src = %src_path.display(), dest = %dst_path.display(),
@@ -408,8 +387,8 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     };
 
     let dst_store = dst_opener
-        .open()
-        .with_context(|| format!("Opening database at {}", dst_opener.path().display()))?
+        .create()
+        .with_context(|| format!("Creating database at {}", dst_opener.path().display()))?
         .get_store(Temperature::Hot);
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
