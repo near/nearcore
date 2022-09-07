@@ -1,10 +1,10 @@
+use super::*;
 use near_crypto::{KeyType, SecretKey};
+use near_network_primitives::types::ReasonForBan;
 use near_network_primitives::types::{Blacklist, BlacklistEntry};
 use near_store::{NodeStorage, StoreOpener};
 use std::collections::HashSet;
 use std::net::{Ipv4Addr, SocketAddrV4};
-
-use super::*;
 
 fn get_peer_id(seed: String) -> PeerId {
     PeerId::new(SecretKey::from_seed(KeyType::ED25519, seed.as_str()).public_key())

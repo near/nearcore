@@ -21,6 +21,9 @@ use std::sync::{Arc, Weak};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Default)]
 pub(crate) struct Stats {
     /// Number of messages received since the last reset of the counter.

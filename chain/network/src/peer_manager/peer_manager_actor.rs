@@ -181,8 +181,10 @@ pub enum Event {
     // actually complete. Currently this event is reported only for some message types,
     // feel free to add support for more.
     MessageProcessed(PeerMessage),
-    // Reported when the actix actor has been stopped.
-    PeerActorStopped,
+    // Reported when a handshake has been started.
+    PeerActorStarted(SocketAddr),
+    // Reported when the TCP connection has been closed.
+    ConnectionClosed(SocketAddr),
 }
 
 impl Actor for PeerManagerActor {

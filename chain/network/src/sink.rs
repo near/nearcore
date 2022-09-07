@@ -3,7 +3,7 @@
 /// It is a test-only feature for aggregating internal events of a component under test
 /// which are otherwise not observable via public API.
 /// Ideally tests should rely solely on public API, however it is not the case as of today.
-/// TODO(gprusak): once all network integration tests are migrated to near_network, Sink should
+/// TODO(gprusak): once all network integration tests are migrated to crate, Sink should
 /// be hidden behind #[cfg(test)].
 use std::sync::Arc;
 
