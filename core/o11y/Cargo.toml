@@ -25,5 +25,12 @@ tracing-opentelemetry = { version = "0.17" }
 tracing-serde = "0.1"
 tracing-subscriber = { version = "0.3.9", features = ["fmt", "env-filter", "registry", "std"] }
 
+[dev-dependencies]
+bencher = "0.1.5"
+
 [features]
 io_trace = []
+
+[[bench]]
+name = "metrics"
+harness = false
