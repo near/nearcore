@@ -397,7 +397,7 @@ impl<'de> serde::Deserialize<'de> for ShardUId {
         D: serde::Deserializer<'de>,
     {
         let string_value = <String as serde::Deserialize>::deserialize(deserializer)?;
-        string_value.parse().map_err(|_| 
+        string_value.parse().map_err(|_|
             serde::de::Error::invalid_value(
                 serde::de::Unexpected::Other(&string_value),
                 &"a shard version and ID and in a short form string, such as \"s0.v1\" for shard 0 version 1",
