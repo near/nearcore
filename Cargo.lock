@@ -3174,6 +3174,7 @@ dependencies = [
  "opentelemetry",
  "parking_lot 0.12.1",
  "pretty_assertions",
+ "prometheus",
  "protobuf 3.0.2",
  "protobuf-codegen",
  "rand 0.7.3",

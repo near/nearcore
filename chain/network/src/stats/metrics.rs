@@ -66,34 +66,40 @@ impl Labels for Connection {
     }
 }
 
-pub(crate) struct MetricGuard<T: MetricVecBuilder + 'static> {
-    metric: T::M,
-    metric_vec: &'static MetricVec<T>,
-    labels: Vec<String>,
+pub(crate) struct MetricGuard<M: prometheus::core::Metric> {
+    metric: M,
+    drop: Option<Box<dyn FnOnce()>>,
 }
 
-impl<T: MetricVecBuilder> MetricGuard<T> {
-    pub fn new(metric_vec: &'static MetricVec<T>, labels: Vec<String>) -> Self {
+impl<M: prometheus::core::Metric> MetricGuard<M> {
+    pub fn new<T:MetricVecBuilder<M=M>>(metric_vec: &'static MetricVec<T>, labels: Vec<String>) -> Self {
         let labels_str: Vec<_> = labels.iter().map(String::as_str).collect();
-        Self { metric: metric_vec.with_label_values(&labels_str[..]), metric_vec, labels }
+        Self {
+            metric: metric_vec.with_label_values(&labels_str[..]),
+            drop: Some(Box::new(move ||{
+                // This can return an error in tests, when multiple PeerManagerActors
+                // connect to the same endpoint.
+                let labels: Vec<_> = labels.iter().map(String::as_str).collect();
+                let _ = metric_vec.remove_label_values(&labels[..]);
+            })),
+        }
     }
 }
 
-impl<T: MetricVecBuilder> Drop for MetricGuard<T> {
+impl<M: prometheus::core::Metric> Drop for MetricGuard<M> {
     fn drop(&mut self) {
-        let labels: Vec<_> = self.labels.iter().map(String::as_str).collect();
-        // This can return an error in tests, when multiple PeerManagerActors
-        // connect to the same endpoint.
-        let _ = self.metric_vec.remove_label_values(&labels[..]);
+        self.drop.take().map(|f|f());
     }
 }
 
-impl<T: MetricVecBuilder> std::ops::Deref for MetricGuard<T> {
-    type Target = T::M;
+impl<M: prometheus::core::Metric> std::ops::Deref for MetricGuard<M> {
+    type Target = M;
     fn deref(&self) -> &Self::Target {
         &self.metric
     }
 }
+
+pub(crate) type IntGaugeGuard = MetricGuard<prometheus::IntGauge>;
 
 pub static PEER_CONNECTIONS: Lazy<Gauge<Connection>> =
     Lazy::new(|| Gauge::new("near_peer_connections", "Number of connected peers").unwrap());
@@ -376,11 +382,21 @@ pub(crate) fn record_routed_msg_latency(clock: &time::Clock, msg: &RoutedMessage
 pub(crate) enum MessageDropped {
     NoRouteFound,
     UnknownAccount,
+    InputTooLong,
+    MaxCapacityExceeded,
 }
 
 impl MessageDropped {
     pub fn inc(self, msg: &RoutedMessageBody) {
+        self.inc_msg_type(msg.into())
+    }
+
+    pub fn inc_unknown_msg(self) {
+        self.inc_msg_type("unknown")
+    }
+
+    fn inc_msg_type(self, msg_type: &str) {
         let reason = self.as_ref();
-        DROPPED_MESSAGE_COUNT.with_label_values(&[msg.into(), reason]).inc();
+        DROPPED_MESSAGE_COUNT.with_label_values(&[msg_type, reason]).inc();
     }
 }

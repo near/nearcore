@@ -1,6 +1,7 @@
 use crate::accounts_data;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
+use crate::peer::stream;
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
@@ -16,13 +17,11 @@ use crate::stats::metrics;
 use crate::types::{
     Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses, PeerMessage,
 };
-use actix::fut::future::wrap_future;
 use actix::{
     Actor, ActorContext, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler,
     Running, WrapFuture,
 };
 use anyhow::Context as _;
-use bytesize::MIB;
 use lru::LruCache;
 use near_crypto::Signature;
 use near_network_primitives::time;
@@ -45,18 +44,10 @@ use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::io::AsyncReadExt as _;
-use tokio::io::AsyncWriteExt;
 use tracing::{debug, error, info, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-
-type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
-
-/// Maximum size of network message in encoded format.
-/// We encode length as `u32`, and therefore maximum size can't be larger than `u32::MAX`.
-pub(crate) const NETWORK_MESSAGE_MAX_SIZE_BYTES: usize = 512 * MIB as usize;
 
 /// Maximum number of messages per minute from single peer.
 // TODO(#5453): current limit is way to high due to us sending lots of messages during sync.
@@ -91,64 +82,6 @@ impl Drop for ConnectionGuard {
     }
 }
 
-struct FramedWriter {
-    send: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
-    messages: Arc<AtomicI64>,
-    total_size: Arc<AtomicI64>,
-}
-
-#[derive(actix::Message)]
-#[rtype(result = "()")]
-struct SendMessageError(io::Error);
-
-impl FramedWriter {
-    fn spawn(write: WriteHalf, ctx: &mut <PeerActor as actix::Actor>::Context) -> Self {
-        let (send, mut recv) = tokio::sync::mpsc::unbounded_channel();
-        let messages = Arc::new(AtomicI64::new(0));
-        let total_size = Arc::new(AtomicI64::new(0));
-        let this = Self { send, messages: messages.clone(), total_size: total_size.clone() };
-        let addr = ctx.address();
-        ctx.spawn(wrap_future(async move {
-            const WRITE_BUFFER_CAPACITY: usize = 8 * 1024;
-            let mut writer = tokio::io::BufWriter::with_capacity(WRITE_BUFFER_CAPACITY, write);
-            if let Err(err) = async {
-                loop {
-                    tokio::select! {
-                        biased;
-                        // Receive the next message.
-                        // "biased" should ensure that write.flush() won't be polled at all
-                        // if there is a ready message in the channel.
-                        msg = recv.recv() => { match msg {
-                            Some(msg) => {
-                                // Write the frame to the buffer.
-                                writer.write_u32_le(msg.len() as u32).await?;
-                                writer.write_all(&msg[..]).await?;
-                                messages.fetch_sub(1,Ordering::Release);
-                                total_size.fetch_sub(msg.len() as i64,Ordering::Release);
-                            }
-                            // There will be no new messages: flush and return.
-                            None => return writer.flush().await,
-                        } }
-                        // Flush the buffer iff it is non-empty.
-                        res = writer.flush(), if writer.buffer().len()>0 => { res?; }
-                    }
-                }
-            }
-            .await
-            {
-                addr.do_send(SendMessageError(err));
-            }
-        }));
-        this
-    }
-
-    fn write(&self, msg: Vec<u8>) -> Result<(), ()> {
-        self.messages.fetch_add(1, Ordering::Acquire);
-        self.total_size.fetch_add(msg.len() as i64, Ordering::Acquire);
-        self.send.send(msg).map_err(|_| ())
-    }
-}
-
 pub(crate) struct PeerActor {
     clock: time::Clock,
 
@@ -168,7 +101,7 @@ pub(crate) struct PeerActor {
     /// Protocol version to communicate with this peer.
     protocol_version: ProtocolVersion,
     /// Framed wrapper to send messages through the TCP connection.
-    framed: FramedWriter,
+    framed: stream::FramedStream,
 
     /// Tracker for requests and responses.
     tracker: Arc<Mutex<Tracker>>,
@@ -201,60 +134,6 @@ pub(crate) enum StreamConfig {
     Outbound { peer_id: PeerId },
 }
 
-#[derive(thiserror::Error, Debug)]
-enum RecvError {
-    #[error("IO error")]
-    IO(io::Error),
-    #[error("message too large: got {got_bytes}B, want <={want_max_bytes}B")]
-    MessageTooLarge { got_bytes: usize, want_max_bytes: usize },
-}
-
-/// Event loop receiving and processing messages.
-/// Loop waits for the message to be processed before reading the next message.
-/// Note that if the message handler spawns an asynchronous subhandler and returns,
-/// then the loop will start reading the next message before the subhandler returns.
-/// Loop uses a fixed small buffer allocated by BufReader.
-/// For each message it allocates a Vec with exact size of the message.
-// TODO(gprusak): once borsh support is dropped, we can parse a proto
-// directly from the stream.
-async fn run_recv_loop(
-    read: tokio::io::ReadHalf<tokio::net::TcpStream>,
-    peer_addr: SocketAddr,
-    addr: actix::Recipient<RecvMessage>,
-    stats: Arc<connection::Stats>,
-) -> Result<(), RecvError> {
-    const READ_BUFFER_CAPACITY: usize = 8 * 1024;
-    let mut read = tokio::io::BufReader::with_capacity(READ_BUFFER_CAPACITY, read);
-
-    let msg_size_metric =
-        metrics::MetricGuard::new(&metrics::PEER_MSG_SIZE_BYTES, vec![peer_addr.to_string()]);
-    let buf_size_metric =
-        metrics::PEER_DATA_READ_BUFFER_SIZE.with_label_values(&[&peer_addr.to_string()]);
-    loop {
-        let n = read.read_u32_le().await.map_err(RecvError::IO)? as usize;
-        if n > NETWORK_MESSAGE_MAX_SIZE_BYTES {
-            return Err(RecvError::MessageTooLarge {
-                got_bytes: n,
-                want_max_bytes: NETWORK_MESSAGE_MAX_SIZE_BYTES,
-            });
-        }
-        msg_size_metric.observe(n as f64);
-        buf_size_metric.set(n as i64);
-        let mut buf = vec![0; n];
-        let t = metrics::PEER_MSG_READ_LATENCY.start_timer();
-        read.read_exact(&mut buf[..]).await.map_err(RecvError::IO)?;
-        t.observe_duration();
-        buf_size_metric.set(0);
-        stats.received_messages.fetch_add(1, Ordering::Relaxed);
-        stats.received_bytes.fetch_add(n as u64, Ordering::Relaxed);
-        if let Err(_) = addr.send(RecvMessage(Ok(buf))).await {
-            // We got mailbox error, which means that Actor has stopped,
-            // so we should just close the stream.
-            return Ok(());
-        }
-    }
-}
-
 impl PeerActor {
     pub(crate) fn spawn(
         clock: time::Clock,
@@ -270,7 +149,6 @@ impl PeerActor {
             event_sink: network_state.config.event_sink.clone(),
             peer_addr: peer_addr.clone(),
         };
-
         let connecting_status = match &stream_config {
             StreamConfig::Inbound => ConnectingStatus::Inbound(
                 network_state
@@ -292,58 +170,42 @@ impl PeerActor {
             addr: network_state.config.node_addr.clone(),
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
-
-        let (read, write) = tokio::io::split(stream);
-
+        let stats = Arc::new(connection::Stats::default());
         // Start PeerActor on separate thread.
-        Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| {
-            let pa = Self {
-                clock,
-                my_node_info,
-                peer_addr,
-                peer_type: match &stream_config {
-                    StreamConfig::Inbound => PeerType::Inbound,
-                    StreamConfig::Outbound { .. } => PeerType::Outbound,
-                },
-                peer_status: PeerStatus::Connecting(connecting_status),
-                protocol_version: PROTOCOL_VERSION,
-                framed: FramedWriter::spawn(write, ctx),
-                tracker: Default::default(),
-                stats: Arc::new(connection::Stats::default()),
-                partial_edge_info: match &stream_config {
-                    StreamConfig::Inbound => None,
-                    StreamConfig::Outbound { peer_id } => {
-                        Some(network_state.propose_edge(peer_id, None))
-                    }
-                },
-                routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
-                protocol_buffers_supported: false,
-                force_encoding,
-                peer_info: match &stream_config {
-                    StreamConfig::Inbound => None,
-                    StreamConfig::Outbound { peer_id } => Some(PeerInfo {
-                        id: peer_id.clone(),
-                        addr: Some(peer_addr.clone()),
-                        account_id: None,
-                    }),
+        Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| Self {
+            clock,
+            my_node_info,
+            peer_addr,
+            peer_type: match &stream_config {
+                StreamConfig::Inbound => PeerType::Inbound,
+                StreamConfig::Outbound { .. } => PeerType::Outbound,
+            },
+            peer_status: PeerStatus::Connecting(connecting_status),
+            protocol_version: PROTOCOL_VERSION,
+            framed: stream::FramedStream::spawn(ctx, peer_addr, stream, stats.clone()),
+            tracker: Default::default(),
+            stats,
+            partial_edge_info: match &stream_config {
+                StreamConfig::Inbound => None,
+                StreamConfig::Outbound { peer_id } => {
+                    Some(network_state.propose_edge(peer_id, None))
                 }
-                .into(),
-                network_state,
-                connection: None,
-                _connection_guard: connection_guard,
-            };
-            let addr = ctx.address();
-            let stats = pa.stats.clone();
-            ctx.spawn(wrap_future(async move {
-                if let Err(err) =
-                    run_recv_loop(read, peer_addr, addr.clone().recipient(), stats).await
-                {
-                    // Send the critical error to the PeerActor (best effort).
-                    // PeerActor is responsible for calling ctx.stop() afterwards.
-                    addr.do_send(RecvMessage(Err(err)));
-                }
-            }));
-            pa
+            },
+            routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
+            protocol_buffers_supported: false,
+            force_encoding,
+            peer_info: match &stream_config {
+                StreamConfig::Inbound => None,
+                StreamConfig::Outbound { peer_id } => Some(PeerInfo {
+                    id: peer_id.clone(),
+                    addr: Some(peer_addr.clone()),
+                    account_id: None,
+                }),
+            }
+            .into(),
+            network_state,
+            connection: None,
+            _connection_guard: connection_guard,
         }))
     }
 
@@ -410,9 +272,7 @@ impl PeerActor {
         self.tracker.lock().increment_sent(&self.clock, bytes.len() as u64);
         let bytes_len = bytes.len();
         tracing::trace!(target: "network", msg_len = bytes_len);
-        if let Err(_) = self.framed.write(bytes) {
-            tracing::info!(target: "network", "Failed to send a message, because TCP writer is closed. PeerActor should be stopping now.");
-        }
+        self.framed.send(bytes);
         metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
         metrics::PEER_MESSAGE_SENT_BY_TYPE_TOTAL.with_label_values(&[msg_type]).inc();
         metrics::PEER_MESSAGE_SENT_BY_TYPE_BYTES
@@ -837,44 +697,37 @@ impl Actor for PeerActor {
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
         actix::Arbiter::current().stop();
-        let metric_label = &self.peer_addr.to_string();
-        // Garbage collect our metrics, ignoring the case where the metric is
-        // already deleted, to avoid races when a peer tries to reconnect.
-        let _ = metrics::PEER_DATA_READ_BUFFER_SIZE.remove_label_values(&[metric_label]);
-        let _ = metrics::PEER_DATA_WRITE_BUFFER_SIZE.remove_label_values(&[metric_label]);
     }
 }
 
-#[derive(actix::Message)]
-#[rtype(result = "()")]
-struct RecvMessage(Result<Vec<u8>, RecvError>);
+impl actix::Handler<stream::Error> for PeerActor {
+    type Result = ();
+    fn handle(&mut self, err: stream::Error, ctx: &mut Self::Context) {
+        let expected = match &err {
+            stream::Error::Recv(stream::RecvError::MessageTooLarge { .. }) => {
+                self.ban_peer(ctx, ReasonForBan::Abusive);
+                true
+            }
+            stream::Error::Recv(stream::RecvError::IO(err)) |
+            stream::Error::Send(err) => match err.kind() {
+                io::ErrorKind::UnexpectedEof => true,
+                io::ErrorKind::ConnectionReset => true,
+                _ => false,
+            },
+        };
+        if !expected {
+            error!(target: "network", ?err, "Closing connection to {}", self.peer_info);
+        }
+        ctx.stop();
+    }
+}
 
-impl actix::Handler<RecvMessage> for PeerActor {
+impl actix::Handler<stream::Frame> for PeerActor {
     type Result = ();
     #[perf]
-    fn handle(&mut self, msg: RecvMessage, ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: stream::Frame, ctx: &mut Self::Context) {
         let _span = tracing::trace_span!(target: "network", "handle", handler = "bytes").entered();
-        let msg = match msg.0 {
-            Ok(msg) => msg,
-            Err(err) => {
-                let expected = match &err {
-                    RecvError::MessageTooLarge { .. } => {
-                        self.ban_peer(ctx, ReasonForBan::Abusive);
-                        true
-                    }
-                    RecvError::IO(err) => match err.kind() {
-                        io::ErrorKind::UnexpectedEof => true,
-                        io::ErrorKind::ConnectionReset => true,
-                        _ => false,
-                    },
-                };
-                if !expected {
-                    error!(target: "network", ?err, "Closing connection to {}", self.peer_info);
-                }
-                ctx.stop();
-                return;
-            }
-        };
+        let msg = msg.0;
         // TODO(#5155) We should change our code to track size of messages received from Peer
         // as long as it travels to PeerManager, etc.
 
@@ -1367,14 +1220,6 @@ impl actix::Handler<RecvMessage> for PeerActor {
                 warn!(target: "network", "Received {} while {:?} from {:?} connection.", msg, self.peer_status, self.peer_type);
             }
         }
-    }
-}
-
-impl Handler<SendMessageError> for PeerActor {
-    type Result = ();
-
-    fn handle(&mut self, _msg: SendMessageError, ctx: &mut Self::Context) {
-        ctx.stop();
     }
 }
 
