@@ -1,17 +1,14 @@
 /// This file is contains all types used for communication between `Actors` within this crate.
 /// They are not meant to be used outside.
 use crate::network_protocol::{PeerMessage, RoutingTableUpdate};
-use crate::peer::peer_actor::PeerActor;
+use crate::peer_manager::connection;
 use conqueue::QueueSender;
-use near_network_primitives::time;
 use near_network_primitives::types::{
-    Ban, Edge, InboundTcpConnect, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerType,
-    ReasonForBan, RoutedMessageBody, RoutedMessageFrom,
+    Ban, Edge, PartialEdgeInfo, PeerInfo, PeerType, ReasonForBan, RoutedMessageBody,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::version::ProtocolVersion;
-use near_rate_limiter::ThrottleController;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
@@ -23,14 +20,12 @@ pub struct PeersResponse {
     pub(crate) peers: Vec<PeerInfo>,
 }
 
-#[derive(actix::Message, Debug, strum::IntoStaticStr)]
+#[derive(actix::Message, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
 #[rtype(result = "PeerToManagerMsgResp")]
 pub(crate) enum PeerToManagerMsg {
-    RoutedMessageFrom(RoutedMessageFrom),
     RegisterPeer(RegisterPeer),
     PeersRequest(PeersRequest),
     PeersResponse(PeersResponse),
-    InboundTcpConnect(InboundTcpConnect),
     Unregister(Unregister),
     Ban(Ban),
     RequestUpdateNonce(PeerId, PartialEdgeInfo),
@@ -42,16 +37,13 @@ pub(crate) enum PeerToManagerMsg {
     },
 
     // PeerRequest
-    UpdateEdge((PeerId, u64)),
     RouteBack(Box<RoutedMessageBody>, CryptoHash),
     UpdatePeerInfo(PeerInfo),
-    ReceivedMessage(PeerId, time::Instant),
 }
 
 /// List of all replies to messages to `PeerManager`. See `PeerManagerMessageRequest` for more details.
 #[derive(actix::MessageResponse, Debug)]
-pub enum PeerToManagerMsgResp {
-    RoutedMessageFrom(bool),
+pub(crate) enum PeerToManagerMsgResp {
     RegisterPeer(RegisterPeerResponse),
     PeersRequest(PeerRequestResult),
 
@@ -61,7 +53,6 @@ pub enum PeerToManagerMsgResp {
     BanPeer(ReasonForBan),
 
     // PeerResponse
-    UpdatedEdge(PartialEdgeInfo),
     Empty,
 }
 /// Actor message which asks `PeerManagerActor` to register peer.
@@ -70,21 +61,14 @@ pub enum PeerToManagerMsgResp {
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "RegisterPeerResponse")]
 pub(crate) struct RegisterPeer {
-    pub actor: actix::Addr<PeerActor>,
-    pub peer_info: PeerInfo,
-    pub peer_type: PeerType,
-    pub chain_info: PeerChainInfoV2,
+    pub connection: Arc<connection::Connection>,
     /// Edge information from this node.
     /// If this is None it implies we are outbound connection, so we need to create our
     /// EdgeInfo part and send it to the other peer.
     pub this_edge_info: Option<PartialEdgeInfo>,
-    /// Edge information from other node.
-    pub other_edge_info: PartialEdgeInfo,
     /// Protocol version of new peer. May be higher than ours.
     #[allow(dead_code)]
     pub peer_protocol_version: ProtocolVersion,
-    /// A helper data structure for limiting reading, reporting bandwidth stats.
-    pub throttle_controller: ThrottleController,
 }
 
 #[derive(actix::MessageResponse, Debug)]
@@ -95,7 +79,7 @@ pub enum RegisterPeerResponse {
 }
 
 /// Unregister message from Peer to PeerManager.
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, PartialEq, Eq, Clone)]
 #[rtype(result = "()")]
 pub(crate) struct Unregister {
     pub peer_id: PeerId,
@@ -125,9 +109,9 @@ pub struct StartRoutingTableSync {
 
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "()")]
-pub struct SendMessage {
-    pub(crate) message: PeerMessage,
-    pub(crate) context: opentelemetry::Context,
+pub(crate) struct SendMessage {
+    pub message: Arc<PeerMessage>,
+    pub context: opentelemetry::Context,
 }
 
 impl Debug for ValidateEdgeList {
@@ -158,13 +142,6 @@ pub struct ValidateEdgeList {
 }
 
 impl PeerToManagerMsgResp {
-    pub fn unwrap_routed_message_from(self) -> bool {
-        match self {
-            Self::RoutedMessageFrom(item) => item,
-            _ => panic!("expected PeerMessageRequest::RoutedMessageFrom"),
-        }
-    }
-
     pub fn unwrap_consolidate_response(self) -> RegisterPeerResponse {
         match self {
             Self::RegisterPeer(item) => item,

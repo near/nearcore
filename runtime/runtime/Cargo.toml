@@ -5,7 +5,7 @@ license = "MIT OR Apache-2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.62.1"
+rust-version = "1.63.0"
 edition = "2021"
 
 [dependencies]
@@ -28,7 +28,7 @@ near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
-near-metrics = { path = "../../core/metrics" }
+near-o11y = { path = "../../core/o11y" }
 near-vm-logic = { path = "../../runtime/near-vm-logic" }
 near-vm-runner = { path = "../../runtime/near-vm-runner" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
@@ -36,11 +36,7 @@ near-vm-errors = { path = "../../runtime/near-vm-errors" }
 [features]
 default = []
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
-protocol_feature_chunk_only_producers = [
-  "near-primitives/protocol_feature_chunk_only_producers",
-  "near-store/protocol_feature_chunk_only_producers",
-  "near-chain-configs/protocol_feature_chunk_only_producers",
-]
+protocol_feature_flat_state = ["near-store/protocol_feature_flat_state"]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
 
 no_cache = [

@@ -4,9 +4,9 @@ extern crate bencher;
 use bencher::Bencher;
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_chain_configs::GenesisValidationMode;
-use near_logger_utils::init_integration_logger;
+use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::StateRoot;
-use near_store::Mode;
+use near_store::{Mode, Temperature};
 use nearcore::{get_default_home, load_config, NightshadeRuntime};
 use std::time::{Duration, Instant};
 
@@ -28,8 +28,11 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
 
     bench.iter(move || {
         tracing::info!(target: "neard", "{:?}", home_dir);
-        let store =
-            near_store::Store::opener(&home_dir, &near_config.config.store).mode(mode).open();
+        let store = near_store::NodeStorage::opener(&home_dir, &near_config.config.store)
+            .mode(mode)
+            .open()
+            .unwrap()
+            .get_store(Temperature::Hot);
 
         let chain_store =
             ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, true);
@@ -41,12 +44,13 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let header = last_block.header();
 
-        let state_root = state_roots[shard_id];
-        let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
-        let trie = trie.iter(&state_root).unwrap();
-
+        let trie = runtime
+            .get_trie_for_shard(shard_id as u64, header.prev_hash(), state_roots[shard_id])
+            .unwrap();
         let start = Instant::now();
         let num_items_read = trie
+            .iter()
+            .unwrap()
             .enumerate()
             .map(|(i, _)| {
                 if i % 500 == 0 {

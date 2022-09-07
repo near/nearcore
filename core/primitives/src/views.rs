@@ -3,6 +3,7 @@
 //! These types should only change when we cannot avoid this. Thus, when the counterpart internal
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -357,6 +358,57 @@ pub struct NetworkInfoView {
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub enum SyncStatusView {
+    /// Initial state. Not enough peers to do anything yet.
+    AwaitingPeers,
+    /// Not syncing / Done syncing.
+    NoSync,
+    /// Syncing using light-client headers to a recent epoch
+    // TODO #3488
+    // Bowen: why do we use epoch ordinal instead of epoch id?
+    EpochSync { epoch_ord: u64 },
+    /// Downloading block headers for fast sync.
+    HeaderSync {
+        start_height: BlockHeight,
+        current_height: BlockHeight,
+        highest_height: BlockHeight,
+    },
+    /// State sync, with different states of state sync for different shards.
+    StateSync(CryptoHash, HashMap<ShardId, ShardSyncDownloadView>),
+    /// Sync state across all shards is done.
+    StateSyncDone,
+    /// Catch up on blocks.
+    BodySync { start_height: BlockHeight, current_height: BlockHeight, highest_height: BlockHeight },
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct ShardSyncDownloadView {
+    pub downloads: Vec<DownloadStatusView>,
+    pub status: String,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct DownloadStatusView {
+    pub error: bool,
+    pub done: bool,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct CatchupStatusView {
+    // This is the first block of the epoch that we are catching up
+    pub sync_block_hash: CryptoHash,
+    pub sync_block_height: BlockHeight,
+    // Status of all shards that need to sync
+    pub shard_sync_status: HashMap<ShardId, String>,
+    // Blocks that we need to catchup, if it is empty, it means catching up is done
+    pub blocks_to_catchup: Vec<BlockStatusView>,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct BlockStatusView {
     pub height: BlockHeight,
     pub hash: CryptoHash,
@@ -400,6 +452,7 @@ pub struct ChainProcessingInfo {
 pub struct BlockProcessingInfo {
     pub height: BlockHeight,
     pub hash: CryptoHash,
+    pub received_timestamp: DateTime<chrono::Utc>,
     /// Timestamp when block was received.
     //pub received_timestamp: DateTime<chrono::Utc>,
     /// Time (in ms) between when the block was first received and when it was processed
@@ -439,12 +492,25 @@ pub struct ChunkProcessingInfo {
     /// Theoretically this field should never be None unless there is some database corruption.
     pub created_by: Option<AccountId>,
     pub status: ChunkProcessingStatus,
-    /*
     /// Timestamp of first time when we request for this chunk.
-    pub requested_timestamp: Option<Instant>,
-    /// Time (in secs) that it takes between when the chunk is completed and when it is completed.
-    pub request_secs: Option<f64>,
-     */
+    pub requested_timestamp: Option<DateTime<chrono::Utc>>,
+    /// Timestamp of when the chunk is complete
+    pub completed_timestamp: Option<DateTime<chrono::Utc>>,
+    /// Time (in millis) that it takes between when the chunk is requested and when it is completed.
+    pub request_duration: Option<u64>,
+    pub chunk_parts_collection: Vec<PartCollectionInfo>,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PartCollectionInfo {
+    pub part_owner: AccountId,
+    // Time when the part is received through any message
+    pub received_time: Option<DateTime<chrono::Utc>>,
+    // Time when we receive a PartialEncodedChunkForward containing this part
+    pub forwarded_received_time: Option<DateTime<chrono::Utc>>,
+    // Time when we receive the PartialEncodedChunk message containing this part
+    pub chunk_received_time: Option<DateTime<chrono::Utc>>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -460,6 +526,7 @@ pub enum ChunkProcessingStatus {
 pub struct DetailedDebugStatus {
     pub network_info: NetworkInfoView,
     pub sync_status: String,
+    pub catchup_status: Vec<CatchupStatusView>,
     pub current_head_status: BlockStatusView,
     pub current_header_head_status: BlockStatusView,
     pub block_production_delay_millis: u64,
@@ -1299,11 +1366,8 @@ pub mod validator_stake_view {
     use near_primitives_core::types::AccountId;
     use serde::{Deserialize, Serialize};
 
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     use crate::serialize::dec_format;
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     use near_crypto::PublicKey;
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     use near_primitives_core::types::Balance;
 
     pub use super::ValidatorStakeViewV1;
@@ -1337,7 +1401,6 @@ pub mod validator_stake_view {
         }
     }
 
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
     #[derive(
         BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq,

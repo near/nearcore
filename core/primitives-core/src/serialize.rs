@@ -1,8 +1,8 @@
-pub fn to_base<T: AsRef<[u8]>>(input: T) -> String {
+pub fn to_base58<T: AsRef<[u8]>>(input: T) -> String {
     bs58::encode(input).into_string()
 }
 
-pub fn from_base(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+pub fn from_base58(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     bs58::decode(s).into_vec().map_err(|err| err.into())
 }
 
@@ -12,38 +12,6 @@ pub fn to_base64<T: AsRef<[u8]>>(input: T) -> String {
 
 pub fn from_base64(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     base64::decode(s).map_err(|err| err.into())
-}
-
-pub fn from_base_buf(
-    s: &str,
-    buffer: &mut Vec<u8>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    match bs58::decode(s).into(buffer) {
-        Ok(_) => Ok(()),
-        Err(err) => Err(err.into()),
-    }
-}
-
-pub trait BaseEncode {
-    fn to_base(&self) -> String;
-}
-
-impl<T> BaseEncode for T
-where
-    for<'a> &'a T: Into<Vec<u8>>,
-{
-    fn to_base(&self) -> String {
-        to_base(&self.into())
-    }
-}
-
-pub trait BaseDecode:
-    for<'a> TryFrom<&'a [u8], Error = Box<dyn std::error::Error + Send + Sync>>
-{
-    fn from_base(s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let bytes = from_base(s)?;
-        Self::try_from(&bytes)
-    }
 }
 
 pub mod base64_format {
@@ -122,40 +90,6 @@ fn test_option_base64_format() {
 
     assert_round_trip("{\"field\":\"Zm9v\"}", Test { field: Some(b"foo".to_vec()) });
     assert_round_trip("{\"field\":null}", Test { field: None });
-}
-
-pub mod base_bytes_format {
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    use super::{from_base, to_base};
-
-    pub fn serialize<S>(data: &[u8], serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&to_base(data))
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        from_base(&s).map_err(|err| de::Error::custom(err.to_string()))
-    }
-}
-
-#[test]
-fn test_base_bytes_format() {
-    #[derive(PartialEq, Debug, serde::Deserialize, serde::Serialize)]
-    struct Test {
-        #[serde(with = "base_bytes_format")]
-        field: Vec<u8>,
-    }
-
-    assert_round_trip("{\"field\":\"bQbp\"}", Test { field: b"foo".to_vec() });
-    assert_de_error::<Test>("{\"field\":null}");
 }
 
 /// Serialises number as a string; deserialises either as a string or number.

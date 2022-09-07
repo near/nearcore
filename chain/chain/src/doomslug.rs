@@ -102,6 +102,8 @@ pub struct Doomslug {
     largest_final_height: BlockHeight,
     /// Largest height for which we saw threshold approvals (and thus can potentially create a block)
     largest_threshold_height: BlockHeight,
+    /// Largest target height of approvals that we've received
+    largest_approval_height: BlockHeight,
     /// Information Doomslug tracks about the chain tip
     tip: DoomslugTip,
     /// Whether an endorsement (or in general an approval) was sent since updating the tip
@@ -256,7 +258,7 @@ impl DoomslugApprovalsTrackersAtHeight {
         &mut self,
         now: Instant,
         approval: &Approval,
-        stakes: &Vec<(ApprovalStake, bool)>,
+        stakes: &[(ApprovalStake, bool)],
         threshold_mode: DoomslugThresholdMode,
     ) -> DoomslugBlockProductionReadiness {
         if let Some(last_parent) = self.last_approval_per_account.get(&approval.account_id) {
@@ -338,6 +340,7 @@ impl Doomslug {
         Doomslug {
             approval_tracking: HashMap::new(),
             largest_target_height,
+            largest_approval_height: 0,
             largest_final_height: 0,
             largest_threshold_height: 0,
             tip: DoomslugTip { block_hash: CryptoHash::default(), height: 0 },
@@ -372,6 +375,11 @@ impl Doomslug {
     ///     passed since it accumulated enough approvals)
     pub fn get_largest_height_crossing_threshold(&self) -> BlockHeight {
         self.largest_threshold_height
+    }
+
+    /// Returns the largest height for which we've received an approval
+    pub fn get_largest_approval_height(&self) -> BlockHeight {
+        self.largest_approval_height
     }
 
     pub fn get_largest_final_height(&self) -> BlockHeight {
@@ -504,7 +512,7 @@ impl Doomslug {
     pub fn can_approved_block_be_produced(
         mode: DoomslugThresholdMode,
         approvals: &[Option<Signature>],
-        stakes: &Vec<(Balance, Balance, bool)>,
+        stakes: &[(Balance, Balance, bool)],
     ) -> bool {
         if mode == DoomslugThresholdMode::NoApprovals {
             return true;
@@ -587,7 +595,7 @@ impl Doomslug {
         &mut self,
         now: Instant,
         approval: &Approval,
-        stakes: &Vec<(ApprovalStake, bool)>,
+        stakes: &[(ApprovalStake, bool)],
     ) -> DoomslugBlockProductionReadiness {
         let threshold_mode = self.threshold_mode;
         let ret = self
@@ -595,6 +603,10 @@ impl Doomslug {
             .entry(approval.target_height)
             .or_insert_with(|| DoomslugApprovalsTrackersAtHeight::new())
             .process_approval(now, approval, stakes, threshold_mode);
+
+        if approval.target_height > self.largest_approval_height {
+            self.largest_approval_height = approval.target_height;
+        }
 
         if ret != DoomslugBlockProductionReadiness::NotReady {
             if approval.target_height > self.largest_threshold_height {
@@ -610,7 +622,7 @@ impl Doomslug {
         &mut self,
         now: Instant,
         approval: &Approval,
-        stakes: &Vec<(ApprovalStake, bool)>,
+        stakes: &[(ApprovalStake, bool)],
     ) {
         if approval.target_height < self.tip.height
             || approval.target_height > self.tip.height + MAX_HEIGHTS_AHEAD_TO_STORE_APPROVALS

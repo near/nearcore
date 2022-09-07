@@ -536,7 +536,7 @@ impl Block {
 
 pub enum ChunksCollection<'a> {
     V1(Vec<ShardChunkHeader>),
-    V2(&'a Vec<ShardChunkHeader>),
+    V2(&'a [ShardChunkHeader]),
 }
 
 pub struct VersionedChunksIter<'a> {

@@ -1,6 +1,7 @@
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::DateTime;
 use futures::{future, FutureExt};
+use near_o11y::testonly::TracingCapture;
 use near_primitives::time::Utc;
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;
@@ -9,7 +10,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::mem::swap;
 use std::ops::DerefMut;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tracing::info;
 
@@ -158,7 +159,7 @@ impl Client {
     /// This function finishes processing block with hash `hash`, if the procesing of that block
     /// has started.
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
-        if let Ok(_) = wait_for_block_in_processing(&mut self.chain, hash) {
+        if let Ok(()) = wait_for_block_in_processing(&mut self.chain, hash) {
             let (accepted_blocks, errors) = self.postprocess_ready_blocks(Arc::new(|_| {}), true);
             assert!(errors.is_empty());
             return accepted_blocks;
@@ -654,7 +655,6 @@ pub fn setup_mock_all_validators(
                             sent_bytes_per_sec: 0,
                             received_bytes_per_sec: 0,
                             known_producers: vec![],
-                            peer_counter: 0,
                             tier1_accounts: vec![],
                         };
                         client_addr.do_send(NetworkClientMessages::NetworkInfo(info));
@@ -1012,8 +1012,7 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::ForwardTx(_, _)
                         | NetworkRequests::BanPeer { .. }
                         | NetworkRequests::TxStatus(_, _, _)
-                        | NetworkRequests::Challenge(_)
-                        | NetworkRequests::ReceiptOutComeRequest(_, _) => {}
+                        | NetworkRequests::Challenge(_) => {}
                     };
                 }
                 resp
@@ -1146,6 +1145,7 @@ pub struct TestEnv {
     pub network_adapters: Vec<Arc<MockPeerManagerAdapter>>,
     pub clients: Vec<Client>,
     account_to_client_index: HashMap<AccountId, usize>,
+    paused_blocks: Arc<Mutex<HashMap<CryptoHash, Arc<OnceCell<()>>>>>,
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     seeds: HashMap<AccountId, RngSeed>,
@@ -1317,6 +1317,7 @@ impl TestEnvBuilder {
                 .enumerate()
                 .map(|(index, client)| (client, index))
                 .collect(),
+            paused_blocks: Default::default(),
             seeds,
         }
     }
@@ -1342,6 +1343,42 @@ impl TestEnv {
     pub fn produce_block(&mut self, id: usize, height: BlockHeight) {
         let block = self.clients[id].produce_block(height).unwrap();
         self.process_block(id, block.unwrap(), Provenance::PRODUCED);
+    }
+
+    /// Pause processing of the given block, which means that the background
+    /// thread which applies the chunks on the block will get blocked until
+    /// `resume_block_processing` is called.
+    ///
+    /// Note that you must call `resume_block_processing` at some later point to
+    /// unstuck the block.
+    ///
+    /// Implementation is rather crude and just hijacks our logging
+    /// infrastructure. Hopefully this is good enough, but, if it isn't, we can
+    /// add something more robust.
+    pub fn pause_block_processing(&mut self, capture: &mut TracingCapture, block: &CryptoHash) {
+        let paused_blocks = Arc::clone(&self.paused_blocks);
+        paused_blocks.lock().unwrap().insert(*block, Arc::new(OnceCell::new()));
+        capture.set_callback(move |msg| {
+            if msg.starts_with("do_apply_chunks") {
+                let cell = paused_blocks.lock().unwrap().iter().find_map(|(block_hash, cell)| {
+                    if msg.contains(&format!("block_hash={block_hash}")) {
+                        Some(Arc::clone(cell))
+                    } else {
+                        None
+                    }
+                });
+                if let Some(cell) = cell {
+                    cell.wait();
+                }
+            }
+        });
+    }
+
+    /// See `pause_block_processing`.
+    pub fn resume_block_processing(&mut self, block: &CryptoHash) {
+        let mut paused_blocks = self.paused_blocks.lock().unwrap();
+        let cell = paused_blocks.remove(block).unwrap();
+        let _ = cell.set(());
     }
 
     pub fn client(&mut self, account_id: &AccountId) -> &mut Client {
@@ -1452,7 +1489,7 @@ impl TestEnv {
             self.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
 
         let mut block = self.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
-        block.mut_header().set_lastest_protocol_version(protocol_version);
+        block.mut_header().set_latest_protocol_version(protocol_version);
         block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
             block_producer.clone(),
             KeyType::ED25519,
@@ -1603,6 +1640,18 @@ impl TestEnv {
     }
 }
 
+impl Drop for TestEnv {
+    fn drop(&mut self) {
+        let paused_blocks = self.paused_blocks.lock().unwrap();
+        for cell in paused_blocks.values() {
+            let _ = cell.set(());
+        }
+        if !paused_blocks.is_empty() && !std::thread::panicking() {
+            panic!("some blocks are still paused, did you call `resume_block_processing`?")
+        }
+    }
+}
+
 pub fn create_chunk_on_height_for_shard(
     client: &mut Client,
     next_height: BlockHeight,
@@ -1736,7 +1785,7 @@ pub fn create_chunk(
 /// and the catchup process can't catch up on these blocks yet.
 pub fn run_catchup(
     client: &mut Client,
-    highest_height_peers: &Vec<FullPeerInfo>,
+    highest_height_peers: &[FullPeerInfo],
 ) -> Result<(), Error> {
     let f = |_| {};
     let block_messages = Arc::new(RwLock::new(vec![]));
@@ -1776,6 +1825,7 @@ pub fn run_catchup(
                 msg.shard_uid,
                 &msg.state_root,
                 &msg.next_epoch_shard_layout,
+                msg.state_split_status,
             );
             if let Some((sync, _, _)) = client.catchup_state_syncs.get_mut(&msg.sync_hash) {
                 // We are doing catchup

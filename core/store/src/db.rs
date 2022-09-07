@@ -2,11 +2,14 @@ use std::io;
 
 use crate::DBCol;
 
+mod colddb;
 pub mod refcount;
-mod rocksdb;
+pub(crate) mod rocksdb;
+mod slice;
 mod testdb;
 
 pub use self::rocksdb::RocksDB;
+pub use self::slice::DBSlice;
 pub use self::testdb::TestDB;
 
 pub const VERSION_KEY: &[u8; 7] = b"VERSION";
@@ -55,10 +58,12 @@ impl DBTransaction {
     }
 
     pub fn insert(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+        assert!(col.is_insert_only(), "can't insert: {col:?}");
         self.ops.push(DBOp::Insert { col, key, value });
     }
 
     pub fn update_refcount(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+        assert!(col.is_rc(), "can't update refcount: {col:?}");
         self.ops.push(DBOp::UpdateRefcount { col, key, value });
     }
 
@@ -87,7 +92,15 @@ pub trait Database: Sync + Send {
     ///
     /// You most likely will want to use [`refcount::get_with_rc_logic`] to
     /// properly handle reference-counted columns.
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>>;
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>>;
+
+    /// Returns value for given `key` forcing a reference count decoding.
+    ///
+    /// **Panics** if the column is not reference counted.
+    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+        assert!(col.is_rc());
+        Ok(self.get_raw_bytes(col, key)?.and_then(DBSlice::strip_refcount))
+    }
 
     /// Iterate over all items in given column in lexicographical order sorted
     /// by the key.
@@ -127,19 +140,23 @@ pub trait Database: Sync + Send {
     /// This is a no-op for in-memory databases.
     fn flush(&self) -> io::Result<()>;
 
+    /// Compact database representation.
+    ///
+    /// If the database supports it a form of compaction, calling this function
+    /// is blocking until compaction finishes. Otherwise, this is a no-op.
+    fn compact(&self) -> io::Result<()>;
+
     /// Returns statistics about the database if available.
     fn get_store_statistics(&self) -> Option<StoreStatistics>;
 }
 
 fn assert_no_overwrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {
-    assert_eq!(
-        value, old_value,
+    assert!(
+        value == old_value,
         "\
 write once column overwritten
 col: {col}
 key: {key:?}
-old value: {old_value:?}
-new value: {value:?}
 "
     )
 }

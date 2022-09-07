@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.62.1"
+rust-version = "1.63.0"
 edition = "2021"
 
 [dependencies]
@@ -12,9 +12,9 @@ ansi_term = "0.12"
 clap = { version = "3.1.6", features = ["derive"] }
 
 near-chain-configs = { path = "../../core/chain-configs" }
-near-logger-utils = { path = "../../test-utils/logger" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
+near-o11y = { path = "../../core/o11y" }
 near-chain = { path = "../../chain/chain" }
 nearcore = { path = "../../nearcore" }
 

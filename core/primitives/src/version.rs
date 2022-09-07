@@ -16,12 +16,6 @@ pub struct Version {
     pub rustc_version: String,
 }
 
-/// Database version.
-pub type DbVersion = u32;
-
-/// Current version of the database.
-pub const DB_VERSION: DbVersion = 31;
-
 use crate::upgrade_schedule::{get_protocol_version_internal, ProtocolUpgradeVotingSchedule};
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
@@ -153,9 +147,10 @@ pub enum ProtocolFeature {
     LowerStorageKeyLimit,
     // alt_bn128_g1_multiexp, alt_bn128_g1_sum, alt_bn128_pairing_check host functions
     AltBn128,
-
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     ChunkOnlyProducers,
+    /// Ensure the total stake of validators that are kicked out does not exceed a percentage of total stakes
+    MaxKickoutStake,
+
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
@@ -167,24 +162,30 @@ pub enum ProtocolFeature {
     /// Validate account id for function call access keys.
     #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
     AccountIdInFunctionCallPermission,
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    Ed25519Verify,
+    #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
+    RejectBlocksWithOutdatedProtocolVersions,
+    #[cfg(feature = "shardnet")]
+    ShardnetShardLayoutUpgrade,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
 /// protocol version is lower than this.
-pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 2;
+pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion =
+    if cfg!(feature = "shardnet") { PROTOCOL_VERSION - 1 } else { STABLE_PROTOCOL_VERSION - 2 };
 
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 55;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 56;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    130
+    132
 } else if cfg!(feature = "shardnet") {
-    // For shardnet, enable `ChunkOnlyProducers` but nothing else.
-    100
+    102
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION
@@ -198,6 +199,12 @@ const PROTOCOL_UPGRADE_SCHEDULE: Lazy<HashMap<ProtocolVersion, ProtocolUpgradeVo
         // Update to latest protocol version on release.
         schedule
             .insert(54, ProtocolUpgradeVotingSchedule::from_str("2022-06-27 15:00:00").unwrap());
+
+        /*
+        // Final shardnet release. Do not include it in testnet or mainnet releases.
+        schedule
+            .insert(102, ProtocolUpgradeVotingSchedule::from_str("2022-09-05 15:00:00").unwrap());
+         */
         schedule
     });
 
@@ -243,16 +250,28 @@ impl ProtocolFeature {
             | ProtocolFeature::ChunkNodesCache
             | ProtocolFeature::LowerStorageKeyLimit => 53,
             ProtocolFeature::AltBn128 => 55,
+            ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
 
-            // Nightly & shardnet features
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            ProtocolFeature::ChunkOnlyProducers => 100,
+            // Nightly & shardnet features, this is to make feature MaxKickoutStake not enabled on
+            // shardnet
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost => 129,
             #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
             ProtocolFeature::AccountIdInFunctionCallPermission => 130,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
+            ProtocolFeature::Ed25519Verify => 131,
+            #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
+            ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => {
+                if cfg!(feature = "shardnet") {
+                    102
+                } else {
+                    132
+                }
+            }
+            #[cfg(feature = "shardnet")]
+            ProtocolFeature::ShardnetShardLayoutUpgrade => 102,
         }
     }
 }

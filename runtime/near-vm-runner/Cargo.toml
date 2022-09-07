@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.62.1"
+rust-version = "1.63.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
@@ -101,9 +101,15 @@ protocol_feature_fix_contract_loading_cost = [
 nightly = [
     "near-primitives/nightly",
     "protocol_feature_fix_contract_loading_cost",
+    "protocol_feature_ed25519_verify",
 ]
 sandbox = ["near-vm-logic/sandbox"]
 io_trace = ["near-vm-logic/io_trace"]
+
+protocol_feature_ed25519_verify = [
+    "near-primitives/protocol_feature_ed25519_verify",
+    "near-vm-logic/protocol_feature_ed25519_verify"
+] 
 
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate

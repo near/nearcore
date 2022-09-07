@@ -4,10 +4,12 @@ pub use crate::peer_manager::peer_store::iter_peers_from_store;
 pub use crate::stats::metrics::RECEIVED_INFO_ABOUT_ITSELF;
 
 mod accounts_data;
+mod concurrency;
 mod network_protocol;
 mod peer;
 mod peer_manager;
 
+pub mod actix;
 pub mod config;
 pub mod config_json;
 pub(crate) mod private_actix;

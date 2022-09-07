@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = true
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.62.1"
+rust-version = "1.63.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
@@ -22,6 +22,7 @@ ripemd = "0.1.1"
 serde = { version = "1", features = ["derive"] }
 sha2 = ">=0.8,<=0.10"
 sha3 = ">=0.8,<=0.10"
+ed25519-dalek = "1"
 
 near-crypto = { path = "../../core/crypto" }
 near-account-id = { path = "../../core/account-id", features = [ "internal_unstable" ] }
@@ -37,10 +38,14 @@ tracing = { version = "0.1.13", optional = true }
 hex = { version = "0.4", features = ["serde"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 
+
 [features]
 default = []
 protocol_feature_fix_contract_loading_cost = [
     "near-primitives/protocol_feature_fix_contract_loading_cost",
+]
+protocol_feature_ed25519_verify = [
+    "near-primitives/protocol_feature_ed25519_verify"
 ]
 io_trace = ["tracing"]
 

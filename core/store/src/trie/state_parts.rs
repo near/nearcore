@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
-use near_primitives::challenge::PartialState;
-use near_primitives::hash::CryptoHash;
+use near_primitives::challenge::{PartialState, StateItem};
 use near_primitives::state_part::PartId;
 use near_primitives::types::StateRoot;
 use tracing::error;
@@ -24,15 +23,11 @@ impl Trie {
     ///
     /// # Errors
     /// StorageError if the storage is corrupted
-    pub fn get_trie_nodes_for_part(
-        &self,
-        part_id: PartId,
-        state_root: &StateRoot,
-    ) -> Result<PartialState, StorageError> {
+    pub fn get_trie_nodes_for_part(&self, part_id: PartId) -> Result<PartialState, StorageError> {
         assert!(self.storage.as_caching_storage().is_some());
 
         let with_recording = self.recording_reads();
-        with_recording.visit_nodes_for_state_part(state_root, part_id)?;
+        with_recording.visit_nodes_for_state_part(part_id)?;
         let recorded = with_recording.recorded_storage().unwrap();
 
         let trie_nodes = recorded.nodes;
@@ -46,20 +41,15 @@ impl Trie {
     ///
     /// Creating a StatePart takes all these nodes, validating a StatePart checks that it has the
     /// right set of nodes.
-    fn visit_nodes_for_state_part(
-        &self,
-        root_hash: &CryptoHash,
-        part_id: PartId,
-    ) -> Result<(), StorageError> {
-        let path_begin = self.find_path_for_part_boundary(root_hash, part_id.idx, part_id.total)?;
-        let path_end =
-            self.find_path_for_part_boundary(root_hash, part_id.idx + 1, part_id.total)?;
-        let mut iterator = self.iter(root_hash)?;
+    fn visit_nodes_for_state_part(&self, part_id: PartId) -> Result<(), StorageError> {
+        let path_begin = self.find_path_for_part_boundary(part_id.idx, part_id.total)?;
+        let path_end = self.find_path_for_part_boundary(part_id.idx + 1, part_id.total)?;
+        let mut iterator = self.iter()?;
         iterator.visit_nodes_interval(&path_begin, &path_end)?;
 
         // Extra nodes for compatibility with the previous version of computing state parts
         if part_id.idx + 1 != part_id.total {
-            let mut iterator = self.iter(root_hash)?;
+            let mut iterator = self.iter()?;
             let path_end_encoded = NibbleSlice::encode_nibbles(&path_end, false);
             iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_end_encoded[..]).0)?;
             if let Some(item) = iterator.next() {
@@ -74,7 +64,6 @@ impl Trie {
     /// path is returned as nibbles, last path is vec![16], previous paths end in nodes
     pub(crate) fn find_path_for_part_boundary(
         &self,
-        state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
     ) -> Result<Vec<u8>, StorageError> {
@@ -82,7 +71,7 @@ impl Trie {
         if part_id == num_parts {
             return Ok(vec![16]);
         }
-        let root_node = self.retrieve_node(state_root)?;
+        let root_node = self.retrieve_node(&self.root)?.1;
         let total_size = root_node.memory_usage;
         let size_start = (total_size + num_parts - 1) / num_parts * part_id;
         self.find_path(&root_node, size_start)
@@ -110,7 +99,7 @@ impl Trie {
             }
             TrieNode::Branch(children, _) => {
                 for child_index in 0..children.len() {
-                    let child = match &children[child_index] {
+                    let (_, child) = match &children[child_index] {
                         None => {
                             continue;
                         }
@@ -145,7 +134,7 @@ impl Trie {
                 Ok(false)
             }
             TrieNode::Extension(key, child_handle) => {
-                let child = match child_handle {
+                let (_, child) = match child_handle {
                     NodeHandle::InMemory(_) => unreachable!("only possible while mutating"),
                     NodeHandle::Hash(h) => self.retrieve_node(h)?,
                 };
@@ -182,9 +171,10 @@ impl Trie {
         trie_nodes: PartialState,
     ) -> Result<(), StorageError> {
         let num_nodes = trie_nodes.0.len();
-        let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes });
+        let trie =
+            Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, state_root.clone());
 
-        trie.visit_nodes_for_state_part(state_root, part_id)?;
+        trie.visit_nodes_for_state_part(part_id)?;
         let storage = trie.storage.as_partial_storage().unwrap();
 
         if storage.visited_nodes.borrow().len() != num_nodes {
@@ -198,7 +188,7 @@ impl Trie {
     fn apply_state_part_impl(
         state_root: &StateRoot,
         part_id: PartId,
-        part: Vec<Vec<u8>>,
+        part: Vec<StateItem>,
     ) -> Result<ApplyStatePartResult, StorageError> {
         if state_root == &Trie::EMPTY_ROOT {
             return Ok(ApplyStatePartResult {
@@ -206,12 +196,13 @@ impl Trie {
                 contract_codes: vec![],
             });
         }
-        let trie = Trie::from_recorded_storage(PartialStorage { nodes: PartialState(part) });
-        let path_begin =
-            trie.find_path_for_part_boundary(state_root, part_id.idx, part_id.total)?;
-        let path_end =
-            trie.find_path_for_part_boundary(state_root, part_id.idx + 1, part_id.total)?;
-        let mut iterator = trie.iter(state_root)?;
+        let trie = Trie::from_recorded_storage(
+            PartialStorage { nodes: PartialState(part) },
+            state_root.clone(),
+        );
+        let path_begin = trie.find_path_for_part_boundary(part_id.idx, part_id.total)?;
+        let path_end = trie.find_path_for_part_boundary(part_id.idx + 1, part_id.total)?;
+        let mut iterator = trie.iter()?;
         let trie_traversal_items = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         let mut map = HashMap::new();
         let mut contract_codes = Vec::new();
@@ -241,25 +232,23 @@ impl Trie {
     pub fn apply_state_part(
         state_root: &StateRoot,
         part_id: PartId,
-        part: Vec<Vec<u8>>,
+        part: Vec<StateItem>,
     ) -> ApplyStatePartResult {
         Self::apply_state_part_impl(state_root, part_id, part)
             .expect("apply_state_part is guaranteed to succeed when each part is valid")
     }
 
-    pub fn get_memory_usage_from_serialized(bytes: &Vec<u8>) -> Result<u64, StorageError> {
-        match RawTrieNodeWithSize::decode(bytes) {
-            Ok(value) => Ok(TrieNodeWithSize::from_raw(value).memory_usage),
-            Err(_) => {
-                Err(StorageError::StorageInconsistentState("Failed to decode node".to_string()))
-            }
-        }
+    pub fn get_memory_usage_from_serialized(bytes: &[u8]) -> Result<u64, StorageError> {
+        RawTrieNodeWithSize::decode(bytes).map(|raw_node| raw_node.memory_usage).map_err(|err| {
+            StorageError::StorageInconsistentState(format!("Failed to decode node: {err}"))
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::sync::Arc;
 
     use rand::prelude::ThreadRng;
     use rand::Rng;
@@ -283,17 +272,12 @@ mod tests {
         /// StorageError if data is inconsistent. Should never happen if each part was validated.
         pub fn combine_state_parts_naive(
             state_root: &StateRoot,
-            parts: &Vec<Vec<Vec<u8>>>,
+            parts: &[Vec<StateItem>],
         ) -> Result<TrieChanges, StorageError> {
-            let nodes = parts
-                .iter()
-                .map(|part| part.iter())
-                .flatten()
-                .map(|data| data.to_vec())
-                .collect::<Vec<_>>();
-            let trie = Trie::from_recorded_storage(PartialStorage { nodes: PartialState(nodes) });
+            let nodes = PartialState(parts.iter().flat_map(|part| part.iter()).cloned().collect());
+            let trie = Trie::from_recorded_storage(PartialStorage { nodes }, state_root.clone());
             let mut insertions = <HashMap<CryptoHash, (Vec<u8>, u32)>>::new();
-            trie.traverse_all_nodes(state_root, |hash| {
+            trie.traverse_all_nodes(|hash| {
                 if let Some((_bytes, rc)) = insertions.get_mut(hash) {
                     *rc += 1;
                 } else {
@@ -322,15 +306,14 @@ mod tests {
         /// on_enter is applied for nodes as well as values
         fn traverse_all_nodes<F: FnMut(&CryptoHash) -> Result<(), StorageError>>(
             &self,
-            root: &CryptoHash,
             mut on_enter: F,
         ) -> Result<(), StorageError> {
-            if root == &Trie::EMPTY_ROOT {
+            if self.root == Trie::EMPTY_ROOT {
                 return Ok(());
             }
             let mut stack: Vec<(CryptoHash, TrieNodeWithSize, CrumbStatus)> = Vec::new();
-            let root_node = self.retrieve_node(root)?;
-            stack.push((*root, root_node, CrumbStatus::Entering));
+            let root_node = self.retrieve_node(&self.root)?.1;
+            stack.push((self.root.clone(), root_node, CrumbStatus::Entering));
             while let Some((hash, node, position)) = stack.pop() {
                 if let CrumbStatus::Entering = position {
                     on_enter(&hash)?;
@@ -370,7 +353,7 @@ mod tests {
                             }
                             if i < 16 {
                                 if let Some(NodeHandle::Hash(h)) = children[i].clone() {
-                                    let child = self.retrieve_node(&h)?;
+                                    let (_, child) = self.retrieve_node(&h)?;
                                     stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
                                     stack.push((h, child, CrumbStatus::Entering));
                                 } else {
@@ -394,7 +377,7 @@ mod tests {
                                     unreachable!("only possible while mutating")
                                 }
                                 NodeHandle::Hash(h) => {
-                                    let child = self.retrieve_node(&h)?;
+                                    let (_, child) = self.retrieve_node(&h)?;
                                     stack.push((hash, node, CrumbStatus::Exiting));
                                     stack.push((h, child, CrumbStatus::Entering));
                                 }
@@ -408,15 +391,14 @@ mod tests {
 
         fn visit_nodes_for_size_range_old(
             &self,
-            root_hash: &CryptoHash,
             size_start: u64,
             size_end: u64,
         ) -> Result<(), StorageError> {
-            let root_node = self.retrieve_node(root_hash)?;
+            let root_node = self.retrieve_node(&self.root)?.1;
             let path_begin = self.find_path(&root_node, size_start)?;
             let path_end = self.find_path(&root_node, size_end)?;
 
-            let mut iterator = self.iter(root_hash)?;
+            let mut iterator = self.iter()?;
             let path_begin_encoded = NibbleSlice::encode_nibbles(&path_begin, false);
             iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded[..]).0)?;
             loop {
@@ -440,10 +422,9 @@ mod tests {
         pub fn get_trie_nodes_for_part_old(
             &self,
             part_id: PartId,
-            state_root: &StateRoot,
         ) -> Result<PartialState, StorageError> {
             assert!(self.storage.as_caching_storage().is_some());
-            let root_node = self.retrieve_node(state_root)?;
+            let root_node = self.retrieve_node(&self.root)?.1;
             let total_size = root_node.memory_usage;
             let size_start = (total_size + part_id.total - 1) / part_id.total * part_id.idx;
             let size_end = std::cmp::min(
@@ -452,7 +433,7 @@ mod tests {
             );
 
             let with_recording = self.recording_reads();
-            with_recording.visit_nodes_for_size_range_old(state_root, size_start, size_end)?;
+            with_recording.visit_nodes_for_size_range_old(size_start, size_end)?;
             let recorded = with_recording.recorded_storage().unwrap();
 
             let trie_nodes = recorded.nodes;
@@ -550,18 +531,16 @@ mod tests {
         let trie_changes = gen_trie_changes(&mut rng, max_key_length, big_value_length);
         println!("Number of nodes: {}", trie_changes.len());
         let tries = create_tries();
-        let trie = tries.get_trie_for_shard(ShardUId::single_shard());
         let state_root =
             test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), trie_changes);
-        let memory_size = trie.retrieve_root_node(&state_root).unwrap().memory_usage;
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
+        let memory_size = trie.retrieve_root_node().unwrap().memory_usage;
         println!("Total memory size: {}", memory_size);
         for num_parts in [2, 3, 5, 10, 50].iter().cloned() {
             let approximate_size_per_part = memory_size / num_parts;
             let parts = (0..num_parts)
                 .map(|part_id| {
-                    trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts), &state_root)
-                        .unwrap()
-                        .0
+                    trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap().0
                 })
                 .collect::<Vec<_>>();
             let part_nodecounts_vec = parts.iter().map(|nodes| nodes.len()).collect::<Vec<_>>();
@@ -619,7 +598,6 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _ in 0..2000 {
             let tries = create_tries();
-            let trie = tries.get_trie_for_shard(ShardUId::single_shard());
             let trie_changes = gen_changes(&mut rng, 20);
             let state_root = test_populate_trie(
                 &tries,
@@ -627,22 +605,21 @@ mod tests {
                 ShardUId::single_shard(),
                 trie_changes.clone(),
             );
-            let root_memory_usage = trie.retrieve_root_node(&state_root).unwrap().memory_usage;
+            let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
+            let root_memory_usage = trie.retrieve_root_node().unwrap().memory_usage;
 
             {
                 // Test that combining all parts gets all nodes
                 let num_parts = rng.gen_range(2, 10);
                 let parts = (0..num_parts)
                     .map(|part_id| {
-                        trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts), &state_root)
-                            .unwrap()
-                            .0
+                        trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap().0
                     })
                     .collect::<Vec<_>>();
 
-                let trie_changes = check_combine_state_parts(&state_root, num_parts, &parts);
+                let trie_changes = check_combine_state_parts(trie.get_root(), num_parts, &parts);
 
-                let mut nodes = <HashMap<CryptoHash, Vec<u8>>>::new();
+                let mut nodes = <HashMap<CryptoHash, Arc<[u8]>>>::new();
                 let sizes_vec = parts
                     .iter()
                     .map(|nodes| nodes.iter().map(|node| node.len()).sum::<usize>())
@@ -658,7 +635,7 @@ mod tests {
                 let size_of_all = all_nodes.iter().map(|node| node.len()).sum::<usize>();
                 let num_nodes = all_nodes.len();
                 Trie::validate_trie_nodes_for_part(
-                    &state_root,
+                    trie.get_root(),
                     PartId::new(0, 1),
                     PartialState(all_nodes),
                 )
@@ -682,7 +659,7 @@ mod tests {
     fn check_combine_state_parts(
         state_root: &CryptoHash,
         num_parts: u64,
-        parts: &Vec<Vec<Vec<u8>>>,
+        parts: &[Vec<Arc<[u8]>>],
     ) -> TrieChanges {
         let trie_changes = Trie::combine_state_parts_naive(state_root, parts).unwrap();
 
@@ -708,7 +685,6 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _ in 0..20 {
             let tries = create_tries();
-            let trie = tries.get_trie_for_shard(ShardUId::single_shard());
             let trie_changes = gen_changes(&mut rng, 10);
 
             let state_root = test_populate_trie(
@@ -717,19 +693,19 @@ mod tests {
                 ShardUId::single_shard(),
                 trie_changes.clone(),
             );
+            let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
+
             for _ in 0..10 {
                 // Test that creating and validating are consistent
                 let num_parts: u64 = rng.gen_range(1, 10);
                 let part_id = rng.gen_range(0, num_parts);
-                let trie_nodes = trie
-                    .get_trie_nodes_for_part(PartId::new(part_id, num_parts), &state_root)
-                    .unwrap();
-                let trie_nodes2 = trie
-                    .get_trie_nodes_for_part_old(PartId::new(part_id, num_parts), &state_root)
-                    .unwrap();
+                let trie_nodes =
+                    trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap();
+                let trie_nodes2 =
+                    trie.get_trie_nodes_for_part_old(PartId::new(part_id, num_parts)).unwrap();
                 assert_eq!(trie_nodes, trie_nodes2);
                 Trie::validate_trie_nodes_for_part(
-                    &state_root,
+                    trie.get_root(),
                     PartId::new(part_id, num_parts),
                     trie_nodes,
                 )

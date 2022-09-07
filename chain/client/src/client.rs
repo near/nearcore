@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use near_client_primitives::debug::BlockProduction;
+use near_client_primitives::debug::ChunkProduction;
 use near_primitives::time::Clock;
 use tracing::{debug, error, info, trace, warn};
 
@@ -41,9 +41,10 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 
+use crate::debug::BlockProductionTracker;
+use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
-use near_chain::types::ValidatorInfoIdentifier;
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
 use near_network_primitives::types::{
@@ -53,6 +54,7 @@ use near_o11y::log_assert;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::views::CatchupStatusView;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -66,15 +68,15 @@ pub const EPOCH_SYNC_PEER_TIMEOUT: Duration = Duration::from_millis(10);
 /// number of blocks at the epoch start for which we will log more detailed info
 pub const EPOCH_START_INFO_BLOCKS: u64 = 500;
 
-/// Number of blocks (and chunks) for which to keep the detailed timing information for debug purposes.
-pub const PRODUCTION_TIMES_CACHE_SIZE: usize = 1000;
-
 pub struct Client {
     /// Adversarial controls
     #[cfg(feature = "test_features")]
     pub adv_produce_blocks: bool,
     #[cfg(feature = "test_features")]
     pub adv_produce_blocks_only_valid: bool,
+    /// Controls the height which is broadcasted to other peers.
+    #[cfg(feature = "test_features")]
+    pub adv_sync_height: Option<BlockHeight>,
 
     /// Fast Forward accrued delta height used to calculate fast forwarded timestamps for each block.
     #[cfg(feature = "sandbox")]
@@ -115,10 +117,11 @@ pub struct Client {
     /// again to prevent network from stalling if a large percentage of the network missed a block
     last_time_head_progress_made: Instant,
 
-    /// Block and chunk production timing information.
-    /// used only for debug purposes.
-    pub block_production_times: lru::LruCache<BlockHeight, BlockProduction>,
-    pub chunk_production_times: lru::LruCache<(BlockHeight, ShardId), Duration>,
+    /// Block production timing information. Used only for debug purposes.
+    /// Stores approval information and production time of the block
+    pub block_production_info: BlockProductionTracker,
+    /// Chunk production timing information. Used only for debug purposes.
+    pub chunk_production_info: lru::LruCache<(BlockHeight, ShardId), ChunkProduction>,
 
     /// Cached precomputed set of TIER1 accounts.
     /// See send_network_chain_info().
@@ -221,6 +224,8 @@ impl Client {
             adv_produce_blocks: false,
             #[cfg(feature = "test_features")]
             adv_produce_blocks_only_valid: false,
+            #[cfg(feature = "test_features")]
+            adv_sync_height: None,
             #[cfg(feature = "sandbox")]
             accrued_fastforward_delta: 0,
             config,
@@ -241,8 +246,8 @@ impl Client {
             rs: ReedSolomonWrapper::new(data_parts, parity_parts),
             rebroadcasted_blocks: lru::LruCache::new(NUM_REBROADCAST_BLOCKS),
             last_time_head_progress_made: Clock::instant(),
-            block_production_times: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
-            chunk_production_times: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
+            block_production_info: BlockProductionTracker::new(),
+            chunk_production_info: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
             tier1_accounts_cache: None,
         })
     }
@@ -461,6 +466,13 @@ impl Client {
             .runtime_adapter
             .get_epoch_id_from_prev_block(&head.last_block_hash)
             .expect("Epoch hash should exist at this point");
+        let protocol_version = self
+            .runtime_adapter
+            .get_epoch_protocol_version(&epoch_id)
+            .expect("Epoch info should be ready at this point");
+        if protocol_version > PROTOCOL_VERSION {
+            panic!("The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}", PROTOCOL_VERSION, protocol_version);
+        }
 
         let approvals = self
             .runtime_adapter
@@ -517,16 +529,15 @@ impl Client {
         let mut chunks = Chain::get_prev_chunk_headers(&*self.runtime_adapter, &prev_block)?;
 
         // Add debug information about the block production (and info on when did the chunks arrive).
-        self.block_production_times.put(
+        self.block_production_info.record_block_production(
             next_height,
-            BlockProduction {
-                block_production_time: Some(chrono::Utc::now()),
-                chunks_collection_time: (0..chunks.len() as u64)
-                    .map(|shard_id| {
-                        new_chunks.get(&shard_id).map(|(_, arrival_time)| arrival_time.clone())
-                    })
-                    .collect::<Vec<_>>(),
-            },
+            BlockProductionTracker::construct_chunk_collection_info(
+                next_height,
+                &epoch_id,
+                chunks.len() as ShardId,
+                &new_chunks,
+                &*self.runtime_adapter,
+            )?,
         );
 
         // Collect new chunks.
@@ -712,7 +723,13 @@ impl Client {
         );
 
         metrics::CHUNK_PRODUCED_TOTAL.inc();
-        self.chunk_production_times.put((next_height, shard_id), timer.elapsed());
+        self.chunk_production_info.put(
+            (next_height, shard_id),
+            ChunkProduction {
+                chunk_production_time: Some(Clock::utc()),
+                chunk_production_duration_millis: Some(timer.elapsed().as_millis() as u64),
+            },
+        );
         Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
     }
 
@@ -1030,7 +1047,7 @@ impl Client {
     ) {
         match process_result {
             ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts => {
-                self.chain.blocks_delay_tracker.mark_chunk_completed(&header, Clock::instant());
+                self.chain.blocks_delay_tracker.mark_chunk_completed(&header, Clock::utc());
                 // We're marking chunk as accepted.
                 self.chain.blocks_with_missing_chunks.accept_chunk(&header.chunk_hash());
                 // If this was the last chunk that was missing for a block, it will be processed now.
@@ -1223,14 +1240,6 @@ impl Client {
                 log_assert!(result.is_ok(), "Can't clear old data, {:?}", result);
             }
 
-            if self.runtime_adapter.is_next_block_epoch_start(block.hash()).unwrap_or(false) {
-                let next_epoch_protocol_version = unwrap_or_return!(self
-                    .runtime_adapter
-                    .get_epoch_protocol_version(block.header().next_epoch_id()));
-                if next_epoch_protocol_version > PROTOCOL_VERSION {
-                    panic!("The client protocol version is older than the protocol version of the network. Please update nearcore");
-                }
-            }
             // send_network_chain_info should be called whenever the chain head changes.
             // See send_network_chain_info() for more details.
             if let Err(err) = self.send_network_chain_info() {
@@ -1368,7 +1377,7 @@ impl Client {
         blocks_missing_chunks: Vec<BlockMissingChunks>,
         orphans_missing_chunks: Vec<OrphanMissingChunks>,
     ) {
-        let now = Clock::instant();
+        let now = Clock::utc();
         for BlockMissingChunks { prev_hash, missing_chunks } in blocks_missing_chunks {
             for chunk in &missing_chunks {
                 self.chain.blocks_delay_tracker.mark_chunk_requested(chunk, now);
@@ -1492,7 +1501,7 @@ impl Client {
         let parent_hash = match inner {
             ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {
-                match self.chain.get_header_by_height(*parent_height) {
+                match self.chain.get_block_header_by_height(*parent_height) {
                     Ok(header) => *header.hash(),
                     Err(e) => {
                         self.handle_process_approval_error(approval, approval_type, true, e);
@@ -1811,7 +1820,7 @@ impl Client {
     /// Walks through all the ongoing state syncs for future epochs and processes them
     pub fn run_catchup(
         &mut self,
-        highest_height_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &[FullPeerInfo],
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
@@ -1959,28 +1968,53 @@ impl Client {
     /// in advance (before the epoch starts and they are actually needed).
     ///
     /// The result of the last call to get_tier1_accounts() is cached, so that it is not recomputed
-    /// if the current epoch didn't change since the last call. In particular SetChainInfo is send
-    /// after every block is processed (order of seconds), while the epoch changes way less
+    /// if the current epoch didn't change since the last call. In particular SetChainInfo is being
+    /// send after processing each block (order of seconds), while the epoch changes way less
     /// frequently (order of hours).
     fn get_tier1_accounts(&mut self, tip: &Tip) -> Result<Arc<AccountKeys>, Error> {
         match &self.tier1_accounts_cache {
             Some(it) if it.0 == tip.epoch_id => return Ok(it.1.clone()),
             _ => {}
         }
-        let info = self
-            .runtime_adapter
-            .get_validator_info(ValidatorInfoIdentifier::BlockHash(tip.last_block_hash))?;
+
+        let _guard =
+            tracing::debug_span!(target: "client", "get_tier1_accounts(): recomputing").entered();
+
+        // What we really need are: chunk producers, block producers and block approvers for
+        // this epoch and the beginnig of the next epoch (so that all required connections are
+        // established in advance). Note that block producers and block approvers are not
+        // exactly the same - last blocks of this epoch will also need to be signed by the
+        // block producers of the next epoch. On the other hand, block approvers
+        // of the next epoch will also include block producers of the N+2 epoch (which we
+        // definitely don't need to connect to right now). Still, as long as there is no big churn
+        // in the set of block producers, it doesn't make much difference.
+        //
+        // With the current implementation we just fetch chunk producers and block producers
+        // of this and the next epoch (which covers what we need, as described above), but may
+        // require some tuning in the future. In particular, if we decide that connecting to
+        // block & chunk producers of the next expoch is too expensive, we can postpone it
+        // till almost the end of this epoch.
         let mut accounts = HashMap::new();
-        accounts.extend(
-            info.current_validators
-                .into_iter()
-                .map(|v| ((tip.epoch_id.clone(), v.account_id), v.public_key)),
-        );
-        accounts.extend(
-            info.next_validators
-                .into_iter()
-                .map(|v| ((tip.next_epoch_id.clone(), v.account_id), v.public_key)),
-        );
+        for epoch_id in [&tip.epoch_id, &tip.next_epoch_id] {
+            // We assume here that calls to get_epoch_chunk_producers and get_epoch_block_producers_ordered
+            // are cheaper than block processing (and that they will work with both this and
+            // the next epoch). The caching on top of that (in tier1_accounts_cache field) is just
+            // a defence in depth, based on the previous experience with expensive
+            // RuntimeAdapter::get_validators_info call.
+            accounts.extend(
+                self.runtime_adapter.get_epoch_chunk_producers(epoch_id)?.iter().map(|it| {
+                    ((epoch_id.clone(), it.account_id().clone()), it.public_key().clone())
+                }),
+            );
+            accounts.extend(
+                self.runtime_adapter
+                    .get_epoch_block_producers_ordered(epoch_id, &tip.last_block_hash)?
+                    .iter()
+                    .map(|(it, _)| {
+                        ((epoch_id.clone(), it.account_id().clone()), it.public_key().clone())
+                    }),
+            );
+        }
         let accounts = Arc::new(accounts);
         self.tier1_accounts_cache = Some((tip.epoch_id.clone(), accounts.clone()));
         Ok(accounts)
@@ -2003,7 +2037,7 @@ impl Client {
     /// send_network_chain_info() call site would be ugly (we just log the error).
     /// In theory we should already have the tip at the call-site, eg from
     /// check_And_update_doomslug_tip, but that would require a bigger refactor.
-    fn send_network_chain_info(&mut self) -> Result<(), Error> {
+    pub(crate) fn send_network_chain_info(&mut self) -> Result<(), Error> {
         let tip = self.chain.head()?;
         // convert config tracked shards
         // runtime will track all shards if config tracked shards is not empty
@@ -2015,11 +2049,36 @@ impl Client {
             (0..num_shards).collect()
         };
         let tier1_accounts = self.get_tier1_accounts(&tip)?;
+        let height = tip.height;
+        #[cfg(feature = "test_features")]
+        let height = self.adv_sync_height.unwrap_or(height);
         self.network_adapter.do_send(SetChainInfo(ChainInfo {
-            height: tip.height,
+            height,
             tracked_shards,
             tier1_accounts,
         }));
         Ok(())
+    }
+}
+
+impl Client {
+    pub fn get_catchup_status(&self) -> Result<Vec<CatchupStatusView>, near_chain::Error> {
+        let mut ret = vec![];
+        for (sync_hash, (_, shard_sync_state, block_catchup_state)) in
+            self.catchup_state_syncs.iter()
+        {
+            let sync_block_height = self.chain.get_block_header(sync_hash)?.height();
+            let shard_sync_status: HashMap<_, _> = shard_sync_state
+                .iter()
+                .map(|(shard_id, state)| (*shard_id, state.status.to_string()))
+                .collect();
+            ret.push(CatchupStatusView {
+                sync_block_hash: *sync_hash,
+                sync_block_height,
+                shard_sync_status,
+                blocks_to_catchup: self.chain.get_block_catchup_status(block_catchup_state),
+            });
+        }
+        Ok(ret)
     }
 }

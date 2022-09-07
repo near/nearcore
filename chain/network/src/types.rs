@@ -1,6 +1,6 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    AccountData, Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
+    Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate, SignedAccountData,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
 use futures::future::BoxFuture;
@@ -57,30 +57,6 @@ pub struct SetChainInfo(pub ChainInfo);
 #[derive(Debug, actix::Message)]
 #[rtype(result = "NetworkInfo")]
 pub struct GetNetworkInfo;
-
-/// Peer stats query.
-#[derive(actix::Message)]
-#[rtype(result = "PeerStatsResult")]
-pub struct QueryPeerStats {
-    pub(crate) context: opentelemetry::Context,
-}
-
-/// Peer stats result
-#[derive(Debug, actix::MessageResponse)]
-pub struct PeerStatsResult {
-    /// Chain info.
-    pub chain_info: PeerChainInfoV2,
-    /// Number of bytes we've received from the peer.
-    pub received_bytes_per_sec: u64,
-    /// Number of bytes we've sent to the peer.
-    pub sent_bytes_per_sec: u64,
-    /// Returns if this peer is abusive and should be banned.
-    pub is_abusive: bool,
-    /// Counts of incoming/outgoing messages from given peer.
-    pub message_counts: (usize, usize),
-    /// Encoding used for communication.
-    pub encoding: Option<Encoding>,
-}
 
 /// Public actix interface of `PeerManagerActor`.
 #[derive(actix::Message, Debug, strum::IntoStaticStr)]
@@ -230,8 +206,6 @@ pub enum NetworkRequests {
     ForwardTx(AccountId, SignedTransaction),
     /// Query transaction status
     TxStatus(AccountId, AccountId, CryptoHash),
-    /// Request for receipt execution outcome
-    ReceiptOutComeRequest(AccountId, CryptoHash),
     /// A challenge to invalidate a block.
     Challenge(Challenge),
 }
@@ -318,8 +292,7 @@ pub struct NetworkInfo {
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
-    pub peer_counter: usize,
-    pub tier1_accounts: Vec<AccountData>,
+    pub tier1_accounts: Vec<Arc<SignedAccountData>>,
 }
 
 impl From<NetworkInfo> for NetworkInfoView {

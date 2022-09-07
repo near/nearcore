@@ -16,7 +16,6 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 use serde::Serialize;
@@ -34,7 +33,9 @@ pub use crate::network_protocol::{
 };
 
 pub use crate::blacklist::{Blacklist, Entry as BlacklistEntry};
-pub use crate::network_protocol::edge::{Edge, EdgeState, PartialEdgeInfo};
+pub use crate::network_protocol::edge::{
+    Edge, EdgeState, PartialEdgeInfo, EDGE_MIN_TIMESTAMP_NONCE,
+};
 
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
@@ -43,8 +44,7 @@ pub const ROUTED_MESSAGE_TTL: u8 = 100;
 /// On every message from peer don't update `last_time_received_message`
 /// but wait some "small" timeout between updates to avoid a lot of messages between
 /// Peer and PeerManager.
-pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: std::time::Duration =
-    std::time::Duration::from_secs(60);
+pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: time::Duration = time::Duration::seconds(60);
 /// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
 pub const MAX_NUM_PEERS: usize = 128;
 
@@ -110,14 +110,14 @@ impl RawRoutedMessage {
     /// Panics if the target is an AccountId instead of a PeerId.
     pub fn sign(
         self,
-        author: PeerId,
-        secret_key: &SecretKey,
+        node_key: &SecretKey,
         routed_message_ttl: u8,
         now: Option<time::Utc>,
-    ) -> Box<RoutedMessageV2> {
+    ) -> RoutedMessageV2 {
+        let author = PeerId::new(node_key.public_key());
         let target = self.target.peer_id_or_hash().unwrap();
         let hash = RoutedMessage::build_hash(&target, &author, &self.body);
-        let signature = secret_key.sign(hash.as_ref());
+        let signature = node_key.sign(hash.as_ref());
         RoutedMessageV2 {
             msg: RoutedMessage {
                 target,
@@ -128,19 +128,7 @@ impl RawRoutedMessage {
             },
             created_at: now,
         }
-        .into()
     }
-}
-
-/// Routed Message wrapped with previous sender of the message.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(actix::Message, Clone, Debug)]
-#[rtype(result = "bool")]
-pub struct RoutedMessageFrom {
-    /// Routed messages.
-    pub msg: Box<RoutedMessageV2>,
-    /// Previous hop in the route. Used for messages that needs routing back.
-    pub from: PeerId,
 }
 
 /// Status of the known peers.
@@ -293,10 +281,6 @@ pub enum NetworkViewClientMessages {
     TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
     /// Transaction status response
     TxStatusResponse(Box<FinalExecutionOutcomeView>),
-    /// Request for receipt outcome
-    ReceiptOutcomeRequest(CryptoHash),
-    /// Receipt outcome response
-    ReceiptOutcomeResponse(Box<ExecutionOutcomeWithIdAndProof>),
     /// Request a block.
     BlockRequest(CryptoHash),
     /// Request headers.
@@ -319,8 +303,6 @@ pub enum NetworkViewClientMessages {
 pub enum NetworkViewClientResponses {
     /// Transaction execution outcome
     TxStatus(Box<FinalExecutionOutcomeView>),
-    /// Receipt outcome response
-    ReceiptOutcomeResponse(Box<ExecutionOutcomeWithIdAndProof>),
     /// Block response.
     Block(Box<Block>),
     /// Headers response.
@@ -376,7 +358,6 @@ mod tests {
         assert_size!(Pong);
         assert_size!(RawRoutedMessage);
         assert_size!(RoutedMessage);
-        assert_size!(RoutedMessageFrom);
         assert_size!(KnownPeerState);
         assert_size!(InboundTcpConnect);
         assert_size!(OutboundTcpConnect);

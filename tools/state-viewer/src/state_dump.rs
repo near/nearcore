@@ -140,10 +140,10 @@ pub fn state_dump_redis(
     let block_hash = last_block_header.hash();
 
     for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let trie =
-            runtime.get_trie_for_shard(shard_id as u64, last_block_header.prev_hash()).unwrap();
-        let trie = trie.iter(&state_root).unwrap();
-        for item in trie {
+        let trie = runtime
+            .get_trie_for_shard(shard_id as u64, last_block_header.prev_hash(), state_root.clone())
+            .unwrap();
+        for item in trie.iter().unwrap() {
             let (key, value) = item.unwrap();
             if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
                 if let StateRecord::Account { account_id, account } = &sr {
@@ -231,10 +231,10 @@ fn iterate_over_records(
     };
     let mut total_supply = 0;
     for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let trie =
-            runtime.get_trie_for_shard(shard_id as u64, last_block_header.prev_hash()).unwrap();
-        let trie = trie.iter(state_root).unwrap();
-        for item in trie {
+        let trie = runtime
+            .get_trie_for_shard(shard_id as u64, last_block_header.prev_hash(), state_root.clone())
+            .unwrap();
+        for item in trie.iter().unwrap() {
             let (key, value) = item.unwrap();
             if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {
                 if !should_include_record(&sr, &account_allowlist) {
@@ -320,7 +320,7 @@ mod test {
     fn setup(
         epoch_length: NumBlocks,
         protocol_version: ProtocolVersion,
-        simple_nightshade_layout: Option<ShardLayout>,
+        use_production_config: bool,
     ) -> (Store, Genesis, TestEnv, NearConfig) {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -328,7 +328,7 @@ mod test {
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = protocol_version;
-        genesis.config.simple_nightshade_shard_layout = simple_nightshade_layout;
+        genesis.config.use_production_config = use_production_config;
         let store = create_test_store();
         let nightshade_runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         let mut chain_genesis = ChainGenesis::test();
@@ -382,7 +382,7 @@ mod test {
     #[test]
     fn test_dump_state_preserve_validators() {
         let epoch_length = 4;
-        let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, None);
+        let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
@@ -430,7 +430,7 @@ mod test {
     #[test]
     fn test_dump_state_respect_select_account_ids() {
         let epoch_length = 4;
-        let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, None);
+        let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
 
         let signer0 =
@@ -501,11 +501,11 @@ mod test {
         expected_accounts.extend(select_account_ids.clone());
         expected_accounts.insert(new_genesis.config.protocol_treasury_account.clone());
         let mut actual_accounts: HashSet<AccountId> = HashSet::new();
-        for record in new_genesis.records.0.iter() {
+        new_genesis.for_each_record(|record| {
             if let StateRecord::Account { account_id, .. } = record {
                 actual_accounts.insert(account_id.clone());
             }
-        }
+        });
         assert_eq!(expected_accounts, actual_accounts);
         validate_genesis(&new_genesis);
     }
@@ -514,7 +514,7 @@ mod test {
     #[test]
     fn test_dump_state_preserve_validators_inmemory() {
         let epoch_length = 4;
-        let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, None);
+        let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
@@ -561,7 +561,7 @@ mod test {
     #[test]
     fn test_dump_state_return_locked() {
         let epoch_length = 4;
-        let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, None);
+        let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
@@ -609,19 +609,18 @@ mod test {
     #[test]
     fn test_dump_state_shard_upgrade() {
         let epoch_length = 4;
-        let (store, genesis, mut env, near_config) = setup(
-            epoch_length,
-            SimpleNightshade.protocol_version() - 1,
-            Some(ShardLayout::v1_test()),
-        );
+        let (store, genesis, mut env, near_config) =
+            setup(epoch_length, SimpleNightshade.protocol_version() - 1, true);
         for i in 1..=2 * epoch_length + 1 {
-            env.produce_block(0, i);
+            let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
+            block.mut_header().set_latest_protocol_version(SimpleNightshade.protocol_version());
+            env.process_block(0, block, Provenance::PRODUCED);
             run_catchup(&mut env.clients[0], &vec![]).unwrap();
         }
         let head = env.clients[0].chain.head().unwrap();
         assert_eq!(
             env.clients[0].runtime_adapter.get_shard_layout(&head.epoch_id).unwrap(),
-            ShardLayout::v1_test()
+            ShardLayout::get_simple_nightshade_layout(),
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
 
@@ -639,7 +638,7 @@ mod test {
         );
         let new_genesis = new_near_config.genesis;
 
-        assert_eq!(new_genesis.config.shard_layout, ShardLayout::v1_test());
+        assert_eq!(new_genesis.config.shard_layout, ShardLayout::get_simple_nightshade_layout());
         assert_eq!(new_genesis.config.num_block_producer_seats_per_shard, vec![2; 4]);
         assert_eq!(new_genesis.config.avg_hidden_validator_seats_per_shard, vec![0; 4]);
     }
@@ -799,7 +798,7 @@ mod test {
     #[test]
     fn test_dump_state_respect_select_whitelist_validators() {
         let epoch_length = 4;
-        let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, None);
+        let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
 
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
@@ -854,18 +853,12 @@ mod test {
             vec!["test1".parse().unwrap()]
         );
 
-        let stake: HashMap<AccountId, Balance> = new_genesis
-            .records
-            .0
-            .iter()
-            .filter_map(|x| {
-                if let StateRecord::Account { account_id, account } = x {
-                    Some((account_id.clone(), account.locked()))
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let mut stake = HashMap::<AccountId, Balance>::new();
+        new_genesis.for_each_record(|record| {
+            if let StateRecord::Account { account_id, account } = record {
+                stake.insert(account_id.clone(), account.locked());
+            }
+        });
 
         assert_eq!(stake.get("test0").unwrap_or(&(0 as Balance)), &(0 as Balance));
 

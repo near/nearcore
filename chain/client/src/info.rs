@@ -1,11 +1,10 @@
 use crate::{metrics, rocksdb_metrics, SyncStatus};
 use actix::Addr;
+use itertools::Itertools;
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
-use near_client_primitives::types::ShardSyncStatus;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
-use near_primitives::serialize::to_base;
 use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
 };
@@ -15,7 +14,9 @@ use near_primitives::types::{
 };
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::Version;
-use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo, ValidatorKickoutView};
+use near_primitives::views::{
+    CatchupStatusView, CurrentEpochValidatorInfo, EpochValidatorInfo, ValidatorKickoutView,
+};
 use near_store::db::StoreStatistics;
 use near_telemetry::{telemetry, TelemetryActor};
 use std::cmp::min;
@@ -119,6 +120,7 @@ impl InfoHelper {
         &mut self,
         head: &Tip,
         sync_status: &SyncStatus,
+        catchup_status: Vec<CatchupStatusView>,
         node_id: &PeerId,
         network_info: &NetworkInfo,
         validator_info: Option<ValidatorInfoHelper>,
@@ -137,6 +139,8 @@ impl InfoHelper {
         let s = |num| if num == 1 { "" } else { "s" };
 
         let sync_status_log = Some(display_sync_status(sync_status, head));
+
+        let catchup_status_log = display_catchup_status(catchup_status);
 
         let validator_info_log = validator_info.as_ref().map(|info| {
             format!(
@@ -185,6 +189,9 @@ impl InfoHelper {
             paint(ansi_term::Colour::Green, blocks_info_log),
             paint(ansi_term::Colour::Blue, machine_info_log),
         );
+        if catchup_status_log != "" {
+            info!(target:"stats", "Catchups\n{}", catchup_status_log);
+        }
         if let Some(statistics) = statistics {
             rocksdb_metrics::export_stats_as_metrics(statistics);
         }
@@ -276,9 +283,15 @@ impl InfoHelper {
                 account_id: self.validator_signer.as_ref().map(|bp| bp.validator_id().clone()),
                 is_validator,
                 status: sync_status.as_variant_name().to_string(),
-                latest_block_hash: to_base(&head.last_block_hash),
+                latest_block_hash: head.last_block_hash.clone(),
                 latest_block_height: head.height,
                 num_peers: network_info.num_connected_peers,
+                block_production_tracking_delay: client_config
+                    .block_production_tracking_delay
+                    .as_secs_f64(),
+                min_block_production_delay: client_config.min_block_production_delay.as_secs_f64(),
+                max_block_production_delay: client_config.max_block_production_delay.as_secs_f64(),
+                max_block_wait_delay: client_config.max_block_wait_delay.as_secs_f64(),
             },
             extra_info: serde_json::to_string(&extra_telemetry_info(client_config)).unwrap(),
         };
@@ -298,6 +311,36 @@ fn extra_telemetry_info(client_config: &ClientConfig) -> serde_json::Value {
         "max_block_production_delay": client_config.max_block_production_delay.as_secs_f64(),
         "max_block_wait_delay": client_config.max_block_wait_delay.as_secs_f64(),
     })
+}
+
+pub fn display_catchup_status(catchup_status: Vec<CatchupStatusView>) -> String {
+    catchup_status
+        .into_iter()
+        .map(|catchup_status| {
+            let shard_sync_string = catchup_status
+                .shard_sync_status
+                .iter()
+                .sorted_by_key(|x| x.0)
+                .map(|(shard_id, status_string)| format!("Shard {} {}", shard_id, status_string))
+                .join(", ");
+            let block_catchup_string = if catchup_status.blocks_to_catchup.len() == 0 {
+                "done".to_string()
+            } else {
+                catchup_status
+                    .blocks_to_catchup
+                    .iter()
+                    .map(|block_view| format!("{:?}@{:?}", block_view.hash, block_view.height))
+                    .join(", ")
+            };
+            format!(
+                "Sync block {:?}@{:?} \nShard sync status: {}\nNext blocks to catch up: {}",
+                catchup_status.sync_block_hash,
+                catchup_status.sync_block_height,
+                shard_sync_string,
+                block_catchup_string,
+            )
+        })
+        .join("\n")
 }
 
 pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
@@ -343,22 +386,7 @@ pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
             let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
             for (shard_id, shard_status) in shard_statuses {
-                write!(
-                    res,
-                    "[{}: {}]",
-                    shard_id,
-                    match shard_status.status {
-                        ShardSyncStatus::StateDownloadHeader => "header",
-                        ShardSyncStatus::StateDownloadParts => "parts",
-                        ShardSyncStatus::StateDownloadScheduling => "scheduling",
-                        ShardSyncStatus::StateDownloadApplying => "applying",
-                        ShardSyncStatus::StateDownloadComplete => "download complete",
-                        ShardSyncStatus::StateSplitScheduling => "split scheduling",
-                        ShardSyncStatus::StateSplitApplying => "split applying",
-                        ShardSyncStatus::StateSyncDone => "done",
-                    }
-                )
-                .unwrap();
+                write!(res, "[{}: {}]", shard_id, shard_status.status.to_string(),).unwrap();
             }
             res
         }
@@ -526,7 +554,6 @@ mod tests {
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,
                 known_producers: vec![],
-                peer_counter: 0,
                 tier1_accounts: vec![],
             },
             &config,

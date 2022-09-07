@@ -1,6 +1,7 @@
 use paperclip::actix::{api_v2_errors, Apiv2Schema};
 
-use near_primitives::{serialize::BaseEncode, types::Nonce};
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{BlockHeight, Nonce};
 
 use crate::utils::{BlobInHexString, BorshInHexString};
 
@@ -174,19 +175,21 @@ pub(crate) struct Block {
 pub(crate) struct BlockIdentifier {
     /// This is also known as the block height.
     pub index: i64,
-
     pub hash: String,
 }
 
-impl From<&near_primitives::views::BlockHeaderView> for BlockIdentifier {
-    fn from(header: &near_primitives::views::BlockHeaderView) -> Self {
+impl BlockIdentifier {
+    pub fn new(height: BlockHeight, hash: &CryptoHash) -> Self {
         Self {
-            index: header
-                .height
-                .try_into()
-                .expect("Rosetta only supports block indecies up to i64::MAX"),
-            hash: header.hash.to_base(),
+            index: height.try_into().expect("Rosetta only supports block indecies up to i64::MAX"),
+            hash: hash.to_string(),
         }
+    }
+}
+
+impl From<&near_primitives::views::BlockView> for BlockIdentifier {
+    fn from(block: &near_primitives::views::BlockView) -> Self {
+        Self::new(block.header.height, &block.header.hash)
     }
 }
 
@@ -1073,7 +1076,7 @@ impl TransactionIdentifier {
         prefix: &'static str,
         hash: &near_primitives::hash::CryptoHash,
     ) -> Self {
-        Self { hash: format!("{}:{}", prefix, hash.to_base()) }
+        Self { hash: format!("{}:{}", prefix, hash) }
     }
 }
 

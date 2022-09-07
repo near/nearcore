@@ -4,7 +4,7 @@ use crate::{Block, BlockProcessingArtifact, ChainStoreAccess, Error};
 use assert_matches::assert_matches;
 use chrono;
 use chrono::TimeZone;
-use near_logger_utils::init_test_logger;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::time::MockClockGuard;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -42,15 +42,16 @@ fn build_chain() {
     //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"FxxmGH4peXwKR5C9YiSKjX7nWVg3zBuvjp9k5bTF1yDs");
+        insta::assert_display_snapshot!(hash, @"HTpETHnBkxcX1h3eD87uC5YP5nV66E6UYPrJGnQHuRqt");
     } else {
-        insta::assert_display_snapshot!(hash, @"6sAno2uEwwQ5yiDscePWY8HWmRJLpGNv39uoff3BCpxT");
+        insta::assert_display_snapshot!(hash, @"H9xDK5MNxmDuS9P5i8P2ZLCLbdJRXpsXhUzwe6BeD75J");
     }
 
     for i in 1..5 {
         // two entries, because the clock is called 2 times per block
         // - one time for creation of the block
         // - one time for validating block header
+        mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
         mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
         mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
         // Instant calls for CryptoHashTimer.
@@ -67,15 +68,15 @@ fn build_chain() {
         assert_eq!(chain.head().unwrap().height, i as u64);
     }
 
-    assert_eq!(mock_clock_guard.utc_call_count(), 10);
+    assert_eq!(mock_clock_guard.utc_call_count(), 14);
     assert_eq!(mock_clock_guard.instant_call_count(), 21);
     assert_eq!(chain.head().unwrap().height, 4);
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"43q5wcc9rdsocY2Htbk7vT88x6zkka5Vr17CQJUTkT9n");
+        insta::assert_display_snapshot!(hash, @"HyDYbjs5tgeEDf1N1XB4m312VdCeKjHqeGQ7dc7Lqwv8");
     } else {
-        insta::assert_display_snapshot!(hash, @"Fn9MgjUx6VXhPYNqqDtf2C9kBVveY2vuSLXNLZUNJCqK");
+        insta::assert_display_snapshot!(hash, @"DisE1kbb7RTcJVgjoNYQCuM9TYus6fEG8AJY3cL9LmDz");
     }
 }
 
@@ -150,8 +151,8 @@ fn build_chain_with_skips_and_forks() {
     assert!(chain.process_block_test(&None, b3).is_ok());
     assert!(chain.process_block_test(&None, b4).is_ok());
     assert!(chain.process_block_test(&None, b5).is_ok());
-    assert!(chain.get_header_by_height(1).is_err());
-    assert_eq!(chain.get_header_by_height(5).unwrap().height(), 5);
+    assert!(chain.get_block_header_by_height(1).is_err());
+    assert_eq!(chain.get_block_header_by_height(5).unwrap().height(), 5);
 }
 
 /// Verifies that the block at height are updated correctly when blocks from different forks are
@@ -198,9 +199,9 @@ fn blocks_at_height() {
     chain.process_block_test(&None, b_3).unwrap();
     assert_eq!(chain.header_head().unwrap().height, 3);
 
-    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), &b_1_hash);
-    assert_eq!(chain.get_header_by_height(2).unwrap().hash(), &b_2_hash);
-    assert_eq!(chain.get_header_by_height(3).unwrap().hash(), &b_3_hash);
+    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &b_1_hash);
+    assert_eq!(chain.get_block_header_by_height(2).unwrap().hash(), &b_2_hash);
+    assert_eq!(chain.get_block_header_by_height(3).unwrap().hash(), &b_3_hash);
 
     chain.process_block_test(&None, c_1).unwrap();
     chain.process_block_test(&None, c_3).unwrap();
@@ -208,31 +209,31 @@ fn blocks_at_height() {
     chain.process_block_test(&None, c_5).unwrap();
     assert_eq!(chain.header_head().unwrap().height, 5);
 
-    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), &c_1_hash);
-    assert!(chain.get_header_by_height(2).is_err());
-    assert_eq!(chain.get_header_by_height(3).unwrap().hash(), &c_3_hash);
-    assert_eq!(chain.get_header_by_height(4).unwrap().hash(), &c_4_hash);
-    assert_eq!(chain.get_header_by_height(5).unwrap().hash(), &c_5_hash);
+    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &c_1_hash);
+    assert!(chain.get_block_header_by_height(2).is_err());
+    assert_eq!(chain.get_block_header_by_height(3).unwrap().hash(), &c_3_hash);
+    assert_eq!(chain.get_block_header_by_height(4).unwrap().hash(), &c_4_hash);
+    assert_eq!(chain.get_block_header_by_height(5).unwrap().hash(), &c_5_hash);
 
     chain.process_block_test(&None, d_3).unwrap();
     chain.process_block_test(&None, d_4).unwrap();
     chain.process_block_test(&None, d_6).unwrap();
     assert_eq!(chain.header_head().unwrap().height, 6);
 
-    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), &b_1_hash);
-    assert_eq!(chain.get_header_by_height(2).unwrap().hash(), &b_2_hash);
-    assert_eq!(chain.get_header_by_height(3).unwrap().hash(), &d_3_hash);
-    assert_eq!(chain.get_header_by_height(4).unwrap().hash(), &d_4_hash);
-    assert!(chain.get_header_by_height(5).is_err());
-    assert_eq!(chain.get_header_by_height(6).unwrap().hash(), &d_6_hash);
+    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &b_1_hash);
+    assert_eq!(chain.get_block_header_by_height(2).unwrap().hash(), &b_2_hash);
+    assert_eq!(chain.get_block_header_by_height(3).unwrap().hash(), &d_3_hash);
+    assert_eq!(chain.get_block_header_by_height(4).unwrap().hash(), &d_4_hash);
+    assert!(chain.get_block_header_by_height(5).is_err());
+    assert_eq!(chain.get_block_header_by_height(6).unwrap().hash(), &d_6_hash);
 
     chain.process_block_test(&None, e_7).unwrap();
 
-    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), &b_1_hash);
+    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &b_1_hash);
     for h in 2..=5 {
-        assert!(chain.get_header_by_height(h).is_err());
+        assert!(chain.get_block_header_by_height(h).is_err());
     }
-    assert_eq!(chain.get_header_by_height(7).unwrap().hash(), &e_7_hash);
+    assert_eq!(chain.get_block_header_by_height(7).unwrap().hash(), &e_7_hash);
 }
 
 #[test]
