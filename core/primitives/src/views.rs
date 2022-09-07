@@ -211,7 +211,7 @@ pub struct StateItem {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ViewStateResult {
     pub values: Vec<StateItem>,
-    pub proof: Vec<Arc<[u8]>>,
+    pub proof: TrieProofPath,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
