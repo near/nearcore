@@ -515,7 +515,7 @@ async fn construction_metadata(
     })?;
 
     let (block_hash, _block_height, access_key) = crate::utils::query_access_key(
-        near_primitives::types::BlockReference::Finality(near_primitives::types::Finality::Final),
+        near_primitives::types::BlockReference::latest(),
         options.signer_account_id.into(),
         (&signer_public_access_key).try_into().map_err(|err| {
             errors::ErrorKind::InvalidInput(format!(
