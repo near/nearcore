@@ -27,8 +27,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     // Increased deployment costs, increased wasmer2 stack_limit, added limiting of contract locals,
     // set read_cached_trie_node cost, decrease storage key limit
     (53, include_config!("53.txt")),
-    #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
-    (130, include_config!("130.txt")),
+    (57, include_config!("57.txt")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters

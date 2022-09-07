@@ -4,6 +4,9 @@
 
 ### Protocol Changes
 
+* Stabilize `account_id_in_function_call_permission` feature: enforcing validity
+  of account ids in function call permission.
+
 ### Non-protocol Changes
 
 * `use_db_migration_snapshot` and `db_migration_snapshot_path` options are now
