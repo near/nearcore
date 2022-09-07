@@ -6,6 +6,10 @@
 
 ### Non-protocol Changes
 
+* `use_db_migration_snapshot` and `db_migration_snapshot_path` options are now
+  deprecated.  If they are set in `config.json` the node will fail if migration
+  needs to be performed.  Use `store.migration_snapshot` instead to configure
+  the behaviour [#7486](https://github.com/near/nearcore/pull/7486)
 * `network.external_address` field in `config.json` file is
   deprecated.  In fact it has never been used and only served to
   confuse everyone [#7300](https://github.com/near/nearcore/pull/7300)
@@ -15,6 +19,13 @@
 * Added `near_peer_message_sent_by_type_bytes` and
   `near_peer_message_sent_by_type_total` Prometheus metrics measuring
   size and number of messages sent to peers.
+* `near_peer_message_received_total` Prometheus metric is now deprecated.
+  Instead of it aggregate `near_peer_message_received_by_type_total` metric
+  instead.  For example, to get total rate of received messages use
+  `sum(rate(near_peer_message_received_by_type_total{...}[5m]))`.
+* Backtraces on panics are enabled by default, so you no longer need to set
+  `RUST_BACKTRACE=1` environmental variable. To disable backtraces, set
+  `RUST_BACKTRACE=0`.
 
 ## 1.28.0 [2022-07-27]
 

@@ -1,12 +1,12 @@
 use crate::network_protocol::Encoding;
-use near_metrics::{
-    exponential_buckets, try_create_histogram, try_create_histogram_vec,
+use near_network_primitives::time;
+use near_network_primitives::types::{PeerType, RoutedMessageBody, RoutedMessageV2};
+use near_o11y::metrics::{
+        exponential_buckets, try_create_histogram, try_create_histogram_vec,
     try_create_histogram_with_buckets, try_create_int_counter, try_create_int_counter_vec,
     try_create_int_gauge, try_create_int_gauge_vec, Histogram, HistogramVec, IntCounter,
     IntCounterVec, IntGauge, IntGaugeVec, MetricVec, MetricVecBuilder,
 };
-use near_network_primitives::time;
-use near_network_primitives::types::{PeerType, RoutedMessageBody, RoutedMessageV2};
 use once_cell::sync::Lazy;
 
 /// Labels represents a schema of an IntGaugeVec metric.
@@ -30,9 +30,9 @@ pub struct GaugePoint(IntGauge);
 
 impl<L: Labels> Gauge<L> {
     /// Constructs a new prometheus Gauge with schema `L`.
-    pub fn new(name: &str, help: &str) -> Result<Self, near_metrics::prometheus::Error> {
+    pub fn new(name: &str, help: &str) -> Result<Self, near_o11y::metrics::prometheus::Error> {
         Ok(Self {
-            inner: near_metrics::try_create_int_gauge_vec(name, help, L::NAMES.as_ref())?,
+            inner: near_o11y::metrics::try_create_int_gauge_vec(name, help, L::NAMES.as_ref())?,
             _labels: std::marker::PhantomData,
         })
     }
@@ -156,10 +156,11 @@ pub(crate) static PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES: Lazy<IntCounterVec> = Laz
     )
     .unwrap()
 });
+// TODO(mina86): This has been deprecated in 1.30.  Remove at 1.32 or so.
 pub(crate) static PEER_MESSAGE_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter(
         "near_peer_message_received_total",
-        "Number of messages received from peers",
+        "Deprecated; aggregate near_peer_message_received_by_type_total instead",
     )
     .unwrap()
 });
@@ -316,7 +317,7 @@ pub static RECEIVED_INFO_ABOUT_ITSELF: Lazy<IntCounter> = Lazy::new(|| {
     .unwrap()
 });
 static DROPPED_MESSAGE_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
-    near_metrics::try_create_int_counter_vec(
+    near_o11y::metrics::try_create_int_counter_vec(
         "near_dropped_message_by_type_and_reason_count",
         "Total count of messages which were dropped by type of message and \
          reason why the message has been dropped",
@@ -333,7 +334,7 @@ pub(crate) static PARTIAL_ENCODED_CHUNK_REQUEST_DELAY: Lazy<Histogram> = Lazy::n
 });
 
 pub(crate) static BROADCAST_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
-    near_metrics::try_create_int_counter_vec(
+    near_o11y::metrics::try_create_int_counter_vec(
         "near_broadcast_msg",
         "Broadcasted messages",
         &["type"],

@@ -54,7 +54,7 @@ fn generate_keys(count: usize, key_size: usize) -> Vec<Vec<u8>> {
 
 /// Read from DB value for given `kyes` in random order for `col`.
 /// Works only for column configured without reference counting, that is `.is_rc() == false`.
-fn read_from_db(store: &Store, keys: &Vec<Vec<u8>>, col: DBCol) -> usize {
+fn read_from_db(store: &Store, keys: &[Vec<u8>], col: DBCol) -> usize {
     let mut read = 0;
     for _k in 0..keys.len() {
         let r = rand::random::<u32>() % (keys.len() as u32);

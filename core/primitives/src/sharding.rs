@@ -514,7 +514,7 @@ impl PartialEncodedChunk {
     }
 
     #[inline]
-    pub fn parts(&self) -> &Vec<PartialEncodedChunkPart> {
+    pub fn parts(&self) -> &[PartialEncodedChunkPart] {
         match self {
             Self::V1(chunk) => &chunk.parts,
             Self::V2(chunk) => &chunk.parts,
@@ -522,7 +522,7 @@ impl PartialEncodedChunk {
     }
 
     #[inline]
-    pub fn receipts(&self) -> &Vec<ReceiptProof> {
+    pub fn receipts(&self) -> &[ReceiptProof] {
         match self {
             Self::V1(chunk) => &chunk.receipts,
             Self::V2(chunk) => &chunk.receipts,
@@ -751,7 +751,7 @@ impl ShardChunk {
     }
 
     #[inline]
-    pub fn receipts(&self) -> &Vec<Receipt> {
+    pub fn receipts(&self) -> &[Receipt] {
         match self {
             Self::V1(chunk) => &chunk.receipts,
             Self::V2(chunk) => &chunk.receipts,
@@ -759,7 +759,7 @@ impl ShardChunk {
     }
 
     #[inline]
-    pub fn transactions(&self) -> &Vec<SignedTransaction> {
+    pub fn transactions(&self) -> &[SignedTransaction] {
         match self {
             Self::V1(chunk) => &chunk.transactions,
             Self::V2(chunk) => &chunk.transactions,

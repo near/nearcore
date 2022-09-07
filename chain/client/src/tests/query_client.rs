@@ -13,7 +13,6 @@ use crate::{
 use near_actix_test_utils::run_actix;
 use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
 use near_crypto::{InMemorySigner, KeyType};
-use near_logger_utils::init_test_logger;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
@@ -22,6 +21,7 @@ use near_network::types::{
 use near_network_primitives::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo,
 };
+use near_o11y::testonly::init_test_logger;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::time::Utc;
 use near_primitives::transaction::SignedTransaction;

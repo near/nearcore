@@ -9,7 +9,7 @@ use nearcore::config::GenesisExt;
 
 #[test]
 fn test_wasmer2_upgrade() {
-    let mut capture = near_o11y::TracingCapture::enable();
+    let mut capture = near_o11y::testonly::TracingCapture::enable();
 
     let old_protocol_version =
         near_primitives::version::ProtocolFeature::Wasmer2.protocol_version() - 1;

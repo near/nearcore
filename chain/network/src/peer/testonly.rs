@@ -3,8 +3,8 @@ use crate::concurrency::demux;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::peer::peer_actor::{PeerActor, StreamConfig};
+use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
-use crate::peer_manager::peer_manager_actor::NetworkState;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::routing::routing_table_view::RoutingTableView;
@@ -170,7 +170,6 @@ impl PeerHandle {
         utc: Option<time::Utc>,
     ) -> RoutedMessageV2 {
         RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id), body }.sign(
-            self.cfg.id(),
             &self.cfg.network.node_key,
             ttl,
             utc,

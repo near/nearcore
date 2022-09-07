@@ -21,7 +21,6 @@ members = [
     "core/account-id/fuzz",
     "core/chain-configs",
     "core/crypto",
-    "core/metrics",
     "core/o11y",
     "core/primitives",
     "core/primitives-core",

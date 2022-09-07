@@ -49,14 +49,12 @@ assert_matches = "1.3"
 delay-detector = { path = "../../tools/delay-detector" }
 near-o11y = { path = "../../core/o11y" }
 near-crypto = { path = "../../core/crypto" }
-near-metrics = { path = "../../core/metrics" }
 near-network-primitives = { path = "../network-primitives" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
 near-primitives = { path = "../../core/primitives" }
 near-stable-hasher = { path = "../../utils/near-stable-hasher"}
 near-store = { path = "../../core/store" }
-near-logger-utils = { path = "../../test-utils/logger" }
 
 [dev-dependencies]
 criterion = { version = "0.3.5", default_features = false, features = ["html_reports", "cargo_bench_support"] }
