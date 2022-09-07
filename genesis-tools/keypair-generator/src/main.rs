@@ -81,7 +81,7 @@ fn main() {
 
                 pks.push(key.public_key());
             }
-            let pks: Vec<_> = pks.into_iter().map(|pk| format!("{}", pk)).collect();
+            let pks: Vec<_> = pks.into_iter().map(|pk| pk.to_string()).collect();
             println!("List of public keys:");
             println!("{}", pks.join(","));
         }

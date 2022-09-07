@@ -567,7 +567,7 @@ fn gen_cross_contract_transaction(
                     "id": 0 },
                 {"action_transfer": {
                     "promise_index": 0,
-                    "amount": format!("{}", NEAR_BASE),
+                    "amount": NEAR_BASE.to_string(),
                 }, "id": 0 },
                 {"action_add_key_with_full_access": {
                     "promise_index": 0,
@@ -575,7 +575,7 @@ fn gen_cross_contract_transaction(
                     "nonce": 0,
                 }, "id": 0 }
             ],
-        "amount": format!("{}", NEAR_BASE),
+        "amount": NEAR_BASE.to_string(),
         "gas": GAS_2,
         }, "id": 1}
     ]);

@@ -620,9 +620,8 @@ impl Client {
         shard_id: ShardId,
     ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
         let timer = Instant::now();
-        let _timer = metrics::PRODUCE_CHUNK_TIME
-            .with_label_values(&[&format!("{}", shard_id)])
-            .start_timer();
+        let _timer =
+            metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         let _span = tracing::debug_span!(target: "client", "produce_chunk", next_height, shard_id, ?epoch_id).entered();
         let validator_signer = self
             .validator_signer
@@ -1340,7 +1339,7 @@ impl Client {
                             ?shard_id)
                         .entered();
                         let _timer = metrics::PRODUCE_AND_DISTRIBUTE_CHUNK_TIME
-                            .with_label_values(&[&format!("{}", shard_id)])
+                            .with_label_values(&[&shard_id.to_string()])
                             .start_timer();
                         match self.produce_chunk(
                             *block.hash(),
