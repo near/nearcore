@@ -108,4 +108,7 @@ skip = [
 
     # prometheus depends on an old version of protobuf
     { name = "protobuf", version = "=2.27.1" },
+
+    # opentelemetry-otlp depends on an old version of tonic which depends on an old version of tokio-util
+    { name = "tokio-util", version = "=0.6.10" },
 ]
