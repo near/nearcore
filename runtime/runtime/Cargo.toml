@@ -26,10 +26,9 @@ borsh = "0.9"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
-near-o11y = { path = "../../core/o11y" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
-near-metrics = { path = "../../core/metrics" }
+near-o11y = { path = "../../core/o11y" }
 near-vm-logic = { path = "../../runtime/near-vm-logic" }
 near-vm-runner = { path = "../../runtime/near-vm-runner" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }

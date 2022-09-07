@@ -5,6 +5,9 @@ pub use {backtrace, tracing, tracing_appender, tracing_subscriber};
 use clap::Parser;
 use once_cell::sync::OnceCell;
 use opentelemetry::sdk::trace::{self, IdGenerator, Sampler, Tracer};
+use opentelemetry::sdk::Resource;
+use opentelemetry::KeyValue;
+use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use std::borrow::Cow;
 use std::path::PathBuf;
 use tracing::level_filters::LevelFilter;
@@ -19,9 +22,8 @@ use tracing_subscriber::{EnvFilter, Layer, Registry};
 
 /// Custom tracing subscriber implementation that produces IO traces.
 mod io_tracer;
-mod tracing_capture;
-
-pub use tracing_capture::TracingCapture;
+pub mod metrics;
+pub mod testonly;
 
 /// Produce a tracing-event for target "io_tracer" that will be consumed by the
 /// IO-tracer, if the feature has been enabled.
@@ -193,16 +195,14 @@ async fn make_opentelemetry_layer<S>(
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span>,
 {
-    let tracer = opentelemetry_jaeger::new_pipeline()
-        .with_service_name("neard")
-        .with_instrumentation_library_tags(false)
-        // auto_split has a performance impact.
-        // Tuning max_events_per_span and similar options may result in better performance.
-        .with_auto_split_batch(true)
+    let tracer = opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_exporter(opentelemetry_otlp::new_exporter().tonic())
         .with_trace_config(
             trace::config()
                 .with_sampler(Sampler::AlwaysOn)
-                .with_id_generator(IdGenerator::default()),
+                .with_id_generator(IdGenerator::default())
+                .with_resource(Resource::new(vec![KeyValue::new(SERVICE_NAME, "neard")])),
         )
         .install_batch(opentelemetry::runtime::Tokio)
         .unwrap();

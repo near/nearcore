@@ -28,7 +28,7 @@ use near_primitives::utils::to_timestamp;
 
 use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
 use near_client_primitives::types::{
-    DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus,
+    DownloadStatus, ShardSyncDownload, ShardSyncStatus, StateSplitApplyingStatus, SyncStatus,
 };
 use near_network::types::PeerManagerMessageRequest;
 use near_network_primitives::types::AccountOrPeerIdOrHash;
@@ -166,7 +166,7 @@ impl HeaderSync {
         sync_status: &mut SyncStatus,
         chain: &Chain,
         highest_height: BlockHeight,
-        highest_height_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &[FullPeerInfo],
     ) -> Result<(), near_chain::Error> {
         let _span = tracing::debug_span!(target: "sync", "run", sync = "HeaderSync").entered();
         let header_head = chain.header_head()?;
@@ -359,7 +359,7 @@ impl HeaderSync {
 }
 
 /// Check if there is a close enough value to provided height in the locator.
-fn close_enough(locator: &Vec<(u64, CryptoHash)>, height: u64) -> Option<(u64, CryptoHash)> {
+fn close_enough(locator: &[(u64, CryptoHash)], height: u64) -> Option<(u64, CryptoHash)> {
     if locator.len() == 0 {
         return None;
     }
@@ -696,7 +696,7 @@ impl StateSync {
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
-        highest_height_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &[FullPeerInfo],
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
@@ -739,9 +739,9 @@ impl StateSync {
                 update_sync_status = true;
                 init_sync_download.clone()
             });
-            let old_status = shard_sync_download.status;
+            let old_status = shard_sync_download.status.clone();
             let mut this_done = false;
-            match shard_sync_download.status {
+            match &shard_sync_download.status {
                 ShardSyncStatus::StateDownloadHeader => {
                     if shard_sync_download.downloads[0].done {
                         let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
@@ -877,18 +877,20 @@ impl StateSync {
                 }
                 ShardSyncStatus::StateSplitScheduling => {
                     debug_assert!(split_states);
+                    let status = Arc::new(StateSplitApplyingStatus::new());
                     chain.build_state_for_split_shards_preprocessing(
                         &sync_hash,
                         shard_id,
                         state_split_scheduler,
+                        status.clone(),
                     )?;
                     debug!(target: "sync", "State sync split scheduled: me {:?}, shard = {}, hash = {}", me, shard_id, sync_hash);
                     *shard_sync_download = ShardSyncDownload {
                         downloads: vec![],
-                        status: ShardSyncStatus::StateSplitApplying,
+                        status: ShardSyncStatus::StateSplitApplying(status),
                     };
                 }
-                ShardSyncStatus::StateSplitApplying => {
+                ShardSyncStatus::StateSplitApplying(_status) => {
                     debug_assert!(split_states);
                     let result = self.split_state_roots.remove(&shard_id);
                     if let Some(state_roots) = result {
@@ -1037,7 +1039,7 @@ impl StateSync {
         chain: &Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         sync_hash: CryptoHash,
-        highest_height_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &[FullPeerInfo],
     ) -> Result<Vec<AccountOrPeerIdOrHash>, Error> {
         // Remove candidates from pending list if request expired due to timeout
         self.last_part_id_requested.retain(|_, request| !request.expired());
@@ -1087,7 +1089,7 @@ impl StateSync {
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         sync_hash: CryptoHash,
         shard_sync_download: ShardSyncDownload,
-        highest_height_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &[FullPeerInfo],
     ) -> Result<ShardSyncDownload, near_chain::Error> {
         let possible_targets = self.possible_targets(
             me,
@@ -1187,7 +1189,7 @@ impl StateSync {
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
-        highest_height_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &[FullPeerInfo],
         tracking_shards: Vec<ShardId>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
@@ -1310,7 +1312,7 @@ mod test {
     use near_chain::{BlockProcessingArtifact, ChainGenesis, Provenance};
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
-    use near_o11y::TracingCapture;
+    use near_o11y::testonly::TracingCapture;
     use near_primitives::block::{Approval, Block, GenesisId};
     use near_primitives::network::PeerId;
     use near_primitives::utils::MaybeValidated;

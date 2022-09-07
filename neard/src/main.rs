@@ -1,12 +1,13 @@
 mod cli;
 mod log_config_watcher;
 
-use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
-
 use self::cli::NeardCmd;
 use crate::cli::RunError;
+use near_primitives::version::{Version, PROTOCOL_VERSION};
+use near_store::version::DB_VERSION;
 use nearcore::get_default_home;
 use once_cell::sync::Lazy;
+use std::env;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -41,6 +42,11 @@ static ALLOC: near_rust_allocator_proxy::ProxyAllocator<tikv_jemallocator::Jemal
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() -> Result<(), RunError> {
+    if env::var("RUST_BACKTRACE").is_err() {
+        // Enable backtraces on panics by default.
+        env::set_var("RUST_BACKTRACE", "1");
+    }
+
     rayon::ThreadPoolBuilder::new()
         .stack_size(8 * 1024 * 1024)
         .build_global()

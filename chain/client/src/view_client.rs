@@ -738,7 +738,7 @@ impl Handler<GetStateChangesWithCauseInBlockForTrackedShards> for ViewClientActo
             {
                 Ok(shard_id) => shard_id,
                 Err(err) => {
-                    return Err(GetStateChangesError::IOError { error_message: format!("{}", err) })
+                    return Err(GetStateChangesError::IOError { error_message: err.to_string() })
                 }
             };
 
@@ -927,11 +927,12 @@ impl Handler<GetBlockProof> for ViewClientActor {
     fn handle(&mut self, msg: GetBlockProof, _: &mut Self::Context) -> Self::Result {
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetBlockProof"]).start_timer();
-        self.chain.check_block_final_and_canonical(&msg.block_hash)?;
-        self.chain.check_block_final_and_canonical(&msg.head_block_hash)?;
-        let block_header_lite = self.chain.get_block_header(&msg.block_hash)?.into();
-        let block_proof = self.chain.get_block_proof(&msg.block_hash, &msg.head_block_hash)?;
-        Ok(GetBlockProofResponse { block_header_lite, proof: block_proof })
+        let block_header = self.chain.get_block_header(&msg.block_hash)?;
+        let head_block_header = self.chain.get_block_header(&msg.head_block_hash)?;
+        self.chain.check_blocks_final_and_canonical(&[&block_header, &head_block_header])?;
+        let block_header_lite = block_header.into();
+        let proof = self.chain.get_block_proof(&msg.block_hash, &msg.head_block_hash)?;
+        Ok(GetBlockProofResponse { block_header_lite, proof })
     }
 }
 

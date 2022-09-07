@@ -1,11 +1,11 @@
 use crate::routing::routing_table_view::RoutingTableView;
-use crate::test_utils::{create_test_peer_store, random_epoch_id, random_peer_id};
+use crate::test_utils::{random_epoch_id, random_peer_id};
 use near_crypto::Signature;
 use near_primitives::network::AnnounceAccount;
 
 #[test]
 fn announcement_same_epoch() {
-    let store = create_test_peer_store();
+    let store = crate::store::Store::from(near_store::db::TestDB::new());
 
     let peer_id0 = random_peer_id();
     let peer_id1 = random_peer_id();
@@ -45,7 +45,7 @@ fn announcement_same_epoch() {
 
 #[test]
 fn dont_load_on_build() {
-    let store = create_test_peer_store();
+    let store = crate::store::Store::from(near_store::db::TestDB::new());
 
     let peer_id0 = random_peer_id();
     let peer_id1 = random_peer_id();
@@ -81,7 +81,7 @@ fn dont_load_on_build() {
 
 #[test]
 fn load_from_disk() {
-    let store = create_test_peer_store();
+    let store = crate::store::Store::from(near_store::db::TestDB::new());
 
     let peer_id0 = random_peer_id();
     let epoch_id0 = random_epoch_id();

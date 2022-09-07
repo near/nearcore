@@ -183,7 +183,7 @@ mod test {
     use std::path::Path;
     use std::time::{Duration, Instant};
 
-    use near_logger_utils::init_test_logger;
+    use near_o11y::testonly::init_test_logger;
     use tracing::info;
 
     #[test]

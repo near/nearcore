@@ -4,7 +4,7 @@ use crate::{Block, BlockProcessingArtifact, ChainStoreAccess, Error};
 use assert_matches::assert_matches;
 use chrono;
 use chrono::TimeZone;
-use near_logger_utils::init_test_logger;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::time::MockClockGuard;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -42,9 +42,9 @@ fn build_chain() {
     //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"8p7z52KkhjdnxXhpqWPjVyvSeaDD3FqLZTqSpk1x6JmV");
+        insta::assert_display_snapshot!(hash, @"HTpETHnBkxcX1h3eD87uC5YP5nV66E6UYPrJGnQHuRqt");
     } else {
-        insta::assert_display_snapshot!(hash, @"H9xDK5MNxmDuS9P5i8P2ZLCLbdJRXpsXhUzwe6BeD75J");
+        insta::assert_display_snapshot!(hash, @"2iGtRFjF6BcqPF6tDcfLLojRaNax2PKDLxRqRc3RxRn7");
     }
 
     for i in 1..5 {
@@ -74,9 +74,9 @@ fn build_chain() {
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"7eYmJf7gJmTRzdd3UkHvdooJzMShU26wDi4Jt56Mu6pv");
+        insta::assert_display_snapshot!(hash, @"HyDYbjs5tgeEDf1N1XB4m312VdCeKjHqeGQ7dc7Lqwv8");
     } else {
-        insta::assert_display_snapshot!(hash, @"DisE1kbb7RTcJVgjoNYQCuM9TYus6fEG8AJY3cL9LmDz");
+        insta::assert_display_snapshot!(hash, @"7BkghFM7ZA8piYHAWYu4vTY6vE1pkTwy14bqQnS138qE");
     }
 }
 

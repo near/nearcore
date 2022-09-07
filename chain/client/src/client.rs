@@ -54,6 +54,7 @@ use near_o11y::log_assert;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::views::CatchupStatusView;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -465,6 +466,13 @@ impl Client {
             .runtime_adapter
             .get_epoch_id_from_prev_block(&head.last_block_hash)
             .expect("Epoch hash should exist at this point");
+        let protocol_version = self
+            .runtime_adapter
+            .get_epoch_protocol_version(&epoch_id)
+            .expect("Epoch info should be ready at this point");
+        if protocol_version > PROTOCOL_VERSION {
+            panic!("The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}", PROTOCOL_VERSION, protocol_version);
+        }
 
         let approvals = self
             .runtime_adapter
@@ -612,9 +620,8 @@ impl Client {
         shard_id: ShardId,
     ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
         let timer = Instant::now();
-        let _timer = metrics::PRODUCE_CHUNK_TIME
-            .with_label_values(&[&format!("{}", shard_id)])
-            .start_timer();
+        let _timer =
+            metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         let _span = tracing::debug_span!(target: "client", "produce_chunk", next_height, shard_id, ?epoch_id).entered();
         let validator_signer = self
             .validator_signer
@@ -1232,14 +1239,6 @@ impl Client {
                 log_assert!(result.is_ok(), "Can't clear old data, {:?}", result);
             }
 
-            if self.runtime_adapter.is_next_block_epoch_start(block.hash()).unwrap_or(false) {
-                let next_epoch_protocol_version = unwrap_or_return!(self
-                    .runtime_adapter
-                    .get_epoch_protocol_version(block.header().next_epoch_id()));
-                if next_epoch_protocol_version > PROTOCOL_VERSION {
-                    panic!("The client protocol version is older than the protocol version of the network. Please update nearcore");
-                }
-            }
             // send_network_chain_info should be called whenever the chain head changes.
             // See send_network_chain_info() for more details.
             if let Err(err) = self.send_network_chain_info() {
@@ -1340,7 +1339,7 @@ impl Client {
                             ?shard_id)
                         .entered();
                         let _timer = metrics::PRODUCE_AND_DISTRIBUTE_CHUNK_TIME
-                            .with_label_values(&[&format!("{}", shard_id)])
+                            .with_label_values(&[&shard_id.to_string()])
                             .start_timer();
                         match self.produce_chunk(
                             *block.hash(),
@@ -1820,7 +1819,7 @@ impl Client {
     /// Walks through all the ongoing state syncs for future epochs and processes them
     pub fn run_catchup(
         &mut self,
-        highest_height_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &[FullPeerInfo],
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
@@ -2058,5 +2057,27 @@ impl Client {
             tier1_accounts,
         }));
         Ok(())
+    }
+}
+
+impl Client {
+    pub fn get_catchup_status(&self) -> Result<Vec<CatchupStatusView>, near_chain::Error> {
+        let mut ret = vec![];
+        for (sync_hash, (_, shard_sync_state, block_catchup_state)) in
+            self.catchup_state_syncs.iter()
+        {
+            let sync_block_height = self.chain.get_block_header(sync_hash)?.height();
+            let shard_sync_status: HashMap<_, _> = shard_sync_state
+                .iter()
+                .map(|(shard_id, state)| (*shard_id, state.status.to_string()))
+                .collect();
+            ret.push(CatchupStatusView {
+                sync_block_hash: *sync_hash,
+                sync_block_height,
+                shard_sync_status,
+                blocks_to_catchup: self.chain.get_block_catchup_status(block_catchup_state),
+            });
+        }
+        Ok(ret)
     }
 }
