@@ -79,12 +79,13 @@ const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::millisec
 // TCP connection can be closed even before the PeerActor is started,
 // and we want to report that.
 struct ConnectionGuard {
+    peer_addr: SocketAddr,
     event_sink: Sink<Event>,
 }
 
 impl Drop for ConnectionGuard {
     fn drop(&mut self) {
-        self.event_sink.push(Event::PeerActorStopped);
+        self.event_sink.push(Event::ConnectionClosed(self.peer_addr.clone()));
     }
 }
 
@@ -211,10 +212,14 @@ impl PeerActor {
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<actix::Addr<Self>> {
-        let connection_guard =
-            ConnectionGuard { event_sink: network_state.config.event_sink.clone() };
-
         let peer_addr = stream.peer_addr().context("stream.peer_addr()")?;
+        // WARNING: connection guard is reported AFTER peer_addr is resolved,
+        // so if resolving fails, Event::ConnectionClosed won't be emitted.
+        let connection_guard = ConnectionGuard {
+            event_sink: network_state.config.event_sink.clone(),
+            peer_addr: peer_addr.clone(),
+        };
+
         let connecting_status = match &stream_config {
             StreamConfig::Inbound => ConnectingStatus::Inbound(
                 network_state
@@ -766,6 +771,7 @@ impl Actor for PeerActor {
         if self.peer_type == PeerType::Outbound {
             self.send_handshake();
         }
+        self.network_state.config.event_sink.push(Event::PeerActorStarted(self.peer_addr));
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
