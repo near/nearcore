@@ -17,7 +17,7 @@ use near_primitives::types::{StateRoot, StateRootNode};
 use crate::flat_state::FlatState;
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
-use crate::trie::nibble_slice::NibbleSlice;
+pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::shard_tries::{
     KeyForStateChanges, ShardTries, TrieCacheFactory, WrappedTrieChanges,
 };
@@ -309,7 +309,7 @@ impl std::fmt::Debug for TrieNode {
 
 #[derive(Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
-enum RawTrieNode {
+pub enum RawTrieNode {
     Leaf(Vec<u8>, u32, CryptoHash),
     Branch([Option<CryptoHash>; 16], Option<(u32, CryptoHash)>),
     Extension(Vec<u8>, CryptoHash),
@@ -318,8 +318,8 @@ enum RawTrieNode {
 /// Trie node + memory cost of its subtree
 /// memory_usage is serialized, stored, and contributes to hash
 #[derive(Debug, Eq, PartialEq)]
-struct RawTrieNodeWithSize {
-    node: RawTrieNode,
+pub struct RawTrieNodeWithSize {
+    pub node: RawTrieNode,
     memory_usage: u64,
 }
 
@@ -396,7 +396,7 @@ impl RawTrieNode {
         out
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
+    pub fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
         let mut cursor = Cursor::new(bytes);
         match cursor.read_u8()? {
             LEAF_NODE => {
@@ -446,7 +446,7 @@ impl RawTrieNodeWithSize {
         out
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
+    pub fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
         if bytes.len() < 8 {
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type"));
         }
@@ -946,9 +946,18 @@ mod tests {
         }
         assert_eq!(pairs, iter_pairs);
 
+        let assert_has_next = |want, other_iter: &mut TrieIterator| {
+            assert_eq!(Some(want), other_iter.next().map(|item| item.unwrap().0).as_deref());
+        };
+
         let mut other_iter = trie.iter().unwrap();
-        other_iter.seek(b"r").unwrap();
-        assert_eq!(other_iter.next().unwrap().unwrap().0, b"x".to_vec());
+        other_iter.seek_prefix(b"r").unwrap();
+        assert_eq!(other_iter.next(), None);
+        other_iter.seek_prefix(b"x").unwrap();
+        assert_has_next(b"x", &mut other_iter);
+        assert_eq!(other_iter.next(), None);
+        other_iter.seek_prefix(b"y").unwrap();
+        assert_has_next(b"y", &mut other_iter);
     }
 
     #[test]
@@ -1000,13 +1009,13 @@ mod tests {
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), changes);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root.clone());
         let mut iter = trie.iter().unwrap();
-        iter.seek(&vec![0, 116, 101, 115, 116, 44]).unwrap();
+        iter.seek_prefix(&vec![0, 116, 101, 115, 116, 44]).unwrap();
         let mut pairs = vec![];
         for pair in iter {
             pairs.push(pair.unwrap().0);
         }
         assert_eq!(
-            pairs[..2],
+            pairs,
             [
                 vec![
                     0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 98, 111, 98,
@@ -1088,7 +1097,7 @@ mod tests {
     }
 
     #[test]
-    fn test_iterator_seek() {
+    fn test_iterator_seek_prefix() {
         let mut rng = rand::thread_rng();
         for _test_run in 0..10 {
             let tries = create_tries();
@@ -1106,7 +1115,7 @@ mod tests {
                 if let Some(value) = value {
                     let want = Some(Ok((key.clone(), value)));
                     let mut iterator = trie.iter().unwrap();
-                    iterator.seek(&key).unwrap();
+                    iterator.seek_prefix(&key).unwrap();
                     assert_eq!(want, iterator.next(), "key: {key:x?}");
                 }
             }
@@ -1115,9 +1124,9 @@ mod tests {
             let queries = gen_changes(&mut rng, 500).into_iter().map(|(key, _)| key);
             for query in queries {
                 let mut iterator = trie.iter().unwrap();
-                iterator.seek(&query).unwrap();
+                iterator.seek_prefix(&query).unwrap();
                 if let Some(Ok((key, _))) = iterator.next() {
-                    assert!(key >= query);
+                    assert!(key.starts_with(&query), "‘{key:x?}’ does not start with ‘{query:x?}’");
                 }
             }
         }

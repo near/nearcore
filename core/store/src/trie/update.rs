@@ -224,7 +224,7 @@ impl<'a> TrieUpdateIterator<'a> {
             }
             None => None,
         };
-        trie_iter.seek(&start_offset)?;
+        trie_iter.seek_prefix(&start_offset)?;
         let committed_iter = state_update.committed.range(start_offset.clone()..).map(
             |(raw_key, changes_with_trie_key)| {
                 (
