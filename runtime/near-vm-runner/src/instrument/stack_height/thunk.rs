@@ -3,7 +3,7 @@ use parity_wasm::{
     builder,
     elements::{self, FunctionType, Internal},
 };
-use std::collections::HashMap as Map;
+use std::collections::BTreeMap;
 
 struct Thunk {
     signature: FunctionType,
@@ -20,7 +20,7 @@ pub(crate) fn generate_thunks(
 
     // First, we need to collect all function indices that should be replaced by thunks
 
-    let mut replacement_map: Map<u32, Thunk> = {
+    let mut replacement_map: BTreeMap<u32, Thunk> = {
         let exports = module.export_section().map(|es| es.entries()).unwrap_or(&[]);
         let elem_segments = module.elements_section().map(|es| es.entries()).unwrap_or(&[]);
         let start_func_idx = module.start_section();
@@ -33,7 +33,7 @@ pub(crate) fn generate_thunks(
             elem_segments.iter().flat_map(|segment| segment.members()).cloned();
 
         // Replacement map is at least export section size.
-        let mut replacement_map: Map<u32, Thunk> = Map::new();
+        let mut replacement_map: BTreeMap<u32, Thunk> = BTreeMap::new();
 
         for func_idx in
             exported_func_indices.chain(table_func_indices).chain(start_func_idx.into_iter())

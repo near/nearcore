@@ -25,14 +25,14 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 
 use crate::db::{
-    refcount, DBIterator, DBOp, DBTransaction, Database, RocksDB, StoreStatistics,
+    refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, RocksDB, StoreStatistics,
     GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
     estimator, split_state, ApplyStatePartResult, KeyForStateChanges, PartialStorage, ShardTries,
-    Trie, TrieAccess, TrieCache, TrieCacheFactory, TrieCachingStorage, TrieChanges, TrieStorage,
+    Trie, TrieAccess, TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieStorage,
     WrappedTrieChanges,
 };
 
@@ -42,11 +42,14 @@ pub mod db;
 pub mod flat_state;
 mod metrics;
 pub mod migrations;
+mod opener;
 pub mod test_utils;
 mod trie;
+pub mod version;
 
-pub use crate::config::{Mode, StoreConfig, StoreOpener};
+pub use crate::config::{Mode, StoreConfig};
 pub use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError};
+pub use crate::opener::StoreOpener;
 
 /// Specifies temperature of a storage.
 ///
@@ -166,7 +169,13 @@ impl NodeStorage {
 }
 
 impl Store {
-    pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
+    /// Fetches value from given column.
+    ///
+    /// If the key does not exist in the column returns `None`.  Otherwise
+    /// returns the data as [`DBSlice`] object.  The object dereferences into
+    /// a slice, for cases when caller doesn’t need to own the value, and
+    /// provides conversion into a vector or an Arc.
+    pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         let value = if column.is_rc() {
             self.storage.get_with_rc_stripped(column, key)
         } else {
@@ -177,16 +186,13 @@ impl Store {
             db_op = "get",
             col = %column,
             key = %to_base58(key),
-            size = value.as_ref().map(Vec::len)
+            size = value.as_deref().map(<[u8]>::len)
         );
         Ok(value)
     }
 
     pub fn get_ser<T: BorshDeserialize>(&self, column: DBCol, key: &[u8]) -> io::Result<Option<T>> {
-        match self.get(column, key)? {
-            Some(bytes) => Ok(Some(T::try_from_slice(&bytes)?)),
-            None => Ok(None),
-        }
+        self.get(column, key)?.as_deref().map(T::try_from_slice).transpose()
     }
 
     pub fn exists(&self, column: DBCol, key: &[u8]) -> io::Result<bool> {
@@ -388,7 +394,7 @@ impl StoreUpdate {
     ///
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
-    pub fn set_ser<T: BorshSerialize>(
+    pub fn set_ser<T: BorshSerialize + ?Sized>(
         &mut self,
         column: DBCol,
         key: &[u8],
@@ -713,9 +719,9 @@ pub fn set_genesis_hash(store_update: &mut StoreUpdate, genesis_hash: &CryptoHas
         .expect("Borsh cannot fail");
 }
 
-pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &Vec<StateRoot>) {
+pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &[StateRoot]) {
     store_update
-        .set_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
+        .set_ser(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
         .expect("Borsh cannot fail");
 }
 
@@ -745,7 +751,7 @@ impl CompiledContractCache for StoreCompiledContractCache {
     }
 
     fn get(&self, key: &CryptoHash) -> io::Result<Option<Vec<u8>>> {
-        self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref())
+        Ok(self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref())?.map(Vec::from))
     }
 }
 
@@ -770,7 +776,7 @@ mod tests {
             store_update.increment_refcount(DBCol::State, &[3], &[3]);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), Some(vec![1]));
+        assert_eq!(store.get(DBCol::State, &[1]).unwrap().as_deref(), Some(&[1][..]));
         {
             let mut store_update = store.store_update();
             store_update.delete_all(DBCol::State);

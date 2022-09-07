@@ -11,6 +11,7 @@ use num_rational::Rational32;
 use crate::{metrics, DoomslugThresholdMode};
 use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
+use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::Signature;
 use near_pool::types::PoolIterator;
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
@@ -628,9 +629,8 @@ pub trait RuntimeAdapter: Send + Sync {
             "apply_transactions",
             shard_id)
         .entered();
-        let _timer = metrics::APPLYING_CHUNKS_TIME
-            .with_label_values(&[&format!("{}", shard_id)])
-            .start_timer();
+        let _timer =
+            metrics::APPLYING_CHUNKS_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
             state_root,
@@ -724,7 +724,7 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Validate state part that expected to be given state root with provided data.
     /// Returns false if the resulting part doesn't match the expected one.
-    fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &Vec<u8>) -> bool;
+    fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &[u8]) -> bool;
 
     fn apply_update_to_split_states(
         &self,
@@ -739,6 +739,7 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_uid: ShardUId,
         state_root: &StateRoot,
         next_epoch_shard_layout: &ShardLayout,
+        state_split_status: Arc<StateSplitApplyingStatus>,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error>;
 
     /// Should be executed after accepting all the parts to set up a new state.

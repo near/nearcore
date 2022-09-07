@@ -79,19 +79,26 @@ impl EncodedChunksCacheEntry {
         }
     }
 
+    /// Inserts previously unknown chunks and receipts, returning the part ords that were
+    /// previously unknown.
     pub fn merge_in_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: &PartialEncodedChunkV2,
-    ) {
+    ) -> HashSet<u64> {
+        let mut previously_missing_part_ords = HashSet::new();
         for part_info in partial_encoded_chunk.parts.iter() {
             let part_ord = part_info.part_ord;
-            self.parts.entry(part_ord).or_insert_with(|| part_info.clone());
+            self.parts.entry(part_ord).or_insert_with(|| {
+                previously_missing_part_ords.insert(part_ord);
+                part_info.clone()
+            });
         }
 
         for receipt in partial_encoded_chunk.receipts.iter() {
             let shard_id = receipt.1.to_shard_id;
             self.receipts.entry(shard_id).or_insert_with(|| receipt.clone());
         }
+        previously_missing_part_ords
     }
 }
 
@@ -193,13 +200,14 @@ impl EncodedChunksCache {
         self.height_within_front_horizon(height) || self.height_within_rear_horizon(height)
     }
 
-    /// add parts and receipts stored in a partial encoded chunk to the corresponding chunk entry
+    /// Add parts and receipts stored in a partial encoded chunk to the corresponding chunk entry,
+    /// returning the set of part ords that were previously unknown.
     pub fn merge_in_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: &PartialEncodedChunkV2,
-    ) {
+    ) -> HashSet<u64> {
         let entry = self.get_or_insert_from_header(&partial_encoded_chunk.header);
-        entry.merge_in_partial_encoded_chunk(partial_encoded_chunk);
+        entry.merge_in_partial_encoded_chunk(partial_encoded_chunk)
     }
 
     /// Remove a chunk from the cache if it is outside of horizon

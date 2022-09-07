@@ -2,35 +2,27 @@ use crate::broadcast;
 use crate::concurrency::demux;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
-use crate::peer::codec::Codec;
-use crate::peer::peer_actor::{ConnectingStatus, PeerActor};
+use crate::peer::peer_actor::{PeerActor, StreamConfig};
+use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
-use crate::peer_manager::peer_manager_actor::NetworkState;
-use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage, Unregister};
+use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::store;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::types::{PeerMessage, RoutingTableUpdate};
-use actix::{Actor, Context, Handler, StreamHandler as _};
+use actix::{Actor, Context, Handler};
 use near_crypto::{InMemorySigner, Signature};
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
     RoutedMessageV2,
 };
-use near_performance_metrics::framed_write::FramedWrite;
 use near_primitives::network::PeerId;
-use near_rate_limiter::{
-    ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleFramedRead,
-    ThrottleToken,
-};
-use near_store::test_utils::create_test_node_storage;
 
 use near_network_primitives::time;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
-use tokio_stream::StreamExt;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -67,14 +59,12 @@ impl PeerConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Event {
     HandshakeDone(Edge),
-    Routed(Box<RoutedMessageV2>),
     RoutingTable(RoutingTableUpdate),
     RequestUpdateNonce(PartialEdgeInfo),
     ResponseUpdateNonce(Edge),
     PeersResponse(Vec<PeerInfo>),
     Client(fake_client::Event),
     Network(peer_manager_actor::Event),
-    Unregister(Unregister),
 }
 
 struct FakePeerManagerActor {
@@ -84,22 +74,6 @@ struct FakePeerManagerActor {
 
 impl Actor for FakePeerManagerActor {
     type Context = Context<Self>;
-}
-
-impl Handler<ActixMessageWrapper<PeerToManagerMsg>> for FakePeerManagerActor {
-    type Result = ActixMessageResponse<PeerToManagerMsgResp>;
-
-    fn handle(
-        &mut self,
-        msg: ActixMessageWrapper<PeerToManagerMsg>,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
-        let (msg, throttle_token) = msg.take();
-        ActixMessageResponse::new(
-            self.handle(msg, ctx),
-            ThrottleToken::new_without_size(throttle_token.throttle_controller().cloned()),
-        )
-    }
 }
 
 impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
@@ -131,11 +105,6 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
                     },
                 ))
             }
-            PeerToManagerMsg::RoutedMessageFrom(rmf) => {
-                self.event_sink.push(Event::Routed(rmf.msg.clone()));
-                // Reject all incoming routed messages.
-                PeerToManagerMsgResp::RoutedMessageFrom(false)
-            }
             PeerToManagerMsg::SyncRoutingTable { routing_table_update, .. } => {
                 self.event_sink.push(Event::RoutingTable(routing_table_update));
                 PeerToManagerMsgResp::Empty
@@ -159,10 +128,7 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
                 self.event_sink.push(Event::PeersResponse(resp.peers));
                 PeerToManagerMsgResp::Empty
             }
-            PeerToManagerMsg::Unregister(unregister) => {
-                self.event_sink.push(Event::Unregister(unregister));
-                PeerToManagerMsgResp::Empty
-            }
+            PeerToManagerMsg::Unregister(_) => PeerToManagerMsgResp::Empty,
             _ => panic!("unsupported message"),
         }
     }
@@ -184,16 +150,26 @@ impl PeerHandle {
     }
 
     pub async fn complete_handshake(&mut self) -> Edge {
-        match self.events.recv().await {
-            Event::HandshakeDone(edge) => edge,
-            ev => panic!("want HandshakeDone, got {ev:?}"),
-        }
+        self.events
+            .recv_until(|ev| match ev {
+                Event::HandshakeDone(edge) => Some(edge),
+                Event::Network(peer_manager_actor::Event::ConnectionClosed(_)) => {
+                    panic!("handshake failed")
+                }
+                _ => None,
+            })
+            .await
     }
     pub async fn fail_handshake(&mut self) {
-        match self.events.recv().await {
-            Event::Network(peer_manager_actor::Event::PeerActorStopped) => (),
-            ev => panic!("want PeerActorStopped, got {ev:?}"),
-        }
+        self.events
+            .recv_until(|ev| match ev {
+                Event::Network(peer_manager_actor::Event::ConnectionClosed(_)) => Some(()),
+                // HandshakeDone means that handshake succeeded locally,
+                // but in case this is an inbound connection, it can still
+                // fail on the other side. Therefore we cannot panic on HandshakeDone.
+                _ => None,
+            })
+            .await
     }
 
     pub fn routed_message(
@@ -202,9 +178,8 @@ impl PeerHandle {
         peer_id: PeerId,
         ttl: u8,
         utc: Option<time::Utc>,
-    ) -> Box<RoutedMessageV2> {
+    ) -> RoutedMessageV2 {
         RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id), body }.sign(
-            self.cfg.id(),
             &self.cfg.network.node_key,
             ttl,
             utc,
@@ -220,19 +195,9 @@ impl PeerHandle {
         let cfg_ = cfg.clone();
         let (send, recv) = broadcast::unbounded_channel();
         let actix = ActixSystem::spawn(move || {
-            let my_addr = stream.local_addr().unwrap();
-            let peer_addr = stream.peer_addr().unwrap();
-            let (read, write) = tokio::io::split(stream);
             let fpm = FakePeerManagerActor { cfg: cfg.clone(), event_sink: send.sink() }.start();
             let fc = fake_client::start(send.sink().compose(Event::Client));
-            let store = store::Store::from(create_test_node_storage());
-            let rate_limiter = ThrottleController::new(usize::MAX, usize::MAX);
-            let read = ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone())
-                .take_while(|x| match x {
-                    Ok(_) => true,
-                    Err(_) => false,
-                })
-                .map(Result::unwrap);
+            let store = store::Store::from(near_store::db::TestDB::new());
             let routing_table_view = RoutingTableView::new(store, cfg.id());
             // WARNING: this is a hack to make PeerActor use a specific nonce
             if let (Some(nonce), Some(peer_id)) = (&cfg.nonce, &cfg.start_handshake_with) {
@@ -251,39 +216,21 @@ impl PeerHandle {
                 cfg.chain.genesis_id.clone(),
                 fc.clone().recipient(),
                 fc.clone().recipient(),
+                fpm.recipient(),
                 routing_table_view,
                 demux::RateLimit { qps: 100., burst: 1 },
             ));
-            PeerActor::create(move |ctx| {
-                PeerActor::add_stream(read, ctx);
-                PeerActor::new(
-                    clock,
-                    PeerInfo { id: cfg.id(), addr: Some(my_addr), account_id: None },
-                    peer_addr.clone(),
-                    cfg.start_handshake_with.as_ref().map(|id| PeerInfo {
-                        id: id.clone(),
-                        addr: Some(peer_addr.clone()),
-                        account_id: None,
-                    }),
-                    match &cfg.start_handshake_with {
-                        Some(id) => ConnectingStatus::Outbound(
-                            network_state.tier2.start_outbound(id.clone()).unwrap(),
-                        ),
-                        None => ConnectingStatus::Inbound(
-                            network_state
-                                .inbound_handshake_permits
-                                .clone()
-                                .try_acquire_owned()
-                                .unwrap(),
-                        ),
-                    },
-                    FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
-                    fpm.clone().recipient(),
-                    rate_limiter,
-                    cfg.force_encoding,
-                    network_state,
-                )
-            })
+            PeerActor::spawn(
+                clock,
+                stream,
+                match &cfg.start_handshake_with {
+                    None => StreamConfig::Inbound,
+                    Some(id) => StreamConfig::Outbound { peer_id: id.clone() },
+                },
+                cfg.force_encoding,
+                network_state,
+            )
+            .unwrap()
         })
         .await;
         Self { actix, cfg: cfg_, events: recv }
