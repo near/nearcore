@@ -26,6 +26,10 @@
 * Backtraces on panics are enabled by default, so you no longer need to set
   `RUST_BACKTRACE=1` environmental variable. To disable backtraces, set
   `RUST_BACKTRACE=0`.
+* New options `store.trie_cache` and `store.view_trie_cache` in `config.json`
+  to set limits on the trie cache. Deprecates the never announced 
+  `store.trie_cache_capacities` option. 
+  [#7578](https://github.com/near/nearcore/pull/7578)
 
 ## 1.28.0 [2022-07-27]
 
