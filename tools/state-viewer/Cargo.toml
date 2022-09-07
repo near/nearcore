@@ -25,7 +25,6 @@ near-chain = { path = "../../chain/chain" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-epoch-manager = { path = "../../chain/epoch-manager" }
-near-logger-utils = {path = "../../test-utils/logger" }
 near-network = { path = "../../chain/network" }
 near-primitives = { path = "../../core/primitives" }
 near-primitives-core = { path = "../../core/primitives-core" }

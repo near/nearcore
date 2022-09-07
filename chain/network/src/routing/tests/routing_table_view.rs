@@ -1,7 +1,6 @@
 use crate::network_protocol::testonly as data;
 use crate::routing;
 use crate::routing::routing_table_view::*;
-use crate::test_utils::create_test_peer_store;
 use crate::testonly::make_rng;
 use near_network_primitives::time;
 use near_network_primitives::types::PeerIdOrHash;
@@ -13,7 +12,7 @@ fn find_route() {
     let mut rng = make_rng(385305732);
     let clock = time::FakeClock::default();
     let rng = &mut rng;
-    let store = create_test_peer_store();
+    let store = crate::store::Store::from(near_store::db::TestDB::new());
 
     // Create a sample NextHopTable.
     let peers: Vec<_> = (0..10).map(|_| data::make_peer_id(rng)).collect();

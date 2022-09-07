@@ -16,18 +16,18 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{StateRoot, StateRootNode};
 
 use crate::flat_state::FlatState;
+pub use crate::trie::config::TrieConfig;
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
-pub use crate::trie::shard_tries::{
-    KeyForStateChanges, ShardTries, TrieCacheFactory, WrappedTrieChanges,
-};
+pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
 use crate::StorageError;
 pub use near_primitives::types::TrieNodesCount;
 use std::fmt::Write;
 
+mod config;
 mod insert_delete;
 pub mod iterator;
 mod nibble_slice;
@@ -62,7 +62,7 @@ pub struct TrieCosts {
 
 const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node_cost: 50 };
 
-#[derive(Clone, Hash, Debug)]
+#[derive(Clone, Hash)]
 enum NodeHandle {
     InMemory(StorageHandle),
     Hash(CryptoHash),
@@ -77,13 +77,31 @@ impl NodeHandle {
     }
 }
 
-#[derive(Clone, Hash, Debug)]
+impl std::fmt::Debug for NodeHandle {
+    fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Hash(hash) => write!(fmtr, "{hash}"),
+            Self::InMemory(handle) => write!(fmtr, "@{}", handle.0),
+        }
+    }
+}
+
+#[derive(Clone, Hash)]
 enum ValueHandle {
     InMemory(StorageValueHandle),
     HashAndSize(u32, CryptoHash),
 }
 
-#[derive(Clone, Hash, Debug)]
+impl std::fmt::Debug for ValueHandle {
+    fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::HashAndSize(size, hash) => write!(fmtr, "{hash}, size:{size}"),
+            Self::InMemory(handle) => write!(fmtr, "@{}", handle.0),
+        }
+    }
+}
+
+#[derive(Clone, Hash)]
 enum TrieNode {
     /// Null trie node. Could be an empty root or an empty branch entry.
     Empty,
@@ -252,6 +270,40 @@ impl TrieNode {
             }
             TrieNode::Extension(key, _child) => {
                 TRIE_COSTS.node_cost + (key.len() as u64) * TRIE_COSTS.byte_of_key
+            }
+        }
+    }
+}
+
+impl std::fmt::Debug for TrieNode {
+    /// Formats single trie node.
+    ///
+    /// Width can be used to specify indentation.
+    fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let empty = "";
+        let indent = fmtr.width().unwrap_or(0);
+        match self {
+            TrieNode::Empty => write!(fmtr, "{empty:indent$}Empty"),
+            TrieNode::Leaf(key, value) => write!(
+                fmtr,
+                "{empty:indent$}Leaf({:?}, {value:?})",
+                NibbleSlice::from_encoded(key).0
+            ),
+            TrieNode::Branch(children, value) => {
+                match value {
+                    Some(value) => write!(fmtr, "{empty:indent$}Branch({value:?}):"),
+                    None => write!(fmtr, "{empty:indent$}Branch:"),
+                }?;
+                for (idx, child) in children.iter().enumerate() {
+                    if let Some(child) = child {
+                        write!(fmtr, "\n{empty:indent$} {idx:x}: {child:?}")?;
+                    }
+                }
+                Ok(())
+            }
+            TrieNode::Extension(key, child) => {
+                let key = NibbleSlice::from_encoded(key).0;
+                write!(fmtr, "{empty:indent$}Extension({key:?}, {child:?})")
             }
         }
     }
@@ -535,7 +587,7 @@ impl Trie {
         }
         let TrieNodeWithSize { node, memory_usage } = match handle {
             NodeHandle::InMemory(h) => memory.node_ref(h).clone(),
-            NodeHandle::Hash(h) => self.retrieve_node(&h).expect("storage failure"),
+            NodeHandle::Hash(h) => self.retrieve_node(&h).expect("storage failure").1,
         };
 
         let mut memory_usage_naive = node.memory_usage_direct(memory);
@@ -739,10 +791,19 @@ impl Trie {
         }
     }
 
-    fn retrieve_node(&self, hash: &CryptoHash) -> Result<TrieNodeWithSize, StorageError> {
+    /// Retrieves decoded node alongside with its raw bytes representation.
+    ///
+    /// Note that because Empty nodes (those which are referenced by
+    /// [`Self::EMPTY_ROOT`] hash) aren’t stored in the database, they don’t
+    /// have a bytes representation.  For those nodes the first return value
+    /// will be `None`.
+    fn retrieve_node(
+        &self,
+        hash: &CryptoHash,
+    ) -> Result<(Option<std::sync::Arc<[u8]>>, TrieNodeWithSize), StorageError> {
         match self.retrieve_raw_node(hash)? {
-            None => Ok(TrieNodeWithSize::empty()),
-            Some((_bytes, node)) => Ok(TrieNodeWithSize::from_raw(node)),
+            None => Ok((None, TrieNodeWithSize::empty())),
+            Some((bytes, node)) => Ok((Some(bytes), TrieNodeWithSize::from_raw(node))),
         }
     }
 
@@ -1163,6 +1224,18 @@ mod tests {
                 trie_changes.clone(),
             );
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root.clone());
+
+            // Those known keys.
+            for (key, value) in trie_changes.into_iter().collect::<HashMap<_, _>>() {
+                if let Some(value) = value {
+                    let want = Some(Ok((key.clone(), value)));
+                    let mut iterator = trie.iter().unwrap();
+                    iterator.seek(&key).unwrap();
+                    assert_eq!(want, iterator.next(), "key: {key:x?}");
+                }
+            }
+
+            // Test some more random keys.
             let queries = gen_changes(&mut rng, 500).into_iter().map(|(key, _)| key);
             for query in queries {
                 let mut iterator = trie.iter().unwrap();

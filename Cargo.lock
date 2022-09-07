@@ -2294,7 +2294,6 @@ dependencies = [
  "near-jsonrpc",
  "near-jsonrpc-client",
  "near-jsonrpc-primitives",
- "near-logger-utils",
  "near-network",
  "near-network-primitives",
  "near-o11y",
@@ -2706,9 +2705,9 @@ dependencies = [
  "near-crypto",
  "near-epoch-manager",
  "near-jsonrpc",
- "near-logger-utils",
  "near-network",
  "near-network-primitives",
+ "near-o11y",
  "near-performance-metrics",
  "near-primitives",
  "near-store",
@@ -2808,8 +2807,6 @@ dependencies = [
  "near-chain-primitives",
  "near-client-primitives",
  "near-crypto",
- "near-logger-utils",
- "near-metrics",
  "near-o11y",
  "near-pool",
  "near-primitives",
@@ -2864,10 +2861,9 @@ dependencies = [
  "near-chain",
  "near-chunks-primitives",
  "near-crypto",
- "near-logger-utils",
- "near-metrics",
  "near-network",
  "near-network-primitives",
+ "near-o11y",
  "near-pool",
  "near-primitives",
  "near-store",
@@ -2906,8 +2902,6 @@ dependencies = [
  "near-chunks",
  "near-client-primitives",
  "near-crypto",
- "near-logger-utils",
- "near-metrics",
  "near-network",
  "near-network-primitives",
  "near-o11y",
@@ -2941,6 +2935,7 @@ dependencies = [
  "near-crypto",
  "near-network-primitives",
  "near-primitives",
+ "once_cell",
  "serde",
  "serde_json",
  "strum",
@@ -2963,9 +2958,9 @@ dependencies = [
  "hex-literal",
  "near-account-id",
  "once_cell",
- "parity-secp256k1",
  "primitive-types",
  "rand 0.7.3",
+ "secp256k1",
  "serde",
  "serde_json",
  "sha2 0.10.2",
@@ -3006,10 +3001,12 @@ dependencies = [
  "near-client",
  "near-crypto",
  "near-indexer-primitives",
+ "near-o11y",
  "near-primitives",
  "near-store",
  "nearcore",
  "node-runtime",
+ "once_cell",
  "rocksdb",
  "serde",
  "serde_json",
@@ -3041,7 +3038,6 @@ dependencies = [
  "near-jsonrpc-adversarial-primitives",
  "near-jsonrpc-client",
  "near-jsonrpc-primitives",
- "near-metrics",
  "near-network",
  "near-network-primitives",
  "near-o11y",
@@ -3076,7 +3072,6 @@ dependencies = [
  "near-primitives",
  "serde",
  "serde_json",
- "uuid",
 ]
 
 [[package]]
@@ -3089,7 +3084,6 @@ dependencies = [
  "libfuzzer-sys",
  "near-jsonrpc",
  "near-jsonrpc-tests",
- "near-logger-utils",
  "near-primitives",
  "once_cell",
  "serde",
@@ -3109,7 +3103,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
- "uuid",
 ]
 
 [[package]]
@@ -3126,22 +3119,14 @@ dependencies = [
  "near-crypto",
  "near-jsonrpc",
  "near-jsonrpc-primitives",
- "near-logger-utils",
  "near-network",
  "near-network-primitives",
+ "near-o11y",
  "near-primitives",
  "near-store",
  "once_cell",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "near-logger-utils"
-version = "0.0.0"
-dependencies = [
- "near-o11y",
- "tracing",
 ]
 
 [[package]]
@@ -3152,15 +3137,6 @@ dependencies = [
  "near-chain-configs",
  "near-primitives",
  "serde_json",
-]
-
-[[package]]
-name = "near-metrics"
-version = "0.0.0"
-dependencies = [
- "once_cell",
- "prometheus",
- "tracing",
 ]
 
 [[package]]
@@ -3186,8 +3162,6 @@ dependencies = [
  "itertools",
  "lru",
  "near-crypto",
- "near-logger-utils",
- "near-metrics",
  "near-network-primitives",
  "near-o11y",
  "near-performance-metrics",
@@ -3249,6 +3223,7 @@ dependencies = [
  "once_cell",
  "opentelemetry",
  "opentelemetry-jaeger",
+ "prometheus",
  "strum",
  "thiserror",
  "tokio",
@@ -3291,7 +3266,7 @@ version = "0.0.0"
 dependencies = [
  "borsh",
  "near-crypto",
- "near-metrics",
+ "near-o11y",
  "near-primitives",
  "once_cell",
  "rand 0.7.3",
@@ -3441,7 +3416,6 @@ dependencies = [
  "insta",
  "lru",
  "near-crypto",
- "near-metrics",
  "near-o11y",
  "near-primitives",
  "num_cpus",
@@ -3464,7 +3438,7 @@ dependencies = [
  "actix",
  "awc",
  "futures",
- "near-metrics",
+ "near-o11y",
  "near-performance-metrics",
  "near-performance-metrics-macros",
  "near-primitives",
@@ -3505,6 +3479,7 @@ dependencies = [
  "borsh",
  "bs58",
  "byteorder",
+ "ed25519-dalek",
  "hex",
  "near-account-id",
  "near-crypto",
@@ -3601,13 +3576,12 @@ dependencies = [
  "near-chain-configs",
  "near-chunks",
  "near-client",
+ "near-client-primitives",
  "near-crypto",
  "near-epoch-manager",
  "near-jsonrpc",
  "near-jsonrpc-primitives",
- "near-logger-utils",
  "near-mainnet-res",
- "near-metrics",
  "near-network",
  "near-network-primitives",
  "near-o11y",
@@ -3693,7 +3667,7 @@ dependencies = [
  "indicatif",
  "near-chain-configs",
  "near-crypto",
- "near-metrics",
+ "near-o11y",
  "near-primitives",
  "near-store",
  "near-test-contracts",
@@ -3815,9 +3789,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.12.0"
+version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7709cef83f0c1f58f666e746a08b21e0085f7440fa6a29cc194d68aac97a4225"
+checksum = "074864da206b4973b84eb91683020dbefd6a8c3f0f38e054d93954e891935e4e"
 
 [[package]]
 name = "oorandom"
@@ -4038,18 +4012,6 @@ dependencies = [
  "strum",
  "strum_macros",
  "syn",
-]
-
-[[package]]
-name = "parity-secp256k1"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fca4f82fccae37e8bbdaeb949a4a218a1bbc485d11598f193d2a908042e5fc1"
-dependencies = [
- "arrayvec",
- "cc",
- "cfg-if 0.1.10",
- "rand 0.7.3",
 ]
 
 [[package]]
@@ -4885,7 +4847,7 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-crypto",
- "near-logger-utils",
+ "near-o11y",
  "near-primitives",
  "near-store",
  "near-test-contracts",
@@ -5014,6 +4976,25 @@ name = "seahash"
 version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c107b6f4780854c8b126e228ea8869f4d7b71260f962fefb57b996b8959ba6b"
+
+[[package]]
+name = "secp256k1"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7649a0b3ffb32636e60c7ce0d70511eda9c52c658cd0634e194d5a19943aeff"
+dependencies = [
+ "rand 0.8.5",
+ "secp256k1-sys",
+]
+
+[[package]]
+name = "secp256k1-sys"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7058dc8eaf3f2810d7828680320acda0b25a288f6d288e19278e249bbf74226b"
+dependencies = [
+ "cc",
+]
 
 [[package]]
 name = "security-framework"
@@ -5343,7 +5324,6 @@ dependencies = [
  "near-client",
  "near-crypto",
  "near-epoch-manager",
- "near-logger-utils",
  "near-network",
  "near-primitives",
  "near-primitives-core",
@@ -5390,7 +5370,7 @@ dependencies = [
  "near-chain",
  "near-chain-configs",
  "near-client",
- "near-logger-utils",
+ "near-o11y",
  "near-primitives",
  "near-store",
  "nearcore",
@@ -5988,15 +5968,6 @@ dependencies = [
  "idna",
  "matches",
  "percent-encoding",
-]
-
-[[package]]
-name = "uuid"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
-dependencies = [
- "getrandom 0.2.6",
 ]
 
 [[package]]

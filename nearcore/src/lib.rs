@@ -2,7 +2,7 @@ pub use crate::config::{init_configs, load_config, load_test_config, NearConfig,
 use crate::migrations::migrate_30_to_31;
 pub use crate::runtime::NightshadeRuntime;
 pub use crate::shard_tracker::TrackedConfig;
-use actix::{Actor, Addr, Arbiter};
+use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
 use actix_web;
 use anyhow::Context;
@@ -12,10 +12,10 @@ use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_network_primitives::time;
 use near_primitives::block::GenesisId;
-use near_primitives::version::DbVersion;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
-use near_store::migrations::{migrate_28_to_29, migrate_29_to_30, set_store_version};
+use near_store::migrations::{migrate_28_to_29, migrate_29_to_30};
+use near_store::version::{set_store_version, DbVersion, DB_VERSION};
 use near_store::{DBCol, Mode, NodeStorage, StoreOpener, Temperature};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
@@ -111,12 +111,12 @@ fn apply_store_migrations_if_exists(
 ) -> anyhow::Result<bool> {
     let db_version = match store_opener.get_version_if_exists()? {
         None => return Ok(false),
-        Some(near_primitives::version::DB_VERSION) => return Ok(true),
+        Some(DB_VERSION) => return Ok(true),
         Some(db_version) => db_version,
     };
 
     anyhow::ensure!(
-        db_version < near_primitives::version::DB_VERSION,
+        db_version < DB_VERSION,
         "DB version {db_version} is created by a newer version of neard, \
          please update neard"
     );
@@ -177,10 +177,7 @@ fn apply_store_migrations_if_exists(
         // set some dummy value to avoid conflict with other migrations from nightly features
         set_store_version(&store, 10000)?;
     } else {
-        debug_assert_eq!(
-            Some(near_primitives::version::DB_VERSION),
-            store_opener.get_version_if_exists()?
-        );
+        debug_assert_eq!(Some(DB_VERSION), store_opener.get_version_if_exists()?);
     }
 
     // DB migration was successful, remove the snapshot to avoid it taking up
@@ -201,7 +198,7 @@ fn init_and_migrate_store(
         .with_context(|| format!("Opening database at {}", opener.path().display()))?;
     let hot = store.get_store(Temperature::Hot);
     if !exists {
-        set_store_version(&hot, near_primitives::version::DB_VERSION)
+        set_store_version(&hot, DB_VERSION)
             .with_context(|| format!("Initialising database at {}", opener.path().display()))?;
     }
 
@@ -284,22 +281,15 @@ pub fn start_with_config_and_synchronization(
 
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
-    let arbiter = Arbiter::new();
-    let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), {
-        let client_actor = client_actor.clone();
-        let view_client = view_client.clone();
-        move |_ctx| {
-            PeerManagerActor::new(
-                time::Clock::real(),
-                store,
-                config.network_config,
-                client_actor.recipient(),
-                view_client.recipient(),
-                genesis_id,
-            )
-            .unwrap()
-        }
-    });
+    let network_actor = PeerManagerActor::spawn(
+        time::Clock::real(),
+        store.into_inner(near_store::Temperature::Hot),
+        config.network_config,
+        client_actor.clone().recipient(),
+        view_client.clone().recipient(),
+        genesis_id,
+    )
+    .context("PeerManager::spawn()")?;
     network_adapter.set_recipient(network_actor.clone());
 
     #[cfg(feature = "json_rpc")]
@@ -338,7 +328,7 @@ pub fn start_with_config_and_synchronization(
         client: client_actor,
         view_client,
         rpc_servers,
-        arbiters: vec![client_arbiter_handle, arbiter.handle()],
+        arbiters: vec![client_arbiter_handle],
     })
 }
 
@@ -371,10 +361,10 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     let src_path = src_opener.path();
     if let Some(db_version) = src_opener.get_version_if_exists()? {
         anyhow::ensure!(
-            db_version == near_primitives::version::DB_VERSION,
+            db_version == DB_VERSION,
             "{}: expected DB version {} but got {}",
             src_path.display(),
-            near_primitives::version::DB_VERSION,
+            DB_VERSION,
             db_version
         );
     } else {

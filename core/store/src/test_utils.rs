@@ -1,11 +1,10 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use rand::seq::SliceRandom;
 use rand::Rng;
 
 use crate::db::TestDB;
-use crate::{NodeStorage, ShardTries, Store, Temperature, TrieCacheFactory};
+use crate::{NodeStorage, ShardTries, Store};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DataReceipt, Receipt, ReceiptEnum};
@@ -17,12 +16,12 @@ use std::str::from_utf8;
 ///
 /// In tests you’ll often want to use [`create_test_store`] instead.
 pub fn create_test_node_storage() -> NodeStorage {
-    NodeStorage::new(Arc::new(TestDB::new()))
+    NodeStorage::new(TestDB::new())
 }
 
 /// Creates an in-memory database.
 pub fn create_test_store() -> Store {
-    create_test_node_storage().get_store(Temperature::Hot)
+    create_test_node_storage().get_store(crate::Temperature::Hot)
 }
 
 /// Creates a Trie using an in-memory database.
@@ -32,8 +31,7 @@ pub fn create_tries() -> ShardTries {
 
 pub fn create_tries_complex(shard_version: ShardVersion, num_shards: NumShards) -> ShardTries {
     let store = create_test_store();
-    let trie_cache_factory = TrieCacheFactory::new(Default::default(), shard_version, num_shards);
-    ShardTries::new(store, trie_cache_factory)
+    ShardTries::test_shard_version(store, shard_version, num_shards)
 }
 
 pub fn test_populate_trie(

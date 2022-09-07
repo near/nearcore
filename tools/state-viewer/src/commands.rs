@@ -121,7 +121,7 @@ pub(crate) fn dump_tx(
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
-    select_account_ids: Option<&Vec<AccountId>>,
+    select_account_ids: Option<&[AccountId]>,
     output_path: Option<String>,
 ) -> Result<(), Error> {
     let chain_store = ChainStore::new(

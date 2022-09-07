@@ -11,7 +11,7 @@ use near_primitives::block::GenesisId;
 
 use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
-use near_logger_utils::init_test_logger;
+use near_o11y::testonly::init_test_logger;
 
 use near_network::config;
 use near_network::test_utils::{
@@ -30,8 +30,7 @@ fn make_peer_manager(
     port: u16,
     boot_nodes: Vec<(&str, u16)>,
     peer_max_count: u32,
-) -> PeerManagerActor {
-    let store = near_store::test_utils::create_test_node_storage();
+) -> actix::Addr<PeerManagerActor> {
     let mut config = config::NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
     config.max_num_peers = peer_max_count;
@@ -46,9 +45,9 @@ fn make_peer_manager(
     }))
     .start();
 
-    PeerManagerActor::new(
+    PeerManagerActor::spawn(
         time::Clock::real(),
-        store,
+        near_store::db::TestDB::new(),
         config,
         client_addr.recipient(),
         view_client_addr.recipient(),
@@ -63,8 +62,8 @@ fn peer_handshake() {
 
     run_actix(async {
         let (port1, port2) = (open_port(), open_port());
-        let pm1 = make_peer_manager("test1", port1, vec![("test2", port2)], 10).start();
-        let _pm2 = make_peer_manager("test2", port2, vec![("test1", port1)], 10).start();
+        let pm1 = make_peer_manager("test1", port1, vec![("test2", port2)], 10);
+        let _pm2 = make_peer_manager("test2", port2, vec![("test1", port1)], 10);
         wait_or_timeout(100, 2000, || async {
             let info = pm1.send(GetInfo {}).await.unwrap();
             if info.num_connected_peers == 1 {
@@ -84,14 +83,14 @@ fn peers_connect_all() {
 
     run_actix(async {
         let port = open_port();
-        let _pm = make_peer_manager("test", port, vec![], 10).start();
+        let _pm = make_peer_manager("test", port, vec![], 10);
         let mut peers = vec![];
 
         let num_peers = 5;
         for i in 0..num_peers {
             let pm =
                 make_peer_manager(&format!("test{}", i), open_port(), vec![("test", port)], 10);
-            peers.push(pm.start());
+            peers.push(pm);
         }
         let flags = Arc::new(AtomicUsize::new(0));
         WaitOrTimeoutActor::new(
@@ -127,11 +126,10 @@ fn peer_recover() {
 
     run_actix(async {
         let port0 = open_port();
-        let pm0 = Arc::new(make_peer_manager("test0", port0, vec![], 2).start());
-        let _pm1 = make_peer_manager("test1", open_port(), vec![("test0", port0)], 1).start();
+        let pm0 = Arc::new(make_peer_manager("test0", port0, vec![], 2));
+        let _pm1 = make_peer_manager("test1", open_port(), vec![("test0", port0)], 1);
 
-        let mut pm2 =
-            Arc::new(make_peer_manager("test2", open_port(), vec![("test0", port0)], 1).start());
+        let mut pm2 = Arc::new(make_peer_manager("test2", open_port(), vec![("test0", port0)], 1));
 
         let state = Arc::new(AtomicUsize::new(0));
         let flag = Arc::new(AtomicBool::new(false));
@@ -162,9 +160,12 @@ fn peer_recover() {
                     }
                 } else if state.load(Ordering::Relaxed) == 3 {
                     // Start node2 from scratch again.
-                    pm2 = Arc::new(
-                        make_peer_manager("test2", open_port(), vec![("test0", port0)], 1).start(),
-                    );
+                    pm2 = Arc::new(make_peer_manager(
+                        "test2",
+                        open_port(),
+                        vec![("test0", port0)],
+                        1,
+                    ));
 
                     state.store(4, Ordering::Relaxed);
                 } else if state.load(Ordering::Relaxed) == 4 {
