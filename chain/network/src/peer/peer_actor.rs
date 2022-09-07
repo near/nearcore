@@ -17,6 +17,7 @@ use crate::stats::metrics;
 use crate::types::{
     Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses, PeerMessage,
 };
+use actix::fut::future::wrap_future;
 use actix::{
     Actor, ActorContext, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler,
     Running, WrapFuture,
@@ -155,6 +156,52 @@ enum RecvError {
     MessageTooLarge { got_bytes: usize, want_max_bytes: usize },
 }
 
+/// Event loop receiving and processing messages.
+/// Loop waits for the message to be processed before reading the next message.
+/// Note that if the message handler spawns an asynchronous subhandler and returns,
+/// then the loop will start reading the next message before the subhandler returns.
+/// Loop uses a fixed small buffer allocated by BufReader.
+/// For each message it allocates a Vec with exact size of the message.
+// TODO(gprusak): once borsh support is dropped, we can parse a proto
+// directly from the stream.
+async fn run_recv_loop(
+    read: tokio::io::ReadHalf<tokio::net::TcpStream>,
+    peer_addr: SocketAddr,
+    addr: actix::Recipient<RecvMessage>,
+    stats: Arc<connection::Stats>,
+) -> Result<(), RecvError> {
+    const READ_BUFFER_CAPACITY: usize = 8 * 1024;
+    let mut read = tokio::io::BufReader::with_capacity(READ_BUFFER_CAPACITY, read);
+
+    let msg_size_metric =
+        metrics::MetricGuard::new(&metrics::PEER_MSG_SIZE_BYTES, vec![peer_addr.to_string()]);
+    let buf_size_metric =
+        metrics::PEER_DATA_READ_BUFFER_SIZE.with_label_values(&[&peer_addr.to_string()]);
+    loop {
+        let n = read.read_u32_le().await.map_err(RecvError::IO)? as usize;
+        if n > NETWORK_MESSAGE_MAX_SIZE_BYTES {
+            return Err(RecvError::MessageTooLarge {
+                got_bytes: n,
+                want_max_bytes: NETWORK_MESSAGE_MAX_SIZE_BYTES,
+            });
+        }
+        msg_size_metric.observe(n as f64);
+        buf_size_metric.set(n as i64);
+        let mut buf = vec![0; n];
+        let t = metrics::PEER_MSG_READ_LATENCY.start_timer();
+        read.read_exact(&mut buf[..]).await.map_err(RecvError::IO)?;
+        t.observe_duration();
+        buf_size_metric.set(0);
+        stats.received_messages.fetch_add(1, Ordering::Relaxed);
+        stats.received_bytes.fetch_add(n as u64, Ordering::Relaxed);
+        if let Err(_) = addr.send(RecvMessage(Ok(buf))).await {
+            // We got mailbox error, which means that Actor has stopped,
+            // so we should just close the stream.
+            return Ok(());
+        }
+    }
+}
+
 impl PeerActor {
     pub(crate) fn spawn(
         clock: time::Clock,
@@ -239,56 +286,15 @@ impl PeerActor {
             };
             let addr = ctx.address();
             let stats = pa.stats.clone();
-            // Event loop receiving and processing messages.
-            // After dispatching a message, loop starts parsing the next message immediately
-            // (i.e. it doesn't wait for the message to be processed).
-            // It uses a fixed small buffer allocated by BufReader.
-            // For each message it allocates a Vec with exact size of the message.
-            // TODO(gprusak): once borsh support is dropped, we can parse a proto
-            // directly from the stream.
-            ctx.spawn(
-                async move {
-                    if let Err(err) = async {
-                        const READ_BUFFER_CAPACITY: usize = 8 * 1024;
-                        let mut read =
-                            tokio::io::BufReader::with_capacity(READ_BUFFER_CAPACITY, read);
-
-                        let msg_size_metric = metrics::MetricGuard::new(
-                            &metrics::PEER_MSG_SIZE_BYTES,
-                            vec![peer_addr.to_string()],
-                        );
-                        msg_size_metric.observe(1000.);
-                        loop {
-                            let n = read.read_u32_le().await.map_err(RecvError::IO)? as usize;
-                            if n > NETWORK_MESSAGE_MAX_SIZE_BYTES {
-                                return Err(RecvError::MessageTooLarge {
-                                    got_bytes: n,
-                                    want_max_bytes: NETWORK_MESSAGE_MAX_SIZE_BYTES,
-                                });
-                            }
-                            msg_size_metric.observe(n as f64);
-                            let mut buf = vec![0; n];
-                            let t = metrics::PEER_MSG_READ_LATENCY.start_timer();
-                            read.read_exact(&mut buf[..]).await.map_err(RecvError::IO)?;
-                            t.observe_duration();
-                            stats.received_messages.fetch_add(1, Ordering::Relaxed);
-                            stats.received_bytes.fetch_add(n as u64, Ordering::Relaxed);
-                            if let Err(_) = addr.send(RecvMessage(Ok(buf))).await {
-                                // We got mailbox error, which means that Actor has stopped,
-                                // so we should just close the stream.
-                                return Ok(());
-                            }
-                        }
-                    }
-                    .await
-                    {
-                        // Send the critical error to the PeerActor (best effort).
-                        // PeerActor is responsible for calling ctx.stop() afterwards.
-                        addr.do_send(RecvMessage(Err(err)));
-                    }
+            ctx.spawn(wrap_future(async move {
+                if let Err(err) =
+                    run_recv_loop(read, peer_addr, addr.clone().recipient(), stats).await
+                {
+                    // Send the critical error to the PeerActor (best effort).
+                    // PeerActor is responsible for calling ctx.stop() afterwards.
+                    addr.do_send(RecvMessage(Err(err)));
                 }
-                .into_actor(&pa),
-            );
+            }));
             pa
         }))
     }
@@ -797,6 +803,7 @@ impl Actor for PeerActor {
         let metric_label = &self.peer_addr.to_string();
         // Garbage collect our metrics, ignoring the case where the metric is
         // already deleted, to avoid races when a peer tries to reconnect.
+        let _ = metrics::PEER_DATA_READ_BUFFER_SIZE.remove_label_values(&[metric_label]);
         let _ = metrics::PEER_DATA_WRITE_BUFFER_SIZE.remove_label_values(&[metric_label]);
     }
 }
@@ -824,7 +831,7 @@ impl actix::Handler<RecvMessage> for PeerActor {
                         io::ErrorKind::UnexpectedEof => true,
                         io::ErrorKind::ConnectionReset => true,
                         _ => false,
-                    }
+                    },
                 };
                 if !expected {
                     error!(target: "network", ?err, "Closing connection to {}", self.peer_info);

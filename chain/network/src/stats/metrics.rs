@@ -82,6 +82,8 @@ impl<T: MetricVecBuilder> MetricGuard<T> {
 impl<T: MetricVecBuilder> Drop for MetricGuard<T> {
     fn drop(&mut self) {
         let labels: Vec<_> = self.labels.iter().map(String::as_str).collect();
+        // This can return an error in tests, when multiple PeerManagerActors
+        // connect to the same endpoint.
         let _ = self.metric_vec.remove_label_values(&labels[..]);
     }
 }
@@ -128,6 +130,15 @@ pub(crate) static PEER_MSG_READ_LATENCY: Lazy<Histogram> = Lazy::new(|| {
 
 pub(crate) static PEER_DATA_SENT_BYTES: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter("near_peer_data_sent_bytes", "Total data sent to peers").unwrap()
+});
+
+pub(crate) static PEER_DATA_READ_BUFFER_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_peer_read_buffer_size",
+        "Size of the message that this peer is currently sending to us",
+        &["addr"],
+    )
+    .unwrap()
 });
 pub(crate) static PEER_DATA_WRITE_BUFFER_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
