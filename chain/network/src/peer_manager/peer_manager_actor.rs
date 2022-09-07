@@ -35,13 +35,10 @@ use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{AccountId, EpochId};
-use near_rate_limiter::{
-    ActixMessageResponse, ActixMessageWrapper, ThrottleController, ThrottleToken,
-};
 use parking_lot::RwLock;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
-use std::cmp::{max, min};
+use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
@@ -409,20 +406,13 @@ impl PeerManagerActor {
             .start_timer();
         let mut total_bandwidth_used_by_all_peers: usize = 0;
         let mut total_msg_received_count: usize = 0;
-        let mut max_max_record_num_messages_in_progress: usize = 0;
         for (peer_id, connected_peer) in &self.state.tier2.load().ready {
-            // consume methods of the throttle_controller require &mut self,
-            // but in fact they modify internal Arc<Atomic...> values,
-            // so if we clone the throttle_controller we can call them. This doesn't make
-            // much sense.
-            // TODO(gprusak): make it more reasonable.
-            let mut throttle_controller = connected_peer.throttle_controller.clone();
-            let bandwidth_used = throttle_controller.consume_bandwidth_used();
-            let msg_received_count = throttle_controller.consume_msg_seen();
-            let max_record = throttle_controller.consume_max_messages_in_progress();
-
+            let bandwidth_used =
+                connected_peer.stats.received_bytes.swap(0, Ordering::Relaxed) as usize;
+            let msg_received_count =
+                connected_peer.stats.received_messages.swap(0, Ordering::Relaxed) as usize;
             if bandwidth_used > REPORT_BANDWIDTH_THRESHOLD_BYTES
-                || total_msg_received_count > REPORT_BANDWIDTH_THRESHOLD_COUNT
+                || msg_received_count > REPORT_BANDWIDTH_THRESHOLD_COUNT
             {
                 debug!(target: "bandwidth",
                     ?peer_id,
@@ -431,14 +421,12 @@ impl PeerManagerActor {
             }
             total_bandwidth_used_by_all_peers += bandwidth_used;
             total_msg_received_count += msg_received_count;
-            max_max_record_num_messages_in_progress =
-                max(max_max_record_num_messages_in_progress, max_record);
         }
 
         info!(
             target: "bandwidth",
             total_bandwidth_used_by_all_peers,
-            total_msg_received_count, max_max_record_num_messages_in_progress, "Bandwidth stats"
+            total_msg_received_count, "Bandwidth stats"
         );
 
         near_performance_metrics::actix::run_later(
@@ -1003,23 +991,17 @@ impl PeerManagerActor {
     /// Bans peer `peer_id` if an invalid edge is found.
     /// `PeerManagerActor` periodically runs `broadcast_validated_edges_trigger`, which gets edges
     /// from `EdgeValidatorActor` concurrent queue and sends edges to be added to `RoutingTableActor`.
-    fn validate_edges_and_add_to_routing_table(
-        &self,
-        peer_id: PeerId,
-        edges: Vec<Edge>,
-        throttle_controller: Option<ThrottleController>,
-    ) {
+    fn validate_edges_and_add_to_routing_table(&self, peer_id: PeerId, edges: Vec<Edge>) {
         if edges.is_empty() {
             return;
         }
-        self.routing_table_addr.do_send(ActixMessageWrapper::new_without_size(
-            routing::actor::Message::ValidateEdgeList(ValidateEdgeList {
+        self.routing_table_addr.do_send(routing::actor::Message::ValidateEdgeList(
+            ValidateEdgeList {
                 source_peer_id: peer_id,
                 edges,
                 edges_info_shared: self.routing_table_exchange_helper.edges_info_shared.clone(),
                 sender: self.routing_table_exchange_helper.edges_to_add_sender.clone(),
-            }),
-            throttle_controller,
+            },
         ));
     }
 
@@ -1082,17 +1064,14 @@ impl PeerManagerActor {
             connected_peers: tier2
                 .ready
                 .values()
-                .map(|cp| {
-                    let stats = cp.stats.load();
-                    ConnectedPeerInfo {
-                        full_peer_info: cp.full_peer_info(),
-                        received_bytes_per_sec: stats.received_bytes_per_sec,
-                        sent_bytes_per_sec: stats.sent_bytes_per_sec,
-                        last_time_peer_requested: cp.last_time_peer_requested.load(),
-                        last_time_received_message: cp.last_time_received_message.load(),
-                        connection_established_time: cp.connection_established_time,
-                        peer_type: cp.peer_type,
-                    }
+                .map(|cp| ConnectedPeerInfo {
+                    full_peer_info: cp.full_peer_info(),
+                    received_bytes_per_sec: cp.stats.received_bytes_per_sec.load(Ordering::Relaxed),
+                    sent_bytes_per_sec: cp.stats.sent_bytes_per_sec.load(Ordering::Relaxed),
+                    last_time_peer_requested: cp.last_time_peer_requested.load(),
+                    last_time_received_message: cp.last_time_received_message.load(),
+                    connection_established_time: cp.connection_established_time,
+                    peer_type: cp.peer_type,
                 })
                 .collect(),
             num_connected_peers: tier2.ready.len(),
@@ -1101,12 +1080,12 @@ impl PeerManagerActor {
             sent_bytes_per_sec: tier2
                 .ready
                 .values()
-                .map(|x| x.stats.load().sent_bytes_per_sec)
+                .map(|x| x.stats.sent_bytes_per_sec.load(Ordering::Relaxed))
                 .sum(),
             received_bytes_per_sec: tier2
                 .ready
                 .values()
-                .map(|x| x.stats.load().received_bytes_per_sec)
+                .map(|x| x.stats.received_bytes_per_sec.load(Ordering::Relaxed))
                 .sum(),
             known_producers: self
                 .state
@@ -1147,7 +1126,6 @@ impl PeerManagerActor {
         &mut self,
         msg: NetworkRequests,
         _ctx: &mut Context<Self>,
-        _throttle_controller: Option<ThrottleController>,
     ) -> NetworkResponses {
         let _span =
             tracing::trace_span!(target: "network", "handle_msg_network_requests").entered();
@@ -1499,17 +1477,14 @@ impl PeerManagerActor {
         &mut self,
         msg: PeerManagerMessageRequest,
         ctx: &mut Context<Self>,
-        throttle_controller: Option<ThrottleController>,
     ) -> PeerManagerMessageResponse {
         let _span =
             tracing::trace_span!(target: "network", "handle_peer_manager_message").entered();
         match msg {
             PeerManagerMessageRequest::NetworkRequests(msg) => {
-                PeerManagerMessageResponse::NetworkResponses(self.handle_msg_network_requests(
-                    msg,
-                    ctx,
-                    throttle_controller,
-                ))
+                PeerManagerMessageResponse::NetworkResponses(
+                    self.handle_msg_network_requests(msg, ctx),
+                )
             }
             // TEST-ONLY
             PeerManagerMessageRequest::OutboundTcpConnect(msg) => {
@@ -1542,7 +1517,6 @@ impl PeerManagerActor {
         &mut self,
         msg: PeerToManagerMsg,
         ctx: &mut Context<Self>,
-        throttle_controller: Option<ThrottleController>,
     ) -> PeerToManagerMsgResp {
         match msg {
             PeerToManagerMsg::RegisterPeer(msg) => {
@@ -1678,7 +1652,7 @@ impl PeerManagerActor {
                         actix::fut::ready(())
                     }).spawn(ctx);
 
-                self.validate_edges_and_add_to_routing_table(peer_id, edges, throttle_controller);
+                self.validate_edges_and_add_to_routing_table(peer_id, edges);
                 PeerToManagerMsgResp::Empty
             }
         }
@@ -1793,32 +1767,6 @@ impl Handler<SetChainInfo> for PeerManagerActor {
     }
 }
 
-impl Handler<ActixMessageWrapper<PeerToManagerMsg>> for PeerManagerActor {
-    type Result = ActixMessageResponse<PeerToManagerMsgResp>;
-
-    fn handle(
-        &mut self,
-        msg: ActixMessageWrapper<PeerToManagerMsg>,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
-        // Unpack throttle controller
-        let (msg, throttle_token) = msg.take();
-        let _timer =
-            metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
-        let _span = tracing::trace_span!(target: "network", "handle", handler = "PeerToManagerMsg")
-            .entered();
-
-        let throttle_controller = throttle_token.throttle_controller().cloned();
-        let result = self.handle_peer_to_manager_msg(msg, ctx, throttle_controller);
-
-        // TODO(#5155) Add support for DeepSizeOf to result
-        ActixMessageResponse::new(
-            result,
-            ThrottleToken::new_without_size(throttle_token.throttle_controller().cloned()),
-        )
-    }
-}
-
 impl Handler<PeerToManagerMsg> for PeerManagerActor {
     type Result = PeerToManagerMsgResp;
     fn handle(&mut self, msg: PeerToManagerMsg, ctx: &mut Self::Context) -> Self::Result {
@@ -1826,7 +1774,7 @@ impl Handler<PeerToManagerMsg> for PeerManagerActor {
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         let _span = tracing::trace_span!(target: "network", "handle", handler = "PeerToManagerMsg")
             .entered();
-        self.handle_peer_to_manager_msg(msg, ctx, None)
+        self.handle_peer_to_manager_msg(msg, ctx)
     }
 }
 
@@ -1836,6 +1784,6 @@ impl Handler<PeerManagerMessageRequest> for PeerManagerActor {
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         let _span = tracing::trace_span!(target: "network", "handle", handler = "PeerManagerMessageRequest").entered();
-        self.handle_peer_manager_message(msg, ctx, None)
+        self.handle_peer_manager_message(msg, ctx)
     }
 }
