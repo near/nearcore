@@ -2011,8 +2011,10 @@ fn preload_account_state(
 
     // less than 10MB per thread should make it fairly quick.
     // TODO: limit number of threads to something sensible.
-    let sub_trie_size = 10_000_000;
-    // let sub_trie_size = 100_000;
+    // let sub_trie_size = 10_000_000;
+    let sub_trie_size = 100_000;
+    let max_threads = 128;
+    let thread_slots = Arc::new(std::sync::atomic::AtomicU32::new(max_threads));
 
     let mut state_iter = trie.iter()?;
     state_iter.seek(prefix)?;
@@ -2026,6 +2028,17 @@ fn preload_account_state(
             .expect("preload called without caching storage")
             .clone();
         let root = trie.get_root().clone();
+        loop {
+            if thread_slots.load(std::sync::atomic::Ordering::Relaxed) > 0 {
+                // guaranteed to not wrap because only the main thread subtracts
+                thread_slots.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                break;
+            } else {
+                // TODO: consider using conditional variable
+                std::thread::sleep(std::time::Duration::from_micros(10));
+            }
+        }
+        let inner_thread_slots = thread_slots.clone();
         let handle = std::thread::spawn(move || {
             let hex_prefix: String = key_nibbles
                 .iter()
@@ -2035,6 +2048,7 @@ fn preload_account_state(
             let trie = Trie::new(Box::new(storage), root, None);
             let n = TrieIterator { trie: &trie, trail, key_nibbles }.count();
             debug!(target: "store", "Preload subtrie at {hex_prefix} done, loaded {n:<8} nodes");
+            inner_thread_slots.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             n
         });
         handles.push(handle);
