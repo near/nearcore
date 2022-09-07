@@ -68,9 +68,9 @@
 //! ```
 
 pub use prometheus::{
-    self, exponential_buckets, linear_buckets, Counter, Encoder, Gauge, GaugeVec, Histogram,
-    HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts, Result,
-    TextEncoder,
+    self, core::MetricVec, core::MetricVecBuilder, exponential_buckets, linear_buckets, Counter,
+    Encoder, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec,
+    IntGauge, IntGaugeVec, Opts, Result, TextEncoder,
 };
 
 /// Collect all the metrics for reporting.
@@ -149,6 +149,19 @@ pub fn try_create_gauge_vec(name: &str, help: &str, labels: &[&str]) -> Result<G
 /// (potentially due to naming conflict).
 pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
     let opts = HistogramOpts::new(name, help);
+    let histogram = Histogram::with_opts(opts)?;
+    prometheus::register(Box::new(histogram.clone()))?;
+    Ok(histogram)
+}
+
+/// Attempts to crate a `Histogram`, returning `Err` if the registry does not accept the counter
+/// (potentially due to naming conflict).
+pub fn try_create_histogram_with_buckets(
+    name: &str,
+    help: &str,
+    buckets: Vec<f64>,
+) -> Result<Histogram> {
+    let opts = HistogramOpts::new(name, help).buckets(buckets);
     let histogram = Histogram::with_opts(opts)?;
     prometheus::register(Box::new(histogram.clone()))?;
     Ok(histogram)

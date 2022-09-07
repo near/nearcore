@@ -64,7 +64,7 @@ pub(crate) struct Testbed<'c> {
     transaction_builder: TransactionBuilder,
 }
 
-impl<'c> Testbed<'c> {
+impl Testbed<'_> {
     pub(crate) fn transaction_builder(&mut self) -> &mut TransactionBuilder {
         &mut self.transaction_builder
     }
@@ -77,8 +77,8 @@ impl<'c> Testbed<'c> {
     /// `block_latency` must be specified and the function will panic if it is
     /// wrong. A latency of 0 means everything is done within a single block.
     #[track_caller]
-    pub(crate) fn measure_blocks<'a>(
-        &'a mut self,
+    pub(crate) fn measure_blocks(
+        &mut self,
         blocks: Vec<Vec<SignedTransaction>>,
         block_latency: usize,
     ) -> Vec<(GasCost, HashMap<ExtCosts, u64>)> {
@@ -110,11 +110,7 @@ impl<'c> Testbed<'c> {
         res
     }
 
-    pub(crate) fn process_block<'a>(
-        &'a mut self,
-        block: Vec<SignedTransaction>,
-        block_latency: usize,
-    ) {
+    pub(crate) fn process_block(&mut self, block: Vec<SignedTransaction>, block_latency: usize) {
         let allow_failures = false;
         self.inner.process_block(&block, allow_failures);
         let extra_blocks = self.inner.process_blocks_until_no_receipts(allow_failures);
