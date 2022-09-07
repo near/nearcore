@@ -44,6 +44,26 @@ fn inc_counter_vec_with_label_values_stack(bench: &mut Bencher) {
     });
 }
 
+fn inc_counter_vec_with_label_values_stack_no_format(bench: &mut Bencher) {
+    bench.iter(|| {
+        for shard_id in 0..NUM_SHARDS {
+            let mut buf = [0u8; 16];
+            let mut idx = buf.len();
+            let mut n = shard_id;
+            loop {
+                idx -= 1;
+                buf[idx] = b'0' + (n % 10) as u8;
+                n = n / 10;
+                if n == 0 {
+                    break;
+                }
+            }
+            let label = unsafe { std::str::from_utf8_unchecked(&buf[idx..]) };
+            COUNTERS.with_label_values(&[label]).inc();
+        }
+    });
+}
+
 fn inc_counter_vec_cached(bench: &mut Bencher) {
     const NUM_SHARDS: usize = 8;
     let counters: Vec<IntCounter> = (0..NUM_SHARDS)
@@ -71,6 +91,7 @@ benchmark_group!(
     inc_counter_vec_with_label_values,
     inc_counter_vec_with_label_values_smartstring,
     inc_counter_vec_with_label_values_stack,
+    inc_counter_vec_with_label_values_stack_no_format,
     inc_counter_vec_cached_str,
     inc_counter_vec_cached,
 );
