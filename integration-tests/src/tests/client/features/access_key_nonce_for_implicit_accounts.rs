@@ -7,7 +7,9 @@ use near_chain::{ChainGenesis, ChainStore, ChainStoreAccess, Error, Provenance, 
 use near_chain_configs::Genesis;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_network::types::{MsgRecipient, NetworkClientResponses, NetworkRequests, PeerManagerMessageRequest};
+use near_network::types::{
+    MsgRecipient, NetworkClientResponses, NetworkRequests, PeerManagerMessageRequest,
+};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::AccessKey;
 use near_primitives::errors::InvalidTxError;
@@ -23,10 +25,10 @@ use nearcore::config::GenesisExt;
 use nearcore::{TrackedConfig, NEAR_BASE};
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
-use tracing::debug;
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
+use tracing::debug;
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
 /// Return height of the next block.
@@ -614,33 +616,30 @@ impl ChunkForwardingOptimizationTestData {
                     );
                 }
                 debug!(
-                        target: "test",
-                        "chunk request from {} to {:?} for chunk {} with part_ords {:?}",
-                        client_id,
-                        target,
-                        hex::encode(&request.chunk_hash.as_bytes()[..4]),
-                        request.part_ords
-                    );
+                    target: "test",
+                    "chunk request from {} to {:?} for chunk {} with part_ords {:?}",
+                    client_id,
+                    target,
+                    hex::encode(&request.chunk_hash.as_bytes()[..4]),
+                    request.part_ords
+                );
                 self.num_part_ords_requested += request.part_ords.len();
                 self.env.process_partial_encoded_chunk_request(
                     client_id,
                     PeerManagerMessageRequest::NetworkRequests(requests),
                 );
             }
-            NetworkRequests::PartialEncodedChunkMessage {
-                account_id,
-                partial_encoded_chunk,
-            } => {
+            NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
                 debug!(
-                        target: "test",
-                        "chunk msg from {} to {} height {} hash {} shard {} parts {:?}",
-                        client_id,
-                        account_id,
-                        partial_encoded_chunk.header.height_created(),
-                        hex::encode(&partial_encoded_chunk.header.chunk_hash().as_bytes()[..4]),
-                        partial_encoded_chunk.header.shard_id(),
-                        partial_encoded_chunk.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>()
-                    );
+                    target: "test",
+                    "chunk msg from {} to {} height {} hash {} shard {} parts {:?}",
+                    client_id,
+                    account_id,
+                    partial_encoded_chunk.header.height_created(),
+                    hex::encode(&partial_encoded_chunk.header.chunk_hash().as_bytes()[..4]),
+                    partial_encoded_chunk.header.shard_id(),
+                    partial_encoded_chunk.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>()
+                );
                 for part in &partial_encoded_chunk.parts {
                     self.chunk_parts_that_must_be_known.insert((
                         partial_encoded_chunk.header.chunk_hash(),
@@ -660,13 +659,13 @@ impl ChunkForwardingOptimizationTestData {
             }
             NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                 debug!(
-                        target: "test",
-                        "chunk forward from {} to {} hash {} parts {:?}",
-                        client_id,
-                        account_id,
-                        hex::encode(&forward.chunk_hash.as_bytes()[..4]),
-                        forward.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>()
-                    );
+                    target: "test",
+                    "chunk forward from {} to {} hash {} parts {:?}",
+                    client_id,
+                    account_id,
+                    hex::encode(&forward.chunk_hash.as_bytes()[..4]),
+                    forward.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>()
+                );
                 for part_ord in &forward.parts {
                     self.chunk_parts_that_must_be_known.insert((
                         forward.chunk_hash.clone(),
@@ -769,10 +768,7 @@ fn test_chunk_forwarding_optimization() {
                 i
             );
             assert_eq!(&accepted_blocks[0], block.header().hash());
-            assert_eq!(
-                test.env.clients[i].chain.head().unwrap().height,
-                block.header().height()
-            );
+            assert_eq!(test.env.clients[i].chain.head().unwrap().height, block.header().height());
         }
     }
 
@@ -781,16 +777,16 @@ fn test_chunk_forwarding_optimization() {
     // happen.
     assert!(test.num_forwards_with_missing_chunk_header > 0);
     debug!(target: "test",
-            "Counters for debugging:
+        "Counters for debugging:
                 num_part_ords_requested: {}
                 num_part_ords_sent_as_partial_encoded_chunk: {}
                 num_part_ords_forwarded: {}
                 num_forwards_with_missing_chunk_header: {}",
-            test.num_part_ords_requested,
-            test.num_part_ords_sent_as_partial_encoded_chunk,
-            test.num_part_ords_forwarded,
-            test.num_forwards_with_missing_chunk_header
-        );
+        test.num_part_ords_requested,
+        test.num_part_ords_sent_as_partial_encoded_chunk,
+        test.num_part_ords_forwarded,
+        test.num_forwards_with_missing_chunk_header
+    );
 }
 
 /// Test asynchronous block processing (start_process_block_async).
