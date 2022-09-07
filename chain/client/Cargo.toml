@@ -31,7 +31,6 @@ near-chain-primitives = { path = "../chain-primitives" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
-near-metrics = { path = "../../core/metrics" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-chain = { path = "../chain" }
 near-client-primitives = { path = "../client-primitives" }

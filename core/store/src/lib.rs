@@ -32,7 +32,7 @@ pub use crate::trie::iterator::TrieIterator;
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
     estimator, split_state, ApplyStatePartResult, KeyForStateChanges, PartialStorage, ShardTries,
-    Trie, TrieAccess, TrieCache, TrieCacheFactory, TrieCachingStorage, TrieChanges, TrieStorage,
+    Trie, TrieAccess, TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieStorage,
     WrappedTrieChanges,
 };
 
@@ -42,11 +42,14 @@ pub mod db;
 pub mod flat_state;
 mod metrics;
 pub mod migrations;
+mod opener;
 pub mod test_utils;
 mod trie;
+pub mod version;
 
-pub use crate::config::{Mode, StoreConfig, StoreOpener};
+pub use crate::config::{Mode, StoreConfig};
 pub use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError};
+pub use crate::opener::StoreOpener;
 
 /// Specifies temperature of a storage.
 ///

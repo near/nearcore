@@ -1,15 +1,12 @@
 use std::io;
 use std::path::Path;
-use std::sync::atomic::Ordering;
 
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, Direction, Env, IteratorMode, Options, ReadOptions,
     WriteBatch, DB,
 };
 use strum::IntoEnumIterator;
-use tracing::{error, warn};
-
-use near_primitives::version::DbVersion;
+use tracing::warn;
 
 use crate::config::Mode;
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue};
@@ -23,13 +20,6 @@ pub(crate) mod snapshot;
 /// In the end, they are exported as Prometheus metrics.
 pub const CF_STAT_NAMES: [&'static str; 1] = [::rocksdb::properties::LIVE_SST_FILES_SIZE];
 
-/// How many writes before we execute a pre-write check.
-const CHECK_FREE_SPACE_INTERVAL: u16 = 256;
-/// How much free space is required for a write to be allowed.
-const FREE_SPACE_THRESHOLD: bytesize::ByteSize = bytesize::ByteSize::mb(16);
-/// Threshold at which code will start warning about low disk space.
-const FREE_SPACE_WARN_THRESHOLD: bytesize::ByteSize = bytesize::ByteSize::mb(16 * 16);
-
 pub struct RocksDB {
     db: DB,
     db_opt: Options,
@@ -40,8 +30,6 @@ pub struct RocksDB {
     /// method instead.  It returns `&ColumnFamily` which is what you usually
     /// want.
     cf_handles: enum_map::EnumMap<DBCol, Option<std::ptr::NonNull<ColumnFamily>>>,
-
-    check_free_space_counter: std::sync::atomic::AtomicU16,
 
     // RAII-style of keeping track of the number of instances of RocksDB and
     // counting total sum of max_open_files.
@@ -98,13 +86,7 @@ impl RocksDB {
             .map_err(other_error)?;
         let (db, db_opt) = Self::open_db(path, store_config, mode, columns)?;
         let cf_handles = Self::get_cf_handles(&db, columns);
-        Ok(Self {
-            db,
-            db_opt,
-            cf_handles,
-            check_free_space_counter: std::sync::atomic::AtomicU16::new(CHECK_FREE_SPACE_INTERVAL),
-            _instance_tracker: counter,
-        })
+        Ok(Self { db, db_opt, cf_handles, _instance_tracker: counter })
     }
 
     /// Opens the database with given column families configured.
@@ -299,14 +281,6 @@ impl Database for RocksDB {
     }
 
     fn write(&self, transaction: DBTransaction) -> io::Result<()> {
-        if let Err(check) = self.pre_write_check() {
-            if check.is_io() {
-                warn!("unable to verify remaing disk space: {:?}, continueing write without verifying (this may result in unrecoverable data loss if disk space is exceeded", check)
-            } else {
-                panic!("{:?}", check)
-            }
-        }
-
         let mut batch = WriteBatch::default();
         for op in transaction.ops {
             match op {
@@ -528,45 +502,30 @@ impl RocksDB {
         instance_tracker::block_until_all_instances_are_dropped();
     }
 
-    /// Returns version of the database state on disk.
-    pub(crate) fn get_version(path: &Path, config: &StoreConfig) -> io::Result<DbVersion> {
-        let db = RocksDB::open(path, config, Mode::ReadOnly)?;
-        let value =
-            db.get_raw_bytes(DBCol::DbVersion, crate::db::VERSION_KEY)?.ok_or_else(|| {
-                other_error(
-                    "Failed to read database version; \
-                     it’s not a neard database or database is corrupted."
-                        .into(),
-                )
-            })?;
-        serde_json::from_slice(&value).map_err(|_err| {
-            other_error(format!(
-                "Failed to parse database version: {value:?}; \
+    /// Returns version of the database state on disk.  Returns `None` if the
+    /// database does not exist.
+    pub(crate) fn get_version(
+        path: &Path,
+        config: &StoreConfig,
+    ) -> io::Result<Option<crate::version::DbVersion>> {
+        if !path.join("CURRENT").is_file() {
+            return Ok(None);
+        }
+
+        // Specify only DBCol::DbVersion.  It’s ok to open db in read-only mode
+        // without specifying all column families but it’s an error to provide
+        // a descriptor for a column family which doesn’t exist.  This allows us
+        // to read the version without modifying the database before we figure
+        // out if there are any necessary migrations to perform.
+        let cols = [DBCol::DbVersion];
+        let db = Self::open_with_columns(path, config, Mode::ReadOnly, &cols)?;
+        match crate::version::get_db_version(&db)? {
+            Some(db_version) => Ok(Some(db_version)),
+            None => Err(other_error(
+                "missing DbVersion; \
                  it’s not a neard database or database is corrupted."
-            ))
-        })
-    }
-
-    /// Checks if there is enough memory left to perform a write. Not having enough memory left can
-    /// lead to difficult to recover from state, thus a PreWriteCheckErr is pretty much
-    /// unrecoverable in most cases.
-    fn pre_write_check(&self) -> Result<(), PreWriteCheckErr> {
-        let counter = self.check_free_space_counter.fetch_add(1, Ordering::Relaxed);
-        if CHECK_FREE_SPACE_INTERVAL >= counter {
-            return Ok(());
-        }
-        self.check_free_space_counter.swap(0, Ordering::Relaxed);
-
-        let available = available_space(self.db.path())?;
-
-        if available < FREE_SPACE_WARN_THRESHOLD {
-            warn!("remaining disk space is running low ({} left)", available);
-        }
-
-        if available < FREE_SPACE_THRESHOLD {
-            Err(PreWriteCheckErr::LowDiskSpace(available))
-        } else {
-            Ok(())
+                    .into(),
+            )),
         }
     }
 
@@ -584,25 +543,6 @@ impl RocksDB {
                 result.data.push((stat_name.to_string(), values));
             }
         }
-    }
-}
-
-fn available_space(path: &Path) -> io::Result<bytesize::ByteSize> {
-    let available = fs2::available_space(path)?;
-    Ok(bytesize::ByteSize::b(available))
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum PreWriteCheckErr {
-    #[error("error checking filesystem: {0}")]
-    IO(#[from] io::Error),
-    #[error("low disk memory ({0} available)")]
-    LowDiskSpace(bytesize::ByteSize),
-}
-
-impl PreWriteCheckErr {
-    pub fn is_io(&self) -> bool {
-        matches!(self, PreWriteCheckErr::IO(_))
     }
 }
 
@@ -728,21 +668,9 @@ fn col_name(col: DBCol) -> &'static str {
 #[cfg(test)]
 mod tests {
     use crate::db::{Database, StatsValue};
-    use crate::{DBCol, NodeStorage, StoreConfig, StoreStatistics};
+    use crate::{DBCol, NodeStorage, StoreStatistics};
 
     use super::*;
-
-    #[test]
-    fn test_prewrite_check() {
-        let tmp_dir = tempfile::Builder::new().prefix("prewrite_check").tempdir().unwrap();
-        let store = RocksDB::open(
-            tmp_dir.path(),
-            &StoreConfig::test_config(),
-            crate::config::Mode::ReadWrite,
-        )
-        .unwrap();
-        store.pre_write_check().unwrap()
-    }
 
     #[test]
     fn rocksdb_merge_sanity() {
