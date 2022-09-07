@@ -2011,7 +2011,8 @@ fn preload_account_state(
 
     // less than 10MB per thread should make it fairly quick.
     // TODO: limit number of threads to something sensible.
-    let sub_trie_size = 10_000_000;
+    // let sub_trie_size = 10_000_000;
+    let sub_trie_size = 100_000;
 
     let mut state_iter = trie.iter()?;
     state_iter.seek(prefix)?;
@@ -2026,10 +2027,14 @@ fn preload_account_state(
             .clone();
         let root = trie.get_root().clone();
         let handle = std::thread::spawn(move || {
-            trace!(target: "store", "Preload subtrie at {root}");
+            let hex_prefix: String = key_nibbles
+                .iter()
+                .map(|&n| char::from_digit(n as u32, 16).expect("nibble should be <16"))
+                .collect();
+            debug!(target: "store", "Preload subtrie at {hex_prefix}");
             let trie = Trie::new(Box::new(storage), root, None);
             let n = TrieIterator { trie: &trie, trail, key_nibbles }.count();
-            trace!(target: "store", "Preload subtrie at {root} done");
+            debug!(target: "store", "Preload subtrie at {hex_prefix} done, loaded {n:<8} nodes");
             n
         });
         handles.push(handle);
