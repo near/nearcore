@@ -1,22 +1,32 @@
-use bytesize::MIB;
+use crate::peer::peer_actor::PeerActor;
+use crate::peer_manager::connection;
+use crate::stats::metrics;
+use actix::fut::future::wrap_future;
+use actix::AsyncContext as _;
+use bytesize::{GIB, MIB};
 use std::io;
 use std::net::SocketAddr;
-use crate::stats::metrics;
-use crate::peer_manager::connection;
-use std::sync::atomic::{Ordering};
-use crate::peer::peer_actor::PeerActor;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::io::AsyncReadExt as _;
 use tokio::io::AsyncWriteExt as _;
-use actix::fut::future::wrap_future;
-use actix::AsyncContext as _;
 
 /// Maximum size of network message in encoded format.
 /// We encode length as `u32`, and therefore maximum size can't be larger than `u32::MAX`.
 const NETWORK_MESSAGE_MAX_SIZE_BYTES: usize = 512 * MIB as usize;
+/// Maximum capacity of write buffer in bytes.
+const MAX_WRITE_BUFFER_CAPACITY_BYTES: usize = GIB as usize;
 
 type ReadHalf = tokio::io::ReadHalf<tokio::net::TcpStream>;
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
+
+#[derive(thiserror::Error, Debug)]
+pub(crate) enum SendError {
+    #[error("IO error")]
+    IO(#[source] io::Error),
+    #[error("queue is full, got {got_bytes}B, max capacity is {want_max_bytes}")]
+    QueueOverflow { got_bytes: usize, want_max_bytes: usize },
+}
 
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum RecvError {
@@ -49,8 +59,10 @@ async fn run_recv_loop(
 
     let msg_size_metric =
         metrics::MetricGuard::new(&metrics::PEER_MSG_SIZE_BYTES, vec![peer_addr.to_string()]);
-    let buf_size_metric =
-        metrics::MetricGuard::new(&metrics::PEER_DATA_READ_BUFFER_SIZE, vec![peer_addr.to_string()]); 
+    let buf_size_metric = metrics::MetricGuard::new(
+        &metrics::PEER_DATA_READ_BUFFER_SIZE,
+        vec![peer_addr.to_string()],
+    );
     loop {
         let n = read.read_u32_le().await.map_err(RecvError::IO)? as usize;
         if n > NETWORK_MESSAGE_MAX_SIZE_BYTES {
@@ -108,12 +120,12 @@ async fn run_send_loop(
 }
 
 // Stream critical error.
-// PeerActor is responsible for calling ctx.stop() afterward receiving StreamError.
+// PeerActor is responsible for calling ctx.stop() after receiving stream::Error.
 #[derive(thiserror::Error, Debug, actix::Message)]
 #[rtype(result = "()")]
 pub(crate) enum Error {
     #[error("send")]
-    Send(#[source] io::Error),
+    Send(#[source] SendError),
     #[error("recv")]
     Recv(#[source] RecvError),
 }
@@ -122,6 +134,7 @@ pub(crate) struct FramedStream {
     queue_send: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
     stats: Arc<connection::Stats>,
     send_buf_size_metric: Arc<metrics::IntGaugeGuard>,
+    addr: actix::Addr<PeerActor>,
 }
 
 impl FramedStream {
@@ -133,14 +146,17 @@ impl FramedStream {
     ) -> Self {
         let (tcp_recv, tcp_send) = tokio::io::split(stream);
         let (queue_send, queue_recv) = tokio::sync::mpsc::unbounded_channel();
-        let send_buf_size_metric = Arc::new(metrics::MetricGuard::new(&*metrics::PEER_DATA_WRITE_BUFFER_SIZE,vec![peer_addr.to_string()]));
+        let send_buf_size_metric = Arc::new(metrics::MetricGuard::new(
+            &*metrics::PEER_DATA_WRITE_BUFFER_SIZE,
+            vec![peer_addr.to_string()],
+        ));
         ctx.spawn(wrap_future({
             let addr = ctx.address();
             let stats = stats.clone();
             let m = send_buf_size_metric.clone();
             async move {
                 if let Err(err) = run_send_loop(tcp_send, queue_recv, stats, m).await {
-                    addr.do_send(Error::Send(err));
+                    addr.do_send(Error::Send(SendError::IO(err)));
                 }
             }
         }));
@@ -153,12 +169,13 @@ impl FramedStream {
                 }
             }
         }));
-        Self{ queue_send, stats, send_buf_size_metric }
+        Self { queue_send, stats, send_buf_size_metric, addr: ctx.address() }
     }
 
     /// Pushes `msg` to the send queue.
     /// Silently drops message if it is too large,
     /// or the connection has been closed.
+    /// Emits a critical error to PeerActor if send queue is full.
     // TODO(gprusak): sending a too large message should probably be treated as a bug,
     // since dropping messages may lead to hard-to-debug high-level issues.
     // On the other hand silently dropping messages because of a closed queue should
@@ -168,9 +185,19 @@ impl FramedStream {
             metrics::MessageDropped::InputTooLong.inc_unknown_msg();
             return;
         }
+        let mut buf_size =
+            self.stats.bytes_to_send.fetch_add(msg.len() as u64, Ordering::Acquire) as usize;
+        buf_size += msg.len();
         self.stats.messages_to_send.fetch_add(1, Ordering::Acquire);
-        self.stats.bytes_to_send.fetch_add(msg.len() as u64, Ordering::Acquire);
         self.send_buf_size_metric.add(msg.len() as i64);
+        if buf_size > MAX_WRITE_BUFFER_CAPACITY_BYTES {
+            metrics::MessageDropped::MaxCapacityExceeded.inc_unknown_msg();
+            self.addr.do_send(Error::Send(SendError::QueueOverflow {
+                got_bytes: buf_size,
+                want_max_bytes: MAX_WRITE_BUFFER_CAPACITY_BYTES,
+            }));
+            return;
+        }
         let _ = self.queue_send.send(msg);
     }
 }

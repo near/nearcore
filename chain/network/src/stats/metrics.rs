@@ -72,11 +72,14 @@ pub(crate) struct MetricGuard<M: prometheus::core::Metric> {
 }
 
 impl<M: prometheus::core::Metric> MetricGuard<M> {
-    pub fn new<T:MetricVecBuilder<M=M>>(metric_vec: &'static MetricVec<T>, labels: Vec<String>) -> Self {
+    pub fn new<T: MetricVecBuilder<M = M>>(
+        metric_vec: &'static MetricVec<T>,
+        labels: Vec<String>,
+    ) -> Self {
         let labels_str: Vec<_> = labels.iter().map(String::as_str).collect();
         Self {
             metric: metric_vec.with_label_values(&labels_str[..]),
-            drop: Some(Box::new(move ||{
+            drop: Some(Box::new(move || {
                 // This can return an error in tests, when multiple PeerManagerActors
                 // connect to the same endpoint.
                 let labels: Vec<_> = labels.iter().map(String::as_str).collect();
@@ -88,7 +91,7 @@ impl<M: prometheus::core::Metric> MetricGuard<M> {
 
 impl<M: prometheus::core::Metric> Drop for MetricGuard<M> {
     fn drop(&mut self) {
-        self.drop.take().map(|f|f());
+        self.drop.take().map(|f| f());
     }
 }
 

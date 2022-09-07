@@ -1,8 +1,8 @@
 use crate::accounts_data;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
-use crate::peer::stream;
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
+use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
@@ -708,8 +708,9 @@ impl actix::Handler<stream::Error> for PeerActor {
                 self.ban_peer(ctx, ReasonForBan::Abusive);
                 true
             }
-            stream::Error::Recv(stream::RecvError::IO(err)) |
-            stream::Error::Send(err) => match err.kind() {
+            stream::Error::Send(stream::SendError::QueueOverflow { .. }) => false,
+            stream::Error::Recv(stream::RecvError::IO(err))
+            | stream::Error::Send(stream::SendError::IO(err)) => match err.kind() {
                 io::ErrorKind::UnexpectedEof => true,
                 io::ErrorKind::ConnectionReset => true,
                 _ => false,
