@@ -16,8 +16,7 @@ use std::ops::Not;
 use tracing::{debug, error, info};
 
 #[cfg(test)]
-#[path = "peer_store_test.rs"]
-mod test;
+mod tests;
 
 /// Level of trust we have about a new (PeerId, Addr) pair.
 #[derive(Eq, PartialEq, Debug, Clone)]

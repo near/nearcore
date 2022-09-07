@@ -3167,7 +3167,6 @@ dependencies = [
  "near-performance-metrics",
  "near-performance-metrics-macros",
  "near-primitives",
- "near-rate-limiter",
  "near-rust-allocator-proxy",
  "near-stable-hasher",
  "near-store",
@@ -3219,11 +3218,13 @@ version = "0.0.0"
 dependencies = [
  "atty",
  "backtrace",
+ "bencher",
  "clap 3.1.18",
  "once_cell",
  "opentelemetry",
  "opentelemetry-jaeger",
  "prometheus",
+ "smartstring",
  "strum",
  "thiserror",
  "tokio",
@@ -3320,20 +3321,6 @@ dependencies = [
  "serde_repr",
  "sha2 0.10.2",
  "strum",
-]
-
-[[package]]
-name = "near-rate-limiter"
-version = "0.0.0"
-dependencies = [
- "actix",
- "bytes",
- "futures-core",
- "pin-project-lite",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tracing",
 ]
 
 [[package]]
@@ -5287,6 +5274,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "smartstring"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3fb72c633efbaa2dd666986505016c32c3044395ceaf881518399d2f4127ee29"
+dependencies = [
+ "autocfg 1.1.0",
+ "static_assertions",
+ "version_check",
 ]
 
 [[package]]
