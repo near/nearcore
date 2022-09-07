@@ -738,7 +738,7 @@ impl Handler<GetStateChangesWithCauseInBlockForTrackedShards> for ViewClientActo
             {
                 Ok(shard_id) => shard_id,
                 Err(err) => {
-                    return Err(GetStateChangesError::IOError { error_message: format!("{}", err) })
+                    return Err(GetStateChangesError::IOError { error_message: err.to_string() })
                 }
             };
 
