@@ -22,6 +22,9 @@ use std::sync::{Arc, Weak};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone)]
 pub(crate) struct Stats {
     /// Number of bytes we've received from the peer.
