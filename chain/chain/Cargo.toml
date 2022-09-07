@@ -28,7 +28,6 @@ delay-detector = { path = "../../tools/delay-detector"}
 near-chain-configs = { path = "../../core/chain-configs" }
 near-chain-primitives = { path = "../chain-primitives" }
 near-crypto = { path = "../../core/crypto" }
-near-metrics = { path = "../../core/metrics" }
 near-o11y = { path = "../../core/o11y" }
 near-pool = { path = "../pool" }
 near-primitives = { path = "../../core/primitives" }
@@ -39,8 +38,6 @@ near-client-primitives = { path = "../client-primitives"}
 [dev-dependencies]
 insta = "1"
 assert_matches = "1.5.0"
-
-near-logger-utils = {path = "../../test-utils/logger"}
 
 [features]
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.

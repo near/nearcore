@@ -1,20 +1,19 @@
-use std::borrow::Borrow;
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex};
-
-use near_metrics::prometheus;
-use near_metrics::prometheus::core::{GenericCounter, GenericGauge};
-use near_primitives::hash::CryptoHash;
-
 use crate::db::refcount::decode_value_with_rc;
+use crate::trie::config::TrieConfig;
 use crate::trie::POISONED_LOCK_ERR;
 use crate::{metrics, DBCol, StorageError, Store};
 use lru::LruCache;
 use near_o11y::log_assert;
+use near_o11y::metrics::prometheus;
+use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::{TrieCacheMode, TrieNodesCount};
+use near_primitives::types::{ShardId, TrieCacheMode, TrieNodesCount};
+use std::borrow::Borrow;
 use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::ErrorKind;
+use std::sync::{Arc, Mutex};
 
 pub(crate) struct BoundedQueue<T> {
     queue: VecDeque<T>,
@@ -72,7 +71,7 @@ pub struct TrieCacheInner {
     /// Upper bound for the total size.
     total_size_limit: u64,
     /// Shard id of the nodes being cached.
-    shard_id: u32,
+    shard_id: ShardId,
     /// Whether cache is used for view calls execution.
     is_view: bool,
     // Counters tracking operations happening inside the shard cache.
@@ -94,7 +93,7 @@ impl TrieCacheInner {
         cache_capacity: usize,
         deletions_queue_capacity: usize,
         total_size_limit: u64,
-        shard_id: u32,
+        shard_id: ShardId,
         is_view: bool,
     ) -> Self {
         assert!(cache_capacity > 0 && total_size_limit > 0);
@@ -208,16 +207,15 @@ impl TrieCacheInner {
 pub struct TrieCache(Arc<Mutex<TrieCacheInner>>);
 
 impl TrieCache {
-    pub fn new(shard_id: u32, is_view: bool) -> Self {
-        Self::with_capacities(TRIE_DEFAULT_SHARD_CACHE_SIZE, shard_id, is_view)
-    }
-
-    pub fn with_capacities(cap: usize, shard_id: u32, is_view: bool) -> Self {
+    pub fn new(config: &TrieConfig, shard_uid: ShardUId, is_view: bool) -> Self {
+        let capacity = config.shard_cache_capacity(shard_uid, is_view);
+        let total_size_limit = config.shard_cache_total_size_limit(shard_uid, is_view);
+        let queue_capacity = config.deletions_queue_capacity();
         Self(Arc::new(Mutex::new(TrieCacheInner::new(
-            cap,
-            DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY,
-            DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
-            shard_id,
+            capacity as usize,
+            queue_capacity,
+            total_size_limit,
+            shard_uid.shard_id(),
             is_view,
         ))))
     }
@@ -235,7 +233,7 @@ impl TrieCache {
         for (hash, opt_value_rc) in ops {
             if let Some(value_rc) = opt_value_rc {
                 if let (Some(value), _rc) = decode_value_with_rc(&value_rc) {
-                    if value.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
+                    if value.len() < TrieConfig::max_cached_value_size() {
                         guard.put(hash, value.into());
                     } else {
                         guard.metrics.shard_cache_too_large.inc();
@@ -338,34 +336,6 @@ impl TrieStorage for TrieMemoryPartialStorage {
         unimplemented!();
     }
 }
-
-/// Default number of cache entries.
-/// It was chosen to fit into RAM well. RAM spend on trie cache should not exceed 50_000 * 4 (number of shards) *
-/// TRIE_LIMIT_CACHED_VALUE_SIZE * 2 (number of caches - for regular and view client) = 0.4 GB.
-/// In our tests on a single shard, it barely occupied 40 MB, which is dominated by state cache size
-/// with 512 MB limit. The total RAM usage for a single shard was 1 GB.
-#[cfg(not(feature = "no_cache"))]
-const TRIE_DEFAULT_SHARD_CACHE_SIZE: usize = 50000;
-#[cfg(feature = "no_cache")]
-const TRIE_DEFAULT_SHARD_CACHE_SIZE: usize = 1;
-
-/// Default total size of values which may simultaneously exist the cache.
-/// It is chosen by the estimation of the largest contract storage size we are aware as of 23/08/2022.
-#[cfg(not(feature = "no_cache"))]
-const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: u64 = 3_000_000_000;
-#[cfg(feature = "no_cache")]
-const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: u64 = 1;
-
-/// Capacity for the deletions queue.
-/// It is chosen to fit all hashes of deleted nodes for 3 completely full blocks.
-#[cfg(not(feature = "no_cache"))]
-const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize = 100_000;
-#[cfg(feature = "no_cache")]
-const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize = 1;
-
-/// Values above this size (in bytes) are never cached.
-/// Note that most of Trie inner nodes are smaller than this - e.g. branches use around 32 * 16 = 512 bytes.
-pub(crate) const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 1000;
 
 pub struct TrieCachingStorage {
     pub(crate) store: Store,
@@ -512,7 +482,7 @@ impl TrieStorage for TrieCachingStorage {
                 // It is fine to have a size limit for shard cache and **not** have a limit for chunk cache, because key
                 // is always a value hash, so for each key there could be only one value, and it is impossible to have
                 // **different** values for the given key in shard and chunk caches.
-                if val.len() < TRIE_LIMIT_CACHED_VALUE_SIZE {
+                if val.len() < TrieConfig::max_cached_value_size() {
                     guard.put(*hash, val.clone());
                 } else {
                     self.metrics.shard_cache_too_large.inc();

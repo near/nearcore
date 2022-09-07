@@ -5,7 +5,8 @@ use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData}
 use crate::peer::codec::Codec;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
-use crate::peer_manager::peer_manager_actor::{Event, NetworkState};
+use crate::peer_manager::network_state::NetworkState;
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::private_actix::PeersResponse;
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::private_actix::{
@@ -1254,7 +1255,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     }
                 } else {
                     if msg.decrease_ttl() {
-                        self.network_state.send_signed_message_to_peer(&self.clock, msg);
+                        self.network_state.send_message_to_peer(&self.clock, msg);
                     } else {
                         self.network_state.config.event_sink.push(Event::RoutedMessageDropped);
                         warn!(target: "network", ?msg, ?from, "Message dropped because TTL reached 0.");

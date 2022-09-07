@@ -2259,9 +2259,9 @@ mod test {
     use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
     use near_chain::{ChainStore, RuntimeAdapter};
     use near_crypto::KeyType;
-    use near_logger_utils::init_test_logger;
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_network::types::NetworkRequests;
+    use near_o11y::testonly::init_test_logger;
     use near_primitives::block::Tip;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::merkle::merklize;
