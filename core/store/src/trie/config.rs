@@ -1,3 +1,4 @@
+use crate::StoreConfig;
 use near_primitives::shard_layout::ShardUId;
 use std::collections::HashMap;
 
@@ -45,6 +46,39 @@ pub struct ShardCacheConfig {
 }
 
 impl TrieConfig {
+    /// Create a new `TrieConfig` with default values or the values specified in `StoreConfig`.
+    pub fn from_store_config(store_config: &StoreConfig) -> Self {
+        let mut trie_config = TrieConfig::default();
+
+        // Deprecated `trie_cache_capacities` is loaded first and overwritten
+        // by `shard_cache_config` right afterwards.
+        trie_config
+            .shard_cache_config
+            .override_max_entries
+            .extend(store_config.trie_cache_capacities.iter().cloned());
+
+        for (shard, shard_config) in &store_config.trie_cache {
+            let shard = (*shard).into();
+            if let Some(entries) = shard_config.max_entries {
+                trie_config.shard_cache_config.override_max_entries.insert(shard, entries);
+            }
+            if let Some(bytes) = shard_config.max_bytes {
+                trie_config.shard_cache_config.override_max_total_bytes.insert(shard, bytes);
+            }
+        }
+        for (shard, shard_config) in &store_config.view_trie_cache {
+            let shard = (*shard).into();
+            if let Some(entries) = shard_config.max_entries {
+                trie_config.view_shard_cache_config.override_max_entries.insert(shard, entries);
+            }
+            if let Some(bytes) = shard_config.max_bytes {
+                trie_config.view_shard_cache_config.override_max_total_bytes.insert(shard, bytes);
+            }
+        }
+
+        trie_config
+    }
+
     /// Shard cache capacity in number of trie nodes.
     pub fn shard_cache_capacity(&self, shard_uid: ShardUId, is_view: bool) -> u64 {
         if is_view { &self.view_shard_cache_config } else { &self.shard_cache_config }

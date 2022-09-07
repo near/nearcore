@@ -95,12 +95,6 @@ pub struct NightshadeRuntime {
 
 impl NightshadeRuntime {
     pub fn from_config(home_dir: &Path, store: Store, config: &NearConfig) -> Self {
-        let mut trie_config = TrieConfig::default();
-        trie_config
-            .shard_cache_config
-            .override_max_entries
-            .extend(config.config.store.trie_cache_capacities.iter().cloned());
-
         Self::new(
             home_dir,
             store,
@@ -110,7 +104,7 @@ impl NightshadeRuntime {
             config.client_config.max_gas_burnt_view,
             None,
             config.config.gc.gc_num_epochs_to_keep(),
-            trie_config,
+            TrieConfig::from_store_config(&config.config.store),
         )
     }
 
