@@ -358,13 +358,13 @@ pub fn get_block_shard_uid_rev(
 
 impl fmt::Display for ShardUId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "s{}.v{}", self.shard_id, self.version)
+        write!(f, "s{}.v{}", self.shard_id, self.version)
     }
 }
 
 impl fmt::Debug for ShardUId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{}", self)
+        write!(f, "{}", self)
     }
 }
 
@@ -385,7 +385,9 @@ impl str::FromStr for ShardUId {
         if !shard_str.starts_with("s") {
             return Err(format!("shard id must start with \"s\""));
         }
-        let shard_id = shard_str[1..].parse::<u32>().map_err(|e| e.to_string())?;
+        let shard_id = shard_str[1..]
+            .parse::<u32>()
+            .map_err(|e| format!("shard id after \"s\" must be a number, {e}"))?;
 
         Ok(ShardUId { shard_id, version })
     }
@@ -397,12 +399,12 @@ impl<'de> serde::Deserialize<'de> for ShardUId {
         D: serde::Deserializer<'de>,
     {
         let string_value = <String as serde::Deserialize>::deserialize(deserializer)?;
-        string_value.parse().map_err(|_|
+        string_value.parse().map_err(|err: String| {
             serde::de::Error::invalid_value(
                 serde::de::Unexpected::Other(&string_value),
-                &"a shard version and ID and in a short form string, such as \"s0.v1\" for shard 0 version 1",
+                &err.as_str(),
             )
-        )
+        })
     }
 }
 
