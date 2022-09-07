@@ -108,10 +108,9 @@ fn create_db_checkpoint(
 fn apply_store_migrations_if_exists(
     store_opener: &StoreOpener,
     near_config: &NearConfig,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<()> {
     let db_version = match store_opener.get_version_if_exists()? {
-        None => return Ok(false),
-        Some(DB_VERSION) => return Ok(true),
+        None | Some(DB_VERSION) => return Ok(()),
         Some(db_version) => db_version,
     };
 
@@ -184,7 +183,7 @@ fn apply_store_migrations_if_exists(
     // precious disk space.
     snapshot.remove();
 
-    Ok(true)
+    Ok(())
 }
 
 fn init_and_migrate_store(
@@ -192,15 +191,11 @@ fn init_and_migrate_store(
     near_config: &NearConfig,
 ) -> anyhow::Result<NodeStorage> {
     let opener = NodeStorage::opener(home_dir, &near_config.config.store);
-    let exists = apply_store_migrations_if_exists(&opener, near_config)?;
+    apply_store_migrations_if_exists(&opener, near_config)?;
     let store = opener
         .open()
         .with_context(|| format!("Opening database at {}", opener.path().display()))?;
     let hot = store.get_store(Temperature::Hot);
-    if !exists {
-        set_store_version(&hot, DB_VERSION)
-            .with_context(|| format!("Initialising database at {}", opener.path().display()))?;
-    }
 
     // Check if the storage is an archive and if it is make sure we are too.
     // If the store is not marked as archive but we are an archival node that is

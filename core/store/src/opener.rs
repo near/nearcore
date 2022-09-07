@@ -1,4 +1,4 @@
-use crate::{Mode, StoreConfig};
+use crate::{version, Mode, StoreConfig};
 
 const STORE_PATH: &str = "data";
 
@@ -52,7 +52,7 @@ impl<'a> StoreOpener<'a> {
     }
 
     /// Returns version of the database; or `None` if it does not exist.
-    pub fn get_version_if_exists(&self) -> std::io::Result<Option<crate::version::DbVersion>> {
+    pub fn get_version_if_exists(&self) -> std::io::Result<Option<version::DbVersion>> {
         crate::RocksDB::get_version(&self.path, &self.config)
     }
 
@@ -104,8 +104,15 @@ impl<'a> StoreOpener<'a> {
         tracing::info!(target: "near", path=%self.path.display(),
                        "{} RocksDB database",
                        if exists { "Opening" } else { "Creating a new" });
-        crate::RocksDB::open(&self.path, &self.config, self.mode)
-            .map(|db| crate::NodeStorage::new(std::sync::Arc::new(db)))
+        let storage = std::sync::Arc::new(crate::RocksDB::open(&self.path, &self.config, self.mode)?);
+        if !exists && version::get_db_version(storage.as_ref())?.is_none() {
+            // Initialise newly created database by setting it’s version.
+            let store = crate::Store { storage };
+            version::set_store_version(&store, version::DB_VERSION)?;
+            Ok(crate::NodeStorage { storage: store.storage })
+        } else {
+            Ok(crate::NodeStorage { storage })
+        }
     }
 
     /// Creates a new snapshot which can be used to recover the database state.
