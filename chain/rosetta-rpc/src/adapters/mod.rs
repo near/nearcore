@@ -684,6 +684,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use actix::System;
     use near_actix_test_utils::run_actix;
     use near_client::test_utils::setup_no_network;
 
