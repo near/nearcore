@@ -35,7 +35,7 @@ without opening an issue.
 
 ## Build Process
 
-Nearcore is a reasonably standard Rust project, so `cargo test` most likely will
+`nearcore` is a reasonably standard Rust project, so `cargo test` most likely will
 just work.  There are couple of specifics though:
 
 * `nearcore` assumes a UNIX-like environment.  Linux is actively supported; Mac
@@ -60,32 +60,39 @@ toolchain can be found in the `rust-toolchain` file.
 
 ## Pull Requests
 
-All the contributions to `nearcore` happen via Pull Requests.  To create a Pull
-Request, fork `nearcore`, create a new branch, do the work there, and then send
-a PR against the `master` branch.
+All the contributions to `nearcore` happen via Pull Requests.  Please follow the
+following steps when creating a PR:
 
-When working on a PR, please keep the following in mind:
-
-1. The changes should be thoroughly tested.  Please refer to [this
-document](https://github.com/nearprotocol/nearcore/wiki/Writing-tests-for-nearcore)
-for our testing guidelines and overview of the testing infrastructure.
-2. Feel free to submit draft PRs to get early feedback and to make sure you are
-on the right track.
-3. A PR can contain any number of commits and when merged, the commits will be
-squashed into a single commit.
-4. The PR name should follow the template: `<type>: <name>`.
-Where `type` is:
+1. Fork the `nearcore` repository and create a new branch there to do you work.
+2. The branch can contain any number of commits.  When merged, all commits will
+   be squashed into a single commit.
+3. The changes should be thoroughly tested.  Please refer to [this
+   document](https://github.com/nearprotocol/nearcore/wiki/Writing-tests-for-nearcore)
+   for our testing guidelines and an overview of the testing infrastructure.
+4. When ready, send a pull request against the `master` branch of the `nearcore`
+   repository.
+5. Feel free to submit draft PRs to get early feedback and to make sure you are
+   on the right track.
+6. The PR name should follow the template: `<type>: <name>`.  Where `type` is:
    - `fix` for bug fixes;
    - `feat` for new features;
    - `refactor` for changes that reorganize code without adding new content;
    - `doc` for changes that change documentation or comments;
    - `test` for changes that introduce new tests;
    - `chore` for grunt tasks like updating dependencies.
-5. The PR should also contain a description when appropriate to provide
-additional information to help the reviewer inspect the proposed change.
-6. If your PR introduces a user-observable change (e.g. a new protocol
-feature, new configuration option, new Prometheus metric etc.) please
-document it in [CHANGELOG.md](CHANGELOG.md) in `[unreleased]` section.
+7. The PR should also contain a description when appropriate to provide
+   additional information to help the reviewer inspect the proposed change.
+8. If your PR introduces a user-observable change (e.g. a new protocol feature,
+   new configuration option, new Prometheus metric etc.) please document it in
+   [CHANGELOG.md](CHANGELOG.md) in the `[unreleased]` section.
+9. It is important to select the ` Allow edits and access to secrets by
+   maintainers` checkbox on the PR.  Without this option, the merge bot will not
+   have sufficient rights to be able to merge the PR when it is approved.  It
+   also allows the maintainers to make trivial changes to the PR as necessary.
+   Please see
+   [these](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request-from-a-fork)
+   [links](https://stackoverflow.com/questions/63341296/github-pull-request-allow-edits-by-maintainers)
+   for the implications of selecting the checkbox.
 
 ## After the PR is submitted
 
