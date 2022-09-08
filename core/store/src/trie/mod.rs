@@ -958,6 +958,7 @@ mod tests {
         assert_eq!(other_iter.next(), None);
         other_iter.seek_prefix(b"y").unwrap();
         assert_has_next(b"y", &mut other_iter);
+        assert_eq!(other_iter.next(), None);
     }
 
     #[test]
@@ -1009,7 +1010,7 @@ mod tests {
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), changes);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root.clone());
         let mut iter = trie.iter().unwrap();
-        iter.seek_prefix(&vec![0, 116, 101, 115, 116, 44]).unwrap();
+        iter.seek_prefix(&[0, 116, 101, 115, 116, 44]).unwrap();
         let mut pairs = vec![];
         for pair in iter {
             pairs.push(pair.unwrap().0);
