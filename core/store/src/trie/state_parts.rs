@@ -72,7 +72,7 @@ impl Trie {
         if part_id == num_parts {
             return Ok(vec![16]);
         }
-        let (_bytes, root_node) = self.retrieve_node(&self.root)?;
+        let root_node = self.retrieve_node(&self.root)?.1;
         let total_size = root_node.memory_usage;
         let size_start = (total_size + num_parts - 1) / num_parts * part_id;
         self.find_path(&root_node, size_start)
@@ -313,7 +313,7 @@ mod tests {
                 return Ok(());
             }
             let mut stack: Vec<(CryptoHash, TrieNodeWithSize, CrumbStatus)> = Vec::new();
-            let (_bytes, root_node) = self.retrieve_node(&self.root)?;
+            let root_node = self.retrieve_node(&self.root)?.1;
             stack.push((self.root.clone(), root_node, CrumbStatus::Entering));
             while let Some((hash, node, position)) = stack.pop() {
                 if let CrumbStatus::Entering = position {
@@ -354,7 +354,7 @@ mod tests {
                             }
                             if i < 16 {
                                 if let Some(NodeHandle::Hash(h)) = children[i].clone() {
-                                    let (_bytes, child) = self.retrieve_node(&h)?;
+                                    let child = self.retrieve_node(&h)?.1;
                                     stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
                                     stack.push((h, child, CrumbStatus::Entering));
                                 } else {
@@ -378,7 +378,7 @@ mod tests {
                                     unreachable!("only possible while mutating")
                                 }
                                 NodeHandle::Hash(h) => {
-                                    let (_bytes, child) = self.retrieve_node(&h)?;
+                                    let child = self.retrieve_node(&h)?.1;
                                     stack.push((hash, node, CrumbStatus::Exiting));
                                     stack.push((h, child, CrumbStatus::Entering));
                                 }
@@ -395,7 +395,7 @@ mod tests {
             size_start: u64,
             size_end: u64,
         ) -> Result<(), StorageError> {
-            let (_bytes, root_node) = self.retrieve_node(&self.root)?;
+            let root_node = self.retrieve_node(&self.root)?.1;
             let path_begin = self.find_path(&root_node, size_start)?;
             let path_end = self.find_path(&root_node, size_end)?;
 
@@ -426,7 +426,7 @@ mod tests {
             part_id: PartId,
         ) -> Result<PartialState, StorageError> {
             assert!(self.storage.as_caching_storage().is_some());
-            let (_bytes, root_node) = self.retrieve_node(&self.root)?;
+            let root_node = self.retrieve_node(&self.root)?.1;
             let total_size = root_node.memory_usage;
             let size_start = (total_size + part_id.total - 1) / part_id.total * part_id.idx;
             let size_end = std::cmp::min(
