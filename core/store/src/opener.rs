@@ -234,7 +234,7 @@ impl<'a, M: StoreMigrator> StoreOpener<'a, M> {
         // Before starting database migration, create a snapshot.  If the
         // migration fails, it can be used to restore the database to its
         // original state.
-        let snapshot = self.db.new_migration_snapshot()?;
+        let snapshot = Snapshot::new(&self.db.path, &self.db.config)?;
 
         for version in db_version..DB_VERSION {
             tracing::info!(target: "near", path=%self.path().display(),
@@ -318,18 +318,6 @@ impl<'a> DBOpener<'a> {
                      while {want_version:?} was expected"
                 ),
             ))
-        }
-    }
-
-    /// Creates a consistent database checkpoint.
-    ///
-    /// By default it creates checkpoints in the database directory, but can be
-    /// overridden by the config.  Fails if the directory where the snapshot
-    /// needs to be created already exists.
-    pub fn new_migration_snapshot(&self) -> Result<Snapshot, SnapshotError> {
-        match self.config.migration_snapshot.get_path(&self.path) {
-            Some(path) => crate::Snapshot::new(&self.path, self.config, path),
-            None => Ok(Snapshot::no_snapshot()),
         }
     }
 }

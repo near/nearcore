@@ -16,11 +16,11 @@ use ::rocksdb::checkpoint::Checkpoint;
 /// informational messages pointing where the snapshot resides and how to
 /// recover data from it.
 #[derive(Debug)]
-pub struct Snapshot(Option<std::path::PathBuf>);
+pub(crate) struct Snapshot(Option<std::path::PathBuf>);
 
 /// Possible errors when creating a checkpoint.
 #[derive(Debug)]
-pub enum SnapshotError {
+pub(crate) enum SnapshotError {
     /// Snapshot at requested location already exists.
     ///
     /// More specifically, the specified path exists (since the code does only
@@ -49,28 +49,38 @@ impl Snapshot {
         Self(None)
     }
 
-    /// Creates a new snapshot for given database.
+    /// Possibly creates a new snapshot for given database.
     ///
-    /// If the snapshot already exists, returns [`SnapshotError::AlreadyExists`]
-    /// error.  (More specifically, if the `snapshot_path` already exists since
-    /// the method does not make any more sophisticated checks whether the path
-    /// contains a snapshot or not).
-    pub(crate) fn new(
+    /// If the snapshot is disabled via `config.migration_snapshot` option,
+    /// a ‘no snapshot’ object is returned.  It can be thought as `None` but
+    /// `remove` method can be called on it so it’s tiny bit more ergonomic.
+    ///
+    /// Otherwise, path to the snapshot is determined from `config` taking as
+    /// `db_path` as the base directory for relative paths.  If the snapshot
+    /// already exists, the function returns [`SnapshotError::AlreadyExists`]
+    /// error.  (More specifically, if the path already exists since the method
+    /// does not make any more sophisticated checks whether the path contains
+    /// a snapshot or not).
+    pub fn new(
         db_path: &std::path::Path,
         config: &crate::StoreConfig,
-        snapshot_path: std::path::PathBuf,
     ) -> Result<Self, SnapshotError> {
-        tracing::info!(target: "db", snapshot_path=%snapshot_path.display(),
+        let path = match config.migration_snapshot.get_path(db_path) {
+            Some(path) => path,
+            None => return Ok(Self::no_snapshot()),
+        };
+
+        tracing::info!(target: "db", snapshot_path=%path.display(),
                        "Creating database snapshot");
-        if snapshot_path.exists() {
-            return Err(SnapshotError::AlreadyExists(snapshot_path));
+        if path.exists() {
+            return Err(SnapshotError::AlreadyExists(path));
         }
 
         let db = super::RocksDB::open(db_path, config, crate::Mode::ReadWriteExisting)?;
         let cp = Checkpoint::new(&db.db).map_err(super::into_other)?;
-        cp.create_checkpoint(&snapshot_path)?;
+        cp.create_checkpoint(&path)?;
 
-        Ok(Self(Some(snapshot_path)))
+        Ok(Self(Some(path)))
     }
 
     /// Deletes the checkpoint from the file system.
@@ -88,11 +98,6 @@ impl Snapshot {
                                 "Please delete the snapshot manually before");
             }
         }
-    }
-
-    /// Returns path to the snapshot if it exists.
-    pub fn path(&self) -> Option<&std::path::Path> {
-        self.0.as_deref()
     }
 }
 
@@ -120,30 +125,28 @@ fn test_snapshot_creation() {
     use assert_matches::assert_matches;
 
     let (_tmpdir, opener) = crate::NodeStorage::test_opener();
+    let new = || Snapshot::new(&opener.path(), &opener.config());
 
     // Creating snapshot fails if database doesn’t exist.
-    let err = format!("{:?}", opener.db.new_migration_snapshot().unwrap_err());
-    assert!(err.contains("create_if_missing is false"), "err: {err:?}");
+    assert_matches!(new().unwrap_err(), SnapshotError::AlreadyExists(_));
 
     // Create the database
     core::mem::drop(opener.open().unwrap());
 
     // Creating snapshot should work now.
-    let snapshot = opener.db.new_migration_snapshot().unwrap();
+    let snapshot = new().unwrap();
 
     // Snapshot already exists so cannot create a new one.
-    let err = opener.db.new_migration_snapshot().unwrap_err();
-    assert_matches!(err, SnapshotError::AlreadyExists(_));
+    assert_matches!(new().unwrap_err(), SnapshotError::AlreadyExists(_));
 
     snapshot.remove();
 
     // This should work correctly again since the snapshot has been removed.
-    core::mem::drop(opener.db.new_migration_snapshot().unwrap());
+    core::mem::drop(new().unwrap());
 
     // And this again should fail.  We don’t remove the snapshot in
     // Snapshot::drop.
-    let err = opener.db.new_migration_snapshot().unwrap_err();
-    assert_matches!(err, SnapshotError::AlreadyExists(_));
+    assert_matches!(new().unwrap_err(), SnapshotError::AlreadyExists(_));
 }
 
 /// Tests that reading data from a snapshot is possible.
@@ -153,7 +156,6 @@ fn test_snapshot_recovery() {
     const COL: crate::DBCol = crate::DBCol::BlockMisc;
 
     let (tmpdir, opener) = crate::NodeStorage::test_opener();
-    let path = opener.config().migration_snapshot.get_path(opener.path()).unwrap();
 
     // Populate some data
     {
@@ -164,7 +166,8 @@ fn test_snapshot_recovery() {
     }
 
     // Create snapshot
-    let snapshot = opener.db.new_migration_snapshot().unwrap();
+    let snapshot = Snapshot::new(&opener.path(), &opener.config()).unwrap();
+    let path = snapshot.0.clone().unwrap();
 
     // Delete the data from the database.
     {
@@ -180,8 +183,7 @@ fn test_snapshot_recovery() {
     {
         let mut config = opener.config().clone();
         config.path = Some(path);
-        let opener: crate::StoreOpener<'_, crate::opener::NullStoreMigrator> =
-            crate::StoreOpener::new(tmpdir.path(), &config, None);
+        let opener = crate::NodeStorage::opener(tmpdir.path(), &config);
         let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
         assert_eq!(Some(&b"value"[..]), store.get(COL, KEY).unwrap().as_deref());
     }

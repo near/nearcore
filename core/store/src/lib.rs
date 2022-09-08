@@ -48,7 +48,6 @@ mod trie;
 pub mod version;
 
 pub use crate::config::{Mode, StoreConfig};
-pub use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError};
 pub use crate::opener::{
     NullStoreMigrator, StoreMigrationFunction, StoreMigrator, StoreOpener, StoreOpenerError,
 };
