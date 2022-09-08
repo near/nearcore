@@ -41,6 +41,7 @@ use near_store::{
 
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeAdapter};
+use near_primitives::state::FlatStateDelta;
 use near_store::db::StoreStatistics;
 use std::sync::Arc;
 
@@ -2441,7 +2442,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 unreachable!();
             }
             #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatState => {
+            DBCol::FlatState | DBCol::FlatStateDeltas => {
                 unreachable!();
             }
         }
@@ -2779,7 +2780,14 @@ impl<'a> ChainStoreUpdate<'a> {
         // Create separate store update for deletions, because we want to update cache and don't want to remove nodes
         // from the store.
         let mut deletions_store_update = self.store().store_update();
+        let mut flat_state_deltas: HashMap<CryptoHash, FlatStateDelta> = HashMap::new();
         for mut wrapped_trie_changes in self.trie_changes.drain(..) {
+            let (block_hash, new_state_delta) = wrapped_trie_changes.flat_state_delta();
+            flat_state_deltas
+                .entry(block_hash)
+                .or_insert(FlatStateDelta::new())
+                .merge(new_state_delta);
+
             wrapped_trie_changes.insertions_into(&mut store_update);
             wrapped_trie_changes.deletions_into(&mut deletions_store_update);
             wrapped_trie_changes.state_changes_into(&mut store_update);
@@ -2791,6 +2799,9 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
         deletions_store_update.update_cache()?;
+        for (block_hash, flat_state_delta) in flat_state_deltas.drain() {
+            store_update.set_ser(DBCol::FlatStateDeltas, block_hash.as_ref(), &flat_state_delta)?;
+        }
 
         for ((block_hash, shard_id), state_changes) in
             self.add_state_changes_for_split_states.drain()
