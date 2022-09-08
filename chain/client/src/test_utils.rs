@@ -1448,7 +1448,7 @@ impl TestEnv {
             client.chain.mut_store(),
             &mut client.rs,
         );
-        let response = self.network_adapters[id].pop().unwrap();
+        let response = self.network_adapters[id].pop_most_recent().unwrap();
         if let PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::PartialEncodedChunkResponse { route_back: _, response },
         ) = response

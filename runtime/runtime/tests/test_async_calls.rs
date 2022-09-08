@@ -683,13 +683,13 @@ fn test_account_factory() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": format!("{}", TESTING_INIT_BALANCE / 2),
+            "amount": (TESTING_INIT_BALANCE / 2).to_string(),
         }, "id": 0 },
         {"action_add_key_with_function_call": {
             "promise_index": 0,
             "public_key": to_base64(&signer_new_account.public_key.try_to_vec().unwrap()),
             "nonce": 0,
-            "allowance": format!("{}", TESTING_INIT_BALANCE / 2),
+            "allowance": (TESTING_INIT_BALANCE / 2).to_string(),
             "receiver_id": "near_1",
             "method_names": "call_promise,hello"
         }, "id": 0 },
@@ -840,7 +840,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": format!("{}", TESTING_INIT_BALANCE / 2),
+            "amount": (TESTING_INIT_BALANCE / 2).to_string(),
         }, "id": 0 },
         {"action_add_key_with_full_access": {
             "promise_index": 0,
@@ -967,7 +967,7 @@ fn test_transfer_64len_hex() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": format!("{}", TESTING_INIT_BALANCE / 2),
+            "amount": (TESTING_INIT_BALANCE / 2).to_string(),
         }, "id": 0 },
     ]);
 
@@ -1033,7 +1033,7 @@ fn test_create_transfer_64len_hex_fail() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": format!("{}", TESTING_INIT_BALANCE / 2),
+            "amount": (TESTING_INIT_BALANCE / 2).to_string(),
         }, "id": 0 },
     ]);
 
