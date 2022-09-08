@@ -9,7 +9,7 @@ const STORE_PATH: &str = "data";
 pub enum StoreOpenerError<E: std::fmt::Display> {
     /// I/O or RocksDB-level error while opening or accessing the database.
     #[error("{0}")]
-    IO(std::io::Error),
+    IO(#[from] std::io::Error),
 
     /// Database does not exist.
     ///
@@ -67,12 +67,6 @@ pub enum StoreOpenerError<E: std::fmt::Display> {
     /// Error while performing migration.
     #[error("{0}")]
     MigrationError(E),
-}
-
-impl<E: std::fmt::Display> From<std::io::Error> for StoreOpenerError<E> {
-    fn from(err: std::io::Error) -> Self {
-        Self::IO(err)
-    }
 }
 
 impl<E: std::fmt::Display> From<SnapshotError> for StoreOpenerError<E> {
