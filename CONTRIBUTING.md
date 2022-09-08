@@ -84,7 +84,7 @@ following steps when creating a PR:
    additional information to help the reviewer inspect the proposed change.
 8. If your PR introduces a user-observable change (e.g. a new protocol feature,
    new configuration option, new Prometheus metric etc.) please document it in
-   [CHANGELOG.md](CHANGELOG.md) in `[unreleased]` section.
+   [CHANGELOG.md](CHANGELOG.md) in the `[unreleased]` section.
 9. It is important to select the `Allow edits from maintainers` checkbox on the
    PR.  Without this option, the merge bot will not have sufficient rights to be
    able to merge the PR when it is approved.  It also allows the maintainers to
