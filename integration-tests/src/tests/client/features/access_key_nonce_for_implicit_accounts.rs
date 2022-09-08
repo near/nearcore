@@ -25,6 +25,10 @@ use rand::{thread_rng, Rng};
 use std::path::Path;
 use std::sync::Arc;
 
+use metrics::register_counter;
+use metrics::increment_counter;
+use metrics_exporter_prometheus::PrometheusBuilder;
+
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
 /// Return height of the next block.
 fn check_tx_processing(
@@ -33,6 +37,11 @@ fn check_tx_processing(
     height: BlockHeight,
     blocks_number: u64,
 ) -> BlockHeight {
+    let builder = PrometheusBuilder::new();
+    builder.install().expect("failed to install recorder/exporter");
+        register_counter!("near_test_counters_2", "shard_id" => format!("{}",5));
+            increment_counter!("near_test_counters_2", "shard_id" => format!("{}",5));
+
     let tx_hash = tx.get_hash();
     env.clients[0].process_tx(tx, false, false);
     let next_height = produce_blocks_from_height(env, blocks_number, height);
