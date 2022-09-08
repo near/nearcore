@@ -2,7 +2,7 @@ use crate::accounts_data;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
-use crate::peer::codec::Codec;
+use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
@@ -19,7 +19,7 @@ use crate::types::{
 };
 use actix::{
     Actor, ActorContext, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler,
-    Running, StreamHandler, WrapFuture,
+    Running, WrapFuture,
 };
 use anyhow::Context as _;
 use lru::LruCache;
@@ -31,7 +31,6 @@ use near_network_primitives::types::{
     ReasonForBan, RoutedMessage, RoutedMessageBody, StateResponseInfo,
 };
 use near_network_primitives::types::{Edge, PartialEdgeInfo};
-use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
 use near_primitives::logging;
 use near_primitives::network::PeerId;
@@ -40,26 +39,15 @@ use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
-use near_rate_limiter::{ThrottleController, ThrottleFramedRead};
+
 use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use thiserror::Error;
-use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-
-/// Max number of messages we received from peer, and they are in progress, before we start throttling.
-/// Disabled for now (TODO PUT UNDER FEATURE FLAG)
-const MAX_MESSAGES_COUNT: usize = usize::MAX;
-/// Max total size of all messages that are in progress, before we start throttling.
-/// Disabled for now (TODO PUT UNDER FEATURE FLAG)
-const MAX_MESSAGES_TOTAL_SIZE: usize = usize::MAX;
-
-type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
 /// Maximum number of messages per minute from single peer.
 // TODO(#5453): current limit is way to high due to us sending lots of messages during sync.
@@ -84,12 +72,13 @@ const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::millisec
 // TCP connection can be closed even before the PeerActor is started,
 // and we want to report that.
 struct ConnectionGuard {
+    peer_addr: SocketAddr,
     event_sink: Sink<Event>,
 }
 
 impl Drop for ConnectionGuard {
     fn drop(&mut self) {
-        self.event_sink.push(Event::PeerActorStopped);
+        self.event_sink.push(Event::ConnectionClosed(self.peer_addr.clone()));
     }
 }
 
@@ -112,16 +101,16 @@ pub(crate) struct PeerActor {
     /// Protocol version to communicate with this peer.
     protocol_version: ProtocolVersion,
     /// Framed wrapper to send messages through the TCP connection.
-    framed: FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>,
+    framed: stream::FramedStream<PeerActor>,
 
     /// Tracker for requests and responses.
     tracker: Arc<Mutex<Tracker>>,
+    /// Network bandwidth stats.
+    stats: Arc<connection::Stats>,
     /// Edge information needed to build the real edge. This is relevant for handshake.
     partial_edge_info: Option<PartialEdgeInfo>,
     /// Cache of recently routed messages, this allows us to drop duplicates
     routed_message_cache: LruCache<(PeerId, PeerIdOrHash, Signature), time::Instant>,
-    /// A helper data structure for limiting reading
-    throttle_controller: ThrottleController,
     /// Whether we detected support for protocol buffers during handshake.
     protocol_buffers_supported: bool,
     /// Whether the PeerActor should skip protobuf support detection and use
@@ -139,15 +128,6 @@ impl Debug for PeerActor {
     }
 }
 
-/// A custom IOError type because FramedWrite is hiding the actual
-/// underlying std::io::Error.
-/// TODO: replace FramedWrite with sth more reasonable.
-#[derive(Error, Debug)]
-pub enum IOError {
-    #[error("{tid} Failed to send message {message_type} of size {size}")]
-    Send { tid: usize, message_type: String, size: usize },
-}
-
 #[derive(Debug)]
 pub(crate) enum StreamConfig {
     Inbound,
@@ -162,10 +142,13 @@ impl PeerActor {
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<actix::Addr<Self>> {
-        let connection_guard =
-            ConnectionGuard { event_sink: network_state.config.event_sink.clone() };
-
         let peer_addr = stream.peer_addr().context("stream.peer_addr()")?;
+        // WARNING: connection guard is reported AFTER peer_addr is resolved,
+        // so if resolving fails, Event::ConnectionClosed won't be emitted.
+        let connection_guard = ConnectionGuard {
+            event_sink: network_state.config.event_sink.clone(),
+            peer_addr: peer_addr.clone(),
+        };
         let connecting_status = match &stream_config {
             StreamConfig::Inbound => ConnectingStatus::Inbound(
                 network_state
@@ -187,28 +170,10 @@ impl PeerActor {
             addr: network_state.config.node_addr.clone(),
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
-
-        let metric_label = &peer_addr.to_string();
-        let read_buf_size = metrics::PEER_DATA_READ_BUFFER_SIZE.with_label_values(&[metric_label]);
-        let write_buf_size =
-            metrics::PEER_DATA_WRITE_BUFFER_SIZE.with_label_values(&[metric_label]);
-
-        let (read, write) = tokio::io::split(stream);
-        let rate_limiter = ThrottleController::new(MAX_MESSAGES_COUNT, MAX_MESSAGES_TOTAL_SIZE);
-
         // Start PeerActor on separate thread.
         Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| {
-            Self::add_stream(
-                ThrottleFramedRead::new(read, Codec::new(read_buf_size), rate_limiter.clone())
-                    .map_while(|x| match x {
-                        Ok(x) => Some(x),
-                        Err(err) => {
-                            warn!(target: "network", ?err, "Peer stream error");
-                            None
-                        }
-                    }),
-                ctx,
-            );
+            let stats = Arc::new(connection::Stats::default());
+            let framed = stream::FramedStream::spawn(ctx, peer_addr, stream, stats.clone());
             Self {
                 clock,
                 my_node_info,
@@ -219,13 +184,9 @@ impl PeerActor {
                 },
                 peer_status: PeerStatus::Connecting(connecting_status),
                 protocol_version: PROTOCOL_VERSION,
-                framed: FramedWrite::new(
-                    write,
-                    Codec::new(write_buf_size.clone()),
-                    Codec::new(write_buf_size),
-                    ctx,
-                ),
+                framed,
                 tracker: Default::default(),
+                stats,
                 partial_edge_info: match &stream_config {
                     StreamConfig::Inbound => None,
                     StreamConfig::Outbound { peer_id } => {
@@ -233,7 +194,6 @@ impl PeerActor {
                     }
                 },
                 routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
-                throttle_controller: rate_limiter,
                 protocol_buffers_supported: false,
                 force_encoding,
                 peer_info: match &stream_config {
@@ -282,28 +242,21 @@ impl PeerActor {
     }
 
     fn send_message_or_log(&mut self, msg: &PeerMessage) {
-        if let Err(err) = self.send_message(msg) {
-            warn!(target: "network", "send_message(): {}", err);
-        }
+        self.send_message(msg);
     }
 
-    fn send_message(&mut self, msg: &PeerMessage) -> Result<(), IOError> {
+    fn send_message(&mut self, msg: &PeerMessage) {
         if let PeerMessage::PeersRequest = msg {
             self.connection.as_mut().unwrap().last_time_peer_requested.store(self.clock.now());
         }
         if let Some(enc) = self.encoding() {
             return self.send_message_with_encoding(msg, enc);
         }
-        self.send_message_with_encoding(msg, Encoding::Proto)?;
-        self.send_message_with_encoding(msg, Encoding::Borsh)?;
-        Ok(())
+        self.send_message_with_encoding(msg, Encoding::Proto);
+        self.send_message_with_encoding(msg, Encoding::Borsh);
     }
 
-    fn send_message_with_encoding(
-        &mut self,
-        msg: &PeerMessage,
-        enc: Encoding,
-    ) -> Result<(), IOError> {
+    fn send_message_with_encoding(&mut self, msg: &PeerMessage, enc: Encoding) {
         let msg_type: &str = msg.msg_variant();
         let _span = tracing::trace_span!(
             target: "network",
@@ -313,7 +266,7 @@ impl PeerActor {
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
         match msg {
-            PeerMessage::Block(b) if self.tracker.lock().has_received(b.hash()) => return Ok(()),
+            PeerMessage::Block(b) if self.tracker.lock().has_received(b.hash()) => return,
             PeerMessage::BlockRequest(h) => self.tracker.lock().push_request(*h),
             _ => (),
         };
@@ -322,19 +275,12 @@ impl PeerActor {
         self.tracker.lock().increment_sent(&self.clock, bytes.len() as u64);
         let bytes_len = bytes.len();
         tracing::trace!(target: "network", msg_len = bytes_len);
-        if !self.framed.write(bytes) {
-            #[cfg(feature = "performance_stats")]
-            let tid = near_rust_allocator_proxy::get_tid();
-            #[cfg(not(feature = "performance_stats"))]
-            let tid = 0;
-            return Err(IOError::Send { tid, message_type: msg_type.to_string(), size: bytes_len });
-        }
+        self.framed.send(stream::Frame(bytes));
         metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
         metrics::PEER_MESSAGE_SENT_BY_TYPE_TOTAL.with_label_values(&[msg_type]).inc();
         metrics::PEER_MESSAGE_SENT_BY_TYPE_BYTES
             .with_label_values(&[msg_type])
             .inc_by(bytes_len as u64);
-        Ok(())
     }
 
     fn send_handshake(&mut self) {
@@ -718,6 +664,7 @@ impl Actor for PeerActor {
         if self.peer_type == PeerType::Outbound {
             self.send_handshake();
         }
+        self.network_state.config.event_sink.push(Event::PeerActorStarted(self.peer_addr));
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
@@ -753,27 +700,43 @@ impl Actor for PeerActor {
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
         actix::Arbiter::current().stop();
-        let metric_label = &self.peer_addr.to_string();
-        // Garbage collect our metrics, ignoring the case where the metric is
-        // already deleted, to avoid races when a peer tries to reconnect.
-        let _ = metrics::PEER_DATA_READ_BUFFER_SIZE.remove_label_values(&[metric_label]);
-        let _ = metrics::PEER_DATA_WRITE_BUFFER_SIZE.remove_label_values(&[metric_label]);
     }
 }
 
-impl WriteHandler<io::Error> for PeerActor {}
-
-impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
-    #[perf]
-    fn handle(&mut self, msg: Result<Vec<u8>, ReasonForBan>, ctx: &mut Self::Context) {
-        let _span = tracing::trace_span!(target: "network", "handle", handler = "bytes").entered();
-        let msg = match msg {
-            Ok(msg) => msg,
-            Err(ban_reason) => {
-                self.ban_peer(ctx, ban_reason);
-                return;
+impl actix::Handler<stream::Error> for PeerActor {
+    type Result = ();
+    fn handle(&mut self, err: stream::Error, ctx: &mut Self::Context) {
+        let expected = match &err {
+            stream::Error::Recv(stream::RecvError::MessageTooLarge { .. }) => {
+                self.ban_peer(ctx, ReasonForBan::Abusive);
+                true
             }
+            // It is expected in a sense that the peer might be just slow.
+            stream::Error::Send(stream::SendError::QueueOverflow { .. }) => true,
+            stream::Error::Recv(stream::RecvError::IO(err))
+            | stream::Error::Send(stream::SendError::IO(err)) => match err.kind() {
+                // Connection has been closed.
+                io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionReset => true,
+                // It is unexpected in a sense that stream got broken in an unexpected way.
+                // In case you encounter an error that was actually to be expected,
+                // please add it here and document.
+                _ => false,
+            },
         };
+        if expected {
+            tracing::error!(target: "network", ?err, "Closing connection to {}", self.peer_info);
+        } else {
+            tracing::info!(target: "network", ?err, "Closing connection to {}", self.peer_info);
+        }
+        ctx.stop();
+    }
+}
+
+impl actix::Handler<stream::Frame> for PeerActor {
+    type Result = ();
+    #[perf]
+    fn handle(&mut self, stream::Frame(msg): stream::Frame, ctx: &mut Self::Context) {
+        let _span = tracing::trace_span!(target: "network", "handle", handler = "bytes").entered();
         // TODO(#5155) We should change our code to track size of messages received from Peer
         // as long as it travels to PeerManager, etc.
 
@@ -961,17 +924,13 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     chain_height: AtomicU64::new(handshake.sender_chain_info.height),
                     partial_edge_info: handshake.partial_edge_info.clone(),
                     peer_type: self.peer_type,
-                    stats: AtomicCell::new(connection::Stats {
-                        sent_bytes_per_sec: 0,
-                        received_bytes_per_sec: 0,
-                    }),
+                    stats: self.stats.clone(),
                     _peer_connections_metric: metrics::PEER_CONNECTIONS.new_point(
                         &metrics::Connection { type_: self.peer_type, encoding: self.encoding() },
                     ),
                     last_time_peer_requested: AtomicCell::new(self.clock.now()),
                     last_time_received_message: AtomicCell::new(self.clock.now()),
                     connection_established_time: self.clock.now(),
-                    throttle_controller: self.throttle_controller.clone(),
                     send_accounts_data_demux: demux::Demux::new(
                         self.network_state.send_accounts_data_rl,
                     ),
@@ -993,10 +952,14 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                             // TODO(gprusak): this stuff requires cleanup: only chain_info.height is
                             // expected to change. Rest of the content of chain_info is not relevant
                             // after handshake.
-                            connection.stats.store(connection::Stats {
-                                received_bytes_per_sec: received.bytes_per_min / 60,
-                                sent_bytes_per_sec: sent.bytes_per_min / 60,
-                            });
+                            connection
+                                .stats
+                                .received_bytes_per_sec
+                                .store(received.bytes_per_min / 60, Ordering::Relaxed);
+                            connection
+                                .stats
+                                .sent_bytes_per_sec
+                                .store(sent.bytes_per_min / 60, Ordering::Relaxed);
                             // Whether the peer is considered abusive due to sending too many messages.
                             // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
                             // some day be less than `u64::MAX`.

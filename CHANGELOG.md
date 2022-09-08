@@ -4,6 +4,9 @@
 
 ### Protocol Changes
 
+* Stabilize `account_id_in_function_call_permission` feature: enforcing validity
+  of account ids in function call permission.
+
 ### Non-protocol Changes
 
 * `use_db_migration_snapshot` and `db_migration_snapshot_path` options are now
@@ -23,6 +26,9 @@
   Instead of it aggregate `near_peer_message_received_by_type_total` metric
   instead.  For example, to get total rate of received messages use
   `sum(rate(near_peer_message_received_by_type_total{...}[5m]))`.
+* Backtraces on panics are enabled by default, so you no longer need to set
+  `RUST_BACKTRACE=1` environmental variable. To disable backtraces, set
+  `RUST_BACKTRACE=0`.
 
 ## 1.28.0 [2022-07-27]
 
