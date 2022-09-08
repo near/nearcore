@@ -48,8 +48,8 @@ use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{
-    EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderInner,
-    ShardChunkHeaderV3,
+    ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunkHeader,
+    ShardChunkHeaderInner, ShardChunkHeaderV3,
 };
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader, StatePartKey};
@@ -74,6 +74,7 @@ use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::{TrackedConfig, NEAR_BASE};
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
+use tracing::debug;
 
 pub fn set_block_protocol_version(
     block: &mut Block,
@@ -3889,6 +3890,265 @@ mod access_key_nonce_range_tests {
         // Check each chunk is only requested once.
         // There are 21 blocks in total, but the first block has no chunks,
         assert_eq!(num_requests, 4 * 20);
+    }
+
+    struct ChunkForwardingOptimizationTestData {
+        num_validators: usize,
+        env: TestEnv,
+
+        num_part_ords_requested: usize,
+        num_part_ords_sent_as_partial_encoded_chunk: usize,
+        num_part_ords_forwarded: usize,
+        num_forwards_with_missing_chunk_header: usize,
+        chunk_parts_that_must_be_known: HashSet<(ChunkHash, u64, usize)>,
+    }
+
+    impl ChunkForwardingOptimizationTestData {
+        fn new() -> ChunkForwardingOptimizationTestData {
+            let num_clients = 4;
+            let num_validators = 4 as usize;
+            let num_block_producers = 1;
+            let epoch_length = 10;
+
+            let accounts: Vec<AccountId> =
+                (0..num_clients).map(|i| format!("test{}", i).parse().unwrap()).collect();
+            let mut genesis = Genesis::test(accounts, num_validators as u64);
+            {
+                let config = &mut genesis.config;
+                config.epoch_length = epoch_length;
+                config.shard_layout = ShardLayout::v1_test();
+                config.num_block_producer_seats_per_shard = vec![
+                    num_block_producers as u64,
+                    num_block_producers as u64,
+                    num_block_producers as u64,
+                    num_block_producers as u64,
+                ];
+                config.num_block_producer_seats = num_block_producers as u64;
+            }
+            let chain_genesis = ChainGenesis::new(&genesis);
+            let runtimes: Vec<Arc<dyn RuntimeAdapter>> = (0..num_clients)
+                .map(|_| {
+                    Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
+                        Path::new("."),
+                        create_test_store(),
+                        &genesis,
+                        TrackedConfig::AllShards,
+                        RuntimeConfigStore::test(),
+                    )) as Arc<dyn RuntimeAdapter>
+                })
+                .collect();
+            let env = TestEnv::builder(chain_genesis)
+                .clients_count(num_clients)
+                .validator_seats(num_validators as usize)
+                .runtime_adapters(runtimes)
+                .build();
+
+            ChunkForwardingOptimizationTestData {
+                num_validators,
+                env,
+                num_part_ords_requested: 0,
+                num_part_ords_sent_as_partial_encoded_chunk: 0,
+                num_part_ords_forwarded: 0,
+                num_forwards_with_missing_chunk_header: 0,
+                chunk_parts_that_must_be_known: HashSet::new(),
+            }
+        }
+
+        fn process_one_peer_message(&mut self, client_id: usize, requests: NetworkRequests) {
+            match requests {
+                NetworkRequests::PartialEncodedChunkRequest { ref target, ref request, .. } => {
+                    for part_ord in &request.part_ords {
+                        assert!(
+                            self.chunk_parts_that_must_be_known.insert((
+                                request.chunk_hash.clone(),
+                                *part_ord,
+                                client_id
+                            )),
+                            "chunk request from {} to {:?} for chunk {} with part_ords {:?}",
+                            client_id,
+                            target,
+                            hex::encode(&request.chunk_hash.as_bytes()[..4]),
+                            part_ord,
+                        );
+                    }
+                    debug!(
+                        target: "test",
+                        "chunk request from {} to {:?} for chunk {} with part_ords {:?}",
+                        client_id,
+                        target,
+                        hex::encode(&request.chunk_hash.as_bytes()[..4]),
+                        request.part_ords
+                    );
+                    self.num_part_ords_requested += request.part_ords.len();
+                    self.env.process_partial_encoded_chunk_request(
+                        client_id,
+                        PeerManagerMessageRequest::NetworkRequests(requests),
+                    );
+                }
+                NetworkRequests::PartialEncodedChunkMessage {
+                    account_id,
+                    partial_encoded_chunk,
+                } => {
+                    debug!(
+                        target: "test",
+                        "chunk msg from {} to {} height {} hash {} shard {} parts {:?}",
+                        client_id,
+                        account_id,
+                        partial_encoded_chunk.header.height_created(),
+                        hex::encode(&partial_encoded_chunk.header.chunk_hash().as_bytes()[..4]),
+                        partial_encoded_chunk.header.shard_id(),
+                        partial_encoded_chunk.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>()
+                    );
+                    for part in &partial_encoded_chunk.parts {
+                        self.chunk_parts_that_must_be_known.insert((
+                            partial_encoded_chunk.header.chunk_hash(),
+                            part.part_ord,
+                            client_id,
+                        ));
+                    }
+                    self.num_part_ords_sent_as_partial_encoded_chunk +=
+                        partial_encoded_chunk.parts.len();
+                    self.env
+                        .client(&account_id)
+                        .process_partial_encoded_chunk(
+                            PartialEncodedChunk::from(partial_encoded_chunk).into(),
+                            Arc::new(|_| {}),
+                        )
+                        .unwrap();
+                }
+                NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
+                    debug!(
+                        target: "test",
+                        "chunk forward from {} to {} hash {} parts {:?}",
+                        client_id,
+                        account_id,
+                        hex::encode(&forward.chunk_hash.as_bytes()[..4]),
+                        forward.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>()
+                    );
+                    for part_ord in &forward.parts {
+                        self.chunk_parts_that_must_be_known.insert((
+                            forward.chunk_hash.clone(),
+                            part_ord.part_ord,
+                            client_id,
+                        ));
+                    }
+                    self.num_part_ords_forwarded += forward.parts.len();
+                    match self
+                        .env
+                        .client(&account_id)
+                        .process_partial_encoded_chunk_forward(forward, Arc::new(|_| {}))
+                    {
+                        Ok(_) => {}
+                        Err(near_client::Error::Chunk(near_chunks::Error::UnknownChunk)) => {
+                            self.num_forwards_with_missing_chunk_header += 1;
+                        }
+                        Err(e) => {
+                            panic!("Unexpected error from chunk forward: {:?}", e)
+                        }
+                    }
+                }
+                _ => {
+                    panic!("Unexpected network request: {:?}", requests);
+                }
+            }
+        }
+
+        fn process_network_messages(&mut self) {
+            loop {
+                let mut any_message_processed = false;
+                for i in 0..self.num_validators {
+                    if let Some(msg) = self.env.network_adapters[i].pop() {
+                        any_message_processed = true;
+                        match msg {
+                            PeerManagerMessageRequest::NetworkRequests(requests) => {
+                                self.process_one_peer_message(i, requests);
+                            }
+                            _ => {
+                                panic!("Unexpected message: {:?}", msg);
+                            }
+                        }
+                    }
+                }
+                if !any_message_processed {
+                    break;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_chunk_forwarding_optimization() {
+        // Tests that a node should fully take advantage of forwarded chunk parts to never request
+        // a part that was already forwarded to it. We simulate four validator nodes, with one
+        // block producer and four chunk producers.
+        init_test_logger();
+        let mut test = ChunkForwardingOptimizationTestData::new();
+        loop {
+            let height = test.env.clients[0].chain.head().unwrap().height;
+            if height >= 31 {
+                break;
+            }
+            debug!(target: "test", "======= Height {} ======", height + 1);
+            test.process_network_messages();
+
+            let block = test.env.clients[0].produce_block(height + 1).unwrap().unwrap();
+            if block.header().height() > 1 {
+                // For any block except the first, the previous block's application at each
+                // current chunk producer should have produced a chunk and distributed the chunk.
+                // Since we've processed all network messages just now, the block producer should
+                // have all chunks and able to create a block with all chunks. So we check the
+                // heights.
+                for i in 0..4 {
+                    assert_eq!(block.chunks()[i].height_created(), block.header().height());
+                }
+            }
+            // The block producer of course has the complete block so we can process that.
+            debug!(target: "test", "Processing block {} as the block producer", block.header().height());
+            test.env.process_block(0, block.clone(), Provenance::PRODUCED);
+
+            for i in 1..test.num_validators {
+                debug!(target: "test", "Processing block {} as validator #{}", block.header().height(), i);
+                let _ = test.env.clients[i].start_process_block(
+                    block.clone().into(),
+                    Provenance::NONE,
+                    Arc::new(|_| {}),
+                );
+                let mut accepted_blocks =
+                    test.env.clients[i].finish_block_in_processing(block.header().hash());
+                // Process any chunk part requests that this client sent. Note that this would also
+                // process other network messages (such as production of the next chunk) which is OK.
+                test.process_network_messages();
+                accepted_blocks.extend(test.env.clients[i].finish_blocks_in_processing());
+                assert_eq!(
+                    accepted_blocks.len(),
+                    1,
+                    "Processing of block {} failed at validator #{}",
+                    block.header().height(),
+                    i
+                );
+                assert_eq!(&accepted_blocks[0], block.header().hash());
+                assert_eq!(
+                    test.env.clients[i].chain.head().unwrap().height,
+                    block.header().height()
+                );
+            }
+        }
+
+        // With very high probability we should've encountered some cases where forwarded parts
+        // could not be applied because the chunk header is not available. Assert this did indeed
+        // happen.
+        assert!(test.num_forwards_with_missing_chunk_header > 0);
+        debug!(target: "test",
+            "Counters for debugging:
+                    num_part_ords_requested: {}
+                    num_part_ords_sent_as_partial_encoded_chunk: {}
+                    num_part_ords_forwarded: {}
+                    num_forwards_with_missing_chunk_header: {}",
+            test.num_part_ords_requested,
+            test.num_part_ords_sent_as_partial_encoded_chunk,
+            test.num_part_ords_forwarded,
+            test.num_forwards_with_missing_chunk_header
+        );
     }
 
     /// Test asynchronous block processing (start_process_block_async).
