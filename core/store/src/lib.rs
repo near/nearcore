@@ -48,9 +48,7 @@ mod trie;
 pub mod version;
 
 pub use crate::config::{Mode, StoreConfig};
-pub use crate::opener::{
-    StoreMigrationFunction, StoreMigrator, StoreMigratorError, StoreOpener, StoreOpenerError,
-};
+pub use crate::opener::{StoreMigrationFunction, StoreMigrator, StoreOpener, StoreOpenerError};
 
 /// Specifies temperature of a storage.
 ///
@@ -87,25 +85,8 @@ pub struct Store {
 
 impl NodeStorage {
     /// Initialises a new opener with given home directory and store config.
-    ///
-    /// If the database is not of the exact version that we’re expecting, the
-    /// opening will fail.  No migration will be attempted.  If you want to
-    /// perform migrations when opening a database, use
-    /// [`Self::opener_with_migrator`].
-    pub fn opener<'a>(home_dir: &std::path::Path, config: &'a StoreConfig) -> StoreOpener<'a, ()> {
-        StoreOpener::new(home_dir, config, ())
-    }
-
-    /// Initialises a new opener with given database migrator.
-    ///
-    /// When database is open and it has incorrect database version, migration
-    /// will be attempted with the help of the specified `migrator`.
-    pub fn opener_with_migrator<'a, M: StoreMigrator>(
-        home_dir: &std::path::Path,
-        config: &'a StoreConfig,
-        migrator: M,
-    ) -> StoreOpener<'a, M> {
-        StoreOpener::new(home_dir, config, migrator)
+    pub fn opener<'a>(home_dir: &std::path::Path, config: &'a StoreConfig) -> StoreOpener<'a> {
+        StoreOpener::new(home_dir, config)
     }
 
     /// Initialises an opener for a new temporary test store.
@@ -116,10 +97,10 @@ impl NodeStorage {
     ///
     /// Note that the caller must hold the temporary directory returned as first
     /// element of the tuple while the store is open.
-    pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static, ()>) {
+    pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
         static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = StoreOpener::new(dir.path(), &CONFIG, ());
+        let opener = StoreOpener::new(dir.path(), &CONFIG);
         (dir, opener)
     }
 

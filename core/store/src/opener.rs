@@ -6,7 +6,7 @@ use crate::{Mode, NodeStorage, StoreConfig, Temperature};
 const STORE_PATH: &str = "data";
 
 #[derive(Debug, thiserror::Error)]
-pub enum StoreOpenerError<E: std::fmt::Display> {
+pub enum StoreOpenerError {
     /// I/O or RocksDB-level error while opening or accessing the database.
     #[error("{0}")]
     IO(#[from] std::io::Error),
@@ -66,10 +66,10 @@ pub enum StoreOpenerError<E: std::fmt::Display> {
 
     /// Error while performing migration.
     #[error("{0}")]
-    MigrationError(E),
+    MigrationError(anyhow::Error),
 }
 
-impl<E: std::fmt::Display> From<SnapshotError> for StoreOpenerError<E> {
+impl From<SnapshotError> for StoreOpenerError {
     fn from(err: SnapshotError) -> Self {
         match err {
             SnapshotError::AlreadyExists(snap_path) => Self::SnapshotAlreadyExists(snap_path),
@@ -87,7 +87,7 @@ impl<E: std::fmt::Display> From<SnapshotError> for StoreOpenerError<E> {
 ///     .home(neard_home_dir)
 ///     .open();
 /// ```
-pub struct StoreOpener<'a, M = ()> {
+pub struct StoreOpener<'a> {
     /// Opener for a single RocksDB instance.
     ///
     /// pub(crate) for testing.
@@ -98,7 +98,7 @@ pub struct StoreOpener<'a, M = ()> {
 
     /// A migrator which performs database migration if the database has old
     /// version.
-    migrator: M,
+    migrator: Option<&'a dyn StoreMigrator>,
 }
 
 /// Opener for a single RocksDB instance.
@@ -113,15 +113,25 @@ pub(crate) struct DBOpener<'a> {
     config: &'a StoreConfig,
 }
 
-impl<'a, M> StoreOpener<'a, M> {
+impl<'a> StoreOpener<'a> {
     /// Initialises a new opener with given home directory and store config.
-    pub(crate) fn new(home_dir: &std::path::Path, config: &'a StoreConfig, migrator: M) -> Self {
-        Self { db: DBOpener::new(home_dir, config), mode: Mode::ReadWrite, migrator }
+    pub(crate) fn new(home_dir: &std::path::Path, config: &'a StoreConfig) -> Self {
+        Self { db: DBOpener::new(home_dir, config), mode: Mode::ReadWrite, migrator: None }
     }
 
     /// Configure which mode the database should be opened in.
     pub fn mode(mut self, mode: Mode) -> Self {
         self.mode = mode;
+        self
+    }
+
+    /// Configures the opener with specified [`StoreMigrator`].
+    ///
+    /// If the migrator is not configured, the opener will fail to open
+    /// databases with older versions.  With migrator configured, it will
+    /// attempt to perform migrations.
+    pub fn with_migrator(mut self, migrator: &'a dyn StoreMigrator) -> Self {
+        self.migrator = Some(migrator);
         self
     }
 
@@ -136,9 +146,7 @@ impl<'a, M> StoreOpener<'a, M> {
     pub(crate) fn config(&self) -> &StoreConfig {
         self.db.config
     }
-}
 
-impl<'a, M: StoreMigrator> StoreOpener<'a, M> {
     /// Opens the storage.  Performs database migrations if necessary.
     ///
     /// If the migrator opener hast been configured with doesn’t support version
@@ -148,7 +156,7 @@ impl<'a, M: StoreMigrator> StoreOpener<'a, M> {
     /// When opening in read-only mode, verifies that the database version is
     /// what the node expects and fails if it isn’t.  If database doesn’t exist,
     /// creates a new one unless mode is [`Mode::ReadWriteExisting`].
-    pub fn open(&self) -> Result<NodeStorage, StoreOpenerError<M::Err>> {
+    pub fn open(&self) -> Result<NodeStorage, StoreOpenerError> {
         self.open_impl(false)
     }
 
@@ -156,11 +164,11 @@ impl<'a, M: StoreMigrator> StoreOpener<'a, M> {
     ///
     /// Works like `open` except that it fails if the database already exists.
     /// Note that this is a best-effort check and the creation is not atomic.
-    pub fn create(&self) -> Result<NodeStorage, StoreOpenerError<M::Err>> {
+    pub fn create(&self) -> Result<NodeStorage, StoreOpenerError> {
         self.open_impl(true)
     }
 
-    fn open_impl(&self, create: bool) -> Result<NodeStorage, StoreOpenerError<M::Err>> {
+    fn open_impl(&self, create: bool) -> Result<NodeStorage, StoreOpenerError> {
         let exists = if let Some(db_version) = self.db.get_version()? {
             if create {
                 return Err(std::io::Error::new(
@@ -190,7 +198,7 @@ impl<'a, M: StoreMigrator> StoreOpener<'a, M> {
     }
 
     /// Applies database migrations to the database.
-    fn apply_migrations(&self, db_version: DbVersion) -> Result<(), StoreOpenerError<M::Err>> {
+    fn apply_migrations(&self, db_version: DbVersion) -> Result<(), StoreOpenerError> {
         if db_version == DB_VERSION {
             return Ok(());
         }
@@ -204,10 +212,16 @@ impl<'a, M: StoreMigrator> StoreOpener<'a, M> {
             return Err(StoreOpenerError::DbVersionTooNew { got: db_version, want: DB_VERSION });
         }
 
-        let migrator = self
-            .migrator
-            .get_function(db_version)
-            .map_err(|err| err.into_opener_err(db_version))?;
+        let migrator = match self.migrator.map(|m| m.get_function(db_version)) {
+            None => Err(StoreOpenerError::DbVersionMismatch { got: db_version, want: DB_VERSION }),
+            Some(Err(latest_release)) => Err(StoreOpenerError::DbVersionTooOld {
+                got: db_version,
+                want: DB_VERSION,
+                latest_release,
+            }),
+            Some(Ok(migrator)) => Ok(migrator),
+        }?;
+
         let snapshot = Snapshot::new(&self.db.path, &self.db.config)?;
 
         for version in db_version..DB_VERSION {
@@ -234,7 +248,7 @@ impl<'a, M: StoreMigrator> StoreOpener<'a, M> {
         &self,
         mode: Mode,
         want_version: Option<DbVersion>,
-    ) -> Result<NodeStorage, StoreOpenerError<M::Err>> {
+    ) -> Result<NodeStorage, StoreOpenerError> {
         let db = self.db.open(mode, want_version)?;
         Ok(NodeStorage::new(std::sync::Arc::new(db)))
     }
@@ -297,50 +311,18 @@ impl<'a> DBOpener<'a> {
 }
 
 pub trait StoreMigrator {
-    /// Error type returned by migration functions.
-    type Err: std::fmt::Display;
-    /// The migration function.
-    type Func: StoreMigrationFunction<Err = Self::Err>;
-
     /// Returns migration function for database versions starting at `version`.
     ///
+    /// If the `version` is too old and the migrator no longer supports it,
+    /// returns `Err` with the latest neard release which supported that
+    /// version.
+    ///
     /// **Panics** if `version` ≥ [`DB_VERSION`].
-    fn get_function(&self, version: DbVersion) -> Result<&Self::Func, StoreMigratorError>;
-}
-
-/// Error returned from [`StoreMigrator::get_function`].
-pub enum StoreMigratorError {
-    /// No migration is supported by the migrator; it’s a dummy/null migrator..
-    NoMigrationSupported,
-
-    /// Database version is no longer supported.  The value identifies latest
-    /// neard release which still supports that database version.
-    DbVersionTooOld(&'static str),
-}
-
-impl From<&'static str> for StoreMigratorError {
-    fn from(release: &'static str) -> Self {
-        Self::DbVersionTooOld(release)
-    }
-}
-
-impl StoreMigratorError {
-    fn into_opener_err<E: std::fmt::Display>(self, got: DbVersion) -> StoreOpenerError<E> {
-        match self {
-            StoreMigratorError::NoMigrationSupported => {
-                StoreOpenerError::DbVersionMismatch { got, want: DB_VERSION }
-            }
-            StoreMigratorError::DbVersionTooOld(latest_release) => {
-                StoreOpenerError::DbVersionTooOld { got, want: DB_VERSION, latest_release }
-            }
-        }
-    }
+    fn get_function(&self, version: DbVersion)
+        -> Result<&dyn StoreMigrationFunction, &'static str>;
 }
 
 pub trait StoreMigrationFunction {
-    /// Error type returned by migration functions.
-    type Err: std::fmt::Display;
-
     /// Performs database migration from given version to the next one.
     ///
     /// The function only does single migration from `version` to `version + 1`.
@@ -350,28 +332,5 @@ pub trait StoreMigrationFunction {
     /// **Panics** if `version` is less than what was given as argument of
     /// [`StoreMigrator::get_function`] or if it’s greater or equal to
     /// [`DB_VERSION`].
-    fn migrate(&self, storage: &NodeStorage, version: DbVersion) -> Result<(), Self::Err>;
-}
-
-impl StoreMigrator for () {
-    type Err = std::convert::Infallible;
-    type Func = std::convert::Infallible;
-
-    /// Always returns [`StoreMigratorError::NoMigrationSupported`].
-    ///
-    /// This is implementation of [`StoreMigrator`] interface which doesn’t
-    /// support any database migrations.  Used when code opening the database
-    /// cannot or doesn’t want to perform any migrations and it expects the
-    /// database to be at the version the node supports.
-    fn get_function(&self, _version: DbVersion) -> Result<&Self::Func, StoreMigratorError> {
-        Err(StoreMigratorError::NoMigrationSupported)
-    }
-}
-
-impl StoreMigrationFunction for std::convert::Infallible {
-    type Err = std::convert::Infallible;
-
-    fn migrate(&self, _storage: &NodeStorage, _version: DbVersion) -> Result<(), Self::Err> {
-        match *self {}
-    }
+    fn migrate(&self, storage: &NodeStorage, version: DbVersion) -> Result<(), anyhow::Error>;
 }

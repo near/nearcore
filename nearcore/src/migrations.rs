@@ -124,16 +124,13 @@ fn assert_no_deprecated_config(config: &crate::config::NearConfig) {
 }
 
 impl<'a> near_store::StoreMigrator for Migrator<'a> {
-    type Err = anyhow::Error;
-    type Func = Self;
-
     fn get_function(
         &self,
         version: DbVersion,
-    ) -> Result<&Self::Func, near_store::StoreMigratorError> {
+    ) -> Result<&dyn near_store::StoreMigrationFunction, &'static str> {
         assert_no_deprecated_config(self.config);
         match version {
-            0..=26 => Err("1.26".into()),
+            0..=26 => Err("1.26"),
             DB_VERSION.. => unreachable!(),
             _ => Ok(self),
         }
@@ -141,9 +138,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
 }
 
 impl<'a> near_store::StoreMigrationFunction for Migrator<'a> {
-    type Err = anyhow::Error;
-
-    fn migrate(&self, storage: &NodeStorage, version: DbVersion) -> Result<(), Self::Err> {
+    fn migrate(&self, storage: &NodeStorage, version: DbVersion) -> Result<(), anyhow::Error> {
         match version {
             0..=26 => unreachable!(),
             27 => {
