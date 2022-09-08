@@ -641,7 +641,6 @@ impl Trie {
 
     // Prints the trie nodes starting from hash, up to max_depth depth.
     pub fn print_recursive(&self, f: &mut dyn std::io::Write, hash: &CryptoHash, max_depth: u32) {
-        //let mut buf = String::new();
         match self.retrieve_raw_node_or_value(hash) {
             Ok(Ok(_)) => {
                 let mut prefix: Vec<u8> = Vec::new();
