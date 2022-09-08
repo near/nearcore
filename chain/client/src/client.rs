@@ -620,9 +620,8 @@ impl Client {
         shard_id: ShardId,
     ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
         let timer = Instant::now();
-        let _timer = metrics::PRODUCE_CHUNK_TIME
-            .with_label_values(&[&format!("{}", shard_id)])
-            .start_timer();
+        let _timer =
+            metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         let _span = tracing::debug_span!(target: "client", "produce_chunk", next_height, shard_id, ?epoch_id).entered();
         let validator_signer = self
             .validator_signer
@@ -831,11 +830,14 @@ impl Client {
                 block,
                 provenance,
                 &mut block_processing_artifacts,
-                apply_chunks_done_callback,
+                apply_chunks_done_callback.clone(),
             )
         };
 
-        self.process_block_processing_artifact(block_processing_artifacts);
+        self.process_block_processing_artifact(
+            block_processing_artifacts,
+            apply_chunks_done_callback,
+        );
 
         // Send out challenge if the block was found to be invalid.
         if let Some(validator_signer) = self.validator_signer.as_ref() {
@@ -882,7 +884,10 @@ impl Client {
             &mut block_processing_artifacts,
             apply_chunks_done_callback.clone(),
         );
-        self.process_block_processing_artifact(block_processing_artifacts);
+        self.process_block_processing_artifact(
+            block_processing_artifacts,
+            apply_chunks_done_callback.clone(),
+        );
         let accepted_blocks_hashes =
             accepted_blocks.iter().map(|accepted_block| accepted_block.hash.clone()).collect();
         for accepted_block in accepted_blocks {
@@ -906,12 +911,30 @@ impl Client {
     pub(crate) fn process_block_processing_artifact(
         &mut self,
         block_processing_artifacts: BlockProcessingArtifact,
+        apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
         let BlockProcessingArtifact { orphans_missing_chunks, blocks_missing_chunks, challenges } =
             block_processing_artifacts;
         // Send out challenges that accumulated via on_challenge.
         self.send_challenges(challenges);
-        // Request any missing chunks
+        // For any missing chunk, call the ShardsManager with it so that it may apply forwarded parts.
+        // This may end up completing the chunk.
+        let missing_chunks = blocks_missing_chunks
+            .iter()
+            .flat_map(|block| block.missing_chunks.iter())
+            .chain(orphans_missing_chunks.iter().flat_map(|block| block.missing_chunks.iter()));
+        for chunk in missing_chunks {
+            match self.process_chunk_header_from_block_for_shards_manager(
+                chunk,
+                apply_chunks_done_callback.clone(),
+            ) {
+                Ok(_) => {}
+                Err(err) => {
+                    warn!(target: "client", "Failed to process missing chunk from block: {:?}", err)
+                }
+            }
+        }
+        // Request any (still) missing chunks.
         self.request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
     }
 
@@ -1005,7 +1028,7 @@ impl Client {
             );
             match res {
                 Ok(res) => self.process_process_partial_encoded_chunk_result(
-                    chunk_header,
+                    &chunk_header,
                     res,
                     apply_chunks_done_callback.clone(),
                 ),
@@ -1032,22 +1055,44 @@ impl Client {
         debug!(target:"client", "process partial encoded chunk {:?}, result: {:?}", chunk_hash, process_result);
 
         self.process_process_partial_encoded_chunk_result(
-            pec_v2.into_inner().header,
+            &pec_v2.into_inner().header,
             process_result,
             apply_chunks_done_callback,
         );
         Ok(())
     }
 
+    /// Let the ShardsManager know about the chunk header, when encountering that chunk header
+    /// from the block and the chunk is possibly not yet known to the ShardsManager.
+    pub fn process_chunk_header_from_block_for_shards_manager(
+        &mut self,
+        header: &ShardChunkHeader,
+        apply_chunks_done_callback: DoneApplyChunkCallback,
+    ) -> Result<(), Error> {
+        if self.shards_mgr.insert_header_if_not_exists_and_process_cached_chunk_forwards(header) {
+            let process_result = self.shards_mgr.try_process_chunk_parts_and_receipts(
+                header,
+                self.chain.mut_store(),
+                &mut self.rs,
+            )?;
+            self.process_process_partial_encoded_chunk_result(
+                header,
+                process_result,
+                apply_chunks_done_callback,
+            );
+        }
+        Ok(())
+    }
+
     fn process_process_partial_encoded_chunk_result(
         &mut self,
-        header: ShardChunkHeader,
+        header: &ShardChunkHeader,
         process_result: ProcessPartialEncodedChunkResult,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
         match process_result {
             ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts => {
-                self.chain.blocks_delay_tracker.mark_chunk_completed(&header, Clock::utc());
+                self.chain.blocks_delay_tracker.mark_chunk_completed(header, Clock::utc());
                 // We're marking chunk as accepted.
                 self.chain.blocks_with_missing_chunks.accept_chunk(&header.chunk_hash());
                 // If this was the last chunk that was missing for a block, it will be processed now.
@@ -1340,7 +1385,7 @@ impl Client {
                             ?shard_id)
                         .entered();
                         let _timer = metrics::PRODUCE_AND_DISTRIBUTE_CHUNK_TIME
-                            .with_label_values(&[&format!("{}", shard_id)])
+                            .with_label_values(&[&shard_id.to_string()])
                             .start_timer();
                         match self.produce_chunk(
                             *block.hash(),
@@ -1421,9 +1466,12 @@ impl Client {
         self.chain.check_blocks_with_missing_chunks(
             &me.map(|x| x.clone()),
             &mut blocks_processing_artifacts,
+            apply_chunks_done_callback.clone(),
+        );
+        self.process_block_processing_artifact(
+            blocks_processing_artifacts,
             apply_chunks_done_callback,
         );
-        self.process_block_processing_artifact(blocks_processing_artifacts);
     }
 
     pub fn is_validator(&self, epoch_id: &EpochId, block_hash: &CryptoHash) -> bool {
@@ -1919,7 +1967,10 @@ impl Client {
                             &blocks_catch_up_state.done_blocks,
                         )?;
 
-                        self.process_block_processing_artifact(block_processing_artifacts);
+                        self.process_block_processing_artifact(
+                            block_processing_artifacts,
+                            apply_chunks_done_callback.clone(),
+                        );
                     }
                 }
             }
