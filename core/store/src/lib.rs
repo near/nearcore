@@ -49,7 +49,7 @@ pub mod version;
 
 pub use crate::config::{Mode, StoreConfig};
 pub use crate::opener::{
-    NullStoreMigrator, StoreMigrationFunction, StoreMigrator, StoreOpener, StoreOpenerError,
+    StoreMigrationFunction, StoreMigrator, StoreMigratorError, StoreOpener, StoreOpenerError,
 };
 
 /// Specifies temperature of a storage.
@@ -92,11 +92,8 @@ impl NodeStorage {
     /// opening will fail.  No migration will be attempted.  If you want to
     /// perform migrations when opening a database, use
     /// [`Self::opener_with_migrator`].
-    pub fn opener<'a>(
-        home_dir: &std::path::Path,
-        config: &'a StoreConfig,
-    ) -> StoreOpener<'a, NullStoreMigrator> {
-        StoreOpener::new(home_dir, config, None)
+    pub fn opener<'a>(home_dir: &std::path::Path, config: &'a StoreConfig) -> StoreOpener<'a, ()> {
+        StoreOpener::new(home_dir, config, ())
     }
 
     /// Initialises a new opener with given database migrator.
@@ -108,7 +105,7 @@ impl NodeStorage {
         config: &'a StoreConfig,
         migrator: M,
     ) -> StoreOpener<'a, M> {
-        StoreOpener::new(home_dir, config, Some(migrator))
+        StoreOpener::new(home_dir, config, migrator)
     }
 
     /// Initialises an opener for a new temporary test store.
@@ -119,10 +116,10 @@ impl NodeStorage {
     ///
     /// Note that the caller must hold the temporary directory returned as first
     /// element of the tuple while the store is open.
-    pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static, NullStoreMigrator>) {
+    pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static, ()>) {
         static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = StoreOpener::new(dir.path(), &CONFIG, None);
+        let opener = StoreOpener::new(dir.path(), &CONFIG, ());
         (dir, opener)
     }
 

@@ -127,10 +127,13 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
     type Err = anyhow::Error;
     type Func = Self;
 
-    fn get_function(&self, version: DbVersion) -> Result<&Self::Func, &'static str> {
+    fn get_function(
+        &self,
+        version: DbVersion,
+    ) -> Result<&Self::Func, near_store::StoreMigratorError> {
         assert_no_deprecated_config(self.config);
         match version {
-            0..=26 => Err("1.26"),
+            0..=26 => Err("1.26".into()),
             DB_VERSION.. => unreachable!(),
             _ => Ok(self),
         }
