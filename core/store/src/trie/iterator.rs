@@ -477,17 +477,21 @@ mod tests {
     fn test_seek_prefix(trie: &Trie, map: &BTreeMap<Vec<u8>, Vec<u8>>, seek_key: &[u8]) {
         let mut iterator = trie.iter().unwrap();
         iterator.seek_prefix(&seek_key).unwrap();
-        let iterator = iterator.map(Result::unwrap).inspect(|(key, _)| {
+        let mut got = Vec::with_capacity(5);
+        for item in iterator {
+            let (key, value) = item.unwrap();
             assert!(key.starts_with(seek_key), "‘{key:x?}’ does not start with ‘{seek_key:x?}’");
-        });
-        let result1: Vec<_> = iterator.take(5).collect();
-        let result2: Vec<_> = map
+            if got.len() < 5 {
+                got.push((key, value));
+            }
+        }
+        let want: Vec<_> = map
             .range(seek_key.to_vec()..)
             .map(|(k, v)| (k.clone(), v.clone()))
             .take(5)
             .filter(|(x, _)| x.starts_with(seek_key))
             .collect();
-        assert_eq!(result1, result2);
+        assert_eq!(got, want);
     }
 
     #[test]
