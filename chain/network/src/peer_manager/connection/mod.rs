@@ -34,6 +34,11 @@ pub(crate) struct Stats {
     pub received_bytes_per_sec: AtomicU64,
     /// Avg sent bytes/s, based on the last few minutes of traffic.
     pub sent_bytes_per_sec: AtomicU64,
+
+    /// Number of messages in the buffer to send.
+    pub messages_to_send: AtomicU64,
+    /// Number of bytes (sum of message sizes) in the buffer to send.
+    pub bytes_to_send: AtomicU64,
 }
 
 /// Contains information relevant to a connected peer.
