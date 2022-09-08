@@ -398,13 +398,7 @@ impl<'de> serde::Deserialize<'de> for ShardUId {
     where
         D: serde::Deserializer<'de>,
     {
-        let string_value = <String as serde::Deserialize>::deserialize(deserializer)?;
-        string_value.parse().map_err(|err: String| {
-            serde::de::Error::invalid_value(
-                serde::de::Unexpected::Other(&string_value),
-                &err.as_str(),
-            )
-        })
+        deserializer.deserialize_str(ShardUIdVisitor)
     }
 }
 
@@ -414,6 +408,51 @@ impl serde::Serialize for ShardUId {
         S: serde::Serializer,
     {
         serializer.serialize_str(&self.to_string())
+    }
+}
+
+struct ShardUIdVisitor;
+impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
+    type Value = ShardUId;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            formatter,
+            "either string format of `ShardUId` like s0v1 for shard 0 version 1, or a map"
+        )
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        v.parse().map_err(|e| E::custom(e))
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::MapAccess<'de>,
+    {
+        // custom struct deserialization for backwards compatibility
+        let mut version = None;
+        let mut shard_id = None;
+
+        while let Some((field, value)) = map.next_entry()? {
+            match field {
+                "version" => version = Some(value),
+                "shard_id" => shard_id = Some(value),
+                _ => return Err(serde::de::Error::unknown_field(field, &["version", "shard_id"])),
+            }
+        }
+
+        if version.is_none() {
+            return Err(serde::de::Error::missing_field("version"));
+        }
+        if shard_id.is_none() {
+            return Err(serde::de::Error::missing_field("shard_id"));
+        }
+
+        Ok(ShardUId { version: version.unwrap(), shard_id: shard_id.unwrap() })
     }
 }
 
