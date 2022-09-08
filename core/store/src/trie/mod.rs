@@ -24,6 +24,7 @@ pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
 use crate::StorageError;
 pub use near_primitives::types::TrieNodesCount;
+use std::fmt::Write;
 
 mod config;
 mod insert_delete;
@@ -638,6 +639,127 @@ impl Trie {
         Ok(())
     }
 
+    // Prints the trie nodes starting from hash, up to max_depth depth.
+    pub fn print_recursive(&self, f: &mut dyn std::io::Write, hash: &CryptoHash, max_depth: u32) {
+        match self.retrieve_raw_node_or_value(hash) {
+            Ok(Ok(_)) => {
+                let mut prefix: Vec<u8> = Vec::new();
+                self.print_recursive_internal(f, hash, max_depth, &mut "".to_string(), &mut prefix)
+                    .expect("write failed");
+            }
+            Ok(Err(value_bytes)) => {
+                writeln!(
+                    f,
+                    "Given node is a value. Len: {}, Data: {:?} ",
+                    value_bytes.len(),
+                    &value_bytes[..std::cmp::min(10, value_bytes.len())]
+                )
+                .expect("write failed");
+            }
+            Err(err) => {
+                writeln!(f, "Error when reading: {}", err).expect("write failed");
+            }
+        };
+    }
+
+    // Converts the list of Nibbles to a readable string.
+    fn nibbles_to_string(&self, prefix: &[u8]) -> String {
+        let mut result = String::new();
+        for chunk in prefix.chunks(2) {
+            if chunk.len() == 2 {
+                let chr: char = ((chunk[0] * 16) + chunk[1]).into();
+                write!(&mut result, "{}", chr.escape_default()).unwrap();
+            } else {
+                // Final, sole nibble
+                write!(&mut result, " + {:x}", chunk[0]).unwrap();
+            }
+        }
+        result
+    }
+
+    fn print_recursive_internal(
+        &self,
+        f: &mut dyn std::io::Write,
+        hash: &CryptoHash,
+        max_depth: u32,
+        spaces: &mut String,
+        prefix: &mut Vec<u8>,
+    ) -> std::io::Result<()> {
+        if max_depth == 0 {
+            return Ok(());
+        }
+
+        match self.retrieve_raw_node(hash) {
+            Ok(Some((_, raw_node))) => {
+                match raw_node.node {
+                    RawTrieNode::Leaf(key, value_length, value_hash) => {
+                        let (slice, _) = NibbleSlice::from_encoded(key.as_slice());
+                        prefix.extend(slice.iter());
+                        writeln!(
+                            f,
+                            "{}Leaf {:?} size:{} child_hash:{} child_prefix:{}",
+                            spaces,
+                            slice,
+                            value_length,
+                            value_hash,
+                            self.nibbles_to_string(prefix)
+                        )?;
+                        prefix.truncate(prefix.len() - slice.len());
+                    }
+                    RawTrieNode::Branch(children, optional_value) => {
+                        writeln!(
+                            f,
+                            "{}Branch Value:{:?} prefix:{}",
+                            spaces,
+                            optional_value,
+                            self.nibbles_to_string(prefix)
+                        )?;
+                        for (idx, child) in children.iter().enumerate() {
+                            if let Some(child) = child {
+                                writeln!(f, "{} {:01x}->", spaces, idx)?;
+                                spaces.push_str("  ");
+                                prefix.push(idx as u8);
+                                self.print_recursive_internal(
+                                    f,
+                                    child,
+                                    max_depth - 1,
+                                    spaces,
+                                    prefix,
+                                )?;
+                                prefix.pop();
+                                spaces.truncate(spaces.len() - 2);
+                            }
+                        }
+                    }
+                    RawTrieNode::Extension(key, child) => {
+                        let (slice, _) = NibbleSlice::from_encoded(key.as_slice());
+                        writeln!(
+                            f,
+                            "{}Extension {:?} child_hash:{} prefix:{}",
+                            spaces,
+                            slice,
+                            child,
+                            self.nibbles_to_string(prefix)
+                        )?;
+                        spaces.push_str("  ");
+                        prefix.extend(slice.iter());
+                        self.print_recursive_internal(f, &child, max_depth - 1, spaces, prefix)?;
+                        prefix.truncate(prefix.len() - slice.len());
+                        spaces.truncate(spaces.len() - 2);
+                    }
+                };
+            }
+            Ok(None) => {
+                writeln!(f, "{spaces}EmptyNode")?;
+            }
+            Err(err) => {
+                writeln!(f, "error {}", err)?;
+            }
+        };
+
+        Ok(())
+    }
+
     fn retrieve_raw_node(
         &self,
         hash: &CryptoHash,
@@ -650,6 +772,15 @@ impl Trie {
             StorageError::StorageInconsistentState(format!("Failed to decode node {hash}: {err}"))
         })?;
         Ok(Some((bytes, node)))
+    }
+
+    // Similar to retrieve_raw_node but handles the case where there is a Value (and not a Node) in the database.
+    fn retrieve_raw_node_or_value(
+        &self,
+        hash: &CryptoHash,
+    ) -> Result<Result<RawTrieNodeWithSize, std::sync::Arc<[u8]>>, StorageError> {
+        let bytes = self.storage.retrieve_raw_bytes(hash)?;
+        Ok(RawTrieNodeWithSize::decode(&bytes).map_err(|_| bytes))
     }
 
     fn move_node_to_mutable(
