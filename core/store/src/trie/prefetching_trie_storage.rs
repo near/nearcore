@@ -387,6 +387,7 @@ fn prefetch_state_matches(expected: PrefetchSlot, actual: &PrefetchSlot) -> bool
 #[cfg(feature = "test_features")]
 mod tests {
     use super::{PrefetchApi, PrefetchSlot};
+    use crate::TrieCachingStorage;
 
     impl PrefetchApi {
         /// Returns the number of prefetched values currently staged.
@@ -405,6 +406,12 @@ mod tests {
 
         pub fn work_queued(&self) -> bool {
             self.work_queue.lock().unwrap().len() > 0
+        }
+    }
+
+    impl TrieCachingStorage {
+        pub fn clear_cache(&self) {
+            self.shard_cache.clear();
         }
     }
 }

@@ -447,10 +447,6 @@ impl TrieCachingStorage {
     pub fn set_mode(&self, state: TrieCacheMode) {
         self.cache_mode.set(state);
     }
-
-    pub fn clear_cache(&self) {
-        self.shard_cache.clear();
-    }
 }
 
 impl TrieStorage for TrieCachingStorage {
