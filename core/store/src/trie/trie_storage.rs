@@ -464,6 +464,10 @@ impl TrieCachingStorage {
         )
     }
 
+    pub fn clear_cache(&self) {
+        self.shard_cache.clear();
+    }
+
     pub fn io_kill_switch(&self) -> &Arc<AtomicBool> {
         &self.io_kill_switch
     }

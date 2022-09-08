@@ -205,6 +205,7 @@ impl TriePrefetcher {
 
 #[cfg(test)]
 mod tests {
+    use super::{PrefetchSchedulerCmd, TriePrefetcher};
     use near_primitives::{trie_key::TrieKey, types::AccountId};
     use near_store::{
         test_utils::{create_tries, test_populate_trie},
@@ -212,38 +213,144 @@ mod tests {
     };
     use std::{rc::Rc, str::FromStr, time::Duration};
 
-    use super::{PrefetchSchedulerCmd, TriePrefetcher};
+    #[test]
+    fn test_basic_prefetch_account() {
+        let accounts = ["alice.near"];
+        // One account <=> a root value and a value.
+        let expected_prefetched = 2;
+        check_prefetch_account(&accounts, &accounts, expected_prefetched);
+    }
 
     #[test]
-    fn test_basic_prefetch() {
-        let account_id = AccountId::from_str("alice.near").unwrap();
-        let trie_key = TrieKey::Account { account_id };
-        let storage_key = trie_key.to_vec();
+    fn test_prefetch_multiple_accounts() {
+        let accounts = [
+            "000.alice.near",
+            "111.alice.near",
+            "222.alice.near",
+            "333.alice.near",
+            "000.bob.near",
+            "111.bob.near",
+            "222.bob.near",
+            "333.bob.near",
+        ];
+        // root is an extension with the prefix for accounts
+        // that extension leads to a branch with four extensions ("000.","111.","222.","333.")
+        // each extension leads to a branch with two leafs ("alice.near", "bob.near")
+        //
+        //                           root
+        //                           extension
+        //                           |
+        //                           |
+        //                           branch
+        //     "0"-------------"1"-------------"2"-------------"3"
+        //      |               |               |               |
+        //      |               |               |               |
+        //      extension       extension       extension       extension
+        //      "00."           "11."           "22."           "33."
+        //      |               |               |               |
+        //      |               |               |               |
+        //      branch          branch          branch          branch
+        //  "a"--------"b"  "a"--------"b"  "a"--------"b"  "a"--------"b"
+        //   |          |    |          |   |           |    |          |
+        //   |          |    |          |   |           |    |          |
+        //   |          |    |          |   |           |    |          |
+        // "lice.near"  |  "lice.near"  |  "lice.near"  | "lice.near"   |
+        //              |               |               |               |
+        //          "ob.near"       "ob.near"       "ob.near"       "ob.near"
+        //
+        //
+        // Note: drawing does not show values. Also, upper nibble is always equal
+        // on branches, so we can just assume bytes instead of nibbles.
 
-        let initial = vec![(storage_key.clone(), Some("value".as_bytes().to_vec()))];
+        // prefetching a single node results in 2 extensions + 2 branches + 1 leaf + 1 value
+        let prefetch_accounts = &accounts[..1];
+        let expected_prefetched = 6;
+        check_prefetch_account(&accounts, prefetch_accounts, expected_prefetched);
+
+        // prefetching two distant nodes results in 3 extensions + 3 branches + 2 leafs + 2 values
+        let prefetch_accounts = &accounts[..2];
+        let expected_prefetched = 10;
+        check_prefetch_account(&accounts, prefetch_accounts, expected_prefetched);
+
+        // prefetching two neighboring nodes results in 2 extensions + 2 branches + 2 leafs + 2 values
+        let prefetch_accounts = &["000.alice.near", "000.bob.near"];
+        let expected_prefetched = 8;
+        check_prefetch_account(&accounts, prefetch_accounts, expected_prefetched);
+    }
+
+    #[test]
+    fn test_prefetch_non_existing_account() {
+        let existing_accounts = ["alice.near", "bob.near"];
+        let non_existing_account = ["charlotta.near"];
+        // Most importantly, it should not crash.
+        // Secondly, it should prefetch the root extension + the first branch.
+        let expected_prefetched = 2;
+        check_prefetch_account(&existing_accounts, &non_existing_account, expected_prefetched);
+    }
+
+    #[track_caller]
+    fn check_prefetch_account(input: &[&str], prefetch: &[&str], expected_prefetched: usize) {
+        let input_keys = accounts_to_trie_keys(input);
+        let prefetch_keys = accounts_to_trie_keys(prefetch);
+
         let tries = create_tries();
-        let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), initial);
+        let mut kvs = vec![];
+
+        // insert different values for each account to ensure they have unique hashes
+        for (i, trie_key) in input_keys.iter().enumerate() {
+            let storage_key = trie_key.to_vec();
+            kvs.push((storage_key.clone(), Some(i.to_string().as_bytes().to_vec())));
+        }
+        let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), kvs);
+
         let trie = Rc::new(tries.get_trie_for_shard(ShardUId::single_shard(), root.clone()));
+        trie.storage.as_caching_storage().unwrap().clear_cache();
 
         let mut prefetcher = TriePrefetcher::new(trie.clone()).unwrap();
         let p = trie.storage.as_caching_storage().unwrap().prefetcher_storage();
 
         assert_eq!(p.prefetched_staging_area_size(), 0);
 
-        prefetcher.prefetch(PrefetchSchedulerCmd::PrefetchTrieNode(trie_key));
+        for trie_key in &prefetch_keys {
+            prefetcher.prefetch(PrefetchSchedulerCmd::PrefetchTrieNode(trie_key.clone()));
+        }
         prefetcher.end_input();
 
+        // TODO: properly wait until done
+        std::thread::sleep(Duration::from_micros(100));
         for _ in 0..1000 {
-            std::thread::sleep(Duration::from_micros(100));
-            if p.prefetched_staging_area_size() == 1 {
+            if p.prefetched_staging_area_size() == expected_prefetched {
                 break;
             }
+            std::thread::yield_now();
         }
-        assert_eq!(p.prefetched_staging_area_size(), 1);
+        std::thread::sleep(Duration::from_micros(10000));
+        assert_eq!(
+            p.prefetched_staging_area_size(),
+            expected_prefetched,
+            "unexpected number of prefetched values"
+        );
 
-        let value = trie.get(&storage_key).unwrap();
-        assert_eq!(Some("value".as_bytes()), value.as_deref());
+        // Read all prefetched values to ensure everything gets removed from the staging area.
+        for trie_key in &prefetch_keys {
+            let storage_key = trie_key.to_vec();
+            let _value = trie.get(&storage_key).unwrap();
+        }
+        assert_eq!(
+            p.prefetched_staging_area_size(),
+            0,
+            "prefetching staging area not clear after reading all values from main thread"
+        );
+    }
 
-        assert_eq!(p.prefetched_staging_area_size(), 0);
+    #[track_caller]
+    fn accounts_to_trie_keys(input: &[&str]) -> Vec<TrieKey> {
+        input
+            .iter()
+            .map(|s| {
+                let account_id = AccountId::from_str(s).expect("invalid input account id");
+                TrieKey::Account { account_id }
+            })
+            .collect()
     }
 }

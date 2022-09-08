@@ -267,9 +267,6 @@ mod tests {
     use crate::TriePrefetchingStorage;
 
     impl TriePrefetchingStorage {
-        // fn has_prefetched(&CryptoHash) {
-
-        // }
         pub fn prefetched_staging_area_size(&self) -> usize {
             self.prefetching.lock().unwrap().slots.len()
         }
