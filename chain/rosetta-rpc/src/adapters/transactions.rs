@@ -145,61 +145,43 @@ async fn get_predecessor_id_from_receipt_or_transaction(
 ) -> Option<AccountIdentifier> {
     let predecessor_id = match cause {
         near_primitives::views::StateChangeCauseView::TransactionProcessing { tx_hash } => {
-            transactions_in_block
-                .get(tx_hash)
-                .and_then(|t| Some(crate::models::AccountIdentifier::from(t.signer_id.clone())))
+            transactions_in_block.get(tx_hash)?.signer_id.clone()
         }
         near_primitives::views::StateChangeCauseView::ReceiptProcessing { receipt_hash } => {
             match receipts_in_block.get(receipt_hash) {
-                Some(t) => Some(crate::models::AccountIdentifier::from(t.clone())),
-                None => Some(crate::models::AccountIdentifier::from(
-                    get_predecessor_id_from_receipt_hash(view_client, *receipt_hash).await?,
-                )),
+                Some(t) => t.clone(),
+                None => get_predecessor_id_from_receipt_hash(view_client, *receipt_hash).await?,
             }
         }
         near_primitives::views::StateChangeCauseView::PostponedReceipt { receipt_hash } => {
             match receipts_in_block.get(receipt_hash) {
-                Some(t) => Some(crate::models::AccountIdentifier::from(t.clone())),
-                None => Some(crate::models::AccountIdentifier::from(
-                    get_predecessor_id_from_receipt_hash(view_client, *receipt_hash).await?,
-                )),
+                Some(t) => t.clone(),
+                None => get_predecessor_id_from_receipt_hash(view_client, *receipt_hash).await?,
             }
         }
         near_primitives::views::StateChangeCauseView::ActionReceiptProcessingStarted {
             receipt_hash,
         } => match receipts_in_block.get(receipt_hash) {
-            Some(t) => Some(crate::models::AccountIdentifier::from(t.clone())),
-            None => Some(crate::models::AccountIdentifier::from(
-                get_predecessor_id_from_receipt_hash(view_client, *receipt_hash).await?,
-            )),
+            Some(t) => t.clone(),
+            None => get_predecessor_id_from_receipt_hash(view_client, *receipt_hash).await?,
         },
         near_primitives::views::StateChangeCauseView::ActionReceiptGasReward { receipt_hash } => {
             match receipts_in_block.get(receipt_hash) {
-                Some(t) => Some(crate::models::AccountIdentifier::from(t.clone())),
-                None => Some(crate::models::AccountIdentifier::from(
-                    get_predecessor_id_from_receipt_hash(view_client, *receipt_hash).await?,
-                )),
+                Some(t) => t.clone(),
+                None => get_predecessor_id_from_receipt_hash(view_client, *receipt_hash).await?,
             }
         }
-        _ => None,
+        _ => return None,
     };
-    predecessor_id
+    Some(crate::models::AccountIdentifier::from(predecessor_id))
 }
 
 async fn get_predecessor_id_from_receipt_hash(
     view_client: &Addr<near_client::ViewClientActor>,
     receipt_id: CryptoHash,
 ) -> Option<AccountId> {
-    match view_client.send(near_client::GetReceipt { receipt_id }).await.ok()? {
-        Ok(receipt_view) => {
-            if let Some(receipt_view) = receipt_view {
-                Some(receipt_view.predecessor_id)
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
+    let receipt_view = view_client.send(near_client::GetReceipt { receipt_id }).await.ok()?.ok()?;
+    Some(receipt_view?.predecessor_id)
 }
 
 type RosettaTransactionsMap = std::collections::HashMap<String, crate::models::Transaction>;
