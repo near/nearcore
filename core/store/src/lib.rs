@@ -48,7 +48,7 @@ mod trie;
 pub mod version;
 
 pub use crate::config::{Mode, StoreConfig};
-pub use crate::opener::{StoreMigrationFunction, StoreMigrator, StoreOpener, StoreOpenerError};
+pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
 
 /// Specifies temperature of a storage.
 ///

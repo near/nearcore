@@ -124,20 +124,18 @@ fn assert_no_deprecated_config(config: &crate::config::NearConfig) {
 }
 
 impl<'a> near_store::StoreMigrator for Migrator<'a> {
-    fn get_function(
-        &self,
-        version: DbVersion,
-    ) -> Result<&dyn near_store::StoreMigrationFunction, &'static str> {
+    fn check_support(&self, version: DbVersion) -> Result<(), &'static str> {
         assert_no_deprecated_config(self.config);
+        // TODO(mina86): Once open ranges in match are stabilised, get rid of
+        // this constant and change the match to be 27..DB_VERSION.
+        const LAST_SUPPORTED: DbVersion = DB_VERSION - 1;
         match version {
             0..=26 => Err("1.26"),
-            DB_VERSION.. => unreachable!(),
-            _ => Ok(self),
+            27..=LAST_SUPPORTED => Ok(()),
+            _ => unreachable!(),
         }
     }
-}
 
-impl<'a> near_store::StoreMigrationFunction for Migrator<'a> {
     fn migrate(&self, storage: &NodeStorage, version: DbVersion) -> Result<(), anyhow::Error> {
         match version {
             0..=26 => unreachable!(),

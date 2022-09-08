@@ -212,15 +212,24 @@ impl<'a> StoreOpener<'a> {
             return Err(StoreOpenerError::DbVersionTooNew { got: db_version, want: DB_VERSION });
         }
 
-        let migrator = match self.migrator.map(|m| m.get_function(db_version)) {
-            None => Err(StoreOpenerError::DbVersionMismatch { got: db_version, want: DB_VERSION }),
-            Some(Err(latest_release)) => Err(StoreOpenerError::DbVersionTooOld {
-                got: db_version,
-                want: DB_VERSION,
-                latest_release,
-            }),
-            Some(Ok(migrator)) => Ok(migrator),
-        }?;
+        let migrator = match self.migrator {
+            Some(migrator) => {
+                if let Err(release) = migrator.check_support(db_version) {
+                    return Err(StoreOpenerError::DbVersionTooOld {
+                        got: db_version,
+                        want: DB_VERSION,
+                        latest_release: release,
+                    });
+                }
+                migrator
+            }
+            None => {
+                return Err(StoreOpenerError::DbVersionMismatch {
+                    got: db_version,
+                    want: DB_VERSION,
+                })
+            }
+        };
 
         let snapshot = Snapshot::new(&self.db.path, &self.db.config)?;
 
@@ -311,26 +320,25 @@ impl<'a> DBOpener<'a> {
 }
 
 pub trait StoreMigrator {
-    /// Returns migration function for database versions starting at `version`.
+    /// Checks whether migrator supports database versions starting at given.
     ///
     /// If the `version` is too old and the migrator no longer supports it,
     /// returns `Err` with the latest neard release which supported that
-    /// version.
+    /// version.  Otherwise returns `Ok(())` indicating that the migrator
+    /// supports migrating the database from the given version up to the current
+    /// version [`DB_VERSION`].
     ///
     /// **Panics** if `version` ≥ [`DB_VERSION`].
-    fn get_function(&self, version: DbVersion)
-        -> Result<&dyn StoreMigrationFunction, &'static str>;
-}
+    fn check_support(&self, version: DbVersion) -> Result<(), &'static str>;
 
-pub trait StoreMigrationFunction {
     /// Performs database migration from given version to the next one.
     ///
     /// The function only does single migration from `version` to `version + 1`.
     /// It doesn’t update database’s metadata (i.e. what version is stored in
     /// the database) which is responsibility of the caller.
     ///
-    /// **Panics** if `version` is less than what was given as argument of
-    /// [`StoreMigrator::get_function`] or if it’s greater or equal to
-    /// [`DB_VERSION`].
+    /// **Panics** if `version` is not supported (the caller is supposed to
+    /// check support via [`Self::check_support`] method) or if it’s greater or
+    /// equal to [`DB_VERSION`].
     fn migrate(&self, storage: &NodeStorage, version: DbVersion) -> Result<(), anyhow::Error>;
 }

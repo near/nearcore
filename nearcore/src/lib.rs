@@ -44,8 +44,7 @@ pub fn get_default_home() -> PathBuf {
 /// Opens node’s storage performing migrations and checks when necessary.
 fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<NodeStorage> {
     let migrator = migrations::Migrator::new(near_config);
-    let opener = NodeStorage::opener(home_dir, &near_config.config.store)
-        .with_migrator(&migrator);
+    let opener = NodeStorage::opener(home_dir, &near_config.config.store).with_migrator(&migrator);
     let res = match opener.open() {
         Ok(storage) => Ok(storage),
         Err(StoreOpenerError::IO(err)) => {
