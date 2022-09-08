@@ -688,7 +688,7 @@ mod tests {
     use near_client::test_utils::setup_no_network;
 
     #[test]
-    async fn test_convert_block_changes_to_transactions() {
+    fn test_convert_block_changes_to_transactions() {
         run_actix(async move {
             let runtime_config = near_primitives::runtime::config::RuntimeConfig::test();
             let (_client, view_client) = setup_no_network(
