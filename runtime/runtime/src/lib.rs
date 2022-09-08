@@ -1284,14 +1284,10 @@ impl Runtime {
 
         let gas_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
 
+        // We first process local receipts. They contain staking, local contract calls, etc.
         if let Some(prefetcher) = &mut prefetcher {
             prefetcher.input_receipts(&local_receipts);
-            // TODO: Prefetch delayed receipts and then prefetch for them.
-            prefetcher.input_receipts(&incoming_receipts);
-            prefetcher.end_input();
         }
-
-        // We first process local receipts. They contain staking, local contract calls, etc.
         for receipt in local_receipts.iter() {
             if total_gas_burnt < gas_limit {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
@@ -1315,6 +1311,10 @@ impl Runtime {
                 ))
             })?;
 
+            if let Some(prefetcher) = &mut prefetcher {
+                prefetcher.input_receipts(std::slice::from_ref(&receipt));
+            }
+
             // Validating the delayed receipt. If it fails, it's likely the state is inconsistent.
             validate_receipt(&apply_state.config.wasm_config.limit_config, &receipt).map_err(
                 |e| {
@@ -1333,6 +1333,10 @@ impl Runtime {
         }
 
         // And then we process the new incoming receipts. These are receipts from other shards.
+        if let Some(prefetcher) = &mut prefetcher {
+            prefetcher.input_receipts(&incoming_receipts);
+            prefetcher.end_input();
+        }
         for receipt in incoming_receipts.iter() {
             // Validating new incoming no matter whether we have available gas or not. We don't
             // want to store invalid receipts in state as delayed.
