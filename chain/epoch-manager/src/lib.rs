@@ -232,7 +232,6 @@ impl EpochManager {
     /// Note that this function doesn't copy info stored in EpochInfoAggregator, so `block_hash` must be
     /// the last block in an epoch in order for the epoch manager to work properly after this function
     /// is called
-    #[cfg(feature = "mock_node")]
     pub fn copy_epoch_info_as_of_block(
         &mut self,
         block_hash: &CryptoHash,
