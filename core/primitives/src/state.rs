@@ -1,6 +1,7 @@
+use borsh::{BorshDeserialize, BorshSerialize};
+
 use byteorder::{LittleEndian, ReadBytesExt};
 use near_primitives_core::hash::{hash, CryptoHash};
-use std::collections::HashMap;
 use std::io::{Cursor, Read};
 
 /// State value reference. Used to charge fees for value length before retrieving the value itself.
