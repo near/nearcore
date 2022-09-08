@@ -1,4 +1,3 @@
-use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt};
 use near_primitives_core::hash::{hash, CryptoHash};
 use std::collections::HashMap;
@@ -48,18 +47,5 @@ mod tests {
         let value_ref = ValueRef::decode(&value_ref_ser).unwrap();
         assert_eq!(value_ref.length, value.len() as u32);
         assert_eq!(value_ref.hash, hash(&value));
-    }
-}
-
-#[derive(BorshSerialize, BorshDeserialize)]
-pub struct FlatStateDelta(pub HashMap<Vec<u8>, Option<ValueRef>>);
-
-impl FlatStateDelta {
-    pub fn new() -> Self {
-        Self(HashMap::new())
-    }
-
-    pub fn merge(&mut self, other: Self) {
-        self.0.extend(other.0)
     }
 }

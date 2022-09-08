@@ -27,6 +27,7 @@ pub use near_primitives::types::TrieNodesCount;
 use std::fmt::Write;
 
 mod config;
+pub mod flat_state;
 mod insert_delete;
 pub mod iterator;
 mod nibble_slice;
@@ -34,10 +35,9 @@ mod shard_tries;
 pub mod split_state;
 mod state_parts;
 mod trie_storage;
-pub mod update;
-
 #[cfg(test)]
 mod trie_tests;
+pub mod update;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 

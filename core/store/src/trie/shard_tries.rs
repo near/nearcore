@@ -6,7 +6,6 @@ use borsh::BorshSerialize;
 use near_primitives::borsh::maybestd::collections::HashMap;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{self, ShardUId, ShardVersion};
-use near_primitives::state::{FlatStateDelta, ValueRef};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
@@ -15,7 +14,7 @@ use near_primitives::types::{
 use crate::trie::config::TrieConfig;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
-use crate::{metrics, DBCol, DBOp, DBTransaction};
+use crate::{metrics, DBCol, DBOp, DBTransaction, FlatStateDelta};
 use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 
 struct ShardTriesInner {
@@ -319,28 +318,7 @@ impl WrappedTrieChanges {
     }
 
     pub fn flat_state_delta(&self) -> (CryptoHash, FlatStateDelta) {
-        let mut delta = HashMap::new();
-        for change in self.state_changes.iter() {
-            let key = change.trie_key.to_vec();
-            if near_primitives::state_record::is_delayed_receipt_key(&key) {
-                continue;
-            }
-
-            // `RawStateChangesWithTrieKey` stores all sequential changes for a key within a chunk, so it is sufficient
-            // to take only the last change.
-            let last_change = &change
-                .changes
-                .last()
-                .expect("Committed entry should have at least one change")
-                .data;
-            match last_change {
-                Some(value) => {
-                    delta.insert(key, Some(near_primitives::state::ValueRef::new(value)))
-                }
-                None => delta.insert(key, None),
-            };
-        }
-        (self.block_hash.clone(), FlatStateDelta(delta))
+        (self.block_hash.clone(), FlatStateDelta::from_state_changes(&self.state_changes))
     }
 
     /// Save state changes into Store.
