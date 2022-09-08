@@ -2009,10 +2009,9 @@ fn preload_account_state(
         &[],
     );
 
-    // less than 10MB per thread should make it fairly quick.
-    // TODO: limit number of threads to something sensible.
-    // let sub_trie_size = 10_000_000;
-    let sub_trie_size = 100_000;
+    // less than 1MB per thread should make it fairly quick.
+    // even smaller numbers will run into problems because too many threads are created.
+    let sub_trie_size = 1_000_000;
     let max_threads = 128;
     let thread_slots = Arc::new(std::sync::atomic::AtomicU32::new(max_threads));
 
