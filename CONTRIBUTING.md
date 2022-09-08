@@ -85,10 +85,11 @@ following steps when creating a PR:
 8. If your PR introduces a user-observable change (e.g. a new protocol feature,
    new configuration option, new Prometheus metric etc.) please document it in
    [CHANGELOG.md](CHANGELOG.md) in the `[unreleased]` section.
-9. It is important to select the `Allow edits from maintainers` checkbox on the
-   PR.  Without this option, the merge bot will not have sufficient rights to be
-   able to merge the PR when it is approved.  It also allows the maintainers to
-   make trivial changes to the PR as necessary.  Please see
+9. It is important to select the ` Allow edits and access to secrets by
+   maintainers` checkbox on the PR.  Without this option, the merge bot will not
+   have sufficient rights to be able to merge the PR when it is approved.  It
+   also allows the maintainers to make trivial changes to the PR as necessary.
+   Please see
    [these](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request-from-a-fork)
    [links](https://stackoverflow.com/questions/63341296/github-pull-request-allow-edits-by-maintainers)
    for the implications of selecting the checkbox.
