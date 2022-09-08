@@ -101,7 +101,7 @@ pub(crate) struct PeerActor {
     /// Protocol version to communicate with this peer.
     protocol_version: ProtocolVersion,
     /// Framed wrapper to send messages through the TCP connection.
-    framed: stream::FramedStream,
+    framed: stream::FramedStream<PeerActor>,
 
     /// Tracker for requests and responses.
     tracker: Arc<Mutex<Tracker>>,
@@ -170,42 +170,45 @@ impl PeerActor {
             addr: network_state.config.node_addr.clone(),
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
-        let stats = Arc::new(connection::Stats::default());
         // Start PeerActor on separate thread.
-        Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| Self {
-            clock,
-            my_node_info,
-            peer_addr,
-            peer_type: match &stream_config {
-                StreamConfig::Inbound => PeerType::Inbound,
-                StreamConfig::Outbound { .. } => PeerType::Outbound,
-            },
-            peer_status: PeerStatus::Connecting(connecting_status),
-            protocol_version: PROTOCOL_VERSION,
-            framed: stream::FramedStream::spawn(ctx, peer_addr, stream, stats.clone()),
-            tracker: Default::default(),
-            stats,
-            partial_edge_info: match &stream_config {
-                StreamConfig::Inbound => None,
-                StreamConfig::Outbound { peer_id } => {
-                    Some(network_state.propose_edge(peer_id, None))
+        Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| {
+            let stats = Arc::new(connection::Stats::default());
+            let framed = stream::FramedStream::spawn(ctx, peer_addr, stream, stats.clone());
+            Self {
+                clock,
+                my_node_info,
+                peer_addr,
+                peer_type: match &stream_config {
+                    StreamConfig::Inbound => PeerType::Inbound,
+                    StreamConfig::Outbound { .. } => PeerType::Outbound,
+                },
+                peer_status: PeerStatus::Connecting(connecting_status),
+                protocol_version: PROTOCOL_VERSION,
+                framed,
+                tracker: Default::default(),
+                stats,
+                partial_edge_info: match &stream_config {
+                    StreamConfig::Inbound => None,
+                    StreamConfig::Outbound { peer_id } => {
+                        Some(network_state.propose_edge(peer_id, None))
+                    }
+                },
+                routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
+                protocol_buffers_supported: false,
+                force_encoding,
+                peer_info: match &stream_config {
+                    StreamConfig::Inbound => None,
+                    StreamConfig::Outbound { peer_id } => Some(PeerInfo {
+                        id: peer_id.clone(),
+                        addr: Some(peer_addr.clone()),
+                        account_id: None,
+                    }),
                 }
-            },
-            routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
-            protocol_buffers_supported: false,
-            force_encoding,
-            peer_info: match &stream_config {
-                StreamConfig::Inbound => None,
-                StreamConfig::Outbound { peer_id } => Some(PeerInfo {
-                    id: peer_id.clone(),
-                    addr: Some(peer_addr.clone()),
-                    account_id: None,
-                }),
+                .into(),
+                network_state,
+                connection: None,
+                _connection_guard: connection_guard,
             }
-            .into(),
-            network_state,
-            connection: None,
-            _connection_guard: connection_guard,
         }))
     }
 
@@ -272,7 +275,7 @@ impl PeerActor {
         self.tracker.lock().increment_sent(&self.clock, bytes.len() as u64);
         let bytes_len = bytes.len();
         tracing::trace!(target: "network", msg_len = bytes_len);
-        self.framed.send(bytes);
+        self.framed.send(stream::Frame(bytes));
         metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
         metrics::PEER_MESSAGE_SENT_BY_TYPE_TOTAL.with_label_values(&[msg_type]).inc();
         metrics::PEER_MESSAGE_SENT_BY_TYPE_BYTES
@@ -708,16 +711,22 @@ impl actix::Handler<stream::Error> for PeerActor {
                 self.ban_peer(ctx, ReasonForBan::Abusive);
                 true
             }
-            stream::Error::Send(stream::SendError::QueueOverflow { .. }) => false,
+            // It is expected in a sense that the peer might be just slow.
+            stream::Error::Send(stream::SendError::QueueOverflow { .. }) => true,
             stream::Error::Recv(stream::RecvError::IO(err))
             | stream::Error::Send(stream::SendError::IO(err)) => match err.kind() {
-                io::ErrorKind::UnexpectedEof => true,
-                io::ErrorKind::ConnectionReset => true,
+                // Connection has been closed.
+                io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionReset => true,
+                // It is unexpected in a sense that stream got broken in an unexpected way.
+                // In case you encounter an error that was actually to be expected,
+                // please add it here and document.
                 _ => false,
             },
         };
-        if !expected {
-            error!(target: "network", ?err, "Closing connection to {}", self.peer_info);
+        if expected {
+            tracing::error!(target: "network", ?err, "Closing connection to {}", self.peer_info);
+        } else {
+            tracing::info!(target: "network", ?err, "Closing connection to {}", self.peer_info);
         }
         ctx.stop();
     }
@@ -726,9 +735,8 @@ impl actix::Handler<stream::Error> for PeerActor {
 impl actix::Handler<stream::Frame> for PeerActor {
     type Result = ();
     #[perf]
-    fn handle(&mut self, msg: stream::Frame, ctx: &mut Self::Context) {
+    fn handle(&mut self, stream::Frame(msg): stream::Frame, ctx: &mut Self::Context) {
         let _span = tracing::trace_span!(target: "network", "handle", handler = "bytes").entered();
-        let msg = msg.0;
         // TODO(#5155) We should change our code to track size of messages received from Peer
         // as long as it travels to PeerManager, etc.
 

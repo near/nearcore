@@ -12,7 +12,6 @@ anyhow = "1.0.55"
 protobuf-codegen = "3.0.1"
 
 [dependencies]
-prometheus = "0.13.1"
 arc-swap = "1.5"
 im = "15"
 rayon = "1.5"
