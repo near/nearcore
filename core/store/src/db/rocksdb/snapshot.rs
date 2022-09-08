@@ -65,22 +65,22 @@ impl Snapshot {
         db_path: &std::path::Path,
         config: &crate::StoreConfig,
     ) -> Result<Self, SnapshotError> {
-        let path = match config.migration_snapshot.get_path(db_path) {
-            Some(path) => path,
+        let snapshot_path = match config.migration_snapshot.get_path(db_path) {
+            Some(snapshot_path) => snapshot_path,
             None => return Ok(Self::no_snapshot()),
         };
 
-        tracing::info!(target: "db", snapshot_path=%path.display(),
+        tracing::info!(target: "db", snapshot_path=%snapshot_path.display(),
                        "Creating database snapshot");
-        if path.exists() {
-            return Err(SnapshotError::AlreadyExists(path));
+        if snapshot_path.exists() {
+            return Err(SnapshotError::AlreadyExists(snapshot_path));
         }
 
         let db = super::RocksDB::open(db_path, config, crate::Mode::ReadWriteExisting)?;
         let cp = Checkpoint::new(&db.db).map_err(super::into_other)?;
-        cp.create_checkpoint(&path)?;
+        cp.create_checkpoint(&snapshot_path)?;
 
-        Ok(Self(Some(path)))
+        Ok(Self(Some(snapshot_path)))
     }
 
     /// Deletes the checkpoint from the file system.
