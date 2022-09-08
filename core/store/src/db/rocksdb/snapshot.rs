@@ -128,7 +128,8 @@ fn test_snapshot_creation() {
     let new = || Snapshot::new(&opener.path(), &opener.config());
 
     // Creating snapshot fails if database doesn’t exist.
-    assert_matches!(new().unwrap_err(), SnapshotError::AlreadyExists(_));
+    let err = format!("{:?}", new().unwrap_err());
+    assert!(err.contains("create_if_missing is false"), "{err:?}");
 
     // Create the database
     core::mem::drop(opener.open().unwrap());
