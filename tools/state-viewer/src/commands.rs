@@ -26,6 +26,7 @@ use near_store::test_utils::create_test_store;
 use near_store::Trie;
 use near_store::TrieCache;
 use near_store::TrieCachingStorage;
+use near_store::TrieConfig;
 use near_store::{NodeStorage, Store};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
@@ -809,9 +810,10 @@ pub(crate) fn view_trie(
     max_depth: u32,
 ) -> anyhow::Result<()> {
     let shard_uid = ShardUId { version: shard_version, shard_id };
-    let shard_cache = TrieCache::new(shard_id, true);
+    let trie_config: TrieConfig = Default::default();
+    let shard_cache = TrieCache::new(&trie_config, shard_uid, true);
     let trie_storage = TrieCachingStorage::new(store, shard_cache, shard_uid, true);
     let trie = Trie::new(Box::new(trie_storage), Trie::EMPTY_ROOT, None);
-    println!("{}", trie.print_recursive(&hash, max_depth));
+    trie.print_recursive(&mut std::io::stdout().lock(), &hash, max_depth);
     Ok(())
 }

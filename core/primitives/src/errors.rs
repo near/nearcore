@@ -71,14 +71,6 @@ impl std::fmt::Display for RuntimeError {
 
 impl std::error::Error for RuntimeError {}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NotANodeError {
-    pub hash: CryptoHash,
-    pub len: usize,
-    pub data_prefix: String,
-    pub error: String,
-}
-
 /// Internal
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageError {
@@ -92,9 +84,6 @@ pub enum StorageError {
     /// panic in every place that produces this error.
     /// We can check if db is corrupted by verifying everything in the state trie.
     StorageInconsistentState(String),
-    /// Error thrown when a given value cannot be parsed as a TrieNode.
-    /// This probably means that this is a 'value' field (as we store both in the same colState).
-    NotANode(NotANodeError),
 }
 
 impl std::fmt::Display for StorageError {

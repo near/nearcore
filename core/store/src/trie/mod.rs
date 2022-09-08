@@ -7,7 +7,6 @@ use byteorder::{LittleEndian, ReadBytesExt};
 
 use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
-use near_primitives::errors::NotANodeError;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
@@ -641,12 +640,27 @@ impl Trie {
     }
 
     // Prints the trie nodes starting from hash, up to max_depth depth.
-    pub fn print_recursive(&self, hash: &CryptoHash, max_depth: u32) -> String {
-        let mut buf = String::new();
-        let mut prefix: Vec<u8> = Vec::new();
-        self.print_recursive_internal(&mut buf, hash, max_depth, &mut "".to_string(), &mut prefix)
-            .expect("printing failed");
-        buf
+    pub fn print_recursive(&self, f: &mut dyn std::io::Write, hash: &CryptoHash, max_depth: u32) {
+        //let mut buf = String::new();
+        match self.retrieve_raw_node_or_value(hash) {
+            Ok(Ok(_)) => {
+                let mut prefix: Vec<u8> = Vec::new();
+                self.print_recursive_internal(f, hash, max_depth, &mut "".to_string(), &mut prefix)
+                    .expect("write failed");
+            }
+            Ok(Err(value_bytes)) => {
+                writeln!(
+                    f,
+                    "Given node is a value. Len: {}, Data: {:?} ",
+                    value_bytes.len(),
+                    &value_bytes[..std::cmp::min(10, value_bytes.len())]
+                )
+                .expect("write failed");
+            }
+            Err(err) => {
+                writeln!(f, "Error when reading: {}", err).expect("write failed");
+            }
+        };
     }
 
     // Converts the list of Nibbles to a readable string.
@@ -666,12 +680,12 @@ impl Trie {
 
     fn print_recursive_internal(
         &self,
-        f: &mut dyn std::fmt::Write,
+        f: &mut dyn std::io::Write,
         hash: &CryptoHash,
         max_depth: u32,
         spaces: &mut String,
         prefix: &mut Vec<u8>,
-    ) -> std::fmt::Result {
+    ) -> std::io::Result<()> {
         if max_depth == 0 {
             return Ok(());
         }
@@ -739,16 +753,6 @@ impl Trie {
             Ok(None) => {
                 writeln!(f, "{spaces}EmptyNode")?;
             }
-            Err(StorageError::NotANode(err)) => {
-                writeln!(
-                    f,
-                    "{}Trie value len: {} first bytes: {} prefix:{}",
-                    spaces,
-                    err.len,
-                    err.data_prefix,
-                    self.nibbles_to_string(prefix)
-                )?;
-            }
             Err(err) => {
                 writeln!(f, "error {}", err)?;
             }
@@ -766,14 +770,18 @@ impl Trie {
         }
         let bytes = self.storage.retrieve_raw_bytes(hash)?;
         let node = RawTrieNodeWithSize::decode(&bytes).map_err(|err| {
-            StorageError::NotANode(NotANodeError {
-                hash: hash.clone(),
-                len: bytes.len(),
-                data_prefix: format!("{:?}", &bytes[..std::cmp::min(10, bytes.len())]),
-                error: format!("Failed to decode node {hash}.: err: {:?}", err),
-            })
+            StorageError::StorageInconsistentState(format!("Failed to decode node {hash}: {err}"))
         })?;
         Ok(Some((bytes, node)))
+    }
+
+    // Similar to retrieve_raw_node but handles the case where there is a Value (and not a Node) in the database.
+    fn retrieve_raw_node_or_value(
+        &self,
+        hash: &CryptoHash,
+    ) -> Result<Result<RawTrieNodeWithSize, std::sync::Arc<[u8]>>, StorageError> {
+        let bytes = self.storage.retrieve_raw_bytes(hash)?;
+        Ok(RawTrieNodeWithSize::decode(&bytes).map_err(|_| bytes))
     }
 
     fn move_node_to_mutable(
