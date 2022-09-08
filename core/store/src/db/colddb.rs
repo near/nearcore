@@ -438,7 +438,7 @@ mod test {
         for col in [DBCol::BlockHeader, DBCol::Block, DBCol::EpochInfo, DBCol::ChunkHashesByHeight]
         {
             let dbs: [(bool, &dyn Database); 2] = [(false, &db), (true, &db.0)];
-            result.push(format!("{col}"));
+            result.push(col.to_string());
             for (is_raw, db) in dbs {
                 let name = if is_raw { "raw " } else { "cold" };
                 for item in db.iter(col) {
