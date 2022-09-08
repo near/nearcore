@@ -18,7 +18,7 @@ use crate::flat_state::FlatState;
 pub use crate::trie::config::TrieConfig;
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
-pub use crate::trie::nibble_slice::NibbleSlice;
+use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
@@ -309,7 +309,7 @@ impl std::fmt::Debug for TrieNode {
 
 #[derive(Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
-pub enum RawTrieNode {
+enum RawTrieNode {
     Leaf(Vec<u8>, u32, CryptoHash),
     Branch([Option<CryptoHash>; 16], Option<(u32, CryptoHash)>),
     Extension(Vec<u8>, CryptoHash),
@@ -318,7 +318,7 @@ pub enum RawTrieNode {
 /// Trie node + memory cost of its subtree
 /// memory_usage is serialized, stored, and contributes to hash
 #[derive(Debug, Eq, PartialEq)]
-pub struct RawTrieNodeWithSize {
+struct RawTrieNodeWithSize {
     pub node: RawTrieNode,
     memory_usage: u64,
 }
@@ -396,7 +396,7 @@ impl RawTrieNode {
         out
     }
 
-    pub fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
+    fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
         let mut cursor = Cursor::new(bytes);
         match cursor.read_u8()? {
             LEAF_NODE => {
@@ -446,7 +446,7 @@ impl RawTrieNodeWithSize {
         out
     }
 
-    pub fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
+    fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
         if bytes.len() < 8 {
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type"));
         }
