@@ -16,12 +16,6 @@ pub struct Version {
     pub rustc_version: String,
 }
 
-/// Database version.
-pub type DbVersion = u32;
-
-/// Current version of the database.
-pub const DB_VERSION: DbVersion = 31;
-
 use crate::upgrade_schedule::{get_protocol_version_internal, ProtocolUpgradeVotingSchedule};
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
@@ -156,6 +150,8 @@ pub enum ProtocolFeature {
     ChunkOnlyProducers,
     /// Ensure the total stake of validators that are kicked out does not exceed a percentage of total stakes
     MaxKickoutStake,
+    /// Validate account id for function call access keys.
+    AccountIdInFunctionCallPermission,
 
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
@@ -165,9 +161,8 @@ pub enum ProtocolFeature {
     /// Charge for contract loading before it happens.
     #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
     FixContractLoadingCost,
-    /// Validate account id for function call access keys.
-    #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
-    AccountIdInFunctionCallPermission,
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    Ed25519Verify,
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
     #[cfg(feature = "shardnet")]
@@ -182,7 +177,7 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion =
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 56;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 57;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
@@ -255,6 +250,7 @@ impl ProtocolFeature {
             | ProtocolFeature::LowerStorageKeyLimit => 53,
             ProtocolFeature::AltBn128 => 55,
             ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
+            ProtocolFeature::AccountIdInFunctionCallPermission => 57,
 
             // Nightly & shardnet features, this is to make feature MaxKickoutStake not enabled on
             // shardnet
@@ -262,8 +258,8 @@ impl ProtocolFeature {
             ProtocolFeature::FixStakingThreshold => 126,
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost => 129,
-            #[cfg(feature = "protocol_feature_account_id_in_function_call_permission")]
-            ProtocolFeature::AccountIdInFunctionCallPermission => 130,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
+            ProtocolFeature::Ed25519Verify => 131,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => {
                 if cfg!(feature = "shardnet") {

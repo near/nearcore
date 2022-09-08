@@ -12,10 +12,10 @@ use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
-use near_primitives::version::DbVersion;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
-use near_store::migrations::{migrate_28_to_29, migrate_29_to_30, set_store_version};
+use near_store::migrations::{migrate_28_to_29, migrate_29_to_30};
+use near_store::version::{set_store_version, DbVersion, DB_VERSION};
 use near_store::{DBCol, Mode, NodeStorage, StoreOpener, Temperature};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
@@ -108,15 +108,14 @@ fn create_db_checkpoint(
 fn apply_store_migrations_if_exists(
     store_opener: &StoreOpener,
     near_config: &NearConfig,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<()> {
     let db_version = match store_opener.get_version_if_exists()? {
-        None => return Ok(false),
-        Some(near_primitives::version::DB_VERSION) => return Ok(true),
+        None | Some(DB_VERSION) => return Ok(()),
         Some(db_version) => db_version,
     };
 
     anyhow::ensure!(
-        db_version < near_primitives::version::DB_VERSION,
+        db_version < DB_VERSION,
         "DB version {db_version} is created by a newer version of neard, \
          please update neard"
     );
@@ -177,17 +176,14 @@ fn apply_store_migrations_if_exists(
         // set some dummy value to avoid conflict with other migrations from nightly features
         set_store_version(&store, 10000)?;
     } else {
-        debug_assert_eq!(
-            Some(near_primitives::version::DB_VERSION),
-            store_opener.get_version_if_exists()?
-        );
+        debug_assert_eq!(Some(DB_VERSION), store_opener.get_version_if_exists()?);
     }
 
     // DB migration was successful, remove the snapshot to avoid it taking up
     // precious disk space.
     snapshot.remove();
 
-    Ok(true)
+    Ok(())
 }
 
 fn init_and_migrate_store(
@@ -195,15 +191,11 @@ fn init_and_migrate_store(
     near_config: &NearConfig,
 ) -> anyhow::Result<NodeStorage> {
     let opener = NodeStorage::opener(home_dir, &near_config.config.store);
-    let exists = apply_store_migrations_if_exists(&opener, near_config)?;
+    apply_store_migrations_if_exists(&opener, near_config)?;
     let store = opener
         .open()
         .with_context(|| format!("Opening database at {}", opener.path().display()))?;
     let hot = store.get_store(Temperature::Hot);
-    if !exists {
-        set_store_version(&hot, near_primitives::version::DB_VERSION)
-            .with_context(|| format!("Initialising database at {}", opener.path().display()))?;
-    }
 
     // Check if the storage is an archive and if it is make sure we are too.
     // If the store is not marked as archive but we are an archival node that is
@@ -362,17 +354,6 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
 
     let src_opener = NodeStorage::opener(home_dir, &config.store).mode(Mode::ReadOnly);
     let src_path = src_opener.path();
-    if let Some(db_version) = src_opener.get_version_if_exists()? {
-        anyhow::ensure!(
-            db_version == near_primitives::version::DB_VERSION,
-            "{}: expected DB version {} but got {}",
-            src_path.display(),
-            near_primitives::version::DB_VERSION,
-            db_version
-        );
-    } else {
-        anyhow::bail!("{}: source storage doesn’t exist", src_path.display());
-    }
 
     let mut dst_config = config.store.clone();
     dst_config.path = Some(opts.dest_dir);
@@ -381,11 +362,6 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     let cwd = std::env::current_dir()?;
     let dst_opener = NodeStorage::opener(&cwd, &dst_config);
     let dst_path = dst_opener.path();
-    anyhow::ensure!(
-        !dst_opener.check_if_exists(),
-        "{}: directory already exists",
-        dst_path.display()
-    );
 
     info!(target: "recompress",
           src = %src_path.display(), dest = %dst_path.display(),
@@ -411,8 +387,8 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     };
 
     let dst_store = dst_opener
-        .open()
-        .with_context(|| format!("Opening database at {}", dst_opener.path().display()))?
+        .create()
+        .with_context(|| format!("Creating database at {}", dst_opener.path().display()))?
         .get_store(Temperature::Hot);
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;

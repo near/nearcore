@@ -629,9 +629,8 @@ pub trait RuntimeAdapter: Send + Sync {
             "apply_transactions",
             shard_id)
         .entered();
-        let _timer = metrics::APPLYING_CHUNKS_TIME
-            .with_label_values(&[&format!("{}", shard_id)])
-            .start_timer();
+        let _timer =
+            metrics::APPLYING_CHUNKS_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
             state_root,
@@ -725,7 +724,7 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Validate state part that expected to be given state root with provided data.
     /// Returns false if the resulting part doesn't match the expected one.
-    fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &Vec<u8>) -> bool;
+    fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &[u8]) -> bool;
 
     fn apply_update_to_split_states(
         &self,

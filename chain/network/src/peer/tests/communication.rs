@@ -10,7 +10,7 @@ use crate::types::{Handshake, HandshakeFailureReason, PeerMessage};
 use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use anyhow::Context as _;
 use assert_matches::assert_matches;
-use near_logger_utils::init_test_logger;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::syncing::EpochSyncResponse;
 use near_primitives::types::EpochId;
 use near_primitives::version::{PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION};

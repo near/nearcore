@@ -68,9 +68,6 @@ skip = [
     # chain and param estimator
     { name = "num-rational", version = "=0.3.2" },
 
-    # tracing-subscriber via near-logger-utils and clap via bindgen
-    { name = "ansi_term", version = "=0.12.1" },
-
     # wasmer 0.17.x
     { name = "parking_lot", version = "=0.10.2" },
     { name = "parking_lot_core", version = "=0.7.2" },
@@ -111,4 +108,7 @@ skip = [
 
     # prometheus depends on an old version of protobuf
     { name = "protobuf", version = "=2.27.1" },
+
+    # opentelemetry-otlp depends on an old version of tonic which depends on an old version of tokio-util
+    { name = "tokio-util", version = "=0.6.10" },
 ]

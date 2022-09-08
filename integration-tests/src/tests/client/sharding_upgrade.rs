@@ -8,7 +8,7 @@ use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::{run_catchup, TestEnv};
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_logger_utils::init_test_logger;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
@@ -567,7 +567,7 @@ fn gen_cross_contract_transaction(
                     "id": 0 },
                 {"action_transfer": {
                     "promise_index": 0,
-                    "amount": format!("{}", NEAR_BASE),
+                    "amount": NEAR_BASE.to_string(),
                 }, "id": 0 },
                 {"action_add_key_with_full_access": {
                     "promise_index": 0,
@@ -575,7 +575,7 @@ fn gen_cross_contract_transaction(
                     "nonce": 0,
                 }, "id": 0 }
             ],
-        "amount": format!("{}", NEAR_BASE),
+        "amount": NEAR_BASE.to_string(),
         "gas": GAS_2,
         }, "id": 1}
     ]);

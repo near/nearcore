@@ -114,7 +114,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         for m in &msgs {
             (|| {
                 let m2 = PeerMessage::deserialize(enc, &m.serialize(enc))
-                    .with_context(|| format!("{m}"))?;
+                    .with_context(|| m.to_string())?;
                 if *m != m2 {
                     bail!("deserialize(serialize({m}) = {m2}");
                 }

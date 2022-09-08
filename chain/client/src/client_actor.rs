@@ -1738,7 +1738,10 @@ impl ClientActor {
                             self.get_apply_chunks_done_callback(),
                         ));
 
-                        self.client.process_block_processing_artifact(block_processing_artifacts);
+                        self.client.process_block_processing_artifact(
+                            block_processing_artifacts,
+                            self.get_apply_chunks_done_callback(),
+                        );
 
                         self.client.sync_status = SyncStatus::BodySync {
                             start_height: 0,

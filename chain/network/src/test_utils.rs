@@ -302,6 +302,9 @@ impl MockPeerManagerAdapter {
     pub fn pop(&self) -> Option<PeerManagerMessageRequest> {
         self.requests.write().unwrap().pop_front()
     }
+    pub fn pop_most_recent(&self) -> Option<PeerManagerMessageRequest> {
+        self.requests.write().unwrap().pop_back()
+    }
 }
 
 pub mod test_features {

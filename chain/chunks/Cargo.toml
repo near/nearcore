@@ -23,12 +23,11 @@ near-primitives = { path = "../../core/primitives" }
 near-chunks-primitives = { path = "../chunks-primitives" }
 near-store = { path = "../../core/store" }
 near-network = { path = "../network" }
-near-metrics = { path = "../../core/metrics" }
+near-o11y = { path = "../../core/o11y" }
 near-chain = { path = "../chain" }
 near-pool = { path = "../pool" }
 
 [dev-dependencies]
-near-logger-utils = { path = "../../test-utils/logger" }
 assert_matches = "1.5.0"
 
 [features]

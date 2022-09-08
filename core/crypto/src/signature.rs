@@ -13,7 +13,8 @@ use rand::rngs::OsRng;
 use secp256k1::Message;
 use serde::{Deserialize, Serialize};
 
-pub static SECP256K1: Lazy<secp256k1::Secp256k1> = Lazy::new(secp256k1::Secp256k1::new);
+pub static SECP256K1: Lazy<secp256k1::Secp256k1<secp256k1::All>> =
+    Lazy::new(secp256k1::Secp256k1::new);
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum KeyType {
@@ -419,7 +420,7 @@ impl Eq for ED25519SecretKey {}
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub enum SecretKey {
     ED25519(ED25519SecretKey),
-    SECP256K1(secp256k1::key::SecretKey),
+    SECP256K1(secp256k1::SecretKey),
 }
 
 impl SecretKey {
@@ -437,7 +438,7 @@ impl SecretKey {
                 SecretKey::ED25519(ED25519SecretKey(keypair.to_bytes()))
             }
             KeyType::SECP256K1 => {
-                SecretKey::SECP256K1(secp256k1::key::SecretKey::new(&SECP256K1, &mut OsRng))
+                SecretKey::SECP256K1(secp256k1::SecretKey::new(&mut secp256k1::rand::rngs::OsRng))
             }
         }
     }
@@ -450,13 +451,11 @@ impl SecretKey {
             }
 
             SecretKey::SECP256K1(secret_key) => {
-                let signature = SECP256K1
-                    .sign_recoverable(
-                        &secp256k1::Message::from_slice(data).expect("32 bytes"),
-                        secret_key,
-                    )
-                    .expect("Failed to sign");
-                let (rec_id, data) = signature.serialize_compact(&SECP256K1);
+                let signature = SECP256K1.sign_ecdsa_recoverable(
+                    &secp256k1::Message::from_slice(data).expect("32 bytes"),
+                    secret_key,
+                );
+                let (rec_id, data) = signature.serialize_compact();
                 let mut buf = [0; 65];
                 buf[0..64].copy_from_slice(&data[0..64]);
                 buf[64] = rec_id.to_i32() as u8;
@@ -471,9 +470,8 @@ impl SecretKey {
                 secret_key.0[ed25519_dalek::SECRET_KEY_LENGTH..].try_into().unwrap(),
             )),
             SecretKey::SECP256K1(secret_key) => {
-                let pk =
-                    secp256k1::key::PublicKey::from_secret_key(&SECP256K1, secret_key).unwrap();
-                let serialized = pk.serialize_vec(&SECP256K1, false);
+                let pk = secp256k1::PublicKey::from_secret_key(&SECP256K1, secret_key);
+                let serialized = pk.serialize_uncompressed();
                 let mut public_key = Secp256K1PublicKey([0; 64]);
                 public_key.0.copy_from_slice(&serialized[1..65]);
                 PublicKey::SECP256K1(public_key)
@@ -530,7 +528,7 @@ impl FromStr for SecretKey {
                     });
                 }
                 Ok(Self::SECP256K1(
-                    secp256k1::key::SecretKey::from_slice(&SECP256K1, &array)
+                    secp256k1::SecretKey::from_slice(&array)
                         .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?,
                 ))
             }
@@ -600,22 +598,21 @@ impl Secp256K1Signature {
         &self,
         msg: [u8; 32],
     ) -> Result<Secp256K1PublicKey, crate::errors::ParseSignatureError> {
-        let recoverable_sig = secp256k1::RecoverableSignature::from_compact(
-            &SECP256K1,
+        let recoverable_sig = secp256k1::ecdsa::RecoverableSignature::from_compact(
             &self.0[0..64],
-            secp256k1::RecoveryId::from_i32(i32::from(self.0[64])).unwrap(),
+            secp256k1::ecdsa::RecoveryId::from_i32(i32::from(self.0[64])).unwrap(),
         )
         .map_err(|err| crate::errors::ParseSignatureError::InvalidData {
             error_message: err.to_string(),
         })?;
-        let msg = Message::from(msg);
+        let msg = Message::from_slice(&msg).unwrap();
 
         let res = SECP256K1
-            .recover(&msg, &recoverable_sig)
+            .recover_ecdsa(&msg, &recoverable_sig)
             .map_err(|err| crate::errors::ParseSignatureError::InvalidData {
                 error_message: err.to_string(),
             })?
-            .serialize_vec(&SECP256K1, false);
+            .serialize_uncompressed();
 
         // Can not fail
         let pk = Secp256K1PublicKey::try_from(&res[1..65]).unwrap();
@@ -733,13 +730,12 @@ impl Signature {
                 }
             }
             (Signature::SECP256K1(signature), PublicKey::SECP256K1(public_key)) => {
-                let rsig = secp256k1::RecoverableSignature::from_compact(
-                    &SECP256K1,
+                let rsig = secp256k1::ecdsa::RecoverableSignature::from_compact(
                     &signature.0[0..64],
-                    secp256k1::RecoveryId::from_i32(i32::from(signature.0[64])).unwrap(),
+                    secp256k1::ecdsa::RecoveryId::from_i32(i32::from(signature.0[64])).unwrap(),
                 )
                 .unwrap();
-                let sig = rsig.to_standard(&SECP256K1);
+                let sig = rsig.to_standard();
                 let pdata: [u8; 65] = {
                     // code borrowed from https://github.com/openethereum/openethereum/blob/98b7c07171cd320f32877dfa5aa528f585dc9a72/ethkey/src/signature.rs#L210
                     let mut temp = [4u8; 65];
@@ -747,10 +743,10 @@ impl Signature {
                     temp
                 };
                 SECP256K1
-                    .verify(
+                    .verify_ecdsa(
                         &secp256k1::Message::from_slice(data).expect("32 bytes"),
                         &sig,
-                        &secp256k1::key::PublicKey::from_slice(&SECP256K1, &pdata).unwrap(),
+                        &secp256k1::PublicKey::from_slice(&pdata).unwrap(),
                     )
                     .is_ok()
             }
@@ -835,7 +831,7 @@ impl serde::Serialize for Signature {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&format!("{}", self))
+        serializer.serialize_str(&self.to_string())
     }
 }
 
@@ -940,18 +936,18 @@ mod tests {
 
         let sk = SecretKey::from_seed(KeyType::SECP256K1, "test");
         let pk = sk.public_key();
-        let expected = "\"secp256k1:BtJtBjukUQbcipnS78adSwUKE38sdHnk7pTNZH7miGXfodzUunaAcvY43y37nm7AKbcTQycvdgUzFNWsd7dgPZZ\"";
+        let expected = "\"secp256k1:5ftgm7wYK5gtVqq1kxMGy7gSudkrfYCbpsjL6sH1nwx2oj5NR2JktohjzB6fbEhhRERQpiwJcpwnQjxtoX3GS3cQ\"";
         assert_eq!(serde_json::to_string(&pk).unwrap(), expected);
         assert_eq!(pk, serde_json::from_str(expected).unwrap());
         let pk2: PublicKey = pk.to_string().parse().unwrap();
         assert_eq!(pk, pk2);
 
-        let expected = "\"secp256k1:9ZNzLxNff6ohoFFGkbfMBAFpZgD7EPoWeiuTpPAeeMRV\"";
+        let expected = "\"secp256k1:X4ETFKtQkSGVoZEnkn7bZ3LyajJaK2b3eweXaKmynGx\"";
         assert_eq!(serde_json::to_string(&sk).unwrap(), expected);
         assert_eq!(sk, serde_json::from_str(expected).unwrap());
 
         let signature = sk.sign(&data);
-        let expected = "\"secp256k1:7iA75xRmHw17MbUkSpHxBHFVTuJW6jngzbuJPJutwb3EAwVw21wrjpMHU7fFTAqH7D3YEma8utCdvdtsqcAWqnC7r\"";
+        let expected = "\"secp256k1:5N5CB9H1dmB9yraLGCo4ZCQTcF24zj4v2NT14MHdH3aVhRoRXrX3AhprHr2w6iXNBZDmjMS1Ntzjzq8Bv6iBvwth6\"";
         assert_eq!(serde_json::to_string(&signature).unwrap(), expected);
         assert_eq!(signature, serde_json::from_str(expected).unwrap());
         let signature_str: String = signature.to_string();

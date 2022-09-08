@@ -11,7 +11,6 @@ use crate::time;
 use crate::types::FullPeerInfo;
 use crate::types::{PeerManagerRequest, PeerManagerRequestWithContext, PeerType, ReasonForBan};
 use near_primitives::network::PeerId;
-use near_rate_limiter::ThrottleController;
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
 use std::future::Future;
@@ -20,12 +19,24 @@ use std::sync::{Arc, Weak};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-#[derive(Clone)]
+#[cfg(test)]
+mod tests;
+
+#[derive(Default)]
 pub(crate) struct Stats {
-    /// Number of bytes we've received from the peer.
-    pub received_bytes_per_sec: u64,
-    /// Number of bytes we've sent to the peer.
-    pub sent_bytes_per_sec: u64,
+    /// Number of messages received since the last reset of the counter.
+    pub received_messages: AtomicU64,
+    /// Number of bytes received since the last reset of the counter.
+    pub received_bytes: AtomicU64,
+    /// Avg received bytes/s, based on the last few minutes of traffic.
+    pub received_bytes_per_sec: AtomicU64,
+    /// Avg sent bytes/s, based on the last few minutes of traffic.
+    pub sent_bytes_per_sec: AtomicU64,
+
+    /// Number of messages in the buffer to send.
+    pub messages_to_send: AtomicU64,
+    /// Number of bytes (sum of message sizes) in the buffer to send.
+    pub bytes_to_send: AtomicU64,
 }
 
 /// Contains information relevant to a connected peer.
@@ -54,12 +65,11 @@ pub(crate) struct Connection {
     /// Last time we received a message from this peer.
     pub last_time_received_message: AtomicCell<time::Instant>,
     /// Connection stats
-    pub stats: AtomicCell<Stats>,
+    pub stats: Arc<Stats>,
     /// prometheus gauge point guard.
     pub _peer_connections_metric: metrics::GaugePoint,
 
     /// A helper data structure for limiting reading, reporting stats.
-    pub throttle_controller: ThrottleController,
     pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
 }
 

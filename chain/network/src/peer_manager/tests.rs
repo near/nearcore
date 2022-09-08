@@ -12,7 +12,7 @@ use crate::testonly::{assert_is_superset, make_rng, AsSet as _};
 use crate::time;
 use crate::types::{PeerMessage, RoutingTableUpdate};
 use itertools::Itertools;
-use near_logger_utils::init_test_logger;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
 use pretty_assertions::assert_eq;
 use rand::seq::SliceRandom as _;

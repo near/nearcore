@@ -2,10 +2,12 @@ use crate::network_protocol::Encoding;
 use crate::network_protocol::{RoutedMessageBody, RoutedMessageV2};
 use crate::time;
 use crate::types::PeerType;
-use near_metrics::{
-    exponential_buckets, try_create_histogram, try_create_histogram_vec, try_create_int_counter,
-    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec, Histogram,
-    HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+use near_o11y::metrics::prometheus;
+use near_o11y::metrics::{
+    exponential_buckets, try_create_histogram, try_create_histogram_vec,
+    try_create_histogram_with_buckets, try_create_int_counter, try_create_int_counter_vec,
+    try_create_int_gauge, try_create_int_gauge_vec, Histogram, HistogramVec, IntCounter,
+    IntCounterVec, IntGauge, IntGaugeVec, MetricVec, MetricVecBuilder,
 };
 use once_cell::sync::Lazy;
 
@@ -30,9 +32,9 @@ pub struct GaugePoint(IntGauge);
 
 impl<L: Labels> Gauge<L> {
     /// Constructs a new prometheus Gauge with schema `L`.
-    pub fn new(name: &str, help: &str) -> Result<Self, near_metrics::prometheus::Error> {
+    pub fn new(name: &str, help: &str) -> Result<Self, near_o11y::metrics::prometheus::Error> {
         Ok(Self {
-            inner: near_metrics::try_create_int_gauge_vec(name, help, L::NAMES.as_ref())?,
+            inner: near_o11y::metrics::try_create_int_gauge_vec(name, help, L::NAMES.as_ref())?,
             _labels: std::marker::PhantomData,
         })
     }
@@ -66,6 +68,44 @@ impl Labels for Connection {
     }
 }
 
+pub(crate) struct MetricGuard<M: prometheus::core::Metric> {
+    metric: M,
+    drop: Option<Box<dyn FnOnce()>>,
+}
+
+impl<M: prometheus::core::Metric> MetricGuard<M> {
+    pub fn new<T: MetricVecBuilder<M = M>>(
+        metric_vec: &'static MetricVec<T>,
+        labels: Vec<String>,
+    ) -> Self {
+        let labels_str: Vec<_> = labels.iter().map(String::as_str).collect();
+        Self {
+            metric: metric_vec.with_label_values(&labels_str[..]),
+            drop: Some(Box::new(move || {
+                // This can return an error in tests, when multiple PeerManagerActors
+                // connect to the same endpoint.
+                let labels: Vec<_> = labels.iter().map(String::as_str).collect();
+                let _ = metric_vec.remove_label_values(&labels[..]);
+            })),
+        }
+    }
+}
+
+impl<M: prometheus::core::Metric> Drop for MetricGuard<M> {
+    fn drop(&mut self) {
+        self.drop.take().map(|f| f());
+    }
+}
+
+impl<M: prometheus::core::Metric> std::ops::Deref for MetricGuard<M> {
+    type Target = M;
+    fn deref(&self) -> &Self::Target {
+        &self.metric
+    }
+}
+
+pub(crate) type IntGaugeGuard = MetricGuard<prometheus::IntGauge>;
+
 pub static PEER_CONNECTIONS: Lazy<Gauge<Connection>> =
     Lazy::new(|| Gauge::new("near_peer_connections", "Number of connected peers").unwrap());
 
@@ -76,13 +116,37 @@ pub(crate) static PEER_DATA_RECEIVED_BYTES: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter("near_peer_data_received_bytes", "Total data received from peers")
         .unwrap()
 });
+
+pub(crate) static PEER_MSG_SIZE_BYTES: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_peer_msg_size_bytes",
+        "Histogram of message sizes in bytes",
+        &["addr"],
+        // very coarse buckets, because we keep them for every connection
+        // separately.
+        // TODO(gprusak): this might get too expensive with TIER1 connections.
+        Some(exponential_buckets(100., 10., 6).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static PEER_MSG_READ_LATENCY: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_peer_msg_read_latency",
+        "Time that PeerActor spends on reading a message from a socket",
+        exponential_buckets(0.001, 1.3, 35).unwrap(),
+    )
+    .unwrap()
+});
+
 pub(crate) static PEER_DATA_SENT_BYTES: Lazy<IntCounter> = Lazy::new(|| {
     try_create_int_counter("near_peer_data_sent_bytes", "Total data sent to peers").unwrap()
 });
+
 pub(crate) static PEER_DATA_READ_BUFFER_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "near_peer_read_buffer_size",
-        "Size of the incoming buffer for this peer",
+        "Size of the message that this peer is currently sending to us",
         &["addr"],
     )
     .unwrap()
@@ -264,7 +328,7 @@ pub static RECEIVED_INFO_ABOUT_ITSELF: Lazy<IntCounter> = Lazy::new(|| {
     .unwrap()
 });
 static DROPPED_MESSAGE_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
-    near_metrics::try_create_int_counter_vec(
+    near_o11y::metrics::try_create_int_counter_vec(
         "near_dropped_message_by_type_and_reason_count",
         "Total count of messages which were dropped by type of message and \
          reason why the message has been dropped",
@@ -281,7 +345,7 @@ pub(crate) static PARTIAL_ENCODED_CHUNK_REQUEST_DELAY: Lazy<Histogram> = Lazy::n
 });
 
 pub(crate) static BROADCAST_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
-    near_metrics::try_create_int_counter_vec(
+    near_o11y::metrics::try_create_int_counter_vec(
         "near_broadcast_msg",
         "Broadcasted messages",
         &["type"],

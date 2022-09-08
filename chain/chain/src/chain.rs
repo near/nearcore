@@ -1227,7 +1227,7 @@ impl Chain {
                 .get_epoch_block_approvers_ordered(header.prev_hash())?
                 .iter()
                 .map(|(x, is_slashed)| (x.stake_this_epoch, x.stake_next_epoch, *is_slashed))
-                .collect();
+                .collect::<Vec<_>>();
             if !Doomslug::can_approved_block_be_produced(
                 self.doomslug_threshold_mode,
                 header.approvals(),
@@ -1298,7 +1298,7 @@ impl Chain {
     /// upgrade.
     pub fn verify_challenges(
         &self,
-        challenges: &Vec<Challenge>,
+        challenges: &[Challenge],
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
     ) -> Result<(ChallengesResult, Vec<CryptoHash>), Error> {
@@ -1702,13 +1702,12 @@ impl Chain {
     }
 
     /// Returns if given block header is on the current chain.
-    pub fn is_on_current_chain(&self, header: &BlockHeader) -> Result<(), Error> {
+    ///
+    /// This is done by fetching header by height and checking that it’s the
+    /// same one as provided.
+    fn is_on_current_chain(&self, header: &BlockHeader) -> Result<bool, Error> {
         let chain_header = self.get_block_header_by_height(header.height())?;
-        if chain_header.hash() == header.hash() {
-            Ok(())
-        } else {
-            Err(Error::Other(format!("{} not on current chain", header.hash())))
-        }
+        Ok(chain_header.hash() == header.hash())
     }
 
     /// Finds first of the given hashes that is known on the main chain.
@@ -2906,7 +2905,7 @@ impl Chain {
         shard_id: ShardId,
         sync_hash: CryptoHash,
         part_id: PartId,
-        data: &Vec<u8>,
+        data: &[u8],
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let chunk = shard_state_header.take_chunk();
@@ -3128,7 +3127,7 @@ impl Chain {
         epoch_first_block: &CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
-        affected_blocks: &Vec<CryptoHash>,
+        affected_blocks: &[CryptoHash],
     ) -> Result<(), Error> {
         debug!(
             "Finishing catching up blocks after syncing pre {:?}, me: {:?}",
@@ -3274,18 +3273,18 @@ impl Chain {
         self.find_chunk_producer_for_forwarding(&epoch_id, shard_id, TX_ROUTING_HEIGHT_HORIZON)
     }
 
-    pub fn check_block_final_and_canonical(
+    pub fn check_blocks_final_and_canonical(
         &mut self,
-        block_hash: &CryptoHash,
+        block_headers: &[&BlockHeader],
     ) -> Result<(), Error> {
         let last_final_block_hash = *self.head_header()?.last_final_block();
         let last_final_height = self.get_block_header(&last_final_block_hash)?.height();
-        let block_header = self.get_block_header(block_hash)?;
-        if block_header.height() <= last_final_height {
-            self.is_on_current_chain(&block_header)
-        } else {
-            Err(Error::Other(format!("{} not on current chain", block_hash)))
+        for hdr in block_headers {
+            if hdr.height() > last_final_height || !self.is_on_current_chain(&hdr)? {
+                return Err(Error::Other(format!("{} not on current chain", hdr.hash())));
+            }
         }
+        Ok(())
     }
 
     /// Get all execution outcomes generated when the chunk are applied
@@ -4188,10 +4187,7 @@ impl Chain {
         outcomes
             .into_iter()
             .find(|outcome| match self.get_block_header(&outcome.block_hash) {
-                Ok(header) => {
-                    let header = header;
-                    self.is_on_current_chain(&header).is_ok()
-                }
+                Ok(header) => self.is_on_current_chain(&header).unwrap_or(false),
                 Err(_) => false,
             })
             .ok_or_else(|| Error::DBNotFoundErr(format!("EXECUTION OUTCOME: {}", id)))

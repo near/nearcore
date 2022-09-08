@@ -6,7 +6,6 @@ use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::ClientConfig;
 use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
-use near_logger_utils::init_test_logger;
 use near_network::actix::ActixSystem;
 use near_network::blacklist;
 use near_network::broadcast;
@@ -21,6 +20,7 @@ use near_network::types::{
 };
 use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network::{Event, PeerManagerActor};
+use near_o11y::testonly::init_test_logger;
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, ValidatorId};

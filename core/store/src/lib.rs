@@ -32,7 +32,7 @@ pub use crate::trie::iterator::TrieIterator;
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
     estimator, split_state, ApplyStatePartResult, KeyForStateChanges, PartialStorage, ShardTries,
-    Trie, TrieAccess, TrieCache, TrieCacheFactory, TrieCachingStorage, TrieChanges, TrieStorage,
+    Trie, TrieAccess, TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieStorage,
     WrappedTrieChanges,
 };
 
@@ -42,11 +42,14 @@ pub mod db;
 pub mod flat_state;
 mod metrics;
 pub mod migrations;
+mod opener;
 pub mod test_utils;
 mod trie;
+pub mod version;
 
-pub use crate::config::{Mode, StoreConfig, StoreOpener};
+pub use crate::config::{Mode, StoreConfig};
 pub use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError};
+pub use crate::opener::StoreOpener;
 
 /// Specifies temperature of a storage.
 ///
@@ -391,7 +394,7 @@ impl StoreUpdate {
     ///
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
-    pub fn set_ser<T: BorshSerialize>(
+    pub fn set_ser<T: BorshSerialize + ?Sized>(
         &mut self,
         column: DBCol,
         key: &[u8],
@@ -716,9 +719,9 @@ pub fn set_genesis_hash(store_update: &mut StoreUpdate, genesis_hash: &CryptoHas
         .expect("Borsh cannot fail");
 }
 
-pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &Vec<StateRoot>) {
+pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &[StateRoot]) {
     store_update
-        .set_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
+        .set_ser(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY, genesis_roots)
         .expect("Borsh cannot fail");
 }
 

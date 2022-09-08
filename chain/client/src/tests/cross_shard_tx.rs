@@ -10,12 +10,12 @@ use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_crypto::{InMemorySigner, KeyType};
-use near_logger_utils::init_integration_logger;
 use near_network::types::PeerInfo;
 use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkResponses, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
 };
+use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference};
