@@ -5,13 +5,15 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::TrieNodesCount;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::error;
 
-pub type IoRequestQueue = Arc<Mutex<VecDeque<IoThreadCmd>>>;
+use super::trie_storage::BoundedQueue;
 
+const MAX_QUEUED_WORK_ITEMS: usize = 16 * 1024;
 const MAX_PREFETCH_STAGING_MEMORY: usize = 200 * 1024 * 1024;
 /// How much memory capacity is reserved for each prefetch request.
 /// Set to 4MiB, the same as `max_length_storage_value`.
@@ -19,12 +21,19 @@ const PREFETCH_RESERVED_BYTES_PER_SLOT: usize = 4 * 1024 * 1024;
 
 /// Storage used by I/O threads to prefetch data.
 ///
-/// Is always linked to a parent `TrieCachingStorage`. One  caching storage can
-/// produce many I/O threads and each will have its own prefetching storage.
-/// However, the underlying shard cache and prefetching map is shared among all
-/// instances, including the parent.
+/// This implements `TrieStorage` and therefore can be used inside a `Trie`.
+/// Prefetching runs through the normal trie lookup code and only the backing
+/// trie storage behaves differently.
+///
+/// `TriePrefetchingStorage` instances are always linked to a parent
+/// `TrieCachingStorage`. They share a shard cache, to avoid reading anything
+/// from the DB that is already cached.
+/// They communicate through `PrefetchStagingArea` exclusively.
+///
+/// Each I/O threads will have its own copy of `TriePrefetchingStorage`, so
+/// this should remain a cheap object.
 #[derive(Clone)]
-pub struct TriePrefetchingStorage {
+struct TriePrefetchingStorage {
     /// Store is shared with parent `TrieCachingStorage`.
     store: Store,
     shard_uid: ShardUId,
@@ -35,31 +44,47 @@ pub struct TriePrefetchingStorage {
     prefetching: Arc<Mutex<PrefetchStagingArea>>,
 }
 
-/// Staging area for in-flight prefetch requests and a buffer for prefetched data,
+/// This type is shared between runtime crate and store crate.
+///
+/// The former creates `PrefetchApi` and puts requests in, the latter serves requests.
+/// With this API, the store does not know about receipts etc, and the runtime
+/// does not know about the trie structure. The only thing they share is this object.
+#[derive(Clone)]
+pub struct PrefetchApi {
+    /// Bounded, shared queue for all IO threads to take work from.
+    ///
+    /// Work items are defined as `TrieKey` because currently the only
+    /// work is to prefetch a trie key. If other IO work is added, consider
+    /// changing the queue to an enum.
+    work_queue: Arc<Mutex<BoundedQueue<TrieKey>>>,
+    /// Prefetching IO threads will insert fetched data here. This is also used
+    /// to mark what is already being fetched, to avoid fetching the same data
+    /// multiple times.
+    prefetching: Arc<Mutex<PrefetchStagingArea>>,
+    /// Set to true to stop all io threads.
+    stop_io: Arc<AtomicBool>,
+}
+
+/// Staging area for in-flight prefetch requests and a buffer for prefetched data.
 ///
 /// Before starting a pre-fetch, a slot is reserved for it. Once the data is
 /// here, it will be put in that slot. The parent `TrieCachingStorage` needs
 /// to take it out and move it to the shard cache.
 ///
-/// This design is to avoid prematurely filling up the shard cache.
+/// A shared staging area is the interface between `TrieCachingStorage` and
+/// `TriePrefetchingStorage`. The parent simply checks the staging area before
+/// going to the DB. Otherwise, no communication between the two is necessary.
+///
+/// This design also ensures the shard cache works exactly the same with or
+/// without the prefetcher, because the order in which it sees accesses is
+/// independent of the prefetcher.
 #[derive(Default)]
 pub(crate) struct PrefetchStagingArea {
     slots: HashMap<CryptoHash, PrefetchSlot>,
     size_bytes: usize,
 }
 
-#[derive(Clone, Debug)]
-enum PrefetchSlot {
-    PendingPrefetch,
-    PendingFetch,
-    Done(Arc<[u8]>),
-}
-
-pub enum IoThreadCmd {
-    PrefetchTrieNode(TrieKey),
-    StopSelf,
-}
-
+/// Result when atomically accessing the prefetch staging area.
 pub(crate) enum PrefetcherResult {
     SlotReserved,
     Pending,
@@ -67,7 +92,29 @@ pub(crate) enum PrefetcherResult {
     MemoryLimitReached,
 }
 
+/// Type used interanlly in the staging area to keep track of requests.
+#[derive(Clone, Debug)]
+enum PrefetchSlot {
+    PendingPrefetch,
+    PendingFetch,
+    Done(Arc<[u8]>),
+}
+
 impl TrieStorage for TriePrefetchingStorage {
+    // Note: This is the tricky bit of the implementation.
+    // We have to retrieve data only once in many threads, so all IO threads
+    // have to go though the staging area and check for inflight requests.
+    // The shard cache mutex plus the prefetch staging area mutex are used for
+    // that in combination. Let's call the first lock S and the second P.
+    // The rules for S and P are:
+    // 1. To avoid deadlocks, S must always be requested before P, if they are
+    //    held at the same time.
+    // 2. When looking up if something is already in the shard cache, S must not
+    //    be released until the staging area is updated by the current thread.
+    //    Otherwise, there will be race conditions that could lead to multiple
+    //    threads lokking up the same value from DB.
+    // 3. IO threads should release S and P as soon as possible, as they can
+    //    block the main thread otherwise.
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         // Try to get value from shard cache containing most recently touched nodes.
         let mut shard_cache_guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
@@ -163,7 +210,7 @@ impl PrefetchStagingArea {
     ///
     /// This must only be called after inserting the value to the shard cache.
     /// Otherwise, the following scenario becomes possible:
-    /// 1: Main thread removes a value from the prefetch staging area
+    /// 1: Main thread removes a value from the prefetch staging area.
     /// 2: IO thread misses in the shard cache on the same key and starts fetching it again.
     /// 3: Main thread value is inserted in shard cache.
     pub(crate) fn release(&mut self, key: &CryptoHash) {
@@ -182,7 +229,7 @@ impl PrefetchStagingArea {
         match dropped {
             Some(PrefetchSlot::Done(value)) => self.size_bytes -= value.len(),
             Some(PrefetchSlot::PendingFetch) => self.size_bytes -= PREFETCH_RESERVED_BYTES_PER_SLOT,
-            None => { /* NOP */ }
+            None => (),
             _ => {
                 error!(target: "prefetcher", "prefetcher bug detected, trying to release {dropped:?}");
             }
@@ -190,12 +237,20 @@ impl PrefetchStagingArea {
     }
 
     /// Block until value is prefetched and then return it.
+    ///
+    /// Note: This function could return a future and become async.
+    /// DB requests are all blocking, unfortunately, so the benefit seems small.
+    /// The main benefit would be if many IO threads end up prefetching the
+    /// same data and thus are waiting on each other rather than the DB.
+    /// Of course, that would require prefetching to be moved into an async environment,
     pub(crate) fn blocking_get(this: &Arc<Mutex<Self>>, key: CryptoHash) -> Option<Arc<[u8]>> {
         loop {
-            match this.lock().expect(POISONED_LOCK_ERR).slots.get(&key) {
-                Some(PrefetchSlot::Done(value)) => return Some(value.clone()),
-                Some(_) => { /* NOP */ }
-                None => return None,
+            {
+                match this.lock().expect(POISONED_LOCK_ERR).slots.get(&key) {
+                    Some(PrefetchSlot::Done(value)) => return Some(value.clone()),
+                    Some(_) => (),
+                    None => return None,
+                }
             }
             std::thread::sleep(std::time::Duration::from_micros(1));
         }
@@ -214,7 +269,7 @@ impl PrefetchStagingArea {
         self.size_bytes -= PREFETCH_RESERVED_BYTES_PER_SLOT;
         self.size_bytes += value.len();
         let pending = self.slots.insert(key, PrefetchSlot::Done(value));
-        assert!(prefetch_state_matches(PrefetchSlot::PendingPrefetch, &pending.unwrap()));
+        debug_assert!(prefetch_state_matches(PrefetchSlot::PendingPrefetch, &pending.unwrap()));
     }
 
     /// Get prefetched value if available and otherwise atomically insert the
@@ -234,13 +289,8 @@ impl PrefetchStagingArea {
         }
         match guard.slots.entry(key) {
             Entry::Occupied(entry) => match entry.get() {
-                PrefetchSlot::Done(value) => {
-                    near_o11y::io_trace!(count: "prefetch_hit");
-                    PrefetcherResult::Prefetched(value.clone())
-                }
+                PrefetchSlot::Done(value) => PrefetcherResult::Prefetched(value.clone()),
                 PrefetchSlot::PendingPrefetch | PrefetchSlot::PendingFetch => {
-                    std::mem::drop(guard);
-                    near_o11y::io_trace!(count: "prefetch_pending");
                     PrefetcherResult::Pending
                 }
             },
@@ -253,6 +303,72 @@ impl PrefetchStagingArea {
     }
 }
 
+impl PrefetchApi {
+    pub fn new(parent: &TrieCachingStorage) -> Self {
+        Self {
+            work_queue: Arc::new(Mutex::new(BoundedQueue::new(MAX_QUEUED_WORK_ITEMS))),
+            prefetching: parent.prefetching.clone(),
+            stop_io: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Returns the trie key back if queue is full.
+    pub fn prefetch_trie_key(&self, trie_key: TrieKey) -> Option<TrieKey> {
+        self.work_queue.lock().expect(POISONED_LOCK_ERR).put(trie_key)
+    }
+
+    pub fn start_io_thread(
+        &self,
+        parent: &TrieCachingStorage,
+        trie_root: CryptoHash,
+    ) -> std::thread::JoinHandle<()> {
+        let prefetcher_storage = TriePrefetchingStorage::new(
+            parent.store.clone(),
+            parent.shard_uid,
+            parent.shard_cache.clone(),
+            self.prefetching.clone(),
+        );
+        let stop_io = self.stop_io.clone();
+        let work_queue = self.work_queue.clone();
+        std::thread::spawn(move || {
+            // `Trie` cannot be sent across threads but `TriePrefetchingStorage` can.
+            //  Therefore, construct `Trie` in the new thread.
+            let prefetcher_trie = crate::Trie::new(Box::new(prefetcher_storage), trie_root, None);
+
+            // Keep looping until signalled to stop.
+            while !stop_io.load(Ordering::Acquire) {
+                // Note: do not merge the two lines below, lock must be released in between.
+                let maybe_trie_key = work_queue.lock().expect(POISONED_LOCK_ERR).pop();
+                if let Some(trie_key) = maybe_trie_key {
+                    let storage_key = trie_key.to_vec();
+                    if let Ok(Some(_value)) = prefetcher_trie.get(&storage_key) {
+                        near_o11y::io_trace!(count: "prefetch");
+                    } else {
+                        // This may happen in rare occasions and can be ignored safely.
+                        // See comments in `TriePrefetchingStorage::retrieve_raw_bytes`.
+                        near_o11y::io_trace!(count: "prefetch_failure");
+                    }
+                } else {
+                    std::thread::sleep(Duration::from_micros(10));
+                }
+            }
+        })
+    }
+
+    /// Removes all queue up prefetch requests.
+    pub fn clear(&self) {
+        self.work_queue.lock().expect(POISONED_LOCK_ERR).clear();
+    }
+
+    /// Stops IO threads after they finish their current task.
+    ///
+    /// Queued up work will not be finished. But trie keys that are already
+    /// being fetched will finish.
+    pub fn stop(&self) {
+        self.stop_io.store(true, Ordering::Release);
+    }
+}
+
 fn prefetch_state_matches(expected: PrefetchSlot, actual: &PrefetchSlot) -> bool {
     match (expected, actual) {
         (PrefetchSlot::PendingPrefetch, PrefetchSlot::PendingPrefetch)
@@ -262,13 +378,33 @@ fn prefetch_state_matches(expected: PrefetchSlot, actual: &PrefetchSlot) -> bool
     }
 }
 
-// #[cfg(test)]
+/// Implementation to make testing from runtime possible.
+///
+/// Prefetching by design has no visible side-effects.
+/// To nevertheless test the functionality on the API level,
+/// a minimal set of functions is required to check the inner
+/// state of the prefetcher.
+#[cfg(feature = "test_features")]
 mod tests {
-    use crate::TriePrefetchingStorage;
+    use super::{PrefetchApi, PrefetchSlot};
 
-    impl TriePrefetchingStorage {
-        pub fn prefetched_staging_area_size(&self) -> usize {
-            self.prefetching.lock().unwrap().slots.len()
+    impl PrefetchApi {
+        /// Returns the number of prefetched values currently staged.
+        pub fn num_prefetched_and_staged(&self) -> usize {
+            self.prefetching
+                .lock()
+                .unwrap()
+                .slots
+                .iter()
+                .filter(|(_key, slot)| match slot {
+                    PrefetchSlot::PendingPrefetch | PrefetchSlot::PendingFetch => false,
+                    PrefetchSlot::Done(_) => true,
+                })
+                .count()
+        }
+
+        pub fn work_queued(&self) -> bool {
+            self.work_queue.lock().unwrap().len() > 0
         }
     }
 }

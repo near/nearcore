@@ -2,9 +2,7 @@ use crate::db::refcount::decode_value_with_rc;
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::{PrefetchStagingArea, PrefetcherResult};
 use crate::trie::POISONED_LOCK_ERR;
-use crate::{
-    metrics, DBCol, IoRequestQueue, IoThreadCmd, StorageError, Store, TriePrefetchingStorage,
-};
+use crate::{metrics, DBCol, StorageError, Store};
 use lru::LruCache;
 use near_o11y::log_assert;
 use near_o11y::metrics::prometheus;
@@ -16,9 +14,7 @@ use std::borrow::Borrow;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::ErrorKind;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 pub(crate) struct BoundedQueue<T> {
     queue: VecDeque<T>,
@@ -361,9 +357,7 @@ pub struct TrieCachingStorage {
     /// Prefetching IO threads will insert fetched data here. This is also used
     /// to mark what is already being fetched, to avoid fetching the same data
     /// multiple times.
-    prefetching: Arc<Mutex<PrefetchStagingArea>>,
-    /// Set to true to stop all io threads.
-    io_kill_switch: Arc<AtomicBool>,
+    pub(crate) prefetching: Arc<Mutex<PrefetchStagingArea>>,
 
     /// Counts potentially expensive trie node reads which are served from disk in the worst case. Here we count reads
     /// from DB or shard cache.
@@ -417,7 +411,6 @@ impl TrieCachingStorage {
             db_read_nodes: Cell::new(0),
             mem_read_nodes: Cell::new(0),
             metrics,
-            io_kill_switch: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -455,62 +448,8 @@ impl TrieCachingStorage {
         self.cache_mode.set(state);
     }
 
-    pub fn prefetcher_storage(&self) -> TriePrefetchingStorage {
-        TriePrefetchingStorage::new(
-            self.store.clone(),
-            self.shard_uid.clone(),
-            self.shard_cache.clone(),
-            self.prefetching.clone(),
-        )
-    }
-
     pub fn clear_cache(&self) {
         self.shard_cache.clear();
-    }
-
-    pub fn io_kill_switch(&self) -> &Arc<AtomicBool> {
-        &self.io_kill_switch
-    }
-
-    pub fn start_io_thread(
-        root: CryptoHash,
-        prefetcher_storage: Box<dyn TrieStorage + Send>,
-        request_queue: IoRequestQueue,
-        kill_switch: Arc<AtomicBool>,
-    ) -> std::thread::JoinHandle<()> {
-        std::thread::spawn(move || {
-            // `Trie` cannot be sent across threads but `TriePrefetchingStorage` can.
-            //  Therefore, construct `Trie` in the new thread.
-            let prefetcher_trie = crate::Trie::new(prefetcher_storage, root, None);
-
-            // Keep looping until either the kill switch signals that prefetching is no
-            // longer needed or a `StopSelf` command indicates that no more prefetch
-            // requests are available.
-            while !kill_switch.load(Ordering::Acquire) {
-                let maybe_request = request_queue.lock().expect(POISONED_LOCK_ERR).pop_front();
-                match maybe_request {
-                    Some(IoThreadCmd::PrefetchTrieNode(trie_key)) => {
-                        let storage_key = trie_key.to_vec();
-                        if let Ok(Some(_value)) = prefetcher_trie.get(&storage_key) {
-                            near_o11y::io_trace!(count: "prefetch_success");
-                        } else {
-                            // This may happen in rare occasions and can be ignored safely.
-                            near_o11y::io_trace!(count: "prefetch_failure");
-                        }
-                    }
-                    Some(IoThreadCmd::StopSelf) => return,
-                    None => std::thread::sleep(Duration::from_micros(10)),
-                }
-            }
-        })
-    }
-
-    pub fn stop_prefetcher(&self) {
-        self.io_kill_switch.store(true, Ordering::Release);
-        // For as long as the assertions are still in place, do not "clear" old
-        // value. Some I/O threads might be in the middle of fetching data. They
-        // expect certain states to be present.
-        // self.prefetching.lock().expect(POISONED_LOCK_ERR).clear();
     }
 }
 
@@ -549,9 +488,13 @@ impl TrieStorage for TrieCachingStorage {
                     PrefetcherResult::SlotReserved | PrefetcherResult::MemoryLimitReached => {
                         self.read_from_db(hash)?
                     }
-                    PrefetcherResult::Prefetched(value) => value,
+                    PrefetcherResult::Prefetched(value) => {
+                        near_o11y::io_trace!(count: "prefetch_hit");
+                        value
+                    }
                     PrefetcherResult::Pending => {
-                        std::thread::sleep(Duration::from_micros(1));
+                        near_o11y::io_trace!(count: "prefetch_pending");
+                        std::thread::yield_now();
                         // Unwrap: Only main thread  (this one) removes values from staging area,
                         // therefore blocking read will not return empty.
                         PrefetchStagingArea::blocking_get(&self.prefetching, hash.clone()).unwrap()

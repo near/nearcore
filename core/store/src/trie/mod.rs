@@ -19,9 +19,7 @@ pub use crate::trie::config::TrieConfig;
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 use crate::trie::nibble_slice::NibbleSlice;
-pub use crate::trie::prefetching_trie_storage::{
-    IoRequestQueue, IoThreadCmd, TriePrefetchingStorage,
-};
+pub use crate::trie::prefetching_trie_storage::PrefetchApi;
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
