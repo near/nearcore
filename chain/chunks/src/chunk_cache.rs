@@ -168,14 +168,9 @@ impl EncodedChunksCache {
         }
     }
 
-    /// Insert if entry does not exist already
-    pub fn try_insert(&mut self, header: &ShardChunkHeader) {
-        self.get_or_insert_from_header(header);
-    }
-
     // Create an empty entry from the header and insert it if there is no entry for the chunk already
     // Return a mutable reference to the entry
-    fn get_or_insert_from_header(
+    pub fn get_or_insert_from_header(
         &mut self,
         chunk_header: &ShardChunkHeader,
     ) -> &mut EncodedChunksCacheEntry {
@@ -340,7 +335,7 @@ mod tests {
         let mut cache = EncodedChunksCache::new();
         let header0 = create_chunk_header(1, 0);
         let header1 = create_chunk_header(1, 1);
-        cache.try_insert(&header0);
+        cache.get_or_insert_from_header(&header0);
         cache.merge_in_partial_encoded_chunk(&PartialEncodedChunkV2 {
             header: header1.clone(),
             parts: vec![],
