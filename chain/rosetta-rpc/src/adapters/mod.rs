@@ -815,7 +815,7 @@ mod tests {
                 "nfvalidator2_action_receipt_gas_reward_transaction",
                 nfvalidator2_action_receipt_gas_reward_transaction
             );
-            near_network::test_utils::wait_or_panic(5000);
+            System::current().stop();
         });
     }
 
