@@ -39,5 +39,4 @@ near-network = { path = "../network" }
 
 [dev-dependencies]
 insta = "1"
-actix-rt = "2.7.0"
-
+near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
