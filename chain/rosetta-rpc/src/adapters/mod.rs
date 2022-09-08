@@ -689,7 +689,7 @@ mod tests {
 
     #[test]
     fn test_convert_block_changes_to_transactions() {
-        run_actix(async move {
+        run_actix(async {
             let runtime_config = near_primitives::runtime::config::RuntimeConfig::test();
             let (_client, view_client) = setup_no_network(
                 vec!["test".parse().unwrap()],
