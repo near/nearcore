@@ -375,19 +375,22 @@ impl str::FromStr for ShardUId {
         let (shard_str, version_str) = s
             .split_once(".")
             .ok_or_else(|| format!("shard version and number must be separated by \".\""))?;
-        if !version_str.starts_with("v") {
-            return Err(format!("shard version must start with \"v\""));
-        }
-        let version = version_str[1..]
-            .parse::<ShardVersion>()
-            .map_err(|e| format!("shard version after \"v\" must be a number, {e}"))?;
 
-        if !shard_str.starts_with("s") {
-            return Err(format!("shard id must start with \"s\""));
-        }
-        let shard_id = shard_str[1..]
-            .parse::<u32>()
-            .map_err(|e| format!("shard id after \"s\" must be a number, {e}"))?;
+        let version = if let Some(version_str) = version_str.strip_prefix("v") {
+            version_str
+                .parse::<ShardVersion>()
+                .map_err(|e| format!("shard version after \"v\" must be a number, {e}"))
+        } else {
+            Err(format!("shard version must start with \"v\""))
+        }?;
+
+        let shard_id = if let Some(shard_str) = shard_str.strip_prefix("s") {
+            shard_str
+                .parse::<u32>()
+                .map_err(|e| format!("shard id after \"s\" must be a number, {e}"))
+        } else {
+            Err(format!("shard id must start with \"s\""))
+        }?;
 
         Ok(ShardUId { shard_id, version })
     }
@@ -398,7 +401,7 @@ impl<'de> serde::Deserialize<'de> for ShardUId {
     where
         D: serde::Deserializer<'de>,
     {
-        deserializer.deserialize_str(ShardUIdVisitor)
+        deserializer.deserialize_any(ShardUIdVisitor)
     }
 }
 
