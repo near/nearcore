@@ -29,8 +29,7 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
     bench.iter(move || {
         tracing::info!(target: "neard", "{:?}", home_dir);
         let store = near_store::NodeStorage::opener(&home_dir, &near_config.config.store)
-            .mode(mode)
-            .open()
+            .open_in_mode(mode)
             .unwrap()
             .get_store(Temperature::Hot);
 
