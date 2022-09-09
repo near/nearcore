@@ -43,6 +43,10 @@ fn default_ttl_account_id_router() -> Duration {
 fn default_peer_stats_period() -> Duration {
     Duration::from_secs(5)
 }
+/// Period to update the list of peers we connect to.
+fn default_monitor_peers_max_period() -> Duration {
+    Duration::from_secs(60)
+}
 
 // If non-zero - we'll skip sending tombstones during initial sync and for that many seconds after start.
 fn default_skip_tombstones() -> i64 {
@@ -113,6 +117,9 @@ pub struct Config {
     /// Period to check on peer status
     #[serde(default = "default_peer_stats_period")]
     pub peer_stats_period: Duration,
+    // Period to monitor peers (connect to new ones etc).
+    #[serde(default = "default_monitor_peers_max_period")]
+    pub monitor_peers_max_period: Duration,
 
     /// List of the public addresses (in the format "<node public key>@<IP>:<port>") of trusted nodes,
     /// which are willing to route messages to this node. Useful only if this node is a validator.
@@ -204,6 +211,7 @@ impl Default for Config {
             blacklist: vec![],
             ttl_account_id_router: default_ttl_account_id_router(),
             peer_stats_period: default_peer_stats_period(),
+            monitor_peers_max_period: default_monitor_peers_max_period(),
             public_addrs: vec![],
             trusted_stun_servers: vec![],
             experimental: Default::default(),
