@@ -202,16 +202,6 @@ jsonrpc_client!(pub struct JsonRpcClient {
 });
 
 impl JsonRpcClient {
-    /// This is a soft-deprecated method to do query RPC request with a path and data positional
-    /// parameters.
-    pub fn query_by_path(
-        &self,
-        path: String,
-        data: String,
-    ) -> RpcRequest<near_jsonrpc_primitives::types::query::RpcQueryResponse> {
-        call_method(&self.client, &self.server_addr, "query", [path, data])
-    }
-
     pub fn query(
         &self,
         request: near_jsonrpc_primitives::types::query::RpcQueryRequest,

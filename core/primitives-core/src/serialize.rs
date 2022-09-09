@@ -2,10 +2,6 @@ pub fn to_base58<T: AsRef<[u8]>>(input: T) -> String {
     bs58::encode(input).into_string()
 }
 
-pub fn from_base58(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-    bs58::decode(s).into_vec().map_err(|err| err.into())
-}
-
 pub fn to_base64<T: AsRef<[u8]>>(input: T) -> String {
     base64::encode(&input)
 }
