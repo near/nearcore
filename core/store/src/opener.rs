@@ -97,7 +97,7 @@ pub struct StoreOpener<'a> {
     /// Opener for a single RocksDB instance.
     ///
     /// pub(crate) for testing.
-    pub(crate) db: DBOpener<'a>,
+    db: DBOpener<'a>,
 
     /// Which mode to open storeg in.
     mode: Mode,
@@ -108,7 +108,7 @@ pub struct StoreOpener<'a> {
 }
 
 /// Opener for a single RocksDB instance.
-pub(crate) struct DBOpener<'a> {
+struct DBOpener<'a> {
     /// Path to the database.
     ///
     /// This is resolved from nearcore home directory and store configuration
