@@ -8,10 +8,12 @@ use crate::peer;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
-use crate::types::{ChainInfo, GetNetworkInfo, PeerManagerMessageRequest, SetChainInfo};
+use crate::types::{
+    ChainInfo, GetNetworkInfo, OutboundTcpConnect, PeerManagerMessageRequest, SetChainInfo,
+};
 use crate::PeerManagerActor;
 use near_network_primitives::time;
-use near_network_primitives::types::{OutboundTcpConnect, PeerInfo};
+use near_network_primitives::types::PeerInfo;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, EpochId};
 use std::collections::HashSet;
@@ -98,9 +100,9 @@ impl ActorHandler {
         let mut events = self.events.from_now();
         self.actix
             .addr
-            .send(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect {
-                peer_info: peer_info.clone(),
-            }))
+            .send(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect(
+                peer_info.clone(),
+            )))
             .await
             .unwrap();
         events
@@ -166,9 +168,9 @@ impl ActorHandler {
             addr: Some(listener.local_addr().unwrap()),
             account_id: None,
         };
-        self.actix.addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(
-            OutboundTcpConnect { peer_info: peer_info.clone() },
-        ));
+        self.actix.addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect(
+            peer_info.clone(),
+        )));
         let (stream, _) = listener.accept().await.unwrap();
         let conn = RawConnection {
             events,

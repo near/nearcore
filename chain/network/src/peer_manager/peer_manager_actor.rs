@@ -4,8 +4,8 @@ use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
-    PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerError, RegisterPeerResponse, StopMsg, Unregister,
-    ValidateEdgeList,
+    PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerError, RegisterPeerResponse,
+    StopMsg, Unregister, ValidateEdgeList,
 };
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp, PeersResponse};
 use crate::routing;
@@ -15,8 +15,8 @@ use crate::stats::metrics;
 use crate::store;
 use crate::types::{
     ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, NetworkClientMessages, NetworkInfo,
-    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    PeerMessage, RoutingTableUpdate, SetChainInfo,
+    NetworkRequests, NetworkResponses, OutboundTcpConnect, PeerManagerMessageRequest,
+    PeerManagerMessageResponse, PeerMessage, RoutingTableUpdate, SetChainInfo,
 };
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
@@ -27,8 +27,8 @@ use anyhow::Context as _;
 use near_network_primitives::time;
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Ban, Edge, KnownPeerStatus, KnownProducer, NetworkViewClientMessages,
-    NetworkViewClientResponses, OutboundTcpConnect, PeerInfo, PeerType, Ping, Pong,
-    RawRoutedMessage, ReasonForBan, RoutedMessageBody, StateResponseInfo,
+    NetworkViewClientResponses, PeerInfo, PeerType, Ping, Pong, RawRoutedMessage, ReasonForBan,
+    RoutedMessageBody, StateResponseInfo,
 };
 use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics_macros::perf;
@@ -80,9 +80,6 @@ const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
 /// Remove the edges that were created more that this duration ago.
 const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
-// Don't accept nonces (edges) that are more than this delta from current time.
-// This value should be smaller than PRUNE_EDGES_AFTER (otherwise, the might accept the edge and garbage collect it seconds later).
-const EDGE_NONCE_MAX_TIME_DELTA: time::Duration = time::Duration::minutes(20);
 
 /// Send important messages three times.
 /// We send these messages multiple times to reduce the chance that they are lost
@@ -1366,9 +1363,7 @@ impl PeerManagerActor {
                     max_num_peers = self.max_num_peers,
                     "Dropping handshake (network at max capacity)."
                 );
-                return RegisterPeerResponse::Reject(
-                    RegisterPeerError::ConnectionLimitExceeded,
-                );
+                return RegisterPeerResponse::Reject(RegisterPeerError::ConnectionLimitExceeded);
             }
         }
         if let Err(err) = self.register_peer(msg.connection.clone(), ctx) {
@@ -1430,10 +1425,7 @@ impl PeerManagerActor {
             // TEST-ONLY
             PeerManagerMessageRequest::OutboundTcpConnect(msg) => {
                 ctx.spawn(
-                    self.state
-                        .clone()
-                        .spawn_outbound(self.clock.clone(), msg.0)
-                        .into_actor(self),
+                    self.state.clone().spawn_outbound(self.clock.clone(), msg.0).into_actor(self),
                 );
                 PeerManagerMessageResponse::OutboundTcpConnect
             }

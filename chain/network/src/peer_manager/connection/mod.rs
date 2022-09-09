@@ -9,8 +9,8 @@ use crate::stats::metrics;
 use crate::types::FullPeerInfo;
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext,
-    PeerType, ReasonForBan,
+    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest,
+    PeerManagerRequestWithContext, PeerType, ReasonForBan,
 };
 use near_primitives::network::PeerId;
 use std::collections::{hash_map::Entry, HashMap};

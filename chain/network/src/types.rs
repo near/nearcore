@@ -8,9 +8,9 @@ use futures::FutureExt;
 use near_crypto::PublicKey;
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, KnownProducer, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, PeerType, Ping, Pong, ReasonForBan,
-    StateResponseInfo,
+    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, KnownProducer, PartialEdgeInfo,
+    PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
+    PeerChainInfoV2, PeerInfo, PeerType, Ping, Pong, ReasonForBan, StateResponseInfo,
 };
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::Challenge;

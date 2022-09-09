@@ -772,7 +772,6 @@ impl PeerActor {
         };
 
         let connection = Arc::new(connection::Connection {
-            is_tier1,
             addr: ctx.address(),
             peer_info: peer_info.clone(),
             initial_chain_info: handshake.sender_chain_info.clone(),
@@ -850,11 +849,10 @@ impl PeerActor {
                             act.send_handshake(HandshakeSpec{
                                 peer_id: handshake.sender_peer_id.clone(),
                                 genesis_id: act.network_state.genesis_id.clone(),
-                                is_tier1,
                                 protocol_version: handshake.protocol_version,
                                 partial_edge_info: partial_edge_info,
                             });
-                        } else if !is_tier1 {
+                        } else {
                             // Outbound peer triggers the inital full accounts data sync.
                             // TODO(gprusak): implement triggering the periodic full sync.
                             act.send_message_or_log(&PeerMessage::SyncAccountsData(SyncAccountsData{

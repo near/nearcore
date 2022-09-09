@@ -8,7 +8,6 @@ use near_network_primitives::types::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::version::ProtocolVersion;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
@@ -61,20 +60,19 @@ pub(crate) enum PeerToManagerMsgResp {
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "RegisterPeerResponse")]
 pub(crate) struct RegisterPeer {
-    pub connection: Arc<Connection>,
+    pub connection: Arc<connection::Connection>,
 }
 
 #[derive(Debug)]
 pub(crate) enum RegisterPeerError {
     Blacklisted,
     Banned,
-    PoolError(PoolError),
+    PoolError(connection::PoolError),
     ConnectionLimitExceeded,
-    NotTier1Peer,
 }
 
 #[derive(actix::MessageResponse, Debug)]
-pub enum RegisterPeerResponse {
+pub(crate) enum RegisterPeerResponse {
     Accept,
     Reject(RegisterPeerError),
 }
