@@ -11,7 +11,7 @@ use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 
-use crate::flat_state::{FlatStateDelta, KeyForFlatStateDelta};
+use crate::flat_state::{FlatState, FlatStateDelta, KeyForFlatStateDelta};
 use crate::trie::config::TrieConfig;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
@@ -88,7 +88,7 @@ impl ShardTries {
         shard_uid: ShardUId,
         state_root: StateRoot,
         is_view: bool,
-        use_flat_state: bool,
+        flat_state: Option<FlatState>,
     ) -> Trie {
         let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
         let cache = {
@@ -100,25 +100,24 @@ impl ShardTries {
         };
         let storage =
             Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid, is_view));
-        let flat_state =
-            crate::flat_state::maybe_new(use_flat_state, shard_uid.shard_id, &self.0.store);
         Trie::new(storage, state_root, flat_state)
     }
 
     pub fn get_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, state_root, false, false)
+        self.get_trie_for_shard_internal(shard_uid, state_root, false, None)
     }
 
     pub fn get_trie_with_flat_state_for_shard(
         &self,
         shard_uid: ShardUId,
         state_root: StateRoot,
+        flat_state: Option<FlatState>,
     ) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, state_root, false, true)
+        self.get_trie_for_shard_internal(shard_uid, state_root, false, flat_state)
     }
 
     pub fn get_view_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, state_root, true, false)
+        self.get_trie_for_shard_internal(shard_uid, state_root, true, None)
     }
 
     pub fn get_store(&self) -> Store {

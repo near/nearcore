@@ -38,6 +38,7 @@ mod imp {
     pub struct FlatState {
         store: Store,
         shard_id: u32,
+        block_hash: CryptoHash,
         // todo: lock
     }
 
@@ -97,12 +98,8 @@ mod imp {
         /// are stored in `DBCol::State`. Also the separation is done so we
         /// could charge users for the value length before loading the value.
         // TODO (#7327): support different roots (or block hashes).
-        pub fn get_ref(
-            &self,
-            block_hash: &CryptoHash,
-            key: &[u8],
-        ) -> Result<Option<ValueRef>, StorageError> {
-            let deltas = self.get_deltas_between_blocks(block_hash)?;
+        pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
+            let deltas = self.get_deltas_between_blocks(&self.block_hash)?;
             for delta in deltas {
                 if delta.0.contains_key(key) {
                     return Ok(delta.0.get(key).unwrap().clone());
@@ -127,8 +124,17 @@ mod imp {
     /// Always returns `None` if the `protocol_feature_flat_state` Cargo feature is
     /// not enabled.  Otherwise, returns a new [`FlatState`] object backed by
     /// specified storage if `use_flat_state` argument is true.
-    pub fn maybe_new(use_flat_state: bool, shard_id: u32, store: &Store) -> Option<FlatState> {
-        use_flat_state.then(|| FlatState { store: store.clone(), shard_id })
+    pub fn maybe_new(
+        use_flat_state: bool,
+        shard_id: u32,
+        prev_block_hash: &CryptoHash,
+        store: &Store,
+    ) -> Option<FlatState> {
+        use_flat_state.then(|| FlatState {
+            store: store.clone(),
+            shard_id,
+            block_hash: prev_block_hash.clone(),
+        })
     }
 }
 
