@@ -100,7 +100,8 @@ impl ShardTries {
         };
         let storage =
             Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid, is_view));
-        let flat_state = crate::flat_state::maybe_new(use_flat_state, &self.0.store);
+        let flat_state =
+            crate::flat_state::maybe_new(use_flat_state, shard_uid.shard_id, &self.0.store);
         Trie::new(storage, state_root, flat_state)
     }
 

@@ -13,6 +13,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 #[cfg(feature = "protocol_feature_flat_state")]
 mod imp {
+    use borsh::BorshSerialize;
+
     use near_primitives::block_header::BlockHeader;
     use near_primitives::errors::StorageError;
     use near_primitives::hash::CryptoHash;
@@ -125,8 +127,8 @@ mod imp {
     /// Always returns `None` if the `protocol_feature_flat_state` Cargo feature is
     /// not enabled.  Otherwise, returns a new [`FlatState`] object backed by
     /// specified storage if `use_flat_state` argument is true.
-    pub fn maybe_new(use_flat_state: bool, store: &Store) -> Option<FlatState> {
-        use_flat_state.then(|| FlatState { store: store.clone() })
+    pub fn maybe_new(use_flat_state: bool, shard_id: u32, store: &Store) -> Option<FlatState> {
+        use_flat_state.then(|| FlatState { store: store.clone(), shard_id })
     }
 }
 
@@ -153,7 +155,7 @@ mod imp {
     /// Always returns `None`; to use of flat state enable
     /// `protocol_feature_flat_state` cargo feature.
     #[inline]
-    pub fn maybe_new(_use_flat_state: bool, _store: &Store) -> Option<FlatState> {
+    pub fn maybe_new(_use_flat_state: bool, _shard_id: u32, _store: &Store) -> Option<FlatState> {
         None
     }
 }
