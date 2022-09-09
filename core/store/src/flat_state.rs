@@ -18,9 +18,10 @@ mod imp {
     use near_primitives::block_header::BlockHeader;
     use near_primitives::errors::StorageError;
     use near_primitives::hash::CryptoHash;
+    use near_primitives::shard_layout::ShardUId;
     use near_primitives::state::ValueRef;
 
-    use crate::flat_state::KeyForFlatStateDelta;
+    use crate::flat_state::KeyForFlatState;
     use crate::{DBCol, FlatStateDelta, Store, StoreUpdate};
 
     pub const FLAT_STATE_HEAD_KEY: &[u8; 15] = b"FLAT_STATE_HEAD";
@@ -37,16 +38,20 @@ mod imp {
     #[derive(Clone)]
     pub struct FlatState {
         store: Store,
-        shard_id: u32,
+        shard_uid: ShardUId,
         block_hash: CryptoHash,
         // todo: lock
     }
 
     impl FlatState {
-        pub fn save_tail(block_hash: &CryptoHash, store: &Store) -> StoreUpdate {
+        pub fn save_tail(
+            shard_uid: ShardUId,
+            block_hash: &CryptoHash,
+            store: &Store,
+        ) -> StoreUpdate {
             let mut store_update = StoreUpdate::new(store.storage.clone());
             store_update
-                .set_ser(DBCol::FlatStateMisc, FLAT_STATE_HEAD_KEY, block_hash)
+                .set_ser(DBCol::FlatStateMisc, &shard_uid.try_to_vec().unwrap(), block_hash)
                 .expect("Borsh cannot fail");
             store_update
         }
@@ -67,26 +72,57 @@ mod imp {
                 .unwrap();
             tracing::debug!(target: "client", "fs_get_raw_ref: flat_state_tail: {:?} height: {}", flat_state_tail, block_header.height());
 
+            let block_header: BlockHeader = self
+                .store
+                .get_ser(DBCol::BlockHeader, target_block_hash.as_ref())
+                .map_err(|_| StorageError::StorageInternalError)?
+                .unwrap();
+            let final_block_hash = block_header.last_final_block().clone();
+
             let mut block_hash = target_block_hash.clone();
             let mut deltas = vec![];
+            let mut deltas_to_apply = vec![];
+            let mut found_final_block = false;
             while block_hash != flat_state_tail {
-                let key = KeyForFlatStateDelta { shard_id: self.shard_id, block_hash };
+                let key = KeyForFlatState { shard_uid: self.shard_uid, block_hash };
                 let delta: Option<FlatStateDelta> = self
                     .store
                     .get_ser(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap())
                     .map_err(|_| StorageError::StorageInternalError)?;
                 match delta {
                     Some(delta) => {
-                        deltas.push(delta);
+                        if found_final_block {
+                            deltas_to_apply.push(delta);
+                        } else {
+                            deltas.push(delta);
+                        }
                     }
                     None => {}
                 }
+                if block_hash == final_block_hash {
+                    assert!(!found_final_block);
+                    found_final_block = true;
+                }
+
                 let block_header: BlockHeader = self
                     .store
                     .get_ser(DBCol::BlockHeader, block_hash.as_ref())
                     .map_err(|_| StorageError::StorageInternalError)?
                     .unwrap();
                 block_hash = block_header.prev_hash().clone();
+            }
+
+            if found_final_block {
+                let mut store_update = StoreUpdate::new(self.store.storage.clone());
+                for delta in deltas_to_apply.drain(..).rev() {
+                    delta.apply_to_flat_state(&mut store_update);
+                }
+                store_update.merge(FlatState::save_tail(
+                    self.shard_uid,
+                    &final_block_hash,
+                    &self.store,
+                ));
+                store_update.commit().map_err(|_| StorageError::StorageInternalError)?
             }
             Ok(deltas)
         }
@@ -119,20 +155,20 @@ mod imp {
         }
     }
 
-    /// Possibly creates a new [`FlateState`] object backed by given storage.
+    /// Possibly creates a new [`FlatState`] object backed by given storage.
     ///
     /// Always returns `None` if the `protocol_feature_flat_state` Cargo feature is
     /// not enabled.  Otherwise, returns a new [`FlatState`] object backed by
     /// specified storage if `use_flat_state` argument is true.
     pub fn maybe_new(
         use_flat_state: bool,
-        shard_id: u32,
+        shard_uid: ShardUId,
         prev_block_hash: &CryptoHash,
         store: &Store,
     ) -> Option<FlatState> {
         use_flat_state.then(|| FlatState {
             store: store.clone(),
-            shard_id,
+            shard_uid,
             block_hash: prev_block_hash.clone(),
         })
     }
@@ -168,13 +204,14 @@ mod imp {
 
 use crate::{CryptoHash, DBCol, StoreUpdate};
 pub use imp::{maybe_new, FlatState};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
 use near_primitives::types::{RawStateChangesWithTrieKey, ShardId};
 use std::collections::HashMap;
 
 #[derive(BorshSerialize, BorshDeserialize)]
-pub struct KeyForFlatStateDelta {
-    pub shard_id: u32,
+pub struct KeyForFlatState {
+    pub shard_uid: ShardUId,
     pub block_hash: CryptoHash,
 }
 

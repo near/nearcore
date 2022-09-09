@@ -78,7 +78,7 @@ use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::flat_state::FlatState;
+use near_store::flat_state::{FlatState, KeyForFlatState};
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -605,10 +605,13 @@ impl Chain {
                 let header_head = block_head.clone();
                 store_update.save_head(&block_head)?;
                 store_update.save_final_head(&header_head)?;
-                store_update.merge(FlatState::save_tail(
-                    &block_head.last_block_hash,
-                    &store_update.store(),
-                ));
+                for shard_id in 0..runtime_adapter.num_shards(&EpochId::default()).unwrap() {
+                    store_update.merge(FlatState::save_tail(
+                        runtime_adapter.shard_id_to_uid(shard_id, &EpochId::default()).unwrap(),
+                        &block_head.last_block_hash,
+                        &store_update.store(),
+                    ));
+                }
 
                 info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
 

@@ -7,6 +7,7 @@ use near_primitives_core::hash::hash;
 use near_primitives_core::types::ShardId;
 
 use crate::borsh::maybestd::io::Cursor;
+use crate::borsh::{BorshDeserialize, BorshSerialize};
 use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use std::collections::HashMap;
@@ -287,7 +288,20 @@ fn is_top_level_account(top_account: &AccountId, account: &AccountId) -> bool {
 }
 
 /// ShardUId is an unique representation for shards from different shard layout
-#[derive(Serialize, Deserialize, Hash, Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Deserialize,
+    Hash,
+    Clone,
+    Debug,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+)]
 pub struct ShardUId {
     pub version: ShardVersion,
     pub shard_id: u32,

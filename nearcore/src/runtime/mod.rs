@@ -677,8 +677,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: StateRoot,
     ) -> Result<Trie, Error> {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
-        let flat_state =
-            near_store::flat_state::maybe_new(true, shard_uid.shard_id, prev_hash, &self.store);
+        let flat_state = near_store::flat_state::maybe_new(true, shard_uid, prev_hash, &self.store);
         Ok(self.tries.get_trie_with_flat_state_for_shard(shard_uid, state_root, flat_state))
     }
 
