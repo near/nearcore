@@ -9,13 +9,19 @@
 //! reference, one to get value itself.
 // TODO (#7327): consider inlining small values, so we could use only one db access.
 
+use borsh::{BorshDeserialize, BorshSerialize};
+
 #[cfg(feature = "protocol_feature_flat_state")]
 mod imp {
+    use near_primitives::block_header::BlockHeader;
     use near_primitives::errors::StorageError;
     use near_primitives::hash::CryptoHash;
     use near_primitives::state::ValueRef;
 
-    use crate::Store;
+    use crate::flat_state::KeyForFlatStateDelta;
+    use crate::{DBCol, FlatStateDelta, Store, StoreUpdate};
+
+    pub const FLAT_STATE_HEAD_KEY: &[u8; 15] = b"FLAT_STATE_HEAD";
 
     /// Struct for getting value references from the flat storage.
     ///
@@ -29,14 +35,57 @@ mod imp {
     #[derive(Clone)]
     pub struct FlatState {
         store: Store,
+        shard_id: u32,
+        // todo: lock
     }
 
     impl FlatState {
-        fn get_raw_ref(&self, key: &[u8]) -> Result<Option<crate::db::DBSlice<'_>>, StorageError> {
-            return self
+        pub fn save_tail(block_hash: &CryptoHash, store: &Store) -> StoreUpdate {
+            let mut store_update = StoreUpdate::new(store.storage.clone());
+            store_update
+                .set_ser(DBCol::FlatStateMisc, FLAT_STATE_HEAD_KEY, block_hash)
+                .expect("Borsh cannot fail");
+            store_update
+        }
+
+        fn get_deltas_between_blocks(
+            &self,
+            target_block_hash: &CryptoHash,
+        ) -> Result<Vec<FlatStateDelta>, StorageError> {
+            let flat_state_tail: CryptoHash = self
                 .store
-                .get(crate::DBCol::FlatState, key)
-                .map_err(|_| StorageError::StorageInternalError);
+                .get_ser(DBCol::FlatStateMisc, FLAT_STATE_HEAD_KEY)
+                .map_err(|_| StorageError::StorageInternalError)?
+                .expect("Borsh cannot fail");
+            let block_header: BlockHeader = self
+                .store
+                .get_ser(DBCol::BlockHeader, flat_state_tail.as_ref())
+                .map_err(|_| StorageError::StorageInternalError)?
+                .unwrap();
+            tracing::debug!(target: "client", "fs_get_raw_ref: flat_state_tail: {:?} height: {}", flat_state_tail, block_header.height());
+
+            let mut block_hash = target_block_hash.clone();
+            let mut deltas = vec![];
+            while block_hash != flat_state_tail {
+                let key = KeyForFlatStateDelta { shard_id: self.shard_id, block_hash };
+                let delta: Option<FlatStateDelta> = self
+                    .store
+                    .get_ser(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap())
+                    .map_err(|_| StorageError::StorageInternalError)?;
+                match delta {
+                    Some(delta) => {
+                        deltas.push(delta);
+                    }
+                    None => {}
+                }
+                let block_header: BlockHeader = self
+                    .store
+                    .get_ser(DBCol::BlockHeader, block_hash.as_ref())
+                    .map_err(|_| StorageError::StorageInternalError)?
+                    .unwrap();
+                block_hash = block_header.prev_hash().clone();
+            }
+            Ok(deltas)
         }
 
         /// Returns value reference using raw trie key and state root.
@@ -48,10 +97,21 @@ mod imp {
         // TODO (#7327): support different roots (or block hashes).
         pub fn get_ref(
             &self,
-            _root: &CryptoHash,
+            block_hash: &CryptoHash,
             key: &[u8],
         ) -> Result<Option<ValueRef>, StorageError> {
-            match self.get_raw_ref(key)? {
+            let deltas = self.get_deltas_between_blocks(block_hash)?;
+            for delta in deltas {
+                if delta.0.contains_key(key) {
+                    return Ok(delta.0.get(key).unwrap().clone());
+                }
+            }
+
+            let raw_ref = self
+                .store
+                .get(crate::DBCol::FlatState, key)
+                .map_err(|_| StorageError::StorageInternalError);
+            match raw_ref? {
                 Some(bytes) => ValueRef::decode(&bytes)
                     .map(Some)
                     .map_err(|_| StorageError::StorageInternalError),
@@ -83,6 +143,8 @@ mod imp {
     pub enum FlatState {}
 
     impl FlatState {
+        pub fn save_tail(_block_hash: &CryptoHash, _store_update: &mut StoreUpdate) {}
+
         pub fn get_ref(&self, _root: &CryptoHash, _key: &[u8]) -> ! {
             match *self {}
         }
@@ -96,12 +158,17 @@ mod imp {
     }
 }
 
-use crate::{DBCol, StoreUpdate};
-use borsh::{BorshDeserialize, BorshSerialize};
+use crate::{CryptoHash, DBCol, StoreUpdate};
 pub use imp::{maybe_new, FlatState};
 use near_primitives::state::ValueRef;
-use near_primitives::types::RawStateChangesWithTrieKey;
+use near_primitives::types::{RawStateChangesWithTrieKey, ShardId};
 use std::collections::HashMap;
+
+#[derive(BorshSerialize, BorshDeserialize)]
+pub struct KeyForFlatStateDelta {
+    pub shard_id: u32,
+    pub block_hash: CryptoHash,
+}
 
 #[derive(BorshSerialize, BorshDeserialize)]
 pub struct FlatStateDelta(pub HashMap<Vec<u8>, Option<ValueRef>>);

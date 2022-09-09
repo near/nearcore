@@ -257,6 +257,8 @@ pub enum DBCol {
     FlatState,
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateDeltas,
+    #[cfg(feature = "protocol_feature_flat_state")]
+    FlatStateMisc,
 }
 
 impl DBCol {
