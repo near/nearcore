@@ -31,6 +31,16 @@ pub enum SnapshotError {
     IOError(io::Error),
 }
 
+/// Possible errors when removing a checkpoint.
+#[derive(Debug)]
+pub struct SnapshotRemoveError {
+    /// Path to the snapshot.
+    pub path: std::path::PathBuf,
+
+    /// Error that caused the failure.
+    pub error: io::Error,
+}
+
 impl std::convert::From<io::Error> for SnapshotError {
     fn from(err: io::Error) -> Self {
         Self::IOError(err)
@@ -76,17 +86,13 @@ impl Snapshot {
     /// Deletes the checkpoint from the file system.
     ///
     /// Does nothing if the object has been created via [`Self::no_snapshot`].
-    /// If the deletion fails, error is logged but the function does not fail.
-    pub fn remove(mut self) {
+    pub fn remove(mut self) -> Result<(), SnapshotRemoveError> {
         if let Some(path) = self.0.take() {
             tracing::info!(target: "db", snapshot_path=%path.display(),
                            "Deleting the database snapshot");
-            if let Err(err) = std::fs::remove_dir_all(&path) {
-                tracing::error!(target: "db", snapshot_path=%path.display(), ?err,
-                                "Failed to delete the database snapshot");
-                tracing::error!(target: "db", snapshot_path=%path.display(),
-                                "Please delete the snapshot manually before");
-            }
+            std::fs::remove_dir_all(&path).map_err(|error| SnapshotRemoveError { path, error })
+        } else {
+            Ok(())
         }
     }
 
@@ -130,7 +136,7 @@ fn test_snapshot_creation() {
     // Snapshot already exists so cannot create a new one.
     assert_matches!(opener.new_migration_snapshot(), Err(SnapshotError::AlreadyExists(_)));
 
-    snapshot.remove();
+    snapshot.remove().unwrap();
 
     // This should work correctly again since the snapshot has been removed.
     opener.new_migration_snapshot().unwrap();
@@ -179,5 +185,5 @@ fn test_snapshot_recovery() {
         assert_eq!(Some(&b"value"[..]), store.get(COL, KEY).unwrap().as_deref());
     }
 
-    snapshot.remove();
+    snapshot.remove().unwrap();
 }
