@@ -1,5 +1,5 @@
 use crate::config;
-use crate::network_protocol::{AccountData, SyncAccountsData};
+use crate::network_protocol::{AccountData, PeerMessage, RoutingTableUpdate, SyncAccountsData};
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_store::PeerStore;
@@ -16,7 +16,7 @@ use crate::store;
 use crate::types::{
     ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, NetworkClientMessages, NetworkInfo,
     NetworkRequests, NetworkResponses, OutboundTcpConnect, PeerManagerMessageRequest,
-    PeerManagerMessageResponse, PeerMessage, RoutingTableUpdate, SetChainInfo,
+    PeerManagerMessageResponse, SetChainInfo,
 };
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,

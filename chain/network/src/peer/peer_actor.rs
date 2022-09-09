@@ -2,6 +2,7 @@ use crate::accounts_data;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
+use crate::network_protocol::{Handshake, HandshakeFailureReason, PeerMessage};
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
@@ -15,9 +16,7 @@ use crate::private_actix::{
 use crate::routing::edge::verify_nonce;
 use crate::sink::Sink;
 use crate::stats::metrics;
-use crate::types::{
-    Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses, PeerMessage,
-};
+use crate::types::{NetworkClientMessages, NetworkClientResponses};
 use actix::{
     Actor, ActorContext, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler,
     Running, WrapFuture,
