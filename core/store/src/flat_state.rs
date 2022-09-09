@@ -62,7 +62,7 @@ mod imp {
         ) -> Result<Vec<FlatStateDelta>, StorageError> {
             let flat_state_tail: CryptoHash = self
                 .store
-                .get_ser(DBCol::FlatStateMisc, FLAT_STATE_HEAD_KEY)
+                .get_ser(DBCol::FlatStateMisc, &self.shard_uid.try_to_vec().unwrap())
                 .map_err(|_| StorageError::StorageInternalError)?
                 .expect("Borsh cannot fail");
             let block_header: BlockHeader = self
