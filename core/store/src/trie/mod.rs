@@ -27,7 +27,6 @@ pub use near_primitives::types::TrieNodesCount;
 use std::fmt::Write;
 
 mod config;
-pub mod flat_state;
 mod insert_delete;
 pub mod iterator;
 mod nibble_slice;
