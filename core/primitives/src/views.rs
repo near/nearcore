@@ -274,6 +274,8 @@ pub enum QueryRequest {
         account_id: AccountId,
         #[serde(rename = "prefix_base64", with = "base64_format")]
         prefix: StoreKey,
+        #[serde(default, skip_serializing_if = "is_false")]
+        include_proof: bool,
     },
     ViewAccessKey {
         account_id: AccountId,
@@ -288,6 +290,10 @@ pub enum QueryRequest {
         #[serde(rename = "args_base64", with = "base64_format")]
         args: FunctionArgs,
     },
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
