@@ -1,6 +1,5 @@
 use crate::config;
-use crate::network_protocol::{AccountData, SyncAccountsData};
-use crate::network_protocol::{PeerMessage, RoutingTableUpdate};
+use crate::network_protocol::{AccountData, PeerMessage, RoutingTableUpdate, SyncAccountsData};
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_store::PeerStore;
