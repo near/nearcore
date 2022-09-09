@@ -70,7 +70,8 @@ mod imp {
                 .get_ser(DBCol::BlockHeader, flat_state_tail.as_ref())
                 .map_err(|_| StorageError::StorageInternalError)?
                 .unwrap();
-            tracing::debug!(target: "client", "fs_get_raw_ref: flat_state_tail: {:?} height: {}", flat_state_tail, block_header.height());
+            tracing::debug!(target: "client", "fs_get_raw_ref: flat_state_tail: {:?} shard_id: {} height: {}", 
+                flat_state_tail, self.shard_uid.shard_id, block_header.height());
 
             let block_header: BlockHeader = self
                 .store
