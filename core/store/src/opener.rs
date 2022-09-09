@@ -99,9 +99,6 @@ pub struct StoreOpener<'a> {
     /// pub(crate) for testing.
     db: DBOpener<'a>,
 
-    /// Which mode to open storeg in.
-    mode: Mode,
-
     /// A migrator which performs database migration if the database has old
     /// version.
     migrator: Option<&'a dyn StoreMigrator>,
@@ -122,13 +119,7 @@ struct DBOpener<'a> {
 impl<'a> StoreOpener<'a> {
     /// Initialises a new opener with given home directory and store config.
     pub(crate) fn new(home_dir: &std::path::Path, config: &'a StoreConfig) -> Self {
-        Self { db: DBOpener::new(home_dir, config), mode: Mode::ReadWrite, migrator: None }
-    }
-
-    /// Configure which mode the database should be opened in.
-    pub fn mode(mut self, mode: Mode) -> Self {
-        self.mode = mode;
-        self
+        Self { db: DBOpener::new(home_dir, config), migrator: None }
     }
 
     /// Configures the opener with specified [`StoreMigrator`].
@@ -153,35 +144,28 @@ impl<'a> StoreOpener<'a> {
         self.db.config
     }
 
-    /// Opens the storage.  Performs database migrations if necessary.
+    /// Opens the storage in read-write mode.
     ///
-    /// If the migrator opener hast been configured with doesn’t support version
-    /// the database has, returns an error.  Similarly, if the database has
-    /// a version from the future, the method returns an error.
+    /// Creates the database if missing.
+    pub fn open(&self) -> Result<crate::NodeStorage, StoreOpenerError> {
+        self.open_in_mode(Mode::ReadWrite)
+    }
+
+    /// Opens the RocksDB database.
     ///
     /// When opening in read-only mode, verifies that the database version is
     /// what the node expects and fails if it isn’t.  If database doesn’t exist,
-    /// creates a new one unless mode is [`Mode::ReadWriteExisting`].
-    pub fn open(&self) -> Result<NodeStorage, StoreOpenerError> {
-        self.open_impl(false)
-    }
-
-    /// Creates a new RocksDB database.
-    ///
-    /// Works like `open` except that it fails if the database already exists.
-    /// Note that this is a best-effort check and the creation is not atomic.
-    pub fn create(&self) -> Result<NodeStorage, StoreOpenerError> {
-        self.open_impl(true)
-    }
-
-    fn open_impl(&self, create: bool) -> Result<NodeStorage, StoreOpenerError> {
+    /// creates a new one unless mode is [`Mode::ReadWriteExisting`].  On the
+    /// other hand, if mode is [`Mode::Create`], fails if the database already
+    /// exists.
+    pub fn open_in_mode(&self, mode: Mode) -> Result<crate::NodeStorage, StoreOpenerError> {
         let exists = if let Some(db_version) = self.db.get_version()? {
-            if create {
+            if mode.must_create() {
                 return Err(StoreOpenerError::DbAlreadyExists);
             }
-            self.apply_migrations(db_version)?;
+            self.apply_migrations(mode, db_version)?;
             true
-        } else if self.mode != Mode::ReadWrite {
+        } else if !mode.can_create() {
             return Err(StoreOpenerError::DbDoesNotExist);
         } else {
             false
@@ -191,7 +175,7 @@ impl<'a> StoreOpener<'a> {
             "{} RocksDB database",
             if exists { "Opening an existing" } else { "Creating a new" }
         );
-        let storage = self.open_storage(self.mode, exists.then_some(DB_VERSION))?;
+        let storage = self.open_storage(mode, exists.then_some(DB_VERSION))?;
         if !exists {
             // Initialise newly created database by setting it’s version.
             crate::version::set_store_version(&storage.get_store(Temperature::Hot), DB_VERSION)?;
@@ -200,14 +184,14 @@ impl<'a> StoreOpener<'a> {
     }
 
     /// Applies database migrations to the database.
-    fn apply_migrations(&self, db_version: DbVersion) -> Result<(), StoreOpenerError> {
+    fn apply_migrations(&self, mode: Mode, db_version: DbVersion) -> Result<(), StoreOpenerError> {
         if db_version == DB_VERSION {
             return Ok(());
         }
         if db_version > DB_VERSION {
             return Err(StoreOpenerError::DbVersionTooNew { got: db_version, want: DB_VERSION });
         }
-        if self.mode == Mode::ReadOnly {
+        if mode.read_only() {
             return Err(StoreOpenerError::DbVersionMismatchOnRead {
                 got: db_version,
                 want: DB_VERSION,
@@ -300,7 +284,7 @@ impl<'a> DBOpener<'a> {
     /// `None`, fails if the database does not exist.  In other words, the
     /// function won’t create a new database if `want_version` is specified).
     pub fn open(&self, mode: Mode, want_version: Option<DbVersion>) -> std::io::Result<RocksDB> {
-        let mode = if want_version.is_some() && mode == Mode::ReadWrite {
+        let mode = if want_version.is_some() && mode.read_write() {
             Mode::ReadWriteExisting
         } else {
             mode

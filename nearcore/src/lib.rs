@@ -255,7 +255,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         skip_columns.push(DBCol::TrieChanges);
     }
 
-    let src_opener = NodeStorage::opener(home_dir, &config.store).mode(Mode::ReadOnly);
+    let src_opener = NodeStorage::opener(home_dir, &config.store);
     let src_path = src_opener.path();
 
     let mut dst_config = config.store.clone();
@@ -271,7 +271,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
           "Recompressing database");
 
     let src_store = src_opener
-        .open()
+        .open_in_mode(Mode::ReadOnly)
         .with_context(|| format!("Opening database at {}", src_opener.path().display()))?
         .get_store(Temperature::Hot);
 
@@ -290,8 +290,8 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     };
 
     let dst_store = dst_opener
-        .create()
-        .with_context(|| format!("Creating database at {}", dst_opener.path().display()))?
+        .open_in_mode(Mode::Create)
+        .with_context(|| format!("Creating database at {}", dst_path.display()))?
         .get_store(Temperature::Hot);
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
