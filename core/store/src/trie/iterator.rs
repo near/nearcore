@@ -175,7 +175,10 @@ impl<'a> TrieIterator<'a> {
     /// with [`Self::remember_visited_nodes`]), the node will be added to the
     /// list.
     fn descend_into_node(&mut self, hash: &CryptoHash) -> Result<(), StorageError> {
-        let node = self.trie.retrieve_node(hash)?.1;
+        let (bytes, node) = self.trie.retrieve_node(hash)?;
+        if let Some(ref mut visited) = self.visited_nodes {
+            visited.push(bytes.ok_or(StorageError::TrieNodeMissing)?);
+        }
         self.trail.push(Crumb { status: CrumbStatus::Entering, node, prefix_boundary: false });
         Ok(())
     }

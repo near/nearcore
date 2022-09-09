@@ -397,7 +397,7 @@ impl RawTrieNode {
         out
     }
 
-    pub fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
+    fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
         let mut cursor = Cursor::new(bytes);
         match cursor.read_u8()? {
             LEAF_NODE => {

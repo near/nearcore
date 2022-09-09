@@ -2,7 +2,6 @@ use arbitrary::Arbitrary;
 use bolero::check;
 use core::fmt;
 use near_primitives::contract::ContractCode;
-use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_errors::{FunctionCallError, VMError};
