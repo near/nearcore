@@ -2,6 +2,7 @@ use crate::broadcast;
 use crate::concurrency::demux;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
+use crate::network_protocol::{PeerMessage, RoutingTableUpdate};
 use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
@@ -11,7 +12,6 @@ use crate::routing::routing_table_view::RoutingTableView;
 use crate::store;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
-use crate::types::{PeerMessage, RoutingTableUpdate};
 use actix::{Actor, Context, Handler};
 use near_crypto::{InMemorySigner, Signature};
 use near_network_primitives::types::{

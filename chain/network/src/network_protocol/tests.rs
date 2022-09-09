@@ -2,7 +2,6 @@ use super::*;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::Encoding;
 use crate::testonly::make_rng;
-use crate::types::{HandshakeFailureReason, PeerMessage};
 use anyhow::{bail, Context as _};
 use near_network_primitives::time;
 use near_network_primitives::types::{

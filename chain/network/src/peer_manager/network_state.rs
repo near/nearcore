@@ -1,12 +1,13 @@
 use crate::accounts_data;
 use crate::concurrency::demux;
 use crate::config;
+use crate::network_protocol::PeerMessage;
 use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::connection;
 use crate::private_actix::PeerToManagerMsg;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
-use crate::types::{ChainInfo, NetworkClientMessages, PeerMessage};
+use crate::types::{ChainInfo, NetworkClientMessages};
 use actix::Recipient;
 use arc_swap::ArcSwap;
 use near_network_primitives::time;
