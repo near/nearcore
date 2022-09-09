@@ -7,15 +7,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::AccountId;
 
+use crate::version::set_store_version;
 use crate::{DBCol, Store, StoreOpener, StoreUpdate};
-
-pub fn set_store_version(store: &Store, db_version: u32) -> std::io::Result<()> {
-    let mut store_update = store.store_update();
-    // Contrary to other integers, we’re using textual representation for
-    // storing DbVersion in VERSION_KEY thus to_string rather than to_le_bytes.
-    store_update.set(DBCol::DbVersion, crate::db::VERSION_KEY, db_version.to_string().as_bytes());
-    store_update.commit()
-}
 
 pub struct BatchedStoreUpdate<'a> {
     batch_size_limit: usize,
@@ -79,7 +72,7 @@ where
 }
 
 pub fn migrate_28_to_29(store_opener: &StoreOpener) -> anyhow::Result<()> {
-    let store = store_opener.open()?;
+    let store = store_opener.open().unwrap().get_store(crate::Temperature::Hot);
     let mut store_update = store.store_update();
     store_update.delete_all(DBCol::_NextBlockWithNewChunk);
     store_update.delete_all(DBCol::_LastBlockWithNewChunk);
@@ -101,7 +94,7 @@ pub fn migrate_29_to_30(store_opener: &StoreOpener) -> anyhow::Result<()> {
     };
     use std::collections::BTreeMap;
 
-    let store = store_opener.open()?;
+    let store = store_opener.open()?.get_store(crate::Temperature::Hot);
 
     #[derive(BorshDeserialize)]
     pub struct OldEpochSummary {

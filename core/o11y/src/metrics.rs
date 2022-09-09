@@ -24,7 +24,7 @@
 //! ```rust
 //! use once_cell::sync::Lazy;
 //!
-//! use near_metrics::*;
+//! use near_o11y::metrics::*;
 //!
 //! // These metrics are "magically" linked to the global registry defined in `lighthouse_metrics`.
 //! pub static RUN_COUNT: Lazy<IntCounter> = Lazy::new(|| {
@@ -68,9 +68,9 @@
 //! ```
 
 pub use prometheus::{
-    self, exponential_buckets, linear_buckets, Counter, Encoder, Gauge, GaugeVec, Histogram,
-    HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts, Result,
-    TextEncoder,
+    self, core::MetricVec, core::MetricVecBuilder, exponential_buckets, linear_buckets, Counter,
+    Encoder, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec,
+    IntGauge, IntGaugeVec, Opts, Result, TextEncoder,
 };
 
 /// Collect all the metrics for reporting.
@@ -107,24 +107,6 @@ pub fn try_create_counter(name: &str, help: &str) -> Result<Counter> {
     let counter = Counter::with_opts(opts)?;
     prometheus::register(Box::new(counter.clone()))?;
     Ok(counter)
-}
-
-/// Creates 'IntCounterVec' - if it has trouble registering to Prometheus
-/// it will keep appending a number until the name is unique.
-pub fn do_create_int_counter_vec(name: &str, help: &str, labels: &[&str]) -> IntCounterVec {
-    if let Ok(value) = try_create_int_counter_vec(name, help, labels) {
-        return value;
-    }
-    let mut suffix = 0;
-
-    loop {
-        if let Ok(value) =
-            try_create_int_counter_vec(format!("{}_{}", name, suffix).as_str(), help, labels)
-        {
-            return value;
-        }
-        suffix += 1;
-    }
 }
 
 /// Attempts to crate an `IntGauge`, returning `Err` if the registry does not accept the gauge
@@ -167,6 +149,19 @@ pub fn try_create_gauge_vec(name: &str, help: &str, labels: &[&str]) -> Result<G
 /// (potentially due to naming conflict).
 pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
     let opts = HistogramOpts::new(name, help);
+    let histogram = Histogram::with_opts(opts)?;
+    prometheus::register(Box::new(histogram.clone()))?;
+    Ok(histogram)
+}
+
+/// Attempts to crate a `Histogram`, returning `Err` if the registry does not accept the counter
+/// (potentially due to naming conflict).
+pub fn try_create_histogram_with_buckets(
+    name: &str,
+    help: &str,
+    buckets: Vec<f64>,
+) -> Result<Histogram> {
+    let opts = HistogramOpts::new(name, help).buckets(buckets);
     let histogram = Histogram::with_opts(opts)?;
     prometheus::register(Box::new(histogram.clone()))?;
     Ok(histogram)

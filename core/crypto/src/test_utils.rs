@@ -1,8 +1,6 @@
-use rand::rngs::StdRng;
+use secp256k1::rand::SeedableRng;
 
-use crate::signature::{
-    ED25519PublicKey, ED25519SecretKey, KeyType, PublicKey, SecretKey, SECP256K1,
-};
+use crate::signature::{ED25519PublicKey, ED25519SecretKey, KeyType, PublicKey, SecretKey};
 use crate::{InMemorySigner, Signature};
 use near_account_id::AccountId;
 
@@ -16,13 +14,13 @@ fn ed25519_key_pair_from_seed(seed: &str) -> ed25519_dalek::Keypair {
     ed25519_dalek::Keypair { secret, public }
 }
 
-fn secp256k1_secret_key_from_seed(seed: &str) -> secp256k1::key::SecretKey {
+fn secp256k1_secret_key_from_seed(seed: &str) -> secp256k1::SecretKey {
     let seed_bytes = seed.as_bytes();
     let len = std::cmp::min(32, seed_bytes.len());
     let mut seed: [u8; 32] = [b' '; 32];
     seed[..len].copy_from_slice(&seed_bytes[..len]);
-    let mut rng: StdRng = rand::SeedableRng::from_seed(seed);
-    secp256k1::key::SecretKey::new(&SECP256K1, &mut rng)
+    let mut rng = secp256k1::rand::rngs::StdRng::from_seed(seed);
+    secp256k1::SecretKey::new(&mut rng)
 }
 
 impl PublicKey {

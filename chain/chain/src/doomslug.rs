@@ -258,7 +258,7 @@ impl DoomslugApprovalsTrackersAtHeight {
         &mut self,
         now: Instant,
         approval: &Approval,
-        stakes: &Vec<(ApprovalStake, bool)>,
+        stakes: &[(ApprovalStake, bool)],
         threshold_mode: DoomslugThresholdMode,
     ) -> DoomslugBlockProductionReadiness {
         if let Some(last_parent) = self.last_approval_per_account.get(&approval.account_id) {
@@ -512,7 +512,7 @@ impl Doomslug {
     pub fn can_approved_block_be_produced(
         mode: DoomslugThresholdMode,
         approvals: &[Option<Signature>],
-        stakes: &Vec<(Balance, Balance, bool)>,
+        stakes: &[(Balance, Balance, bool)],
     ) -> bool {
         if mode == DoomslugThresholdMode::NoApprovals {
             return true;
@@ -595,7 +595,7 @@ impl Doomslug {
         &mut self,
         now: Instant,
         approval: &Approval,
-        stakes: &Vec<(ApprovalStake, bool)>,
+        stakes: &[(ApprovalStake, bool)],
     ) -> DoomslugBlockProductionReadiness {
         let threshold_mode = self.threshold_mode;
         let ret = self
@@ -622,7 +622,7 @@ impl Doomslug {
         &mut self,
         now: Instant,
         approval: &Approval,
-        stakes: &Vec<(ApprovalStake, bool)>,
+        stakes: &[(ApprovalStake, bool)],
     ) {
         if approval.target_height < self.tip.height
             || approval.target_height > self.tip.height + MAX_HEIGHTS_AHEAD_TO_STORE_APPROVALS

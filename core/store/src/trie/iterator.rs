@@ -8,9 +8,10 @@ use crate::{StorageError, Trie};
 struct Crumb {
     node: TrieNodeWithSize,
     status: CrumbStatus,
+    prefix_boundary: bool,
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub(crate) enum CrumbStatus {
     Entering,
     At,
@@ -20,6 +21,10 @@ pub(crate) enum CrumbStatus {
 
 impl Crumb {
     fn increment(&mut self) {
+        if self.prefix_boundary {
+            self.status = CrumbStatus::Exiting;
+            return;
+        }
         self.status = match (&self.status, &self.node.node) {
             (_, &TrieNode::Empty) => CrumbStatus::Exiting,
             (&CrumbStatus::Entering, _) => CrumbStatus::At,
@@ -66,9 +71,10 @@ impl<'a> TrieIterator<'a> {
     }
 
     /// Position the iterator on the first element with key => `key`.
-    pub fn seek<K: AsRef<[u8]>>(&mut self, key: K) -> Result<(), StorageError> {
-        self.seek_nibble_slice(NibbleSlice::new(key.as_ref())).map(drop)
+    pub fn seek_prefix<K: AsRef<[u8]>>(&mut self, key: K) -> Result<(), StorageError> {
+        self.seek_nibble_slice(NibbleSlice::new(key.as_ref()), true).map(drop)
     }
+
     /// Configures whether the iterator should remember all the nodes its
     /// visiting.
     ///
@@ -91,18 +97,36 @@ impl<'a> TrieIterator<'a> {
     pub(crate) fn seek_nibble_slice(
         &mut self,
         mut key: NibbleSlice<'_>,
+        is_prefix_seek: bool,
     ) -> Result<CryptoHash, StorageError> {
         self.trail.clear();
         self.key_nibbles.clear();
+        // Checks if a key in an extension or leaf matches our search query.
+        //
+        // When doing prefix seek, this checks whether `key` is a prefix of
+        // `ext_key`.  When doing regular range seek, this checks whether `key`
+        // is no greater than `ext_key`.  If those conditions aren’t met, the
+        // node with `ext_key` should not match our query.
+        let check_ext_key = |key: &NibbleSlice, ext_key: &NibbleSlice| {
+            if is_prefix_seek {
+                ext_key.starts_with(key)
+            } else {
+                ext_key >= key
+            }
+        };
+
         let mut hash = self.trie.root;
+        let mut prev_prefix_boundary = &mut false;
         loop {
+            *prev_prefix_boundary = is_prefix_seek;
             self.descend_into_node(&hash)?;
-            let Crumb { status, node } = self.trail.last_mut().unwrap();
+            let Crumb { status, node, prefix_boundary } = self.trail.last_mut().unwrap();
+            prev_prefix_boundary = prefix_boundary;
             match &node.node {
                 TrieNode::Empty => break,
                 TrieNode::Leaf(leaf_key, _) => {
                     let existing_key = NibbleSlice::from_encoded(leaf_key).0;
-                    if existing_key < key {
+                    if !check_ext_key(&key, &existing_key) {
                         self.key_nibbles.extend(existing_key.iter());
                         *status = CrumbStatus::Exiting;
                     }
@@ -119,6 +143,7 @@ impl<'a> TrieIterator<'a> {
                             hash = *child.unwrap_hash();
                             key = key.mid(1);
                         } else {
+                            *prefix_boundary = is_prefix_seek;
                             break;
                         }
                     }
@@ -131,7 +156,7 @@ impl<'a> TrieIterator<'a> {
                         *status = CrumbStatus::At;
                         self.key_nibbles.extend(existing_key.iter());
                     } else {
-                        if existing_key < key {
+                        if !check_ext_key(&key, &existing_key) {
                             *status = CrumbStatus::Exiting;
                             self.key_nibbles.extend(existing_key.iter());
                         }
@@ -150,11 +175,8 @@ impl<'a> TrieIterator<'a> {
     /// with [`Self::remember_visited_nodes`]), the node will be added to the
     /// list.
     fn descend_into_node(&mut self, hash: &CryptoHash) -> Result<(), StorageError> {
-        let (bytes, node) = self.trie.retrieve_node(hash)?;
-        if let (Some(bytes), Some(nodes)) = (bytes, &mut self.visited_nodes) {
-            nodes.push(bytes);
-        }
-        self.trail.push(Crumb { status: CrumbStatus::Entering, node });
+        let node = self.trie.retrieve_node(hash)?.1;
+        self.trail.push(Crumb { status: CrumbStatus::Entering, node, prefix_boundary: false });
         Ok(())
     }
 
@@ -178,9 +200,9 @@ impl<'a> TrieIterator<'a> {
     }
 
     fn iter_step(&mut self) -> Option<IterStep> {
-        self.trail.last_mut()?.increment();
-        let b = self.trail.last().expect("Trail finished.");
-        match (b.status.clone(), &b.node.node) {
+        let last = self.trail.last_mut()?;
+        last.increment();
+        match (last.status, &last.node.node) {
             (CrumbStatus::Exiting, n) => {
                 match n {
                     TrieNode::Leaf(ref key, _) | TrieNode::Extension(ref key, _) => {
@@ -254,7 +276,7 @@ impl<'a> TrieIterator<'a> {
         path_end: &[u8],
     ) -> Result<Vec<TrieItem>, StorageError> {
         let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, false);
-        self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0)?;
+        self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, false)?;
 
         let mut trie_items = vec![];
         for item in self {
@@ -277,7 +299,8 @@ impl<'a> TrieIterator<'a> {
         path_end: &[u8],
     ) -> Result<Vec<TrieTraversalItem>, StorageError> {
         let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, true);
-        let last_hash = self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0)?;
+        let last_hash =
+            self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, false)?;
         let mut prefix = Self::common_prefix(path_end, &self.key_nibbles);
         if self.key_nibbles[prefix..] >= path_end[prefix..] {
             return Ok(vec![]);
@@ -398,7 +421,7 @@ mod tests {
                 let result2: Vec<_> = map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
                 assert_eq!(result1, result2);
             }
-            test_seek(&trie, &map, &[]);
+            test_seek_prefix(&trie, &map, &[]);
 
             let empty_vec = vec![];
             let max_key = map.keys().max().unwrap_or(&empty_vec);
@@ -406,7 +429,7 @@ mod tests {
             test_get_trie_items(&trie, &map, &[], &[]);
             test_get_trie_items(&trie, &map, min_key, max_key);
             for (seek_key, _) in trie_changes.iter() {
-                test_seek(&trie, &map, seek_key);
+                test_seek_prefix(&trie, &map, seek_key);
                 test_get_trie_items(&trie, &map, min_key, seek_key);
                 test_get_trie_items(&trie, &map, seek_key, max_key);
             }
@@ -415,7 +438,7 @@ mod tests {
                 let key_length = rng.gen_range(1, 8);
                 let seek_key: Vec<u8> =
                     (0..key_length).map(|_| *alphabet.choose(&mut rng).unwrap()).collect();
-                test_seek(&trie, &map, &seek_key);
+                test_seek_prefix(&trie, &map, &seek_key);
 
                 let seek_key2: Vec<u8> =
                     (0..key_length).map(|_| *alphabet.choose(&mut rng).unwrap()).collect();
@@ -449,13 +472,24 @@ mod tests {
         assert_eq!(result1, result2);
     }
 
-    fn test_seek(trie: &Trie, map: &BTreeMap<Vec<u8>, Vec<u8>>, seek_key: &[u8]) {
+    fn test_seek_prefix(trie: &Trie, map: &BTreeMap<Vec<u8>, Vec<u8>>, seek_key: &[u8]) {
         let mut iterator = trie.iter().unwrap();
-        iterator.seek(&seek_key).unwrap();
-        let result1: Vec<_> = iterator.map(Result::unwrap).take(5).collect();
-        let result2: Vec<_> =
-            map.range(seek_key.to_vec()..).map(|(k, v)| (k.clone(), v.clone())).take(5).collect();
-        assert_eq!(result1, result2);
+        iterator.seek_prefix(&seek_key).unwrap();
+        let mut got = Vec::with_capacity(5);
+        for item in iterator {
+            let (key, value) = item.unwrap();
+            assert!(key.starts_with(seek_key), "‘{key:x?}’ does not start with ‘{seek_key:x?}’");
+            if got.len() < 5 {
+                got.push((key, value));
+            }
+        }
+        let want: Vec<_> = map
+            .range(seek_key.to_vec()..)
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .take(5)
+            .filter(|(x, _)| x.starts_with(seek_key))
+            .collect();
+        assert_eq!(got, want);
     }
 
     #[test]

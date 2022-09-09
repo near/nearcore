@@ -2,7 +2,7 @@ pub use crate::config::{init_configs, load_config, load_test_config, NearConfig,
 use crate::migrations::migrate_30_to_31;
 pub use crate::runtime::NightshadeRuntime;
 pub use crate::shard_tracker::TrackedConfig;
-use actix::{Actor, Addr, Arbiter};
+use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
 use actix_web;
 use anyhow::Context;
@@ -12,11 +12,11 @@ use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
 use near_network_primitives::time;
 use near_primitives::block::GenesisId;
-use near_primitives::version::DbVersion;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
-use near_store::migrations::{migrate_28_to_29, migrate_29_to_30, set_store_version};
-use near_store::{DBCol, Mode, Store, StoreOpener};
+use near_store::migrations::{migrate_28_to_29, migrate_29_to_30};
+use near_store::version::{set_store_version, DbVersion, DB_VERSION};
+use near_store::{DBCol, Mode, NodeStorage, StoreOpener, Temperature};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -108,15 +108,14 @@ fn create_db_checkpoint(
 fn apply_store_migrations_if_exists(
     store_opener: &StoreOpener,
     near_config: &NearConfig,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<()> {
     let db_version = match store_opener.get_version_if_exists()? {
-        None => return Ok(false),
-        Some(near_primitives::version::DB_VERSION) => return Ok(true),
+        None | Some(DB_VERSION) => return Ok(()),
         Some(db_version) => db_version,
     };
 
     anyhow::ensure!(
-        db_version < near_primitives::version::DB_VERSION,
+        db_version < DB_VERSION,
         "DB version {db_version} is created by a newer version of neard, \
          please update neard"
     );
@@ -172,46 +171,44 @@ fn apply_store_migrations_if_exists(
     if cfg!(feature = "nightly") || cfg!(feature = "nightly_protocol") {
         let store = store_opener
             .open()
-            .with_context(|| format!("Opening database at {}", store_opener.path().display()))?;
+            .with_context(|| format!("Opening database at {}", store_opener.path().display()))?
+            .get_store(Temperature::Hot);
         // set some dummy value to avoid conflict with other migrations from nightly features
         set_store_version(&store, 10000)?;
     } else {
-        debug_assert_eq!(
-            Some(near_primitives::version::DB_VERSION),
-            store_opener.get_version_if_exists()?
-        );
+        debug_assert_eq!(Some(DB_VERSION), store_opener.get_version_if_exists()?);
     }
 
     // DB migration was successful, remove the snapshot to avoid it taking up
     // precious disk space.
     snapshot.remove();
 
-    Ok(true)
+    Ok(())
 }
 
-fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Store> {
-    let opener = Store::opener(home_dir, &near_config.config.store);
-    let exists = apply_store_migrations_if_exists(&opener, near_config)?;
+fn init_and_migrate_store(
+    home_dir: &Path,
+    near_config: &NearConfig,
+) -> anyhow::Result<NodeStorage> {
+    let opener = NodeStorage::opener(home_dir, &near_config.config.store);
+    apply_store_migrations_if_exists(&opener, near_config)?;
     let store = opener
         .open()
         .with_context(|| format!("Opening database at {}", opener.path().display()))?;
-    if !exists {
-        set_store_version(&store, near_primitives::version::DB_VERSION)
-            .with_context(|| format!("Initialising database at {}", opener.path().display()))?;
-    }
+    let hot = store.get_store(Temperature::Hot);
 
     // Check if the storage is an archive and if it is make sure we are too.
     // If the store is not marked as archive but we are an archival node that is
     // fine and we just need to mark the store as archival.
     let store_is_archive: bool =
-        store.get_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY)?.unwrap_or_default();
+        hot.get_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY)?.unwrap_or_default();
     let client_is_archive = near_config.client_config.archive;
     anyhow::ensure!(
         !store_is_archive || client_is_archive,
         "The node is configured as non-archival but is using database of an archival node."
     );
     if !store_is_archive && client_is_archive {
-        let mut update = store.store_update();
+        let mut update = hot.store_update();
         update.set_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY, &true)?;
         update.commit()?;
     }
@@ -239,7 +236,11 @@ pub fn start_with_config_and_synchronization(
 ) -> anyhow::Result<NearNode> {
     let store = init_and_migrate_store(home_dir, &config)?;
 
-    let runtime = Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &config));
+    let runtime = Arc::new(NightshadeRuntime::from_config(
+        home_dir,
+        store.get_store(Temperature::Hot),
+        &config,
+    ));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(&config.genesis);
@@ -275,22 +276,15 @@ pub fn start_with_config_and_synchronization(
 
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
-    let arbiter = Arbiter::new();
-    let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), {
-        let client_actor = client_actor.clone();
-        let view_client = view_client.clone();
-        move |_ctx| {
-            PeerManagerActor::new(
-                time::Clock::real(),
-                store,
-                config.network_config,
-                client_actor.recipient(),
-                view_client.recipient(),
-                genesis_id,
-            )
-            .unwrap()
-        }
-    });
+    let network_actor = PeerManagerActor::spawn(
+        time::Clock::real(),
+        store.into_inner(near_store::Temperature::Hot),
+        config.network_config,
+        client_actor.clone().recipient(),
+        view_client.clone().recipient(),
+        genesis_id,
+    )
+    .context("PeerManager::spawn()")?;
     network_adapter.set_recipient(network_actor.clone());
 
     #[cfg(feature = "json_rpc")]
@@ -329,7 +323,7 @@ pub fn start_with_config_and_synchronization(
         client: client_actor,
         view_client,
         rpc_servers,
-        arbiters: vec![client_arbiter_handle, arbiter.handle()],
+        arbiters: vec![client_arbiter_handle],
     })
 }
 
@@ -358,32 +352,16 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         skip_columns.push(DBCol::TrieChanges);
     }
 
-    let src_opener = Store::opener(home_dir, &config.store).mode(Mode::ReadOnly);
+    let src_opener = NodeStorage::opener(home_dir, &config.store).mode(Mode::ReadOnly);
     let src_path = src_opener.path();
-    if let Some(db_version) = src_opener.get_version_if_exists()? {
-        anyhow::ensure!(
-            db_version == near_primitives::version::DB_VERSION,
-            "{}: expected DB version {} but got {}",
-            src_path.display(),
-            near_primitives::version::DB_VERSION,
-            db_version
-        );
-    } else {
-        anyhow::bail!("{}: source storage doesn’t exist", src_path.display());
-    }
 
     let mut dst_config = config.store.clone();
     dst_config.path = Some(opts.dest_dir);
     // Note: opts.dest_dir is resolved relative to current working directory
     // (since it’s a command line option) which is why we set home to cwd.
     let cwd = std::env::current_dir()?;
-    let dst_opener = Store::opener(&cwd, &dst_config);
+    let dst_opener = NodeStorage::opener(&cwd, &dst_config);
     let dst_path = dst_opener.path();
-    anyhow::ensure!(
-        !dst_opener.check_if_exists(),
-        "{}: directory already exists",
-        dst_path.display()
-    );
 
     info!(target: "recompress",
           src = %src_path.display(), dest = %dst_path.display(),
@@ -391,7 +369,8 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
 
     let src_store = src_opener
         .open()
-        .with_context(|| format!("Opening database at {}", src_opener.path().display()))?;
+        .with_context(|| format!("Opening database at {}", src_opener.path().display()))?
+        .get_store(Temperature::Hot);
 
     let final_head_height = if skip_columns.contains(&DBCol::PartialChunks) {
         let tip: Option<near_primitives::block::Tip> =
@@ -408,8 +387,9 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     };
 
     let dst_store = dst_opener
-        .open()
-        .with_context(|| format!("Opening database at {}", dst_opener.path().display()))?;
+        .create()
+        .with_context(|| format!("Creating database at {}", dst_opener.path().display()))?
+        .get_store(Temperature::Hot);
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
 

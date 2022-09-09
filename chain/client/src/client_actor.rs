@@ -735,6 +735,7 @@ impl Handler<Status> for ClientActor {
                     self.client.sync_status.as_variant_name().to_string(),
                     display_sync_status(&self.client.sync_status, &self.client.chain.head()?,),
                 ),
+                catchup_status: self.client.get_catchup_status()?,
                 current_head_status: head.clone().into(),
                 current_header_head_status: self.client.chain.header_head()?.into(),
                 block_production_delay_millis: self
@@ -1731,7 +1732,10 @@ impl ClientActor {
                             self.get_apply_chunks_done_callback(),
                         ));
 
-                        self.client.process_block_processing_artifact(block_processing_artifacts);
+                        self.client.process_block_processing_artifact(
+                            block_processing_artifacts,
+                            self.get_apply_chunks_done_callback(),
+                        );
 
                         self.client.sync_status = SyncStatus::BodySync {
                             start_height: 0,
@@ -1805,6 +1809,7 @@ impl ClientActor {
         self.info_helper.info(
             &head,
             &self.client.sync_status,
+            self.client.get_catchup_status().unwrap_or_default(),
             &self.node_id,
             &self.network_info,
             validator_info,
@@ -1938,6 +1943,7 @@ impl Handler<StateSplitRequest> for SyncJobsActor {
             msg.shard_uid,
             &msg.state_root,
             &msg.next_epoch_shard_layout,
+            msg.state_split_status,
         );
 
         self.client_addr.do_send(StateSplitResponse {

@@ -144,12 +144,9 @@ impl TrieViewer {
         let acc_sep_len = query.len() - prefix.len();
         let mut iter = state_update.trie().iter()?;
         iter.remember_visited_nodes(true);
-        iter.seek(&query)?;
+        iter.seek_prefix(&query)?;
         for item in &mut iter {
             let (key, value) = item?;
-            if !key.starts_with(query.as_ref()) {
-                break;
-            }
             values.push(StateItem {
                 key: key[acc_sep_len..].to_vec(),
                 value: value,

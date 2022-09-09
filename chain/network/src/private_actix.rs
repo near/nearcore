@@ -4,8 +4,7 @@ use crate::network_protocol::{PeerMessage, RoutingTableUpdate};
 use crate::peer_manager::connection;
 use conqueue::QueueSender;
 use near_network_primitives::types::{
-    Ban, Edge, InboundTcpConnect, PartialEdgeInfo, PeerInfo, PeerType, ReasonForBan,
-    RoutedMessageBody, RoutedMessageFrom,
+    Ban, Edge, PartialEdgeInfo, PeerInfo, PeerType, ReasonForBan, RoutedMessageBody,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -24,11 +23,9 @@ pub struct PeersResponse {
 #[derive(actix::Message, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
 #[rtype(result = "PeerToManagerMsgResp")]
 pub(crate) enum PeerToManagerMsg {
-    RoutedMessageFrom(RoutedMessageFrom),
     RegisterPeer(RegisterPeer),
     PeersRequest(PeersRequest),
     PeersResponse(PeersResponse),
-    InboundTcpConnect(InboundTcpConnect),
     Unregister(Unregister),
     Ban(Ban),
     RequestUpdateNonce(PeerId, PartialEdgeInfo),
@@ -47,7 +44,6 @@ pub(crate) enum PeerToManagerMsg {
 /// List of all replies to messages to `PeerManager`. See `PeerManagerMessageRequest` for more details.
 #[derive(actix::MessageResponse, Debug)]
 pub(crate) enum PeerToManagerMsgResp {
-    RoutedMessageFrom(bool),
     RegisterPeer(RegisterPeerResponse),
     PeersRequest(PeerRequestResult),
 
@@ -146,13 +142,6 @@ pub struct ValidateEdgeList {
 }
 
 impl PeerToManagerMsgResp {
-    pub fn unwrap_routed_message_from(self) -> bool {
-        match self {
-            Self::RoutedMessageFrom(item) => item,
-            _ => panic!("expected PeerMessageRequest::RoutedMessageFrom"),
-        }
-    }
-
     pub fn unwrap_consolidate_response(self) -> RegisterPeerResponse {
         match self {
             Self::RegisterPeer(item) => item,

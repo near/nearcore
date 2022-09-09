@@ -1,7 +1,7 @@
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::DateTime;
 use futures::{future, FutureExt};
-use near_o11y::TracingCapture;
+use near_o11y::testonly::TracingCapture;
 use near_primitives::time::Utc;
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;
@@ -1448,7 +1448,7 @@ impl TestEnv {
             client.chain.mut_store(),
             &mut client.rs,
         );
-        let response = self.network_adapters[id].pop().unwrap();
+        let response = self.network_adapters[id].pop_most_recent().unwrap();
         if let PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::PartialEncodedChunkResponse { route_back: _, response },
         ) = response
@@ -1489,7 +1489,7 @@ impl TestEnv {
             self.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
 
         let mut block = self.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
-        block.mut_header().set_lastest_protocol_version(protocol_version);
+        block.mut_header().set_latest_protocol_version(protocol_version);
         block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
             block_producer.clone(),
             KeyType::ED25519,
@@ -1785,7 +1785,7 @@ pub fn create_chunk(
 /// and the catchup process can't catch up on these blocks yet.
 pub fn run_catchup(
     client: &mut Client,
-    highest_height_peers: &Vec<FullPeerInfo>,
+    highest_height_peers: &[FullPeerInfo],
 ) -> Result<(), Error> {
     let f = |_| {};
     let block_messages = Arc::new(RwLock::new(vec![]));
@@ -1825,6 +1825,7 @@ pub fn run_catchup(
                 msg.shard_uid,
                 &msg.state_root,
                 &msg.next_epoch_shard_layout,
+                msg.state_split_status,
             );
             if let Some((sync, _, _)) = client.catchup_state_syncs.get_mut(&msg.sync_hash) {
                 // We are doing catchup

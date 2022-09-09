@@ -13,6 +13,7 @@ use tracing::debug;
 
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
+use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -133,6 +134,7 @@ pub struct KeyValueRuntime {
     /// chunk producers
     validators: HashMap<AccountId, ValidatorStake>,
     num_shards: NumShards,
+    tracks_all_shards: bool,
     epoch_length: u64,
     no_gc: bool,
 
@@ -270,6 +272,7 @@ impl KeyValueRuntime {
             validators,
             validators_by_valset,
             num_shards: vs.num_shards,
+            tracks_all_shards: false,
             epoch_length,
             state: RwLock::new(state),
             state_size: RwLock::new(state_size),
@@ -281,6 +284,10 @@ impl KeyValueRuntime {
             epoch_start: RwLock::new(map_with_default_hash2),
             no_gc,
         }
+    }
+
+    pub fn set_tracks_all_shards(&mut self, tracks_all_shards: bool) {
+        self.tracks_all_shards = tracks_all_shards;
     }
 
     fn get_block_header(&self, hash: &CryptoHash) -> Result<Option<BlockHeader>, Error> {
@@ -646,6 +653,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
         _is_me: bool,
     ) -> bool {
+        if self.tracks_all_shards {
+            return true;
+        }
         // This `unwrap` here tests that in all code paths we check that the epoch exists before
         //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
         //    the calling function.
@@ -668,6 +678,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
         _is_me: bool,
     ) -> bool {
+        if self.tracks_all_shards {
+            return true;
+        }
         // This `unwrap` here tests that in all code paths we check that the epoch exists before
         //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
         //    the calling function.
@@ -1020,12 +1033,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(data)
     }
 
-    fn validate_state_part(
-        &self,
-        _state_root: &StateRoot,
-        _part_id: PartId,
-        _data: &Vec<u8>,
-    ) -> bool {
+    fn validate_state_part(&self, _state_root: &StateRoot, _part_id: PartId, _data: &[u8]) -> bool {
         // We do not care about deeper validation in test_utils
         true
     }
@@ -1303,6 +1311,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_uid: ShardUId,
         _state_root: &StateRoot,
         _next_epoch_shard_layout: &ShardLayout,
+        _state_split_status: Arc<StateSplitApplyingStatus>,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         Ok(HashMap::new())
     }

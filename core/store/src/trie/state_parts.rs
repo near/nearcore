@@ -51,7 +51,8 @@ impl Trie {
         if part_id.idx + 1 != part_id.total {
             let mut iterator = self.iter()?;
             let path_end_encoded = NibbleSlice::encode_nibbles(&path_end, false);
-            iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_end_encoded[..]).0)?;
+            iterator
+                .seek_nibble_slice(NibbleSlice::from_encoded(&path_end_encoded[..]).0, false)?;
             if let Some(item) = iterator.next() {
                 item?;
             }
@@ -71,7 +72,7 @@ impl Trie {
         if part_id == num_parts {
             return Ok(vec![16]);
         }
-        let (_bytes, root_node) = self.retrieve_node(&self.root)?;
+        let root_node = self.retrieve_node(&self.root)?.1;
         let total_size = root_node.memory_usage;
         let size_start = (total_size + num_parts - 1) / num_parts * part_id;
         self.find_path(&root_node, size_start)
@@ -312,7 +313,7 @@ mod tests {
                 return Ok(());
             }
             let mut stack: Vec<(CryptoHash, TrieNodeWithSize, CrumbStatus)> = Vec::new();
-            let (_bytes, root_node) = self.retrieve_node(&self.root)?;
+            let root_node = self.retrieve_node(&self.root)?.1;
             stack.push((self.root.clone(), root_node, CrumbStatus::Entering));
             while let Some((hash, node, position)) = stack.pop() {
                 if let CrumbStatus::Entering = position {
@@ -353,7 +354,7 @@ mod tests {
                             }
                             if i < 16 {
                                 if let Some(NodeHandle::Hash(h)) = children[i].clone() {
-                                    let (_bytes, child) = self.retrieve_node(&h)?;
+                                    let child = self.retrieve_node(&h)?.1;
                                     stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
                                     stack.push((h, child, CrumbStatus::Entering));
                                 } else {
@@ -377,7 +378,7 @@ mod tests {
                                     unreachable!("only possible while mutating")
                                 }
                                 NodeHandle::Hash(h) => {
-                                    let (_bytes, child) = self.retrieve_node(&h)?;
+                                    let child = self.retrieve_node(&h)?.1;
                                     stack.push((hash, node, CrumbStatus::Exiting));
                                     stack.push((h, child, CrumbStatus::Entering));
                                 }
@@ -394,13 +395,14 @@ mod tests {
             size_start: u64,
             size_end: u64,
         ) -> Result<(), StorageError> {
-            let (_bytes, root_node) = self.retrieve_node(&self.root)?;
+            let root_node = self.retrieve_node(&self.root)?.1;
             let path_begin = self.find_path(&root_node, size_start)?;
             let path_end = self.find_path(&root_node, size_end)?;
 
             let mut iterator = self.iter()?;
             let path_begin_encoded = NibbleSlice::encode_nibbles(&path_begin, false);
-            iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded[..]).0)?;
+            iterator
+                .seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded[..]).0, false)?;
             loop {
                 match iterator.next() {
                     None => break,
@@ -424,7 +426,7 @@ mod tests {
             part_id: PartId,
         ) -> Result<PartialState, StorageError> {
             assert!(self.storage.as_caching_storage().is_some());
-            let (_bytes, root_node) = self.retrieve_node(&self.root)?;
+            let root_node = self.retrieve_node(&self.root)?.1;
             let total_size = root_node.memory_usage;
             let size_start = (total_size + part_id.total - 1) / part_id.total * part_id.idx;
             let size_end = std::cmp::min(
@@ -659,7 +661,7 @@ mod tests {
     fn check_combine_state_parts(
         state_root: &CryptoHash,
         num_parts: u64,
-        parts: &Vec<Vec<Arc<[u8]>>>,
+        parts: &[Vec<Arc<[u8]>>],
     ) -> TrieChanges {
         let trie_changes = Trie::combine_state_parts_naive(state_root, parts).unwrap();
 

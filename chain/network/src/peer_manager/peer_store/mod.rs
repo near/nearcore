@@ -16,8 +16,7 @@ use std::ops::Not;
 use tracing::{debug, error, info};
 
 #[cfg(test)]
-#[path = "peer_store_test.rs"]
-mod test;
+mod tests;
 
 /// Level of trust we have about a new (PeerId, Addr) pair.
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -477,11 +476,12 @@ impl PeerStore {
 }
 
 /// Public method used to iterate through all peers stored in the database.
-pub fn iter_peers_from_store<F>(store: near_store::Store, f: F)
+pub fn iter_peers_from_store<F>(store: near_store::NodeStorage, f: F)
 where
     F: Fn((PeerId, KnownPeerState)),
 {
-    for x in store::Store::from(store).list_peer_states().unwrap() {
+    let db = store.into_inner(near_store::Temperature::Hot);
+    for x in crate::store::Store::from(db).list_peer_states().unwrap() {
         f(x)
     }
 }
