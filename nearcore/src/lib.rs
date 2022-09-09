@@ -50,7 +50,10 @@ fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Nod
         Err(StoreOpenerError::IO(err)) => {
             Err(anyhow::anyhow!("{err}"))
         }
+        // Cannot happen with Mode::ReadWrite
         Err(StoreOpenerError::DbDoesNotExist) => unreachable!(),
+        // Cannot happen with Mode::ReadWrite
+        Err(StoreOpenerError::DbAlreadyExists) => unreachable!(),
         Err(StoreOpenerError::SnapshotAlreadyExists(snap_path)) => {
             Err(anyhow::anyhow!(
                 "Detected an existing database migration snapshot at ‘{}’.\n\
@@ -73,7 +76,9 @@ fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Nod
                  in `config.json`:\n{off}"
             ))
         },
+        // Cannot happen with Mode::ReadWrite
         Err(StoreOpenerError::DbVersionMismatchOnRead { .. }) => unreachable!(),
+        // Cannot happen when migrator is specified.
         Err(StoreOpenerError::DbVersionMismatch { .. }) => unreachable!(),
         Err(StoreOpenerError::DbVersionTooOld { got, latest_release, .. }) => {
             Err(anyhow::anyhow!(

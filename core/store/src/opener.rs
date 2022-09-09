@@ -13,9 +13,15 @@ pub enum StoreOpenerError {
 
     /// Database does not exist.
     ///
-    /// This happens if opening in ReadOnly or in ReadWriteExisting mode.
+    /// This may happen when opening in ReadOnly or in ReadWriteExisting mode.
     #[error("Database does not exist")]
     DbDoesNotExist,
+
+    /// Database already exists but requested creation of a new one.
+    ///
+    /// This may happen when opening in Create mode.
+    #[error("Database already exists")]
+    DbAlreadyExists,
 
     /// Unable to create a migration snapshot because one already exists.
     #[error(
@@ -171,11 +177,7 @@ impl<'a> StoreOpener<'a> {
     fn open_impl(&self, create: bool) -> Result<NodeStorage, StoreOpenerError> {
         let exists = if let Some(db_version) = self.db.get_version()? {
             if create {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Database already exists",
-                )
-                .into());
+                return Err(StoreOpenerError::DbAlreadyExists);
             }
             self.apply_migrations(db_version)?;
             true
