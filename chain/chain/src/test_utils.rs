@@ -6,6 +6,7 @@ use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_part::PartId;
 use num_rational::Ratio;
@@ -404,6 +405,8 @@ impl KeyValueRuntime {
         Ok(chunk_producers.iter().filter(|it| !block_producers.contains(it)).collect())
     }
 }
+
+impl EpochManagerAdapter for KeyValueRuntime {}
 
 impl RuntimeAdapter for KeyValueRuntime {
     fn genesis_state(&self) -> (Store, Vec<StateRoot>) {

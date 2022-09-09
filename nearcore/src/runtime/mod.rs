@@ -13,7 +13,7 @@ use near_chain_configs::{
 };
 use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::{PublicKey, Signature};
-use near_epoch_manager::{EpochManager, EpochManagerHandle};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_o11y::log_assert;
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -654,6 +654,8 @@ fn apply_delayed_receipts<'a>(
 pub fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &ShardLayout) -> ShardId {
     account_id_to_shard_id(state_record_to_account_id(state_record), shard_layout)
 }
+
+impl EpochManagerAdapter for NightshadeRuntime {}
 
 impl RuntimeAdapter for NightshadeRuntime {
     fn genesis_state(&self) -> (Store, Vec<StateRoot>) {

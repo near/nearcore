@@ -32,7 +32,9 @@ use tracing::{debug, warn};
 pub use crate::reward_calculator::RewardCalculator;
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::types::RngSeed;
+pub use crate::adapter::EpochManagerAdapter;
 
+mod adapter;
 mod proposals;
 mod reward_calculator;
 mod shard_assignment;
