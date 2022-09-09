@@ -224,8 +224,6 @@ impl<'a> TrieUpdateIterator<'a> {
             }
             None => None,
         };
-        // TODO(mina86): Figure out if starts_with check is still
-        // necessary.
         trie_iter.seek_prefix(&start_offset)?;
         let committed_iter = state_update.committed.range(start_offset.clone()..).map(
             |(raw_key, changes_with_trie_key)| {
@@ -264,6 +262,7 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let stop_cond = |key: &[u8], prefix: &[u8], end_offset: &Option<Vec<u8>>| {
+            // TODO(mina86): Figure out if starts_with check is still necessary.
             !key.starts_with(prefix) || end_offset.as_deref().map_or(false, |end| key >= end)
         };
         enum Ordering {
