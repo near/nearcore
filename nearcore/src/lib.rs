@@ -106,7 +106,8 @@ fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Nod
             Err(err)
         },
     };
-    let storage = res.context(format!("unable to open database at {}", opener.path().display()))?;
+    let storage =
+        res.with_context(|| format!("unable to open database at {}", opener.path().display()))?;
 
     // Check if the storage is an archive and if it is make sure we are too.
     // If the store is not marked as archive but we are an archival node that is

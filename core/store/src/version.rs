@@ -4,15 +4,6 @@ pub type DbVersion = u32;
 /// Current version of the database.
 pub const DB_VERSION: DbVersion = 31;
 
-/// Returns serialisation of the version.
-///
-/// The serialisation simply converts the version into decimal integer and
-/// returns that as ASCII string.  [`deserialises`] is inverse of this
-/// operation.
-fn serialise(version: DbVersion) -> Vec<u8> {
-    version.to_string().into_bytes()
-}
-
 /// Deserialises database version from data read from database.
 ///
 /// This is an inverse of [`serialise`].
@@ -28,8 +19,9 @@ pub(super) fn set_store_version(
     store: &crate::Store,
     db_version: DbVersion,
 ) -> std::io::Result<()> {
+    let db_version = db_version.to_string();
     let mut store_update = store.store_update();
-    store_update.set(crate::DBCol::DbVersion, crate::db::VERSION_KEY, &serialise(db_version));
+    store_update.set(crate::DBCol::DbVersion, crate::db::VERSION_KEY, db_version.as_bytes());
     store_update.commit()
 }
 
