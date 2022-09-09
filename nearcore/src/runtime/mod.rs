@@ -68,7 +68,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
@@ -655,6 +655,16 @@ fn apply_delayed_receipts<'a>(
 
 pub fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &ShardLayout) -> ShardId {
     account_id_to_shard_id(state_record_to_account_id(state_record), shard_layout)
+}
+
+impl near_epoch_manager::HasEpochMangerHandle for NightshadeRuntime {
+    fn write(&self) -> RwLockWriteGuard<EpochManager> {
+        self.epoch_manager.write()
+    }
+
+    fn read(&self) -> RwLockReadGuard<EpochManager> {
+        self.epoch_manager.read()
+    }
 }
 
 impl RuntimeAdapter for NightshadeRuntime {

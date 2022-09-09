@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::time::Utc;
 use num_rational::Rational32;
@@ -261,7 +262,7 @@ impl ChainGenesis {
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators.
-pub trait RuntimeAdapter: Send + Sync {
+pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
     /// Get store and genesis state roots
     fn genesis_state(&self) -> (Store, Vec<StateRoot>);
 
