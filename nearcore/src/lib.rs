@@ -181,7 +181,17 @@ fn apply_store_migrations_if_exists(
 
     // DB migration was successful, remove the snapshot to avoid it taking up
     // precious disk space.
-    snapshot.remove();
+    if let Err(err) = snapshot.remove() {
+        anyhow::bail!(
+            "The DB migration has succeeded but deleting of the snapshot at {} \
+             has failed: {}\n
+             Try renaming the snapshot directory to temporary name (e.g. by \
+             adding tilde to its name) and starting the node.  If that works, \
+             the snapshot can be deleted.",
+            err.path.display(),
+            err.error
+        )
+    }
 
     Ok(())
 }
