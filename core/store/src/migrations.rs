@@ -74,7 +74,7 @@ where
 ///
 /// Deletes all data from _NextBlockWithNewChunk and _LastBlockWithNewChunk
 /// columns.
-pub fn migrate_28_to_29(storage: &crate::NodeStorage) -> std::io::Result<()> {
+pub fn migrate_28_to_29(storage: &crate::NodeStorage) -> anyhow::Result<()> {
     let mut update = storage.get_store(crate::Temperature::Hot).store_update();
     update.delete_all(DBCol::_NextBlockWithNewChunk);
     update.delete_all(DBCol::_LastBlockWithNewChunk);
@@ -85,7 +85,7 @@ pub fn migrate_28_to_29(storage: &crate::NodeStorage) -> std::io::Result<()> {
 /// Migrates database from version 29 to 30.
 ///
 /// Migrates all structures that use ValidatorStake to versionized version.
-pub fn migrate_29_to_30(storage: &crate::NodeStorage) -> std::io::Result<()> {
+pub fn migrate_29_to_30(storage: &crate::NodeStorage) -> anyhow::Result<()> {
     use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::epoch_manager::epoch_info::EpochSummary;
     use near_primitives::epoch_manager::AGGREGATOR_KEY;

@@ -149,8 +149,8 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
                 // don’t do anything here.
                 Ok(())
             }
-            28 => near_store::migrations::migrate_28_to_29(storage).map_err(|err| err.into()),
-            29 => near_store::migrations::migrate_29_to_30(storage).map_err(|err| err.into()),
+            28 => near_store::migrations::migrate_28_to_29(storage),
+            29 => near_store::migrations::migrate_29_to_30(storage),
             30 => migrate_30_to_31(storage, &self.config),
             DB_VERSION.. => unreachable!(),
         }

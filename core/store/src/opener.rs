@@ -72,7 +72,7 @@ pub enum StoreOpenerError {
 
     /// Error while performing migration.
     #[error("{0}")]
-    MigrationError(anyhow::Error),
+    MigrationError(#[source] anyhow::Error),
 }
 
 impl From<SnapshotError> for StoreOpenerError {
@@ -204,14 +204,14 @@ impl<'a> StoreOpener<'a> {
         if db_version == DB_VERSION {
             return Ok(());
         }
+        if db_version > DB_VERSION {
+            return Err(StoreOpenerError::DbVersionTooNew { got: db_version, want: DB_VERSION });
+        }
         if self.mode == Mode::ReadOnly {
             return Err(StoreOpenerError::DbVersionMismatchOnRead {
                 got: db_version,
                 want: DB_VERSION,
             });
-        }
-        if db_version > DB_VERSION {
-            return Err(StoreOpenerError::DbVersionTooNew { got: db_version, want: DB_VERSION });
         }
 
         let migrator = match self.migrator {
