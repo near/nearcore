@@ -61,21 +61,22 @@ pub(crate) enum PeerToManagerMsgResp {
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "RegisterPeerResponse")]
 pub(crate) struct RegisterPeer {
-    pub connection: Arc<connection::Connection>,
-    /// Edge information from this node.
-    /// If this is None it implies we are outbound connection, so we need to create our
-    /// EdgeInfo part and send it to the other peer.
-    pub this_edge_info: Option<PartialEdgeInfo>,
-    /// Protocol version of new peer. May be higher than ours.
-    #[allow(dead_code)]
-    pub peer_protocol_version: ProtocolVersion,
+    pub connection: Arc<Connection>,
+}
+
+#[derive(Debug)]
+pub(crate) enum RegisterPeerError {
+    Blacklisted,
+    Banned,
+    PoolError(PoolError),
+    ConnectionLimitExceeded,
+    NotTier1Peer,
 }
 
 #[derive(actix::MessageResponse, Debug)]
 pub enum RegisterPeerResponse {
-    Accept(Option<PartialEdgeInfo>),
-    InvalidNonce(Box<Edge>),
-    Reject,
+    Accept,
+    Reject(RegisterPeerError),
 }
 
 /// Unregister message from Peer to PeerManager.

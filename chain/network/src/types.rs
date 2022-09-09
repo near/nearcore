@@ -8,8 +8,7 @@ use futures::FutureExt;
 use near_crypto::PublicKey;
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, KnownProducer, OutboundTcpConnect,
-    PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
+    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, KnownProducer, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
     PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, PeerType, Ping, Pong, ReasonForBan,
     StateResponseInfo,
 };
@@ -28,6 +27,11 @@ use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
+
+/// Actor message to request the creation of an outbound TCP connection to a peer.
+#[derive(actix::Message, Clone, Debug)]
+#[rtype(result = "()")]
+pub struct OutboundTcpConnect(pub PeerInfo);
 
 /// Set of account keys.
 /// This is information which chain pushes to network to implement tier1.

@@ -188,15 +188,6 @@ impl InboundTcpConnect {
     }
 }
 
-/// Actor message to request the creation of an outbound TCP connection to a peer.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Message, Clone, Debug)]
-#[rtype(result = "()")]
-pub struct OutboundTcpConnect {
-    /// Peer information of the outbound connection
-    pub peer_info: PeerInfo,
-}
-
 /// Ban reason.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Copy)]
@@ -360,7 +351,6 @@ mod tests {
         assert_size!(RoutedMessage);
         assert_size!(KnownPeerState);
         assert_size!(InboundTcpConnect);
-        assert_size!(OutboundTcpConnect);
         assert_size!(Ban);
         assert_size!(StateResponseInfoV1);
         assert_size!(PartialEncodedChunkRequestMsg);
