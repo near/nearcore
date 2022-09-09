@@ -234,6 +234,7 @@ fn adjust_op(op: &mut DBOp) -> bool {
             adjust_key(*col, key);
             true
         }
+        DBOp::MergeValue { .. } => true,
         DBOp::UpdateRefcount { col, key, value } => {
             assert!(col.is_rc());
             let value = core::mem::take(value);

@@ -3,6 +3,7 @@ use std::io;
 use crate::DBCol;
 
 mod colddb;
+pub mod merging;
 pub mod refcount;
 pub(crate) mod rocksdb;
 mod slice;
@@ -39,6 +40,9 @@ pub(crate) enum DBOp {
     /// Sets `key` to `value`, and additionally debug-checks that the value is
     /// not overwritten.
     Insert { col: DBCol, key: Vec<u8>, value: Vec<u8> },
+    /// Merges `value` into `key`. The column must have a merge operator
+    /// defined.
+    MergeValue { col: DBCol, key: Vec<u8>, value: Vec<u8> },
     /// Modifies a reference-counted column. `value` includes both the value per
     /// se and a refcount at the end.
     UpdateRefcount { col: DBCol, key: Vec<u8>, value: Vec<u8> },
@@ -60,6 +64,11 @@ impl DBTransaction {
     pub fn insert(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
         assert!(col.is_insert_only(), "can't insert: {col:?}");
         self.ops.push(DBOp::Insert { col, key, value });
+    }
+
+    pub fn merge_value(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+        assert!(col.supports_merges(), "can't merge_value: {col:?}");
+        self.ops.push(DBOp::MergeValue { col, key, value });
     }
 
     pub fn update_refcount(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {

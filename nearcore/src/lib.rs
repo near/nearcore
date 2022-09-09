@@ -167,6 +167,11 @@ fn apply_store_migrations_if_exists(
         info!(target: "near", "Migrate DB from version 30 to 31");
         migrate_30_to_31(store_opener, &near_config)?;
     }
+    if db_version <= 31 {
+        // version 31 => 32: DBCol::TransactionResult now uses a merge operator.
+        // Migration is no-op, but we need to bump the version, because
+        // db_version 31 binary can't open db_version 32 db.
+    }
 
     if cfg!(feature = "nightly") || cfg!(feature = "nightly_protocol") {
         let store = store_opener

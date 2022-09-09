@@ -290,6 +290,9 @@ impl Database for RocksDB {
                     }
                     batch.put_cf(self.cf_handle(col)?, key, value);
                 }
+                DBOp::MergeValue { col, key, value } => {
+                    batch.merge_cf(self.cf_handle(col)?, key, value);
+                }
                 DBOp::UpdateRefcount { col, key, value } => {
                     batch.merge_cf(self.cf_handle(col)?, key, value);
                 }
@@ -466,6 +469,9 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig) -> Options {
     if col.is_rc() {
         opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
+    } else if col.supports_merges() {
+        let merge_operator = RocksDB::get_merge_operator_for_supporting_column(col);
+        opts.set_merge_operator(&format!("merge {}", col), merge_operator, merge_operator);
     }
     opts
 }

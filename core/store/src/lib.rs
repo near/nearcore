@@ -386,7 +386,10 @@ impl StoreUpdate {
     /// Must not be used for reference-counted columns; use
     /// ['Self::increment_refcount'] or [`Self::decrement_refcount`] instead.
     pub fn set(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
-        assert!(!(column.is_rc() || column.is_insert_only()), "can't set: {column}");
+        assert!(
+            !(column.is_rc() || column.is_insert_only() || column.supports_merges()),
+            "can't set: {column}"
+        );
         self.transaction.set(column, key.to_vec(), value.to_vec())
     }
 
@@ -400,7 +403,6 @@ impl StoreUpdate {
         key: &[u8],
         value: &T,
     ) -> io::Result<()> {
-        assert!(!(column.is_rc() || column.is_insert_only()), "can't set_ser: {column}");
         let data = value.try_to_vec()?;
         self.set(column, key, &data);
         Ok(())
@@ -414,6 +416,44 @@ impl StoreUpdate {
     /// directly.
     pub fn set_raw_bytes(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
         self.transaction.set(column, key.to_vec(), value.to_vec())
+    }
+
+    /// Applies a merge operation to a value in the database. The semantics
+    /// of the merge is defined by the column.
+    pub fn merge_value(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
+        assert!(column.supports_merges(), "can't merge_ser: {column}");
+        self.transaction.merge_value(column, key.to_vec(), value.to_vec())
+    }
+
+    /// Like merged_value but serializes the value first.
+    pub fn merge_value_ser<T: BorshSerialize + ?Sized>(
+        &mut self,
+        column: DBCol,
+        key: &[u8],
+        value: &T,
+    ) -> io::Result<()> {
+        let data = value.try_to_vec()?;
+        self.merge_value(column, key, &data);
+        Ok(())
+    }
+
+    /// Like set, but explicitly for columns which support merges.
+    pub fn overwrite_merged_value(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
+        assert!(column.supports_merges(), "can't overwrite_merged_value: {column}");
+        // A regular set on a merging column overwrites previous merges with a fresh value.
+        self.transaction.set(column, key.to_vec(), value.to_vec())
+    }
+
+    /// Like set_ser, but explicitly for columns which support merges.
+    pub fn overwrite_merged_value_ser<T: BorshSerialize + ?Sized>(
+        &mut self,
+        column: DBCol,
+        key: &[u8],
+        value: &T,
+    ) -> io::Result<()> {
+        let data = value.try_to_vec()?;
+        self.overwrite_merged_value(column, key, &data);
+        Ok(())
     }
 
     /// Deletes the given key from the database.
@@ -473,6 +513,7 @@ impl StoreUpdate {
                     .iter()
                     .filter_map(|op| match op {
                         DBOp::Set { col, key, .. }
+                        | DBOp::MergeValue { col, key, .. }
                         | DBOp::Insert { col, key, .. }
                         | DBOp::Delete { col, key } => Some((*col as u8, key)),
                         DBOp::UpdateRefcount { .. } | DBOp::DeleteAll { .. } => None,
@@ -493,6 +534,9 @@ impl StoreUpdate {
                 }
                 DBOp::Set { col, key, value } => {
                     tracing::trace!(target: "store", db_op = "set", col = %col, key = %to_base58(key), size = value.len())
+                }
+                DBOp::MergeValue { col, key, value } => {
+                    tracing::trace!(target: "store", db_op = "merge_value", col = %col, key = %to_base58(key), size = value.len())
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
                     tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %to_base58(key), size = value.len())
@@ -516,6 +560,9 @@ impl fmt::Debug for StoreUpdate {
             match op {
                 DBOp::Insert { col, key, .. } => writeln!(f, "  + {col} {}", to_base58(key))?,
                 DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", to_base58(key))?,
+                DBOp::MergeValue { col, key, value } => {
+                    writeln!(f, "  {col} {} += {:?}", to_base58(key), value)?
+                }
                 DBOp::UpdateRefcount { col, key, .. } => {
                     writeln!(f, "  ± {col} {}", to_base58(key))?
                 }

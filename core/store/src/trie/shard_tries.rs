@@ -146,7 +146,10 @@ impl ShardTries {
                         }
                     }
                 }
-                DBOp::Set { col, .. } | DBOp::Insert { col, .. } | DBOp::Delete { col, .. } => {
+                DBOp::Set { col, .. }
+                | DBOp::Insert { col, .. }
+                | DBOp::MergeValue { col, .. }
+                | DBOp::Delete { col, .. } => {
                     assert_ne!(*col, DBCol::State);
                 }
             }

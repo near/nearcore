@@ -62,6 +62,12 @@ impl Database for TestDB {
                     }
                     db[col].insert(key, value);
                 }
+                DBOp::MergeValue { col, key, value } => {
+                    let existing = db[col].get(&key).map(Vec::as_slice);
+                    let operands = [value.as_slice()];
+                    let merged = col.apply_merge(existing, operands);
+                    db[col].insert(key, merged);
+                }
                 DBOp::UpdateRefcount { col, key, value } => {
                     let existing = db[col].get(&key).map(Vec::as_slice);
                     let operands = [value.as_slice()];

@@ -1,6 +1,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use std::fmt;
 
+use crate::db::merging;
+
 /// This enum holds the information about the columns that we use within the
 /// RocksDB storage.
 ///
@@ -364,6 +366,27 @@ impl DBCol {
             _ => false,
         }
     }
+
+    /// Whether this column additionally supports the merge operation.
+    pub const fn supports_merges(&self) -> bool {
+        match self {
+            DBCol::TransactionResult => true,
+            _ => false,
+        }
+    }
+
+    /// Returns the merge operator defined for this column.
+    /// Requires supports_merges() to be true.
+    pub fn apply_merge<'a>(
+        &self,
+        existing: Option<&'a [u8]>,
+        operands: impl IntoIterator<Item = &'a [u8]>,
+    ) -> Vec<u8> {
+        match self {
+            DBCol::TransactionResult => merging::merge_transaction_result(existing, operands),
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl fmt::Display for DBCol {
@@ -380,7 +403,10 @@ fn column_props_sanity() {
         if col.is_gc_optional() {
             assert!(col.is_gc(), "{col}")
         }
-        // Check that rc and write_once are mutually exclusive.
-        assert!((col.is_rc() as u32) + (col.is_insert_only() as u32) <= 1, "{col}")
+        // Check that rc, insert_only, and supports_merges are mutually exclusive.
+        assert!(
+            (col.is_rc() as u32) + (col.is_insert_only() as u32) + (col.supports_merges() as u32) <= 1,
+            "{col}"
+        )
     }
 }

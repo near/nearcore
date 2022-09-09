@@ -2295,7 +2295,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 if outcomes_with_id.is_empty() {
                     self.gc_col(DBCol::TransactionResult, outcome_id.as_bytes());
                 } else {
-                    store_update.set_ser(
+                    store_update.overwrite_merged_value_ser(
                         DBCol::TransactionResult,
                         outcome_id.as_bytes(),
                         &outcomes_with_id,
@@ -2742,9 +2742,7 @@ impl<'a> ChainStoreUpdate<'a> {
             )?;
         }
         for (hash, outcomes) in self.chain_store_cache_update.outcomes.iter() {
-            let mut existing_outcomes = self.chain_store.get_outcomes_by_id(hash)?;
-            existing_outcomes.extend_from_slice(outcomes);
-            store_update.set_ser(DBCol::TransactionResult, hash.as_ref(), &existing_outcomes)?;
+            store_update.merge_value_ser(DBCol::TransactionResult, hash.as_ref(), outcomes)?;
         }
         for ((block_hash, shard_id), ids) in self.chain_store_cache_update.outcome_ids.iter() {
             store_update.set_ser(
