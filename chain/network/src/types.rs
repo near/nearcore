@@ -1,7 +1,5 @@
 /// Type that belong to the network protocol.
-pub use crate::network_protocol::{
-    Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate, SignedAccountData,
-};
+use crate::network_protocol::SignedAccountData;
 use crate::routing::routing_table_view::RoutingTableInfo;
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -452,6 +450,7 @@ impl<M: actix::Message, T: MsgRecipient<M>> MsgRecipient<M> for NetworkRecipient
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::network_protocol::{Handshake, HandshakeFailureReason, RoutingTableUpdate};
 
     // NOTE: this has it's counterpart in `near_network_primitives::types::tests`
     const ALLOWED_SIZE: usize = 1 << 20;
