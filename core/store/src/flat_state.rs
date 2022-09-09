@@ -232,6 +232,12 @@ pub enum Error {}
 #[derive(Clone)]
 pub struct FlatStorageState(Arc<RwLock<FlatStorageStateInner>>);
 
+/// Max number of blocks that flat storage can keep
+/// FlatStorage will only support blocks at height [tail_height, tail_height + FLAT_STORAGE_MAX_BLOCKS).
+/// Since there is at most one block at each height, flat storage will keep at most FLAT_STORAGE_MAX_BLOCKS
+/// of block deltas in memory.
+const FLAT_STORAGE_MAX_BLOCKS: u64 = 16;
+
 struct FlatStorageStateInner {
     /// The block for which we store the key value pairs of its state. Note that it is not necessarily
     /// the latest block.
@@ -244,6 +250,8 @@ struct FlatStorageStateInner {
     /// we don't have access to ChainStore inside this class (because ChainStore is not thread safe),
     /// so we store a representation of the chain formed by the blocks in flat storage.
     prev_blocks: HashMap<CryptoHash, CryptoHash>,
+    /// State deltas for all blocks supported by this flat storage.
+    /// All these deltas here are stored on disk too.
     deltas: HashMap<CryptoHash, FlatStateDelta>,
 }
 
@@ -271,7 +279,7 @@ impl FlatStorageState {
         None
     }
 
-    //
+    // Add a block delta to flat storage
     pub fn add_delta(&self, block_hash: &CryptoHash, delta: FlatStateDelta) {
         // TODO:
     }
