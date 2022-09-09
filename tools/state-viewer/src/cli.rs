@@ -76,9 +76,8 @@ impl StateViewerSubCommand {
     pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode, mode: Mode) {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-        let store_opener =
-            near_store::NodeStorage::opener(home_dir, &near_config.config.store).mode(mode);
-        let store = store_opener.open().unwrap();
+        let store_opener = near_store::NodeStorage::opener(home_dir, &near_config.config.store);
+        let store = store_opener.open_in_mode(mode).unwrap();
         let hot = store.get_store(near_store::Temperature::Hot);
         match self {
             StateViewerSubCommand::Peers => peers(store),
@@ -95,7 +94,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, hot),
             StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, hot),
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, hot),
-            StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(&store_opener.path()),
+            StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(store_opener.path()),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, hot),
             StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, hot),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, hot),
