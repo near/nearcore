@@ -1,6 +1,6 @@
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::db::rocksdb::RocksDB;
-use crate::version::{DbVersion, DB_VERSION};
+use crate::version::{set_store_version, DbVersion, DB_VERSION};
 use crate::{Mode, NodeStorage, StoreConfig, Temperature};
 
 const STORE_PATH: &str = "data";
@@ -173,63 +173,55 @@ impl<'a> StoreOpener<'a> {
     /// other hand, if mode is [`Mode::Create`], fails if the database already
     /// exists.
     pub fn open_in_mode(&self, mode: Mode) -> Result<crate::NodeStorage, StoreOpenerError> {
-        let exists = if let Some(db_version) = self.db.get_version()? {
-            if mode.must_create() {
-                return Err(StoreOpenerError::DbAlreadyExists);
-            }
-            self.apply_migrations(mode, db_version)?;
-            true
-        } else if !mode.can_create() {
-            return Err(StoreOpenerError::DbDoesNotExist);
+        if let Some(db_version) = self.db.get_version()? {
+            let mode = mode.but_cannot_create().ok_or(StoreOpenerError::DbAlreadyExists)?;
+            let snapshot = self.apply_migrations(mode, db_version)?;
+            tracing::info!(target: "near", path=%self.path().display(),
+                           "Opening an existing RocksDB database");
+            let storage = self.open_storage(mode, Some(DB_VERSION))?;
+            snapshot.remove().map(|_| storage).map_err(StoreOpenerError::from)
         } else {
-            false
-        };
-        tracing::info!(
-            target: "near", path=%self.path().display(),
-            "{} RocksDB database",
-            if exists { "Opening an existing" } else { "Creating a new" }
-        );
-        let storage = self.open_storage(mode, exists.then_some(DB_VERSION))?;
-        if !exists {
-            // Initialise newly created database by setting it’s version.
-            crate::version::set_store_version(&storage.get_store(Temperature::Hot), DB_VERSION)?;
+            let mode = mode.but_must_create().ok_or(StoreOpenerError::DbDoesNotExist)?;
+            tracing::info!(target: "near", path=%self.path().display(),
+                           "Creating a new RocksDB database");
+            let storage = self.open_storage(mode, None)?;
+            set_store_version(&storage.get_store(Temperature::Hot), DB_VERSION)?;
+            Ok(storage)
         }
-        Ok(storage)
     }
 
     /// Applies database migrations to the database.
-    fn apply_migrations(&self, mode: Mode, db_version: DbVersion) -> Result<(), StoreOpenerError> {
+    fn apply_migrations(
+        &self,
+        mode: Mode,
+        db_version: DbVersion,
+    ) -> Result<Snapshot, StoreOpenerError> {
         if db_version == DB_VERSION {
-            return Ok(());
-        }
-        if db_version > DB_VERSION {
+            return Ok(Snapshot::none());
+        } else if db_version > DB_VERSION {
             return Err(StoreOpenerError::DbVersionTooNew { got: db_version, want: DB_VERSION });
         }
         if mode.read_only() {
+            // If we’re opening for reading, we cannot perform migrations thus
+            // we must fail if the database has old version (even if we support
+            // migration from that version).
             return Err(StoreOpenerError::DbVersionMismatchOnRead {
                 got: db_version,
                 want: DB_VERSION,
             });
         }
 
-        let migrator = match self.migrator {
-            Some(migrator) => {
-                if let Err(release) = migrator.check_support(db_version) {
-                    return Err(StoreOpenerError::DbVersionTooOld {
-                        got: db_version,
-                        want: DB_VERSION,
-                        latest_release: release,
-                    });
-                }
-                migrator
-            }
-            None => {
-                return Err(StoreOpenerError::DbVersionMismatch {
-                    got: db_version,
-                    want: DB_VERSION,
-                })
-            }
-        };
+        // Figure out if we have migrator which supports the database version.
+        let migrator = self
+            .migrator
+            .ok_or(StoreOpenerError::DbVersionMismatch { got: db_version, want: DB_VERSION })?;
+        if let Err(release) = migrator.check_support(db_version) {
+            return Err(StoreOpenerError::DbVersionTooOld {
+                got: db_version,
+                want: DB_VERSION,
+                latest_release: release,
+            });
+        }
 
         let snapshot = Snapshot::new(&self.db.path, &self.db.config)?;
 
@@ -249,8 +241,7 @@ impl<'a> StoreOpener<'a> {
             crate::version::set_store_version(&storage.get_store(Temperature::Hot), 10000)?;
         }
 
-        snapshot.remove()?;
-        Ok(())
+        Ok(snapshot)
     }
 
     fn open_storage(

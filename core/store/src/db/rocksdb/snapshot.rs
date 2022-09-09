@@ -55,7 +55,7 @@ impl std::convert::From<::rocksdb::Error> for SnapshotError {
 
 impl Snapshot {
     /// Creates a Snapshot object which represents lack of a snapshot.
-    pub const fn no_snapshot() -> Self {
+    pub const fn none() -> Self {
         Self(None)
     }
 
@@ -77,7 +77,7 @@ impl Snapshot {
     ) -> Result<Self, SnapshotError> {
         let snapshot_path = match config.migration_snapshot.get_path(db_path) {
             Some(snapshot_path) => snapshot_path,
-            None => return Ok(Self::no_snapshot()),
+            None => return Ok(Self::none()),
         };
 
         tracing::info!(target: "db", snapshot_path=%snapshot_path.display(),
@@ -95,7 +95,7 @@ impl Snapshot {
 
     /// Deletes the checkpoint from the file system.
     ///
-    /// Does nothing if the object has been created via [`Self::no_snapshot`].
+    /// Does nothing if the object has been created via [`Self::none`].
     pub fn remove(mut self) -> Result<(), SnapshotRemoveError> {
         if let Some(path) = self.0.take() {
             tracing::info!(target: "db", snapshot_path=%path.display(),
