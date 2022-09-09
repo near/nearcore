@@ -51,7 +51,8 @@ impl Trie {
         if part_id.idx + 1 != part_id.total {
             let mut iterator = self.iter()?;
             let path_end_encoded = NibbleSlice::encode_nibbles(&path_end, false);
-            iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_end_encoded[..]).0)?;
+            iterator
+                .seek_nibble_slice(NibbleSlice::from_encoded(&path_end_encoded[..]).0, false)?;
             if let Some(item) = iterator.next() {
                 item?;
             }
@@ -99,14 +100,14 @@ impl Trie {
             }
             TrieNode::Branch(children, _) => {
                 for child_index in 0..children.len() {
-                    let (_, child) = match &children[child_index] {
+                    let child = match &children[child_index] {
                         None => {
                             continue;
                         }
                         Some(NodeHandle::InMemory(_)) => {
                             unreachable!("only possible while mutating")
                         }
-                        Some(NodeHandle::Hash(h)) => self.retrieve_node(h)?,
+                        Some(NodeHandle::Hash(h)) => self.retrieve_node(h)?.1,
                     };
                     if *size_skipped + child.memory_usage <= size_start {
                         *size_skipped += child.memory_usage;
@@ -134,9 +135,9 @@ impl Trie {
                 Ok(false)
             }
             TrieNode::Extension(key, child_handle) => {
-                let (_, child) = match child_handle {
+                let child = match child_handle {
                     NodeHandle::InMemory(_) => unreachable!("only possible while mutating"),
-                    NodeHandle::Hash(h) => self.retrieve_node(h)?,
+                    NodeHandle::Hash(h) => self.retrieve_node(h)?.1,
                 };
                 let (slice, _is_leaf) = NibbleSlice::from_encoded(key);
                 key_nibbles.extend(slice.iter());
@@ -353,7 +354,7 @@ mod tests {
                             }
                             if i < 16 {
                                 if let Some(NodeHandle::Hash(h)) = children[i].clone() {
-                                    let (_, child) = self.retrieve_node(&h)?;
+                                    let child = self.retrieve_node(&h)?.1;
                                     stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
                                     stack.push((h, child, CrumbStatus::Entering));
                                 } else {
@@ -377,7 +378,7 @@ mod tests {
                                     unreachable!("only possible while mutating")
                                 }
                                 NodeHandle::Hash(h) => {
-                                    let (_, child) = self.retrieve_node(&h)?;
+                                    let child = self.retrieve_node(&h)?.1;
                                     stack.push((hash, node, CrumbStatus::Exiting));
                                     stack.push((h, child, CrumbStatus::Entering));
                                 }
@@ -400,7 +401,8 @@ mod tests {
 
             let mut iterator = self.iter()?;
             let path_begin_encoded = NibbleSlice::encode_nibbles(&path_begin, false);
-            iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded[..]).0)?;
+            iterator
+                .seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded[..]).0, false)?;
             loop {
                 match iterator.next() {
                     None => break,
