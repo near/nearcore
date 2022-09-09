@@ -76,6 +76,15 @@ fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Nod
                  in `config.json`:\n{off}"
             ))
         },
+        Err(StoreOpenerError::SnapshotRemoveError { path, error }) => {
+            let path = path.display();
+            Err(anyhow::anyhow!(
+                "The DB migration has succeeded but deleting of the snapshot \
+                 at {path} has failed: {error}\n
+                 Try renaming the snapshot directory to temporary name (e.g. \
+                 by adding tilde to its name) and starting the node.  If that \
+                 works, the snapshot can be deleted."))
+        }
         // Cannot happen with Mode::ReadWrite
         Err(StoreOpenerError::DbVersionMismatchOnRead { .. }) => unreachable!(),
         // Cannot happen when migrator is specified.

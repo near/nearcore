@@ -1,4 +1,4 @@
-use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError};
+use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::db::rocksdb::RocksDB;
 use crate::version::{DbVersion, DB_VERSION};
 use crate::{Mode, NodeStorage, StoreConfig, Temperature};
@@ -30,9 +30,17 @@ pub enum StoreOpenerError {
     )]
     SnapshotAlreadyExists(std::path::PathBuf),
 
-    /// Creating the snapshot failed.
+    /// Creating the snapshot has failed.
     #[error("Error creating migration snapshot: {0}")]
     SnapshotError(std::io::Error),
+
+    /// Deleting the snapshot after successful migration has failed.
+    #[error("Error cleaning up migration snapshot: {error}")]
+    SnapshotRemoveError {
+        path: std::path::PathBuf,
+        #[source]
+        error: std::io::Error,
+    },
 
     /// The database was opened for reading but it’s version wasn’t what we
     /// expect.
@@ -81,6 +89,12 @@ impl From<SnapshotError> for StoreOpenerError {
             SnapshotError::AlreadyExists(snap_path) => Self::SnapshotAlreadyExists(snap_path),
             SnapshotError::IOError(err) => Self::SnapshotError(err),
         }
+    }
+}
+
+impl From<SnapshotRemoveError> for StoreOpenerError {
+    fn from(err: SnapshotRemoveError) -> Self {
+        Self::SnapshotRemoveError { path: err.path, error: err.error }
     }
 }
 
@@ -235,7 +249,7 @@ impl<'a> StoreOpener<'a> {
             crate::version::set_store_version(&storage.get_store(Temperature::Hot), 10000)?;
         }
 
-        snapshot.remove();
+        snapshot.remove()?;
         Ok(())
     }
 
