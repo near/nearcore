@@ -94,6 +94,10 @@ impl AllEpochConfig {
         Self { use_production_config, genesis_epoch_config }
     }
 
+    pub fn for_genesis(&self) -> &EpochConfig {
+        &self.genesis_epoch_config
+    }
+
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
         // if SimpleNightshade is enabled, we override genesis shard config with
         // the simple nightshade shard config

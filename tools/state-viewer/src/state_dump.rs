@@ -1,5 +1,5 @@
 use borsh::BorshSerialize;
-use near_chain::RuntimeAdapter;
+use near_chain::types::{EpochManagerAdapter, RuntimeAdapter};
 use near_chain_configs::{Genesis, GenesisChangeConfig, GenesisConfig};
 use near_crypto::PublicKey;
 use near_primitives::account::id::AccountId;

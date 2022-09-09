@@ -6,14 +6,16 @@ use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
 use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo};
-use near_chain::{BlockHeader, Doomslug, DoomslugThresholdMode, Error, RuntimeAdapter};
+use near_chain::{Doomslug, DoomslugThresholdMode, Error, RuntimeAdapter};
 use near_chain_configs::{
     Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
     MIN_GC_NUM_EPOCHS_TO_KEEP,
 };
 use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::{PublicKey, Signature};
-use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use near_epoch_manager::{
+    EpochManager, EpochManagerAdapter, EpochManagerHandle, HasEpochMangerHandle,
+};
 use near_o11y::log_assert;
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -21,9 +23,8 @@ use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
-use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
-use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
+use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::errors::{InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -32,21 +33,20 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
-use near_primitives::sharding::ChunkHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
+use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
+    AccountId, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
     EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause,
-    StateChangesForSplitStates, StateRoot, StateRootNode, ValidatorInfoIdentifier,
+    StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
-    AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
-    QueryResponseKind, ViewApplyState, ViewStateResult,
+    AccessKeyInfoView, CallResult, QueryRequest, QueryResponse, QueryResponseKind, ViewApplyState,
+    ViewStateResult,
 };
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
@@ -57,17 +57,15 @@ use near_store::{
 use near_vm_runner::precompile_contract;
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::config::RuntimeConfig;
-use node_runtime::near_primitives::shard_layout::ShardLayoutError;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
     ValidatorAccountsUpdate,
 };
-use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
@@ -655,7 +653,15 @@ pub fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &Shard
     account_id_to_shard_id(state_record_to_account_id(state_record), shard_layout)
 }
 
-impl EpochManagerAdapter for NightshadeRuntime {}
+impl HasEpochMangerHandle for NightshadeRuntime {
+    fn write(&self) -> RwLockWriteGuard<EpochManager> {
+        self.epoch_manager.write()
+    }
+
+    fn read(&self) -> RwLockReadGuard<EpochManager> {
+        self.epoch_manager.read()
+    }
+}
 
 impl RuntimeAdapter for NightshadeRuntime {
     fn genesis_state(&self) -> (Store, Vec<StateRoot>) {
@@ -690,27 +696,6 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<Trie, Error> {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
         Ok(self.tries.get_view_trie_for_shard(shard_uid, state_root))
-    }
-
-    fn verify_block_vrf(
-        &self,
-        epoch_id: &EpochId,
-        block_height: BlockHeight,
-        prev_random_value: &CryptoHash,
-        vrf_value: &near_crypto::vrf::Value,
-        vrf_proof: &near_crypto::vrf::Proof,
-    ) -> Result<(), Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let validator = epoch_manager.get_block_producer_info(epoch_id, block_height)?;
-        let public_key = near_crypto::key_conversion::convert_public_key(
-            validator.public_key().unwrap_as_ed25519(),
-        )
-        .unwrap();
-
-        if !public_key.is_vrf_valid(&prev_random_value.as_ref(), vrf_value, vrf_proof) {
-            return Err(Error::InvalidRandomnessBeaconOutput);
-        }
-        Ok(())
     }
 
     fn validate_tx(
@@ -845,83 +830,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(transactions)
     }
 
-    fn verify_validator_signature(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-        data: &[u8],
-        signature: &Signature,
-    ) -> Result<bool, Error> {
-        let (validator, is_slashed) =
-            self.get_validator_by_account_id(epoch_id, last_known_block_hash, account_id)?;
-        if is_slashed {
-            return Ok(false);
-        }
-        Ok(signature.verify(data, validator.public_key()))
-    }
-
-    fn verify_validator_or_fisherman_signature(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-        data: &[u8],
-        signature: &Signature,
-    ) -> Result<bool, Error> {
-        match self.verify_validator_signature(
-            epoch_id,
-            last_known_block_hash,
-            account_id,
-            data,
-            signature,
-        ) {
-            Err(Error::NotAValidator) => {
-                let (fisherman, is_slashed) =
-                    self.get_fisherman_by_account_id(epoch_id, last_known_block_hash, account_id)?;
-                if is_slashed {
-                    return Ok(false);
-                }
-                Ok(signature.verify(data, fisherman.public_key()))
-            }
-            other => other,
-        }
-    }
-
-    fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let block_producer =
-            epoch_manager.get_block_producer_info(header.epoch_id(), header.height())?;
-        match epoch_manager.get_block_info(header.prev_hash()) {
-            Ok(block_info) => {
-                if block_info.slashed().contains_key(block_producer.account_id()) {
-                    return Ok(false);
-                }
-                Ok(header.signature().verify(header.hash().as_ref(), block_producer.public_key()))
-            }
-            Err(_) => return Err(EpochError::MissingBlock(*header.prev_hash()).into()),
-        }
-    }
-
-    fn verify_chunk_signature_with_header_parts(
-        &self,
-        chunk_hash: &ChunkHash,
-        signature: &Signature,
-        epoch_id: &EpochId,
-        last_known_hash: &CryptoHash,
-        height_created: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<bool, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let chunk_producer =
-            epoch_manager.get_chunk_producer_info(epoch_id, height_created, shard_id)?;
-        let block_info = epoch_manager.get_block_info(last_known_hash)?;
-        if block_info.slashed().contains_key(chunk_producer.account_id()) {
-            return Ok(false);
-        }
-        Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
-    }
-
+    // TODO: change API to not depend on doomslug (pass `can_approved_block_be_produced` as a closure)
     fn verify_approvals_and_threshold_orphan(
         &self,
         epoch_id: &EpochId,
@@ -932,7 +841,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         approvals: &[Option<Signature>],
     ) -> Result<(), Error> {
         let info = {
-            let epoch_manager = self.epoch_manager.read();
+            let epoch_manager = self.read();
             epoch_manager.get_heuristic_block_approvers_ordered(epoch_id).map_err(Error::from)?
         };
 
@@ -963,360 +872,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn verify_approval(
-        &self,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Signature>],
-    ) -> Result<bool, Error> {
-        let info = {
-            let epoch_manager = self.epoch_manager.read();
-            epoch_manager.get_all_block_approvers_ordered(prev_block_hash).map_err(Error::from)?
-        };
-        if approvals.len() > info.len() {
-            return Ok(false);
-        }
-
-        let message_to_sign = Approval::get_data_for_sig(
-            &if prev_block_height + 1 == block_height {
-                ApprovalInner::Endorsement(*prev_block_hash)
-            } else {
-                ApprovalInner::Skip(prev_block_height)
-            },
-            block_height,
-        );
-
-        for ((validator, is_slashed), may_be_signature) in info.into_iter().zip(approvals.iter()) {
-            if let Some(signature) = may_be_signature {
-                if is_slashed || !signature.verify(message_to_sign.as_ref(), &validator.public_key)
-                {
-                    return Ok(false);
-                }
-            }
-        }
-        Ok(true)
-    }
-
-    fn get_epoch_block_producers_ordered(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_all_block_producers_ordered(epoch_id, last_known_block_hash)?.to_vec())
-    }
-
-    fn get_epoch_block_approvers_ordered(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<Vec<(ApprovalStake, bool)>, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_all_block_approvers_ordered(parent_hash).map_err(Error::from)
-    }
-    fn get_epoch_chunk_producers(&self, epoch_id: &EpochId) -> Result<Vec<ValidatorStake>, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_all_chunk_producers(epoch_id)?.to_vec())
-    }
-
-    fn get_block_producer(
-        &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-    ) -> Result<AccountId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_block_producer_info(epoch_id, height)?.take_account_id())
-    }
-
-    fn get_chunk_producer(
-        &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<AccountId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_chunk_producer_info(epoch_id, height, shard_id)?.take_account_id())
-    }
-
-    fn get_validator_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let validator = epoch_manager.get_validator_by_account_id(epoch_id, account_id)?;
-        let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
-        Ok((validator, block_info.slashed().contains_key(account_id)))
-    }
-
-    fn get_fisherman_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let fisherman = epoch_manager.get_fisherman_by_account_id(epoch_id, account_id)?;
-        let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
-        Ok((fisherman, block_info.slashed().contains_key(account_id)))
-    }
-
-    fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.num_shards())
-    }
-
-    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.clone())
-    }
-
-    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let epoch_config = epoch_manager.get_epoch_config(epoch_id).map_err(Error::from)?;
-        Ok(ShardConfig::new(epoch_config))
-    }
-
-    fn get_prev_shard_ids(
-        &self,
-        prev_hash: &CryptoHash,
-        shard_ids: Vec<ShardId>,
-    ) -> Result<Vec<ShardId>, Error> {
-        if self.is_next_block_epoch_start(prev_hash)? {
-            let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
-            let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(prev_hash)?)?;
-            if prev_shard_layout != shard_layout {
-                return Ok(shard_ids
-                    .into_iter()
-                    .map(|shard_id| {
-                        shard_layout.get_parent_shard_id(shard_id).map(|parent_shard_id|{
-                            assert!(parent_shard_id < prev_shard_layout.num_shards(),
-                                    "invalid shard layout {:?}: parent shard {} does not exist in last shard layout",
-                                    shard_layout,
-                                    parent_shard_id
-                            );
-                            parent_shard_id
-                        })
-                    })
-                    .collect::<Result<_, ShardLayoutError>>()?);
-            }
-        }
-        Ok(shard_ids)
-    }
-
-    fn get_shard_layout_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<ShardLayout, Error> {
-        let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
-        self.get_shard_layout(&epoch_id)
-    }
-
-    fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
-        Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
-    }
-
-    fn num_total_parts(&self) -> usize {
-        let seats = self.genesis_config.num_block_producer_seats;
-        if seats > 1 {
-            seats as usize
-        } else {
-            2
-        }
-    }
-
-    fn num_data_parts(&self) -> usize {
-        let total_parts = self.num_total_parts();
-        if total_parts <= 3 {
-            1
-        } else {
-            (total_parts - 1) / 3
-        }
-    }
-
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
-        Ok(account_id_to_shard_id(account_id, &shard_layout))
-    }
-
-    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
-        let settlement = epoch_info.block_producers_settlement();
-        let validator_id = settlement[part_id as usize % settlement.len()];
-        Ok(epoch_info.get_validator(validator_id).account_id().clone())
-    }
-
-    fn cares_about_shard(
-        &self,
-        account_id: Option<&AccountId>,
-        parent_hash: &CryptoHash,
-        shard_id: ShardId,
-        is_me: bool,
-    ) -> bool {
-        self.shard_tracker.care_about_shard(account_id, parent_hash, shard_id, is_me)
-    }
-
-    fn will_care_about_shard(
-        &self,
-        account_id: Option<&AccountId>,
-        parent_hash: &CryptoHash,
-        shard_id: ShardId,
-        is_me: bool,
-    ) -> bool {
-        self.shard_tracker.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
-    }
-
-    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.is_next_block_epoch_start(parent_hash).map_err(Error::from)
-    }
-
-    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
-    }
-
-    fn get_next_epoch_id_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<EpochId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
-    }
-
-    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_epoch_start_height(block_hash).map_err(Error::from)
-    }
-
-    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
-        (|| -> Result<BlockHeight, Error> {
-            let epoch_manager = self.epoch_manager.read();
-            // an epoch must have a first block.
-            let epoch_first_block = *epoch_manager.get_block_info(block_hash)?.epoch_first_block();
-            let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
-            // maintain pointers to avoid cloning.
-            let mut last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
-            let mut epoch_start_height = epoch_first_block_info.height();
-            for _ in 0..self.gc_num_epochs_to_keep - 1 {
-                let epoch_first_block =
-                    *epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block();
-                let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
-                epoch_start_height = epoch_first_block_info.height();
-                last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
-            }
-            Ok(epoch_start_height)
-        }())
-        .unwrap_or(self.genesis_config.genesis_height)
-    }
-
-    fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_epoch_info(epoch_id).is_ok()
-    }
-
-    fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount())
-    }
-
-    // TODO #3488 this likely to be updated
-    fn get_epoch_sync_data_hash(
-        &self,
-        prev_epoch_last_block_hash: &CryptoHash,
-        epoch_id: &EpochId,
-        next_epoch_id: &EpochId,
-    ) -> Result<CryptoHash, Error> {
-        let (
-            prev_epoch_first_block_info,
-            prev_epoch_prev_last_block_info,
-            prev_epoch_last_block_info,
-            prev_epoch_info,
-            cur_epoch_info,
-            next_epoch_info,
-        ) = self.get_epoch_sync_data(prev_epoch_last_block_hash, epoch_id, next_epoch_id)?;
-        let mut data = prev_epoch_first_block_info.try_to_vec().unwrap();
-        data.extend(prev_epoch_prev_last_block_info.try_to_vec().unwrap());
-        data.extend(prev_epoch_last_block_info.try_to_vec().unwrap());
-        data.extend(prev_epoch_info.try_to_vec().unwrap());
-        data.extend(cur_epoch_info.try_to_vec().unwrap());
-        data.extend(next_epoch_info.try_to_vec().unwrap());
-        Ok(hash(data.as_slice()))
-    }
-
-    // TODO #3488 this likely to be updated
-    fn get_epoch_sync_data(
-        &self,
-        prev_epoch_last_block_hash: &CryptoHash,
-        epoch_id: &EpochId,
-        next_epoch_id: &EpochId,
-    ) -> Result<
-        (
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<BlockInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-            Arc<EpochInfo>,
-        ),
-        Error,
-    > {
-        let epoch_manager = self.epoch_manager.read();
-        let last_block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?;
-        let prev_epoch_id = last_block_info.epoch_id().clone();
-        Ok((
-            epoch_manager.get_block_info(last_block_info.epoch_first_block())?,
-            epoch_manager.get_block_info(last_block_info.prev_hash())?,
-            last_block_info,
-            epoch_manager.get_epoch_info(&prev_epoch_id)?,
-            epoch_manager.get_epoch_info(epoch_id)?,
-            epoch_manager.get_epoch_info(next_epoch_id)?,
-        ))
-    }
-
-    fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version())
-    }
-
-    fn epoch_sync_init_epoch_manager(
-        &self,
-        prev_epoch_first_block_info: BlockInfo,
-        prev_epoch_prev_last_block_info: BlockInfo,
-        prev_epoch_last_block_info: BlockInfo,
-        prev_epoch_id: &EpochId,
-        prev_epoch_info: EpochInfo,
-        epoch_id: &EpochId,
-        epoch_info: EpochInfo,
-        next_epoch_id: &EpochId,
-        next_epoch_info: EpochInfo,
-    ) -> Result<(), Error> {
-        let mut epoch_manager = self.epoch_manager.write();
-        epoch_manager
-            .init_after_epoch_sync(
-                prev_epoch_first_block_info,
-                prev_epoch_prev_last_block_info,
-                prev_epoch_last_block_info,
-                prev_epoch_id,
-                prev_epoch_info,
-                epoch_id,
-                epoch_info,
-                next_epoch_id,
-                next_epoch_info,
-            )?
-            .commit()
-            .map_err(|err| err.into())
-    }
-
+    /// TODO: unsplit block header info and block info
     fn add_validator_proposals(
         &self,
         block_header_info: BlockHeaderInfo,
@@ -1580,16 +1136,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    /// WARNING: this function calls EpochManager::get_epoch_info_aggregator_upto_last
-    /// underneath which can be very expensive.
-    fn get_validator_info(
-        &self,
-        epoch_id: ValidatorInfoIdentifier,
-    ) -> Result<EpochValidatorInfo, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_validator_info(epoch_id).map_err(|e| e.into())
-    }
-
     /// Returns StorageError when storage is inconsistent.
     /// This is possible with the used isolation level + running ViewClient in a separate thread
     /// `block_hash` is a block whose `prev_state_root` is `state_root`
@@ -1768,38 +1314,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn compare_epoch_id(
-        &self,
-        epoch_id: &EpochId,
-        other_epoch_id: &EpochId,
-    ) -> Result<Ordering, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.compare_epoch_id(epoch_id, other_epoch_id).map_err(|e| e.into())
-    }
-
-    fn chunk_needs_to_be_fetched_from_archival(
-        &self,
-        chunk_prev_block_hash: &CryptoHash,
-        header_head: &CryptoHash,
-    ) -> Result<bool, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let head_epoch_id = epoch_manager.get_epoch_id(header_head)?;
-        let head_next_epoch_id = epoch_manager.get_next_epoch_id(header_head)?;
-        let chunk_epoch_id = epoch_manager.get_epoch_id_from_prev_block(chunk_prev_block_hash)?;
-        let chunk_next_epoch_id =
-            epoch_manager.get_next_epoch_id_from_prev_block(chunk_prev_block_hash)?;
-
-        // `chunk_epoch_id != head_epoch_id && chunk_next_epoch_id != head_epoch_id` covers the
-        // common case: the chunk is in the current epoch, or in the previous epoch, relative to the
-        // header head. The third condition (`chunk_epoch_id != head_next_epoch_id`) covers a
-        // corner case, in which the `header_head` is the last block of an epoch, and the chunk is
-        // for the next block. In this case the `chunk_epoch_id` will be one epoch ahead of the
-        // `header_head`.
-        Ok(chunk_epoch_id != head_epoch_id
-            && chunk_next_epoch_id != head_epoch_id
-            && chunk_epoch_id != head_next_epoch_id)
-    }
-
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let mut genesis_config = self.genesis_config.clone();
@@ -1818,38 +1332,48 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(ProtocolConfig { genesis_config, runtime_config })
     }
 
-    fn get_prev_epoch_id_from_prev_block(
+    // TODO: move shard tracked to EM
+    fn cares_about_shard(
         &self,
-        prev_block_hash: &CryptoHash,
-    ) -> Result<EpochId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
-            epoch_manager.get_epoch_id(prev_block_hash).map_err(Error::from)
-        } else {
-            epoch_manager.get_prev_epoch_id(prev_block_hash).map_err(Error::from)
-        }
+        account_id: Option<&AccountId>,
+        parent_hash: &CryptoHash,
+        shard_id: ShardId,
+        is_me: bool,
+    ) -> bool {
+        self.shard_tracker.care_about_shard(account_id, parent_hash, shard_id, is_me)
     }
 
-    fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
+    // TODO: move shard tracked to EM
+    fn will_care_about_shard(
+        &self,
+        account_id: Option<&AccountId>,
+        parent_hash: &CryptoHash,
+        shard_id: ShardId,
+        is_me: bool,
+    ) -> bool {
+        self.shard_tracker.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
     }
 
-    fn get_epoch_height_from_prev_block(
-        &self,
-        prev_block_hash: &CryptoHash,
-    ) -> Result<EpochHeight, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
-        epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height()).map_err(Error::from)
-    }
-
-    fn get_protocol_upgrade_block_height(
-        &self,
-        block_hash: CryptoHash,
-    ) -> Result<Option<BlockHeight>, EpochError> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_protocol_upgrade_block_height(block_hash)
+    // TODO: move `gc_num_epochs_to_keep` config to EM.
+    fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
+        (|| -> Result<BlockHeight, Error> {
+            let epoch_manager = self.epoch_manager.read();
+            // an epoch must have a first block.
+            let epoch_first_block = *epoch_manager.get_block_info(block_hash)?.epoch_first_block();
+            let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
+            // maintain pointers to avoid cloning.
+            let mut last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
+            let mut epoch_start_height = epoch_first_block_info.height();
+            for _ in 0..self.gc_num_epochs_to_keep - 1 {
+                let epoch_first_block =
+                    *epoch_manager.get_block_info(&last_block_in_prev_epoch)?.epoch_first_block();
+                let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
+                epoch_start_height = epoch_first_block_info.height();
+                last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
+            }
+            Ok(epoch_start_height)
+        }())
+        .unwrap_or(self.genesis_config.genesis_height)
     }
 }
 

@@ -3017,6 +3017,7 @@ dependencies = [
  "chrono",
  "near-cache",
  "near-chain-configs",
+ "near-chain-primitives",
  "near-crypto",
  "near-primitives",
  "near-store",
