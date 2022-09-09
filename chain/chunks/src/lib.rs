@@ -797,7 +797,11 @@ impl ShardsManager {
                 return;
             }
         } else {
-            debug_assert!(false, "Requested chunk is missing cache entry");
+            // In all code paths that lead to this function, we have already inserted the header.
+            // However, if the chunk had just been processed and marked as complete, it might have
+            // been removed from the cache if it is out of horizon. So in this case, the chunk is
+            // already complete and we don't need to request anything.
+            return;
         }
 
         let prev_block_hash = chunk_header.prev_block_hash().clone();
