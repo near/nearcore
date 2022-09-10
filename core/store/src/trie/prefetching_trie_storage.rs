@@ -119,70 +119,60 @@ impl TrieStorage for TriePrefetchingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         // Try to get value from shard cache containing most recently touched nodes.
         let mut shard_cache_guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
-        let maybe_val = { shard_cache_guard.get(hash) };
+        if let Some(val) = shard_cache_guard.get(hash) {
+            return Ok(val);
+        }
 
-        match maybe_val {
-            Some(val) => Ok(val),
-            None => {
-                // If data is already being prefetched, wait for that instead of sending a new request.
-                let prefetch_state = PrefetchStagingArea::get_and_set_if_empty(
-                    &self.prefetching,
-                    hash.clone(),
-                    PrefetchSlot::PendingPrefetch,
-                );
-                // Keep lock until here to avoid race condition between shard cache insertion and reserving prefetch slot.
-                std::mem::drop(shard_cache_guard);
+        // If data is already being prefetched, wait for that instead of sending a new request.
+        let prefetch_state = PrefetchStagingArea::get_and_set_if_empty(
+            &self.prefetching,
+            hash.clone(),
+            PrefetchSlot::PendingPrefetch,
+        );
+        // Keep lock until here to avoid race condition between shard cache insertion and reserving prefetch slot.
+        std::mem::drop(shard_cache_guard);
 
-                match prefetch_state {
-                    PrefetcherResult::SlotReserved => {
-                        let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
-                            self.shard_uid,
-                            hash,
-                        );
-                        let value: Arc<[u8]> = self
-                            .store
-                            .get(DBCol::State, key.as_ref())
-                            .map_err(|_| StorageError::StorageInternalError)?
-                            .ok_or_else(|| {
-                                StorageError::StorageInconsistentState(
-                                    "Trie node missing".to_string(),
-                                )
-                            })?
-                            .into();
+        match prefetch_state {
+            PrefetcherResult::SlotReserved => {
+                let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
+                let value: Arc<[u8]> = self
+                    .store
+                    .get(DBCol::State, key.as_ref())
+                    .map_err(|_| StorageError::StorageInternalError)?
+                    .ok_or_else(|| {
+                        StorageError::StorageInconsistentState("Trie node missing".to_string())
+                    })?
+                    .into();
 
-                        self.prefetching.insert_fetched(hash.clone(), value.clone());
-                        Ok(value)
-                    }
-                    PrefetcherResult::Prefetched(value) => Ok(value),
-                    PrefetcherResult::Pending => {
-                        // yield once before calling `block_get` that will check for data to be present again.
-                        std::thread::yield_now();
-                        self.prefetching
-                            .blocking_get(hash.clone())
-                            .or_else(|| {
-                                // `blocking_get` will return None if the prefetch slot has been removed
-                                // by the main thread and the value inserted into the shard cache.
-                                let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
-                                guard.get(hash)
-                            })
-                            .ok_or_else(|| {
-                                // This could only happen if this thread started prefetching a value
-                                // while also another thread was already prefetching it. Then the other
-                                // other thread finished, the main thread takes it out, and moves it to
-                                // the shard cache. And then this current thread gets delayed for long
-                                // enough that the value gets evicted from the shard cache again before
-                                // this thread has a change to read it.
-                                // In this rare occasion, we shall abort the current prefetch request and
-                                // move on to the next.
-                                StorageError::StorageInconsistentState(
-                                    "Prefetcher failed".to_owned(),
-                                )
-                            })
-                    }
-                    PrefetcherResult::MemoryLimitReached => {
-                        Err(StorageError::StorageInconsistentState("Prefetcher failed".to_owned()))
-                    }
-                }
+                self.prefetching.insert_fetched(hash.clone(), value.clone());
+                Ok(value)
+            }
+            PrefetcherResult::Prefetched(value) => Ok(value),
+            PrefetcherResult::Pending => {
+                // yield once before calling `block_get` that will check for data to be present again.
+                std::thread::yield_now();
+                self.prefetching
+                    .blocking_get(hash.clone())
+                    .or_else(|| {
+                        // `blocking_get` will return None if the prefetch slot has been removed
+                        // by the main thread and the value inserted into the shard cache.
+                        let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
+                        guard.get(hash)
+                    })
+                    .ok_or_else(|| {
+                        // This could only happen if this thread started prefetching a value
+                        // while also another thread was already prefetching it. Then the other
+                        // other thread finished, the main thread takes it out, and moves it to
+                        // the shard cache. And then this current thread gets delayed for long
+                        // enough that the value gets evicted from the shard cache again before
+                        // this thread has a change to read it.
+                        // In this rare occasion, we shall abort the current prefetch request and
+                        // move on to the next.
+                        StorageError::StorageInconsistentState("Prefetcher failed".to_owned())
+                    })
+            }
+            PrefetcherResult::MemoryLimitReached => {
+                Err(StorageError::StorageInconsistentState("Prefetcher failed".to_owned()))
             }
         }
     }
