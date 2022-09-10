@@ -50,7 +50,7 @@ use tracing::debug;
 
 /// How many threads will be prefetching data, without the scheduler thread.
 /// Because the storage driver is blocking, there is only one request per thread
-/// at the time.
+/// at a time.
 const NUM_IO_THREADS: usize = 8;
 
 /// Transaction runtime view of the prefetching subsystem.
