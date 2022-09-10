@@ -267,13 +267,7 @@ impl PrefetchStagingArea {
         set_if_empty: PrefetchSlot,
     ) -> PrefetcherResult {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
-        let full = match guard.size_bytes.checked_add(PREFETCH_RESERVED_BYTES_PER_SLOT) {
-            Some(size_after) => size_after > MAX_PREFETCH_STAGING_MEMORY,
-            None => true,
-        };
-        if full {
-            return PrefetcherResult::MemoryLimitReached;
-        }
+        let size_bytes = guard.size_bytes;
         match guard.slots.entry(key) {
             Entry::Occupied(entry) => match entry.get() {
                 PrefetchSlot::Done(value) => PrefetcherResult::Prefetched(value.clone()),
@@ -282,6 +276,11 @@ impl PrefetchStagingArea {
                 }
             },
             Entry::Vacant(entry) => {
+                let full =
+                    size_bytes > MAX_PREFETCH_STAGING_MEMORY - PREFETCH_RESERVED_BYTES_PER_SLOT;
+                if full {
+                    return PrefetcherResult::MemoryLimitReached;
+                }
                 entry.insert(set_if_empty);
                 guard.size_bytes += PREFETCH_RESERVED_BYTES_PER_SLOT;
                 PrefetcherResult::SlotReserved
