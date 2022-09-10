@@ -129,7 +129,7 @@ impl TriePrefetcher {
     }
 
     fn prefetch_trie_key(&self, trie_key: TrieKey) -> Result<(), ()> {
-        let queue_full = self.prefetch_api.prefetch_trie_key(trie_key).is_some();
+        let queue_full = self.prefetch_api.prefetch_trie_key(trie_key).is_err();
         if queue_full {
             debug!(target: "prefetcher", "I/O scheduler input queue full, dropping prefetch request");
             Err(())

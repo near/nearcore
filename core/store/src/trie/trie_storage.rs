@@ -357,7 +357,7 @@ pub struct TrieCachingStorage {
     /// Prefetching IO threads will insert fetched data here. This is also used
     /// to mark what is already being fetched, to avoid fetching the same data
     /// multiple times.
-    pub(crate) prefetching: Arc<Mutex<PrefetchStagingArea>>,
+    pub(crate) prefetching: PrefetchStagingArea,
 
     /// Counts potentially expensive trie node reads which are served from disk in the worst case. Here we count reads
     /// from DB or shard cache.
@@ -475,8 +475,7 @@ impl TrieStorage for TrieCachingStorage {
                 self.metrics.shard_cache_misses.inc();
                 near_o11y::io_trace!(count: "shard_cache_miss");
                 // If data is already being prefetched, wait for that instead of sending a new request.
-                let prefetch_state =
-                    PrefetchStagingArea::get_or_set_fetching(&self.prefetching, hash.clone());
+                let prefetch_state = self.prefetching.get_or_set_fetching(hash.clone());
                 // Keep lock until here to avoid race condition between shard cache lookup and reserving prefetch slot.
                 std::mem::drop(guard);
 
@@ -493,7 +492,7 @@ impl TrieStorage for TrieCachingStorage {
                         std::thread::yield_now();
                         // Unwrap: Only main thread  (this one) removes values from staging area,
                         // therefore blocking read will not return empty.
-                        PrefetchStagingArea::blocking_get(&self.prefetching, hash.clone()).unwrap()
+                        self.prefetching.blocking_get(hash.clone()).unwrap()
                     }
                 };
 
@@ -510,7 +509,7 @@ impl TrieStorage for TrieCachingStorage {
                 }
 
                 // Only release after insertion in shard cache. See comment on fn release.
-                self.prefetching.lock().expect(POISONED_LOCK_ERR).release(hash);
+                self.prefetching.release(hash);
 
                 val
             }
