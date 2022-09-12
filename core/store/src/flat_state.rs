@@ -198,7 +198,7 @@ mod imp {
     }
 }
 
-use crate::{CryptoHash, DBCol, StoreUpdate};
+use crate::{CryptoHash, StoreUpdate};
 pub use imp::FlatState;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
@@ -248,19 +248,22 @@ impl FlatStateDelta {
     }
 
     /// Applies delta to the flat state.
+    #[cfg(feature = "protocol_feature_flat_state")]
     pub fn apply_to_flat_state(self, store_update: &mut StoreUpdate) {
-        #[cfg(feature = "protocol_feature_flat_state")]
         for (key, value) in self.0.into_iter() {
             match value {
                 Some(value) => {
                     store_update
-                        .set_ser(DBCol::FlatState, &key, &value)
+                        .set_ser(crate::DBCol::FlatState, &key, &value)
                         .expect("Borsh cannot fail");
                 }
                 None => {
-                    store_update.delete(DBCol::FlatState, &key);
+                    store_update.delete(crate::DBCol::FlatState, &key);
                 }
             }
         }
     }
+
+    #[cfg(not(feature = "protocol_feature_flat_state"))]
+    pub fn apply_to_flat_state(self, _store_update: &mut StoreUpdate) {}
 }
