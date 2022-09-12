@@ -290,7 +290,10 @@ impl WrappedTrieChanges {
 
     pub fn flat_state_delta(&self) -> (KeyForFlatStateDelta, FlatStateDelta) {
         (
-            KeyForFlatStateDelta { shard_uid: self.shard_uid, block_hash: self.block_hash.clone() },
+            KeyForFlatStateDelta {
+                shard_id: self.shard_uid.shard_id(),
+                block_hash: self.block_hash.clone(),
+            },
             FlatStateDelta::from_state_changes(&self.state_changes),
         )
     }

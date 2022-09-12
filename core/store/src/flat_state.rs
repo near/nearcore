@@ -18,8 +18,8 @@ mod imp {
     use near_primitives::block_header::BlockHeader;
     use near_primitives::errors::StorageError;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::shard_layout::ShardUId;
     use near_primitives::state::ValueRef;
+    use near_primitives::types::ShardId;
 
     use crate::flat_state::KeyForFlatStateDelta;
     use crate::{DBCol, FlatStateDelta, Store, StoreUpdate};
@@ -39,7 +39,7 @@ mod imp {
         /// flat_storage_state.head, except for delayed receipt keys.
         store: Store,
         /// Id of the shard which state is accessed by this object.
-        shard_uid: ShardUId,
+        shard_id: ShardId,
         /// The block for which key-value pairs of its state. Note that it is not necessarily
         /// the latest block.
         head: CryptoHash,
@@ -52,22 +52,22 @@ mod imp {
         /// not enabled.  Otherwise, returns a new [`FlatState`] object backed by
         /// specified storage.
         pub fn maybe_new(
-            shard_uid: ShardUId,
+            shard_id: ShardId,
             prev_block_hash: &CryptoHash,
             store: &Store,
         ) -> Option<FlatState> {
-            Some(FlatState { store: store.clone(), shard_uid, head: prev_block_hash.clone() })
+            Some(FlatState { store: store.clone(), shard_id, head: prev_block_hash.clone() })
         }
 
         /// Update the tail of the flat storage. Return a StoreUpdate for the disk update.
         pub fn update_tail(
-            shard_uid: ShardUId,
+            shard_id: ShardId,
             block_hash: &CryptoHash,
             store: &Store,
         ) -> StoreUpdate {
             let mut store_update = StoreUpdate::new(store.storage.clone());
             store_update
-                .set_ser(DBCol::FlatStateMisc, &shard_uid.try_to_vec().unwrap(), block_hash)
+                .set_ser(DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap(), block_hash)
                 .expect("Borsh cannot fail");
             store_update
         }
@@ -79,7 +79,7 @@ mod imp {
             let target_block_hash = self.head;
             let flat_state_tail: CryptoHash = self
                 .store
-                .get_ser(DBCol::FlatStateMisc, &self.shard_uid.try_to_vec().unwrap())
+                .get_ser(DBCol::FlatStateMisc, &self.shard_id.try_to_vec().unwrap())
                 .map_err(|_| StorageError::StorageInternalError)?
                 .expect("Borsh cannot fail");
 
@@ -100,7 +100,7 @@ mod imp {
                     found_final_block = true;
                 }
 
-                let key = KeyForFlatStateDelta { shard_uid: self.shard_uid, block_hash };
+                let key = KeyForFlatStateDelta { shard_id: self.shard_id, block_hash };
                 let delta: Option<FlatStateDelta> = self
                     .store
                     .get_ser(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap())
@@ -130,7 +130,7 @@ mod imp {
                     delta.apply_to_flat_state(&mut store_update);
                 }
                 store_update.merge(FlatState::update_tail(
-                    self.shard_uid,
+                    self.shard_id,
                     &final_block_hash,
                     &self.store,
                 ));
@@ -172,7 +172,6 @@ mod imp {
 mod imp {
     use crate::{Store, StoreUpdate};
     use near_primitives::hash::CryptoHash;
-    use near_primitives::shard_layout::ShardUId;
 
     /// Since this has no variants it can never be instantiated.
     ///
@@ -184,7 +183,7 @@ mod imp {
         /// Always returns `None`; to use of flat state enable `protocol_feature_flat_state` cargo feature.
         #[inline]
         pub fn maybe_new(
-            _shard_uid: ShardUId,
+            _shard_id: ShardId,
             _prev_block_hash: &CryptoHash,
             _store: &Store,
         ) -> Option<FlatState> {
@@ -192,7 +191,7 @@ mod imp {
         }
 
         pub fn update_tail(
-            _shard_uid: ShardUId,
+            _shard_id: ShardId,
             _block_hash: &CryptoHash,
             store: &Store,
         ) -> StoreUpdate {
@@ -207,14 +206,13 @@ mod imp {
 
 use crate::{CryptoHash, StoreUpdate};
 pub use imp::FlatState;
-use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
-use near_primitives::types::RawStateChangesWithTrieKey;
+use near_primitives::types::{RawStateChangesWithTrieKey, ShardId};
 use std::collections::HashMap;
 
 #[derive(BorshSerialize, BorshDeserialize)]
 pub struct KeyForFlatStateDelta {
-    pub shard_uid: ShardUId,
+    pub shard_id: ShardId,
     pub block_hash: CryptoHash,
 }
 

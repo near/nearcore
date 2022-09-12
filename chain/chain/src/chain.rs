@@ -607,7 +607,7 @@ impl Chain {
                 store_update.save_final_head(&header_head)?;
                 for shard_id in 0..runtime_adapter.num_shards(&EpochId::default()).unwrap() {
                     store_update.merge(FlatState::update_tail(
-                        runtime_adapter.shard_id_to_uid(shard_id, &EpochId::default()).unwrap(),
+                        shard_id,
                         &block_head.last_block_hash,
                         &store_update.store(),
                     ));
