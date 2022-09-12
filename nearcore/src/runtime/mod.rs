@@ -48,6 +48,7 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
     QueryResponseKind, ViewApplyState, ViewStateResult,
 };
+use near_store::flat_state::FlatState;
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
@@ -677,7 +678,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: StateRoot,
     ) -> Result<Trie, Error> {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
-        let flat_state = near_store::flat_state::maybe_new(true, shard_uid, prev_hash, &self.store);
+        let flat_state = FlatState::maybe_new(shard_uid, prev_hash, &self.store);
         Ok(self.tries.get_trie_with_flat_state_for_shard(shard_uid, state_root, flat_state))
     }
 
