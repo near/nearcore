@@ -197,10 +197,7 @@ pub struct TrieUpdateIterator<'a> {
 
 impl<'a> TrieUpdateIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
-    pub fn new(
-        state_update: &'a TrieUpdate,
-        prefix: &[u8],
-    ) -> Result<Self, StorageError> {
+    pub fn new(state_update: &'a TrieUpdate, prefix: &[u8]) -> Result<Self, StorageError> {
         let mut trie_iter = state_update.trie.iter()?;
         trie_iter.seek_prefix(prefix)?;
         let prefix = prefix.to_vec();
@@ -227,11 +224,7 @@ impl<'a> TrieUpdateIterator<'a> {
             right: (Box::new(prospective_iter) as Box<dyn Iterator<Item = _>>).peekable(),
         }
         .peekable();
-        Ok(TrieUpdateIterator {
-            prefix,
-            trie_iter: trie_iter.peekable(),
-            overlay_iter,
-        })
+        Ok(TrieUpdateIterator { prefix, trie_iter: trie_iter.peekable(), overlay_iter })
     }
 }
 
