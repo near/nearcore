@@ -1,6 +1,6 @@
 //! Contains flat state optimization logic.
 //!
-//! The state of the contract is a key-value map, `Map<Vec<u8>, Vec<u8>>`.
+//! The state of chain is a key-value map, `Map<Vec<u8>, Vec<u8>>`.
 //! In the database, we store this map as a trie, which allows us to construct succinct proofs that a certain key/value
 //! belongs to contract's state. Using a trie has a drawback -- reading a single key/value requires traversing the trie
 //! from the root, loading many nodes from the database.
@@ -27,10 +27,10 @@ mod imp {
     /// Struct for getting value references from the flat storage.
     ///
     /// Used to speed up `get` and `get_ref` trie methods.  It should store all
-    /// trie keys for state on top of chain head, except delayed receipt keys,
-    /// because they are the same for each shard and they are requested only
-    /// once during applying chunk.
-    // TODO (#7327): lock flat state when `get_ref` is called or tail is being updated. Otherwise, `apply_chunks` and
+    /// trie keys for state corresponding to stored `block_hash`, except delayed
+    /// receipt keys, because they are the same for each shard and they are
+    /// requested only once during applying chunk.
+    // TODO (#7327): lock flat state when `get_ref` is called or head is being updated. Otherwise, `apply_chunks` and
     // `postprocess_block` parallel execution may corrupt the state.
     #[derive(Clone)]
     pub struct FlatState {
@@ -58,8 +58,8 @@ mod imp {
             Some(FlatState { store: store.clone(), shard_id, block_hash: block_hash.clone() })
         }
 
-        /// Update the tail of the flat storage. Return a StoreUpdate for the disk update.
-        pub fn update_tail(
+        /// Update the head of the flat storage. Return a StoreUpdate for the disk update.
+        pub fn update_head(
             shard_id: ShardId,
             block_hash: &CryptoHash,
             store: &Store,
@@ -71,9 +71,11 @@ mod imp {
             store_update
         }
 
-        /// Get deltas for blocks between flat state tail and current head.
-        /// If sequence of deltas contains final block, tail is moved to this tail and all deltas until the tail are
-        /// applied.
+        /// Get deltas for blocks between flat state head and `FlatState::block_hash`.
+        /// If sequence of deltas contains final block, head is moved to this block and all deltas until new head are
+        /// applied to flat state.
+        // TODO (#7327): move updating flat state head to block postprocessing.
+        // TODO (#7327): cache deltas to speed up multiple DB reads.
         fn get_deltas_between_blocks(&self) -> Result<Vec<FlatStateDelta>, StorageError> {
             let flat_state_head: CryptoHash = self
                 .store
@@ -127,7 +129,7 @@ mod imp {
                 for delta in deltas_to_apply.drain(..).rev() {
                     delta.apply_to_flat_state(&mut store_update);
                 }
-                store_update.merge(FlatState::update_tail(
+                store_update.merge(FlatState::update_head(
                     self.shard_id,
                     &final_block_hash,
                     &self.store,
@@ -138,12 +140,11 @@ mod imp {
         }
 
         /// Returns value reference using raw trie key, taken from the state
-        /// corresponding to block `FlatState::prev_block_hash`.
+        /// corresponding to `FlatState::block_hash`.
         ///
         /// To avoid duplication, we don't store values themselves in flat state,
         /// they are stored in `DBCol::State`. Also the separation is done so we
         /// could charge users for the value length before loading the value.
-        // TODO (#7327): support different roots (or block hashes).
         pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
             let deltas = self.get_deltas_between_blocks()?;
             for delta in deltas {
@@ -189,7 +190,7 @@ mod imp {
             None
         }
 
-        pub fn update_tail(
+        pub fn update_head(
             _shard_id: ShardId,
             _block_hash: &CryptoHash,
             store: &Store,
