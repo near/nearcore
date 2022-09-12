@@ -42,7 +42,6 @@ use near_store::{
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeAdapter};
 use near_store::db::StoreStatistics;
-use near_store::flat_state::FlatStateDelta;
 use std::sync::Arc;
 
 /// lru cache size

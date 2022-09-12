@@ -78,13 +78,18 @@ mod imp {
                 .get_ser(DBCol::BlockHeader, target_block_hash.as_ref())
                 .map_err(|_| StorageError::StorageInternalError)?
                 .unwrap();
-            let final_block_hash = CryptoHash([3u8; 32]); //block_header.last_final_block().clone();
+            let final_block_hash = block_header.last_final_block().clone();
 
             let mut block_hash = target_block_hash.clone();
             let mut deltas = vec![];
             let mut deltas_to_apply = vec![];
             let mut found_final_block = false;
             while block_hash != flat_state_tail {
+                if block_hash == final_block_hash {
+                    assert!(!found_final_block);
+                    found_final_block = true;
+                }
+
                 let key = KeyForFlatState { shard_uid: self.shard_uid, block_hash };
                 let delta: Option<FlatStateDelta> = self
                     .store
@@ -99,10 +104,6 @@ mod imp {
                         }
                     }
                     None => {}
-                }
-                if block_hash == final_block_hash {
-                    assert!(!found_final_block);
-                    found_final_block = true;
                 }
 
                 let block_header: BlockHeader = self
