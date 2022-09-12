@@ -1,8 +1,13 @@
+use std::{collections::HashMap, io, sync::Arc};
+
 use crate::runtime_utils::{get_runtime_and_trie, get_test_trie_viewer, TEST_SHARD_UID};
 use near_primitives::{
     account::Account,
     hash::hash as sha256,
     hash::CryptoHash,
+    serialize::to_base64,
+    trie_key::trie_key_parsers,
+    types::{AccountId, StateRoot},
     views::{StateItem, ViewApplyState},
 };
 use near_primitives::{
@@ -11,10 +16,86 @@ use near_primitives::{
     types::{EpochId, StateChangeCause},
     version::PROTOCOL_VERSION,
 };
-use near_store::set_account;
+use near_store::{set_account, NibbleSlice, RawTrieNode, RawTrieNodeWithSize};
 use node_runtime::state_viewer::errors;
 use node_runtime::state_viewer::*;
 use testlib::runtime_utils::{alice_account, encode_int};
+
+struct ProofVerifier {
+    nodes: HashMap<CryptoHash, RawTrieNodeWithSize>,
+}
+
+impl ProofVerifier {
+    fn new(proof: Vec<Arc<[u8]>>) -> Result<Self, io::Error> {
+        let nodes = proof
+            .into_iter()
+            .map(|bytes| {
+                let hash = CryptoHash::hash_bytes(&bytes);
+                let node = RawTrieNodeWithSize::decode(&bytes)?;
+                Ok((hash, node))
+            })
+            .collect::<Result<HashMap<_, _>, io::Error>>()?;
+        Ok(Self { nodes })
+    }
+
+    fn verify(
+        &self,
+        state_root: &StateRoot,
+        account_id: &AccountId,
+        key: &[u8],
+        expected: Option<&[u8]>,
+    ) -> bool {
+        let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, key);
+        let mut key = NibbleSlice::new(&query);
+
+        let mut expected_hash = state_root;
+        while let Some(node) = self.nodes.get(expected_hash) {
+            match &node.node {
+                RawTrieNode::Leaf(node_key, value_length, value_hash) => {
+                    let nib = &NibbleSlice::from_encoded(&node_key).0;
+                    return if &key != nib {
+                        return expected.is_none();
+                    } else if let Some(value) = expected {
+                        if *value_length as usize != value.len() {
+                            return false;
+                        }
+                        CryptoHash::hash_bytes(value) == *value_hash
+                    } else {
+                        false
+                    };
+                }
+
+                RawTrieNode::Extension(node_key, child_hash) => {
+                    expected_hash = child_hash;
+
+                    // To avoid unnecessary copy
+                    let nib = NibbleSlice::from_encoded(&node_key).0;
+                    if !key.starts_with(&nib) {
+                        return expected.is_none();
+                    }
+                    key = key.mid(nib.len());
+                }
+                RawTrieNode::Branch(children, value) => {
+                    if key.is_empty() {
+                        return *value
+                            == expected.map(|value| {
+                                (value.len().try_into().unwrap(), CryptoHash::hash_bytes(&value))
+                            });
+                    }
+                    let index = key.at(0);
+                    match &children[index as usize] {
+                        Some(child_hash) => {
+                            key = key.mid(1);
+                            expected_hash = child_hash;
+                        }
+                        None => return expected.is_none(),
+                    }
+                }
+            }
+        }
+        false
+    }
+}
 
 #[test]
 fn test_view_call() {
@@ -103,8 +184,17 @@ fn test_view_call_with_args() {
     assert_eq!(view_call_result.unwrap(), 3u64.to_le_bytes().to_vec());
 }
 
+#[track_caller]
+fn assert_proof(proof: &[Arc<[u8]>], want: &[&'static str]) {
+    let got = proof.iter().map(|bytes| to_base64(bytes)).collect::<Vec<_>>();
+    let got = got.iter().map(String::as_str).collect::<Vec<_>>();
+    assert_eq!(want, &got[..]);
+}
+
 #[test]
 fn test_view_state() {
+    // in order to ensure determinism under all conditions (compiler, build output, etc)
+    // avoid deploying a test contract. See issue #7238
     let (_, tries, root) = get_runtime_and_trie();
     let shard_uid = TEST_SHARD_UID;
     let mut state_update = tries.new_trie_update(shard_uid, root);
@@ -132,7 +222,25 @@ fn test_view_state() {
     let state_update = tries.new_trie_update(shard_uid, new_root);
     let trie_viewer = TrieViewer::default();
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
-    assert_eq!(result.proof, Vec::<String>::new());
+    // The proof isn’t deterministic because the state contains test contracts
+    // which aren’t built hermetically.  Fortunately, only the first two items
+    // in the proof are affected.  First one is the state root which is an
+    // Extension("0x0", child_hash) node and the second one is child hash
+    // pointing to a Branch node which splits into four: 0x0 (accounts), 0x1
+    // (contract code; that’s what’s nondeterministic), 0x2 (access keys) and
+    // 0x9 (contract data; that’s what we care about).
+    assert_proof(&result.proof[2..], &[
+        "AwEAAAAQjHWWT6rXAXqUm14fjfDxo3286ApntHMI1eK0aQAJZPfJewEAAAAAAA==",
+        "AQcCSXBK8DHIYBF47dz6xB2iFKLLsPjAIAo9syJTBC0/Y1OjJNvT5izZukYCmtq/AyVTeyWFl1Ei6yFZBf5yIJ0i96eYRr8PVilJ81MgJKvV/R1SxQuTfwwmbZ6sN/TC2XfL1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rmVewEAAAAAAA==",
+        "AwMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3gwDAAAAAAAA",
+        "ASAC7S1KwgLNl0HPdSo8soL8sGOmPhL7O0xTSR8sDDR5pZrzu0ty3UPYJ5UKrFGKxXoyyyNG75AF9hnJHO3xxFkf5NQCAAAAAAAA",
+        "AwEAAAAW607KPj2q3O8dF6XkfALiIrd9mqGir2UlYIcZuLNksTsvAgAAAAAAAA==",
+        "AQhAP4sMdbiWZPtV6jz8hYKzRFSgwaSlQKiGsQXogAmMcrLOl+SJfiCOXMTEZ2a1ebmQOEGkRYa30FaIlB46sLI2IPsBAAAAAAAA",
+        "AwwAAAAWUubmVhcix0ZXN0PKtrEndk0LxM+qpzp0PVtjf+xlrzz4TT0qA+hTtm6BLlYBAAAAAAAA",
+        "AQoAVWCdny7wv/M1LvZASC3Fw0D/NNhI1NYwch9Ux+KZ2qRdQXPC1rNsCGRJ7nd66SfcNmRUVVvQY6EYCbsIiugO6gwBAAAAAAAA",
+        "AAMAAAAgMjMDAAAApmWkWSBCL51Bfkhn79xPuKBKHz//H6B+mY6G9/eieuNtAAAAAAAAAA==",
+        "AAMAAAAgMjEDAAAAjSPPbIboNKeqbt7VTCbOK7LnSQNTjGG91dIZeZerL3JtAAAAAAAAAA==",
+    ][2..]);
     assert_eq!(
         result.values,
         [
@@ -147,6 +255,41 @@ fn test_view_state() {
         result.values,
         [StateItem { key: b"test123".to_vec(), value: b"123".to_vec(), proof: vec![] }]
     );
+    assert_proof(
+        &result
+            .proof[2..],
+        &[
+            "AwEAAAAQjHWWT6rXAXqUm14fjfDxo3286ApntHMI1eK0aQAJZPfJewEAAAAAAA==",
+            "AQcCSXBK8DHIYBF47dz6xB2iFKLLsPjAIAo9syJTBC0/Y1OjJNvT5izZukYCmtq/AyVTeyWFl1Ei6yFZBf5yIJ0i96eYRr8PVilJ81MgJKvV/R1SxQuTfwwmbZ6sN/TC2XfL1SCJ4WM1GZ0yMSaNpJOdsJH9kda203WM3Zh81gxz6rmVewEAAAAAAA==",
+            "AwMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3gwDAAAAAAAA",
+            "ASAC7S1KwgLNl0HPdSo8soL8sGOmPhL7O0xTSR8sDDR5pZrzu0ty3UPYJ5UKrFGKxXoyyyNG75AF9hnJHO3xxFkf5NQCAAAAAAAA",
+            "AwEAAAAW607KPj2q3O8dF6XkfALiIrd9mqGir2UlYIcZuLNksTsvAgAAAAAAAA==",
+            "AQhAP4sMdbiWZPtV6jz8hYKzRFSgwaSlQKiGsQXogAmMcrLOl+SJfiCOXMTEZ2a1ebmQOEGkRYa30FaIlB46sLI2IPsBAAAAAAAA",
+            "AwwAAAAWUubmVhcix0ZXN0PKtrEndk0LxM+qpzp0PVtjf+xlrzz4TT0qA+hTtm6BLlYBAAAAAAAA",
+            "AQoAVWCdny7wv/M1LvZASC3Fw0D/NNhI1NYwch9Ux+KZ2qRdQXPC1rNsCGRJ7nd66SfcNmRUVVvQY6EYCbsIiugO6gwBAAAAAAAA",
+            "AAMAAAAgMjMDAAAApmWkWSBCL51Bfkhn79xPuKBKHz//H6B+mY6G9/eieuNtAAAAAAAAAA==",
+        ][2..]
+    );
+
+    let root = state_update.get_root();
+    let account = alice_account();
+    let proof_verifier =
+        ProofVerifier::new(result.proof).expect("could not create a ProofVerifier");
+    for (want, key, value) in [
+        (true, b"test123".as_ref(), Some(b"123".as_ref())),
+        (false, b"test123".as_ref(), Some(b"321".as_ref())),
+        (false, b"test123".as_ref(), Some(b"1234".as_ref())),
+        (false, b"test123".as_ref(), None),
+        // Shorter key:
+        (false, b"test12".as_ref(), Some(b"123".as_ref())),
+        (true, b"test12", None),
+        // Longer key:
+        (false, b"test1234", Some(b"123")),
+        (true, b"test1234", None),
+    ] {
+        let got = proof_verifier.verify(root, &account, key, value);
+        assert_eq!(want, got, "key: {key:x?}; value: {value:x?}");
+    }
 }
 
 #[test]

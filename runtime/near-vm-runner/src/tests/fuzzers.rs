@@ -8,11 +8,9 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_errors::{FunctionCallError, VMError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext};
-use wasmer_engine::Executable;
 
 use crate::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
 use crate::internal::VMKind;
-use crate::wasmer2_runner::Wasmer2VM;
 use crate::VMResult;
 
 /// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
@@ -171,8 +169,12 @@ fn wasmer2_and_wasmtime_agree() {
     });
 }
 
+#[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
 #[test]
 fn wasmer2_is_reproducible() {
+    use crate::wasmer2_runner::Wasmer2VM;
+    use wasmer_engine::Executable;
+
     bolero::check!().for_each(|data: &[u8]| {
         if let Ok(module) = ArbitraryModule::arbitrary(&mut arbitrary::Unstructured::new(data)) {
             let code = ContractCode::new(module.0.module.to_bytes(), None);
