@@ -184,7 +184,7 @@ mod imp {
         /// Always returns `None`; to use of flat state enable `protocol_feature_flat_state` cargo feature.
         #[inline]
         pub fn maybe_new(
-            _shard_id: u32,
+            _shard_uid: ShardUId,
             _prev_block_hash: &CryptoHash,
             _store: &Store,
         ) -> Option<FlatState> {
