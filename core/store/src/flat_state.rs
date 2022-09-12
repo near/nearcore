@@ -170,9 +170,8 @@ mod imp {
 
 #[cfg(not(feature = "protocol_feature_flat_state"))]
 mod imp {
+    use crate::{Store, StoreUpdate};
     use near_primitives::hash::CryptoHash;
-
-    use crate::Store;
 
     /// Since this has no variants it can never be instantiated.
     ///
@@ -250,6 +249,7 @@ impl FlatStateDelta {
 
     /// Applies delta to the flat state.
     pub fn apply_to_flat_state(self, store_update: &mut StoreUpdate) {
+        #[cfg(feature = "protocol_feature_flat_state")]
         for (key, value) in self.0.into_iter() {
             match value {
                 Some(value) => {
