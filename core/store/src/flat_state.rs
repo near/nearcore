@@ -191,8 +191,8 @@ mod imp {
         }
 
         pub fn update_tail(
+            _shard_uid: ShardUId,
             _block_hash: &CryptoHash,
-            _store_update: &mut StoreUpdate,
             store: &Store,
         ) -> StoreUpdate {
             StoreUpdate::new(store.storage.clone())

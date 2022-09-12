@@ -2780,12 +2780,16 @@ impl<'a> ChainStoreUpdate<'a> {
         // from the store.
         let mut deletions_store_update = self.store().store_update();
         for mut wrapped_trie_changes in self.trie_changes.drain(..) {
-            let (key_flat_state_delta, flat_state_delta) = wrapped_trie_changes.flat_state_delta();
-            store_update.set_ser(
-                DBCol::FlatStateDeltas,
-                &key_flat_state_delta.try_to_vec().unwrap(),
-                &flat_state_delta,
-            )?;
+            #[cfg(feature = "protocol_feature_flat_state")]
+            {
+                let (key_flat_state_delta, flat_state_delta) =
+                    wrapped_trie_changes.flat_state_delta();
+                store_update.set_ser(
+                    DBCol::FlatStateDeltas,
+                    &key_flat_state_delta.try_to_vec().unwrap(),
+                    &flat_state_delta,
+                )?;
+            }
 
             wrapped_trie_changes.insertions_into(&mut store_update);
             wrapped_trie_changes.deletions_into(&mut deletions_store_update);
