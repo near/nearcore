@@ -11,7 +11,7 @@ use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 
-use crate::flat_state::{FlatState, FlatStateDelta, KeyForFlatState};
+use crate::flat_state::{FlatState, FlatStateDelta, KeyForFlatStateDelta};
 use crate::trie::config::TrieConfig;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
@@ -288,9 +288,9 @@ impl WrappedTrieChanges {
         self.tries.apply_deletions(&self.trie_changes, self.shard_uid, store_update)
     }
 
-    pub fn flat_state_delta(&self) -> (KeyForFlatState, FlatStateDelta) {
+    pub fn flat_state_delta(&self) -> (KeyForFlatStateDelta, FlatStateDelta) {
         (
-            KeyForFlatState { shard_uid: self.shard_uid, block_hash: self.block_hash.clone() },
+            KeyForFlatStateDelta { shard_uid: self.shard_uid, block_hash: self.block_hash.clone() },
             FlatStateDelta::from_state_changes(&self.state_changes),
         )
     }

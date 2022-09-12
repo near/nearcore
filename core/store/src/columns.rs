@@ -250,13 +250,19 @@ pub enum DBCol {
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
     /// - *Column type*: StateChangesForSplitStates
     StateChangesForSplitStates,
-    /// State changes made by a chunk, used for splitting states
-    /// - *Rows*: serialized TrieKey (Vec<u8>)
+    /// Flat state contents. Used to get `ValueRef` by trie key faster.
+    /// - *Rows*: trie key (Vec<u8>)
     /// - *Column type*: ValueRef
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatState,
+    /// Deltas for flat state. Stores how flat state should be updated for the given shard and block.
+    /// - *Rows*: `KeyForFlatStateDelta { shard_uid, block_hash }`
+    /// - *Column type*: `FlatStateDelta`
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateDeltas,
+    /// Miscellaneous data for flat state. Currently stores flat state tail for each shard.
+    /// - *Rows*: shard uid
+    /// - *Column type*: block hash (CryptoHash)
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateMisc,
 }

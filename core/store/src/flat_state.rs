@@ -21,7 +21,7 @@ mod imp {
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::state::ValueRef;
 
-    use crate::flat_state::KeyForFlatState;
+    use crate::flat_state::KeyForFlatStateDelta;
     use crate::{DBCol, FlatStateDelta, Store, StoreUpdate};
 
     /// Struct for getting value references from the flat storage.
@@ -100,7 +100,7 @@ mod imp {
                     found_final_block = true;
                 }
 
-                let key = KeyForFlatState { shard_uid: self.shard_uid, block_hash };
+                let key = KeyForFlatStateDelta { shard_uid: self.shard_uid, block_hash };
                 let delta: Option<FlatStateDelta> = self
                     .store
                     .get_ser(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap())
@@ -207,7 +207,7 @@ use near_primitives::types::RawStateChangesWithTrieKey;
 use std::collections::HashMap;
 
 #[derive(BorshSerialize, BorshDeserialize)]
-pub struct KeyForFlatState {
+pub struct KeyForFlatStateDelta {
     pub shard_uid: ShardUId,
     pub block_hash: CryptoHash,
 }
