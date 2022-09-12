@@ -190,7 +190,13 @@ mod imp {
             None
         }
 
-        pub fn update_tail(_block_hash: &CryptoHash, _store_update: &mut StoreUpdate) {}
+        pub fn update_tail(
+            _block_hash: &CryptoHash,
+            _store_update: &mut StoreUpdate,
+            _store: &Store,
+        ) -> StoreUpdate {
+            StoreUpdate::new(store.storage.clone())
+        }
 
         pub fn get_ref(&self, _key: &[u8]) -> ! {
             match *self {}
