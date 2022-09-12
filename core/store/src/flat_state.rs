@@ -40,9 +40,8 @@ mod imp {
         store: Store,
         /// Id of the shard which state is accessed by this object.
         shard_id: ShardId,
-        /// The block for which key-value pairs of its state. Note that it is not necessarily
-        /// the latest block.
-        head: CryptoHash,
+        /// The block for which key-value pairs of its state will be retrieved.
+        block_hash: CryptoHash,
     }
 
     impl FlatState {
@@ -53,10 +52,10 @@ mod imp {
         /// specified storage.
         pub fn maybe_new(
             shard_id: ShardId,
-            prev_block_hash: &CryptoHash,
+            block_hash: &CryptoHash,
             store: &Store,
         ) -> Option<FlatState> {
-            Some(FlatState { store: store.clone(), shard_id, head: prev_block_hash.clone() })
+            Some(FlatState { store: store.clone(), shard_id, block_hash: block_hash.clone() })
         }
 
         /// Update the tail of the flat storage. Return a StoreUpdate for the disk update.
@@ -76,8 +75,7 @@ mod imp {
         /// If sequence of deltas contains final block, tail is moved to this tail and all deltas until the tail are
         /// applied.
         fn get_deltas_between_blocks(&self) -> Result<Vec<FlatStateDelta>, StorageError> {
-            let target_block_hash = self.head;
-            let flat_state_tail: CryptoHash = self
+            let flat_state_head: CryptoHash = self
                 .store
                 .get_ser(DBCol::FlatStateMisc, &self.shard_id.try_to_vec().unwrap())
                 .map_err(|_| StorageError::StorageInternalError)?
@@ -85,16 +83,16 @@ mod imp {
 
             let block_header: BlockHeader = self
                 .store
-                .get_ser(DBCol::BlockHeader, target_block_hash.as_ref())
+                .get_ser(DBCol::BlockHeader, self.block_hash.as_ref())
                 .map_err(|_| StorageError::StorageInternalError)?
                 .unwrap();
             let final_block_hash = block_header.last_final_block().clone();
 
-            let mut block_hash = target_block_hash.clone();
+            let mut block_hash = self.block_hash.clone();
             let mut deltas = vec![];
             let mut deltas_to_apply = vec![];
             let mut found_final_block = false;
-            while block_hash != flat_state_tail {
+            while block_hash != flat_state_head {
                 if block_hash == final_block_hash {
                     assert!(!found_final_block);
                     found_final_block = true;
@@ -139,11 +137,11 @@ mod imp {
             Ok(deltas)
         }
 
-        /// Returns value reference using raw trie key and state root.
+        /// Returns value reference using raw trie key, taken from the state
+        /// corresponding to block `FlatState::prev_block_hash`.
         ///
-        /// We assume that flat state contains data for this root.  To avoid
-        /// duplication, we don't store values themselves in flat state, they
-        /// are stored in `DBCol::State`. Also the separation is done so we
+        /// To avoid duplication, we don't store values themselves in flat state,
+        /// they are stored in `DBCol::State`. Also the separation is done so we
         /// could charge users for the value length before loading the value.
         // TODO (#7327): support different roots (or block hashes).
         pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
@@ -172,6 +170,7 @@ mod imp {
 mod imp {
     use crate::{Store, StoreUpdate};
     use near_primitives::hash::CryptoHash;
+    use near_primitives::types::ShardId;
 
     /// Since this has no variants it can never be instantiated.
     ///
