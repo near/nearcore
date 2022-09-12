@@ -172,6 +172,7 @@ mod imp {
 mod imp {
     use crate::{Store, StoreUpdate};
     use near_primitives::hash::CryptoHash;
+    use near_primitives::shard_layout::ShardUId;
 
     /// Since this has no variants it can never be instantiated.
     ///
