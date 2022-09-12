@@ -34,7 +34,7 @@ mod imp {
     use near_primitives::state::ValueRef;
     use near_primitives::types::ShardId;
     use std::collections::HashMap;
-    use std::sync::{Arc, RwLock};
+    use std::sync::RwLock;
 
     use crate::Store;
 
@@ -53,12 +53,15 @@ mod imp {
         /// flat_storage_state.head, except for delayed receipt keys,
         store: Store,
         /// In-memory cache for the key value pairs stored on disk.
+        #[allow(unused)]
         cache: FlatStateCache,
         /// Stores the state of the flat storage, for example, where the head is at and which
         /// blocks' state are stored in flat storage.
+        #[allow(unused)]
         flat_storage_state: FlatStorageState,
     }
 
+    #[derive(Clone)]
     struct FlatStateCache {
         // TODO: add implementation
     }
@@ -203,11 +206,13 @@ use near_primitives::types::BlockHeight;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+#[allow(unused)]
 pub struct FlatStateDelta {
     // TODO: add delta implementation
 }
 
 impl FlatStateDelta {
+    #[allow(unused)]
     pub fn from_wrapped_trie_changes(trie_changes: &WrappedTrieChanges) -> Self {
         // TODO: implement
         Self {}
@@ -218,8 +223,11 @@ pub enum FlatStateDeltaDir {
     Forward,
     Backward,
 }
+
 pub struct FlatStateDeltaWithDir {
+    #[allow(unused)]
     delta: FlatStateDelta,
+    #[allow(unused)]
     dir: FlatStateDeltaDir,
 }
 
@@ -236,26 +244,33 @@ pub struct FlatStorageState(Arc<RwLock<FlatStorageStateInner>>);
 /// FlatStorage will only support blocks at height [tail_height, tail_height + FLAT_STORAGE_MAX_BLOCKS).
 /// Since there is at most one block at each height, flat storage will keep at most FLAT_STORAGE_MAX_BLOCKS
 /// of block deltas in memory.
+#[allow(unused)]
 const FLAT_STORAGE_MAX_BLOCKS: u64 = 16;
 
 struct FlatStorageStateInner {
     /// The block for which we store the key value pairs of its state. Note that it is not necessarily
     /// the latest block.
+    #[allow(unused)]
     head: CryptoHash,
     /// This is the oldest block that whose state is supported by flat storage. In normal block
     /// processing mode, this should be the latest final block.
+    #[allow(unused)]
     tail: CryptoHash,
+    #[allow(unused)]
     tail_height: BlockHeight,
     /// A mapping from all blocks in flat storage to its previous block hash. This is needed because
     /// we don't have access to ChainStore inside this class (because ChainStore is not thread safe),
     /// so we store a representation of the chain formed by the blocks in flat storage.
+    #[allow(unused)]
     prev_blocks: HashMap<CryptoHash, CryptoHash>,
     /// State deltas for all blocks supported by this flat storage.
     /// All these deltas here are stored on disk too.
+    #[allow(unused)]
     deltas: HashMap<CryptoHash, FlatStateDelta>,
 }
 
 impl FlatStorageState {
+    #[allow(unused)]
     fn get_deltas_between_blocks(
         &self,
         _target_block_hash: &CryptoHash,
@@ -266,6 +281,7 @@ impl FlatStorageState {
 
     // Update the head of the flat storage, this might require updating the flat state stored on disk.
     // Returns a StoreUpdate for the disk update if there is any
+    #[allow(unused)]
     pub fn update_head(&self, _new_head: &CryptoHash) -> Option<StoreUpdate> {
         // TODO:
         None
@@ -274,13 +290,15 @@ impl FlatStorageState {
     // Update the tail of the flat storage, remove the deltas between the old tail and the new tail
     // both in memory and on disk
     // Return a StoreUpdate for the disk update if there is any
-    pub fn update_tail(&self, new_tail: &CryptoHash) -> Option<StoreUpdate> {
+    #[allow(unused)]
+    pub fn update_tail(&self, _new_tail: &CryptoHash) -> Option<StoreUpdate> {
         // TODO:
         None
     }
 
     // Add a block delta to flat storage
-    pub fn add_delta(&self, block_hash: &CryptoHash, delta: FlatStateDelta) {
+    #[allow(unused)]
+    pub fn add_delta(&self, _block_hash: &CryptoHash, delta: FlatStateDelta) {
         // TODO:
     }
 }
