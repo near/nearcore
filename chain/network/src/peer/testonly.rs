@@ -1,6 +1,7 @@
 use crate::broadcast;
 use crate::concurrency::demux;
 use crate::config::NetworkConfig;
+use crate::peer_manager::connection;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
@@ -206,7 +207,7 @@ impl PeerHandle {
                 stream,
                 match &cfg.start_handshake_with {
                     None => StreamConfig::Inbound,
-                    Some(id) => StreamConfig::Outbound { peer_id: id.clone(), is_tier1: false },
+                    Some(id) => StreamConfig::Outbound { peer_id: id.clone(), tier: connection::Tier::T2 },
                 },
                 cfg.force_encoding,
                 network_state,
