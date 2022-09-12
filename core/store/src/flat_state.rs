@@ -193,7 +193,7 @@ mod imp {
         pub fn update_tail(
             _block_hash: &CryptoHash,
             _store_update: &mut StoreUpdate,
-            _store: &Store,
+            store: &Store,
         ) -> StoreUpdate {
             StoreUpdate::new(store.storage.clone())
         }
