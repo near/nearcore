@@ -78,7 +78,7 @@ mod imp {
                 .get_ser(DBCol::BlockHeader, target_block_hash.as_ref())
                 .map_err(|_| StorageError::StorageInternalError)?
                 .unwrap();
-            let final_block_hash = block_header.last_final_block().clone();
+            let final_block_hash = CryptoHash([3u8; 32]); //block_header.last_final_block().clone();
 
             let mut block_hash = target_block_hash.clone();
             let mut deltas = vec![];
