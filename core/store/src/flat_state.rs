@@ -48,8 +48,8 @@ mod imp {
         /// Possibly creates a new [`FlatState`] object backed by given storage.
         ///
         /// Always returns `None` if the `protocol_feature_flat_state` Cargo feature is
-        /// not enabled.  Otherwise, returns a new [`FlatState`] object backed by
-        /// specified storage.
+        /// not enabled (see separate implementation below). Otherwise, returns a new [`FlatState`]
+        /// object backed by specified storage.
         pub fn maybe_new(
             shard_id: ShardId,
             block_hash: &CryptoHash,
@@ -75,6 +75,8 @@ mod imp {
         /// If sequence of deltas contains final block, head is moved to this block and all deltas until new head are
         /// applied to flat state.
         // TODO (#7327): move updating flat state head to block postprocessing.
+        // TODO (#7327): come up how the flat state head and tail should be positioned.
+        // TODO (#7327): implement garbage collection of old deltas.
         // TODO (#7327): cache deltas to speed up multiple DB reads.
         fn get_deltas_between_blocks(&self) -> Result<Vec<FlatStateDelta>, StorageError> {
             let flat_state_head: CryptoHash = self
@@ -184,7 +186,7 @@ mod imp {
         #[inline]
         pub fn maybe_new(
             _shard_id: ShardId,
-            _prev_block_hash: &CryptoHash,
+            _block_hash: &CryptoHash,
             _store: &Store,
         ) -> Option<FlatState> {
             None
