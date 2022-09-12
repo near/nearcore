@@ -34,7 +34,7 @@ mod imp {
     use near_primitives::state::ValueRef;
     use near_primitives::types::ShardId;
     use std::collections::HashMap;
-    use std::sync::RwLock;
+    use std::sync::{Arc, Mutex};
 
     use crate::Store;
 
@@ -98,9 +98,14 @@ mod imp {
     }
 
     /// `FlatStateFactory` provides a way to construct new flat state to pass to new tries.
-    pub struct FlatStateFactory {
+    /// It is owned by NightshadeRuntime, and thus can be owned by multiple threads, so the implementation
+    /// must be thread safe.
+    #[derive(Clone)]
+    pub struct FlatStateFactory(Arc<FlatStateFactoryInner>);
+
+    pub struct FlatStateFactoryInner {
         store: Store,
-        caches: RwLock<HashMap<ShardId, FlatStateCache>>,
+        caches: Mutex<HashMap<ShardId, FlatStateCache>>,
         /// Here we store the flat_storage_state per shard. The reason why we don't use the same
         /// FlatStorageState for all shards is that there are two modes of block processing,
         /// normal block processing and block catchups. Since these are performed on different range
@@ -109,18 +114,16 @@ mod imp {
         /// This may cause some overhead because the data like shards that the node is processing for
         /// this epoch can share the same `head` and `tail`, similar for shards for the next epoch,
         /// but such overhead is negligible comparing the delta sizes, so we think it's ok.
-        flat_storage_states: HashMap<ShardId, FlatStorageState>,
+        flat_storage_states: Mutex<HashMap<ShardId, FlatStorageState>>,
     }
 
     impl FlatStateFactory {
         pub fn new(store: Store) -> Self {
-            Self { store, caches: Default::default(), flat_storage_states: Default::default() }
-        }
-
-        /// Initialize all flat storage states for all shards
-        /// This function should be called at node start up, to load deltas from disk and set up
-        pub fn init(&self, _shards: Vec<ShardId>) {
-            // TODO: implement it and call this function at the necessary place
+            Self(Arc::new(FlatStateFactoryInner {
+                store,
+                caches: Default::default(),
+                flat_storage_states: Default::default(),
+            }))
         }
 
         pub fn new_flat_state_for_shard(
@@ -134,15 +137,20 @@ mod imp {
                 None
             } else {
                 let cache = {
-                    let mut caches = self.caches.write().expect(POISONED_LOCK_ERR);
+                    let mut caches = self.0.caches.lock().expect(POISONED_LOCK_ERR);
                     caches.entry(shard_id).or_insert_with(|| FlatStateCache {}).clone()
                 };
-                Some(FlatState {
-                    store: self.store.clone(),
-                    cache,
-                    // TODO: remove the unwrap here and do a proper error handling
-                    flat_storage_state: self.flat_storage_states.get(&shard_id).unwrap().clone(),
-                })
+                // TODO: initialize flat storage states correctly, the current FlatStorageState function
+                // doesn't take any argument
+                let flat_storage_state = {
+                    let mut flat_storage_states =
+                        self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
+                    flat_storage_states
+                        .entry(shard_id)
+                        .or_insert_with(|| FlatStorageState::new())
+                        .clone()
+                };
+                Some(FlatState { store: self.0.store.clone(), cache, flat_storage_state })
             }
         }
 
@@ -150,7 +158,8 @@ mod imp {
             &self,
             shard_id: ShardId,
         ) -> Option<FlatStorageState> {
-            self.flat_storage_states.get(&shard_id).cloned()
+            let flat_storage_states = self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
+            flat_storage_states.get(&shard_id).cloned()
         }
     }
 }
@@ -175,6 +184,7 @@ mod imp {
         }
     }
 
+    #[derive(Clone)]
     pub struct FlatStateFactory {}
 
     impl FlatStateFactory {
@@ -270,6 +280,18 @@ struct FlatStorageStateInner {
 }
 
 impl FlatStorageState {
+    #[allow(unused)]
+    fn new() -> Self {
+        // TODO: implement this correctly
+        Self(Arc::new(RwLock::new(FlatStorageStateInner {
+            head: Default::default(),
+            tail: Default::default(),
+            tail_height: 0,
+            prev_blocks: Default::default(),
+            deltas: Default::default(),
+        })))
+    }
+
     #[allow(unused)]
     fn get_deltas_between_blocks(
         &self,

@@ -25,7 +25,7 @@ struct ShardTriesInner {
     caches: RwLock<HashMap<ShardUId, TrieCache>>,
     /// Cache for readers.
     view_caches: RwLock<HashMap<ShardUId, TrieCache>>,
-    flat_state_factory: Arc<FlatStateFactory>,
+    flat_state_factory: FlatStateFactory,
 }
 
 #[derive(Clone)]
@@ -36,7 +36,7 @@ impl ShardTries {
         store: Store,
         trie_config: TrieConfig,
         shard_uids: &[ShardUId],
-        flat_state_factory: Arc<FlatStateFactory>,
+        flat_state_factory: FlatStateFactory,
     ) -> Self {
         let caches = Self::create_initial_caches(&trie_config, &shard_uids, false);
         let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
@@ -66,7 +66,7 @@ impl ShardTries {
             store.clone(),
             trie_config,
             &shard_uids,
-            Arc::new(FlatStateFactory::new(store.clone())),
+            FlatStateFactory::new(store.clone()),
         )
     }
 

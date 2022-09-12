@@ -86,7 +86,7 @@ pub struct NightshadeRuntime {
     store: Store,
     tries: ShardTries,
     trie_viewer: TrieViewer,
-    flat_state_factory: Arc<FlatStateFactory>,
+    flat_state_factory: FlatStateFactory,
     pub runtime: Runtime,
     epoch_manager: EpochManagerHandle,
     shard_tracker: ShardTracker,
@@ -144,7 +144,7 @@ impl NightshadeRuntime {
         );
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
-        let flat_state_factory = Arc::new(FlatStateFactory::new(store.clone()));
+        let flat_state_factory = FlatStateFactory::new(store.clone());
         let tries = ShardTries::new(
             store.clone(),
             trie_config,
@@ -267,7 +267,7 @@ impl NightshadeRuntime {
             store.clone(),
             TrieConfig::default(),
             &genesis.config.shard_layout.get_shard_uids(),
-            Arc::new(FlatStateFactory::new(store.clone())),
+            FlatStateFactory::new(store.clone()),
         );
         let runtime = Runtime::new();
         let runtime_config_store =
