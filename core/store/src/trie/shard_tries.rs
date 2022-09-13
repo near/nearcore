@@ -14,7 +14,7 @@ use near_primitives::types::{
 use crate::trie::config::TrieConfig;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
-use crate::{metrics, DBCol, DBOp, DBTransaction};
+use crate::{metrics, DBCol, DBOp, DBTransaction, PrefetchApi};
 use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 
 struct ShardTriesInner {
@@ -24,6 +24,8 @@ struct ShardTriesInner {
     caches: RwLock<HashMap<ShardUId, TrieCache>>,
     /// Cache for readers.
     view_caches: RwLock<HashMap<ShardUId, TrieCache>>,
+    /// Prefetcher state, such as IO threads, per shard.
+    prefetchers: RwLock<HashMap<ShardUId, PrefetchApi>>,
 }
 
 #[derive(Clone)]
@@ -38,6 +40,7 @@ impl ShardTries {
             trie_config,
             caches: RwLock::new(caches),
             view_caches: RwLock::new(view_caches),
+            prefetchers: Default::default(),
         }))
     }
 
@@ -98,12 +101,29 @@ impl ShardTries {
                 .clone()
         };
         let prefetch_enabled = self.0.trie_config.enable_receipt_prefetching;
+
+        let prefetch_api = if prefetch_enabled {
+            Some(
+                self.0
+                    .prefetchers
+                    .write()
+                    .expect(POISONED_LOCK_ERR)
+                    .entry(shard_uid)
+                    .or_insert_with(|| {
+                        PrefetchApi::new(self.0.store.clone(), cache.clone(), shard_uid.clone())
+                    })
+                    .clone(),
+            )
+        } else {
+            None
+        };
+
         let storage = Box::new(TrieCachingStorage::new(
             self.0.store.clone(),
             cache,
             shard_uid,
             is_view,
-            prefetch_enabled,
+            prefetch_api,
         ));
         let flat_state = crate::flat_state::maybe_new(use_flat_state, &self.0.store);
         Trie::new(storage, state_root, flat_state)

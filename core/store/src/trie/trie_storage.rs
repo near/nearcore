@@ -384,7 +384,7 @@ impl TrieCachingStorage {
         shard_cache: TrieCache,
         shard_uid: ShardUId,
         is_view: bool,
-        prefetch: bool,
+        prefetch_api: Option<PrefetchApi>,
     ) -> TrieCachingStorage {
         let metrics_labels: [&str; 2] =
             [&shard_uid.shard_id.to_string(), if is_view { "1" } else { "0" }];
@@ -399,11 +399,6 @@ impl TrieCachingStorage {
             chunk_cache_size: metrics::CHUNK_CACHE_SIZE.with_label_values(&metrics_labels),
             shard_cache_current_total_size: metrics::SHARD_CACHE_CURRENT_TOTAL_SIZE
                 .with_label_values(&metrics_labels),
-        };
-        let prefetch_api = if prefetch {
-            Some(PrefetchApi::new(store.clone(), shard_cache.clone(), shard_uid.clone()))
-        } else {
-            None
         };
         TrieCachingStorage {
             store,
