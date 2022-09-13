@@ -408,7 +408,7 @@ impl NetworkState {
 
     /// Send message to specific account.
     /// Return whether the message is sent or not.
-    pub fn send_message_to_account(&mut self, clock: &time::Clock, account_id: &AccountId, msg: RoutedMessageBody) -> bool { 
+    pub fn send_message_to_account(&self, clock: &time::Clock, account_id: &AccountId, msg: RoutedMessageBody) -> bool { 
         if connection::Tier::T1.is_allowed_routed(&msg) {
             if let Some((target, conn)) = self.get_tier1_proxy(account_id) {
                 conn.send_message(Arc::new(PeerMessage::Routed(self.sign_message(

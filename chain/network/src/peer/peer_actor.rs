@@ -273,7 +273,7 @@ impl PeerActor {
     }
 
     fn send_message_with_encoding(&mut self, msg: &PeerMessage, enc: Encoding) {
-        if let PeerStatus::Ready(conn) = self.peer_status {
+        if let PeerStatus::Ready(conn) = &self.peer_status {
             if !conn.tier.is_allowed(msg) {
                 panic!("trying to send {} message over {:?} connection.", msg.msg_variant(),conn.tier)
             }
@@ -416,6 +416,7 @@ impl PeerActor {
             }
         };
 
+        let tier = conn.tier;
         ctx.spawn(wrap_future(self.network_state.view_client_addr.send(view_client_message)).then(
             move |res, act: &mut PeerActor, _ctx| {
                 // Ban peer if client thinks received data is bad.
@@ -428,7 +429,7 @@ impl PeerActor {
                                 body: RoutedMessageBody::TxStatusResponse(*tx_result),
                             },
                         );
-                        self.network_state.send_message_to_peer(&act.clock,conn.tier,msg); 
+                        act.network_state.send_message_to_peer(&act.clock,tier,msg); 
                     }
                     Ok(NetworkViewClientResponses::StateResponse(state_response)) => {
                         let body = match *state_response {
@@ -446,7 +447,7 @@ impl PeerActor {
                                 body,
                             },
                         );
-                        self.network_state.send_message_to_peer(&act.clock,conn.tier,msg); 
+                        act.network_state.send_message_to_peer(&act.clock,tier,msg); 
                     }
                     Ok(NetworkViewClientResponses::Block(block)) => {
                         // MOO need protocol version
@@ -1020,7 +1021,7 @@ impl PeerActor {
                 });
             }
             PeerMessage::SyncAccountsData(msg) => {
-                let peer_id = conn.peer_info.id;
+                let peer_id = conn.peer_info.id.clone();
                 let pms = self.network_state.clone();
                 // In case a full sync is requested, immediately send what we got.
                 // It is a microoptimization: we do not send back the data we just received.
