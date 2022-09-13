@@ -307,6 +307,7 @@ impl FlatStateDelta {
     pub fn apply_to_flat_state(self, _store_update: &mut StoreUpdate) {}
 }
 
+#[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::block_header::BlockHeader;
 use std::sync::{Arc, RwLock};
 
@@ -481,7 +482,7 @@ impl FlatStorageState {
     }
 
     #[cfg(not(feature = "protocol_feature_flat_state"))]
-    pub fn update_head(&self, new_head: &CryptoHash) -> Option<StoreUpdate> {
+    pub fn update_head(&self, _new_head: &CryptoHash) -> Option<StoreUpdate> {
         None
     }
 
