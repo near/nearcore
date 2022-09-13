@@ -337,7 +337,6 @@ impl PeerMessage {
                 r.msg.body,
                 RoutedMessageBody::BlockApproval(_)
                     | RoutedMessageBody::ForwardTx(_)
-                    | RoutedMessageBody::PartialEncodedChunk(_)
                     | RoutedMessageBody::PartialEncodedChunkForward(_)
                     | RoutedMessageBody::PartialEncodedChunkRequest(_)
                     | RoutedMessageBody::PartialEncodedChunkResponse(_)
