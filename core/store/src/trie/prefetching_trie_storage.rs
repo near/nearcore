@@ -3,10 +3,12 @@ use crate::{
     metrics, DBCol, StorageError, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig,
     TrieStorage,
 };
+use near_o11y::metrics::prometheus;
+use near_o11y::metrics::prometheus::core::GenericGauge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, StateRoot, TrieNodesCount};
+use near_primitives::types::{AccountId, ShardId, StateRoot, TrieNodesCount};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -89,13 +91,13 @@ pub struct PrefetchApi {
 /// This design also ensures the shard cache works exactly the same with or
 /// without the prefetcher, because the order in which it sees accesses is
 /// independent of the prefetcher.
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub(crate) struct PrefetchStagingArea(Arc<Mutex<InnerPrefetchStagingArea>>);
 
-#[derive(Default)]
 struct InnerPrefetchStagingArea {
     slots: HashMap<CryptoHash, PrefetchSlot>,
     size_bytes: usize,
+    metrics: StagedMetrics,
 }
 
 /// Result when atomically accessing the prefetch staging area.
@@ -104,6 +106,22 @@ pub(crate) enum PrefetcherResult {
     Pending,
     Prefetched(Arc<[u8]>),
     MemoryLimitReached,
+}
+
+struct StagedMetrics {
+    prefetch_staged_bytes: GenericGauge<prometheus::core::AtomicI64>,
+    prefetch_staged_items: GenericGauge<prometheus::core::AtomicI64>,
+}
+
+impl StagedMetrics {
+    fn new(shard_id: ShardId) -> Self {
+        Self {
+            prefetch_staged_bytes: metrics::PREFETCH_STAGED_BYTES
+                .with_label_values(&[&shard_id.to_string()]),
+            prefetch_staged_items: metrics::PREFETCH_STAGED_SLOTS
+                .with_label_values(&[&shard_id.to_string()]),
+        }
+    }
 }
 
 /// Type used internally in the staging area to keep track of requests.
@@ -217,6 +235,15 @@ impl TriePrefetchingStorage {
 }
 
 impl PrefetchStagingArea {
+    fn new(shard_id: ShardId) -> Self {
+        let inner = InnerPrefetchStagingArea {
+            metrics: StagedMetrics::new(shard_id),
+            slots: Default::default(),
+            size_bytes: Default::default(),
+        };
+        Self(Arc::new(Mutex::new(inner)))
+    }
+
     /// Release a slot in the prefetcher staging area.
     ///
     /// This must only be called after inserting the value to the shard cache.
@@ -239,7 +266,9 @@ impl PrefetchStagingArea {
                 || prefetch_state_matches(PrefetchSlot::PendingFetch, dropped.as_ref().unwrap()),
         );
         match dropped {
-            Some(PrefetchSlot::Done(value)) => guard.size_bytes -= value.len(),
+            Some(PrefetchSlot::Done(value)) => {
+                guard.size_bytes -= value.len();
+            }
             Some(PrefetchSlot::PendingFetch) => {
                 guard.size_bytes -= PREFETCH_RESERVED_BYTES_PER_SLOT
             }
@@ -248,6 +277,8 @@ impl PrefetchStagingArea {
                 error!(target: "prefetcher", "prefetcher bug detected, trying to release {dropped:?}");
             }
         }
+        guard.metrics.prefetch_staged_bytes.set(guard.size_bytes as i64);
+        guard.metrics.prefetch_staged_items.dec();
     }
 
     /// Block until value is prefetched and then return it.
@@ -306,6 +337,8 @@ impl PrefetchStagingArea {
                 }
                 entry.insert(set_if_empty);
                 guard.size_bytes += PREFETCH_RESERVED_BYTES_PER_SLOT;
+                guard.metrics.prefetch_staged_bytes.set(guard.size_bytes as i64);
+                guard.metrics.prefetch_staged_items.inc();
                 PrefetcherResult::SlotReserved
             }
         }
@@ -327,7 +360,7 @@ impl PrefetchApi {
         let this = Self {
             work_queue_tx,
             work_queue_rx,
-            prefetching: Default::default(),
+            prefetching: PrefetchStagingArea::new(shard_uid.shard_id()),
             enable_receipt_prefetching,
             sweat_prefetch_receivers,
             sweat_prefetch_senders,

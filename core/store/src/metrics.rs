@@ -165,3 +165,19 @@ pub static PREFETCH_FAIL: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static PREFETCH_STAGED_BYTES: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_prefetch_staged_bytes",
+        "Upper bound on memory usage for holding prefetched data.",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+pub static PREFETCH_STAGED_SLOTS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_prefetch_staged_s,ots",
+        "Number of slots used in staging area.",
+        &["shard_id"],
+    )
+    .unwrap()
+});
