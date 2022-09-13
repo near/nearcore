@@ -232,7 +232,8 @@ impl RoutedMessageBody {
             // Both BlockApproval and VersionedPartialEncodedChunk is essential for block production and
             // are only sent by the original node and if they are lost, the receiver node doesn't
             // know to request them.
-            RoutedMessageBody::BlockApproval(_) | RoutedMessageBody::VersionedPartialEncodedChunk(_) => true,
+            RoutedMessageBody::BlockApproval(_)
+            | RoutedMessageBody::VersionedPartialEncodedChunk(_) => true,
             _ => false,
         }
     }
