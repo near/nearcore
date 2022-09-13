@@ -167,8 +167,11 @@ mod imp {
         // TODO (#7327): support different roots (or block hashes).
         // TODO (#7327): consider inlining small values, so we could use only one db access.
         pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
+            // Take deltas ordered from `self.block_hash` to flat state head.
+            // In other words, order of deltas is the opposite of the order of blocks in chain.
             let deltas = self.get_deltas_between_blocks()?;
             for delta in deltas {
+                // If we found a key in delta, we can return a value because it is the most recent key update.
                 if delta.0.contains_key(key) {
                     return Ok(delta.0.get(key).unwrap().clone());
                 }
