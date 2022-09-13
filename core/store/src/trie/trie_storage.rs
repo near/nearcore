@@ -474,14 +474,20 @@ impl TrieStorage for TrieCachingStorage {
                 self.metrics.shard_cache_misses.inc();
                 near_o11y::io_trace!(count: "shard_cache_miss");
                 let val;
-                // If data is already being prefetched, wait for that instead of sending a new request.
                 if let Some(prefetcher) = &self.prefetch_api {
                     let prefetch_state = prefetcher.prefetching.get_or_set_fetching(hash.clone());
                     // Keep lock until here to avoid race condition between shard cache lookup and reserving prefetch slot.
                     std::mem::drop(guard);
 
                     val = match prefetch_state {
-                        // Slot reserved for us, or no space left. Main thread should fetch data from DB.
+                        // Slot reserved for us, the main thread, or no space left.
+                        // `SlotReserved` for the main thread means, either we have not submitted a prefetch request for
+                        // this value, or maybe it is just still queued up. Either way, prefetching is not going to help
+                        // so the main thread should fetch data from DB on its own.
+                        // `MemoryLimitReached` is not really relevant for the main thread,
+                        // we always have to go to DB even if we could not stage a new prefetch.
+                        // It only means we were not able to mark it as already being fetched, which in turn could lead to
+                        // a prefetcher trying to fetch the same value before we can put it in the shard cache.
                         PrefetcherResult::SlotReserved | PrefetcherResult::MemoryLimitReached => {
                             self.read_from_db(hash)?
                         }
@@ -492,18 +498,19 @@ impl TrieStorage for TrieCachingStorage {
                         PrefetcherResult::Pending => {
                             near_o11y::io_trace!(count: "prefetch_pending");
                             std::thread::yield_now();
-                            // Unwrap: Only main thread  (this one) removes values from staging area,
-                            // therefore blocking read will not return empty unless there
-                            // was a storage error. We can try again from the main thread, even if it will
-                            // probably fail.
+                            // If data is already being prefetched, wait for that instead of sending a new request.
                             match prefetcher.prefetching.blocking_get(hash.clone()) {
                                 Some(value) => value,
+                                // Only main thread (this one) removes values from staging area,
+                                // therefore blocking read will not return empty unless there
+                                // was a storage error. We can try again from the main thread, even if it will
+                                // probably fail.
                                 None => self.read_from_db(hash)?,
                             }
                         }
                     };
                 } else {
-                    drop(guard);
+                    std::mem::drop(guard);
                     val = self.read_from_db(hash)?;
                 }
 
