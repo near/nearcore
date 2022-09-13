@@ -1314,7 +1314,10 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
-                if self.send_message_to_account(&account_id, partial_encoded_chunk.into()) {
+                if self.send_message_to_account(
+                    &account_id,
+                    RoutedMessageBody::VersionedPartialEncodedChunk(partial_encoded_chunk.into()),
+                ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
