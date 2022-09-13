@@ -25,6 +25,7 @@
 //!                     of the chain formed by these blocks (because we can't access ChainStore
 //!                     inside flat storage).
 
+#[allow(unused)]
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 #[cfg(feature = "protocol_feature_flat_state")]
@@ -37,8 +38,7 @@ mod imp {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
-    use crate::{DBCol, Store, StoreUpdate};
-    use borsh::BorshSerialize;
+    use crate::Store;
 
     /// Struct for getting value references from the flat storage.
     ///
@@ -339,8 +339,10 @@ pub struct FlatStorageState(Arc<RwLock<FlatStorageStateInner>>);
 const FLAT_STORAGE_MAX_BLOCKS: u64 = 16;
 
 struct FlatStorageStateInner {
+    #[allow(unused)]
     store: Store,
     /// Id of the shard which state is accessed by this flat storage.
+    #[allow(unused)]
     shard_id: ShardId,
     /// The block for which we store the key value pairs of its state. Note that it is not necessarily
     /// the latest block.
@@ -458,6 +460,7 @@ impl FlatStorageState {
     }
 
     #[cfg(not(feature = "protocol_feature_flat_state"))]
+    #[allow(unused)]
     fn get_deltas_between_blocks(
         &self,
         _target_block_hash: &CryptoHash,
