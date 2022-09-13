@@ -40,7 +40,7 @@ impl Tier {
     pub fn is_allowed_routed(self, body:&RoutedMessageBody) -> bool {
         match body {
             RoutedMessageBody::BlockApproval(..) => true,
-            RoutedMessageBody::PartialEncodedChunk(..) => true,
+            RoutedMessageBody::VersionedPartialEncodedChunk(..) => true,
             _ => self==Tier::T2,
         }
     }

@@ -411,6 +411,8 @@ impl NetworkState {
     pub fn send_message_to_account(&self, clock: &time::Clock, account_id: &AccountId, msg: RoutedMessageBody) -> bool { 
         if connection::Tier::T1.is_allowed_routed(&msg) {
             if let Some((target, conn)) = self.get_tier1_proxy(account_id) {
+                // TODO(gprusak): in case of PartialEncodedChunk, consider stripping everything
+                // but the header. This will bound the message size
                 conn.send_message(Arc::new(PeerMessage::Routed(self.sign_message(
                     clock,
                     RawRoutedMessage {
