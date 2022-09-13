@@ -782,7 +782,7 @@ impl PeerActor {
             last_time_peer_requested: AtomicCell::new(now),
             last_time_received_message: AtomicCell::new(now),
             connection_established_time: now,
-            send_accounts_data_demux: demux::Demux::new(self.network_state.send_accounts_data_rl),
+            send_accounts_data_demux: demux::Demux::new(self.network_state.config.accounts_data_broadcast_rate_limit),
         });
 
         let tracker = self.tracker.clone();
@@ -952,7 +952,6 @@ impl PeerActor {
             PeerMessage::Tier1Handshake(_) | PeerMessage::Tier2Handshake(_) => {
                 // Received handshake after already have seen handshake from this peer.
                 debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
-                
             }
             PeerMessage::PeersRequest => {
                 ctx.spawn(wrap_future(
@@ -1296,7 +1295,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
                     // TODO(gprusak): this is abusive behavior. Consider banning for it.
                     ctx.stop();
                     return;
-                }
+                } 
                 // Optionally, ignore any received tombstones after startup. This is to
                 // prevent overload from too much accumulated deleted edges.
                 //

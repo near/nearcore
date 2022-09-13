@@ -1,5 +1,4 @@
 use crate::broadcast;
-use crate::concurrency::demux;
 use crate::config::NetworkConfig;
 use crate::peer_manager::connection;
 use crate::network_protocol::testonly as data;
@@ -200,7 +199,6 @@ impl PeerHandle {
                 fc.clone().recipient(),
                 fpm.recipient(),
                 routing_table_view,
-                demux::RateLimit { qps: 100., burst: 1 },
             ));
             PeerActor::spawn(
                 clock,

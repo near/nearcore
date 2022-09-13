@@ -1,5 +1,4 @@
 use crate::accounts_data;
-use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::PartialEdgeInfo;
 use crate::network_protocol::{
@@ -44,7 +43,6 @@ pub(crate) struct NetworkState {
     pub config: Arc<config::VerifiedConfig>,
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
-    pub send_accounts_data_rl: demux::RateLimit,
     /// Address of the client actor.
     pub client_addr: Recipient<NetworkClientMessages>,
     /// Address of the view client actor.
@@ -85,7 +83,6 @@ impl NetworkState {
         view_client_addr: Recipient<NetworkViewClientMessages>,
         peer_manager_addr: Recipient<PeerToManagerMsg>,
         routing_table_view: RoutingTableView,
-        send_accounts_data_rl: demux::RateLimit,
     ) -> Self {
         Self {
             genesis_id,
@@ -99,7 +96,6 @@ impl NetworkState {
             accounts_data: Arc::new(accounts_data::Cache::new()),
             routing_table_view,
             tier1_route_back: Mutex::new(RouteBackCache::default()),
-            send_accounts_data_rl,
             config,
             txns_since_last_block: AtomicUsize::new(0),
         }

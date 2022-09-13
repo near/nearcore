@@ -320,7 +320,6 @@ impl PeerManagerActor {
             v
         };
         let config = Arc::new(config);
-        let rl = config.accounts_data_broadcast_rate_limit;
         Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| Self {
             clock,
             my_peer_id: my_peer_id.clone(),
@@ -340,7 +339,6 @@ impl PeerManagerActor {
                 view_client_addr,
                 ctx.address().recipient(),
                 RoutingTableView::new(store, my_peer_id.clone()),
-                rl,
             )),
         }))
     }

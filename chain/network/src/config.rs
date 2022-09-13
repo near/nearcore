@@ -60,6 +60,19 @@ pub struct Features {
 pub struct Tier1 {
     pub daemon_tick_interval: time::Duration,
     pub new_connections_per_tick: usize,
+    /// Max rate at which TIER1 messages will be read from TCP sockets.
+    /// Above that rate reading will block, which will cause extra data
+    /// to be buffered on the sender side.
+    /// This limit is to protect the node and it
+    /// doesn't provide fairness among connections (i.e. the capacity
+    /// is shared across all the TIER1 connections).
+    // TODO(gprusak): try to find a way to provide fairness. Currently
+    // it is complicated to do, because of the TIER1 proxies which
+    // can route the traffic from/to multiple TIER1 peers. It should
+    // be possible to throttle faily at proxies, since TIER1 peer
+    // trusts its proxies.
+    pub recv_bytes_rate: demux::RateLimit,
+    pub send_bytes_buf: usize, 
 }
 
 /// Validated configuration for the peer-to-peer manager.

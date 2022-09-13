@@ -55,6 +55,16 @@ pub(crate) enum Error {
     Recv(#[source] RecvError),
 }
 
+pub(crate) Limiter {
+    read_bytes: tokio::S,
+    write_buffers_capacity: AtomicU64,
+}
+
+impl Limiter {
+    pub fn spawn(read_bytes: demux::RateLimit, write_bytes: usize) {
+
+}
+
 pub(crate) struct FramedStream<Actor: actix::Actor> {
     queue_send: tokio::sync::mpsc::UnboundedSender<Frame>,
     stats: Arc<connection::Stats>,
@@ -73,6 +83,7 @@ where
         peer_addr: SocketAddr,
         stream: tokio::net::TcpStream,
         stats: Arc<connection::Stats>,
+        read_bytes_limiter: Arc<RateLimiter>,
     ) -> Self {
         let (tcp_recv, tcp_send) = tokio::io::split(stream);
         let (queue_send, queue_recv) = tokio::sync::mpsc::unbounded_channel();
@@ -85,7 +96,7 @@ where
             let stats = stats.clone();
             let m = send_buf_size_metric.clone();
             async move {
-                if let Err(err) = Self::run_send_loop(tcp_send, queue_recv, stats, m).await {
+                if let Err(err) = Self::run_send_loop(tcp_send, queue_recv, read_bytes_limiter, stats, m).await {
                     addr.do_send(Error::Send(SendError::IO(err)));
                 }
             }
@@ -139,6 +150,7 @@ where
     async fn run_recv_loop(
         peer_addr: SocketAddr,
         read: ReadHalf,
+        bytes_limiter: Arc<RateLimiter>,
         addr: actix::Addr<Actor>,
         stats: Arc<connection::Stats>,
     ) -> Result<(), RecvError> {
@@ -159,6 +171,7 @@ where
                     want_max_bytes: NETWORK_MESSAGE_MAX_SIZE_BYTES,
                 });
             }
+            bytes_limiter.acquire(n).await;
             msg_size_metric.observe(n as f64);
             buf_size_metric.set(n as i64);
             let mut buf = vec![0; n];

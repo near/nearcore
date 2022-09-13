@@ -140,6 +140,8 @@ impl Connection {
         });
     }
 
+    // TODO(gprusak): embed Stream directly in Connection,
+    // so that we can skip actix queue when sending messages.
     pub fn send_message(&self, msg: Arc<PeerMessage>) {
         let msg_kind = msg.msg_variant().to_string();
         tracing::trace!(target: "network", ?msg_kind, "Send message");
