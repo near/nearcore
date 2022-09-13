@@ -97,7 +97,7 @@ pub(crate) enum PrefetcherResult {
     MemoryLimitReached,
 }
 
-/// Type used interanlly in the staging area to keep track of requests.
+/// Type used internally in the staging area to keep track of requests.
 #[derive(Clone, Debug)]
 enum PrefetchSlot {
     PendingPrefetch,
@@ -128,28 +128,36 @@ impl TrieStorage for TriePrefetchingStorage {
         }
 
         // If data is already being prefetched, wait for that instead of sending a new request.
-        let prefetch_state = PrefetchStagingArea::get_and_set_if_empty(
-            &self.prefetching,
-            hash.clone(),
-            PrefetchSlot::PendingPrefetch,
-        );
+        let prefetch_state =
+            self.prefetching.get_and_set_if_empty(hash.clone(), PrefetchSlot::PendingPrefetch);
         // Keep lock until here to avoid race condition between shard cache insertion and reserving prefetch slot.
         std::mem::drop(shard_cache_guard);
 
         match prefetch_state {
+            // Slot reserved for us, this thread should fetch it from DB.
             PrefetcherResult::SlotReserved => {
                 let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
-                let value: Arc<[u8]> = self
-                    .store
-                    .get(DBCol::State, key.as_ref())
-                    .map_err(|_| StorageError::StorageInternalError)?
-                    .ok_or_else(|| {
-                        StorageError::StorageInconsistentState("Trie node missing".to_string())
-                    })?
-                    .into();
-
-                self.prefetching.insert_fetched(hash.clone(), value.clone());
-                Ok(value)
+                match self.store.get(DBCol::State, key.as_ref()) {
+                    Ok(Some(value)) => {
+                        let value: Arc<[u8]> = value.into();
+                        self.prefetching.insert_fetched(hash.clone(), value.clone());
+                        Ok(value)
+                    }
+                    Ok(None) => {
+                        // This is an unrecoverable error, a hash found in the trie had no node.
+                        // Releasing the lock here to unstuck main thread if it
+                        // was blocking on this value, but it will also fail on its read.
+                        self.prefetching.release(hash);
+                        Err(StorageError::TrieNodeMissing)
+                    }
+                    Err(e) => {
+                        // This is an unrecoverable IO error.
+                        // Releasing the lock here to unstuck main thread if it
+                        // was blocking on this value, but it will also fail on its read.
+                        self.prefetching.release(hash);
+                        Err(StorageError::StorageInconsistentState(e.to_string()))
+                    }
+                }
             }
             PrefetcherResult::Prefetched(value) => Ok(value),
             PrefetcherResult::Pending => {
@@ -172,12 +180,14 @@ impl TrieStorage for TriePrefetchingStorage {
                         // this thread has a change to read it.
                         // In this rare occasion, we shall abort the current prefetch request and
                         // move on to the next.
-                        StorageError::StorageInconsistentState("Prefetcher failed".to_owned())
+                        StorageError::StorageInconsistentState(format!(
+                            "Prefetcher failed on hash {hash}"
+                        ))
                     })
             }
-            PrefetcherResult::MemoryLimitReached => {
-                Err(StorageError::StorageInconsistentState("Prefetcher failed".to_owned()))
-            }
+            PrefetcherResult::MemoryLimitReached => Err(StorageError::StorageInconsistentState(
+                format!("Prefetcher failed due to memory limit hash {hash}"),
+            )),
         }
     }
 

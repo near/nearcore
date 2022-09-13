@@ -481,6 +481,7 @@ impl TrieStorage for TrieCachingStorage {
                     std::mem::drop(guard);
 
                     val = match prefetch_state {
+                        // Slot reserved for us, or no space left. Main thread should fetch data from DB.
                         PrefetcherResult::SlotReserved | PrefetcherResult::MemoryLimitReached => {
                             self.read_from_db(hash)?
                         }
@@ -492,12 +493,17 @@ impl TrieStorage for TrieCachingStorage {
                             near_o11y::io_trace!(count: "prefetch_pending");
                             std::thread::yield_now();
                             // Unwrap: Only main thread  (this one) removes values from staging area,
-                            // therefore blocking read will not return empty.
-                            prefetcher.prefetching.blocking_get(hash.clone()).unwrap()
+                            // therefore blocking read will not return empty unless there
+                            // was a storage error. We can try again from the main thread, even if it will
+                            // probably fail.
+                            match prefetcher.prefetching.blocking_get(hash.clone()) {
+                                Some(value) => value,
+                                None => self.read_from_db(hash)?,
+                            }
                         }
                     };
                 } else {
-                    // TODO: I think we could drop the guard here. But to preserve previous behavior when prefetching is off in this PR, let's not do that.
+                    drop(guard);
                     val = self.read_from_db(hash)?;
                 }
 
