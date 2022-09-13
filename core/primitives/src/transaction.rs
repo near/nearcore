@@ -390,18 +390,6 @@ impl Default for ExecutionMetadata {
     }
 }
 
-impl ExecutionOutcome {
-    pub fn to_hashes(&self) -> Vec<CryptoHash> {
-        let mut result = vec![hash(
-            &PartialExecutionOutcome::from(self).try_to_vec().expect("Failed to serialize"),
-        )];
-        for log in self.logs.iter() {
-            result.push(hash(log.as_bytes()));
-        }
-        result
-    }
-}
-
 impl fmt::Debug for ExecutionOutcome {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExecutionOutcome")
@@ -428,8 +416,14 @@ pub struct ExecutionOutcomeWithId {
 
 impl ExecutionOutcomeWithId {
     pub fn to_hashes(&self) -> Vec<CryptoHash> {
-        let mut result = vec![self.id];
-        result.extend(self.outcome.to_hashes());
+        let mut result = Vec::with_capacity(2 + self.outcome.logs.len());
+        result.push(self.id);
+        result.push(hash(
+            &PartialExecutionOutcome::from(&self.outcome)
+                .try_to_vec()
+                .expect("Failed to serialize"),
+        ));
+        result.extend(self.outcome.logs.iter().map(|log| hash(log.as_bytes())));
         result
     }
 }
@@ -552,7 +546,16 @@ mod tests {
             executor_id: "alice".parse().unwrap(),
             metadata: ExecutionMetadata::V1,
         };
-        let hashes = outcome.to_hashes();
-        assert_eq!(hashes.len(), 3);
+        let id = CryptoHash([42u8; 32]);
+        let outcome = ExecutionOutcomeWithId { id, outcome };
+        assert_eq!(
+            vec![
+                id,
+                "5JQs5ekQqKudMmYejuccbtEu1bzhQPXa92Zm4HdV64dQ".parse().unwrap(),
+                hash("123".as_bytes()),
+                hash("321".as_bytes()),
+            ],
+            outcome.to_hashes()
+        );
     }
 }
