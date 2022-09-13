@@ -2783,7 +2783,7 @@ impl<'a> ChainStoreUpdate<'a> {
             #[cfg(feature = "protocol_feature_flat_state")]
             {
                 let (key_flat_state_delta, flat_state_delta) =
-                    wrapped_trie_changes.flat_state_delta();
+                    wrapped_trie_changes.to_flat_state_delta();
                 store_update.set_ser(
                     DBCol::FlatStateDeltas,
                     &key_flat_state_delta.try_to_vec().unwrap(),

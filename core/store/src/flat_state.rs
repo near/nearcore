@@ -88,7 +88,7 @@ mod imp {
             store_update
         }
 
-        /// Get deltas for blocks between flat state head and `FlatState::block_hash`.
+        /// Get deltas for blocks, ordered from flat state head to `self.block_hash`.
         /// If sequence of deltas contains final block, head is moved to this block and all deltas until new head are
         /// applied to flat state.
         // TODO (#7327): move updating flat state head to block postprocessing.

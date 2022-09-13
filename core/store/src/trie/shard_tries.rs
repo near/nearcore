@@ -305,7 +305,7 @@ impl WrappedTrieChanges {
         self.tries.apply_deletions(&self.trie_changes, self.shard_uid, store_update)
     }
 
-    pub fn flat_state_delta(&self) -> (KeyForFlatStateDelta, FlatStateDelta) {
+    pub fn to_flat_state_delta(&self) -> (KeyForFlatStateDelta, FlatStateDelta) {
         (
             KeyForFlatStateDelta {
                 shard_id: self.shard_uid.shard_id(),
