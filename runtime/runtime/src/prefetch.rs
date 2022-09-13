@@ -47,40 +47,20 @@ use near_primitives::trie_key::TrieKey;
 use near_store::{PrefetchApi, Trie};
 use std::rc::Rc;
 use tracing::debug;
-
-/// How many threads will be prefetching data, without the scheduler thread.
-/// Because the storage driver is blocking, there is only one request per thread
-/// at a time.
-const NUM_IO_THREADS: usize = 8;
-
 /// Transaction runtime view of the prefetching subsystem.
 pub(crate) struct TriePrefetcher {
     prefetch_api: PrefetchApi,
-    #[cfg(test)]
-    handles: Vec<std::thread::JoinHandle<()>>,
 }
 
 impl TriePrefetcher {
     pub(crate) fn new(trie: Rc<Trie>) -> Option<Self> {
         if let Some(caching_storage) = trie.storage.as_caching_storage() {
-            let trie_root = trie.get_root().clone();
-            let parent = caching_storage.clone();
-            let prefetch_api = PrefetchApi::new(&parent);
-            #[cfg(test)]
-            let mut handles = vec![];
-            for _ in 0..NUM_IO_THREADS {
-                let _handle = prefetch_api.start_io_thread(parent, trie_root);
-                #[cfg(test)]
-                handles.push(_handle);
+            if let Some(prefetch_api) = caching_storage.prefetch_api().clone() {
+                prefetch_api.reset_trie_root(*trie.get_root());
+                return Some(Self { prefetch_api });
             }
-            Some(Self {
-                prefetch_api,
-                #[cfg(test)]
-                handles,
-            })
-        } else {
-            None
         }
+        None
     }
 
     /// Start prefetching data for processing the receipts.
@@ -123,11 +103,6 @@ impl TriePrefetcher {
         self.prefetch_api.clear();
     }
 
-    /// Stops IO threads after they finish their current task.
-    pub(crate) fn stop_prefetching(&self) {
-        self.prefetch_api.stop();
-    }
-
     fn prefetch_trie_key(&self, trie_key: TrieKey) -> Result<(), ()> {
         let queue_full = self.prefetch_api.prefetch_trie_key(trie_key).is_err();
         if queue_full {
@@ -139,19 +114,13 @@ impl TriePrefetcher {
     }
 }
 
-impl Drop for TriePrefetcher {
-    fn drop(&mut self) {
-        self.prefetch_api.stop();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::TriePrefetcher;
     use near_primitives::{trie_key::TrieKey, types::AccountId};
     use near_store::{
-        test_utils::{create_tries, test_populate_trie},
-        ShardUId, Trie,
+        test_utils::{create_test_store, test_populate_trie},
+        ShardTries, ShardUId, Trie, TrieConfig,
     };
     use std::{rc::Rc, str::FromStr, time::Duration};
 
@@ -235,7 +204,12 @@ mod tests {
         let input_keys = accounts_to_trie_keys(input);
         let prefetch_keys = accounts_to_trie_keys(prefetch);
 
-        let tries = create_tries();
+        let shard_uids = vec![ShardUId::single_shard()];
+        let mut trie_config = TrieConfig::default();
+        trie_config.enable_receipt_prefetching = true;
+        let store = create_test_store();
+        let tries = ShardTries::new(store, trie_config, &shard_uids);
+
         let mut kvs = vec![];
 
         // insert different values for each account to ensure they have unique hashes
@@ -248,7 +222,8 @@ mod tests {
         let trie = Rc::new(tries.get_trie_for_shard(ShardUId::single_shard(), root.clone()));
         trie.storage.as_caching_storage().unwrap().clear_cache();
 
-        let mut prefetcher = TriePrefetcher::new(trie.clone()).unwrap();
+        let prefetcher =
+            TriePrefetcher::new(trie.clone()).expect("caching storage should have prefetcher");
         let p = &prefetcher.prefetch_api;
 
         assert_eq!(p.num_prefetched_and_staged(), 0);
@@ -267,10 +242,7 @@ mod tests {
         }
 
         // Request can still be pending. Stop threads and wait for them to finish.
-        p.stop();
-        for h in prefetcher.handles.drain(..) {
-            h.join().unwrap();
-        }
+        std::thread::sleep(Duration::from_micros(1000));
 
         assert_eq!(
             p.num_prefetched_and_staged(),

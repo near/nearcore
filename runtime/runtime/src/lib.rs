@@ -1353,7 +1353,7 @@ impl Runtime {
 
         // No more receipts are executed on this trie, stop any pending prefetches on it.
         if let Some(prefetcher) = &prefetcher {
-            prefetcher.stop_prefetching();
+            prefetcher.clear();
         }
 
         if delayed_receipts_indices != initial_delayed_receipt_indices {

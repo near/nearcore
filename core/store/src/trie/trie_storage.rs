@@ -1,8 +1,8 @@
 use crate::db::refcount::decode_value_with_rc;
 use crate::trie::config::TrieConfig;
-use crate::trie::prefetching_trie_storage::{PrefetchStagingArea, PrefetcherResult};
+use crate::trie::prefetching_trie_storage::PrefetcherResult;
 use crate::trie::POISONED_LOCK_ERR;
-use crate::{metrics, DBCol, StorageError, Store};
+use crate::{metrics, DBCol, PrefetchApi, StorageError, Store};
 use lru::LruCache;
 use near_o11y::log_assert;
 use near_o11y::metrics::prometheus;
@@ -354,10 +354,8 @@ pub struct TrieCachingStorage {
     pub(crate) chunk_cache: RefCell<HashMap<CryptoHash, Arc<[u8]>>>,
     pub(crate) cache_mode: Cell<TrieCacheMode>,
 
-    /// Prefetching IO threads will insert fetched data here. This is also used
-    /// to mark what is already being fetched, to avoid fetching the same data
-    /// multiple times.
-    pub(crate) prefetching: PrefetchStagingArea,
+    /// The entry point for the runtime to submit prefetch requests.
+    pub(crate) prefetch_api: Option<PrefetchApi>,
 
     /// Counts potentially expensive trie node reads which are served from disk in the worst case. Here we count reads
     /// from DB or shard cache.
@@ -386,6 +384,7 @@ impl TrieCachingStorage {
         shard_cache: TrieCache,
         shard_uid: ShardUId,
         is_view: bool,
+        prefetch: bool,
     ) -> TrieCachingStorage {
         let metrics_labels: [&str; 2] =
             [&shard_uid.shard_id.to_string(), if is_view { "1" } else { "0" }];
@@ -401,12 +400,17 @@ impl TrieCachingStorage {
             shard_cache_current_total_size: metrics::SHARD_CACHE_CURRENT_TOTAL_SIZE
                 .with_label_values(&metrics_labels),
         };
+        let prefetch_api = if prefetch {
+            Some(PrefetchApi::new(store.clone(), shard_cache.clone(), shard_uid.clone()))
+        } else {
+            None
+        };
         TrieCachingStorage {
             store,
             shard_uid,
             shard_cache,
             cache_mode: Cell::new(TrieCacheMode::CachingShard),
-            prefetching: Default::default(),
+            prefetch_api,
             chunk_cache: RefCell::new(Default::default()),
             db_read_nodes: Cell::new(0),
             mem_read_nodes: Cell::new(0),
@@ -474,27 +478,33 @@ impl TrieStorage for TrieCachingStorage {
             None => {
                 self.metrics.shard_cache_misses.inc();
                 near_o11y::io_trace!(count: "shard_cache_miss");
+                let val;
                 // If data is already being prefetched, wait for that instead of sending a new request.
-                let prefetch_state = self.prefetching.get_or_set_fetching(hash.clone());
-                // Keep lock until here to avoid race condition between shard cache lookup and reserving prefetch slot.
-                std::mem::drop(guard);
+                if let Some(prefetcher) = &self.prefetch_api {
+                    let prefetch_state = prefetcher.prefetching.get_or_set_fetching(hash.clone());
+                    // Keep lock until here to avoid race condition between shard cache lookup and reserving prefetch slot.
+                    std::mem::drop(guard);
 
-                let val = match prefetch_state {
-                    PrefetcherResult::SlotReserved | PrefetcherResult::MemoryLimitReached => {
-                        self.read_from_db(hash)?
-                    }
-                    PrefetcherResult::Prefetched(value) => {
-                        near_o11y::io_trace!(count: "prefetch_hit");
-                        value
-                    }
-                    PrefetcherResult::Pending => {
-                        near_o11y::io_trace!(count: "prefetch_pending");
-                        std::thread::yield_now();
-                        // Unwrap: Only main thread  (this one) removes values from staging area,
-                        // therefore blocking read will not return empty.
-                        self.prefetching.blocking_get(hash.clone()).unwrap()
-                    }
-                };
+                    val = match prefetch_state {
+                        PrefetcherResult::SlotReserved | PrefetcherResult::MemoryLimitReached => {
+                            self.read_from_db(hash)?
+                        }
+                        PrefetcherResult::Prefetched(value) => {
+                            near_o11y::io_trace!(count: "prefetch_hit");
+                            value
+                        }
+                        PrefetcherResult::Pending => {
+                            near_o11y::io_trace!(count: "prefetch_pending");
+                            std::thread::yield_now();
+                            // Unwrap: Only main thread  (this one) removes values from staging area,
+                            // therefore blocking read will not return empty.
+                            prefetcher.prefetching.blocking_get(hash.clone()).unwrap()
+                        }
+                    };
+                } else {
+                    // TODO: I think we could drop the guard here. But to preserve previous behavior when prefetching is off in this PR, let's not do that.
+                    val = self.read_from_db(hash)?;
+                }
 
                 // Insert value to shard cache, if its size is small enough.
                 // It is fine to have a size limit for shard cache and **not** have a limit for chunk cache, because key
@@ -508,8 +518,10 @@ impl TrieStorage for TrieCachingStorage {
                     near_o11y::io_trace!(count: "shard_cache_too_large");
                 }
 
-                // Only release after insertion in shard cache. See comment on fn release.
-                self.prefetching.release(hash);
+                if let Some(prefetcher) = &self.prefetch_api {
+                    // Only release after insertion in shard cache. See comment on fn release.
+                    prefetcher.prefetching.release(hash);
+                }
 
                 val
             }
@@ -553,6 +565,10 @@ impl TrieCachingStorage {
                 StorageError::StorageInconsistentState("Trie node missing".to_string())
             })?;
         Ok(val.into())
+    }
+
+    pub fn prefetch_api(&self) -> &Option<PrefetchApi> {
+        &self.prefetch_api
     }
 }
 

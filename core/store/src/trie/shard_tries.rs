@@ -97,8 +97,14 @@ impl ShardTries {
                 .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view))
                 .clone()
         };
-        let storage =
-            Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid, is_view));
+        let prefetch_enabled = self.0.trie_config.enable_receipt_prefetching;
+        let storage = Box::new(TrieCachingStorage::new(
+            self.0.store.clone(),
+            cache,
+            shard_uid,
+            is_view,
+            prefetch_enabled,
+        ));
         let flat_state = crate::flat_state::maybe_new(use_flat_state, &self.0.store);
         Trie::new(storage, state_root, flat_state)
     }

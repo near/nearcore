@@ -1,21 +1,24 @@
 use crate::trie::POISONED_LOCK_ERR;
-use crate::{DBCol, StorageError, Store, TrieCache, TrieCachingStorage, TrieStorage};
+use crate::{DBCol, StorageError, Store, Trie, TrieCache, TrieCachingStorage, TrieStorage};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::TrieNodesCount;
+use near_primitives::types::{StateRoot, TrieNodesCount};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use tracing::error;
 
 const MAX_QUEUED_WORK_ITEMS: usize = 16 * 1024;
 const MAX_PREFETCH_STAGING_MEMORY: usize = 200 * 1024 * 1024;
-/// How much memory capacity is reserved for each prefetch request.
+/// How much memory capacity is reserved for each prefetch request before
+/// sending it. Once the value is fetched, the actual size is used instead.
 /// Set to 4MiB, the same as `max_length_storage_value`.
 const PREFETCH_RESERVED_BYTES_PER_SLOT: usize = 4 * 1024 * 1024;
+/// How many threads will be prefetching data, without the scheduler thread.
+/// Because the storage driver is blocking, there is only one request per thread
+/// at a time.
+const NUM_IO_THREADS: usize = 8;
 
 /// Storage used by I/O threads to prefetch data.
 ///
@@ -44,7 +47,7 @@ struct TriePrefetchingStorage {
 
 /// This type is shared between runtime crate and store crate.
 ///
-/// The former creates `PrefetchApi` and puts requests in, the latter serves requests.
+/// The former puts requests in, the latter serves requests.
 /// With this API, the store does not know about receipts etc, and the runtime
 /// does not know about the trie structure. The only thing they share is this object.
 #[derive(Clone)]
@@ -54,13 +57,12 @@ pub struct PrefetchApi {
     /// Work items are defined as `TrieKey` because currently the only
     /// work is to prefetch a trie key. If other IO work is added, consider
     /// changing the queue to an enum.
-    work_queue: Arc<crossbeam::queue::ArrayQueue<TrieKey>>,
+    work_queue_tx: crossbeam::channel::Sender<TrieKey>,
+    work_queue_rx: crossbeam::channel::Receiver<TrieKey>,
     /// Prefetching IO threads will insert fetched data here. This is also used
     /// to mark what is already being fetched, to avoid fetching the same data
     /// multiple times.
-    prefetching: PrefetchStagingArea,
-    /// Set to true to stop all io threads.
-    stop_io: Arc<AtomicBool>,
+    pub(crate) prefetching: PrefetchStagingArea,
 }
 
 /// Staging area for in-flight prefetch requests and a buffer for prefetched data.
@@ -83,6 +85,8 @@ pub(crate) struct PrefetchStagingArea(Arc<Mutex<InnerPrefetchStagingArea>>);
 struct InnerPrefetchStagingArea {
     slots: HashMap<CryptoHash, PrefetchSlot>,
     size_bytes: usize,
+    /// The trie root for which current requests should prefetch.
+    trie_root: CryptoHash,
 }
 
 /// Result when atomically accessing the prefetch staging area.
@@ -287,69 +291,69 @@ impl PrefetchStagingArea {
             }
         }
     }
+
+    fn trie_root(&self) -> StateRoot {
+        self.0.lock().expect(POISONED_LOCK_ERR).trie_root
+    }
 }
 
 impl PrefetchApi {
-    pub fn new(parent: &TrieCachingStorage) -> Self {
-        Self {
-            work_queue: Arc::new(crossbeam::queue::ArrayQueue::new(MAX_QUEUED_WORK_ITEMS)),
-            prefetching: parent.prefetching.clone(),
-            stop_io: Arc::new(AtomicBool::new(false)),
+    pub fn new(store: Store, shard_cache: TrieCache, shard_uid: ShardUId) -> Self {
+        let (work_queue_tx, work_queue_rx) = crossbeam::channel::bounded(MAX_QUEUED_WORK_ITEMS);
+
+        let this = Self { work_queue_tx, work_queue_rx, prefetching: Default::default() };
+        for _ in 0..NUM_IO_THREADS {
+            this.start_io_thread(store.clone(), shard_cache.clone(), shard_uid.clone());
         }
+        this
     }
 
     /// Returns the trie key back if queue is full.
     pub fn prefetch_trie_key(&self, trie_key: TrieKey) -> Result<(), TrieKey> {
-        self.work_queue.push(trie_key)
+        self.work_queue_tx.send(trie_key).map_err(|e| e.0)
     }
 
     pub fn start_io_thread(
         &self,
-        parent: &TrieCachingStorage,
-        trie_root: CryptoHash,
+        store: Store,
+        shard_cache: TrieCache,
+        shard_uid: ShardUId,
     ) -> std::thread::JoinHandle<()> {
-        let prefetcher_storage = TriePrefetchingStorage::new(
-            parent.store.clone(),
-            parent.shard_uid,
-            parent.shard_cache.clone(),
-            self.prefetching.clone(),
-        );
-        let stop_io = self.stop_io.clone();
-        let work_queue = self.work_queue.clone();
+        let prefetcher_storage =
+            TriePrefetchingStorage::new(store, shard_uid, shard_cache, self.prefetching.clone());
+        let prefetching = self.prefetching.clone();
+        let work_queue = self.work_queue_rx.clone();
         std::thread::spawn(move || {
-            // `Trie` cannot be sent across threads but `TriePrefetchingStorage` can.
-            //  Therefore, construct `Trie` in the new thread.
-            let prefetcher_trie = crate::Trie::new(Box::new(prefetcher_storage), trie_root, None);
-
-            // Keep looping until signalled to stop.
-            while !stop_io.load(Ordering::Acquire) {
-                if let Some(trie_key) = work_queue.pop() {
-                    let storage_key = trie_key.to_vec();
-                    if let Ok(Some(_value)) = prefetcher_trie.get(&storage_key) {
-                        near_o11y::io_trace!(count: "prefetch");
-                    } else {
-                        // This may happen in rare occasions and can be ignored safely.
-                        // See comments in `TriePrefetchingStorage::retrieve_raw_bytes`.
-                        near_o11y::io_trace!(count: "prefetch_failure");
-                    }
+            while let Ok(trie_key) = work_queue.recv() {
+                // Since the trie root can change,and since the root is not known at the time when the IO threads starts,
+                // we need to redefine the trie before each request.
+                // Note that the constructor of `Trie` is trivial, and the clone only clones a few `Arc`s, so the performance hit is small.
+                let prefetcher_trie =
+                    Trie::new(Box::new(prefetcher_storage.clone()), prefetching.trie_root(), None);
+                let storage_key = trie_key.to_vec();
+                if let Ok(Some(_value)) = prefetcher_trie.get(&storage_key) {
+                    near_o11y::io_trace!(count: "prefetch");
                 } else {
-                    std::thread::sleep(Duration::from_micros(10));
+                    // This may happen in rare occasions and can be ignored safely.
+                    // See comments in `TriePrefetchingStorage::retrieve_raw_bytes`.
+                    near_o11y::io_trace!(count: "prefetch_failure");
                 }
             }
         })
     }
 
-    /// Removes all queue up prefetch requests.
-    pub fn clear(&self) {
-        while let Some(_dropped) = self.work_queue.pop() {}
+    /// Removes all queue up prefetch requests and sets the trie root for all io threads.
+    pub fn reset_trie_root(&self, trie_root: CryptoHash) {
+        self.clear();
+        self.prefetching.0.lock().expect(POISONED_LOCK_ERR).trie_root = trie_root;
     }
 
-    /// Stops IO threads after they finish their current task.
+    /// Remove queued up requests so IO threads will be paused after they finish their current task.
     ///
     /// Queued up work will not be finished. But trie keys that are already
     /// being fetched will finish.
-    pub fn stop(&self) {
-        self.stop_io.store(true, Ordering::Release);
+    pub fn clear(&self) {
+        while let Ok(_dropped) = self.work_queue_rx.try_recv() {}
     }
 }
 
@@ -390,7 +394,7 @@ mod tests {
         }
 
         pub fn work_queued(&self) -> bool {
-            self.work_queue.len() > 0
+            !self.work_queue_rx.is_empty()
         }
     }
 
