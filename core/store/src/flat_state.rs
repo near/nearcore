@@ -398,12 +398,14 @@ impl FlatStorageState {
         target_block_hash: &CryptoHash,
     ) -> Result<Vec<FlatStateDelta>, crate::StorageError> {
         let guard = self.0.write().expect(POISONED_LOCK_ERR);
+        tracing::debug!(target: "client", "get flat_state_head");
         let flat_state_head: CryptoHash = guard
             .store
             .get_ser(crate::DBCol::FlatStateMisc, &guard.shard_id.try_to_vec().unwrap())
             .map_err(|_| crate::StorageError::StorageInternalError)?
             .expect("Borsh cannot fail");
 
+        tracing::debug!(target: "client", "get block header");
         let block_header: BlockHeader = guard
             .store
             .get_ser(crate::DBCol::BlockHeader, target_block_hash.as_ref())
@@ -416,12 +418,14 @@ impl FlatStorageState {
         let mut deltas_to_apply = vec![];
         let mut found_final_block = false;
         while block_hash != flat_state_head {
+            tracing::debug!(target: "client", "get block");
             if block_hash == final_block_hash {
                 assert!(!found_final_block);
                 found_final_block = true;
             }
 
             let key = KeyForFlatStateDelta { shard_id: guard.shard_id, block_hash };
+            tracing::debug!(target: "client", "get delta");
             let delta: Option<FlatStateDelta> = guard
                 .store
                 .get_ser(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap())
@@ -437,6 +441,7 @@ impl FlatStorageState {
                 None => {}
             }
 
+            tracing::debug!(target: "client", "get block header");
             let block_header: BlockHeader = guard
                 .store
                 .get_ser(crate::DBCol::BlockHeader, block_hash.as_ref())
@@ -449,6 +454,7 @@ impl FlatStorageState {
         std::mem::drop(guard);
 
         if found_final_block {
+            tracing::debug!(target: "client", "apply update");
             let mut store_update = StoreUpdate::new(storage);
             for delta in deltas_to_apply.drain(..).rev() {
                 delta.apply_to_flat_state(&mut store_update);
