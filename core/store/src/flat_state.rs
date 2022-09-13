@@ -156,13 +156,11 @@ mod imp {
                 };
                 // TODO: initialize flat storage states correctly, the current FlatStorageState function
                 // doesn't take any argument
-                let flat_storage_state = {
-                    let mut flat_storage_states =
-                        self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
-                    flat_storage_states
-                        .entry(shard_id)
-                        .or_insert_with(|| FlatStorageState::new(self.0.store.clone(), shard_id))
-                        .clone()
+                let flat_storage_state = match self.get_flat_storage_state_for_shard(shard_id) {
+                    Some(flat_storage_state) => flat_storage_state,
+                    None => {
+                        return None;
+                    }
                 };
                 Some(FlatState {
                     store: self.0.store.clone(),
@@ -177,8 +175,14 @@ mod imp {
             &self,
             shard_id: ShardId,
         ) -> Option<FlatStorageState> {
-            let flat_storage_states = self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
-            flat_storage_states.get(&shard_id).cloned()
+            let mut flat_storage_states =
+                self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
+            Some(
+                flat_storage_states
+                    .entry(shard_id)
+                    .or_insert_with(|| FlatStorageState::new(self.0.store.clone(), shard_id))
+                    .clone(),
+            )
         }
     }
 }
