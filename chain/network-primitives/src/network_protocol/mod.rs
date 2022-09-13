@@ -228,7 +228,7 @@ impl RoutedMessageBody {
     // lost
     pub fn is_important(&self) -> bool {
         match self {
-            // Both BlockApproval and PartialEncodedChunk is essential for block production and
+            // Both BlockApproval and VersionedPartialEncodedChunk is essential for block production and
             // are only sent by the original node and if they are lost, the receiver node doesn't
             // know to request them.
             RoutedMessageBody::BlockApproval(_)
