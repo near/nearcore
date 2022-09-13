@@ -110,7 +110,12 @@ impl ShardTries {
                     .expect(POISONED_LOCK_ERR)
                     .entry(shard_uid)
                     .or_insert_with(|| {
-                        PrefetchApi::new(self.0.store.clone(), cache.clone(), shard_uid.clone())
+                        PrefetchApi::new(
+                            self.0.store.clone(),
+                            cache.clone(),
+                            shard_uid.clone(),
+                            &self.0.trie_config,
+                        )
                     })
                     .clone(),
             )

@@ -1,9 +1,11 @@
 use crate::trie::POISONED_LOCK_ERR;
-use crate::{DBCol, StorageError, Store, Trie, TrieCache, TrieCachingStorage, TrieStorage};
+use crate::{
+    DBCol, StorageError, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieStorage,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{StateRoot, TrieNodesCount};
+use near_primitives::types::{AccountId, StateRoot, TrieNodesCount};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -65,6 +67,12 @@ pub struct PrefetchApi {
     /// to mark what is already being fetched, to avoid fetching the same data
     /// multiple times.
     pub(crate) prefetching: PrefetchStagingArea,
+
+    pub enable_receipt_prefetching: bool,
+    /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as sender.
+    pub sweat_prefetch_receivers: Vec<AccountId>,
+    /// List of allowed predecessor accounts for SWEAT prefetching.
+    pub sweat_prefetch_senders: Vec<AccountId>,
 }
 
 /// Staging area for in-flight prefetch requests and a buffer for prefetched data.
@@ -304,10 +312,25 @@ impl PrefetchStagingArea {
 }
 
 impl PrefetchApi {
-    pub fn new(store: Store, shard_cache: TrieCache, shard_uid: ShardUId) -> Self {
+    pub fn new(
+        store: Store,
+        shard_cache: TrieCache,
+        shard_uid: ShardUId,
+        trie_config: &TrieConfig,
+    ) -> Self {
         let (work_queue_tx, work_queue_rx) = crossbeam::channel::bounded(MAX_QUEUED_WORK_ITEMS);
+        let sweat_prefetch_receivers = trie_config.sweat_prefetch_receivers.clone();
+        let sweat_prefetch_senders = trie_config.sweat_prefetch_senders.clone();
+        let enable_receipt_prefetching = trie_config.enable_receipt_prefetching;
 
-        let this = Self { work_queue_tx, work_queue_rx, prefetching: Default::default() };
+        let this = Self {
+            work_queue_tx,
+            work_queue_rx,
+            prefetching: Default::default(),
+            enable_receipt_prefetching,
+            sweat_prefetch_receivers,
+            sweat_prefetch_senders,
+        };
         for _ in 0..NUM_IO_THREADS {
             this.start_io_thread(store.clone(), shard_cache.clone(), shard_uid.clone());
         }
