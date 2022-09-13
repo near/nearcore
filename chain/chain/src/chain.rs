@@ -608,9 +608,12 @@ impl Chain {
                 for shard_id in 0..runtime_adapter.num_shards(&EpochId::default()).unwrap() {
                     let flat_storage_state =
                         runtime_adapter.get_flat_storage_state_for_shard(shard_id);
-                    match flat_storage_state {
-                        Some(flat_storage_state) => {
-                            flat_storage_state.update_head(&block_head.last_block_hash);
+                    let new_store_update = flat_storage_state.map_or(None, |flat_storage_state| {
+                        flat_storage_state.update_head(&block_head.last_block_hash)
+                    });
+                    match new_store_update {
+                        Some(new_store_update) => {
+                            store_update.merge(new_store_update);
                         }
                         None => {}
                     };
