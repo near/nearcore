@@ -44,20 +44,22 @@
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
+use near_primitives::types::StateRoot;
 use near_store::{PrefetchApi, Trie};
 use std::rc::Rc;
 use tracing::debug;
 /// Transaction runtime view of the prefetching subsystem.
 pub(crate) struct TriePrefetcher {
     prefetch_api: PrefetchApi,
+    trie_root: StateRoot,
 }
 
 impl TriePrefetcher {
     pub(crate) fn new(trie: Rc<Trie>) -> Option<Self> {
         if let Some(caching_storage) = trie.storage.as_caching_storage() {
             if let Some(prefetch_api) = caching_storage.prefetch_api().clone() {
-                prefetch_api.reset_trie_root(*trie.get_root());
-                return Some(Self { prefetch_api });
+                let trie_root = *trie.get_root();
+                return Some(Self { prefetch_api, trie_root });
             }
         }
         None
@@ -104,7 +106,7 @@ impl TriePrefetcher {
     }
 
     fn prefetch_trie_key(&self, trie_key: TrieKey) -> Result<(), ()> {
-        let queue_full = self.prefetch_api.prefetch_trie_key(trie_key).is_err();
+        let queue_full = self.prefetch_api.prefetch_trie_key(self.trie_root, trie_key).is_err();
         if queue_full {
             debug!(target: "prefetcher", "I/O scheduler input queue full, dropping prefetch request");
             Err(())
