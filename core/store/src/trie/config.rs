@@ -60,9 +60,7 @@ impl TrieConfig {
         this.shard_cache_config
             .override_max_entries
             .extend(config.trie_cache_capacities.iter().cloned());
-        this.enable_receipt_prefetching = config.enable_receipt_prefetching
-            || (!config.sweat_prefetch_receivers.is_empty()
-                && !config.sweat_prefetch_senders.is_empty());
+        this.enable_receipt_prefetching = config.enable_receipt_prefetching;
         for account in &config.sweat_prefetch_receivers {
             match AccountId::from_str(account) {
                 Ok(account_id) => this.sweat_prefetch_receivers.push(account_id),

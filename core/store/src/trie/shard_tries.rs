@@ -100,7 +100,9 @@ impl ShardTries {
                 .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view))
                 .clone()
         };
-        let prefetch_enabled = self.0.trie_config.enable_receipt_prefetching;
+        let prefetch_enabled = self.0.trie_config.enable_receipt_prefetching
+            || (!self.0.trie_config.sweat_prefetch_receivers.is_empty()
+                && !self.0.trie_config.sweat_prefetch_senders.is_empty());
 
         let prefetch_api = if prefetch_enabled {
             Some(
