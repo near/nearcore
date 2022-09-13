@@ -71,19 +71,6 @@ mod imp {
     }
 
     impl FlatState {
-        /// Update the head of the flat storage. Return a StoreUpdate for the disk update.
-        pub fn update_head(
-            shard_id: ShardId,
-            block_hash: &CryptoHash,
-            store: &Store,
-        ) -> StoreUpdate {
-            let mut store_update = StoreUpdate::new(store.storage.clone());
-            store_update
-                .set_ser(DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap(), block_hash)
-                .expect("Borsh cannot fail");
-            store_update
-        }
-
         /// Returns value reference using raw trie key, taken from the state
         /// corresponding to `FlatState::block_hash`.
         ///
@@ -450,16 +437,20 @@ impl FlatStorageState {
             block_hash = block_header.prev_hash().clone();
         }
 
+        let storage = guard.store.storage.clone();
+        std::mem::drop(guard);
+
         if found_final_block {
-            let mut store_update = StoreUpdate::new(guard.store.storage.clone());
+            let mut store_update = StoreUpdate::new(storage);
             for delta in deltas_to_apply.drain(..).rev() {
                 delta.apply_to_flat_state(&mut store_update);
             }
-            store_update.merge(FlatState::update_head(
-                guard.shard_id,
-                &final_block_hash,
-                &guard.store,
-            ));
+            match self.update_head(&final_block_hash) {
+                Some(new_store_update) => {
+                    store_update.merge(new_store_update);
+                }
+                None => {}
+            };
             store_update.commit().map_err(|_| crate::StorageError::StorageInternalError)?
         }
         Ok(deltas)
@@ -467,10 +458,13 @@ impl FlatStorageState {
 
     // Update the head of the flat storage, this might require updating the flat state stored on disk.
     // Returns a StoreUpdate for the disk update if there is any
-    #[allow(unused)]
-    pub fn update_head(&self, _new_head: &CryptoHash) -> Option<StoreUpdate> {
-        // TODO:
-        None
+    pub fn update_head(&self, new_head: &CryptoHash) -> Option<StoreUpdate> {
+        let guard = self.0.write().expect(POISONED_LOCK_ERR);
+        let mut store_update = StoreUpdate::new(guard.store.storage.clone());
+        store_update
+            .set_ser(crate::DBCol::FlatStateMisc, &guard.shard_id.try_to_vec().unwrap(), new_head)
+            .expect("Borsh cannot fail");
+        Some(store_update)
     }
 
     // Update the tail of the flat storage, remove the deltas between the old tail and the new tail

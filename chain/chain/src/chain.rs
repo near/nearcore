@@ -607,11 +607,14 @@ impl Chain {
                 store_update.save_head(&block_head)?;
                 store_update.save_final_head(&header_head)?;
                 for shard_id in 0..runtime_adapter.num_shards(&EpochId::default()).unwrap() {
-                    store_update.merge(FlatState::update_head(
-                        shard_id,
-                        &block_head.last_block_hash,
-                        &store_update.store(),
-                    ));
+                    let flat_storage_state =
+                        runtime_adapter.get_flat_storage_state_for_shard(shard_id);
+                    match flat_storage_state {
+                        Some(flat_storage_state) => {
+                            flat_storage_state.update_head(&block_head.last_block_hash);
+                        }
+                        None => {}
+                    };
                 }
 
                 info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
@@ -4802,9 +4805,9 @@ impl<'a> ChainUpdate<'a> {
                 self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
             {
                 // TODO: fill in the correct new head
-                if let Some(_update) = flat_storage_state.update_head(&CryptoHash::default()) {
-                    // TODO: add this update to chain update
-                }
+                // if let Some(_update) = flat_storage_state.update_head(&CryptoHash::default()) {
+                // TODO: add this update to chain update
+                // }
                 if let Some(_update) =
                     flat_storage_state.update_tail(block.header().last_final_block())
                 {
