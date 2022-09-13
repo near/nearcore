@@ -78,7 +78,6 @@ use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::flat_state::FlatState;
 use near_store::flat_state::FlatStateDelta;
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};

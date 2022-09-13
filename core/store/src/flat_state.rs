@@ -385,6 +385,7 @@ impl FlatStorageState {
     // TODO (#7327): come up how the flat state head and tail should be positioned.
     // TODO (#7327): implement garbage collection of old deltas.
     // TODO (#7327): cache deltas to speed up multiple DB reads.
+    #[cfg(feature = "protocol_feature_flat_state")]
     fn get_deltas_between_blocks(
         &self,
         target_block_hash: &CryptoHash,
@@ -456,8 +457,17 @@ impl FlatStorageState {
         Ok(deltas)
     }
 
+    #[cfg(not(feature = "protocol_feature_flat_state"))]
+    fn get_deltas_between_blocks(
+        &self,
+        _target_block_hash: &CryptoHash,
+    ) -> Result<Vec<FlatStateDelta>, crate::StorageError> {
+        Ok(vec![])
+    }
+
     // Update the head of the flat storage, this might require updating the flat state stored on disk.
     // Returns a StoreUpdate for the disk update if there is any
+    #[cfg(feature = "protocol_feature_flat_state")]
     pub fn update_head(&self, new_head: &CryptoHash) -> Option<StoreUpdate> {
         let guard = self.0.write().expect(POISONED_LOCK_ERR);
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
@@ -465,6 +475,11 @@ impl FlatStorageState {
             .set_ser(crate::DBCol::FlatStateMisc, &guard.shard_id.try_to_vec().unwrap(), new_head)
             .expect("Borsh cannot fail");
         Some(store_update)
+    }
+
+    #[cfg(not(feature = "protocol_feature_flat_state"))]
+    pub fn update_head(&self, new_head: &CryptoHash) -> Option<StoreUpdate> {
+        None
     }
 
     // Update the tail of the flat storage, remove the deltas between the old tail and the new tail
