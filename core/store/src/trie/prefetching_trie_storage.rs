@@ -1,6 +1,7 @@
 use crate::trie::POISONED_LOCK_ERR;
 use crate::{
-    DBCol, StorageError, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieStorage,
+    metrics, DBCol, StorageError, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig,
+    TrieStorage,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -355,6 +356,10 @@ impl PrefetchApi {
         let prefetcher_storage =
             TriePrefetchingStorage::new(store, shard_uid, shard_cache, self.prefetching.clone());
         let work_queue = self.work_queue_rx.clone();
+        let metric_prefetch_sent =
+            metrics::PREFETCH_SENT.with_label_values(&[&shard_uid.shard_id.to_string()]);
+        let metric_prefetch_fail =
+            metrics::PREFETCH_FAIL.with_label_values(&[&shard_uid.shard_id.to_string()]);
         std::thread::spawn(move || {
             while let Ok((trie_root, trie_key)) = work_queue.recv() {
                 // Since the trie root can change,and since the root is not known at the time when the IO threads starts,
@@ -363,12 +368,14 @@ impl PrefetchApi {
                 let prefetcher_trie =
                     Trie::new(Box::new(prefetcher_storage.clone()), trie_root, None);
                 let storage_key = trie_key.to_vec();
+                metric_prefetch_sent.inc();
                 if let Ok(Some(_value)) = prefetcher_trie.get(&storage_key) {
                     near_o11y::io_trace!(count: "prefetch");
                 } else {
                     // This may happen in rare occasions and can be ignored safely.
                     // See comments in `TriePrefetchingStorage::retrieve_raw_bytes`.
                     near_o11y::io_trace!(count: "prefetch_failure");
+                    metric_prefetch_fail.inc();
                 }
             }
         })

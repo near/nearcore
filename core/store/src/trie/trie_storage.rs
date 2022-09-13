@@ -376,6 +376,8 @@ struct TrieCacheInnerMetrics {
     shard_cache_size: GenericGauge<prometheus::core::AtomicI64>,
     chunk_cache_size: GenericGauge<prometheus::core::AtomicI64>,
     shard_cache_current_total_size: GenericGauge<prometheus::core::AtomicI64>,
+    prefetch_hits: GenericCounter<prometheus::core::AtomicU64>,
+    prefetch_pending: GenericCounter<prometheus::core::AtomicU64>,
 }
 
 impl TrieCachingStorage {
@@ -399,6 +401,8 @@ impl TrieCachingStorage {
             chunk_cache_size: metrics::CHUNK_CACHE_SIZE.with_label_values(&metrics_labels),
             shard_cache_current_total_size: metrics::SHARD_CACHE_CURRENT_TOTAL_SIZE
                 .with_label_values(&metrics_labels),
+            prefetch_hits: metrics::PREFETCH_HITS.with_label_values(&metrics_labels[..1]),
+            prefetch_pending: metrics::PREFETCH_PENDING.with_label_values(&metrics_labels[..1]),
         };
         TrieCachingStorage {
             store,
@@ -487,10 +491,12 @@ impl TrieStorage for TrieCachingStorage {
                         }
                         PrefetcherResult::Prefetched(value) => {
                             near_o11y::io_trace!(count: "prefetch_hit");
+                            self.metrics.prefetch_hits.inc();
                             value
                         }
                         PrefetcherResult::Pending => {
                             near_o11y::io_trace!(count: "prefetch_pending");
+                            self.metrics.prefetch_pending.inc();
                             std::thread::yield_now();
                             // Unwrap: Only main thread  (this one) removes values from staging area,
                             // therefore blocking read will not return empty unless there

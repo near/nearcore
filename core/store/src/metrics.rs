@@ -142,3 +142,26 @@ pub static REVERTED_TRIE_INSERTIONS: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static PREFETCH_SENT: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec("near_prefetch_sent", "Prefetch requests sent", &["shard_id"])
+        .unwrap()
+});
+pub static PREFETCH_HITS: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec("near_prefetch_hits", "Prefetched trie keys", &["shard_id"]).unwrap()
+});
+pub static PREFETCH_PENDING: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_prefetch_pending",
+        "Prefetched trie keys that were still pending when main thread needed data",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+pub static PREFETCH_FAIL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_prefetch_fail",
+        "Prefetching trie key failed with an error",
+        &["shard_id"],
+    )
+    .unwrap()
+});
