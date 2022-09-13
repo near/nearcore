@@ -79,6 +79,7 @@ use near_primitives::shard_layout::{
 };
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::flat_state::FlatState;
+use near_store::flat_state::FlatStateDelta;
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -3123,7 +3124,7 @@ impl Chain {
         let block = self.store.get_block(block_hash)?;
         let prev_block = self.store.get_block(block.header().prev_hash())?;
         let mut chain_update = self.chain_update();
-        chain_update.apply_chunk_postprocessing(&block, &prev_block, results)?;
+        chain_update.apply_chunk_postprocessing(&block, &prev_block, results, true)?;
         chain_update.commit()?;
         Ok(())
     }
@@ -4452,10 +4453,16 @@ impl<'a> ChainUpdate<'a> {
         block: &Block,
         prev_block: &Block,
         apply_results: Vec<Result<ApplyChunkResult, Error>>,
+        is_catching_up: bool,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing").entered();
         for result in apply_results {
-            self.process_apply_chunk_result(result?, *block.hash(), *prev_block.hash())?
+            self.process_apply_chunk_result(
+                result?,
+                *block.hash(),
+                *prev_block.hash(),
+                is_catching_up,
+            )?
         }
         Ok(())
     }
@@ -4592,6 +4599,7 @@ impl<'a> ChainUpdate<'a> {
         result: ApplyChunkResult,
         block_hash: CryptoHash,
         prev_block_hash: CryptoHash,
+        is_catching_up: bool,
     ) -> Result<(), Error> {
         match result {
             ApplyChunkResult::SameHeight(SameHeightResult {
@@ -4617,6 +4625,19 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.total_balance_burnt,
                     ),
                 );
+                // Right now, we don't implement flat storage for catchup, so we only store
+                // the delta if we are not catching up
+                if !is_catching_up {
+                    if let Some(chain_flat_storage) =
+                        self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
+                    {
+                        let delta = FlatStateDelta::from_state_changes(
+                            &apply_result.trie_changes.state_changes(),
+                        );
+                        chain_flat_storage.add_delta(&block_hash, delta);
+                        // TODO: also save this delta to chain_store_update to be committed to the database
+                    }
+                }
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
                 self.chain_store_update.save_outgoing_receipt(
                     &block_hash,
@@ -4689,7 +4710,7 @@ impl<'a> ChainUpdate<'a> {
     ) -> Result<Option<Tip>, Error> {
         let prev_hash = block.header().prev_hash();
         let prev_block = self.chain_store_update.get_block(prev_hash)?;
-        self.apply_chunk_postprocessing(block, &prev_block, apply_chunks_results)?;
+        self.apply_chunk_postprocessing(block, &prev_block, apply_chunks_results, false)?;
 
         let BlockPreprocessInfo {
             is_caught_up,
@@ -4773,6 +4794,27 @@ impl<'a> ChainUpdate<'a> {
             }
         }
 
+        // TODO: fill in the logic here for which shards we need to update flat storage for
+        // only need shards that we have processed in this block (not the shards to catch up)
+        let flat_storage_shards = vec![];
+        for shard_id in flat_storage_shards {
+            if let Some(flat_storage_state) =
+                self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
+            {
+                // TODO: fill in the correct new head
+                if let Some(_update) = flat_storage_state.update_head(&CryptoHash::default()) {
+                    // TODO: add this update to chain update
+                }
+                if let Some(_update) =
+                    flat_storage_state.update_tail(block.header().last_final_block())
+                {
+                    // TODO: add this update to chain update
+                }
+            } else {
+                // TODO: some error handling code here. Should probably return an error (or panic?)
+                // here if the flat storage doesn't exist.
+            }
+        }
         Ok(res)
     }
 

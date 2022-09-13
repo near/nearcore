@@ -11,7 +11,7 @@ use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 
-use crate::flat_state::{FlatState, FlatStateDelta, KeyForFlatStateDelta};
+use crate::flat_state::{FlatState, FlatStateDelta, FlatStateFactory, KeyForFlatStateDelta};
 use crate::trie::config::TrieConfig;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
@@ -25,20 +25,27 @@ struct ShardTriesInner {
     caches: RwLock<HashMap<ShardUId, TrieCache>>,
     /// Cache for readers.
     view_caches: RwLock<HashMap<ShardUId, TrieCache>>,
+    flat_state_factory: FlatStateFactory,
 }
 
 #[derive(Clone)]
 pub struct ShardTries(Arc<ShardTriesInner>);
 
 impl ShardTries {
-    pub fn new(store: Store, trie_config: TrieConfig, shard_uids: &[ShardUId]) -> Self {
+    pub fn new(
+        store: Store,
+        trie_config: TrieConfig,
+        shard_uids: &[ShardUId],
+        flat_state_factory: FlatStateFactory,
+    ) -> Self {
         let caches = Self::create_initial_caches(&trie_config, &shard_uids, false);
         let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
         ShardTries(Arc::new(ShardTriesInner {
-            store,
+            store: store.clone(),
             trie_config,
             caches: RwLock::new(caches),
             view_caches: RwLock::new(view_caches),
+            flat_state_factory,
         }))
     }
 
@@ -55,7 +62,12 @@ impl ShardTries {
         let shard_uids: Vec<ShardUId> =
             (0..num_shards as u32).map(|shard_id| ShardUId { shard_id, version }).collect();
         let trie_config = TrieConfig::default();
-        ShardTries::new(store, trie_config, &shard_uids)
+        ShardTries::new(
+            store.clone(),
+            trie_config,
+            &shard_uids,
+            FlatStateFactory::new(store.clone()),
+        )
     }
 
     /// Create caches for all shards according to the trie config.
@@ -88,7 +100,7 @@ impl ShardTries {
         shard_uid: ShardUId,
         state_root: StateRoot,
         is_view: bool,
-        flat_state: Option<FlatState>,
+        block_hash: Option<CryptoHash>,
     ) -> Trie {
         let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
         let cache = {
@@ -100,6 +112,11 @@ impl ShardTries {
         };
         let storage =
             Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid, is_view));
+        let flat_state = self.0.flat_state_factory.new_flat_state_for_shard(
+            shard_uid.shard_id(),
+            block_hash,
+            is_view,
+        );
         Trie::new(storage, state_root, flat_state)
     }
 
@@ -107,13 +124,13 @@ impl ShardTries {
         self.get_trie_for_shard_internal(shard_uid, state_root, false, None)
     }
 
-    pub fn get_trie_with_flat_state_for_shard(
+    pub fn get_trie_with_block_hash_for_shard(
         &self,
         shard_uid: ShardUId,
         state_root: StateRoot,
-        flat_state: Option<FlatState>,
+        block_hash: &CryptoHash,
     ) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, state_root, false, flat_state)
+        self.get_trie_for_shard_internal(shard_uid, state_root, false, Some(block_hash.clone()))
     }
 
     pub fn get_view_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {
