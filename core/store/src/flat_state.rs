@@ -513,3 +513,60 @@ impl FlatStorageState {
         Ok(None)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::FlatStateDelta;
+    use near_primitives::state::ValueRef;
+    use near_primitives::trie_key::TrieKey;
+    use near_primitives::types::{RawStateChange, RawStateChangesWithTrieKey, StateChangeCause};
+
+    /// Check correctness of creating `FlatStateDelta` from state changes.
+    #[test]
+    fn flat_state_delta_creation() {
+        let alice_trie_key = TrieKey::ContractCode { account_id: "alice".parse().unwrap() };
+        let bob_trie_key = TrieKey::ContractCode { account_id: "bob".parse().unwrap() };
+        let carol_trie_key = TrieKey::ContractCode { account_id: "carol".parse().unwrap() };
+
+        let state_changes = vec![
+            RawStateChangesWithTrieKey {
+                trie_key: alice_trie_key.clone(),
+                changes: vec![
+                    RawStateChange {
+                        cause: StateChangeCause::InitialState,
+                        data: Some(vec![1, 2]),
+                    },
+                    RawStateChange {
+                        cause: StateChangeCause::ReceiptProcessing {
+                            receipt_hash: Default::default(),
+                        },
+                        data: Some(vec![3, 4]),
+                    },
+                ],
+            },
+            RawStateChangesWithTrieKey {
+                trie_key: bob_trie_key.clone(),
+                changes: vec![
+                    RawStateChange {
+                        cause: StateChangeCause::InitialState,
+                        data: Some(vec![5, 6]),
+                    },
+                    RawStateChange {
+                        cause: StateChangeCause::ReceiptProcessing {
+                            receipt_hash: Default::default(),
+                        },
+                        data: None,
+                    },
+                ],
+            },
+        ];
+
+        let flat_state_delta = FlatStateDelta::from_state_changes(&state_changes);
+        assert_eq!(
+            flat_state_delta.get(&alice_trie_key.to_vec()),
+            Some(Some(ValueRef::new(&[3, 4])))
+        );
+        assert_eq!(flat_state_delta.get(&bob_trie_key.to_vec()), Some(None));
+        assert_eq!(flat_state_delta.get(&carol_trie_key.to_vec()), None);
+    }
+}
