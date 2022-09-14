@@ -41,6 +41,7 @@ use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 pub use near_primitives::block::{Block, BlockHeader, Tip};
+use near_store::flat_state::FlatStorageState;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -285,6 +286,8 @@ pub trait RuntimeAdapter: Send + Sync {
         prev_hash: &CryptoHash,
         state_root: StateRoot,
     ) -> Result<Trie, Error>;
+
+    fn get_flat_storage_state_for_shard(&self, shard_id: ShardId) -> Option<FlatStorageState>;
 
     fn verify_block_vrf(
         &self,

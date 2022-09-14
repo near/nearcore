@@ -1,11 +1,11 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::Encoding;
+use crate::network_protocol::{Handshake, HandshakeFailureReason, PeerMessage};
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::testonly::fake_client::Event as CE;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
-use crate::types::{Handshake, HandshakeFailureReason, PeerMessage};
 use anyhow::Context as _;
 use assert_matches::assert_matches;
 use near_network_primitives::time;

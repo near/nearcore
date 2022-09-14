@@ -79,7 +79,7 @@ pub enum MigrationSnapshot {
 }
 
 /// Mode in which to open the storage.
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy)]
 pub enum Mode {
     /// Open an existing database in read-only mode.  Fail if it doesn’t exist.
     ReadOnly,
@@ -87,6 +87,23 @@ pub enum Mode {
     ReadWriteExisting,
     /// Open a database in read-write mode.  create if it doesn’t exist.
     ReadWrite,
+    /// Creates a new database in read-write mode.  Fails if it exists.
+    Create,
+}
+
+impl Mode {
+    pub const fn read_only(self) -> bool {
+        matches!(self, Mode::ReadOnly)
+    }
+    pub const fn read_write(self) -> bool {
+        !self.read_only()
+    }
+    pub const fn can_create(self) -> bool {
+        matches!(self, Mode::ReadWrite | Mode::Create)
+    }
+    pub const fn must_create(self) -> bool {
+        matches!(self, Mode::Create)
+    }
 }
 
 impl StoreConfig {
