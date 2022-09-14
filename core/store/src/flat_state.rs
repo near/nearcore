@@ -566,6 +566,34 @@ mod tests {
         assert_eq!(flat_state_delta.get(&carol_trie_key.to_vec()), None);
     }
 
+    /// Check correctness of creating `FlatStateDelta` from state changes.
+    #[test]
+    fn flat_state_delta_delayed_keys() {
+        let delayed_trie_key = TrieKey::DelayedReceiptIndices;
+        let delayed_receipt_trie_key = TrieKey::DelayedReceipt { index: 1 };
+
+        let state_changes = vec![
+            RawStateChangesWithTrieKey {
+                trie_key: delayed_trie_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: Some(vec![1]),
+                }],
+            },
+            RawStateChangesWithTrieKey {
+                trie_key: delayed_receipt_trie_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: Some(vec![2]),
+                }],
+            },
+        ];
+
+        let flat_state_delta = FlatStateDelta::from_state_changes(&state_changes);
+        assert!(flat_state_delta.get(&delayed_trie_key.to_vec()).is_none());
+        assert!(flat_state_delta.get(&delayed_receipt_trie_key.to_vec()).is_none());
+    }
+
     #[test]
     fn flat_state_delta_applying() {
         // TODO (#7327): check this scenario after implementing flat storage state:
