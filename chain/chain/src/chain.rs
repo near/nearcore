@@ -4642,7 +4642,6 @@ impl<'a> ChainUpdate<'a> {
                         let store_update =
                             chain_flat_storage.add_delta(&block_hash, delta)?.unwrap();
                         self.chain_store_update.merge(store_update);
-                        // TODO: also save this delta to chain_store_update to be committed to the database
                     }
                 }
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
