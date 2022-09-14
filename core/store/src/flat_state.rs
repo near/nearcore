@@ -193,7 +193,7 @@ mod imp {
 #[cfg(not(feature = "protocol_feature_flat_state"))]
 mod imp {
     use crate::flat_state::FlatStorageState;
-    use crate::{Store, StoreUpdate};
+    use crate::Store;
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::ShardId;
 
