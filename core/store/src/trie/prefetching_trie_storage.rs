@@ -4,7 +4,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{StateRoot, TrieNodesCount};
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -84,8 +83,7 @@ pub(crate) struct PrefetchStagingArea(Arc<Mutex<InnerPrefetchStagingArea>>);
 
 #[derive(Default)]
 struct InnerPrefetchStagingArea {
-    slots: HashMap<CryptoHash, PrefetchSlot>,
-    size_bytes: usize,
+    slots: SizeTrackedHashMap,
 }
 
 /// Result when atomically accessing the prefetch staging area.
@@ -102,6 +100,50 @@ enum PrefetchSlot {
     PendingPrefetch,
     PendingFetch,
     Done(Arc<[u8]>),
+}
+
+#[derive(Default)]
+struct SizeTrackedHashMap {
+    map: HashMap<CryptoHash, PrefetchSlot>,
+    size_bytes: usize,
+}
+
+impl SizeTrackedHashMap {
+    fn insert(&mut self, k: CryptoHash, v: PrefetchSlot) -> Option<PrefetchSlot> {
+        self.size_bytes += Self::reserved_memory(&v);
+        let dropped = self.map.insert(k, v);
+        if let Some(dropped) = &dropped {
+            self.size_bytes -= Self::reserved_memory(dropped);
+        }
+        dropped
+    }
+
+    fn remove(&mut self, k: &CryptoHash) -> Option<PrefetchSlot> {
+        let dropped = self.map.remove(k);
+        if let Some(dropped) = &dropped {
+            self.size_bytes -= Self::reserved_memory(dropped);
+        }
+        dropped
+    }
+
+    fn clear(&mut self) {
+        self.map.clear();
+        self.size_bytes = 0;
+    }
+
+    /// Reserved memory capacity for a value from the prefetching area.
+    fn reserved_memory(slot: &PrefetchSlot) -> usize {
+        match slot {
+            PrefetchSlot::Done(value) => value.len(),
+            PrefetchSlot::PendingFetch | PrefetchSlot::PendingPrefetch => {
+                PREFETCH_RESERVED_BYTES_PER_SLOT
+            }
+        }
+    }
+
+    fn get(&self, key: &CryptoHash) -> Option<&PrefetchSlot> {
+        self.map.get(key)
+    }
 }
 
 impl TrieStorage for TriePrefetchingStorage {
@@ -228,19 +270,6 @@ impl PrefetchStagingArea {
                 )
                 || prefetch_state_matches(PrefetchSlot::PendingFetch, dropped.as_ref().unwrap()),
         );
-        if let Some(dropped) = dropped {
-            guard.size_bytes -= Self::reserved_memory(dropped);
-        }
-    }
-
-    /// Reserved memory capacity for a value from the prefetching area.
-    fn reserved_memory(dropped: PrefetchSlot) -> usize {
-        match dropped {
-            PrefetchSlot::Done(value) => value.len(),
-            PrefetchSlot::PendingFetch | PrefetchSlot::PendingPrefetch => {
-                PREFETCH_RESERVED_BYTES_PER_SLOT
-            }
-        }
     }
 
     /// Block until value is prefetched and then return it.
@@ -268,11 +297,7 @@ impl PrefetchStagingArea {
     }
 
     fn insert_fetched(&self, key: CryptoHash, value: Arc<[u8]>) {
-        let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
-        guard.size_bytes += value.len();
-        if let Some(dropped) = guard.slots.insert(key, PrefetchSlot::Done(value)) {
-            guard.size_bytes -= Self::reserved_memory(dropped);
-        }
+        self.0.lock().expect(POISONED_LOCK_ERR).slots.insert(key, PrefetchSlot::Done(value));
     }
 
     /// Get prefetched value if available and otherwise atomically insert the
@@ -283,22 +308,20 @@ impl PrefetchStagingArea {
         set_if_empty: PrefetchSlot,
     ) -> PrefetcherResult {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
-        let size_bytes = guard.size_bytes;
-        match guard.slots.entry(key) {
-            Entry::Occupied(entry) => match entry.get() {
+        let full =
+            guard.slots.size_bytes > MAX_PREFETCH_STAGING_MEMORY - PREFETCH_RESERVED_BYTES_PER_SLOT;
+        match guard.slots.map.get(&key) {
+            Some(value) => match value {
                 PrefetchSlot::Done(value) => PrefetcherResult::Prefetched(value.clone()),
                 PrefetchSlot::PendingPrefetch | PrefetchSlot::PendingFetch => {
                     PrefetcherResult::Pending
                 }
             },
-            Entry::Vacant(entry) => {
-                let full =
-                    size_bytes > MAX_PREFETCH_STAGING_MEMORY - PREFETCH_RESERVED_BYTES_PER_SLOT;
+            None => {
                 if full {
                     return PrefetcherResult::MemoryLimitReached;
                 }
-                entry.insert(set_if_empty);
-                guard.size_bytes += PREFETCH_RESERVED_BYTES_PER_SLOT;
+                guard.slots.insert(key, set_if_empty);
                 PrefetcherResult::SlotReserved
             }
         }
@@ -363,12 +386,7 @@ impl PrefetchApi {
 
     /// Clear prefetched staging area from data that has not been picked up by the main thread.
     pub fn clear_data(&self) {
-        let mut guard = self.prefetching.0.lock().expect(POISONED_LOCK_ERR);
-        let mut reclaimed = 0;
-        for (_key, dropped) in guard.slots.drain() {
-            reclaimed += PrefetchStagingArea::reserved_memory(dropped);
-        }
-        guard.size_bytes -= reclaimed;
+        self.prefetching.0.lock().expect(POISONED_LOCK_ERR).slots.clear();
     }
 }
 
@@ -400,6 +418,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .slots
+                .map
                 .iter()
                 .filter(|(_key, slot)| match slot {
                     PrefetchSlot::PendingPrefetch | PrefetchSlot::PendingFetch => false,
