@@ -33,3 +33,59 @@ pub static TRANSACTION_PROCESSED_FAILED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static FUNCTION_CALL_PROCESSED: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_function_call_processed",
+        "The number of function calls processed since starting this node",
+        &["result"],
+    )
+    .unwrap()
+});
+pub static FUNCTION_CALL_PROCESSED_FUNCTION_CALL_ERRORS: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_function_call_processed_function_call_errors",
+        "The number of function calls resulting in function call errors, since starting this node",
+        &["error_type"],
+    )
+    .unwrap()
+});
+pub static FUNCTION_CALL_PROCESSED_COMPILATION_ERRORS: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_function_call_processed_compilation_errors",
+        "The number of function calls resulting in compilation errors, since starting this node",
+        &["error_type"],
+    )
+    .unwrap()
+});
+pub static FUNCTION_CALL_PROCESSED_METHOD_RESOLVE_ERRORS: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_function_call_processed_method_resolve_errors",
+        "The number of function calls resulting in method resolve errors, since starting this node",
+        &["error_type"],
+    )
+    .unwrap()
+});
+pub static FUNCTION_CALL_PROCESSED_WASM_TRAP_ERRORS: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_function_call_processed_wasm_trap_errors",
+        "The number of function calls resulting in wasm trap errors, since starting this node",
+        &["error_type"],
+    )
+    .unwrap()
+});
+pub static FUNCTION_CALL_PROCESSED_HOST_ERRORS: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_function_call_processed_host_errors",
+        "The number of function calls resulting in host errors, since starting this node",
+        &["error_type"],
+    )
+    .unwrap()
+});
+pub static FUNCTION_CALL_PROCESSED_CACHE_ERRORS: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_function_call_processed_cache_errors",
+        "The number of function calls resulting in vm cache errors, since starting this node",
+        &["error_type"],
+    )
+    .unwrap()
+});

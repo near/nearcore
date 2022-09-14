@@ -1,6 +1,6 @@
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::{ExternalError, RuntimeExt};
-use crate::{ActionResult, ApplyState};
+use crate::{metrics, ActionResult, ApplyState};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
@@ -168,45 +168,85 @@ pub(crate) fn action_function_call(
         None,
     )
     .outcome_error();
+
+    match &err {
+        None => {
+            metrics::FUNCTION_CALL_PROCESSED.with_label_values(&["ok"]).inc();
+        }
+        Some(err) => {
+            let err_type: &'static str = err.into();
+            metrics::FUNCTION_CALL_PROCESSED.with_label_values(&[err_type]).inc();
+        }
+    }
+
     let execution_succeeded = match err {
-        Some(VMError::FunctionCallError(err)) => match err {
-            FunctionCallError::Nondeterministic(msg) => {
-                panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
+        Some(VMError::FunctionCallError(err)) => {
+            let err_type: &'static str = (&err).into();
+            metrics::FUNCTION_CALL_PROCESSED_FUNCTION_CALL_ERRORS
+                .with_label_values(&[err_type])
+                .inc();
+            match err {
+                FunctionCallError::Nondeterministic(msg) => {
+                    panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
+                }
+                FunctionCallError::WasmUnknownError { debug_message } => {
+                    panic!("Wasmer returned unknown message: {}", debug_message)
+                }
+                FunctionCallError::CompilationError(err) => {
+                    let err_type: &'static str = (&err).into();
+                    metrics::FUNCTION_CALL_PROCESSED_COMPILATION_ERRORS
+                        .with_label_values(&[err_type])
+                        .inc();
+                    result.result = Err(ActionErrorKind::FunctionCallError(
+                        ContractCallError::CompilationError(err).into(),
+                    )
+                    .into());
+                    false
+                }
+                FunctionCallError::LinkError { msg } => {
+                    result.result = Err(ActionErrorKind::FunctionCallError(
+                        ContractCallError::ExecutionError { msg: format!("Link Error: {}", msg) }
+                            .into(),
+                    )
+                    .into());
+                    false
+                }
+                FunctionCallError::MethodResolveError(err) => {
+                    let err_type: &'static str = (&err).into();
+                    metrics::FUNCTION_CALL_PROCESSED_METHOD_RESOLVE_ERRORS
+                        .with_label_values(&[err_type])
+                        .inc();
+                    result.result = Err(ActionErrorKind::FunctionCallError(
+                        ContractCallError::MethodResolveError(err).into(),
+                    )
+                    .into());
+                    false
+                }
+                FunctionCallError::WasmTrap(err) => {
+                    let err_type: &'static str = (&err).into();
+                    metrics::FUNCTION_CALL_PROCESSED_WASM_TRAP_ERRORS
+                        .with_label_values(&[err_type])
+                        .inc();
+                    result.result = Err(ActionErrorKind::FunctionCallError(
+                        ContractCallError::ExecutionError { msg: err.to_string() }.into(),
+                    )
+                    .into());
+                    false
+                }
+                FunctionCallError::HostError(err) => {
+                    let err_type: &'static str = (&err).into();
+                    metrics::FUNCTION_CALL_PROCESSED_HOST_ERRORS
+                        .with_label_values(&[err_type])
+                        .inc();
+                    result.result = Err(ActionErrorKind::FunctionCallError(
+                        ContractCallError::ExecutionError { msg: err.to_string() }.into(),
+                    )
+                    .into());
+                    false
+                }
+                FunctionCallError::_EVMError => unreachable!(),
             }
-            FunctionCallError::WasmUnknownError { debug_message } => {
-                panic!("Wasmer returned unknown message: {}", debug_message)
-            }
-            FunctionCallError::CompilationError(err) => {
-                result.result = Err(ActionErrorKind::FunctionCallError(
-                    ContractCallError::CompilationError(err).into(),
-                )
-                .into());
-                false
-            }
-            FunctionCallError::LinkError { msg } => {
-                result.result = Err(ActionErrorKind::FunctionCallError(
-                    ContractCallError::ExecutionError { msg: format!("Link Error: {}", msg) }
-                        .into(),
-                )
-                .into());
-                false
-            }
-            FunctionCallError::MethodResolveError(err) => {
-                result.result = Err(ActionErrorKind::FunctionCallError(
-                    ContractCallError::MethodResolveError(err).into(),
-                )
-                .into());
-                false
-            }
-            FunctionCallError::WasmTrap(_) | FunctionCallError::HostError(_) => {
-                result.result = Err(ActionErrorKind::FunctionCallError(
-                    ContractCallError::ExecutionError { msg: err.to_string() }.into(),
-                )
-                .into());
-                false
-            }
-            FunctionCallError::_EVMError => unreachable!(),
-        },
+        }
         Some(VMError::ExternalError(any_err)) => {
             let err: ExternalError =
                 any_err.downcast().expect("Downcasting AnyError should not fail");
@@ -219,6 +259,8 @@ pub(crate) fn action_function_call(
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
         Some(VMError::CacheError(err)) => {
+            let err_type: &'static str = (&err).into();
+            metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS.with_label_values(&[err_type]).inc();
             let message = match err {
                 CacheError::DeserializationError => "Cache deserialization error",
                 CacheError::SerializationError { hash: _hash } => "Cache serialization error",
