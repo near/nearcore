@@ -119,11 +119,14 @@ impl Testbed<'_> {
 
     pub(crate) fn trie_caching_storage(&mut self) -> TrieCachingStorage {
         let store = self.inner.store();
+        let is_view = false;
+        let prefetcher = None;
         let caching_storage = TrieCachingStorage::new(
             store,
             TrieCache::new(&TrieConfig::default(), ShardUId::single_shard(), false),
             ShardUId::single_shard(),
-            false,
+            is_view,
+            prefetcher,
         );
         caching_storage
     }

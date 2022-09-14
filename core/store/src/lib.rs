@@ -32,8 +32,8 @@ pub use crate::trie::iterator::TrieIterator;
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
     estimator, split_state, ApplyStatePartResult, KeyForStateChanges, NibbleSlice, PartialStorage,
-    RawTrieNode, RawTrieNodeWithSize, ShardTries, Trie, TrieAccess, TrieCache, TrieCachingStorage,
-    TrieChanges, TrieConfig, TrieStorage, WrappedTrieChanges,
+    PrefetchApi, RawTrieNode, RawTrieNodeWithSize, ShardTries, Trie, TrieAccess, TrieCache,
+    TrieCachingStorage, TrieChanges, TrieConfig, TrieStorage, WrappedTrieChanges,
 };
 
 mod columns;

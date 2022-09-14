@@ -15,7 +15,7 @@ use crate::flat_state::FlatStateFactory;
 use crate::trie::config::TrieConfig;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
-use crate::{metrics, DBCol, DBOp, DBTransaction};
+use crate::{metrics, DBCol, DBOp, DBTransaction, PrefetchApi};
 use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 
 struct ShardTriesInner {
@@ -26,6 +26,8 @@ struct ShardTriesInner {
     /// Cache for readers.
     view_caches: RwLock<HashMap<ShardUId, TrieCache>>,
     flat_state_factory: FlatStateFactory,
+    /// Prefetcher state, such as IO threads, per shard.
+    prefetchers: RwLock<HashMap<ShardUId, PrefetchApi>>,
 }
 
 #[derive(Clone)]
@@ -46,6 +48,7 @@ impl ShardTries {
             caches: RwLock::new(caches),
             view_caches: RwLock::new(view_caches),
             flat_state_factory,
+            prefetchers: Default::default(),
         }))
     }
 
@@ -109,8 +112,32 @@ impl ShardTries {
                 .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view))
                 .clone()
         };
-        let storage =
-            Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid, is_view));
+        // Do not enable prefetching on view caches.
+        // 1) Performance of view calls is not crucial.
+        // 2) A lot of the prefetcher code assumes there is only one "main-thread" per shard active.
+        //    If you want to enable it for view calls, at least make sure they don't share
+        //    the `PrefetchApi` instances with the normal calls.
+        let prefetch_enabled = !is_view && self.0.trie_config.enable_receipt_prefetching;
+
+        let prefetch_api = prefetch_enabled.then(|| {
+            self.0
+                .prefetchers
+                .write()
+                .expect(POISONED_LOCK_ERR)
+                .entry(shard_uid)
+                .or_insert_with(|| {
+                    PrefetchApi::new(self.0.store.clone(), cache.clone(), shard_uid.clone())
+                })
+                .clone()
+        });
+
+        let storage = Box::new(TrieCachingStorage::new(
+            self.0.store.clone(),
+            cache,
+            shard_uid,
+            is_view,
+            prefetch_api,
+        ));
         let flat_state =
             self.0.flat_state_factory.new_flat_state_for_shard(shard_uid.shard_id(), is_view);
         Trie::new(storage, state_root, flat_state)

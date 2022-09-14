@@ -27,6 +27,7 @@ const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 1000;
 pub struct TrieConfig {
     pub shard_cache_config: ShardCacheConfig,
     pub view_shard_cache_config: ShardCacheConfig,
+    pub enable_receipt_prefetching: bool,
 }
 
 pub struct ShardCacheConfig {
