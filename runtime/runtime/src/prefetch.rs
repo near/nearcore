@@ -223,7 +223,8 @@ mod tests {
         let mut trie_config = TrieConfig::default();
         trie_config.enable_receipt_prefetching = true;
         let store = create_test_store();
-        let tries = ShardTries::new(store, trie_config, &shard_uids);
+        let flat_storage_factory = near_store::flat_state::FlatStateFactory::new(store.clone());
+        let tries = ShardTries::new(store, trie_config, &shard_uids, flat_storage_factory);
 
         let mut kvs = vec![];
 
