@@ -4639,7 +4639,8 @@ impl<'a> ChainUpdate<'a> {
                         let delta = FlatStateDelta::from_state_changes(
                             &apply_result.trie_changes.state_changes(),
                         );
-                        chain_flat_storage.add_delta(&block_hash, delta);
+                        let store_update = chain_flat_storage.add_delta(&block_hash, delta)?;
+                        self.chain_store_update.merge(store_update);
                         // TODO: also save this delta to chain_store_update to be committed to the database
                     }
                 }

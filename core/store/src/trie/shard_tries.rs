@@ -334,16 +334,6 @@ impl WrappedTrieChanges {
         self.tries.apply_deletions(&self.trie_changes, self.shard_uid, store_update)
     }
 
-    pub fn to_flat_state_delta(&self) -> (KeyForFlatStateDelta, FlatStateDelta) {
-        (
-            KeyForFlatStateDelta {
-                shard_id: self.shard_uid.shard_id(),
-                block_hash: self.block_hash.clone(),
-            },
-            FlatStateDelta::from_state_changes(&self.state_changes),
-        )
-    }
-
     /// Save state changes into Store.
     ///
     /// NOTE: the changes are drained from `self`.

@@ -85,9 +85,12 @@ mod imp {
             let deltas = self.flat_storage_state.get_deltas_between_blocks(&self.block_hash)?;
             for delta in deltas {
                 // If we found a key in delta, we can return a value because it is the most recent key update.
-                if delta.0.contains_key(key) {
-                    return Ok(delta.0.get(key).unwrap().clone());
-                }
+                match delta.get(key) {
+                    Some(value_ref) => {
+                        return Ok(value_ref);
+                    }
+                    None => {}
+                };
             }
 
             let raw_ref = self
@@ -257,6 +260,11 @@ pub struct FlatStateDelta(pub HashMap<Vec<u8>, Option<ValueRef>>);
 impl FlatStateDelta {
     pub fn new() -> Self {
         Self(HashMap::new())
+    }
+
+    /// Returns `Some(Option<ValueRef>)` from delta for the given key. If key is not present, returns None.
+    pub fn get(&self, key: &[u8]) -> Option<Option<ValueRef>> {
+        self.0.get(key).cloned()
     }
 
     /// Creates delta using raw state changes for some block.
@@ -480,9 +488,19 @@ impl FlatStorageState {
         None
     }
 
-    // Add a block delta to flat storage
+    /// Adds a delta for a block to flat storage, returns a StoreUpdate.
     #[allow(unused)]
-    pub fn add_delta(&self, _block_hash: &CryptoHash, delta: FlatStateDelta) {
-        // TODO:
+    pub fn add_delta(
+        &self,
+        block_hash: &CryptoHash,
+        delta: FlatStateDelta,
+    ) -> Result<StoreUpdate, crate::StorageError> {
+        let guard = self.0.write().expect(POISONED_LOCK_ERR);
+        let mut store_update = StoreUpdate::new(guard.store.storage.clone());
+        let key = KeyForFlatStateDelta { shard_id: guard.shard_id, block_hash: block_hash.clone() };
+        store_update
+            .set_ser(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap(), &delta)
+            .map_err(|_| crate::StorageError::StorageInternalError)?;
+        Ok(store_update)
     }
 }
