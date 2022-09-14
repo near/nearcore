@@ -8,7 +8,7 @@ use futures::{future, FutureExt};
 use crate::genesis_helpers::genesis_block;
 use crate::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
-use near_chain::{Block, Chain};
+use near_chain::Block;
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType};
@@ -17,6 +17,7 @@ use near_network::types::NetworkClientMessages;
 use near_network_primitives::types::PeerInfo;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::block::Approval;
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::num_rational::Ratio;
 use near_primitives::transaction::SignedTransaction;
@@ -50,12 +51,11 @@ fn add_blocks(
         let next_epoch_id = EpochId(
             *blocks[(((prev.header().height()) / epoch_length) * epoch_length) as usize].hash(),
         );
-        let next_bp_hash = Chain::compute_collection_hash(vec![ValidatorStake::new(
+        let next_bp_hash = CryptoHash::hash_borsh(&[ValidatorStake::new(
             "other".parse().unwrap(),
             signer.public_key(),
             TESTING_INIT_STAKE,
-        )])
-        .unwrap();
+        )]);
         let block = Block::produce(
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
