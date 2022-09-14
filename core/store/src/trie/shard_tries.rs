@@ -11,7 +11,7 @@ use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 
-use crate::flat_state::{FlatStateDelta, FlatStateFactory, KeyForFlatStateDelta};
+use crate::flat_state::FlatStateFactory;
 use crate::trie::config::TrieConfig;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};

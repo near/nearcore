@@ -489,18 +489,27 @@ impl FlatStorageState {
     }
 
     /// Adds a delta for a block to flat storage, returns a StoreUpdate.
-    #[allow(unused)]
+    #[cfg(feature = "protocol_feature_flat_state")]
     pub fn add_delta(
         &self,
         block_hash: &CryptoHash,
         delta: FlatStateDelta,
-    ) -> Result<StoreUpdate, crate::StorageError> {
+    ) -> Result<Option<StoreUpdate>, crate::StorageError> {
         let guard = self.0.write().expect(POISONED_LOCK_ERR);
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
         let key = KeyForFlatStateDelta { shard_id: guard.shard_id, block_hash: block_hash.clone() };
         store_update
             .set_ser(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap(), &delta)
             .map_err(|_| crate::StorageError::StorageInternalError)?;
-        Ok(store_update)
+        Ok(Some(store_update))
+    }
+
+    #[cfg(not(feature = "protocol_feature_flat_state"))]
+    pub fn add_delta(
+        &self,
+        _block_hash: &CryptoHash,
+        _delta: FlatStateDelta,
+    ) -> Result<Option<StoreUpdate>, crate::StorageError> {
+        Ok(None)
     }
 }
