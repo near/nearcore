@@ -418,11 +418,8 @@ impl ExecutionOutcomeWithId {
     pub fn to_hashes(&self) -> Vec<CryptoHash> {
         let mut result = Vec::with_capacity(2 + self.outcome.logs.len());
         result.push(self.id);
-        result.push(hash(
-            &PartialExecutionOutcome::from(&self.outcome)
-                .try_to_vec()
-                .expect("Failed to serialize"),
-        ));
+        result.push(CryptoHash::hash_borsh(
+            &PartialExecutionOutcome::from(&self.outcome)));
         result.extend(self.outcome.logs.iter().map(|log| hash(log.as_bytes())));
         result
     }
