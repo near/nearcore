@@ -2441,7 +2441,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 unreachable!();
             }
             #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatState => {
+            DBCol::FlatState | DBCol::FlatStateDeltas | DBCol::FlatStateMisc => {
                 unreachable!();
             }
         }

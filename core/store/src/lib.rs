@@ -35,6 +35,7 @@ pub use crate::trie::{
     PrefetchApi, RawTrieNode, RawTrieNodeWithSize, ShardTries, Trie, TrieAccess, TrieCache,
     TrieCachingStorage, TrieChanges, TrieConfig, TrieStorage, WrappedTrieChanges,
 };
+pub use flat_state::FlatStateDelta;
 
 mod columns;
 pub mod config;

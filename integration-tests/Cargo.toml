@@ -72,6 +72,7 @@ protocol_feature_reject_blocks_with_outdated_protocol_version = [
   "near-primitives/protocol_feature_reject_blocks_with_outdated_protocol_version",
   "near-chain/protocol_feature_reject_blocks_with_outdated_protocol_version"
 ]
+protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
 nightly = [
   "nightly_protocol",
   "nearcore/nightly",
