@@ -567,7 +567,7 @@ mod tests {
             Some(Some(ValueRef::new(&[3, 4])))
         );
         assert_eq!(flat_state_delta.get(&bob_trie_key.to_vec()), Some(None));
-        assert_eq!(flat_state_delta.get(&carol_trie_key.to_vec()), Some(None));
+        assert_eq!(flat_state_delta.get(&carol_trie_key.to_vec()), None);
     }
 
     #[test]
