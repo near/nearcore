@@ -258,10 +258,6 @@ pub struct KeyForFlatStateDelta {
 pub struct FlatStateDelta(pub HashMap<Vec<u8>, Option<ValueRef>>);
 
 impl FlatStateDelta {
-    pub fn new() -> Self {
-        Self(HashMap::new())
-    }
-
     /// Returns `Some(Option<ValueRef>)` from delta for the given key. If key is not present, returns None.
     pub fn get(&self, key: &[u8]) -> Option<Option<ValueRef>> {
         self.0.get(key).cloned()
