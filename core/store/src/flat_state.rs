@@ -135,6 +135,20 @@ mod imp {
             }))
         }
 
+        pub fn add_flat_storage_state_for_shard(
+            &self,
+            shard_id: ShardId,
+            flat_storage_state: FlatStorageState,
+        ) {
+            let mut flat_storage_states =
+                self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
+            let original_value = flat_storage_states.insert(shard_id, flat_storage_state);
+            // TODO (#7327): maybe we should propagate the error instead of assert here
+            // assert is fine now because this function is only called at construction time, but we
+            // will need to be more careful when we want to implement flat storage for resharding
+            assert!(original_value.is_none());
+        }
+
         /// Creates `FlatState` for accessing flat storage data for particular shard and the given block.
         /// If flat state feature was not enabled (see parallel implementation below), request was made from view client
         /// or block was not provided, returns None.
@@ -152,7 +166,7 @@ mod imp {
             };
 
             if is_view {
-                // TODO: Technically, like TrieCache, we should have a separate set of caches for Client and
+                // TODO (#7327): Technically, like TrieCache, we should have a separate set of caches for Client and
                 // ViewClient. Right now, we can get by by not enabling flat state for view trie
                 None
             } else {
@@ -160,13 +174,15 @@ mod imp {
                     let mut caches = self.0.caches.lock().expect(POISONED_LOCK_ERR);
                     caches.entry(shard_id).or_insert_with(|| FlatStateCache {}).clone()
                 };
-                // TODO: initialize flat storage states correctly, the current FlatStorageState function
-                // doesn't take any argument
-                let flat_storage_state = match self.get_flat_storage_state_for_shard(shard_id) {
-                    Some(flat_storage_state) => flat_storage_state,
-                    None => {
-                        return None;
-                    }
+                let flat_storage_state = {
+                    let flat_storage_states =
+                        self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
+                    // We unwrap here because flat storage state for this shard should already be
+                    // added. If not, it is a bug in our code and we can't keep processing blocks
+                    flat_storage_states
+                        .get(&shard_id)
+                        .expect(&format!("FlatStorageState for shard {} is not ready", shard_id))
+                        .clone()
                 };
                 Some(FlatState {
                     store: self.0.store.clone(),
@@ -177,18 +193,16 @@ mod imp {
             }
         }
 
+        // TODO (#7327): change the function signature to Result<FlatStorageState, Error> when
+        // we stabilize feature protocol_feature_flat_stote. We use option now to return None when
+        // the feature is not enabled. Ideally, it should return an error because it is problematic
+        // if the flat storage state does not exist
         pub fn get_flat_storage_state_for_shard(
             &self,
             shard_id: ShardId,
         ) -> Option<FlatStorageState> {
-            let mut flat_storage_states =
-                self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
-            Some(
-                flat_storage_states
-                    .entry(shard_id)
-                    .or_insert_with(|| FlatStorageState::new(self.0.store.clone(), shard_id))
-                    .clone(),
-            )
+            let flat_storage_states = self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
+            flat_storage_states.get(&shard_id).cloned()
         }
     }
 }
@@ -235,6 +249,13 @@ mod imp {
         ) -> Option<FlatStorageState> {
             None
         }
+
+        pub fn add_flat_storage_state_for_shard(
+            &self,
+            _shard_id: ShardId,
+            _flat_storage_state: FlatStorageState,
+        ) {
+        }
     }
 }
 
@@ -243,7 +264,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use crate::{CryptoHash, Store, StoreUpdate};
 pub use imp::{FlatState, FlatStateFactory};
 use near_primitives::state::ValueRef;
-use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey, ShardId};
+use near_primitives::types::{RawStateChangesWithTrieKey, ShardId};
 use std::collections::HashMap;
 
 #[derive(BorshSerialize, BorshDeserialize)]
@@ -314,7 +335,6 @@ impl FlatStateDelta {
     pub fn apply_to_flat_state(self, _store_update: &mut StoreUpdate) {}
 }
 
-#[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::block_header::BlockHeader;
 use std::sync::{Arc, RwLock};
 
@@ -346,13 +366,12 @@ struct FlatStorageStateInner {
     /// processing mode, this should be the latest final block.
     #[allow(unused)]
     tail: CryptoHash,
+    /// Stores a copy for all block headers for blocks that flat storage supports. This is useful
+    /// for finding the path between the current head to a target block. It's possible that we don't
+    /// need all the information in block header and this can be simplified later, but for now,
+    /// for simplicity we store the entire BlockHeader.
     #[allow(unused)]
-    tail_height: BlockHeight,
-    /// A mapping from all blocks in flat storage to its previous block hash. This is needed because
-    /// we don't have access to ChainStore inside this class (because ChainStore is not thread safe),
-    /// so we store a representation of the chain formed by the blocks in flat storage.
-    #[allow(unused)]
-    prev_blocks: HashMap<CryptoHash, CryptoHash>,
+    block_headers: HashMap<CryptoHash, BlockHeader>,
     /// State deltas for all blocks supported by this flat storage.
     /// All these deltas here are stored on disk too.
     #[allow(unused)]
@@ -361,16 +380,22 @@ struct FlatStorageStateInner {
 
 impl FlatStorageState {
     #[allow(unused)]
-    fn new(store: Store, shard_id: ShardId) -> Self {
-        // TODO: implement this correctly
+    pub fn new(
+        store: Store,
+        head: CryptoHash,
+        tail: CryptoHash,
+        block_headers: HashMap<CryptoHash, BlockHeader>,
+        shard_id: ShardId,
+    ) -> Self {
+        // TODO (#7327): load deltas from storage
+        let deltas = HashMap::new();
         Self(Arc::new(RwLock::new(FlatStorageStateInner {
             store,
             shard_id,
-            head: Default::default(),
-            tail: Default::default(),
-            tail_height: 0,
-            prev_blocks: Default::default(),
-            deltas: Default::default(),
+            head,
+            tail,
+            block_headers,
+            deltas,
         })))
     }
 

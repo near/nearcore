@@ -289,6 +289,12 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_flat_storage_state_for_shard(&self, shard_id: ShardId) -> Option<FlatStorageState>;
 
+    fn add_flat_storage_state_for_shard(
+        &self,
+        shard_id: ShardId,
+        flat_storage_state: FlatStorageState,
+    );
+
     fn verify_block_vrf(
         &self,
         epoch_id: &EpochId,

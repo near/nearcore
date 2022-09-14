@@ -78,7 +78,7 @@ use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::flat_state::FlatStateDelta;
+use near_store::flat_state::{FlatStateDelta, FlatStorageState};
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -627,6 +627,12 @@ impl Chain {
         };
         store_update.commit()?;
 
+        // set up flat storage
+        for shard_id in 0..runtime_adapter.num_shards(&block_head.epoch_id)? {
+            let flat_storage_state = Chain::new_flat_storage_state(&store, shard_id)?;
+            runtime_adapter.add_flat_storage_state_for_shard(shard_id, flat_storage_state);
+        }
+
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
               block_head.height, block_head.last_block_hash,
               header_head.height, header_head.last_block_hash);
@@ -660,6 +666,46 @@ impl Chain {
             last_time_head_updated: Clock::instant(),
             pending_state_patch: Default::default(),
         })
+    }
+
+    /// create a new flat storage state for this shard
+    fn new_flat_storage_state(
+        store: &ChainStore,
+        shard_id: ShardId,
+    ) -> Result<FlatStorageState, Error> {
+        let chain_head = store.head()?;
+        let block_header = store.get_block_header(&chain_head.last_block_hash)?;
+        let last_final_block = *block_header.last_final_block();
+        let last_final_block_height = store.get_block_header(&last_final_block)?.height();
+        let mut block_headers = HashMap::new();
+        block_headers.insert(*block_header.hash(), block_header);
+        let mut hash = chain_head.prev_block_hash;
+        loop {
+            let header = store.get_block_header(&hash)?;
+            let prev_hash = *header.prev_hash();
+            let height = header.height();
+            block_headers.insert(hash, header);
+            if hash == last_final_block {
+                break;
+            }
+            if height < last_final_block_height {
+                panic!("Can't reach final block from the current chain tip, the chain data is corrupted. Chain head: {:?}, last final block: {:?} at height {}", chain_head, last_final_block, last_final_block_height);
+            }
+
+            hash = prev_hash;
+        }
+        // Ideally, we want to add all blocks after the last final block to FlatStorageState,
+        // but unfortunately, there is no way of getting blocks that are not on the canonical
+        // chain. So at initialization, we simply just add the blocks on the canonical chain.
+        // For blocks on forks, we add them later in block preprocessing, we check if flat storage
+        // has the previous block, if not, we add that.
+        Ok(FlatStorageState::new(
+            store.store().clone(),
+            last_final_block,
+            last_final_block,
+            block_headers,
+            shard_id,
+        ))
     }
 
     #[cfg(feature = "test_features")]
