@@ -1167,7 +1167,7 @@ impl Runtime {
 
         let trie = Rc::new(trie);
         let mut state_update = TrieUpdate::new(trie.clone());
-        let mut prefetcher = TriePrefetcher::new(trie.clone());
+        let mut prefetcher = TriePrefetcher::new_if_enabled(trie.clone());
 
         if let Some(prefetcher) = &mut prefetcher {
             let _queue_full = prefetcher.input_transactions(transactions);

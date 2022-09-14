@@ -102,21 +102,17 @@ impl ShardTries {
         };
         let prefetch_enabled = self.0.trie_config.enable_receipt_prefetching;
 
-        let prefetch_api = if prefetch_enabled {
-            Some(
-                self.0
-                    .prefetchers
-                    .write()
-                    .expect(POISONED_LOCK_ERR)
-                    .entry(shard_uid)
-                    .or_insert_with(|| {
-                        PrefetchApi::new(self.0.store.clone(), cache.clone(), shard_uid.clone())
-                    })
-                    .clone(),
-            )
-        } else {
-            None
-        };
+        let prefetch_api = prefetch_enabled.then(|| {
+            self.0
+                .prefetchers
+                .write()
+                .expect(POISONED_LOCK_ERR)
+                .entry(shard_uid)
+                .or_insert_with(|| {
+                    PrefetchApi::new(self.0.store.clone(), cache.clone(), shard_uid.clone())
+                })
+                .clone()
+        });
 
         let storage = Box::new(TrieCachingStorage::new(
             self.0.store.clone(),

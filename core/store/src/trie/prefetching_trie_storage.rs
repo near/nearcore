@@ -7,7 +7,6 @@ use near_primitives::types::{StateRoot, TrieNodesCount};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tracing::error;
 
 const MAX_QUEUED_WORK_ITEMS: usize = 16 * 1024;
 const MAX_PREFETCH_STAGING_MEMORY: usize = 200 * 1024 * 1024;
@@ -173,11 +172,11 @@ impl TrieStorage for TriePrefetchingStorage {
                     })
                     .ok_or_else(|| {
                         // This could only happen if this thread started prefetching a value
-                        // while also another thread was already prefetching it. Then the other
-                        // other thread finished, the main thread takes it out, and moves it to
+                        // while also another thread was already prefetching it. When the
+                        // other thread finishes, the main thread takes it out, and moves it to
                         // the shard cache. And then this current thread gets delayed for long
                         // enough that the value gets evicted from the shard cache again before
-                        // this thread has a change to read it.
+                        // this thread has a chance to read it.
                         // In this rare occasion, we shall abort the current prefetch request and
                         // move on to the next.
                         StorageError::StorageInconsistentState(format!(
@@ -229,14 +228,17 @@ impl PrefetchStagingArea {
                 )
                 || prefetch_state_matches(PrefetchSlot::PendingFetch, dropped.as_ref().unwrap()),
         );
+        if let Some(dropped) = dropped {
+            guard.size_bytes -= Self::reserved_memory(dropped);
+        }
+    }
+
+    /// Reserved memory capacity for a value from the prefetching area.
+    fn reserved_memory(dropped: PrefetchSlot) -> usize {
         match dropped {
-            Some(PrefetchSlot::Done(value)) => guard.size_bytes -= value.len(),
-            Some(PrefetchSlot::PendingFetch) => {
-                guard.size_bytes -= PREFETCH_RESERVED_BYTES_PER_SLOT
-            }
-            None => (),
-            _ => {
-                error!(target: "prefetcher", "prefetcher bug detected, trying to release {dropped:?}");
+            PrefetchSlot::Done(value) => value.len(),
+            PrefetchSlot::PendingFetch | PrefetchSlot::PendingPrefetch => {
+                PREFETCH_RESERVED_BYTES_PER_SLOT
             }
         }
     }
@@ -267,10 +269,10 @@ impl PrefetchStagingArea {
 
     fn insert_fetched(&self, key: CryptoHash, value: Arc<[u8]>) {
         let mut guard = self.0.lock().expect(POISONED_LOCK_ERR);
-        guard.size_bytes -= PREFETCH_RESERVED_BYTES_PER_SLOT;
         guard.size_bytes += value.len();
-        let pending = guard.slots.insert(key, PrefetchSlot::Done(value));
-        debug_assert!(prefetch_state_matches(PrefetchSlot::PendingPrefetch, &pending.unwrap()));
+        if let Some(dropped) = guard.slots.insert(key, PrefetchSlot::Done(value)) {
+            guard.size_bytes -= Self::reserved_memory(dropped);
+        }
     }
 
     /// Get prefetched value if available and otherwise atomically insert the
@@ -355,8 +357,18 @@ impl PrefetchApi {
     ///
     /// Queued up work will not be finished. But trie keys that are already
     /// being fetched will finish.
-    pub fn clear(&self) {
+    pub fn clear_queue(&self) {
         while let Ok(_dropped) = self.work_queue_rx.try_recv() {}
+    }
+
+    /// Clear prefetched staging area from data that has not been picked up by the main thread.
+    pub fn clear_data(&self) {
+        let mut guard = self.prefetching.0.lock().expect(POISONED_LOCK_ERR);
+        let mut reclaimed = 0;
+        for (_key, dropped) in guard.slots.drain() {
+            reclaimed += PrefetchStagingArea::reserved_memory(dropped);
+        }
+        guard.size_bytes -= reclaimed;
     }
 }
 
