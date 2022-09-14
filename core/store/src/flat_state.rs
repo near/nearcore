@@ -566,7 +566,7 @@ mod tests {
         assert_eq!(flat_state_delta.get(&carol_trie_key.to_vec()), None);
     }
 
-    /// Check correctness of creating `FlatStateDelta` from state changes.
+    /// Check that keys related to delayed receipts are not included to `FlatStateDelta`.
     #[test]
     fn flat_state_delta_delayed_keys() {
         let delayed_trie_key = TrieKey::DelayedReceiptIndices;
