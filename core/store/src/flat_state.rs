@@ -567,6 +567,21 @@ mod tests {
             Some(Some(ValueRef::new(&[3, 4])))
         );
         assert_eq!(flat_state_delta.get(&bob_trie_key.to_vec()), Some(None));
-        assert_eq!(flat_state_delta.get(&carol_trie_key.to_vec()), None);
+        assert_eq!(flat_state_delta.get(&carol_trie_key.to_vec()), Some(None));
+    }
+
+    #[test]
+    fn flat_state_delta_applying() {
+        // TODO (#7327): check this scenario after implementing flat storage state:
+        // 1) create FlatState for one shard with FlatStorage
+        // 2) create FlatStateDelta and apply it
+        // 3) check that FlatStorageState contains the right values
+    }
+
+    #[test]
+    fn check_deltas_range() {
+        // TODO (#7327): check this scenario after implementing flat storage state:
+        // 1) add tree of blocks and FlatStateDeltas for them
+        // 2) call `get_deltas_between_blocks` and check its correctness
     }
 }
