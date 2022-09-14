@@ -174,16 +174,14 @@ pub(crate) fn action_function_call(
             metrics::FUNCTION_CALL_PROCESSED.with_label_values(&["ok"]).inc();
         }
         Some(err) => {
-            let err_type: &'static str = err.into();
-            metrics::FUNCTION_CALL_PROCESSED.with_label_values(&[err_type]).inc();
+            metrics::FUNCTION_CALL_PROCESSED.with_label_values(&[err.into()]).inc();
         }
     }
 
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => {
-            let err_type: &'static str = (&err).into();
             metrics::FUNCTION_CALL_PROCESSED_FUNCTION_CALL_ERRORS
-                .with_label_values(&[err_type])
+                .with_label_values(&[(&err).into()])
                 .inc();
             match err {
                 FunctionCallError::Nondeterministic(msg) => {
@@ -193,9 +191,8 @@ pub(crate) fn action_function_call(
                     panic!("Wasmer returned unknown message: {}", debug_message)
                 }
                 FunctionCallError::CompilationError(err) => {
-                    let err_type: &'static str = (&err).into();
                     metrics::FUNCTION_CALL_PROCESSED_COMPILATION_ERRORS
-                        .with_label_values(&[err_type])
+                        .with_label_values(&[(&err).into()])
                         .inc();
                     result.result = Err(ActionErrorKind::FunctionCallError(
                         ContractCallError::CompilationError(err).into(),
@@ -212,9 +209,8 @@ pub(crate) fn action_function_call(
                     false
                 }
                 FunctionCallError::MethodResolveError(err) => {
-                    let err_type: &'static str = (&err).into();
                     metrics::FUNCTION_CALL_PROCESSED_METHOD_RESOLVE_ERRORS
-                        .with_label_values(&[err_type])
+                        .with_label_values(&[(&err).into()])
                         .inc();
                     result.result = Err(ActionErrorKind::FunctionCallError(
                         ContractCallError::MethodResolveError(err).into(),
@@ -222,10 +218,9 @@ pub(crate) fn action_function_call(
                     .into());
                     false
                 }
-                FunctionCallError::WasmTrap(err) => {
-                    let err_type: &'static str = (&err).into();
+                FunctionCallError::WasmTrap(ref inner_err) => {
                     metrics::FUNCTION_CALL_PROCESSED_WASM_TRAP_ERRORS
-                        .with_label_values(&[err_type])
+                        .with_label_values(&[inner_err.into()])
                         .inc();
                     result.result = Err(ActionErrorKind::FunctionCallError(
                         ContractCallError::ExecutionError { msg: err.to_string() }.into(),
@@ -233,10 +228,9 @@ pub(crate) fn action_function_call(
                     .into());
                     false
                 }
-                FunctionCallError::HostError(err) => {
-                    let err_type: &'static str = (&err).into();
+                FunctionCallError::HostError(ref inner_err) => {
                     metrics::FUNCTION_CALL_PROCESSED_HOST_ERRORS
-                        .with_label_values(&[err_type])
+                        .with_label_values(&[inner_err.into()])
                         .inc();
                     result.result = Err(ActionErrorKind::FunctionCallError(
                         ContractCallError::ExecutionError { msg: err.to_string() }.into(),
@@ -259,8 +253,7 @@ pub(crate) fn action_function_call(
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
         Some(VMError::CacheError(err)) => {
-            let err_type: &'static str = (&err).into();
-            metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS.with_label_values(&[err_type]).inc();
+            metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS.with_label_values(&[(&err).into()]).inc();
             let message = match err {
                 CacheError::DeserializationError => "Cache deserialization error",
                 CacheError::SerializationError { hash: _hash } => "Cache serialization error",
