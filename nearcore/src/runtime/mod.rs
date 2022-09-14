@@ -151,6 +151,7 @@ impl NightshadeRuntime {
             .shard_cache_config
             .override_max_entries
             .extend(config.config.store.trie_cache_capacities.iter().cloned());
+        trie_config.enable_receipt_prefetching = config.config.store.enable_receipt_prefetching;
 
         Self::new(
             home_dir,

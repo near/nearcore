@@ -59,6 +59,7 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas, RuntimeConfig,
 };
 use crate::genesis::{GenesisStateApplier, StorageComputer};
+use crate::prefetch::TriePrefetcher;
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 
@@ -70,6 +71,7 @@ pub mod config;
 pub mod ext;
 mod genesis;
 mod metrics;
+mod prefetch;
 pub mod state_viewer;
 mod verifier;
 
@@ -1167,6 +1169,11 @@ impl Runtime {
         let trie = Rc::new(trie);
         let initial_state = TrieUpdate::new(trie.clone());
         let mut state_update = TrieUpdate::new(trie.clone());
+        let mut prefetcher = TriePrefetcher::new_if_enabled(trie.clone());
+
+        if let Some(prefetcher) = &mut prefetcher {
+            let _queue_full = prefetcher.input_transactions(transactions);
+        }
 
         let mut stats = ApplyStats::default();
 
@@ -1280,6 +1287,10 @@ impl Runtime {
         let gas_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
 
         // We first process local receipts. They contain staking, local contract calls, etc.
+        if let Some(prefetcher) = &mut prefetcher {
+            prefetcher.clear();
+            let _queue_full = prefetcher.input_receipts(&local_receipts);
+        }
         for receipt in local_receipts.iter() {
             if total_gas_burnt < gas_limit {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
@@ -1303,6 +1314,11 @@ impl Runtime {
                 ))
             })?;
 
+            if let Some(prefetcher) = &mut prefetcher {
+                prefetcher.clear();
+                let _queue_full = prefetcher.input_receipts(std::slice::from_ref(&receipt));
+            }
+
             // Validating the delayed receipt. If it fails, it's likely the state is inconsistent.
             validate_receipt(&apply_state.config.wasm_config.limit_config, &receipt).map_err(
                 |e| {
@@ -1321,6 +1337,10 @@ impl Runtime {
         }
 
         // And then we process the new incoming receipts. These are receipts from other shards.
+        if let Some(prefetcher) = &mut prefetcher {
+            prefetcher.clear();
+            let _queue_full = prefetcher.input_receipts(&incoming_receipts);
+        }
         for receipt in incoming_receipts.iter() {
             // Validating new incoming no matter whether we have available gas or not. We don't
             // want to store invalid receipts in state as delayed.
@@ -1331,6 +1351,11 @@ impl Runtime {
             } else {
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }
+        }
+
+        // No more receipts are executed on this trie, stop any pending prefetches on it.
+        if let Some(prefetcher) = &prefetcher {
+            prefetcher.clear();
         }
 
         if delayed_receipts_indices != initial_delayed_receipt_indices {

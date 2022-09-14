@@ -45,6 +45,8 @@ pub struct StoreConfig {
     /// We're still experimenting with this parameter and it seems decreasing its value can improve
     /// the performance of the storage
     pub trie_cache_capacities: Vec<(ShardUId, u64)>,
+    /// Enable fetching account and access key data ahead of time to avoid IO latency.
+    pub enable_receipt_prefetching: bool,
 }
 
 /// Mode in which to open the storage.
@@ -103,6 +105,7 @@ impl Default for StoreConfig {
             block_size: bytesize::ByteSize::kib(16),
 
             trie_cache_capacities: vec![(ShardUId { version: 1, shard_id: 3 }, 45_000_000)],
+            enable_receipt_prefetching: false,
         }
     }
 }
