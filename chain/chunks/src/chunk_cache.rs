@@ -62,7 +62,7 @@ pub struct EncodedChunksCache {
     /// A map from a block hash to a set of incomplete chunks (does not have all parts and receipts yet)
     /// whose previous block is the block hash.
     incomplete_chunks: HashMap<CryptoHash, HashSet<ChunkHash>>,
-    /// A sized cache mapping a block hash to the chunk headers that are ready
+    /// A sized cache mapping a block haxsh to the chunk headers that are ready
     /// to be included when producing the next block after the block
     block_hash_to_chunk_headers:
         HashMap<CryptoHash, HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)>>,

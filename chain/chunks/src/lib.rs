@@ -126,6 +126,7 @@ use near_primitives::epoch_manager::RngSeed;
 use rand::Rng;
 
 mod chunk_cache;
+mod chunk_state;
 mod metrics;
 pub mod test_utils;
 
