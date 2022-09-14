@@ -674,13 +674,21 @@ impl Chain {
         shard_id: ShardId,
     ) -> Result<FlatStorageState, Error> {
         let chain_head = store.head()?;
-        let block_header = store.get_block_header(&chain_head.last_block_hash)?;
-        let last_final_block = *block_header.last_final_block();
-        let last_final_block_height = store.get_block_header(&last_final_block)?.height();
+        let head_hash = chain_head.last_block_hash;
+        let block_header = store.get_block_header(&head_hash)?;
+        let mut last_final_block = *block_header.last_final_block();
+        // If we are at the first few blocks, it is possible that the no block has been finalized yet
+        // and last_final_block is invalid. In this case, we use the geneesis block
+        // because all blocks has to built on the genesis block
+        if last_final_block == CryptoHash::default() {
+            last_final_block = store.get_block_hash_by_height(store.get_genesis_height())?;
+        }
         let mut block_headers = HashMap::new();
         block_headers.insert(*block_header.hash(), block_header);
-        let mut hash = chain_head.prev_block_hash;
-        loop {
+        let last_final_block_height = store.get_block_header(&last_final_block)?.height();
+
+        let mut hash = head_hash;
+        while hash != CryptoHash::default() {
             let header = store.get_block_header(&hash)?;
             let prev_hash = *header.prev_hash();
             let height = header.height();
