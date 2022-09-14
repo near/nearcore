@@ -29,6 +29,7 @@ thiserror = "1"
 lru = "0.7.2"
 once_cell = "1.5.2"
 rlimit = "0.7"
+crossbeam = "0.8"
 
 near-crypto = { path = "../crypto" }
 near-o11y = { path = "../o11y" }
