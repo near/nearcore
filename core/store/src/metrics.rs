@@ -175,7 +175,7 @@ pub static PREFETCH_STAGED_BYTES: Lazy<IntGaugeVec> = Lazy::new(|| {
 });
 pub static PREFETCH_STAGED_SLOTS: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
-        "near_prefetch_staged_s,ots",
+        "near_prefetch_staged_slots",
         "Number of slots used in staging area.",
         &["shard_id"],
     )

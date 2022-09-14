@@ -508,9 +508,10 @@ impl TrieStorage for TrieCachingStorage {
                             match prefetcher.prefetching.blocking_get(hash.clone()) {
                                 Some(value) => value,
                                 // Only main thread (this one) removes values from staging area,
-                                // therefore blocking read will not return empty unless there
-                                // was a storage error. We can try again from the main thread, even if it will
-                                // probably fail.
+                                // therefore blocking read will usually not return empty unless there
+                                // was a storage error. Or in the case of forks and parallel chunk
+                                // processing where one chunk cleans up prefetched data from the other.
+                                // In any case, we can try again from the main thread.
                                 None => self.read_from_db(hash)?,
                             }
                         }

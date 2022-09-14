@@ -57,7 +57,7 @@ pub(crate) struct TriePrefetcher {
 }
 
 impl TriePrefetcher {
-    pub(crate) fn new(trie: Rc<Trie>) -> Option<Self> {
+    pub(crate) fn new_if_enabled(trie: Rc<Trie>) -> Option<Self> {
         if let Some(caching_storage) = trie.storage.as_caching_storage() {
             if let Some(prefetch_api) = caching_storage.prefetch_api().clone() {
                 let trie_root = *trie.get_root();
@@ -79,6 +79,22 @@ impl TriePrefetcher {
                 if self.prefetch_api.enable_receipt_prefetching {
                     let trie_key = TrieKey::Account { account_id: account_id.clone() };
                     self.prefetch_trie_key(trie_key)?;
+                }
+
+                // SWEAT specific argument prefetcher
+                if self.prefetch_api.sweat_prefetch_receivers.contains(&account_id)
+                    && self.prefetch_api.sweat_prefetch_senders.contains(&receipt.predecessor_id)
+                {
+                    for action in &action_receipt.actions {
+                        if let Action::FunctionCall(fn_call) = action {
+                            if fn_call.method_name == "record_batch" {
+                                self.prefetch_sweat_record_batch(
+                                    account_id.clone(),
+                                    &fn_call.args,
+                                )?;
+                            }
+                        }
+                    }
                 }
 
                 // SWEAT specific argument prefetcher
@@ -124,9 +140,22 @@ impl TriePrefetcher {
         Ok(())
     }
 
-    /// Removes all queue up prefetch requests.
+    /// Removes all queued up prefetch requests and staged data.
+    ///
+    /// Note that IO threads currently prefetching a trie key might insert
+    /// additional trie nodes afterwards. Therefore the staging area is not
+    /// reliably empty after resetting.
+    /// This is okay-ish. Resetting between processed chunks does not have to
+    /// be perfect, as long as we remove each unclaimed value eventually. Doing
+    /// it one chunk later is also okay.
+    ///
+    /// TODO: In the presence of forks, multiple chunks of a shard can be processed
+    /// at the same time. They share a prefetcher, so they will clean each others
+    /// data. Handling this is a bit more involved. Failing to do so makes prefetching
+    /// less effective in those cases but crucially nothing breaks.
     pub(crate) fn clear(&self) {
-        self.prefetch_api.clear();
+        self.prefetch_api.clear_queue();
+        self.prefetch_api.clear_data();
     }
 
     fn prefetch_trie_key(&self, trie_key: TrieKey) -> Result<(), ()> {
@@ -278,8 +307,8 @@ mod tests {
         let trie = Rc::new(tries.get_trie_for_shard(ShardUId::single_shard(), root.clone()));
         trie.storage.as_caching_storage().unwrap().clear_cache();
 
-        let prefetcher =
-            TriePrefetcher::new(trie.clone()).expect("caching storage should have prefetcher");
+        let prefetcher = TriePrefetcher::new_if_enabled(trie.clone())
+            .expect("caching storage should have prefetcher");
         let p = &prefetcher.prefetch_api;
 
         assert_eq!(p.num_prefetched_and_staged(), 0);

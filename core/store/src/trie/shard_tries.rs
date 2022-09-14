@@ -104,26 +104,22 @@ impl ShardTries {
             || (!self.0.trie_config.sweat_prefetch_receivers.is_empty()
                 && !self.0.trie_config.sweat_prefetch_senders.is_empty());
 
-        let prefetch_api = if prefetch_enabled {
-            Some(
-                self.0
-                    .prefetchers
-                    .write()
-                    .expect(POISONED_LOCK_ERR)
-                    .entry(shard_uid)
-                    .or_insert_with(|| {
-                        PrefetchApi::new(
-                            self.0.store.clone(),
-                            cache.clone(),
-                            shard_uid.clone(),
-                            &self.0.trie_config,
-                        )
-                    })
-                    .clone(),
-            )
-        } else {
-            None
-        };
+        let prefetch_api = prefetch_enabled.then(|| {
+            self.0
+                .prefetchers
+                .write()
+                .expect(POISONED_LOCK_ERR)
+                .entry(shard_uid)
+                .or_insert_with(|| {
+                    PrefetchApi::new(
+                        self.0.store.clone(),
+                        cache.clone(),
+                        shard_uid.clone(),
+                        &self.0.trie_config,
+                    )
+                })
+                .clone()
+        });
 
         let storage = Box::new(TrieCachingStorage::new(
             self.0.store.clone(),
