@@ -168,7 +168,7 @@ pub static PREFETCH_FAIL: Lazy<IntCounterVec> = Lazy::new(|| {
 pub static PREFETCH_NOT_REQUESTED: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_prefetch_not_requested",
-        "Value that have not been prefetched",
+        "Number of values that had to be fetched without having been prefetched",
         &["shard_id"],
     )
     .unwrap()
