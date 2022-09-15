@@ -8,12 +8,12 @@ use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::{run_catchup, TestEnv};
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_logger_utils::init_test_logger;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
-use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid, ShardLayout};
+use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -444,7 +444,7 @@ fn setup_genesis(
     genesis.config.chunk_producer_kickout_threshold = 0;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = SIMPLE_NIGHTSHADE_PROTOCOL_VERSION - 1;
-    genesis.config.simple_nightshade_shard_layout = Some(ShardLayout::v1_test());
+    genesis.config.use_production_config = true;
 
     if let Some(gas_limit) = gas_limit {
         genesis.config.gas_limit = gas_limit;
@@ -567,7 +567,7 @@ fn gen_cross_contract_transaction(
                     "id": 0 },
                 {"action_transfer": {
                     "promise_index": 0,
-                    "amount": format!("{}", NEAR_BASE),
+                    "amount": NEAR_BASE.to_string(),
                 }, "id": 0 },
                 {"action_add_key_with_full_access": {
                     "promise_index": 0,
@@ -575,7 +575,7 @@ fn gen_cross_contract_transaction(
                     "nonce": 0,
                 }, "id": 0 }
             ],
-        "amount": format!("{}", NEAR_BASE),
+        "amount": NEAR_BASE.to_string(),
         "gas": GAS_2,
         }, "id": 1}
     ]);

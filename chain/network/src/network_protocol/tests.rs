@@ -2,7 +2,6 @@ use super::*;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::Encoding;
 use crate::testonly::make_rng;
-use crate::types::{HandshakeFailureReason, PeerMessage};
 use anyhow::{bail, Context as _};
 use near_network_primitives::time;
 use near_network_primitives::types::{
@@ -63,22 +62,22 @@ fn serialize_deserialize() -> anyhow::Result<()> {
     let epoch_id = EpochId(chain.blocks[1].hash().clone());
 
     let chunk_hash = chain.blocks[3].chunks()[0].chunk_hash();
-    let routed_message1 = data::make_routed_message(
+    let routed_message1 = Box::new(data::make_routed_message(
         &mut rng,
         RoutedMessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
             chunk_hash: chunk_hash.clone(),
             part_ords: vec![],
             tracking_shards: Default::default(),
         }),
-    );
-    let routed_message2 = data::make_routed_message(
+    ));
+    let routed_message2 = Box::new(data::make_routed_message(
         &mut rng,
         RoutedMessageBody::PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg {
             chunk_hash: chunk_hash.clone(),
             parts: data::make_chunk_parts(chain.chunks[&chunk_hash].clone()),
             receipts: vec![],
         }),
-    );
+    ));
     let msgs = [
         PeerMessage::Handshake(data::make_handshake(&mut rng, &chain)),
         PeerMessage::HandshakeFailure(
@@ -111,7 +110,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         for m in &msgs {
             (|| {
                 let m2 = PeerMessage::deserialize(enc, &m.serialize(enc))
-                    .with_context(|| format!("{m}"))?;
+                    .with_context(|| m.to_string())?;
                 if *m != m2 {
                     bail!("deserialize(serialize({m}) = {m2}");
                 }

@@ -143,20 +143,18 @@ impl TrieViewer {
         let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, prefix);
         let acc_sep_len = query.len() - prefix.len();
         let mut iter = state_update.trie().iter()?;
-        iter.seek(&query)?;
-        for item in iter {
+        iter.remember_visited_nodes(true);
+        iter.seek_prefix(&query)?;
+        for item in &mut iter {
             let (key, value) = item?;
-            if !key.starts_with(query.as_ref()) {
-                break;
-            }
             values.push(StateItem {
                 key: key[acc_sep_len..].to_vec(),
                 value: value,
                 proof: vec![],
             });
         }
-        // TODO(2076): Add proofs for the storage items.
-        Ok(ViewStateResult { values, proof: vec![] })
+        let proof = iter.into_visited_nodes();
+        Ok(ViewStateResult { values, proof })
     }
 
     pub fn call_function(

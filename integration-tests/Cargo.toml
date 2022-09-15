@@ -44,6 +44,7 @@ near-network-primitives = { path = "../chain/network-primitives" }
 near-primitives = { path = "../core/primitives" }
 near-primitives-core = { path = "../core/primitives-core" }
 near-store = { path = "../core/store" }
+near-o11y = { path = "../core/o11y" }
 near-telemetry = { path = "../chain/telemetry" }
 near-test-contracts = { path = "../runtime/near-test-contracts" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
@@ -52,12 +53,10 @@ near-vm-runner = { path = "../runtime/near-vm-runner" }
 nearcore = { path = "../nearcore" }
 node-runtime = { path = "../runtime/runtime" }
 testlib = { path = "../test-utils/testlib" }
-near-logger-utils = { path = "../test-utils/logger" }
 
 [dev-dependencies]
 assert_matches = "1.3"
 insta = "1"
-near-logger-utils = { path = "../test-utils/logger" }
 
 [features]
 performance_stats = [
@@ -66,17 +65,19 @@ performance_stats = [
 ]
 expensive_tests = []
 test_features = ["nearcore/test_features"]
-protocol_feature_account_id_in_function_call_permission = [
-  "near-primitives/protocol_feature_account_id_in_function_call_permission"
-]
 protocol_feature_fix_contract_loading_cost = [
   "nearcore/protocol_feature_fix_contract_loading_cost",
 ]
+protocol_feature_reject_blocks_with_outdated_protocol_version = [
+  "near-primitives/protocol_feature_reject_blocks_with_outdated_protocol_version",
+  "near-chain/protocol_feature_reject_blocks_with_outdated_protocol_version"
+]
+protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
 nightly = [
   "nightly_protocol",
   "nearcore/nightly",
-  "protocol_feature_account_id_in_function_call_permission",
   "protocol_feature_fix_contract_loading_cost",
+  "protocol_feature_reject_blocks_with_outdated_protocol_version"
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]
 sandbox = [

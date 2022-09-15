@@ -8,7 +8,7 @@ use clap::{Arg, Command};
 use near_chain::store_validator::StoreValidator;
 use near_chain::RuntimeAdapter;
 use near_chain_configs::GenesisValidationMode;
-use near_logger_utils::init_integration_logger;
+use near_o11y::testonly::init_integration_logger;
 use nearcore::{get_default_home, load_config};
 
 fn main() {
@@ -30,8 +30,10 @@ fn main() {
     let near_config = load_config(home_dir, GenesisValidationMode::Full)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-    let store = near_store::Store::opener(home_dir, &near_config.config.store).open();
-
+    let store = near_store::NodeStorage::opener(home_dir, &near_config.config.store)
+        .open()
+        .unwrap()
+        .get_store(near_store::Temperature::Hot);
     let runtime_adapter: Arc<dyn RuntimeAdapter> =
         Arc::new(nearcore::NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
 

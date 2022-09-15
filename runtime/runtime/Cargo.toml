@@ -28,7 +28,7 @@ near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
-near-metrics = { path = "../../core/metrics" }
+near-o11y = { path = "../../core/o11y" }
 near-vm-logic = { path = "../../runtime/near-vm-logic" }
 near-vm-runner = { path = "../../runtime/near-vm-runner" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
@@ -56,3 +56,4 @@ assert_matches = "1.3"
 testlib = { path = "../../test-utils/testlib" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
+near-store = { path = "../../core/store", features = ["test_features"] }

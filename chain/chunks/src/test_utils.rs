@@ -154,6 +154,12 @@ impl ChunkTestFixture {
         Self::new_with_runtime(orphan_chunk, Arc::new(default_runtime()))
     }
 
+    pub fn new_with_all_shards_tracking() -> Self {
+        let mut runtime = default_runtime();
+        runtime.set_tracks_all_shards(true);
+        Self::new_with_runtime(false, Arc::new(runtime))
+    }
+
     // Create a ChunkTestFixture to test chunk only producers
     pub fn new_with_chunk_only_producers() -> Self {
         let store = near_store::test_utils::create_test_store();
@@ -264,7 +270,7 @@ impl ChunkTestFixture {
             mock_chunk_part_owner,
             mock_shard_tracker,
             mock_chunk_header: encoded_chunk.cloned_header(),
-            mock_chunk_parts: encoded_chunk.parts().clone(),
+            mock_chunk_parts: encoded_chunk.parts().to_vec(),
             mock_chain_head: Tip {
                 height: 0,
                 last_block_hash: CryptoHash::default(),

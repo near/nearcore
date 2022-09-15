@@ -2441,7 +2441,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 unreachable!();
             }
             #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatState => {
+            DBCol::FlatState | DBCol::FlatStateDeltas | DBCol::FlatStateMisc => {
                 unreachable!();
             }
         }
@@ -2468,7 +2468,6 @@ impl<'a> ChainStoreUpdate<'a> {
     /// Only used in mock network
     /// Create a new ChainStoreUpdate that copies the necessary chain state related to `block_hash`
     /// from `source_store` to the current store.
-    #[cfg(feature = "mock_node")]
     pub fn copy_chain_state_as_of_block(
         chain_store: &'a mut ChainStore,
         block_hash: &CryptoHash,
@@ -2627,7 +2626,7 @@ impl<'a> ChainStoreUpdate<'a> {
                         .unwrap_or_default()
                 })
                 .insert(*hash);
-            store_update.set_ser(DBCol::BlockHeader, hash.as_ref(), header)?;
+            store_update.insert_ser(DBCol::BlockHeader, hash.as_ref(), header)?;
         }
         for (height, hash_set) in header_hashes_by_height {
             store_update.set_ser(
@@ -2775,8 +2774,14 @@ impl<'a> ChainStoreUpdate<'a> {
                 block_hash,
             )?;
         }
+
+        // Convert trie changes to database ops for trie nodes.
+        // Create separate store update for deletions, because we want to update cache and don't want to remove nodes
+        // from the store.
+        let mut deletions_store_update = self.store().store_update();
         for mut wrapped_trie_changes in self.trie_changes.drain(..) {
             wrapped_trie_changes.insertions_into(&mut store_update);
+            wrapped_trie_changes.deletions_into(&mut deletions_store_update);
             wrapped_trie_changes.state_changes_into(&mut store_update);
 
             if self.chain_store.save_trie_changes {
@@ -2785,6 +2790,8 @@ impl<'a> ChainStoreUpdate<'a> {
                     .map_err(|err| Error::Other(err.to_string()))?;
             }
         }
+        deletions_store_update.update_cache()?;
+
         for ((block_hash, shard_id), state_changes) in
             self.add_state_changes_for_split_states.drain()
         {

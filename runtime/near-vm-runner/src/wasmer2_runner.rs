@@ -40,18 +40,18 @@ const WASMER_FEATURES: Features = Features {
 pub struct Wasmer2Memory(Arc<LinearMemory>);
 
 impl Wasmer2Memory {
-    pub(crate) fn new(initial_memory_pages: u32, max_memory_pages: u32) -> Result<Self, VMError> {
+    fn new(
+        initial_memory_pages: u32,
+        max_memory_pages: u32,
+    ) -> Result<Self, wasmer_vm::MemoryError> {
         let max_pages = Pages(max_memory_pages);
-        Ok(Wasmer2Memory(Arc::new(
-            LinearMemory::new(
-                &MemoryType::new(Pages(initial_memory_pages), Some(max_pages), false),
-                &MemoryStyle::Static {
-                    bound: max_pages,
-                    offset_guard_size: wasmer_types::WASM_PAGE_SIZE as u64,
-                },
-            )
-            .expect("creating memory must not fail"),
-        )))
+        Ok(Wasmer2Memory(Arc::new(LinearMemory::new(
+            &MemoryType::new(Pages(initial_memory_pages), Some(max_pages), false),
+            &MemoryStyle::Static {
+                bound: max_pages,
+                offset_guard_size: wasmer_types::WASM_PAGE_SIZE as u64,
+            },
+        )?)))
     }
 
     // Returns the pointer to memory at the specified offset and the size of the buffer starting at
@@ -540,7 +540,7 @@ impl crate::runner::VM for Wasmer2VM {
         into_vm_result(result).err()
     }
 
-    fn check_compile(&self, code: &Vec<u8>) -> bool {
+    fn check_compile(&self, code: &[u8]) -> bool {
         self.compile_uncached(code).is_ok()
     }
 }

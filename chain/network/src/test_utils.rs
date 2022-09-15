@@ -18,7 +18,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
 use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
 use tracing::debug;
 
 static OPENED_PORTS: Lazy<Mutex<HashSet<u16>>> = Lazy::new(|| Mutex::new(HashSet::new()));
@@ -65,7 +64,7 @@ pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
 /// Useful in tests to prevent them from running forever.
 #[allow(unreachable_code)]
 pub fn wait_or_panic(max_wait_ms: u64) {
-    actix::spawn(tokio::time::sleep(Duration::from_millis(max_wait_ms)).then(|_| {
+    actix::spawn(tokio::time::sleep(tokio::time::Duration::from_millis(max_wait_ms)).then(|_| {
         panic!("Timeout exceeded.");
         future::ready(())
     }));
@@ -117,7 +116,7 @@ impl WaitOrTimeoutActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            Duration::from_millis(self.check_interval_ms),
+            tokio::time::Duration::from_millis(self.check_interval_ms),
             move |act, ctx| {
                 act.ms_slept += act.check_interval_ms;
                 if act.ms_slept > act.max_wait_ms {
@@ -155,8 +154,8 @@ where
         check_interval_ms < max_wait_ms,
         "interval shorter than wait time, did you swap the argument order?"
     );
-    let mut interval = tokio::time::interval(Duration::from_millis(check_interval_ms));
-    tokio::time::timeout(Duration::from_millis(max_wait_ms), async {
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(check_interval_ms));
+    tokio::time::timeout(tokio::time::Duration::from_millis(max_wait_ms), async {
         loop {
             interval.tick().await;
             if let ControlFlow::Break(res) = cond().await {
@@ -302,6 +301,9 @@ impl MockPeerManagerAdapter {
     pub fn pop(&self) -> Option<PeerManagerMessageRequest> {
         self.requests.write().unwrap().pop_front()
     }
+    pub fn pop_most_recent(&self) -> Option<PeerManagerMessageRequest> {
+        self.requests.write().unwrap().pop_back()
+    }
 }
 
 pub mod test_features {
@@ -311,9 +313,9 @@ pub mod test_features {
     use crate::PeerManagerActor;
     use actix::actors::mocker::Mocker;
     use actix::Actor;
+    use near_network_primitives::time;
     use near_network_primitives::types::{NetworkViewClientMessages, NetworkViewClientResponses};
     use near_primitives::block::GenesisId;
-    use near_store::Store;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
@@ -323,12 +325,12 @@ pub mod test_features {
     type ViewClientMock = Mocker<NetworkViewClientMessages>;
 
     // Make peer manager for unit tests
-    pub fn make_peer_manager(
-        store: Store,
+    pub fn spawn_peer_manager(
+        store: Arc<dyn near_store::db::Database>,
         mut config: config::NetworkConfig,
         boot_nodes: Vec<(&str, u16)>,
         peer_max_count: u32,
-    ) -> PeerManagerActor {
+    ) -> actix::Addr<PeerManagerActor> {
         config.boot_nodes = convert_boot_nodes(boot_nodes);
         config.max_num_peers = peer_max_count;
         let counter = Arc::new(AtomicUsize::new(0));
@@ -353,7 +355,8 @@ pub mod test_features {
             }
         }))
         .start();
-        PeerManagerActor::new(
+        PeerManagerActor::spawn(
+            time::Clock::real(),
             store,
             config,
             client_addr.recipient(),

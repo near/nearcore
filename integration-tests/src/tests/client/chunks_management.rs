@@ -15,10 +15,10 @@ use near_chunks::{
 };
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, GetBlock, ViewClientActor};
-use near_logger_utils::init_test_logger;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{NetworkClientMessages, NetworkRequests, NetworkResponses};
 use near_network_primitives::types::{AccountIdOrPeerTrackingShard, PeerInfo};
+use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
@@ -29,6 +29,7 @@ use near_primitives::types::AccountId;
 fn chunks_produced_and_distributed_common(
     validator_groups: u64,
     drop_from_1_to_4: bool,
+    drop_all_chunk_forward_msgs: bool,
     block_timeout: u64,
 ) {
     init_test_logger();
@@ -174,6 +175,10 @@ fn chunks_produced_and_distributed_common(
                     }
                 }
                 NetworkRequests::PartialEncodedChunkForward { account_id: to_whom, .. } => {
+                    if drop_all_chunk_forward_msgs {
+                        println!("Dropping Partial Encoded Chunk Forward Message");
+                        return (NetworkResponses::NoResponse.into(), false);
+                    }
                     if drop_from_1_to_4
                         && from_whom.as_ref() == "test1"
                         && to_whom.as_ref() == "test4"
@@ -240,7 +245,7 @@ fn chunks_produced_and_distributed_common(
 fn chunks_produced_and_distributed_all_in_all_shards() {
     heavy_test(|| {
         run_actix(async {
-            chunks_produced_and_distributed_common(1, false, 15 * CHUNK_REQUEST_RETRY_MS);
+            chunks_produced_and_distributed_common(1, false, false, 15 * CHUNK_REQUEST_RETRY_MS);
         });
     });
 }
@@ -249,7 +254,7 @@ fn chunks_produced_and_distributed_all_in_all_shards() {
 fn chunks_produced_and_distributed_2_vals_per_shard() {
     heavy_test(|| {
         run_actix(async {
-            chunks_produced_and_distributed_common(2, false, 15 * CHUNK_REQUEST_RETRY_MS);
+            chunks_produced_and_distributed_common(2, false, false, 15 * CHUNK_REQUEST_RETRY_MS);
         });
     });
 }
@@ -258,7 +263,34 @@ fn chunks_produced_and_distributed_2_vals_per_shard() {
 fn chunks_produced_and_distributed_one_val_per_shard() {
     heavy_test(|| {
         run_actix(async {
-            chunks_produced_and_distributed_common(4, false, 15 * CHUNK_REQUEST_RETRY_MS);
+            chunks_produced_and_distributed_common(4, false, false, 15 * CHUNK_REQUEST_RETRY_MS);
+        });
+    });
+}
+
+#[test]
+fn chunks_produced_and_distributed_all_in_all_shards_should_succeed_even_without_forwarding() {
+    heavy_test(|| {
+        run_actix(async {
+            chunks_produced_and_distributed_common(1, false, false, 15 * CHUNK_REQUEST_RETRY_MS);
+        });
+    });
+}
+
+#[test]
+fn chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_forwarding() {
+    heavy_test(|| {
+        run_actix(async {
+            chunks_produced_and_distributed_common(2, false, false, 15 * CHUNK_REQUEST_RETRY_MS);
+        });
+    });
+}
+
+#[test]
+fn chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without_forwarding() {
+    heavy_test(|| {
+        run_actix(async {
+            chunks_produced_and_distributed_common(4, false, false, 15 * CHUNK_REQUEST_RETRY_MS);
         });
     });
 }
@@ -268,12 +300,21 @@ fn chunks_produced_and_distributed_one_val_per_shard() {
 /// We block all the communication from test1 to test4, and expect that in 1.5 seconds test4 will
 /// give up on getting the part from test1 and will get it from test2 (who will have it because
 /// `validator_groups=2`)
+///
+/// Note that due to #7385 (which sends chunk forwarding messages irrespective of shard assignment),
+/// we disable chunk forwarding messages for the following tests, so we can focus on chunk
+/// requesting behavior.
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn chunks_recovered_from_others() {
     heavy_test(|| {
         run_actix(async {
-            chunks_produced_and_distributed_common(2, true, 4 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS);
+            chunks_produced_and_distributed_common(
+                2,
+                true,
+                true,
+                4 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
+            );
         });
     });
 }
@@ -288,7 +329,12 @@ fn chunks_recovered_from_others() {
 fn chunks_recovered_from_full_timeout_too_short() {
     heavy_test(|| {
         run_actix(async {
-            chunks_produced_and_distributed_common(4, true, 2 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS);
+            chunks_produced_and_distributed_common(
+                4,
+                true,
+                true,
+                2 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
+            );
         });
     });
 }
@@ -302,6 +348,7 @@ fn chunks_recovered_from_full() {
         run_actix(async {
             chunks_produced_and_distributed_common(
                 4,
+                true,
                 true,
                 2 * CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
             );

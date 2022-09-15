@@ -23,7 +23,7 @@ dependencies = [
  "pin-project-lite",
  "smallvec",
  "tokio",
- "tokio-util",
+ "tokio-util 0.7.2",
 ]
 
 [[package]]
@@ -40,7 +40,7 @@ dependencies = [
  "memchr",
  "pin-project-lite",
  "tokio",
- "tokio-util",
+ "tokio-util 0.7.2",
 ]
 
 [[package]]
@@ -175,7 +175,7 @@ dependencies = [
  "openssl",
  "pin-project-lite",
  "tokio-openssl",
- "tokio-util",
+ "tokio-util 0.7.2",
 ]
 
 [[package]]
@@ -312,9 +312,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.57"
+version = "1.0.62"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08f9b8508dccb7687a1d6c4ce66b2b0ecef467c94667de27d8d7fe1f8d2a9cdc"
+checksum = "1485d4d2cc45e7b201ee3767015c96faa5904387c9d87c6efdd0fb511f12d305"
 
 [[package]]
 name = "arbitrary"
@@ -354,6 +354,27 @@ name = "async-recursion"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7d78656ba01f1b93024b7c3a0467f1608e4be67d725749fdcd7d2c7678fd7a2"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "async-stream"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dad5c83079eae9969be7fadefe640a1c566901f05ff91ab221de4b6f68d9507e"
+dependencies = [
+ "async-stream-impl",
+ "futures-core",
+]
+
+[[package]]
+name = "async-stream-impl"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10f203db73a71dfa2fb6dd22763990fa26f3d2625a6da2da900d23b87d26be27"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1214,6 +1235,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossbeam"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2801af0d36612ae591caa9568261fddce32ce6e08a7275ea334a06a4ad021a2c"
+dependencies = [
+ "cfg-if 1.0.0",
+ "crossbeam-channel 0.5.4",
+ "crossbeam-deque",
+ "crossbeam-epoch",
+ "crossbeam-queue",
+ "crossbeam-utils 0.8.8",
+]
+
+[[package]]
 name = "crossbeam-channel"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1256,6 +1291,16 @@ dependencies = [
  "lazy_static",
  "memoffset",
  "scopeguard",
+]
+
+[[package]]
+name = "crossbeam-queue"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1cd42583b04998a5363558e5f9291ee5a5ff6b49944332103f251e7479a82aa7"
+dependencies = [
+ "cfg-if 1.0.0",
+ "crossbeam-utils 0.8.8",
 ]
 
 [[package]]
@@ -1726,6 +1771,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fixedbitset"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
+
+[[package]]
 name = "flagset"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1789,12 +1840,6 @@ name = "fs_extra"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2022715d62ab30faffd124d40b76f4134a550a87792276512b18d63272333394"
-
-[[package]]
-name = "fuchsia-cprng"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a06f77d526c1a601b7c4cdd98f54b5eaabffc14d5f2f0296febdc7f357c6d3ba"
 
 [[package]]
 name = "futures"
@@ -2001,7 +2046,7 @@ dependencies = [
  "indexmap",
  "slab",
  "tokio",
- "tokio-util",
+ "tokio-util 0.7.2",
  "tracing",
 ]
 
@@ -2158,6 +2203,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyper-timeout"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbb958482e8c7be4bc3cf272a766a2b0bf1a6755e7a6ae777f017a31d11b13b1"
+dependencies = [
+ "hyper",
+ "pin-project-lite",
+ "tokio",
+ "tokio-io-timeout",
+]
+
+[[package]]
 name = "hyper-tls"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2270,12 +2327,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "integer-encoding"
-version = "3.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e85a1509a128c855368e135cffcde7eac17d8e1083f41e2b98c58bc1a5074be"
-
-[[package]]
 name = "integration-tests"
 version = "0.0.0"
 dependencies = [
@@ -2300,9 +2351,9 @@ dependencies = [
  "near-jsonrpc",
  "near-jsonrpc-client",
  "near-jsonrpc-primitives",
- "near-logger-utils",
  "near-network",
  "near-network-primitives",
+ "near-o11y",
  "near-performance-metrics",
  "near-primitives",
  "near-primitives-core",
@@ -2712,9 +2763,9 @@ dependencies = [
  "near-crypto",
  "near-epoch-manager",
  "near-jsonrpc",
- "near-logger-utils",
  "near-network",
  "near-network-primitives",
+ "near-o11y",
  "near-performance-metrics",
  "near-primitives",
  "near-store",
@@ -2735,6 +2786,12 @@ name = "more-asserts"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7843ec2de400bcbc6a6328c958dc38e5359da6e93e72e37bc5246bf1ae776389"
+
+[[package]]
+name = "multimap"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5ce46fe64a9d73be07dcbe690a38ce1b293be448fd8ce1e6c1b8062c9f72c6a"
 
 [[package]]
 name = "native-tls"
@@ -2814,8 +2871,6 @@ dependencies = [
  "near-chain-primitives",
  "near-client-primitives",
  "near-crypto",
- "near-logger-utils",
- "near-metrics",
  "near-o11y",
  "near-pool",
  "near-primitives",
@@ -2870,10 +2925,9 @@ dependencies = [
  "near-chain",
  "near-chunks-primitives",
  "near-crypto",
- "near-logger-utils",
- "near-metrics",
  "near-network",
  "near-network-primitives",
+ "near-o11y",
  "near-pool",
  "near-primitives",
  "near-store",
@@ -2912,8 +2966,6 @@ dependencies = [
  "near-chunks",
  "near-client-primitives",
  "near-crypto",
- "near-logger-utils",
- "near-metrics",
  "near-network",
  "near-network-primitives",
  "near-o11y",
@@ -2947,6 +2999,7 @@ dependencies = [
  "near-crypto",
  "near-network-primitives",
  "near-primitives",
+ "once_cell",
  "serde",
  "serde_json",
  "strum",
@@ -2969,10 +3022,9 @@ dependencies = [
  "hex-literal",
  "near-account-id",
  "once_cell",
- "parity-secp256k1",
  "primitive-types",
  "rand 0.7.3",
- "rand_core 0.5.1",
+ "secp256k1",
  "serde",
  "serde_json",
  "sha2 0.10.2",
@@ -2988,7 +3040,6 @@ dependencies = [
  "borsh",
  "chrono",
  "near-cache",
- "near-chain",
  "near-chain-configs",
  "near-crypto",
  "near-primitives",
@@ -3014,10 +3065,12 @@ dependencies = [
  "near-client",
  "near-crypto",
  "near-indexer-primitives",
+ "near-o11y",
  "near-primitives",
  "near-store",
  "nearcore",
  "node-runtime",
+ "once_cell",
  "rocksdb",
  "serde",
  "serde_json",
@@ -3049,7 +3102,6 @@ dependencies = [
  "near-jsonrpc-adversarial-primitives",
  "near-jsonrpc-client",
  "near-jsonrpc-primitives",
- "near-metrics",
  "near-network",
  "near-network-primitives",
  "near-o11y",
@@ -3084,7 +3136,6 @@ dependencies = [
  "near-primitives",
  "serde",
  "serde_json",
- "uuid",
 ]
 
 [[package]]
@@ -3097,7 +3148,6 @@ dependencies = [
  "libfuzzer-sys",
  "near-jsonrpc",
  "near-jsonrpc-tests",
- "near-logger-utils",
  "near-primitives",
  "once_cell",
  "serde",
@@ -3117,7 +3167,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
- "uuid",
 ]
 
 [[package]]
@@ -3134,22 +3183,14 @@ dependencies = [
  "near-crypto",
  "near-jsonrpc",
  "near-jsonrpc-primitives",
- "near-logger-utils",
  "near-network",
  "near-network-primitives",
+ "near-o11y",
  "near-primitives",
  "near-store",
  "once_cell",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "near-logger-utils"
-version = "0.0.0"
-dependencies = [
- "near-o11y",
- "tracing",
 ]
 
 [[package]]
@@ -3160,15 +3201,6 @@ dependencies = [
  "near-chain-configs",
  "near-primitives",
  "serde_json",
-]
-
-[[package]]
-name = "near-metrics"
-version = "0.0.0"
-dependencies = [
- "once_cell",
- "prometheus",
- "tracing",
 ]
 
 [[package]]
@@ -3194,14 +3226,11 @@ dependencies = [
  "itertools",
  "lru",
  "near-crypto",
- "near-logger-utils",
- "near-metrics",
  "near-network-primitives",
  "near-o11y",
  "near-performance-metrics",
  "near-performance-metrics-macros",
  "near-primitives",
- "near-rate-limiter",
  "near-rust-allocator-proxy",
  "near-stable-hasher",
  "near-store",
@@ -3211,8 +3240,8 @@ dependencies = [
  "pretty_assertions",
  "protobuf 3.0.2",
  "protobuf-codegen",
- "rand 0.6.5",
- "rand_pcg",
+ "rand 0.7.3",
+ "rand_xorshift 0.2.0",
  "rayon",
  "serde",
  "smart-default",
@@ -3221,7 +3250,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
- "tokio-util",
+ "tokio-util 0.7.2",
  "tracing",
  "tracing-opentelemetry",
 ]
@@ -3253,10 +3282,14 @@ version = "0.0.0"
 dependencies = [
  "atty",
  "backtrace",
+ "bencher",
  "clap 3.1.18",
  "once_cell",
  "opentelemetry",
- "opentelemetry-jaeger",
+ "opentelemetry-otlp",
+ "opentelemetry-semantic-conventions",
+ "prometheus",
+ "smartstring",
  "strum",
  "thiserror",
  "tokio",
@@ -3281,7 +3314,7 @@ dependencies = [
  "once_cell",
  "strum",
  "tokio",
- "tokio-util",
+ "tokio-util 0.7.2",
  "tracing",
 ]
 
@@ -3299,7 +3332,7 @@ version = "0.0.0"
 dependencies = [
  "borsh",
  "near-crypto",
- "near-metrics",
+ "near-o11y",
  "near-primitives",
  "once_cell",
  "rand 0.7.3",
@@ -3353,20 +3386,6 @@ dependencies = [
  "serde_repr",
  "sha2 0.10.2",
  "strum",
-]
-
-[[package]]
-name = "near-rate-limiter"
-version = "0.0.0"
-dependencies = [
- "actix",
- "bytes",
- "futures-core",
- "pin-project-lite",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tracing",
 ]
 
 [[package]]
@@ -3436,18 +3455,20 @@ version = "0.0.0"
 name = "near-store"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "assert_matches",
  "bencher",
  "borsh",
  "byteorder",
  "bytesize",
+ "crossbeam",
  "derive_more",
  "elastic-array",
  "enum-map",
  "fs2",
+ "insta",
  "lru",
  "near-crypto",
- "near-metrics",
  "near-o11y",
  "near-primitives",
  "num_cpus",
@@ -3470,7 +3491,7 @@ dependencies = [
  "actix",
  "awc",
  "futures",
- "near-metrics",
+ "near-o11y",
  "near-performance-metrics",
  "near-performance-metrics-macros",
  "near-primitives",
@@ -3511,6 +3532,7 @@ dependencies = [
  "borsh",
  "bs58",
  "byteorder",
+ "ed25519-dalek",
  "hex",
  "near-account-id",
  "near-crypto",
@@ -3607,13 +3629,12 @@ dependencies = [
  "near-chain-configs",
  "near-chunks",
  "near-client",
+ "near-client-primitives",
  "near-crypto",
  "near-epoch-manager",
  "near-jsonrpc",
  "near-jsonrpc-primitives",
- "near-logger-utils",
  "near-mainnet-res",
- "near-metrics",
  "near-network",
  "near-network-primitives",
  "near-o11y",
@@ -3699,7 +3720,7 @@ dependencies = [
  "indicatif",
  "near-chain-configs",
  "near-crypto",
- "near-metrics",
+ "near-o11y",
  "near-primitives",
  "near-store",
  "near-test-contracts",
@@ -3821,9 +3842,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.12.0"
+version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7709cef83f0c1f58f666e746a08b21e0085f7440fa6a29cc194d68aac97a4225"
+checksum = "074864da206b4973b84eb91683020dbefd6a8c3f0f38e054d93954e891935e4e"
 
 [[package]]
 name = "oorandom"
@@ -3914,18 +3935,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "opentelemetry-jaeger"
-version = "0.16.0"
+name = "opentelemetry-otlp"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8c0b12cd9e3f9b35b52f6e0dac66866c519b26f424f4bbf96e3fe8bfbdc5229"
+checksum = "9d1a6ca9de4c8b00aa7f1a153bd76cb263287155cec642680d79d98706f3d28a"
 dependencies = [
  "async-trait",
- "lazy_static",
+ "futures",
+ "futures-util",
+ "http",
  "opentelemetry",
- "opentelemetry-semantic-conventions",
+ "prost",
  "thiserror",
- "thrift",
  "tokio",
+ "tonic",
+ "tonic-build",
 ]
 
 [[package]]
@@ -3935,15 +3959,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985cc35d832d412224b2cffe2f9194b1b89b6aa5d0bef76d080dce09d90e62bd"
 dependencies = [
  "opentelemetry",
-]
-
-[[package]]
-name = "ordered-float"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3305af35278dd29f46fcdd139e0b1fbfae2153f0e5928b39b035542dd31e37b7"
-dependencies = [
- "num-traits",
 ]
 
 [[package]]
@@ -4047,18 +4062,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "parity-secp256k1"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fca4f82fccae37e8bbdaeb949a4a218a1bbc485d11598f193d2a908042e5fc1"
-dependencies = [
- "arrayvec",
- "cc",
- "cfg-if 0.1.10",
- "rand 0.7.3",
-]
-
-[[package]]
 name = "parity-wasm"
 version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4134,6 +4137,16 @@ name = "percent-encoding"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4fd5641d01c8f18a23da7b6fe29298ff4b55afcccdf78973b24cf3175fee32e"
+
+[[package]]
+name = "petgraph"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6d5014253a1331579ce62aa67443b4a658c5e7dd03d4bc6d302b94474888143"
+dependencies = [
+ "fixedbitset",
+ "indexmap",
+]
 
 [[package]]
 name = "pin-project"
@@ -4299,6 +4312,59 @@ dependencies = [
 ]
 
 [[package]]
+name = "prost"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "444879275cb4fd84958b1a1d5420d15e6fcf7c235fe47f053c9c2a80aceb6001"
+dependencies = [
+ "bytes",
+ "prost-derive",
+]
+
+[[package]]
+name = "prost-build"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62941722fb675d463659e49c4f3fe1fe792ff24fe5bbaa9c08cd3b98a1c354f5"
+dependencies = [
+ "bytes",
+ "heck 0.3.3",
+ "itertools",
+ "lazy_static",
+ "log",
+ "multimap",
+ "petgraph",
+ "prost",
+ "prost-types",
+ "regex",
+ "tempfile",
+ "which",
+]
+
+[[package]]
+name = "prost-derive"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9cc1a3263e07e0bf68e96268f37665207b49560d98739662cdfaae215c720fe"
+dependencies = [
+ "anyhow",
+ "itertools",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "prost-types"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "534b7a0e836e3c482d2693070f982e39e7611da9695d4d1f5a4b186b51faef0a"
+dependencies = [
+ "bytes",
+ "prost",
+]
+
+[[package]]
 name = "protobuf"
 version = "2.27.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4417,7 +4483,6 @@ dependencies = [
  "rand_hc 0.1.0",
  "rand_isaac",
  "rand_jitter",
- "rand_os",
  "rand_pcg",
  "rand_xorshift 0.1.1",
  "winapi",
@@ -4549,20 +4614,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rand_os"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b75f676a1e053fc562eafbb47838d67c84801e38fc1ba459e8f180deabd5071"
-dependencies = [
- "cloudabi",
- "fuchsia-cprng",
- "libc",
- "rand_core 0.4.2",
- "rdrand",
- "winapi",
-]
-
-[[package]]
 name = "rand_pcg"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4621,15 +4672,6 @@ dependencies = [
  "crossbeam-deque",
  "crossbeam-utils 0.8.8",
  "num_cpus",
-]
-
-[[package]]
-name = "rdrand"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "678054eb77286b51581ba43620cc911abf02758c91f93f479767aed0f90458b2"
-dependencies = [
- "rand_core 0.3.1",
 ]
 
 [[package]]
@@ -4915,7 +4957,7 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-crypto",
- "near-logger-utils",
+ "near-o11y",
  "near-primitives",
  "near-store",
  "near-test-contracts",
@@ -5044,6 +5086,25 @@ name = "seahash"
 version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c107b6f4780854c8b126e228ea8869f4d7b71260f962fefb57b996b8959ba6b"
+
+[[package]]
+name = "secp256k1"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7649a0b3ffb32636e60c7ce0d70511eda9c52c658cd0634e194d5a19943aeff"
+dependencies = [
+ "rand 0.8.5",
+ "secp256k1-sys",
+]
+
+[[package]]
+name = "secp256k1-sys"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7058dc8eaf3f2810d7828680320acda0b25a288f6d288e19278e249bbf74226b"
+dependencies = [
+ "cc",
+]
 
 [[package]]
 name = "security-framework"
@@ -5339,6 +5400,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "smartstring"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3fb72c633efbaa2dd666986505016c32c3044395ceaf881518399d2f4127ee29"
+dependencies = [
+ "autocfg 1.1.0",
+ "static_assertions",
+ "version_check",
+]
+
+[[package]]
 name = "socket2"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5373,7 +5445,6 @@ dependencies = [
  "near-client",
  "near-crypto",
  "near-epoch-manager",
- "near-logger-utils",
  "near-network",
  "near-primitives",
  "near-primitives-core",
@@ -5420,7 +5491,7 @@ dependencies = [
  "near-chain",
  "near-chain-configs",
  "near-client",
- "near-logger-utils",
+ "near-o11y",
  "near-primitives",
  "near-store",
  "nearcore",
@@ -5627,18 +5698,18 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.31"
+version = "1.0.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd829fe32373d27f76265620b5309d0340cb8550f523c1dda251d6298069069a"
+checksum = "f5f6586b7f764adc0231f4c79be7b920e766bb2f3e51b3661cdb263828f19994"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.31"
+version = "1.0.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0396bc89e626244658bef819e22d0cc459e795a5ebe878e6ec336d1674a8d79a"
+checksum = "12bafc5b54507e0149cdf1b145a5d80ab80a90bcd9275df43d4fff68460f6c21"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5652,28 +5723,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5516c27b78311c50bf42c071425c560ac799b11c30b31f87e3081965fe5e0180"
 dependencies = [
  "once_cell",
-]
-
-[[package]]
-name = "threadpool"
-version = "1.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d050e60b33d41c19108b32cea32164033a9013fe3b46cbd4457559bfbf77afaa"
-dependencies = [
- "num_cpus",
-]
-
-[[package]]
-name = "thrift"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b82ca8f46f95b3ce96081fe3dd89160fdea970c254bb72925255d1b62aae692e"
-dependencies = [
- "byteorder",
- "integer-encoding",
- "log",
- "ordered-float",
- "threadpool",
 ]
 
 [[package]]
@@ -5772,6 +5821,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-io-timeout"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "30b74022ada614a1b4834de765f9bb43877f910cc8ce4be40e89042c9223a8bf"
+dependencies = [
+ "pin-project-lite",
+ "tokio",
+]
+
+[[package]]
 name = "tokio-macros"
 version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5817,6 +5876,20 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
+version = "0.6.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36943ee01a6d67977dd3f84a5a1d2efeb4ada3a1ae771cadfaa535d9d9fc6507"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "futures-sink",
+ "log",
+ "pin-project-lite",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-util"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f988a1a1adc2fb21f9c12aa96441da33a1728193ae0b95d2be22dbd17fcb4e5c"
@@ -5837,6 +5910,75 @@ checksum = "8d82e1a7758622a465f8cee077614c73484dac5b836c02ff6a40d5d1010324d7"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "tonic"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff08f4649d10a70ffa3522ca559031285d8e421d727ac85c60825761818f5d0a"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "base64",
+ "bytes",
+ "futures-core",
+ "futures-util",
+ "h2",
+ "http",
+ "http-body",
+ "hyper",
+ "hyper-timeout",
+ "percent-encoding",
+ "pin-project",
+ "prost",
+ "prost-derive",
+ "tokio",
+ "tokio-stream",
+ "tokio-util 0.6.10",
+ "tower",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+ "tracing-futures",
+]
+
+[[package]]
+name = "tonic-build"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9403f1bafde247186684b230dc6f38b5cd514584e8bec1dd32514be4745fa757"
+dependencies = [
+ "proc-macro2",
+ "prost-build",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "tower"
+version = "0.4.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8fa9be0de6cf49e536ce1851f987bd21a43b771b09473c3549a6c853db37c1c"
+dependencies = [
+ "futures-core",
+ "futures-util",
+ "indexmap",
+ "pin-project",
+ "pin-project-lite",
+ "rand 0.8.5",
+ "slab",
+ "tokio",
+ "tokio-util 0.7.2",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
+name = "tower-layer"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "343bc9466d3fe6b0f960ef45960509f84480bf4fd96f92901afe7ff3df9d3a62"
 
 [[package]]
 name = "tower-service"
@@ -5887,6 +6029,16 @@ checksum = "f54c8ca710e81886d498c2fd3331b56c93aa248d49de2222ad2742247c60072f"
 dependencies = [
  "lazy_static",
  "valuable",
+]
+
+[[package]]
+name = "tracing-futures"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97d095ae15e245a057c8e8451bab9b3ee1e1f68e9ba2b4fbc18d0ac5237835f2"
+dependencies = [
+ "pin-project",
+ "tracing",
 ]
 
 [[package]]
@@ -6018,15 +6170,6 @@ dependencies = [
  "idna",
  "matches",
  "percent-encoding",
-]
-
-[[package]]
-name = "uuid"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
-dependencies = [
- "getrandom 0.2.6",
 ]
 
 [[package]]

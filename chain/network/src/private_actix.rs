@@ -1,11 +1,10 @@
 /// This file is contains all types used for communication between `Actors` within this crate.
 /// They are not meant to be used outside.
 use crate::network_protocol::{PeerMessage, RoutingTableUpdate};
-use crate::peer_manager::connected_peers::ConnectedPeer;
+use crate::peer_manager::connection;
 use conqueue::QueueSender;
 use near_network_primitives::types::{
-    Ban, Edge, InboundTcpConnect, PartialEdgeInfo, PeerInfo, PeerType, ReasonForBan,
-    RoutedMessageBody, RoutedMessageFrom,
+    Ban, Edge, PartialEdgeInfo, PeerInfo, PeerType, ReasonForBan, RoutedMessageBody,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -24,11 +23,9 @@ pub struct PeersResponse {
 #[derive(actix::Message, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
 #[rtype(result = "PeerToManagerMsgResp")]
 pub(crate) enum PeerToManagerMsg {
-    RoutedMessageFrom(RoutedMessageFrom),
     RegisterPeer(RegisterPeer),
     PeersRequest(PeersRequest),
     PeersResponse(PeersResponse),
-    InboundTcpConnect(InboundTcpConnect),
     Unregister(Unregister),
     Ban(Ban),
     RequestUpdateNonce(PeerId, PartialEdgeInfo),
@@ -40,15 +37,13 @@ pub(crate) enum PeerToManagerMsg {
     },
 
     // PeerRequest
-    UpdateEdge((PeerId, u64)),
     RouteBack(Box<RoutedMessageBody>, CryptoHash),
     UpdatePeerInfo(PeerInfo),
 }
 
 /// List of all replies to messages to `PeerManager`. See `PeerManagerMessageRequest` for more details.
 #[derive(actix::MessageResponse, Debug)]
-pub enum PeerToManagerMsgResp {
-    RoutedMessageFrom(bool),
+pub(crate) enum PeerToManagerMsgResp {
     RegisterPeer(RegisterPeerResponse),
     PeersRequest(PeerRequestResult),
 
@@ -58,7 +53,6 @@ pub enum PeerToManagerMsgResp {
     BanPeer(ReasonForBan),
 
     // PeerResponse
-    UpdatedEdge(PartialEdgeInfo),
     Empty,
 }
 /// Actor message which asks `PeerManagerActor` to register peer.
@@ -67,7 +61,7 @@ pub enum PeerToManagerMsgResp {
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "RegisterPeerResponse")]
 pub(crate) struct RegisterPeer {
-    pub connection_state: Arc<ConnectedPeer>,
+    pub connection: Arc<connection::Connection>,
     /// Edge information from this node.
     /// If this is None it implies we are outbound connection, so we need to create our
     /// EdgeInfo part and send it to the other peer.
@@ -148,13 +142,6 @@ pub struct ValidateEdgeList {
 }
 
 impl PeerToManagerMsgResp {
-    pub fn unwrap_routed_message_from(self) -> bool {
-        match self {
-            Self::RoutedMessageFrom(item) => item,
-            _ => panic!("expected PeerMessageRequest::RoutedMessageFrom"),
-        }
-    }
-
     pub fn unwrap_consolidate_response(self) -> RegisterPeerResponse {
         match self {
             Self::RegisterPeer(item) => item,
