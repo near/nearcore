@@ -41,6 +41,8 @@
 //! in the prefetcher. Implementation details for most limits are in
 //! `core/store/src/trie/prefetching_trie_storage.rs`
 
+use near_o11y::metrics::prometheus;
+use near_o11y::metrics::prometheus::core::GenericCounter;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::trie_key::TrieKey;
@@ -50,10 +52,14 @@ use near_store::{PrefetchApi, Trie};
 use sha2::Digest;
 use std::rc::Rc;
 use tracing::debug;
+
+use crate::metrics;
 /// Transaction runtime view of the prefetching subsystem.
 pub(crate) struct TriePrefetcher {
     prefetch_api: PrefetchApi,
     trie_root: StateRoot,
+    prefetch_enqueued: GenericCounter<prometheus::core::AtomicU64>,
+    prefetch_queue_full: GenericCounter<prometheus::core::AtomicU64>,
 }
 
 impl TriePrefetcher {
@@ -61,7 +67,16 @@ impl TriePrefetcher {
         if let Some(caching_storage) = trie.storage.as_caching_storage() {
             if let Some(prefetch_api) = caching_storage.prefetch_api().clone() {
                 let trie_root = *trie.get_root();
-                return Some(Self { prefetch_api, trie_root });
+                let shard_uid = prefetch_api.shard_uid;
+                let metrics_labels: [&str; 1] = [&shard_uid.shard_id.to_string()];
+                return Some(Self {
+                    prefetch_api,
+                    trie_root,
+                    prefetch_enqueued: metrics::PREFETCH_ENQUEUED
+                        .with_label_values(&metrics_labels),
+                    prefetch_queue_full: metrics::PREFETCH_QUEUE_FULL
+                        .with_label_values(&metrics_labels),
+                });
             }
         }
         None
@@ -161,9 +176,11 @@ impl TriePrefetcher {
     fn prefetch_trie_key(&self, trie_key: TrieKey) -> Result<(), ()> {
         let queue_full = self.prefetch_api.prefetch_trie_key(self.trie_root, trie_key).is_err();
         if queue_full {
+            self.prefetch_queue_full.inc();
             debug!(target: "prefetcher", "I/O scheduler input queue full, dropping prefetch request");
             Err(())
         } else {
+            self.prefetch_enqueued.inc();
             Ok(())
         }
     }

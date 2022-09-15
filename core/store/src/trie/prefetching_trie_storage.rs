@@ -74,6 +74,8 @@ pub struct PrefetchApi {
     pub sweat_prefetch_receivers: Vec<AccountId>,
     /// List of allowed predecessor accounts for SWEAT prefetching.
     pub sweat_prefetch_senders: Vec<AccountId>,
+
+    pub shard_uid: ShardUId,
 }
 
 /// Staging area for in-flight prefetch requests and a buffer for prefetched data.
@@ -392,6 +394,7 @@ impl PrefetchApi {
             enable_receipt_prefetching,
             sweat_prefetch_receivers,
             sweat_prefetch_senders,
+            shard_uid,
         };
         for _ in 0..NUM_IO_THREADS {
             this.start_io_thread(store.clone(), shard_cache.clone(), shard_uid.clone());
