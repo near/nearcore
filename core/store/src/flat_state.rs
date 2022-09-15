@@ -267,7 +267,7 @@ impl FlatStateDelta {
         self.0.get(key).cloned()
     }
 
-    /// Merge this delta with other one. New changes should override the old ones.
+    /// Merge two deltas. Values from `other` should override values from `self`.
     pub fn merge(&mut self, other: Self) {
         self.0.extend(other.0)
     }
@@ -448,6 +448,7 @@ impl FlatStorageState {
             for new_delta in deltas_to_apply.drain(..).rev() {
                 delta.merge(new_delta);
             }
+            delta.apply_to_flat_state(&mut store_update);
             match self.update_head(&final_block_hash) {
                 Some(new_store_update) => {
                     store_update.merge(new_store_update);
