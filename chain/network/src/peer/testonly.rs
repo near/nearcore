@@ -193,6 +193,7 @@ impl PeerHandle {
             let mut network_cfg = cfg.network.clone();
             network_cfg.event_sink = send.sink().compose(Event::Network);
             let network_state = Arc::new(NetworkState::new(
+                &clock,
                 Arc::new(network_cfg.verify().unwrap()),
                 cfg.chain.genesis_id.clone(),
                 fc.clone().recipient(),

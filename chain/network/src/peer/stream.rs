@@ -4,7 +4,6 @@ use crate::stats::metrics;
 use crate::time;
 use actix::fut::future::wrap_future;
 use actix::AsyncContext as _;
-use bytesize::{GIB, MIB};
 use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
@@ -12,11 +11,8 @@ use std::sync::Arc;
 use tokio::io::AsyncReadExt as _;
 use tokio::io::AsyncWriteExt as _;
 
-/// Maximum size of network message in encoded format.
-/// We encode length as `u32`, and therefore maximum size can't be larger than `u32::MAX`.
-const NETWORK_MESSAGE_MAX_SIZE_BYTES: usize = 512 * MIB as usize;
 /// Maximum capacity of write buffer in bytes.
-const MAX_WRITE_BUFFER_CAPACITY_BYTES: usize = GIB as usize;
+const MAX_WRITE_BUFFER_CAPACITY_BYTES: usize = bytesize::GIB as usize;
 
 type ReadHalf = tokio::io::ReadHalf<tokio::net::TcpStream>;
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
@@ -108,7 +104,7 @@ impl FramedReader {
         // TODO(gprusak): separate limit for TIER1 message size.
         bytes_limiter.acquire(clock,n).await.map_err(|err|RecvError::MessageTooLarge {
             got_bytes: err.requested,
-            want_max_bytes: err.burst,
+            want_max_bytes: err.max,
         })?;
         self.msg_size_metric.observe(n as f64);
         self.buf_size_metric.set(n as i64);
@@ -127,7 +123,6 @@ impl<Actor> FramedWriter<Actor>
 where
     Actor: actix::Actor<Context = actix::Context<Actor>>
         + actix::Handler<Error>
-        + actix::Handler<Frame>,
 {
     pub fn spawn(
         ctx: &mut actix::Context<Actor>,
@@ -172,6 +167,7 @@ where
     /// If the message is too large, it will be silently dropped inside run_send_loop.
     /// Emits a critical error to Actor if send queue is full.
     pub fn send(&self, frame: Frame) {
+        tracing::debug!("sending msg");
         let msg = &frame.0;
         let mut buf_size =
             self.stats.bytes_to_send.fetch_add(msg.len() as u64, Ordering::Acquire) as usize;
@@ -189,6 +185,7 @@ where
             }));
         }
         let _ = self.queue_send.send(frame);
+        tracing::debug!("sending msg: done");
     }
 
     async fn run_send_loop(
@@ -202,14 +199,8 @@ where
         while let Some(Frame(mut msg)) = queue_recv.recv().await {
             // Try writing a batch of messages and flush once at the end.
             loop {
-                // TODO(gprusak): sending a too large message should probably be treated as a bug,
-                // since dropping messages may lead to hard-to-debug high-level issues.
-                if msg.len() > NETWORK_MESSAGE_MAX_SIZE_BYTES {
-                    metrics::MessageDropped::InputTooLong.inc_unknown_msg();
-                } else {
-                    writer.write_u32_le(msg.len() as u32).await?;
-                    writer.write_all(&msg[..]).await?;
-                }
+                writer.write_u32_le(msg.len() as u32).await?;
+                writer.write_all(&msg[..]).await?;
                 stats.messages_to_send.fetch_sub(1, Ordering::Release);
                 stats.bytes_to_send.fetch_sub(msg.len() as u64, Ordering::Release);
                 buf_size_metric.sub(msg.len() as i64);

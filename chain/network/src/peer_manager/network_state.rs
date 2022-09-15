@@ -100,7 +100,10 @@ impl NetworkState {
             accounts_data: Arc::new(accounts_data::Cache::new()),
             routing_table_view,
             tier1_route_back: Mutex::new(RouteBackCache::default()),
-            tier1_recv_limiter: rate::Limiter::new(clock,rate::Limit{qps:1.,burst:1}),
+            tier1_recv_limiter: rate::Limiter::new(clock,rate::Limit{
+                qps: (20 * bytesize::MIB) as f64,
+                burst: (40 * bytesize::MIB) as u64,
+            }),
             config,
             txns_since_last_block: AtomicUsize::new(0),
         }

@@ -1,4 +1,4 @@
-use crate::concurrency::demux;
+use crate::concurrency::rate;
 use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Encoding, PeerAddr, SyncAccountsData};
@@ -471,7 +471,7 @@ async fn accounts_data_rate_limiting() {
     let mut pms = vec![];
     for _ in 0..n * m {
         let mut cfg = chain.make_config(rng);
-        cfg.accounts_data_broadcast_rate_limit = demux::RateLimit { qps: 0.5, burst: 1 };
+        cfg.accounts_data_broadcast_rate_limit = rate::Limit { qps: 0.5, burst: 1 };
         pms.push(
             peer_manager::testonly::start(
                 clock.clock(),

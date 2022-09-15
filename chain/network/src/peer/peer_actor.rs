@@ -1,6 +1,7 @@
 use crate::accounts_data;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
+use crate::concurrency::rate;
 use crate::network_protocol::{Edge, EdgeState, PartialEdgeInfo};
 use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
 use crate::network_protocol::{AccountOrPeerIdOrHash, PeerChainInfoV2, PeerInfo, RoutedMessageBody, RawRoutedMessage};
@@ -52,6 +53,10 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 /// Maximum number of messages per minute from single peer.
 // TODO(#5453): current limit is way to high due to us sending lots of messages during sync.
 const MAX_PEER_MSG_PER_MIN: usize = usize::MAX;
+
+/// Maximum size of network message in encoded format.
+/// We encode length as `u32`, and therefore maximum size can't be larger than `u32::MAX`.
+const NETWORK_MESSAGE_MAX_SIZE_BYTES: usize = 512 * bytesize::MIB as usize;
 
 /// Maximum number of transaction messages we will accept between block messages.
 /// The purpose of this constant is to ensure we do not spend too much time deserializing and
@@ -194,25 +199,32 @@ impl PeerActor {
                 let clock = clock.clone();
                 let peer_status = peer_status.clone();
                 let network_state = network_state.clone();
-                async move { 
+                async move {
+                    tracing::debug!("read loop started");
+                    let tier2_limiter = rate::Limiter::new(&clock, rate::Limit{
+                        qps: NETWORK_MESSAGE_MAX_SIZE_BYTES as f64,
+                        burst: NETWORK_MESSAGE_MAX_SIZE_BYTES as u64,
+                    });
                     loop {
-                        let recv_limiter = match &*peer_status.lock() {
-                            PeerStatus::Connecting{..} => return,
-                            PeerStatus::Ready(conn) => match conn.tier {
-                                connection::Tier::T1 => &network_state.tier1_recv_limiter,
-                                connection::Tier::T2 => return,
-                            }
-                            PeerStatus::Banned(..) => return,
+                        let limiter = match &*peer_status.lock() {
+                            PeerStatus::Ready(conn) if conn.tier==connection::Tier::T1 => &network_state.tier1_recv_limiter,
+                            _ => &tier2_limiter,
                         };
-                        match reader.recv(&clock,recv_limiter).await {
-                            Ok(frame) => if addr.send(frame).await.is_err() {
-                                return;
+                        match reader.recv(&clock,limiter).await {
+                            Ok(frame) => {
+                                tracing::debug!("msg received");
+                                if let Err(err) = addr.send(frame).await {
+                                    tracing::debug!("err: {err:?}");
+                                    return;
+                                }
+                                tracing::debug!("msg processed");
                             }
                             Err(err) => {
                                 addr.do_send(stream::Error::Recv(err));
                                 return;
                             }
                         }
+                        tracing::debug!("read loop closing");
                     }
                 }
             }));
@@ -321,6 +333,12 @@ impl PeerActor {
         };
 
         let bytes = msg.serialize(enc);
+        // TODO(gprusak): sending a too large message should probably be treated as a bug,
+        // since dropping messages may lead to hard-to-debug high-level issues.
+        if bytes.len() > NETWORK_MESSAGE_MAX_SIZE_BYTES {
+            metrics::MessageDropped::InputTooLong.inc_unknown_msg();
+            return;
+        }
         self.tracker.lock().increment_sent(&self.clock, bytes.len() as u64);
         let bytes_len = bytes.len();
         tracing::trace!(target: "network", msg_len = bytes_len);

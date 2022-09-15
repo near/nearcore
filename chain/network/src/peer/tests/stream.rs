@@ -1,15 +1,18 @@
 use crate::actix::ActixSystem;
 use crate::peer::stream;
+use crate::concurrency::rate;
 use crate::testonly::make_rng;
+use crate::time;
+use actix::fut::future::wrap_future;
 use actix::Actor as _;
 use actix::ActorContext as _;
+use actix::AsyncContext as _;
 use rand::Rng as _;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
 struct Actor {
-    stream: stream::FramedStream<Actor>,
-    queue_send: mpsc::UnboundedSender<stream::Frame>,
+    writer: stream::FramedWriter<Actor>,
 }
 
 impl actix::Actor for Actor {
@@ -23,14 +26,7 @@ struct SendFrame(stream::Frame);
 impl actix::Handler<SendFrame> for Actor {
     type Result = ();
     fn handle(&mut self, SendFrame(frame): SendFrame, _ctx: &mut Self::Context) {
-        self.stream.send(frame);
-    }
-}
-
-impl actix::Handler<stream::Frame> for Actor {
-    type Result = ();
-    fn handle(&mut self, frame: stream::Frame, _ctx: &mut Self::Context) {
-        self.queue_send.send(frame).ok().unwrap();
+        self.writer.send(frame);
     }
 }
 
@@ -47,15 +43,26 @@ struct Handler {
 }
 
 impl Actor {
-    async fn spawn(s: tokio::net::TcpStream) -> Handler {
+    async fn spawn(clock: &time::Clock, s: tokio::net::TcpStream) -> Handler {
         let (queue_send, queue_recv) = mpsc::unbounded_channel();
+        let clock = clock.clone();
         Handler {
             queue_recv,
             system: ActixSystem::spawn(|| {
                 Actor::create(|ctx| {
-                    let stream =
-                        stream::FramedStream::spawn(ctx, s.peer_addr().unwrap(), s, Arc::default());
-                    Self { stream, queue_send }
+                    let (writer,mut reader) =
+                        stream::FramedWriter::spawn(ctx, s.peer_addr().unwrap(), s, Arc::default());
+                    let addr = ctx.address();
+                    ctx.spawn(wrap_future(async move {
+                        let limiter = rate::Limiter::new(&clock,rate::Limit{qps:10000.,burst:10000});
+                        loop {
+                            match reader.recv(&clock,&limiter).await {
+                                Ok(frame) => queue_send.send(frame).ok().unwrap(),
+                                Err(err) => addr.do_send(stream::Error::Recv(err)),
+                            }
+                        }
+                    }));
+                    Self { writer }
                 })
             })
             .await,
@@ -70,8 +77,9 @@ async fn send_recv() {
         tokio::net::TcpStream::connect(listener.local_addr().unwrap()),
         listener.accept(),
     );
-    let a1 = Actor::spawn(s1.unwrap()).await;
-    let mut a2 = Actor::spawn(s2.unwrap().0).await;
+    let clock = time::FakeClock::default();
+    let a1 = Actor::spawn(&clock.clock(),s1.unwrap()).await;
+    let mut a2 = Actor::spawn(&clock.clock(),s2.unwrap().0).await;
 
     let mut rng = make_rng(98324532);
     for _ in 0..5 {
