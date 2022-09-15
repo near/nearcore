@@ -605,19 +605,6 @@ impl Chain {
                 let header_head = block_head.clone();
                 store_update.save_head(&block_head)?;
                 store_update.save_final_head(&header_head)?;
-                for shard_id in 0..runtime_adapter.num_shards(&EpochId::default()).unwrap() {
-                    let flat_storage_state =
-                        runtime_adapter.get_flat_storage_state_for_shard(shard_id);
-                    let new_store_update = flat_storage_state.map_or(None, |flat_storage_state| {
-                        flat_storage_state.update_head(&block_head.last_block_hash)
-                    });
-                    match new_store_update {
-                        Some(new_store_update) => {
-                            store_update.merge(new_store_update);
-                        }
-                        None => {}
-                    };
-                }
 
                 info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
 
