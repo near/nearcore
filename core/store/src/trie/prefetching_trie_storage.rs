@@ -293,6 +293,7 @@ impl PrefetchStagingArea {
                 metrics: StagedMetrics::new(shard_id),
             },
         };
+        inner.slots.update_metrics();
         Self(Arc::new(Mutex::new(inner)))
     }
 
