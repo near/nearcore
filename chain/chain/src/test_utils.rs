@@ -60,6 +60,7 @@ use crate::{BlockProcessingArtifact, Doomslug, Provenance};
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::time::Clock;
 use near_primitives::utils::MaybeValidated;
+use near_store::flat_state::FlatStorageState;
 
 pub use self::validator_schedule::ValidatorSchedule;
 
@@ -439,6 +440,10 @@ impl RuntimeAdapter for KeyValueRuntime {
             ShardUId { version: 0, shard_id: shard_id as u32 },
             state_root,
         ))
+    }
+
+    fn get_flat_storage_state_for_shard(&self, _shard_id: ShardId) -> Option<FlatStorageState> {
+        None
     }
 
     fn verify_block_vrf(
