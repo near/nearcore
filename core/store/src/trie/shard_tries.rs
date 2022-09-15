@@ -151,6 +151,7 @@ impl ShardTries {
             block_hash,
             is_view,
         );
+
         Trie::new(storage, state_root, flat_state)
     }
 
