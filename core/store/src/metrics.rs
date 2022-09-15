@@ -176,7 +176,7 @@ pub static PREFETCH_NOT_REQUESTED: Lazy<IntCounterVec> = Lazy::new(|| {
 pub static PREFETCH_MEMORY_LIMIT_REACHED: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_prefetch_memory_limit_reached",
-        "Value that have not been prefetched",
+        "Number of values that could not be prefetched due to prefetch staging area size limitations",
         &["shard_id"],
     )
     .unwrap()
