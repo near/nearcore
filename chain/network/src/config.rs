@@ -1,5 +1,5 @@
 use crate::blacklist;
-use crate::concurrency::demux;
+use crate::concurrency::rate;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::PeerInfo;
 use crate::peer_manager::peer_manager_actor::Event;
@@ -71,7 +71,7 @@ pub struct Tier1 {
     // can route the traffic from/to multiple TIER1 peers. It should
     // be possible to throttle faily at proxies, since TIER1 peer
     // trusts its proxies.
-    pub recv_bytes_rate: demux::RateLimit,
+    pub recv_bytes_rate: rate::Limit,
     pub send_bytes_buf: usize, 
 }
 
@@ -137,7 +137,7 @@ pub struct NetworkConfig {
     /// Whether this is an archival node.
     pub archive: bool,
     /// Maximal rate at which SyncAccountsData can be broadcasted.
-    pub accounts_data_broadcast_rate_limit: demux::RateLimit,
+    pub accounts_data_broadcast_rate_limit: rate::Limit,
     /// features
     pub features: Features,
     /// If true - connect only to the bootnodes.
@@ -238,7 +238,7 @@ impl NetworkConfig {
                 .context("failed to parse blacklist")?,
             outbound_disabled: false,
             archive,
-            accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 0.1, burst: 1 },
+            accounts_data_broadcast_rate_limit: rate::Limit { qps: 0.1, burst: 1 },
             features,
             inbound_disabled: cfg.experimental.inbound_disabled,
             connect_only_to_boot_nodes: cfg.experimental.connect_only_to_boot_nodes,
@@ -302,7 +302,7 @@ impl NetworkConfig {
             inbound_disabled: false,
             connect_only_to_boot_nodes: false,
             archive: false,
-            accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 100., burst: 1000000 },
+            accounts_data_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
             features: Features {
                 tier1: Some(Tier1 {
                     daemon_tick_interval: time::Duration::seconds(10),

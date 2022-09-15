@@ -84,6 +84,13 @@ impl Clock {
             ClockInner::Fake(fake) => fake.now_utc(),
         }
     }
+
+    pub async fn sleep_until(&self, t: Instant) {
+        match &self.0 {
+            ClockInner::Real => tokio::time::sleep_until(t.into_inner().into()).await,
+            ClockInner::Fake(fake) => fake.advance_until(t),
+        }
+    }
 }
 
 struct FakeClockInner {
@@ -112,6 +119,14 @@ impl FakeClock {
     }
     pub fn clock(&self) -> Clock {
         Clock(ClockInner::Fake(self.clone()))
+    }
+    pub fn advance_until(&self, t: Instant) {
+        let mut c = self.0.write().unwrap();
+        if t<=c.mono {
+            return;
+        }
+        c.utc += t-c.mono;
+        c.mono = t;
     }
     pub fn advance(&self, d: Duration) {
         assert!(d >= Duration::ZERO);

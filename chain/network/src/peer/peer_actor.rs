@@ -187,7 +187,7 @@ impl PeerActor {
         // Start PeerActor on separate thread.
         Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| {
             let stats = Arc::new(connection::Stats::default());
-            let framed = stream::FramedStream::spawn(ctx, peer_addr, stream, stats.clone());
+            let framed = stream::FramedStream::spawn(ctx, clock, peer_addr, stream, stats.clone());
             Self {
                 clock,
                 my_node_info,

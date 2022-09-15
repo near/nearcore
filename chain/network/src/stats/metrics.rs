@@ -389,7 +389,6 @@ pub(crate) enum MessageDropped {
     UnknownAccount,
     InputTooLong,
     MaxCapacityExceeded,
-    Throttled,
 }
 
 impl MessageDropped {
