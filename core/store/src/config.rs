@@ -46,7 +46,7 @@ pub struct StoreConfig {
     /// Enable fetching account and access key data ahead of time to avoid IO latency.
     pub enable_receipt_prefetching: bool,
 
-    /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as sender.
+    /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as receiver.
     /// This config option is temporary and will be removed once flat storage is implemented.
     pub sweat_prefetch_receivers: Vec<String>,
     /// List of allowed predecessor accounts for SWEAT prefetching.
