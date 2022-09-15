@@ -47,7 +47,13 @@ criterion = { version = "0.3.5", default_features = false, features = ["html_rep
 name = "sync"
 harness = false
 
+[[bin]]
+name = "mock-node"
+# To make mock node work, we must disable some checks in chain, which is controlled by this feature.
+# We don't make it a default feature, because we don't want it to be enabled unconditionally when you do, for example
+# `cargo test --workspace`
+required-features = ["mock_node"]
+
 [features]
-default = ["mock_node"]
 test_features = ["nearcore/test_features"]
 mock_node = ["near-chain/mock_node", "near-epoch-manager/mock_node"]

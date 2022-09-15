@@ -60,6 +60,7 @@ use crate::{BlockProcessingArtifact, Doomslug, Provenance};
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::time::Clock;
 use near_primitives::utils::MaybeValidated;
+use near_store::flat_state::FlatStorageState;
 
 pub use self::validator_schedule::ValidatorSchedule;
 
@@ -134,6 +135,7 @@ pub struct KeyValueRuntime {
     /// chunk producers
     validators: HashMap<AccountId, ValidatorStake>,
     num_shards: NumShards,
+    tracks_all_shards: bool,
     epoch_length: u64,
     no_gc: bool,
 
@@ -271,6 +273,7 @@ impl KeyValueRuntime {
             validators,
             validators_by_valset,
             num_shards: vs.num_shards,
+            tracks_all_shards: false,
             epoch_length,
             state: RwLock::new(state),
             state_size: RwLock::new(state_size),
@@ -282,6 +285,10 @@ impl KeyValueRuntime {
             epoch_start: RwLock::new(map_with_default_hash2),
             no_gc,
         }
+    }
+
+    pub fn set_tracks_all_shards(&mut self, tracks_all_shards: bool) {
+        self.tracks_all_shards = tracks_all_shards;
     }
 
     fn get_block_header(&self, hash: &CryptoHash) -> Result<Option<BlockHeader>, Error> {
@@ -433,6 +440,10 @@ impl RuntimeAdapter for KeyValueRuntime {
             ShardUId { version: 0, shard_id: shard_id as u32 },
             state_root,
         ))
+    }
+
+    fn get_flat_storage_state_for_shard(&self, _shard_id: ShardId) -> Option<FlatStorageState> {
+        None
     }
 
     fn verify_block_vrf(
@@ -647,6 +658,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
         _is_me: bool,
     ) -> bool {
+        if self.tracks_all_shards {
+            return true;
+        }
         // This `unwrap` here tests that in all code paths we check that the epoch exists before
         //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
         //    the calling function.
@@ -669,6 +683,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
         _is_me: bool,
     ) -> bool {
+        if self.tracks_all_shards {
+            return true;
+        }
         // This `unwrap` here tests that in all code paths we check that the epoch exists before
         //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
         //    the calling function.

@@ -1,5 +1,5 @@
 use crate::config;
-use crate::network_protocol::{AccountData, SyncAccountsData};
+use crate::network_protocol::{AccountData, PeerMessage, RoutingTableUpdate, SyncAccountsData};
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_store::PeerStore;
@@ -16,7 +16,7 @@ use crate::store;
 use crate::types::{
     ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, NetworkClientMessages, NetworkInfo,
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    PeerMessage, RoutingTableUpdate, SetChainInfo,
+    SetChainInfo,
 };
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
@@ -1314,7 +1314,10 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
-                if self.send_message_to_account(&account_id, partial_encoded_chunk.into()) {
+                if self.send_message_to_account(
+                    &account_id,
+                    RoutedMessageBody::VersionedPartialEncodedChunk(partial_encoded_chunk.into()),
+                ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
