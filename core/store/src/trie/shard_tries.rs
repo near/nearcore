@@ -105,8 +105,10 @@ impl ShardTries {
         // 2) A lot of the prefetcher code assumes there is only one "main-thread" per shard active.
         //    If you want to enable it for view calls, at least make sure they don't share
         //    the `PrefetchApi` instances with the normal calls.
-        let prefetch_enabled = !is_view && self.0.trie_config.enable_receipt_prefetching;
-
+        let prefetch_enabled = !is_view
+            && (self.0.trie_config.enable_receipt_prefetching
+                || (!self.0.trie_config.sweat_prefetch_receivers.is_empty()
+                    && !self.0.trie_config.sweat_prefetch_senders.is_empty()));
         let prefetch_api = prefetch_enabled.then(|| {
             self.0
                 .prefetchers
@@ -114,7 +116,12 @@ impl ShardTries {
                 .expect(POISONED_LOCK_ERR)
                 .entry(shard_uid)
                 .or_insert_with(|| {
-                    PrefetchApi::new(self.0.store.clone(), cache.clone(), shard_uid.clone())
+                    PrefetchApi::new(
+                        self.0.store.clone(),
+                        cache.clone(),
+                        shard_uid.clone(),
+                        &self.0.trie_config,
+                    )
                 })
                 .clone()
         });

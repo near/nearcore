@@ -31,3 +31,19 @@ pub static TRANSACTION_PROCESSED_FAILED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static PREFETCH_ENQUEUED: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_prefetch_enqueued",
+        "Prefetch requests queued up",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+pub static PREFETCH_QUEUE_FULL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_prefetch_queue_full",
+        "Prefetch requests failed to queue up",
+        &["shard_id"],
+    )
+    .unwrap()
+});

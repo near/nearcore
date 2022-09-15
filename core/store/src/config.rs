@@ -47,6 +47,13 @@ pub struct StoreConfig {
     pub trie_cache_capacities: Vec<(ShardUId, u64)>,
     /// Enable fetching account and access key data ahead of time to avoid IO latency.
     pub enable_receipt_prefetching: bool,
+
+    /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as receiver.
+    /// This config option is temporary and will be removed once flat storage is implemented.
+    pub sweat_prefetch_receivers: Vec<String>,
+    /// List of allowed predecessor accounts for SWEAT prefetching.
+    /// This config option is temporary and will be removed once flat storage is implemented.
+    pub sweat_prefetch_senders: Vec<String>,
 }
 
 /// Mode in which to open the storage.
@@ -106,6 +113,14 @@ impl Default for StoreConfig {
 
             trie_cache_capacities: vec![(ShardUId { version: 1, shard_id: 3 }, 45_000_000)],
             enable_receipt_prefetching: false,
+            sweat_prefetch_receivers: vec![
+                "token.sweat".to_owned(),
+                "vfinal.token.sweat.testnet".to_owned(),
+            ],
+            sweat_prefetch_senders: vec![
+                "oracle.sweat".to_owned(),
+                "sweat_the_oracle.testnet".to_owned(),
+            ],
         }
     }
 }

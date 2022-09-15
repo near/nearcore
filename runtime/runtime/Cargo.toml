@@ -21,11 +21,13 @@ num-traits = "0.2.11"
 hex = "0.4.2"
 rayon = "1.5"
 thiserror = "1.0"
+sha2 = "0.10"
 
 borsh = "0.9"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
+near-o11y = { path = "../../core/o11y" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }

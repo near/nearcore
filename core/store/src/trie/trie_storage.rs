@@ -378,6 +378,11 @@ struct TrieCacheInnerMetrics {
     shard_cache_size: GenericGauge<prometheus::core::AtomicI64>,
     chunk_cache_size: GenericGauge<prometheus::core::AtomicI64>,
     shard_cache_current_total_size: GenericGauge<prometheus::core::AtomicI64>,
+    prefetch_hits: GenericCounter<prometheus::core::AtomicU64>,
+    prefetch_pending: GenericCounter<prometheus::core::AtomicU64>,
+    prefetch_not_requested: GenericCounter<prometheus::core::AtomicU64>,
+    prefetch_memory_limit_reached: GenericCounter<prometheus::core::AtomicU64>,
+    prefetch_retry: GenericCounter<prometheus::core::AtomicU64>,
 }
 
 impl TrieCachingStorage {
@@ -401,6 +406,13 @@ impl TrieCachingStorage {
             chunk_cache_size: metrics::CHUNK_CACHE_SIZE.with_label_values(&metrics_labels),
             shard_cache_current_total_size: metrics::SHARD_CACHE_CURRENT_TOTAL_SIZE
                 .with_label_values(&metrics_labels),
+            prefetch_hits: metrics::PREFETCH_HITS.with_label_values(&metrics_labels[..1]),
+            prefetch_pending: metrics::PREFETCH_PENDING.with_label_values(&metrics_labels[..1]),
+            prefetch_not_requested: metrics::PREFETCH_NOT_REQUESTED
+                .with_label_values(&metrics_labels[..1]),
+            prefetch_memory_limit_reached: metrics::PREFETCH_MEMORY_LIMIT_REACHED
+                .with_label_values(&metrics_labels[..1]),
+            prefetch_retry: metrics::PREFETCH_RETRY.with_label_values(&metrics_labels[..1]),
         };
         TrieCachingStorage {
             store,
@@ -482,23 +494,30 @@ impl TrieStorage for TrieCachingStorage {
                     std::mem::drop(guard);
 
                     val = match prefetch_state {
-                        // Slot reserved for us, the main thread, or no space left.
+                        // Slot reserved for us, the main thread.
                         // `SlotReserved` for the main thread means, either we have not submitted a prefetch request for
                         // this value, or maybe it is just still queued up. Either way, prefetching is not going to help
                         // so the main thread should fetch data from DB on its own.
+                        PrefetcherResult::SlotReserved => {
+                            self.metrics.prefetch_not_requested.inc();
+                            self.read_from_db(hash)?
+                        }
                         // `MemoryLimitReached` is not really relevant for the main thread,
                         // we always have to go to DB even if we could not stage a new prefetch.
                         // It only means we were not able to mark it as already being fetched, which in turn could lead to
                         // a prefetcher trying to fetch the same value before we can put it in the shard cache.
-                        PrefetcherResult::SlotReserved | PrefetcherResult::MemoryLimitReached => {
+                        PrefetcherResult::MemoryLimitReached => {
+                            self.metrics.prefetch_memory_limit_reached.inc();
                             self.read_from_db(hash)?
                         }
                         PrefetcherResult::Prefetched(value) => {
                             near_o11y::io_trace!(count: "prefetch_hit");
+                            self.metrics.prefetch_hits.inc();
                             value
                         }
                         PrefetcherResult::Pending => {
                             near_o11y::io_trace!(count: "prefetch_pending");
+                            self.metrics.prefetch_pending.inc();
                             std::thread::yield_now();
                             // If data is already being prefetched, wait for that instead of sending a new request.
                             match prefetcher.prefetching.blocking_get(hash.clone()) {
@@ -508,7 +527,10 @@ impl TrieStorage for TrieCachingStorage {
                                 // was a storage error. Or in the case of forks and parallel chunk
                                 // processing where one chunk cleans up prefetched data from the other.
                                 // In any case, we can try again from the main thread.
-                                None => self.read_from_db(hash)?,
+                                None => {
+                                    self.metrics.prefetch_retry.inc();
+                                    self.read_from_db(hash)?
+                                }
                             }
                         }
                     };
