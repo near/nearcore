@@ -102,6 +102,7 @@ impl NightshadeRuntime {
             .shard_cache_config
             .override_max_entries
             .extend(config.config.store.trie_cache_capacities.iter().cloned());
+        trie_config.enable_receipt_prefetching = config.config.store.enable_receipt_prefetching;
 
         Self::new(
             home_dir,
@@ -674,8 +675,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.tries.clone()
     }
 
-    // TODO (#7327): Make usage of flat state conditional on prev_hash and call `get_trie_for_shard` if this is not the
-    // case. Current implementation never creates flat state if `protocol_feature_flat_state` is not enabled.
     fn get_trie_for_shard(
         &self,
         shard_id: ShardId,
@@ -683,7 +682,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: StateRoot,
     ) -> Result<Trie, Error> {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
-        Ok(self.tries.get_trie_for_shard(shard_uid, state_root))
+        Ok(self.tries.get_trie_with_block_hash_for_shard(shard_uid, state_root, prev_hash))
     }
 
     fn get_view_trie_for_shard(

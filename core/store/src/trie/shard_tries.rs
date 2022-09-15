@@ -15,7 +15,7 @@ use crate::flat_state::FlatStateFactory;
 use crate::trie::config::TrieConfig;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
-use crate::{metrics, DBCol, DBOp, DBTransaction};
+use crate::{metrics, DBCol, DBOp, DBTransaction, PrefetchApi};
 use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 
 struct ShardTriesInner {
@@ -26,6 +26,8 @@ struct ShardTriesInner {
     /// Cache for readers.
     view_caches: RwLock<HashMap<ShardUId, TrieCache>>,
     flat_state_factory: FlatStateFactory,
+    /// Prefetcher state, such as IO threads, per shard.
+    prefetchers: RwLock<HashMap<ShardUId, PrefetchApi>>,
 }
 
 #[derive(Clone)]
@@ -46,6 +48,7 @@ impl ShardTries {
             caches: RwLock::new(caches),
             view_caches: RwLock::new(view_caches),
             flat_state_factory,
+            prefetchers: Default::default(),
         }))
     }
 
@@ -100,6 +103,7 @@ impl ShardTries {
         shard_uid: ShardUId,
         state_root: StateRoot,
         is_view: bool,
+        block_hash: Option<CryptoHash>,
     ) -> Trie {
         let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
         let cache = {
@@ -109,19 +113,57 @@ impl ShardTries {
                 .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view))
                 .clone()
         };
-        let storage =
-            Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid, is_view));
-        let flat_state =
-            self.0.flat_state_factory.new_flat_state_for_shard(shard_uid.shard_id(), is_view);
+
+        // Do not enable prefetching on view caches.
+        // 1) Performance of view calls is not crucial.
+        // 2) A lot of the prefetcher code assumes there is only one "main-thread" per shard active.
+        //    If you want to enable it for view calls, at least make sure they don't share
+        //    the `PrefetchApi` instances with the normal calls.
+        let prefetch_enabled = !is_view && self.0.trie_config.enable_receipt_prefetching;
+
+        let prefetch_api = prefetch_enabled.then(|| {
+            self.0
+                .prefetchers
+                .write()
+                .expect(POISONED_LOCK_ERR)
+                .entry(shard_uid)
+                .or_insert_with(|| {
+                    PrefetchApi::new(self.0.store.clone(), cache.clone(), shard_uid.clone())
+                })
+                .clone()
+        });
+
+        let storage = Box::new(TrieCachingStorage::new(
+            self.0.store.clone(),
+            cache,
+            shard_uid,
+            is_view,
+            prefetch_api,
+        ));
+        let flat_state = self.0.flat_state_factory.new_flat_state_for_shard(
+            shard_uid.shard_id(),
+            block_hash,
+            is_view,
+        );
+
         Trie::new(storage, state_root, flat_state)
     }
 
     pub fn get_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, state_root, false)
+        self.get_trie_for_shard_internal(shard_uid, state_root, false, None)
+    }
+
+    pub fn get_trie_with_block_hash_for_shard(
+        &self,
+        shard_uid: ShardUId,
+        state_root: StateRoot,
+        block_hash: &CryptoHash,
+    ) -> Trie {
+        self.get_trie_for_shard_internal(shard_uid, state_root, false, Some(block_hash.clone()))
     }
 
     pub fn get_view_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, state_root, true)
+        self.get_trie_for_shard_internal(shard_uid, state_root, true, None)
     }
 
     pub fn get_store(&self) -> Store {
@@ -257,36 +299,6 @@ impl ShardTries {
     ) -> (StoreUpdate, StateRoot) {
         self.apply_all_inner(trie_changes, shard_uid, true)
     }
-
-    // TODO(#7327): consider uniting with `apply_all`
-    #[cfg(feature = "protocol_feature_flat_state")]
-    pub fn apply_changes_to_flat_state(
-        &self,
-        changes: &[RawStateChangesWithTrieKey],
-        store_update: &mut StoreUpdate,
-    ) {
-        for change in changes.iter() {
-            let key = change.trie_key.to_vec();
-            if near_primitives::state_record::is_delayed_receipt_key(&key) {
-                continue;
-            }
-
-            // `RawStateChangesWithTrieKey` stores all sequential changes for a key within a chunk, so it is sufficient
-            // to take only the last change.
-            let last_change = &change
-                .changes
-                .last()
-                .expect("Committed entry should have at least one change")
-                .data;
-            match last_change {
-                Some(value) => {
-                    let value_ref_ser = near_primitives::state::ValueRef::create_serialized(value);
-                    store_update.set(DBCol::FlatState, &key, &value_ref_ser)
-                }
-                None => store_update.delete(DBCol::FlatState, &key),
-            }
-        }
-    }
 }
 
 pub struct WrappedTrieChanges {
@@ -326,9 +338,6 @@ impl WrappedTrieChanges {
     ///
     /// NOTE: the changes are drained from `self`.
     pub fn state_changes_into(&mut self, store_update: &mut StoreUpdate) {
-        #[cfg(feature = "protocol_feature_flat_state")]
-        self.tries.apply_changes_to_flat_state(&self.state_changes, store_update);
-
         for change_with_trie_key in self.state_changes.drain(..) {
             assert!(
                 !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(

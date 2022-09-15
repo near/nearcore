@@ -605,6 +605,19 @@ impl Chain {
                 let header_head = block_head.clone();
                 store_update.save_head(&block_head)?;
                 store_update.save_final_head(&header_head)?;
+                for shard_id in 0..runtime_adapter.num_shards(&EpochId::default()).unwrap() {
+                    let flat_storage_state =
+                        runtime_adapter.get_flat_storage_state_for_shard(shard_id);
+                    let new_store_update = flat_storage_state.map_or(None, |flat_storage_state| {
+                        flat_storage_state.update_head(&block_head.last_block_hash)
+                    });
+                    match new_store_update {
+                        Some(new_store_update) => {
+                            store_update.merge(new_store_update);
+                        }
+                        None => {}
+                    };
+                }
 
                 info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
 
@@ -4623,10 +4636,12 @@ impl<'a> ChainUpdate<'a> {
                     if let Some(chain_flat_storage) =
                         self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
                     {
-                        let delta =
-                            FlatStateDelta::from_wrapped_trie_changes(&apply_result.trie_changes);
-                        chain_flat_storage.add_delta(&block_hash, delta);
-                        // TODO: also save this delta to chain_store_update to be committed to the database
+                        let delta = FlatStateDelta::from_state_changes(
+                            &apply_result.trie_changes.state_changes(),
+                        );
+                        let store_update =
+                            chain_flat_storage.add_delta(&block_hash, delta)?.unwrap();
+                        self.chain_store_update.merge(store_update);
                     }
                 }
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
@@ -4793,9 +4808,9 @@ impl<'a> ChainUpdate<'a> {
                 self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
             {
                 // TODO: fill in the correct new head
-                if let Some(_update) = flat_storage_state.update_head(&CryptoHash::default()) {
-                    // TODO: add this update to chain update
-                }
+                // if let Some(_update) = flat_storage_state.update_head(&CryptoHash::default()) {
+                // TODO: add this update to chain update
+                // }
                 if let Some(_update) =
                     flat_storage_state.update_tail(block.header().last_final_block())
                 {

@@ -2441,7 +2441,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 unreachable!();
             }
             #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatState => {
+            DBCol::FlatState | DBCol::FlatStateDeltas | DBCol::FlatStateMisc => {
                 unreachable!();
             }
         }
@@ -2626,7 +2626,7 @@ impl<'a> ChainStoreUpdate<'a> {
                         .unwrap_or_default()
                 })
                 .insert(*hash);
-            store_update.set_ser(DBCol::BlockHeader, hash.as_ref(), header)?;
+            store_update.insert_ser(DBCol::BlockHeader, hash.as_ref(), header)?;
         }
         for (height, hash_set) in header_hashes_by_height {
             store_update.set_ser(
