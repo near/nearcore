@@ -3522,6 +3522,7 @@ dependencies = [
  "near-account-id",
  "near-rpc-error-macro",
  "serde",
+ "strum",
 ]
 
 [[package]]
@@ -3734,6 +3735,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "sha2 0.10.2",
  "tempfile",
  "testlib",
  "thiserror",
