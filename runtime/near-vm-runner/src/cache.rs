@@ -63,7 +63,7 @@ pub fn get_contract_cache_key(
         vm_kind,
         vm_hash: vm_hash(vm_kind),
     };
-    near_primitives::hash::hash(&key.try_to_vec().unwrap())
+    CryptoHash::hash_borsh(&key)
 }
 
 #[cfg(target_arch = "x86_64")]

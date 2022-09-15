@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use near_crypto::Signature;
 
-use crate::hash::{hash, CryptoHash};
+use crate::hash::CryptoHash;
 use crate::merkle::MerklePath;
 use crate::sharding::{EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::types::AccountId;
@@ -97,7 +97,7 @@ pub struct Challenge {
 
 impl Challenge {
     pub fn init(&mut self) {
-        self.hash = hash(&self.body.try_to_vec().expect("Failed to serialize"));
+        self.hash = CryptoHash::hash_borsh(&self.body);
     }
 
     pub fn produce(body: ChallengeBody, signer: &dyn ValidatorSigner) -> Self {

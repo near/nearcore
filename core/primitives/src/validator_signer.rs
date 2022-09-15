@@ -1,13 +1,11 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use borsh::BorshSerialize;
-
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 
 use crate::block::{Approval, ApprovalInner, BlockHeader};
 use crate::challenge::ChallengeBody;
-use crate::hash::{hash, CryptoHash};
+use crate::hash::CryptoHash;
 use crate::network::{AnnounceAccount, PeerId};
 use crate::sharding::ChunkHash;
 use crate::telemetry::TelemetryInfo;
@@ -111,8 +109,7 @@ impl ValidatorSigner for EmptyValidatorSigner {
     }
 
     fn sign_challenge(&self, challenge_body: &ChallengeBody) -> (CryptoHash, Signature) {
-        let hash = hash(&challenge_body.try_to_vec().expect("Failed to serialize"));
-        (hash, Signature::default())
+        (CryptoHash::hash_borsh(&challenge_body), Signature::default())
     }
 
     fn sign_account_announce(
@@ -203,7 +200,7 @@ impl ValidatorSigner for InMemoryValidatorSigner {
     }
 
     fn sign_challenge(&self, challenge_body: &ChallengeBody) -> (CryptoHash, Signature) {
-        let hash = hash(&challenge_body.try_to_vec().expect("Failed to serialize"));
+        let hash = CryptoHash::hash_borsh(&challenge_body);
         let signature = self.signer.sign(hash.as_ref());
         (hash, signature)
     }

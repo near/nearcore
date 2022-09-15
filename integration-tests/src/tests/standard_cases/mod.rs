@@ -4,7 +4,6 @@ mod rpc;
 mod runtime;
 
 use assert_matches::assert_matches;
-use borsh::BorshSerialize;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -1423,7 +1422,7 @@ fn make_receipt(node: &impl Node, actions: Vec<Action>, receiver_id: AccountId) 
     Receipt {
         predecessor_id: alice_account(),
         receiver_id,
-        receipt_id: hash(&receipt_enum.try_to_vec().unwrap()),
+        receipt_id: CryptoHash::hash_borsh(&receipt_enum),
         receipt: receipt_enum,
     }
 }
