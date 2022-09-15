@@ -258,9 +258,18 @@ pub struct KeyForFlatStateDelta {
 pub struct FlatStateDelta(pub HashMap<Vec<u8>, Option<ValueRef>>);
 
 impl FlatStateDelta {
+    pub fn new() -> Self {
+        Self(HashMap::new())
+    }
+
     /// Returns `Some(Option<ValueRef>)` from delta for the given key. If key is not present, returns None.
     pub fn get(&self, key: &[u8]) -> Option<Option<ValueRef>> {
         self.0.get(key).cloned()
+    }
+
+    /// Merge this delta with other one. New changes should override the old ones.
+    pub fn merge(&mut self, other: Self) {
+        self.0.extend(other.0)
     }
 
     /// Creates delta using raw state changes for some block.
@@ -435,8 +444,9 @@ impl FlatStorageState {
 
         if found_final_block {
             let mut store_update = StoreUpdate::new(storage);
-            for delta in deltas_to_apply.drain(..).rev() {
-                delta.apply_to_flat_state(&mut store_update);
+            let mut delta = FlatStateDelta::new();
+            for new_delta in deltas_to_apply.drain(..).rev() {
+                delta.merge(new_delta);
             }
             match self.update_head(&final_block_hash) {
                 Some(new_store_update) => {
@@ -516,6 +526,7 @@ mod tests {
     use near_primitives::state::ValueRef;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{RawStateChange, RawStateChangesWithTrieKey, StateChangeCause};
+    use std::collections::HashMap;
 
     /// Check correctness of creating `FlatStateDelta` from state changes.
     #[test]
@@ -594,8 +605,33 @@ mod tests {
         assert!(flat_state_delta.get(&delayed_receipt_trie_key.to_vec()).is_none());
     }
 
+    /// Check that merge of `FlatStateDelta`s overrides the old changes for the same keys and doesn't conflict with
+    /// different keys.
     #[test]
-    fn flat_state_delta_applying() {
+    fn flat_state_delta_merge() {
+        let mut delta = FlatStateDelta(HashMap::from([
+            (vec![1], Some(ValueRef::new(&[4]))),
+            (vec![2], Some(ValueRef::new(&[5]))),
+            (vec![3], None),
+            (vec![4], Some(ValueRef::new(&[6]))),
+        ]));
+        let delta_new = FlatStateDelta(HashMap::from([
+            (vec![2], Some(ValueRef::new(&[7]))),
+            (vec![3], Some(ValueRef::new(&[8]))),
+            (vec![4], None),
+            (vec![5], Some(ValueRef::new(&[9]))),
+        ]));
+        delta.merge(delta_new);
+
+        assert_eq!(delta.get(&[1]), Some(Some(ValueRef::new(&[4]))));
+        assert_eq!(delta.get(&[2]), Some(Some(ValueRef::new(&[7]))));
+        assert_eq!(delta.get(&[3]), Some(Some(ValueRef::new(&[8]))));
+        assert_eq!(delta.get(&[4]), Some(None));
+        assert_eq!(delta.get(&[5]), Some(Some(ValueRef::new(&[9]))));
+    }
+
+    #[test]
+    fn flat_state_apply_single_delta() {
         // TODO (#7327): check this scenario after implementing flat storage state:
         // 1) create FlatState for one shard with FlatStorage
         // 2) create FlatStateDelta and apply it
@@ -603,9 +639,11 @@ mod tests {
     }
 
     #[test]
-    fn check_deltas_range() {
+    fn flat_state_apply_delta_range() {
         // TODO (#7327): check this scenario after implementing flat storage state:
         // 1) add tree of blocks and FlatStateDeltas for them
         // 2) call `get_deltas_between_blocks` and check its correctness
+        // 3) apply deltas and check that FlatStorageState contains the right values;
+        // e.g. for the same key only the latest value is applied
     }
 }
