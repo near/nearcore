@@ -183,8 +183,7 @@ impl TriePrefetcher {
                                 if let Some(user_account) = tuple.first().and_then(|a| a.as_str()) {
                                     let hashed_account =
                                         sha2::Sha256::digest(user_account.as_bytes()).into_iter();
-                                    let sweatcoin_prefix = [0x74, 0x00];
-                                    let mut key = sweatcoin_prefix.to_vec();
+                                    let mut key = vec![0x74, 0x00];
                                     key.extend(hashed_account);
                                     let trie_key = TrieKey::ContractData {
                                         account_id: account_id.clone(),
