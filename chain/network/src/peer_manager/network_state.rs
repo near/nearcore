@@ -1,5 +1,6 @@
 use crate::accounts_data;
 use crate::config;
+use crate::concurrency::rate;
 use crate::network_protocol::PartialEdgeInfo;
 use crate::network_protocol::{
     AccountOrPeerIdOrHash, PeerInfo, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
@@ -73,10 +74,13 @@ pub(crate) struct NetworkState {
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
     /// messages sincce last block.
     pub txns_since_last_block: AtomicUsize,
+
+    pub tier1_recv_limiter: rate::Limiter,
 }
 
 impl NetworkState {
     pub fn new(
+        clock: &time::Clock,
         config: Arc<config::VerifiedConfig>,
         genesis_id: GenesisId,
         client_addr: Recipient<NetworkClientMessages>,
@@ -96,6 +100,7 @@ impl NetworkState {
             accounts_data: Arc::new(accounts_data::Cache::new()),
             routing_table_view,
             tier1_route_back: Mutex::new(RouteBackCache::default()),
+            tier1_recv_limiter: rate::Limiter::new(clock,rate::Limit{qps:1.,burst:1}),
             config,
             txns_since_last_block: AtomicUsize::new(0),
         }

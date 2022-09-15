@@ -34,7 +34,9 @@ pub(crate) enum RecvError {
     #[error("IO error")]
     IO(#[source] io::Error),
     #[error("message too large: got {got_bytes}B, want <={want_max_bytes}B")]
-    MessageTooLarge { got_bytes: usize, want_max_bytes: usize },
+    MessageTooLarge{ got_bytes: u64, want_max_bytes: u64 },
+    #[error("stream closed")]
+    Closed,
 }
 
 #[derive(actix::Message, PartialEq, Eq, Clone, Debug)]
@@ -57,14 +59,71 @@ pub(crate) enum Error {
     Recv(#[source] RecvError),
 }
 
-pub(crate) struct FramedStream<Actor: actix::Actor> {
+pub(crate) struct FramedWriter<Actor: actix::Actor> {
+    addr: actix::Addr<Actor>,
     queue_send: tokio::sync::mpsc::UnboundedSender<Frame>,
     stats: Arc<connection::Stats>,
-    send_buf_size_metric: Arc<metrics::IntGaugeGuard>,
-    addr: actix::Addr<Actor>,
+    buf_size_metric: Arc<metrics::IntGaugeGuard>,
 }
 
-impl<Actor> FramedStream<Actor>
+pub(crate) struct FramedReader {
+    closed: bool,
+    read: tokio::io::BufReader<ReadHalf>,
+    stats: Arc<connection::Stats>,
+    msg_size_metric: metrics::HistogramGuard,
+    buf_size_metric: metrics::IntGaugeGuard,
+}
+
+struct CloseOnDrop<'a>(&'a mut FramedReader);
+
+impl<'a> Drop for CloseOnDrop<'a> {
+    fn drop(&mut self) {
+        self.0.closed = true;
+    }
+}
+
+impl FramedReader {
+    /// Receives a message from the stream.
+    /// Stream uses a fixed small buffer allocated by BufReader.
+    /// It allocates a Vec with exact size of the message.
+    /// If cancelled (or on error) FramedReader closes.
+    pub async fn recv(&mut self, clock: &time::Clock, bytes_limiter: &rate::Limiter) -> Result<Frame,RecvError> {
+        if self.closed {
+            return Err(RecvError::Closed);
+        }
+        let this = CloseOnDrop(self);
+        let frame = this.0.recv_inner(clock,bytes_limiter).await?;
+        let _ = std::mem::ManuallyDrop::new(this);
+        Ok(frame)
+    }
+
+    // TODO(gprusak): once borsh support is dropped, we can parse a proto
+    // directly from the stream.
+    async fn recv_inner(
+        &mut self,
+        clock: &time::Clock,
+        bytes_limiter: &rate::Limiter,
+    ) -> Result<Frame, RecvError> {
+        let n = self.read.read_u32_le().await.map_err(RecvError::IO)? as u64;
+        // TODO(gprusak): separate limit for TIER1 message size.
+        bytes_limiter.acquire(clock,n).await.map_err(|err|RecvError::MessageTooLarge {
+            got_bytes: err.requested,
+            want_max_bytes: err.burst,
+        })?;
+        self.msg_size_metric.observe(n as f64);
+        self.buf_size_metric.set(n as i64);
+        let mut buf = vec![0; n as usize];
+        let t = metrics::PEER_MSG_READ_LATENCY.start_timer();
+        self.read.read_exact(&mut buf[..]).await.map_err(RecvError::IO)?;
+        t.observe_duration();
+        self.buf_size_metric.set(0);
+        self.stats.received_messages.fetch_add(1, Ordering::Relaxed);
+        self.stats.received_bytes.fetch_add(n as u64, Ordering::Relaxed);
+        Ok(Frame(buf))
+    }
+}
+
+impl<Actor> FramedWriter<Actor>
 where
     Actor: actix::Actor<Context = actix::Context<Actor>>
         + actix::Handler<Error>
@@ -75,8 +134,7 @@ where
         peer_addr: SocketAddr,
         stream: tokio::net::TcpStream,
         stats: Arc<connection::Stats>,
-        read_bytes_limiter: Arc<rate::Limiter>,
-    ) -> Self {
+    ) -> (Self,FramedReader) {
         let (tcp_recv, tcp_send) = tokio::io::split(stream);
         let (queue_send, queue_recv) = tokio::sync::mpsc::unbounded_channel();
         let send_buf_size_metric = Arc::new(metrics::MetricGuard::new(
@@ -88,23 +146,25 @@ where
             let stats = stats.clone();
             let m = send_buf_size_metric.clone();
             async move {
-                if let Err(err) = Self::run_send_loop(tcp_send, queue_recv, read_bytes_limiter, stats, m).await {
+                if let Err(err) = Self::run_send_loop(tcp_send, queue_recv, stats, m).await {
                     addr.do_send(Error::Send(SendError::IO(err)));
                 }
             }
         }));
-        ctx.spawn(wrap_future({
-            let addr = ctx.address();
-            let stats = stats.clone();
-            async move {
-                if let Err(err) =
-                    Self::run_recv_loop(peer_addr, tcp_recv, addr.clone(), stats).await
-                {
-                    addr.do_send(Error::Recv(err));
-                }
-            }
-        }));
-        Self { queue_send, stats, send_buf_size_metric, addr: ctx.address() }
+
+        const READ_BUFFER_CAPACITY: usize = 8 * 1024;
+        (FramedWriter{
+            addr: ctx.address(),
+            queue_send,
+            stats: stats.clone(),
+            buf_size_metric: send_buf_size_metric,
+        },FramedReader{
+            closed: false,
+            stats,
+            read: tokio::io::BufReader::with_capacity(READ_BUFFER_CAPACITY, tcp_recv),
+            msg_size_metric: metrics::MetricGuard::new(&metrics::PEER_MSG_SIZE_BYTES, vec![peer_addr.to_string()]),
+            buf_size_metric: metrics::MetricGuard::new(&metrics::PEER_DATA_READ_BUFFER_SIZE, vec![peer_addr.to_string()]),
+        })
     }
 
     /// Pushes `msg` to the send queue.
@@ -117,7 +177,7 @@ where
             self.stats.bytes_to_send.fetch_add(msg.len() as u64, Ordering::Acquire) as usize;
         buf_size += msg.len();
         self.stats.messages_to_send.fetch_add(1, Ordering::Acquire);
-        self.send_buf_size_metric.add(msg.len() as i64);
+        self.buf_size_metric.add(msg.len() as i64);
         // Exceeding buffer capacity is a critical error and Actor should call ctx.stop()
         // when receiving one. It is not like we do any extra allocations, so we can affort
         // pushing the message to the queue anyway.
@@ -131,58 +191,6 @@ where
         let _ = self.queue_send.send(frame);
     }
 
-    /// Event loop receiving and processing messages.
-    /// Loop waits for the message to be processed before reading the next message.
-    /// Note that if the message handler spawns an asynchronous subhandler and returns,
-    /// then the loop will start reading the next message before the subhandler returns.
-    /// Loop uses a fixed small buffer allocated by BufReader.
-    /// For each message it allocates a Vec with exact size of the message.
-    // TODO(gprusak): once borsh support is dropped, we can parse a proto
-    // directly from the stream.
-    async fn run_recv_loop(
-        clock: &time::Clock,
-        peer_addr: SocketAddr,
-        read: ReadHalf,
-        bytes_limiter: Arc<rate::Limiter>,
-        addr: actix::Addr<Actor>,
-        stats: Arc<connection::Stats>,
-    ) -> Result<(), RecvError> {
-        const READ_BUFFER_CAPACITY: usize = 8 * 1024;
-        let mut read = tokio::io::BufReader::with_capacity(READ_BUFFER_CAPACITY, read);
-
-        let msg_size_metric =
-            metrics::MetricGuard::new(&metrics::PEER_MSG_SIZE_BYTES, vec![peer_addr.to_string()]);
-        let buf_size_metric = metrics::MetricGuard::new(
-            &metrics::PEER_DATA_READ_BUFFER_SIZE,
-            vec![peer_addr.to_string()],
-        );
-        loop {
-            let n = read.read_u32_le().await.map_err(RecvError::IO)? as usize;
-            // TODO(gprusak): separate limit for TIER1 message size.
-            if n > NETWORK_MESSAGE_MAX_SIZE_BYTES {
-                return Err(RecvError::MessageTooLarge {
-                    got_bytes: n,
-                    want_max_bytes: NETWORK_MESSAGE_MAX_SIZE_BYTES,
-                });
-            }
-            msg_size_metric.observe(n as f64);
-            buf_size_metric.set(n as i64);
-            let mut buf = vec![0; n];
-            let t = metrics::PEER_MSG_READ_LATENCY.start_timer();
-            // TODO(gprusak): put a timeout on receiving a message. 
-            bytes_limiter.acquire(clock,n as u64).await;
-            read.read_exact(&mut buf[..]).await.map_err(RecvError::IO)?;
-            t.observe_duration();
-            buf_size_metric.set(0);
-            stats.received_messages.fetch_add(1, Ordering::Relaxed);
-            stats.received_bytes.fetch_add(n as u64, Ordering::Relaxed);
-            if let Err(_) = addr.send(Frame(buf)).await {
-                // We got mailbox error, which means that Actor has stopped,
-                // so we should just close the stream.
-                return Ok(());
-            }
-        }
-    }
     async fn run_send_loop(
         tcp_send: WriteHalf,
         mut queue_recv: tokio::sync::mpsc::UnboundedReceiver<Frame>,

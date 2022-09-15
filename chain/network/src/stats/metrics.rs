@@ -105,6 +105,7 @@ impl<M: prometheus::core::Metric> std::ops::Deref for MetricGuard<M> {
 }
 
 pub(crate) type IntGaugeGuard = MetricGuard<prometheus::IntGauge>;
+pub(crate) type HistogramGuard = MetricGuard<prometheus::Histogram>;
 
 pub static PEER_CONNECTIONS: Lazy<Gauge<Connection>> =
     Lazy::new(|| Gauge::new("near_peer_connections", "Number of connected peers").unwrap());

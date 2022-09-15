@@ -34,6 +34,13 @@ struct LimiterInner {
     last_refresh: time::Instant,
 }
 
+#[derive(thiserror::Error,Debug)]
+#[error("requested {requested} permits, max allowed {burst}")]
+pub(crate) struct BurstExceededError {
+    pub requested: u64,
+    pub burst: u64,
+}
+
 /// Limiter is a Semaphore with periodically added permits.
 /// It allows to rate limit any async-based operations.
 pub(crate) struct Limiter {
@@ -53,10 +60,12 @@ impl Limiter {
     }
 
     /// Acquire waits until `n` permits are available, then consumes them.
-    /// It is possible to acquire more than `burst` permits, but it will always require waiting.
     /// It is cancel-safe and has FIFO semantics: subsequent call have to wait until the previous
     /// call acquires its permits. In case a call is cancelled, no permits are consumed.
-    pub async fn acquire(&self, clock: &time::Clock, n:u64) {
+    pub async fn acquire(&self, clock: &time::Clock, n:u64) -> Result<(),BurstExceededError> {
+        if self.limit.burst<n {
+            return Err(BurstExceededError{burst:self.limit.burst,requested:n});
+        }
         let mut state = self.state.lock().await;
         if n <= state.permits {
             let now = clock.now();
@@ -72,5 +81,6 @@ impl Limiter {
             state.last_refresh = t;
             state.permits = 0;
         }
+        Ok(())
     }
 }

@@ -125,8 +125,9 @@ impl FakeClock {
         if t<=c.mono {
             return;
         }
-        c.utc += t-c.mono;
+        let d = t-c.mono;
         c.mono = t;
+        c.utc += d;
     }
     pub fn advance(&self, d: Duration) {
         assert!(d >= Duration::ZERO);

@@ -60,6 +60,7 @@ pub struct Features {
 pub struct Tier1 {
     pub daemon_tick_interval: time::Duration,
     pub new_connections_per_tick: usize,
+    /*
     /// Max rate at which TIER1 messages will be read from TCP sockets.
     /// Above that rate reading will block, which will cause extra data
     /// to be buffered on the sender side.
@@ -73,6 +74,7 @@ pub struct Tier1 {
     // trusts its proxies.
     pub recv_bytes_rate: rate::Limit,
     pub send_bytes_buf: usize, 
+    */
 }
 
 /// Validated configuration for the peer-to-peer manager.

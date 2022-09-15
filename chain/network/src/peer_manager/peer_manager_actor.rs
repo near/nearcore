@@ -321,7 +321,6 @@ impl PeerManagerActor {
         };
         let config = Arc::new(config);
         Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| Self {
-            clock,
             my_peer_id: my_peer_id.clone(),
             config: config.clone(),
             max_num_peers: config.max_num_peers,
@@ -333,6 +332,7 @@ impl PeerManagerActor {
             routing_table_addr,
             whitelist_nodes,
             state: Arc::new(NetworkState::new(
+                &clock,
                 config.clone(),
                 genesis_id,
                 client_addr,
@@ -340,6 +340,7 @@ impl PeerManagerActor {
                 ctx.address().recipient(),
                 RoutingTableView::new(store, my_peer_id.clone()),
             )),
+            clock,
         }))
     }
 
