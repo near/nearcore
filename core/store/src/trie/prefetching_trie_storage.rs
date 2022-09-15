@@ -1,9 +1,14 @@
 use crate::trie::POISONED_LOCK_ERR;
-use crate::{DBCol, StorageError, Store, Trie, TrieCache, TrieCachingStorage, TrieStorage};
+use crate::{
+    metrics, DBCol, StorageError, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig,
+    TrieStorage,
+};
+use near_o11y::metrics::prometheus;
+use near_o11y::metrics::prometheus::core::GenericGauge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{StateRoot, TrieNodesCount};
+use near_primitives::types::{AccountId, ShardId, StateRoot, TrieNodesCount};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -63,6 +68,14 @@ pub struct PrefetchApi {
     /// to mark what is already being fetched, to avoid fetching the same data
     /// multiple times.
     pub(crate) prefetching: PrefetchStagingArea,
+
+    pub enable_receipt_prefetching: bool,
+    /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as receiver.
+    pub sweat_prefetch_receivers: Vec<AccountId>,
+    /// List of allowed predecessor accounts for SWEAT prefetching.
+    pub sweat_prefetch_senders: Vec<AccountId>,
+
+    pub shard_uid: ShardUId,
 }
 
 /// Staging area for in-flight prefetch requests and a buffer for prefetched data.
@@ -78,10 +91,9 @@ pub struct PrefetchApi {
 /// This design also ensures the shard cache works exactly the same with or
 /// without the prefetcher, because the order in which it sees accesses is
 /// independent of the prefetcher.
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub(crate) struct PrefetchStagingArea(Arc<Mutex<InnerPrefetchStagingArea>>);
 
-#[derive(Default)]
 struct InnerPrefetchStagingArea {
     slots: SizeTrackedHashMap,
 }
@@ -94,6 +106,22 @@ pub(crate) enum PrefetcherResult {
     MemoryLimitReached,
 }
 
+struct StagedMetrics {
+    prefetch_staged_bytes: GenericGauge<prometheus::core::AtomicI64>,
+    prefetch_staged_items: GenericGauge<prometheus::core::AtomicI64>,
+}
+
+impl StagedMetrics {
+    fn new(shard_id: ShardId) -> Self {
+        Self {
+            prefetch_staged_bytes: metrics::PREFETCH_STAGED_BYTES
+                .with_label_values(&[&shard_id.to_string()]),
+            prefetch_staged_items: metrics::PREFETCH_STAGED_SLOTS
+                .with_label_values(&[&shard_id.to_string()]),
+        }
+    }
+}
+
 /// Type used internally in the staging area to keep track of requests.
 #[derive(Clone, Debug)]
 enum PrefetchSlot {
@@ -102,10 +130,10 @@ enum PrefetchSlot {
     Done(Arc<[u8]>),
 }
 
-#[derive(Default)]
 struct SizeTrackedHashMap {
     map: HashMap<CryptoHash, PrefetchSlot>,
     size_bytes: usize,
+    metrics: StagedMetrics,
 }
 
 impl SizeTrackedHashMap {
@@ -115,6 +143,7 @@ impl SizeTrackedHashMap {
         if let Some(dropped) = &dropped {
             self.size_bytes -= Self::reserved_memory(dropped);
         }
+        self.update_metrics();
         dropped
     }
 
@@ -123,12 +152,19 @@ impl SizeTrackedHashMap {
         if let Some(dropped) = &dropped {
             self.size_bytes -= Self::reserved_memory(dropped);
         }
+        self.update_metrics();
         dropped
     }
 
     fn clear(&mut self) {
         self.map.clear();
         self.size_bytes = 0;
+        self.update_metrics();
+    }
+
+    fn update_metrics(&self) {
+        self.metrics.prefetch_staged_bytes.set(self.size_bytes as i64);
+        self.metrics.prefetch_staged_items.set(self.map.len() as i64);
     }
 
     /// Reserved memory capacity for a value from the prefetching area.
@@ -249,6 +285,18 @@ impl TriePrefetchingStorage {
 }
 
 impl PrefetchStagingArea {
+    fn new(shard_id: ShardId) -> Self {
+        let inner = InnerPrefetchStagingArea {
+            slots: SizeTrackedHashMap {
+                map: Default::default(),
+                size_bytes: 0,
+                metrics: StagedMetrics::new(shard_id),
+            },
+        };
+        inner.slots.update_metrics();
+        Self(Arc::new(Mutex::new(inner)))
+    }
+
     /// Release a slot in the prefetcher staging area.
     ///
     /// This must only be called after inserting the value to the shard cache.
@@ -329,10 +377,26 @@ impl PrefetchStagingArea {
 }
 
 impl PrefetchApi {
-    pub fn new(store: Store, shard_cache: TrieCache, shard_uid: ShardUId) -> Self {
+    pub fn new(
+        store: Store,
+        shard_cache: TrieCache,
+        shard_uid: ShardUId,
+        trie_config: &TrieConfig,
+    ) -> Self {
         let (work_queue_tx, work_queue_rx) = crossbeam::channel::bounded(MAX_QUEUED_WORK_ITEMS);
+        let sweat_prefetch_receivers = trie_config.sweat_prefetch_receivers.clone();
+        let sweat_prefetch_senders = trie_config.sweat_prefetch_senders.clone();
+        let enable_receipt_prefetching = trie_config.enable_receipt_prefetching;
 
-        let this = Self { work_queue_tx, work_queue_rx, prefetching: Default::default() };
+        let this = Self {
+            work_queue_tx,
+            work_queue_rx,
+            prefetching: PrefetchStagingArea::new(shard_uid.shard_id()),
+            enable_receipt_prefetching,
+            sweat_prefetch_receivers,
+            sweat_prefetch_senders,
+            shard_uid,
+        };
         for _ in 0..NUM_IO_THREADS {
             this.start_io_thread(store.clone(), shard_cache.clone(), shard_uid.clone());
         }
@@ -357,6 +421,10 @@ impl PrefetchApi {
         let prefetcher_storage =
             TriePrefetchingStorage::new(store, shard_uid, shard_cache, self.prefetching.clone());
         let work_queue = self.work_queue_rx.clone();
+        let metric_prefetch_sent =
+            metrics::PREFETCH_SENT.with_label_values(&[&shard_uid.shard_id.to_string()]);
+        let metric_prefetch_fail =
+            metrics::PREFETCH_FAIL.with_label_values(&[&shard_uid.shard_id.to_string()]);
         std::thread::spawn(move || {
             while let Ok((trie_root, trie_key)) = work_queue.recv() {
                 // Since the trie root can change,and since the root is not known at the time when the IO threads starts,
@@ -365,12 +433,14 @@ impl PrefetchApi {
                 let prefetcher_trie =
                     Trie::new(Box::new(prefetcher_storage.clone()), trie_root, None);
                 let storage_key = trie_key.to_vec();
+                metric_prefetch_sent.inc();
                 if let Ok(_maybe_value) = prefetcher_trie.get(&storage_key) {
                     near_o11y::io_trace!(count: "prefetch");
                 } else {
                     // This may happen in rare occasions and can be ignored safely.
                     // See comments in `TriePrefetchingStorage::retrieve_raw_bytes`.
                     near_o11y::io_trace!(count: "prefetch_failure");
+                    metric_prefetch_fail.inc();
                 }
             }
         })

@@ -41,17 +41,25 @@
 //! in the prefetcher. Implementation details for most limits are in
 //! `core/store/src/trie/prefetching_trie_storage.rs`
 
+use near_o11y::metrics::prometheus;
+use near_o11y::metrics::prometheus::core::GenericCounter;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::trie_key::TrieKey;
+use near_primitives::types::AccountId;
 use near_primitives::types::StateRoot;
 use near_store::{PrefetchApi, Trie};
+use sha2::Digest;
 use std::rc::Rc;
 use tracing::debug;
+
+use crate::metrics;
 /// Transaction runtime view of the prefetching subsystem.
 pub(crate) struct TriePrefetcher {
     prefetch_api: PrefetchApi,
     trie_root: StateRoot,
+    prefetch_enqueued: GenericCounter<prometheus::core::AtomicU64>,
+    prefetch_queue_full: GenericCounter<prometheus::core::AtomicU64>,
 }
 
 impl TriePrefetcher {
@@ -59,7 +67,16 @@ impl TriePrefetcher {
         if let Some(caching_storage) = trie.storage.as_caching_storage() {
             if let Some(prefetch_api) = caching_storage.prefetch_api().clone() {
                 let trie_root = *trie.get_root();
-                return Some(Self { prefetch_api, trie_root });
+                let shard_uid = prefetch_api.shard_uid;
+                let metrics_labels: [&str; 1] = [&shard_uid.shard_id.to_string()];
+                return Some(Self {
+                    prefetch_api,
+                    trie_root,
+                    prefetch_enqueued: metrics::PREFETCH_ENQUEUED
+                        .with_label_values(&metrics_labels),
+                    prefetch_queue_full: metrics::PREFETCH_QUEUE_FULL
+                        .with_label_values(&metrics_labels),
+                });
             }
         }
         None
@@ -70,10 +87,30 @@ impl TriePrefetcher {
     /// Returns an error if the prefetching queue is full.
     pub(crate) fn input_receipts(&mut self, receipts: &[Receipt]) -> Result<(), ()> {
         for receipt in receipts.iter() {
-            if let ReceiptEnum::Action(_) = &receipt.receipt {
+            if let ReceiptEnum::Action(action_receipt) = &receipt.receipt {
                 let account_id = receipt.receiver_id.clone();
-                let trie_key = TrieKey::Account { account_id };
-                self.prefetch_trie_key(trie_key)?;
+
+                // general-purpose account prefetching
+                if self.prefetch_api.enable_receipt_prefetching {
+                    let trie_key = TrieKey::Account { account_id: account_id.clone() };
+                    self.prefetch_trie_key(trie_key)?;
+                }
+
+                // SWEAT specific argument prefetcher
+                if self.prefetch_api.sweat_prefetch_receivers.contains(&account_id)
+                    && self.prefetch_api.sweat_prefetch_senders.contains(&receipt.predecessor_id)
+                {
+                    for action in &action_receipt.actions {
+                        if let Action::FunctionCall(fn_call) = action {
+                            if fn_call.method_name == "record_batch" {
+                                self.prefetch_sweat_record_batch(
+                                    account_id.clone(),
+                                    &fn_call.args,
+                                )?;
+                            }
+                        }
+                    }
+                }
             }
         }
         Ok(())
@@ -86,16 +123,18 @@ impl TriePrefetcher {
         &mut self,
         transactions: &[SignedTransaction],
     ) -> Result<(), ()> {
-        for t in transactions {
-            let account_id = t.transaction.signer_id.clone();
-            let trie_key = TrieKey::Account { account_id };
-            self.prefetch_trie_key(trie_key)?;
+        if self.prefetch_api.enable_receipt_prefetching {
+            for t in transactions {
+                let account_id = t.transaction.signer_id.clone();
+                let trie_key = TrieKey::Account { account_id };
+                self.prefetch_trie_key(trie_key)?;
 
-            let trie_key = TrieKey::AccessKey {
-                account_id: t.transaction.signer_id.clone(),
-                public_key: t.transaction.public_key.clone(),
-            };
-            self.prefetch_trie_key(trie_key)?;
+                let trie_key = TrieKey::AccessKey {
+                    account_id: t.transaction.signer_id.clone(),
+                    public_key: t.transaction.public_key.clone(),
+                };
+                self.prefetch_trie_key(trie_key)?;
+            }
         }
         Ok(())
     }
@@ -121,11 +160,45 @@ impl TriePrefetcher {
     fn prefetch_trie_key(&self, trie_key: TrieKey) -> Result<(), ()> {
         let queue_full = self.prefetch_api.prefetch_trie_key(self.trie_root, trie_key).is_err();
         if queue_full {
+            self.prefetch_queue_full.inc();
             debug!(target: "prefetcher", "I/O scheduler input queue full, dropping prefetch request");
             Err(())
         } else {
+            self.prefetch_enqueued.inc();
             Ok(())
         }
+    }
+
+    /// Prefetcher specifically tuned for SWEAT record batch
+    ///
+    /// Temporary hack, consider removing after merging flat storage.
+    /// https://github.com/near/nearcore/issues/7327
+    fn prefetch_sweat_record_batch(&self, account_id: AccountId, arg: &[u8]) -> Result<(), ()> {
+        if let Ok(json) = serde_json::de::from_slice::<serde_json::Value>(arg) {
+            if json.is_object() {
+                if let Some(list) = json.get("steps_batch") {
+                    if let Some(list) = list.as_array() {
+                        for tuple in list.iter() {
+                            if let Some(tuple) = tuple.as_array() {
+                                if let Some(user_account) = tuple.first().and_then(|a| a.as_str()) {
+                                    let hashed_account =
+                                        sha2::Sha256::digest(user_account.as_bytes()).into_iter();
+                                    let mut key = vec![0x74, 0x00];
+                                    key.extend(hashed_account);
+                                    let trie_key = TrieKey::ContractData {
+                                        account_id: account_id.clone(),
+                                        key: key.to_vec(),
+                                    };
+                                    near_o11y::io_trace!(count: "prefetch");
+                                    self.prefetch_trie_key(trie_key)?;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }
 
