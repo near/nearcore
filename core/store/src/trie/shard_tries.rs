@@ -103,6 +103,7 @@ impl ShardTries {
         shard_uid: ShardUId,
         state_root: StateRoot,
         is_view: bool,
+        block_hash: Option<CryptoHash>,
     ) -> Trie {
         let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
         let cache = {
@@ -145,17 +146,29 @@ impl ShardTries {
             is_view,
             prefetch_api,
         ));
-        let flat_state =
-            self.0.flat_state_factory.new_flat_state_for_shard(shard_uid.shard_id(), is_view);
+        let flat_state = self.0.flat_state_factory.new_flat_state_for_shard(
+            shard_uid.shard_id(),
+            block_hash,
+            is_view,
+        );
         Trie::new(storage, state_root, flat_state)
     }
 
     pub fn get_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, state_root, false)
+        self.get_trie_for_shard_internal(shard_uid, state_root, false, None)
+    }
+
+    pub fn get_trie_with_block_hash_for_shard(
+        &self,
+        shard_uid: ShardUId,
+        state_root: StateRoot,
+        block_hash: &CryptoHash,
+    ) -> Trie {
+        self.get_trie_for_shard_internal(shard_uid, state_root, false, Some(block_hash.clone()))
     }
 
     pub fn get_view_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, state_root, true)
+        self.get_trie_for_shard_internal(shard_uid, state_root, true, None)
     }
 
     pub fn get_store(&self) -> Store {
@@ -291,36 +304,6 @@ impl ShardTries {
     ) -> (StoreUpdate, StateRoot) {
         self.apply_all_inner(trie_changes, shard_uid, true)
     }
-
-    // TODO(#7327): consider uniting with `apply_all`
-    #[cfg(feature = "protocol_feature_flat_state")]
-    pub fn apply_changes_to_flat_state(
-        &self,
-        changes: &[RawStateChangesWithTrieKey],
-        store_update: &mut StoreUpdate,
-    ) {
-        for change in changes.iter() {
-            let key = change.trie_key.to_vec();
-            if near_primitives::state_record::is_delayed_receipt_key(&key) {
-                continue;
-            }
-
-            // `RawStateChangesWithTrieKey` stores all sequential changes for a key within a chunk, so it is sufficient
-            // to take only the last change.
-            let last_change = &change
-                .changes
-                .last()
-                .expect("Committed entry should have at least one change")
-                .data;
-            match last_change {
-                Some(value) => {
-                    let value_ref_ser = near_primitives::state::ValueRef::create_serialized(value);
-                    store_update.set(DBCol::FlatState, &key, &value_ref_ser)
-                }
-                None => store_update.delete(DBCol::FlatState, &key),
-            }
-        }
-    }
 }
 
 pub struct WrappedTrieChanges {
@@ -360,9 +343,6 @@ impl WrappedTrieChanges {
     ///
     /// NOTE: the changes are drained from `self`.
     pub fn state_changes_into(&mut self, store_update: &mut StoreUpdate) {
-        #[cfg(feature = "protocol_feature_flat_state")]
-        self.tries.apply_changes_to_flat_state(&self.state_changes, store_update);
-
         for change_with_trie_key in self.state_changes.drain(..) {
             assert!(
                 !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(

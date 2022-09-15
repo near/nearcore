@@ -250,11 +250,22 @@ pub enum DBCol {
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
     /// - *Column type*: StateChangesForSplitStates
     StateChangesForSplitStates,
-    /// State changes made by a chunk, used for splitting states
-    /// - *Rows*: serialized TrieKey (Vec<u8>)
+    /// Flat state contents. Used to get `ValueRef` by trie key faster than doing a trie lookup.
+    /// - *Rows*: trie key (Vec<u8>)
     /// - *Column type*: ValueRef
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatState,
+    /// Deltas for flat state. Stores how flat state should be updated for the given shard and block.
+    /// - *Rows*: `KeyForFlatStateDelta { shard_id, block_hash }`
+    /// - *Column type*: `FlatStateDelta`
+    #[cfg(feature = "protocol_feature_flat_state")]
+    FlatStateDeltas,
+    /// Miscellaneous data for flat state. Currently stores flat state head for each shard.
+    /// - *Rows*: shard id
+    /// - *Column type*: block hash (CryptoHash)
+    // TODO (#7327): use only during testing, come up with proper format.
+    #[cfg(feature = "protocol_feature_flat_state")]
+    FlatStateMisc,
 }
 
 impl DBCol {
@@ -275,6 +286,7 @@ impl DBCol {
     pub const fn is_insert_only(&self) -> bool {
         match self {
             DBCol::Block
+            | DBCol::BlockHeader
             | DBCol::BlockExtra
             | DBCol::BlockInfo
             | DBCol::ChunkPerHeightShard
