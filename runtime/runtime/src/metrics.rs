@@ -84,7 +84,7 @@ pub static FUNCTION_CALL_PROCESSED_HOST_ERRORS: Lazy<IntCounterVec> = Lazy::new(
 pub static FUNCTION_CALL_PROCESSED_CACHE_ERRORS: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_function_call_processed_cache_errors",
-        "The number of function calls resulting in vm cache errors, since starting this node",
+        "The number of function calls resulting in VM cache errors, since starting this node",
         &["error_type"],
     )
     .unwrap()
