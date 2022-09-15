@@ -3522,6 +3522,7 @@ dependencies = [
  "near-account-id",
  "near-rpc-error-macro",
  "serde",
+ "strum",
 ]
 
 [[package]]
