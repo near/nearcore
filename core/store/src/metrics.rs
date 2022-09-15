@@ -183,7 +183,7 @@ pub static PREFETCH_MEMORY_LIMIT_REACHED: Lazy<IntCounterVec> = Lazy::new(|| {
 });
 pub static PREFETCH_RETRY: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
-        "near_prefetch_retry",
+        "near_prefetch_retries",
         "Main thread was waiting for prefetched value but had to retry fetch afterwards.",
         &["shard_id"],
     )
