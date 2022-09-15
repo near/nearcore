@@ -68,7 +68,7 @@ pub struct ChunkState {
     pub needed: Option<ChunkNeededInfo>,
     pub completed_partial_chunk: Option<PartialEncodedChunk>,
     pub completed_chunk: Option<(ShardChunk, EncodedShardChunk)>,
-    pub errors: RefCell<Vec<Error>>,
+    pub error: RefCell<(bool, Option<Error>)>,
 
     pub next_request_due: Option<Instant>,
 }
@@ -89,7 +89,7 @@ impl ChunkState {
             needed: None,
             completed_partial_chunk: None,
             completed_chunk: None,
-            errors: RefCell::new(vec![]),
+            error: RefCell::new((false, None)),
 
             next_request_due: None,
         }
@@ -102,10 +102,17 @@ impl ChunkState {
         match result {
             Ok(value) => Some(value),
             Err(err) => {
-                self.errors.borrow_mut().push(err.into());
+                let mut error = self.error.borrow_mut();
+                if !error.0 {
+                    error.1 = Some(err.into());
+                }
                 None
             }
         }
+    }
+
+    fn has_errored(&self) -> bool {
+        self.error.borrow().0
     }
 
     pub fn add_header(&mut self, header: &ShardChunkHeader) {
@@ -704,6 +711,39 @@ impl ChunkState {
                 )
             })
             .collect::<HashSet<_>>()
+    }
+
+    pub fn process(
+        &mut self,
+        current_head: &Tip,
+        me: &Option<AccountId>,
+        runtime_adapter: &dyn RuntimeAdapter,
+        peer_manager_adapter: &dyn PeerManagerAdapter,
+        rs: &mut ReedSolomonWrapper,
+        chain_store: &mut ChainStore,
+        chunk_request_retry_period: Duration,
+    ) -> Result<bool, Error> {
+        if !self.has_errored() {
+            self.get_or_compute_completed_partial_chunk(me, runtime_adapter, rs, chain_store);
+            self.maybe_send_request(
+                me,
+                current_head,
+                runtime_adapter,
+                peer_manager_adapter,
+                chunk_request_retry_period,
+            );
+        }
+        let mut error = self.error.borrow_mut();
+        if error.0 {
+            let mut swapped: Option<Error> = None;
+            std::mem::swap(&mut error.1, &mut swapped);
+            match swapped {
+                Some(err) => Err(err),
+                None => Ok(false),
+            }
+        } else {
+            Ok(self.completed_partial_chunk.is_some())
+        }
     }
 }
 
