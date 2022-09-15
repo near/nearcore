@@ -1,17 +1,15 @@
+use crate::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
+use crate::internal::VMKind;
+use crate::VMResult;
 use arbitrary::Arbitrary;
 use bolero::check;
 use core::fmt;
 use near_primitives::contract::ContractCode;
-use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_errors::{FunctionCallError, VMError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext};
-
-use crate::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
-use crate::internal::VMKind;
-use crate::VMResult;
 
 /// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
 pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
@@ -173,6 +171,7 @@ fn wasmer2_and_wasmtime_agree() {
 #[test]
 fn wasmer2_is_reproducible() {
     use crate::wasmer2_runner::Wasmer2VM;
+    use near_primitives::hash::CryptoHash;
     use wasmer_engine::Executable;
 
     bolero::check!().for_each(|data: &[u8]| {
