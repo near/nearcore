@@ -70,7 +70,7 @@ pub struct PrefetchApi {
     pub(crate) prefetching: PrefetchStagingArea,
 
     pub enable_receipt_prefetching: bool,
-    /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as sender.
+    /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as receiver.
     pub sweat_prefetch_receivers: Vec<AccountId>,
     /// List of allowed predecessor accounts for SWEAT prefetching.
     pub sweat_prefetch_senders: Vec<AccountId>,
