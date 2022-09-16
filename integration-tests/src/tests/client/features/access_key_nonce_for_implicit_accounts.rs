@@ -51,7 +51,7 @@ fn init_metrics() -> PrometheusHandle {
     handle
 }
 
-fn bench_metrics() {
+fn bench_metrics1() {
     let before = METRICS_INITIALIZER.render();
     let now = Clock::real().now();
     for _ in 0..NUM_ITERATIONS {
@@ -63,7 +63,23 @@ fn bench_metrics() {
     assert_ne!(before, after);
     let time_per_iter =
         now.elapsed().as_seconds_f64() * 1e9 / NUM_ITERATIONS as f64 / NUM_SHARDS as f64;
-    println!("time per iter with metrics-rs: {:.3}ns", time_per_iter);
+    println!("time per iter with metrics-rs1: {:.3}ns", time_per_iter);
+}
+
+fn bench_metrics2() {
+    let before = METRICS_INITIALIZER.render();
+    let now = Clock::real().now();
+    for _ in 0..NUM_ITERATIONS {
+        for shard_id in 0..NUM_SHARDS {
+            let labels = [("shard_id", format!("{}",shard_id))];
+            increment_counter!("near_test_counters_2", &labels);
+        }
+    }
+    let after = METRICS_INITIALIZER.render();
+    assert_ne!(before, after);
+    let time_per_iter =
+        now.elapsed().as_seconds_f64() * 1e9 / NUM_ITERATIONS as f64 / NUM_SHARDS as f64;
+    println!("time per iter with metrics-rs2: {:.3}ns", time_per_iter);
 }
 
 fn bench_metrics_prometheus() {
@@ -102,7 +118,9 @@ fn check_tx_processing(
 /// Test that duplicate transactions are properly rejected.
 #[test]
 fn test_transaction_hash_collision() {
-    bench_metrics();
+    bench_metrics1();
+    bench_metrics2();
+    bench_metrics3();
     bench_metrics_prometheus();
     panic!("");
     let epoch_length = 5;
@@ -250,7 +268,9 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
 /// Test that duplicate transactions from implicit accounts are properly rejected.
 #[test]
 fn test_transaction_hash_collision_for_implicit_account_fail() {
-    bench_metrics();
+    bench_metrics1();
+    bench_metrics2();
+    bench_metrics3();
     bench_metrics_prometheus();
     panic!("");
     let protocol_version = ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version();
@@ -263,7 +283,9 @@ fn test_transaction_hash_collision_for_implicit_account_fail() {
 /// Test that duplicate transactions from implicit accounts are not rejected until protocol upgrade.
 #[test]
 fn test_transaction_hash_collision_for_implicit_account_ok() {
-    bench_metrics();
+    bench_metrics1();
+    bench_metrics2();
+    bench_metrics3();
     bench_metrics_prometheus();
     panic!("");
     let protocol_version =
