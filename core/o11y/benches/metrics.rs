@@ -1,15 +1,12 @@
 #[macro_use]
 extern crate bencher;
-#[macro_use]
-extern crate metrics;
 
 use bencher::Bencher;
 use near_o11y::metrics::{try_create_int_counter_vec, IntCounter, IntCounterVec};
 use once_cell::sync::Lazy;
-use once_cell::unsync::OnceCell;
 
 static COUNTERS: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec("near_test_counters", "Just counters", &["shard_id"]).unwrap()
+    try_create_int_counter_vec("near_test_counters_1", "Just counters", &["shard_id"]).unwrap()
 });
 
 const NUM_SHARDS: usize = 8;
@@ -97,48 +94,6 @@ fn inc_counter_vec_cached_str(bench: &mut Bencher) {
     });
 }
 
-fn inc_counter_vec_itoa(bench: &mut Bencher) {
-    const NUM_SHARDS: usize = 8;
-    bench.iter(|| {
-        for shard_id in 0..NUM_SHARDS {
-            let mut buffer = itoa::Buffer::new();
-            let printed = buffer.format(shard_id);
-            COUNTERS.with_label_values(&[&printed]).inc();
-        }
-    });
-}
-
-fn inc_counter_vec_cached_lazy(bench: &mut Bencher) {
-    const NUM_SHARDS: usize = 8;
-    let lazy_counters: Vec<OnceCell<IntCounter>> = vec![OnceCell::new(); NUM_SHARDS];
-    bench.iter(|| {
-        for shard_id in 0..NUM_SHARDS {
-            lazy_counters[shard_id]
-                .get_or_init(|| COUNTERS.with_label_values(&[&format!("{}", shard_id)]))
-                .inc();
-        }
-    });
-}
-
-fn inc_counter_vec_metrics1(bench: &mut Bencher) {
-    const NUM_SHARDS: usize = 8;
-    bench.iter(|| {
-        for shard_id in 0..NUM_SHARDS {
-            increment_counter!("near_test_counters", "shard_id" => format!("{}",shard_id));
-        }
-    });
-}
-
-fn inc_counter_vec_metrics2(bench: &mut Bencher) {
-    const NUM_SHARDS: usize = 8;
-    bench.iter(|| {
-        for shard_id in 0..NUM_SHARDS {
-            let labels = [("shard_id", format!("{}", shard_id))];
-            increment_counter!("near_test_counters", &labels);
-        }
-    });
-}
-
 benchmark_group!(
     benches,
     inc_counter_vec_with_label_values,
@@ -148,9 +103,5 @@ benchmark_group!(
     inc_counter_vec_with_label_values_stack_no_format,
     inc_counter_vec_cached_str,
     inc_counter_vec_cached,
-    inc_counter_vec_itoa,
-    inc_counter_vec_cached_lazy,
-    inc_counter_vec_metrics1,
-    inc_counter_vec_metrics2,
 );
 benchmark_main!(benches);
