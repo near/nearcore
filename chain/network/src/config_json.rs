@@ -48,6 +48,11 @@ fn default_monitor_peers_max_period() -> Duration {
     Duration::from_secs(60)
 }
 
+/// Remove peers that we didn't hear about for this amount of time.
+fn default_peer_expiration_duration() -> Duration {
+    Duration::seconds(7 * 24 * 60 * 60)
+}
+
 // If non-zero - we'll skip sending tombstones during initial sync and for that many seconds after start.
 fn default_skip_tombstones() -> i64 {
     // Enable by default in shardnet only.
@@ -120,6 +125,10 @@ pub struct Config {
     // Period to monitor peers (connect to new ones etc).
     #[serde(default = "default_monitor_peers_max_period")]
     pub monitor_peers_max_period: Duration,
+
+    // Remove peers
+    #[serde(default = "default_peer_expiration_duration")]
+    pub peer_expiration_duration: Duration,
 
     /// List of the public addresses (in the format "<node public key>@<IP>:<port>") of trusted nodes,
     /// which are willing to route messages to this node. Useful only if this node is a validator.
