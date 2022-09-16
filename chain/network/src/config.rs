@@ -307,8 +307,10 @@ impl NetworkConfig {
             accounts_data_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
             features: Features {
                 tier1: Some(Tier1 {
-                    daemon_tick_interval: time::Duration::seconds(10),
-                    new_connections_per_tick: 100,
+                    // The tick is triggered manually.
+                    // The all feasible connections should be established.
+                    daemon_tick_interval: time::Duration::hours(1000),
+                    new_connections_per_tick: 10000,
                 }),
             },
             skip_tombstones: None,

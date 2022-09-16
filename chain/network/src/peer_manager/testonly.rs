@@ -5,6 +5,7 @@ use crate::network_protocol::{
     Encoding, PeerAddr, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
 };
 use crate::peer;
+use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
@@ -17,6 +18,17 @@ use near_primitives::types::{AccountId, EpochId};
 use std::collections::HashSet;
 use std::sync::Arc;
 
+#[derive(actix::Message)]
+#[rtype("Arc<NetworkState>")]
+struct GetNetworkState;
+
+impl actix::Handler<GetNetworkState> for PeerManagerActor {
+    type Result = Arc<NetworkState>;
+    fn handle(&mut self, _:GetNetworkState, _: &mut Self::Context) -> Self::Result {
+        self.state.clone()
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Event {
     Client(fake_client::Event),
@@ -25,6 +37,7 @@ pub enum Event {
 
 pub(crate) struct ActorHandler {
     pub cfg: config::NetworkConfig,
+    pub state: Arc<NetworkState>,
     pub events: broadcast::Receiver<Event>,
     pub actix: ActixSystem<PeerManagerActor>,
 }
@@ -251,7 +264,8 @@ pub(crate) async fn start(
         }
     })
     .await;
-    let mut h = ActorHandler { cfg, actix, events: recv };
+    let state = actix.addr.send(GetNetworkState).await.unwrap();
+    let mut h = ActorHandler { cfg, state, actix, events: recv };
     // Wait for the server to start.
     assert_eq!(Event::PeerManager(PME::ServerStarted), h.events.recv().await);
     h.actix.addr.send(SetChainInfo(chain.get_chain_info())).await.unwrap();

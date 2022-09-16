@@ -1,7 +1,7 @@
 use crate::concurrency::rate;
 use crate::config;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Encoding, PeerAddr, SyncAccountsData};
+use crate::network_protocol::{Encoding, SyncAccountsData};
 use crate::network_protocol::{Ping, RoutedMessageBody, EDGE_MIN_TIMESTAMP_NONCE};
 use crate::peer;
 use crate::peer_manager;
@@ -19,6 +19,7 @@ use rand::seq::SliceRandom as _;
 use rand::Rng as _;
 use std::collections::HashSet;
 use std::sync::Arc;
+use near_primitives::types::{EpochId};
 use tokio::net::TcpStream;
 
 // After the initial exchange, all subsequent SyncRoutingTable messages are
@@ -375,11 +376,15 @@ async fn accounts_data_broadcast() {
     assert_eq!(got1.accounts_data.as_set(), want.as_set());
 }
 
-fn peer_addrs(vc: &config::ValidatorConfig) -> Vec<PeerAddr> {
-    match &vc.endpoints {
-        config::ValidatorEndpoints::PublicAddrs(peer_addrs) => peer_addrs.clone(),
-        config::ValidatorEndpoints::TrustedStunServers(_) => {
-            panic!("tests only support PublicAddrs in validator config")
+fn peer_account_data(e:&EpochId, vc: &config::ValidatorConfig) -> NormalAccountData {
+    NormalAccountData {
+        epoch_id: e.clone(),
+        account_id: vc.signer.validator_id().clone(),
+        peers: match &vc.endpoints {
+            config::ValidatorEndpoints::PublicAddrs(peer_addrs) => peer_addrs.clone(),
+            config::ValidatorEndpoints::TrustedStunServers(_) => {
+                panic!("tests only support PublicAddrs in validator config")
+            }
         }
     }
 }
@@ -436,14 +441,7 @@ async fn accounts_data_gradual_epoch_change() {
         }
 
         // Wait for data to arrive.
-        let want = vs
-            .iter()
-            .map(|v| NormalAccountData {
-                epoch_id: e.clone(),
-                account_id: v.signer.validator_id().clone(),
-                peers: peer_addrs(v),
-            })
-            .collect();
+        let want = vs.iter().map(|v|peer_account_data(&e,v)).collect();
         for pm in &mut pms {
             pm.wait_for_accounts_data(&want).await;
         }
@@ -518,14 +516,7 @@ async fn accounts_data_rate_limiting() {
     let events: Vec<_> = pms.iter().map(|pm| pm.events.clone()).collect();
 
     // Wait for data to arrive.
-    let want = vs
-        .iter()
-        .map(|v| NormalAccountData {
-            epoch_id: e.clone(),
-            account_id: v.signer.validator_id().clone(),
-            peers: peer_addrs(&v),
-        })
-        .collect();
+    let want = vs.iter().map(|v|peer_account_data(&e,v)).collect();
     for pm in &mut pms {
         pm.wait_for_accounts_data(&want).await;
     }
@@ -585,4 +576,57 @@ async fn connection_spam_security_test() {
     for c in conns {
         c.handshake(&clock.clock()).await;
     }
+}
+
+#[tokio::test]
+async fn tier1_direct_connections() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let mut pms = vec![];
+    for _ in 0..5 {
+        pms.push(
+            peer_manager::testonly::start(
+                clock.clock(),
+                near_store::db::TestDB::new(),
+                chain.make_config(rng),
+                chain.clone(),
+            )
+            .await,
+        );
+    }
+
+    // Connect peers serially.
+    let peer_infos : Vec<_> = pms.iter().map(|pm|pm.peer_info()).collect();
+    for i in 0..pms.len()-1 {
+        pms[i].connect_to(&peer_infos[i+1]).await;
+    }
+
+    // Construct ChainInfo with tier1_accounts containing all validators.
+    let e = data::make_epoch_id(rng);
+    let vs: Vec<_> = pms.iter().map(|pm| pm.cfg.validator.clone().unwrap()).collect();
+    let mut chain_info = chain.get_chain_info();
+    chain_info.tier1_accounts = Arc::new(
+        vs.iter()
+            .map(|v| ((e.clone(), v.signer.validator_id().clone()), v.signer.public_key()))
+            .collect(),
+    );
+    let want = vs.iter().map(|v|peer_account_data(&e,v)).collect();
+    // Send it to all peers.
+    for pm in &mut pms {
+        pm.set_chain_info(chain_info.clone()).await;
+    }
+    // Wait for accounts data to propagate.
+    for pm in &mut pms {
+        pm.wait_for_accounts_data(&want).await;
+    }
+    // Establish TIER1 connections.
+    for pm in &mut pms {
+        pm.state.tier1_daemon_tick(&clock.clock(),pm.state.config.features.tier1.as_ref().unwrap()).await;
+        // TODO: wait for all the connections to be established.
+    }
+    // TODO: send messages over each connection.
 }

@@ -3,6 +3,7 @@ use crate::network_protocol::{AccountData, SyncAccountsData};
 use crate::network_protocol::{
     AccountOrPeerIdOrHash, Edge, PeerInfo, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
 };
+use actix::fut::future::wrap_future;
 use crate::network_protocol::{EdgeState, PartialEdgeInfo};
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
@@ -1611,7 +1612,7 @@ impl Handler<GetNetworkInfo> for PeerManagerActor {
 
 impl Handler<SetChainInfo> for PeerManagerActor {
     type Result = ();
-    fn handle(&mut self, info: SetChainInfo, _ctx: &mut Self::Context) {
+    fn handle(&mut self, info: SetChainInfo, ctx: &mut Self::Context) {
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&["SetChainInfo"]).start_timer();
         let _span =
@@ -1639,7 +1640,7 @@ impl Handler<SetChainInfo> for PeerManagerActor {
         if !state.accounts_data.set_keys(info.tier1_accounts.clone()) {
             return;
         }
-        tokio::spawn(async move {
+        ctx.spawn(wrap_future(async move {
             // If the set of keys has changed, and the node is a validator,
             // we should try to sign data and broadcast it. However, this is
             // also a trigger for a full sync, so a dedicated broadcast is
@@ -1700,7 +1701,7 @@ impl Handler<SetChainInfo> for PeerManagerActor {
                 },
             )));
             state.config.event_sink.push(Event::SetChainInfo);
-        });
+        }));
     }
 }
 

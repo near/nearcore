@@ -176,7 +176,7 @@ impl NetworkState {
                 }
             }
         }
-        // Close all other connections, as they are redundant or are not longer TIER1.
+        // Close all other connections, as they are redundant or are no longer TIER1.
         let safe_set: HashSet<_> = safe.values().copied().collect();
         for conn in tier1.ready.values() {
             if !safe_set.contains(&conn.peer_info.id) {
@@ -184,8 +184,8 @@ impl NetworkState {
             }
         }
         if is_tier1_validator {
-            let mut rng = rand::thread_rng();
             // Try to establish new TIER1 connections to accounts in random order.
+            let mut rng = rand::thread_rng();
             let mut account_ids: Vec<_> = proxies_by_account.keys().copied().collect();
             account_ids.shuffle(&mut rng);
             let mut new_connections = 0;
