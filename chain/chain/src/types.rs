@@ -41,6 +41,7 @@ use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 pub use near_primitives::block::{Block, BlockHeader, Tip};
+use near_store::flat_state::FlatStorageState;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -285,6 +286,8 @@ pub trait RuntimeAdapter: Send + Sync {
         prev_hash: &CryptoHash,
         state_root: StateRoot,
     ) -> Result<Trie, Error>;
+
+    fn get_flat_storage_state_for_shard(&self, shard_id: ShardId) -> Option<FlatStorageState>;
 
     fn verify_block_vrf(
         &self,
@@ -816,8 +819,6 @@ mod tests {
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;
 
-    use crate::Chain;
-
     use super::*;
 
     #[test]
@@ -833,7 +834,7 @@ mod tests {
             0,
             100,
             1_000_000_000,
-            Chain::compute_collection_hash(genesis_bps).unwrap(),
+            CryptoHash::hash_borsh(&genesis_bps),
         );
         let signer =
             InMemoryValidatorSigner::from_seed("other".parse().unwrap(), KeyType::ED25519, "other");

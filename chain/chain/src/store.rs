@@ -2441,7 +2441,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 unreachable!();
             }
             #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatState => {
+            DBCol::FlatState | DBCol::FlatStateDeltas | DBCol::FlatStateMisc => {
                 unreachable!();
             }
         }
@@ -2468,7 +2468,6 @@ impl<'a> ChainStoreUpdate<'a> {
     /// Only used in mock network
     /// Create a new ChainStoreUpdate that copies the necessary chain state related to `block_hash`
     /// from `source_store` to the current store.
-    #[cfg(feature = "mock_node")]
     pub fn copy_chain_state_as_of_block(
         chain_store: &'a mut ChainStore,
         block_hash: &CryptoHash,
@@ -2627,7 +2626,7 @@ impl<'a> ChainStoreUpdate<'a> {
                         .unwrap_or_default()
                 })
                 .insert(*hash);
-            store_update.set_ser(DBCol::BlockHeader, hash.as_ref(), header)?;
+            store_update.insert_ser(DBCol::BlockHeader, hash.as_ref(), header)?;
         }
         for (height, hash_set) in header_hashes_by_height {
             store_update.set_ser(

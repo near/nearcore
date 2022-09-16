@@ -18,25 +18,27 @@ use crate::flat_state::FlatState;
 pub use crate::trie::config::TrieConfig;
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
-use crate::trie::nibble_slice::NibbleSlice;
+pub use crate::trie::nibble_slice::NibbleSlice;
+pub use crate::trie::prefetching_trie_storage::PrefetchApi;
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
 use crate::StorageError;
 pub use near_primitives::types::TrieNodesCount;
+use std::fmt::Write;
 
 mod config;
 mod insert_delete;
 pub mod iterator;
 mod nibble_slice;
+mod prefetching_trie_storage;
 mod shard_tries;
 pub mod split_state;
 mod state_parts;
 mod trie_storage;
-pub mod update;
-
 #[cfg(test)]
 mod trie_tests;
+pub mod update;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -309,7 +311,7 @@ impl std::fmt::Debug for TrieNode {
 
 #[derive(Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
-enum RawTrieNode {
+pub enum RawTrieNode {
     Leaf(Vec<u8>, u32, CryptoHash),
     Branch([Option<CryptoHash>; 16], Option<(u32, CryptoHash)>),
     Extension(Vec<u8>, CryptoHash),
@@ -318,8 +320,8 @@ enum RawTrieNode {
 /// Trie node + memory cost of its subtree
 /// memory_usage is serialized, stored, and contributes to hash
 #[derive(Debug, Eq, PartialEq)]
-struct RawTrieNodeWithSize {
-    node: RawTrieNode,
+pub struct RawTrieNodeWithSize {
+    pub node: RawTrieNode,
     memory_usage: u64,
 }
 
@@ -446,7 +448,7 @@ impl RawTrieNodeWithSize {
         out
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
+    pub fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
         if bytes.len() < 8 {
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "Wrong type"));
         }
@@ -638,6 +640,127 @@ impl Trie {
         Ok(())
     }
 
+    // Prints the trie nodes starting from hash, up to max_depth depth.
+    pub fn print_recursive(&self, f: &mut dyn std::io::Write, hash: &CryptoHash, max_depth: u32) {
+        match self.retrieve_raw_node_or_value(hash) {
+            Ok(Ok(_)) => {
+                let mut prefix: Vec<u8> = Vec::new();
+                self.print_recursive_internal(f, hash, max_depth, &mut "".to_string(), &mut prefix)
+                    .expect("write failed");
+            }
+            Ok(Err(value_bytes)) => {
+                writeln!(
+                    f,
+                    "Given node is a value. Len: {}, Data: {:?} ",
+                    value_bytes.len(),
+                    &value_bytes[..std::cmp::min(10, value_bytes.len())]
+                )
+                .expect("write failed");
+            }
+            Err(err) => {
+                writeln!(f, "Error when reading: {}", err).expect("write failed");
+            }
+        };
+    }
+
+    // Converts the list of Nibbles to a readable string.
+    fn nibbles_to_string(&self, prefix: &[u8]) -> String {
+        let mut result = String::new();
+        for chunk in prefix.chunks(2) {
+            if chunk.len() == 2 {
+                let chr: char = ((chunk[0] * 16) + chunk[1]).into();
+                write!(&mut result, "{}", chr.escape_default()).unwrap();
+            } else {
+                // Final, sole nibble
+                write!(&mut result, " + {:x}", chunk[0]).unwrap();
+            }
+        }
+        result
+    }
+
+    fn print_recursive_internal(
+        &self,
+        f: &mut dyn std::io::Write,
+        hash: &CryptoHash,
+        max_depth: u32,
+        spaces: &mut String,
+        prefix: &mut Vec<u8>,
+    ) -> std::io::Result<()> {
+        if max_depth == 0 {
+            return Ok(());
+        }
+
+        match self.retrieve_raw_node(hash) {
+            Ok(Some((_, raw_node))) => {
+                match raw_node.node {
+                    RawTrieNode::Leaf(key, value_length, value_hash) => {
+                        let (slice, _) = NibbleSlice::from_encoded(key.as_slice());
+                        prefix.extend(slice.iter());
+                        writeln!(
+                            f,
+                            "{}Leaf {:?} size:{} child_hash:{} child_prefix:{}",
+                            spaces,
+                            slice,
+                            value_length,
+                            value_hash,
+                            self.nibbles_to_string(prefix)
+                        )?;
+                        prefix.truncate(prefix.len() - slice.len());
+                    }
+                    RawTrieNode::Branch(children, optional_value) => {
+                        writeln!(
+                            f,
+                            "{}Branch Value:{:?} prefix:{}",
+                            spaces,
+                            optional_value,
+                            self.nibbles_to_string(prefix)
+                        )?;
+                        for (idx, child) in children.iter().enumerate() {
+                            if let Some(child) = child {
+                                writeln!(f, "{} {:01x}->", spaces, idx)?;
+                                spaces.push_str("  ");
+                                prefix.push(idx as u8);
+                                self.print_recursive_internal(
+                                    f,
+                                    child,
+                                    max_depth - 1,
+                                    spaces,
+                                    prefix,
+                                )?;
+                                prefix.pop();
+                                spaces.truncate(spaces.len() - 2);
+                            }
+                        }
+                    }
+                    RawTrieNode::Extension(key, child) => {
+                        let (slice, _) = NibbleSlice::from_encoded(key.as_slice());
+                        writeln!(
+                            f,
+                            "{}Extension {:?} child_hash:{} prefix:{}",
+                            spaces,
+                            slice,
+                            child,
+                            self.nibbles_to_string(prefix)
+                        )?;
+                        spaces.push_str("  ");
+                        prefix.extend(slice.iter());
+                        self.print_recursive_internal(f, &child, max_depth - 1, spaces, prefix)?;
+                        prefix.truncate(prefix.len() - slice.len());
+                        spaces.truncate(spaces.len() - 2);
+                    }
+                };
+            }
+            Ok(None) => {
+                writeln!(f, "{spaces}EmptyNode")?;
+            }
+            Err(err) => {
+                writeln!(f, "error {}", err)?;
+            }
+        };
+
+        Ok(())
+    }
+
     fn retrieve_raw_node(
         &self,
         hash: &CryptoHash,
@@ -650,6 +773,15 @@ impl Trie {
             StorageError::StorageInconsistentState(format!("Failed to decode node {hash}: {err}"))
         })?;
         Ok(Some((bytes, node)))
+    }
+
+    // Similar to retrieve_raw_node but handles the case where there is a Value (and not a Node) in the database.
+    fn retrieve_raw_node_or_value(
+        &self,
+        hash: &CryptoHash,
+    ) -> Result<Result<RawTrieNodeWithSize, std::sync::Arc<[u8]>>, StorageError> {
+        let bytes = self.storage.retrieve_raw_bytes(hash)?;
+        Ok(RawTrieNodeWithSize::decode(&bytes).map_err(|_| bytes))
     }
 
     fn move_node_to_mutable(
@@ -744,7 +876,7 @@ impl Trie {
     pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
         let is_delayed = is_delayed_receipt_key(key);
         match &self.flat_state {
-            Some(flat_state) if !is_delayed => flat_state.get_ref(&self.root, &key),
+            Some(flat_state) if !is_delayed => flat_state.get_ref(&key),
             _ => {
                 let key = NibbleSlice::new(key);
                 self.lookup(key)
@@ -946,9 +1078,19 @@ mod tests {
         }
         assert_eq!(pairs, iter_pairs);
 
+        let assert_has_next = |want, other_iter: &mut TrieIterator| {
+            assert_eq!(Some(want), other_iter.next().map(|item| item.unwrap().0).as_deref());
+        };
+
         let mut other_iter = trie.iter().unwrap();
-        other_iter.seek(b"r").unwrap();
-        assert_eq!(other_iter.next().unwrap().unwrap().0, b"x".to_vec());
+        other_iter.seek_prefix(b"r").unwrap();
+        assert_eq!(other_iter.next(), None);
+        other_iter.seek_prefix(b"x").unwrap();
+        assert_has_next(b"x", &mut other_iter);
+        assert_eq!(other_iter.next(), None);
+        other_iter.seek_prefix(b"y").unwrap();
+        assert_has_next(b"y", &mut other_iter);
+        assert_eq!(other_iter.next(), None);
     }
 
     #[test]
@@ -1000,13 +1142,13 @@ mod tests {
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), changes);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root.clone());
         let mut iter = trie.iter().unwrap();
-        iter.seek(&vec![0, 116, 101, 115, 116, 44]).unwrap();
+        iter.seek_prefix(&[0, 116, 101, 115, 116, 44]).unwrap();
         let mut pairs = vec![];
         for pair in iter {
             pairs.push(pair.unwrap().0);
         }
         assert_eq!(
-            pairs[..2],
+            pairs,
             [
                 vec![
                     0, 116, 101, 115, 116, 44, 98, 97, 108, 97, 110, 99, 101, 115, 58, 98, 111, 98,
@@ -1088,7 +1230,7 @@ mod tests {
     }
 
     #[test]
-    fn test_iterator_seek() {
+    fn test_iterator_seek_prefix() {
         let mut rng = rand::thread_rng();
         for _test_run in 0..10 {
             let tries = create_tries();
@@ -1106,7 +1248,7 @@ mod tests {
                 if let Some(value) = value {
                     let want = Some(Ok((key.clone(), value)));
                     let mut iterator = trie.iter().unwrap();
-                    iterator.seek(&key).unwrap();
+                    iterator.seek_prefix(&key).unwrap();
                     assert_eq!(want, iterator.next(), "key: {key:x?}");
                 }
             }
@@ -1115,9 +1257,9 @@ mod tests {
             let queries = gen_changes(&mut rng, 500).into_iter().map(|(key, _)| key);
             for query in queries {
                 let mut iterator = trie.iter().unwrap();
-                iterator.seek(&query).unwrap();
+                iterator.seek_prefix(&query).unwrap();
                 if let Some(Ok((key, _))) = iterator.next() {
-                    assert!(key >= query);
+                    assert!(key.starts_with(&query), "‘{key:x?}’ does not start with ‘{query:x?}’");
                 }
             }
         }
