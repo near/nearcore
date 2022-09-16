@@ -2,8 +2,6 @@ use crate::peer_manager::connection;
 use crate::concurrency::rate;
 use crate::stats::metrics;
 use crate::time;
-use actix::fut::future::wrap_future;
-use actix::AsyncContext as _;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
@@ -56,7 +54,7 @@ pub(crate) enum Error {
 }
 
 pub(crate) struct FramedWriter<Actor: actix::Actor> {
-    addr: actix::Addr<Actor>,
+    scope: Scope<Actor>,
     queue_send: tokio::sync::mpsc::UnboundedSender<Frame>,
     stats: Arc<connection::Stats>,
     buf_size_metric: Arc<metrics::IntGaugeGuard>,
@@ -119,13 +117,25 @@ impl FramedReader {
     }
 }
 
-impl<Actor> FramedWriter<Actor>
-where
-    Actor: actix::Actor<Context = actix::Context<Actor>>
-        + actix::Handler<Error>
+pub(crate) struct Scope<A:actix::Actor> {
+   pub arbiter: actix::ArbiterHandle,
+   pub addr: actix::Addr<A>,
+}
+
+impl<A:actix::Actor> Clone for Scope<A> {
+   fn clone(&self) -> Self {
+        Self {
+            arbiter: self.arbiter.clone(),
+            addr: self.addr.clone(),
+        }
+   }
+}
+
+impl<Actor:actix::Actor + actix::Handler<Error>> FramedWriter<Actor> 
+    where Actor::Context : actix::dev::ToEnvelope<Actor, Error>
 {
     pub fn spawn(
-        ctx: &mut actix::Context<Actor>,
+        scope: &Scope<Actor>,
         peer_addr: SocketAddr,
         stream: tokio::net::TcpStream,
         stats: Arc<connection::Stats>,
@@ -136,20 +146,20 @@ where
             &*metrics::PEER_DATA_WRITE_BUFFER_SIZE,
             vec![peer_addr.to_string()],
         ));
-        ctx.spawn(wrap_future({
-            let addr = ctx.address();
+        scope.arbiter.spawn({
+            let scope = scope.clone();
             let stats = stats.clone();
             let m = send_buf_size_metric.clone();
             async move {
                 if let Err(err) = Self::run_send_loop(tcp_send, queue_recv, stats, m).await {
-                    addr.do_send(Error::Send(SendError::IO(err)));
+                    scope.addr.do_send(Error::Send(SendError::IO(err)));
                 }
             }
-        }));
+        });
 
         const READ_BUFFER_CAPACITY: usize = 8 * 1024;
         (FramedWriter{
-            addr: ctx.address(),
+            scope: scope.clone(), 
             queue_send,
             stats: stats.clone(),
             buf_size_metric: send_buf_size_metric,
@@ -179,7 +189,7 @@ where
         // pushing the message to the queue anyway.
         if buf_size > MAX_WRITE_BUFFER_CAPACITY_BYTES {
             metrics::MessageDropped::MaxCapacityExceeded.inc_unknown_msg();
-            self.addr.do_send(Error::Send(SendError::QueueOverflow {
+            self.scope.addr.do_send(Error::Send(SendError::QueueOverflow {
                 got_bytes: buf_size,
                 want_max_bytes: MAX_WRITE_BUFFER_CAPACITY_BYTES,
             }));

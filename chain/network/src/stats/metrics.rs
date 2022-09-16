@@ -70,7 +70,7 @@ impl Labels for Connection {
 
 pub(crate) struct MetricGuard<M: prometheus::core::Metric> {
     metric: M,
-    drop: Option<Box<dyn FnOnce()>>,
+    drop: Option<Box<dyn Send + Sync + FnOnce()>>,
 }
 
 impl<M: prometheus::core::Metric> MetricGuard<M> {

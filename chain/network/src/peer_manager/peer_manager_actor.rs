@@ -274,6 +274,10 @@ impl Actor for PeerManagerActor {
         self.routing_table_addr.do_send(StopMsg {});
         Running::Stop
     }
+
+    fn stopped(&mut self, _ctx: &mut Self::Context) {
+        actix::Arbiter::current().stop();
+    }
 }
 
 impl PeerManagerActor {

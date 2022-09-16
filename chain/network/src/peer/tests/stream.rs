@@ -1,9 +1,9 @@
 use crate::actix::ActixSystem;
 use crate::peer::stream;
+use crate::peer::stream::Scope;
 use crate::concurrency::rate;
 use crate::testonly::make_rng;
 use crate::time;
-use actix::fut::future::wrap_future;
 use actix::Actor as _;
 use actix::ActorContext as _;
 use actix::AsyncContext as _;
@@ -50,10 +50,14 @@ impl Actor {
             queue_recv,
             system: ActixSystem::spawn(|| {
                 Actor::create(|ctx| {
+                    let scope = Scope{
+                        arbiter: actix::Arbiter::current(),
+                        addr: ctx.address(),
+                    };
                     let (writer,mut reader) =
-                        stream::FramedWriter::spawn(ctx, s.peer_addr().unwrap(), s, Arc::default());
+                        stream::FramedWriter::spawn(&scope, s.peer_addr().unwrap(), s, Arc::default());
                     let addr = ctx.address();
-                    ctx.spawn(wrap_future(async move {
+                    scope.arbiter.spawn(async move {
                         let limiter = rate::Limiter::new(&clock,rate::Limit{qps:10000.,burst:10000});
                         loop {
                             match reader.recv(&clock,&limiter).await {
@@ -61,7 +65,7 @@ impl Actor {
                                 Err(err) => addr.do_send(stream::Error::Recv(err)),
                             }
                         }
-                    }));
+                    });
                     Self { writer }
                 })
             })
