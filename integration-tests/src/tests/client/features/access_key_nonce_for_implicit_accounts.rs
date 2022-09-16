@@ -8,7 +8,6 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_network::types::{MsgRecipient, NetworkClientResponses};
-use near_o11y::metrics::{try_create_int_counter_vec, IntCounter, IntCounterVec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::AccessKey;
 use near_primitives::errors::InvalidTxError;
@@ -25,63 +24,6 @@ use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::path::Path;
 use std::sync::Arc;
-
-use metrics::increment_counter;
-use metrics::register_counter;
-use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
-use near_network_primitives::time::Clock;
-use near_o11y::tracing_subscriber::fmt::time;
-use once_cell::sync::Lazy;
-
-pub static METRICS_INITIALIZER: Lazy<PrometheusHandle> = Lazy::new(|| init_metrics());
-static COUNTERS: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec("near_test_counters", "Just counters", &["shard_id"]).unwrap()
-});
-const NUM_SHARDS: usize = 8;
-const NUM_ITERATIONS: i32 = 1_000_000;
-
-fn init_metrics() -> PrometheusHandle {
-    let builder = PrometheusBuilder::new();
-    // builder.install().expect("failed to install recorder/exporter");
-    let handle = builder.install_recorder().expect("failed to install recorder");
-
-    for shard_id in 0..NUM_SHARDS {
-        register_counter!("near_test_counters_2", "shard_id" => format!("{}",shard_id));
-    }
-    handle
-}
-
-fn bench_metrics() {
-    let before = METRICS_INITIALIZER.render();
-    let now = Clock::real().now();
-    for _ in 0..NUM_ITERATIONS {
-        for shard_id in 0..NUM_SHARDS {
-            increment_counter!("near_test_counters_2", "shard_id" => format!("{}",shard_id));
-        }
-    }
-    let after = METRICS_INITIALIZER.render();
-    assert_ne!(before, after);
-    let time_per_iter =
-        now.elapsed().as_seconds_f64() * 1e9 / NUM_ITERATIONS as f64 / NUM_SHARDS as f64;
-    println!("time per iter with metrics-rs: {:.3}ns", time_per_iter);
-}
-
-fn bench_metrics_prometheus() {
-    let now = Clock::real().now();
-
-    let before = COUNTERS.with_label_values(&["1"]).get();
-    for iter in 0..NUM_ITERATIONS {
-        for shard_id in 0..NUM_SHARDS {
-            COUNTERS.with_label_values(&[&format!("{}", shard_id)]).inc();
-        }
-    }
-    let after = COUNTERS.with_label_values(&["1"]).get();
-    assert_ne!(before, after);
-
-    let time_per_iter =
-        now.elapsed().as_seconds_f64() * 1e9 / NUM_ITERATIONS as f64 / NUM_SHARDS as f64;
-    println!("time per iter with prometheus: {:.3}ns", time_per_iter);
-}
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
 /// Return height of the next block.
@@ -102,9 +44,6 @@ fn check_tx_processing(
 /// Test that duplicate transactions are properly rejected.
 #[test]
 fn test_transaction_hash_collision() {
-    bench_metrics();
-    bench_metrics_prometheus();
-    panic!("");
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
@@ -250,9 +189,6 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
 /// Test that duplicate transactions from implicit accounts are properly rejected.
 #[test]
 fn test_transaction_hash_collision_for_implicit_account_fail() {
-    bench_metrics();
-    bench_metrics_prometheus();
-    panic!("");
     let protocol_version = ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version();
     assert_matches!(
         get_status_of_tx_hash_collision_for_implicit_account(protocol_version),
@@ -263,9 +199,6 @@ fn test_transaction_hash_collision_for_implicit_account_fail() {
 /// Test that duplicate transactions from implicit accounts are not rejected until protocol upgrade.
 #[test]
 fn test_transaction_hash_collision_for_implicit_account_ok() {
-    bench_metrics();
-    bench_metrics_prometheus();
-    panic!("");
     let protocol_version =
         ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
     assert_matches!(

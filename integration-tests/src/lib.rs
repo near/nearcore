@@ -6,6 +6,3 @@ pub mod user;
 
 #[cfg(test)]
 mod tests;
-
-#[macro_use]
-extern crate metrics;
