@@ -17,7 +17,7 @@ mod errors;
 pub mod key_conversion;
 mod key_file;
 pub mod randomness;
-mod signature;
+pub mod signature;
 mod signer;
 mod test_utils;
 pub mod vrf;
