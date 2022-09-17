@@ -11,9 +11,7 @@ use crate::transaction::SignedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
 use crate::validator_signer::ValidatorSigner;
-use crate::version::{
-    ProtocolFeature, ProtocolVersion, ProtocolVersionRange, SHARD_CHUNK_HEADER_UPGRADE_VERSION,
-};
+use crate::version::{ProtocolFeature, ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use reed_solomon_erasure::ReconstructShard;
 use std::sync::Arc;
 
@@ -399,17 +397,16 @@ impl ShardChunkHeader {
         }
     }
 
-    pub fn version_range(&self) -> ProtocolVersionRange {
-        let block_header_v3_version = ProtocolFeature::BlockHeaderV3.protocol_version();
+    /// Returns the range of `ProtocolVersion`s where this variant of the
+    /// message is accepted.  For the newest variant the upper limit is the
+    /// maximum protocol version.
+    pub fn version_range(&self) -> std::ops::Range<ProtocolVersion> {
+        const BLOCK_HEADER_V3_VERSION: ProtocolVersion =
+            ProtocolFeature::BlockHeaderV3.protocol_version();
         match &self {
-            ShardChunkHeader::V1(_) => {
-                ProtocolVersionRange::new(0, Some(SHARD_CHUNK_HEADER_UPGRADE_VERSION))
-            }
-            ShardChunkHeader::V2(_) => ProtocolVersionRange::new(
-                SHARD_CHUNK_HEADER_UPGRADE_VERSION,
-                Some(block_header_v3_version),
-            ),
-            ShardChunkHeader::V3(_) => ProtocolVersionRange::new(block_header_v3_version, None),
+            ShardChunkHeader::V1(_) => 0..SHARD_CHUNK_HEADER_UPGRADE_VERSION,
+            ShardChunkHeader::V2(_) => SHARD_CHUNK_HEADER_UPGRADE_VERSION..BLOCK_HEADER_V3_VERSION,
+            ShardChunkHeader::V3(_) => BLOCK_HEADER_V3_VERSION..ProtocolVersion::MAX,
         }
     }
 }
@@ -537,16 +534,13 @@ impl PartialEncodedChunk {
         }
     }
 
-    /// Returns the lowest ProtocolVersion where this version of the message is
-    /// accepted, along with the highest (exclusive), if any.
-    pub fn version_range(&self) -> ProtocolVersionRange {
+    /// Returns the range of `ProtocolVersion`s where this variant of the
+    /// message is accepted.  For the newest variant the upper limit is the
+    /// maximum protocol version.
+    pub fn version_range(&self) -> std::ops::Range<ProtocolVersion> {
         match &self {
-            PartialEncodedChunk::V1(_) => {
-                ProtocolVersionRange::new(0, Some(SHARD_CHUNK_HEADER_UPGRADE_VERSION))
-            }
-            PartialEncodedChunk::V2(_) => {
-                ProtocolVersionRange::new(SHARD_CHUNK_HEADER_UPGRADE_VERSION, None)
-            }
+            PartialEncodedChunk::V1(_) => 0..SHARD_CHUNK_HEADER_UPGRADE_VERSION,
+            PartialEncodedChunk::V2(_) => SHARD_CHUNK_HEADER_UPGRADE_VERSION..ProtocolVersion::MAX,
         }
     }
 

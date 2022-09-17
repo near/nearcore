@@ -1556,7 +1556,7 @@ impl ShardsManager {
 
         // 2. check protocol version
         let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
-        if !header.version_range().contains(protocol_version) {
+        if !header.version_range().contains(&protocol_version) {
             return if epoch_id_confirmed {
                 Err(Error::InvalidChunkHeader)
             } else {
