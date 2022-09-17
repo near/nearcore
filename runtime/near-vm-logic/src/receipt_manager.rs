@@ -90,7 +90,7 @@ impl ReceiptManager {
     /// Create a receipt which will be executed after all the receipts identified by
     /// `receipt_indices` are complete.
     ///
-    /// If any of the [`RecepitIndex`]es do not refer to a known receipt, this function will fail
+    /// If any of the [`ReceiptIndex`]es do not refer to a known receipt, this function will fail
     /// with an error.
     ///
     /// # Arguments
@@ -159,9 +159,7 @@ impl ReceiptManager {
         Ok(())
     }
 
-    /// Attach the [`FunctionCallAction`] action to an existing receipt. This method has similar
-    /// functionality to [`append_action_function_call`](Self::append_action_function_call) except
-    /// that it allows specifying a weight to use leftover gas from the current execution.
+    /// Attach the [`FunctionCallAction`] action to an existing receipt.
     ///
     /// `prepaid_gas` and `gas_weight` can either be specified or both. If a `gas_weight` is
     /// specified, the action should be allocated gas in
