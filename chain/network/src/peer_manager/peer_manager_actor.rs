@@ -10,7 +10,7 @@ use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
     PeerRequestResult, PeerToManagerMsg, PeerToManagerMsgResp, PeersRequest, PeersResponse,
-    RegisterPeer, RegisterPeerError, RegisterPeerResponse, StopMsg, Unregister, ValidateEdgeList,
+    RegisterPeer, RegisterPeerError, RegisterPeerResponse, StopMsg, ValidateEdgeList,
 };
 use crate::routing;
 use crate::routing::edge_validator_actor::EdgeValidatorHelper;
@@ -19,7 +19,7 @@ use crate::stats::metrics;
 use crate::store;
 use crate::time;
 use crate::types::{
-    Ban, KnownPeerStatus, KnownProducer, NetworkViewClientMessages, NetworkViewClientResponses,
+    KnownPeerStatus, KnownProducer, NetworkViewClientMessages, NetworkViewClientResponses,
     OutboundTcpConnect, PeerType, ReasonForBan, StateResponseInfo,
 };
 use crate::types::{
@@ -28,7 +28,7 @@ use crate::types::{
     PeerMessage, RoutingTableUpdate, SetChainInfo,
 };
 use actix::{
-    Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
+    Actor, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, WrapFuture,
 };
 use anyhow::bail;
@@ -143,9 +143,7 @@ pub struct PeerManagerActor {
     /// Flag that track whether we started attempts to establish outbound connections.
     started_connect_attempts: bool,
     /// Connected peers we have sent new edge update, but we haven't received response so far.
-    local_peer_pending_update_nonce_request: HashMap<PeerId, u64>,
-    /// RoutingTableActor, responsible for computing routing table, routing table exchange, etc.
-    routing_table_addr: Addr<routing::Actor>,
+    local_peer_pending_update_nonce_request: HashMap<PeerId, u64>, 
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
     /// reached.
     whitelist_nodes: Vec<WhitelistNode>,
@@ -272,7 +270,7 @@ impl Actor for PeerManagerActor {
     fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
         warn!("PeerManager: stopping");
         self.state.tier2.broadcast_message(Arc::new(PeerMessage::Disconnect));
-        self.routing_table_addr.do_send(StopMsg {});
+        self.state.routing_table_addr.do_send(StopMsg {});
         Running::Stop
     }
 
@@ -309,14 +307,7 @@ impl PeerManagerActor {
 
         let my_peer_id = config.node_id();
         let network_graph = Arc::new(RwLock::new(routing::GraphWithCache::new(my_peer_id.clone())));
-        let arbiter = Arbiter::new();
-        let routing_table_addr = routing::Actor::start_in_arbiter(&arbiter.handle(), {
-            let clock = clock.clone();
-            let store = store.clone();
-            let network_graph = network_graph.clone();
-            move |_ctx| routing::Actor::new(clock, store, network_graph)
-        });
-
+        let routing_table_addr = routing::Actor::spawn(clock.clone(),store.clone(),network_graph.clone());
         let whitelist_nodes = {
             let mut v = vec![];
             for wn in &config.whitelist_nodes {
@@ -334,7 +325,6 @@ impl PeerManagerActor {
             routing_table_exchange_helper: Default::default(),
             started_connect_attempts: false,
             local_peer_pending_update_nonce_request: HashMap::new(),
-            routing_table_addr,
             whitelist_nodes,
             state: Arc::new(NetworkState::new(
                 &clock,
@@ -343,6 +333,7 @@ impl PeerManagerActor {
                 client_addr,
                 view_client_addr,
                 ctx.address().recipient(),
+                routing_table_addr,
                 RoutingTableView::new(store, my_peer_id.clone()),
             )),
             clock,
@@ -355,7 +346,7 @@ impl PeerManagerActor {
         prune_unreachable_since: Option<time::Instant>,
         prune_edges_older_than: Option<time::Utc>,
     ) {
-        self.routing_table_addr
+        self.state.routing_table_addr
             .send(routing::actor::Message::RoutingTableUpdate {
                 prune_unreachable_since,
                 prune_edges_older_than,
@@ -369,21 +360,13 @@ impl PeerManagerActor {
                 }) => {
                     act.state.routing_table_view.update(&local_edges_to_remove, next_hops.clone());
                     for peer in peers_to_ban {
-                        act.ban_peer(&peer, ReasonForBan::InvalidEdge);
+                        act.try_ban_peer(&peer, ReasonForBan::InvalidEdge);
                     }
                     act.config.event_sink.push(Event::RoutingTableUpdate(next_hops));
                 }
                 _ => error!(target: "network", "expected RoutingTableUpdateResponse"),
             })
             .spawn(ctx);
-    }
-
-    fn add_verified_edges_to_routing_table(&mut self, edges: Vec<Edge>) {
-        if edges.is_empty() {
-            return;
-        }
-        self.state.routing_table_view.add_local_edges(&edges);
-        self.routing_table_addr.do_send(routing::actor::Message::AddVerifiedEdges { edges });
     }
 
     fn broadcast_accounts(&mut self, accounts: Vec<AnnounceAccount>) {
@@ -505,7 +488,7 @@ impl PeerManagerActor {
                     _ => {}
                 }
             }
-            self.routing_table_addr
+            self.state.routing_table_addr
                 .send(routing::actor::Message::AddVerifiedEdges { edges: new_edges })
                 .in_current_span()
                 .into_actor(self)
@@ -574,7 +557,7 @@ impl PeerManagerActor {
                 if let Err(err) = self.peer_store.peer_connected(&self.clock, peer_info) {
                     error!(target: "network", ?err, "Failed to save peer data");
                 }
-                self.add_verified_edges_to_routing_table(vec![connection.edge.clone()]);
+                self.state.add_verified_edges_to_routing_table(vec![connection.edge.clone()]);
                 self.sync_after_handshake(connection.clone(), ctx);
             }
         }
@@ -615,58 +598,18 @@ impl PeerManagerActor {
             },
         );
     }
-
-    /// Remove peer from connected set.
-    /// Check it match peer_type to avoid removing a peer that both started connection to each other.
-    /// If peer_type is None, remove anyway disregarding who started the connection.
-    fn remove_connected_peer(&mut self, peer_id: &PeerId, peer_type: Option<PeerType>) {
-        let state = self.state.clone();
-        let tier2 = state.tier2.load();
-        if let Some(peer_type) = peer_type {
-            if let Some(peer) = tier2.ready.get(peer_id) {
-                if peer.peer_type != peer_type {
-                    // Don't remove the peer
-                    return;
-                }
-            }
-        }
-
-        // If the last edge we have with this peer represent a connection addition, create the edge
-        // update that represents the connection removal.
-        self.state.tier2.remove(peer_id);
-
-        if let Some(edge) = self.state.routing_table_view.get_local_edge(peer_id) {
-            if edge.edge_type() == EdgeState::Active {
-                let edge_update = edge.remove_edge(self.my_peer_id.clone(), &self.config.node_key);
-                self.add_verified_edges_to_routing_table(vec![edge_update.clone()]);
-                self.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-                    RoutingTableUpdate::from_edges(vec![edge_update]),
-                )));
-            }
-        }
-    }
-    /// Add peer to ban list.
-    /// This function should only be called after Peer instance is stopped.
-    /// Note: Use `try_ban_peer` if there might be a Peer instance still connected.
-    fn ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan) {
-        warn!(target: "network", ?peer_id, ?ban_reason, "Banning peer");
-        self.remove_connected_peer(peer_id, None);
-        if let Err(err) = self.peer_store.peer_ban(&self.clock, peer_id, ban_reason) {
-            error!(target: "network", ?err, "Failed to save peer data");
-        };
-    }
-
+ 
     /// Ban peer. Stop peer instance if it is still connected,
     /// and then mark peer as banned in the peer store.
     pub(crate) fn try_ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan) {
         let state = self.state.clone();
         if let Some(peer) = state.tier2.load().ready.get(peer_id) {
-            peer.ban(ban_reason);
+            peer.stop(Some(ban_reason));
         } else {
             warn!(target: "network", ?ban_reason, ?peer_id, "Try to ban a disconnected peer for");
-            // Call `ban_peer` in peer manager to trigger action that persists information
-            // of ban in disk.
-            self.ban_peer(peer_id, ban_reason);
+            if let Err(err) = self.peer_store.peer_ban(&self.clock, peer_id, ban_reason) {
+                error!(target: "network", ?err, "Failed to save peer data");
+            };
         };
     }
 
@@ -809,7 +752,7 @@ impl PeerManagerActor {
                     if *cur_nonce == nonce {
                         if let Some(peer) = act.state.tier2.load().ready.get(&other) {
                             // Send disconnect signal to this peer if we haven't edge update.
-                            peer.unregister();
+                            peer.stop(None);
                         }
                         act.local_peer_pending_update_nonce_request.remove(&other);
                     }
@@ -898,7 +841,7 @@ impl PeerManagerActor {
                 ideal_connections_hi = self.config.ideal_connections_hi,
                 "Stop active connection"
             );
-            p.unregister();
+            p.stop(None);
         }
     }
 
@@ -994,7 +937,7 @@ impl PeerManagerActor {
         if edges.is_empty() {
             return;
         }
-        self.routing_table_addr.do_send(routing::actor::Message::ValidateEdgeList(
+        self.state.routing_table_addr.do_send(routing::actor::Message::ValidateEdgeList(
             ValidateEdgeList {
                 source_peer_id: peer_id,
                 edges,
@@ -1386,24 +1329,6 @@ impl PeerManagerActor {
     }
 
     #[perf]
-    fn handle_msg_unregister(&mut self, msg: Unregister) {
-        let _d = delay_detector::DelayDetector::new(|| "unregister".into());
-        if !msg.remove_from_peer_store {
-            return;
-        }
-        self.remove_connected_peer(&msg.peer_id, Some(msg.peer_type));
-        if let Err(err) = self.peer_store.peer_disconnected(&self.clock, &msg.peer_id) {
-            error!(target: "network", ?err, "Failed to save peer data");
-        };
-    }
-
-    #[perf]
-    fn handle_msg_ban(&mut self, msg: Ban) {
-        let _d = delay_detector::DelayDetector::new(|| "ban".into());
-        self.ban_peer(&msg.peer_id, msg.ban_reason);
-    }
-
-    #[perf]
     fn handle_msg_peers_request(&self, _msg: PeersRequest) -> PeerRequestResult {
         let _d = delay_detector::DelayDetector::new(|| "peers request".into());
         PeerRequestResult {
@@ -1494,11 +1419,13 @@ impl PeerManagerActor {
                 PeerToManagerMsgResp::Empty
             }
             PeerToManagerMsg::Unregister(msg) => {
-                self.handle_msg_unregister(msg);
+                if let Err(err) = self.peer_store.peer_disconnected(&self.clock, &msg.peer_id) {
+                    error!(target: "network", ?err, "Failed to save peer data");
+                }
                 PeerToManagerMsgResp::Empty
             }
             PeerToManagerMsg::Ban(msg) => {
-                self.handle_msg_ban(msg);
+                self.try_ban_peer(&msg.peer_id,msg.ban_reason);
                 PeerToManagerMsgResp::Empty
             }
             PeerToManagerMsg::RequestUpdateNonce(peer_id, edge_info) => {
@@ -1519,7 +1446,7 @@ impl PeerManagerActor {
                         edge_info.signature,
                     );
 
-                    self.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
+                    self.state.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
                     PeerToManagerMsgResp::EdgeUpdate(Box::new(new_edge))
                 } else {
                     PeerToManagerMsgResp::BanPeer(ReasonForBan::InvalidEdge)
@@ -1547,7 +1474,7 @@ impl PeerManagerActor {
                                 }
                             }
                         }
-                        self.add_verified_edges_to_routing_table(vec![edge.clone()]);
+                        self.state.add_verified_edges_to_routing_table(vec![edge.clone()]);
                         PeerToManagerMsgResp::Empty
                     } else {
                         PeerToManagerMsgResp::BanPeer(ReasonForBan::InvalidEdge)

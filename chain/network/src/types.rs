@@ -47,14 +47,6 @@ pub enum PeerType {
     Outbound,
 }
 
-/// Messages from PeerManager to Peer with a tracing Context.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-pub struct PeerManagerRequestWithContext {
-    pub msg: PeerManagerRequest,
-    pub context: opentelemetry::Context,
-}
-
 #[derive(Debug, Clone)]
 pub struct KnownProducer {
     pub account_id: AccountId,
@@ -90,14 +82,6 @@ pub enum ReasonForBan {
 pub struct Ban {
     pub peer_id: PeerId,
     pub ban_reason: ReasonForBan,
-}
-
-/// Messages from PeerManager to Peer
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-pub enum PeerManagerRequest {
-    BanPeer(ReasonForBan),
-    UnregisterPeer,
 }
 
 /// Status of the known peers.
@@ -627,7 +611,6 @@ mod tests {
         assert_size!(PeerIdOrHash);
         assert_size!(KnownPeerStatus);
         assert_size!(ReasonForBan);
-        assert_size!(PeerManagerRequest);
     }
 
     #[test]

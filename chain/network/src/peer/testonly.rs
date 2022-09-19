@@ -5,11 +5,13 @@ use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
 };
+use parking_lot::RwLock;
 use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
+use crate::routing;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::store;
 use crate::testonly::actix::ActixSystem;
@@ -179,7 +181,7 @@ impl PeerHandle {
             let fpm = FakePeerManagerActor { cfg: cfg.clone(), event_sink: send.sink() }.start();
             let fc = fake_client::start(send.sink().compose(Event::Client));
             let store = store::Store::from(near_store::db::TestDB::new());
-            let routing_table_view = RoutingTableView::new(store, cfg.id());
+            let routing_table_view = RoutingTableView::new(store.clone(), cfg.id());
             // WARNING: this is a hack to make PeerActor use a specific nonce
             if let (Some(nonce), Some(peer_id)) = (&cfg.nonce, &cfg.start_handshake_with) {
                 routing_table_view.add_local_edges(&[Edge::new(
@@ -192,6 +194,8 @@ impl PeerHandle {
             }
             let mut network_cfg = cfg.network.clone();
             network_cfg.event_sink = send.sink().compose(Event::Network);
+            let network_graph = Arc::new(RwLock::new(routing::GraphWithCache::new(network_cfg.node_id().clone())));
+            let routing_table_addr = routing::Actor::spawn(clock.clone(),store.clone(),network_graph.clone());
             let network_state = Arc::new(NetworkState::new(
                 &clock,
                 Arc::new(network_cfg.verify().unwrap()),
@@ -199,6 +203,7 @@ impl PeerHandle {
                 fc.clone().recipient(),
                 fc.clone().recipient(),
                 fpm.recipient(),
+                routing_table_addr,
                 routing_table_view,
             ));
             PeerActor::spawn(

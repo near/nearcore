@@ -6,6 +6,7 @@ use crate::stats::metrics;
 use crate::store;
 use crate::time;
 use actix::{
+    Actor as _,
     ActorContext as _, ActorFutureExt, Addr, Context, ContextFutureSpawner as _, Running,
     WrapFuture as _,
 };
@@ -47,7 +48,7 @@ pub(crate) struct Actor {
 }
 
 impl Actor {
-    pub fn new(
+    pub(super) fn new(
         clock: time::Clock,
         store: store::Store,
         graph: Arc<RwLock<routing::GraphWithCache>>,
@@ -63,6 +64,15 @@ impl Actor {
             edge_validator_requests_in_progress: 0,
             edge_validator_pool: actix::SyncArbiter::start(4, || EdgeValidatorActor {}),
         }
+    }
+    
+    pub fn spawn(
+        clock: time::Clock,
+        store: store::Store,
+        graph: Arc<RwLock<routing::GraphWithCache>>,
+    ) -> actix::Addr<Self> {
+        let arbiter = actix::Arbiter::new();
+        Actor::start_in_arbiter(&arbiter.handle(), |_|Self::new(clock,store,graph))
     }
 
     /// Add several edges to the current view of the network.

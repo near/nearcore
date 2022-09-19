@@ -1,7 +1,8 @@
 use crate::accounts_data;
 use crate::config;
+use crate::routing;
 use crate::concurrency::rate;
-use crate::network_protocol::{PartialEdgeInfo, PeerAddr};
+use crate::network_protocol::{PartialEdgeInfo, PeerAddr, Edge};
 use crate::network_protocol::{
     AccountOrPeerIdOrHash, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
     RoutedMessageV2,
@@ -50,6 +51,8 @@ pub(crate) struct NetworkState {
     pub view_client_addr: Recipient<NetworkViewClientMessages>,
     /// Address of the peer manager actor.
     pub peer_manager_addr: Recipient<PeerToManagerMsg>,
+    /// RoutingTableActor, responsible for computing routing table, routing table exchange, etc.
+    pub routing_table_addr: actix::Addr<routing::Actor>,
 
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<ChainInfo>,
@@ -86,9 +89,11 @@ impl NetworkState {
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         peer_manager_addr: Recipient<PeerToManagerMsg>,
+        routing_table_addr: actix::Addr<routing::Actor>,
         routing_table_view: RoutingTableView,
     ) -> Self {
         Self {
+            routing_table_addr,
             genesis_id,
             client_addr,
             view_client_addr,
@@ -181,7 +186,7 @@ impl NetworkState {
         let safe_set: HashSet<_> = safe.values().copied().collect();
         for conn in tier1.ready.values() {
             if !safe_set.contains(&conn.peer_info.id) {
-                conn.unregister();
+                conn.stop(None);
             }
         }
         if is_tier1_validator {
@@ -449,5 +454,13 @@ impl NetworkState {
         } else {
             self.send_message_to_peer(clock, connection::Tier::T2, msg)
         }
+    }
+
+    pub fn add_verified_edges_to_routing_table(&self, edges: Vec<Edge>) {
+        if edges.is_empty() {
+            return;
+        }
+        self.routing_table_view.add_local_edges(&edges);
+        self.routing_table_addr.do_send(routing::actor::Message::AddVerifiedEdges { edges });
     }
 }

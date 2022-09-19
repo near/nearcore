@@ -4,7 +4,7 @@ use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerInfo, PeerMessage, RoutingTableUpdate,
 };
 use crate::peer_manager::connection::{Connection, PoolError};
-use crate::types::{Ban, PeerType, ReasonForBan};
+use crate::types::{Ban, ReasonForBan};
 use conqueue::QueueSender;
 use near_primitives::network::PeerId;
 use std::collections::HashMap;
@@ -81,8 +81,6 @@ pub(crate) enum RegisterPeerResponse {
 #[rtype(result = "()")]
 pub(crate) struct Unregister {
     pub peer_id: PeerId,
-    pub peer_type: PeerType,
-    pub remove_from_peer_store: bool,
 }
 
 /// Requesting peers from peer manager to communicate to a peer.

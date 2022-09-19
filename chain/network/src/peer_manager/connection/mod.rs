@@ -4,11 +4,12 @@ use crate::concurrency::demux;
 use crate::network_protocol::{Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo};
 use crate::network_protocol::{SignedAccountData, SyncAccountsData};
 use crate::peer::peer_actor::PeerActor;
+use crate::peer::peer_actor;
 use crate::private_actix::SendMessage;
 use crate::stats::metrics;
 use crate::time;
 use crate::types::FullPeerInfo;
-use crate::types::{PeerManagerRequest, PeerManagerRequestWithContext, PeerType, ReasonForBan};
+use crate::types::{PeerType, ReasonForBan};
 use near_primitives::network::PeerId;
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
@@ -126,16 +127,9 @@ impl Connection {
         }
     }
 
-    pub fn ban(&self, ban_reason: ReasonForBan) {
-        self.addr.do_send(PeerManagerRequestWithContext {
-            msg: PeerManagerRequest::BanPeer(ban_reason),
-            context: Span::current().context(),
-        });
-    }
-
-    pub fn unregister(&self) {
-        self.addr.do_send(PeerManagerRequestWithContext {
-            msg: PeerManagerRequest::UnregisterPeer,
+    pub fn stop(&self, ban_reason: Option<ReasonForBan>) {
+        self.addr.do_send(peer_actor::Stop{
+            ban_reason,
             context: Span::current().context(),
         });
     }
