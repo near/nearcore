@@ -27,7 +27,7 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    BlockExtra, BlockHeight, BlockHeightDelta, EpochId, GCCount, NumBlocks, ShardId, StateChanges,
+    BlockExtra, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, StateChanges,
     StateChangesExt, StateChangesForSplitStates, StateChangesKinds, StateChangesKindsExt,
     StateChangesRequest,
 };
@@ -1143,7 +1143,6 @@ struct ChainStoreCacheUpdate {
     block_refcounts: HashMap<CryptoHash, u64>,
     block_merkle_tree: HashMap<CryptoHash, Arc<PartialMerkleTree>>,
     block_ordinal_to_hash: HashMap<NumBlocks, CryptoHash>,
-    gc_count: HashMap<DBCol, GCCount>,
     processed_block_heights: HashSet<BlockHeight>,
 }
 
@@ -2075,7 +2074,6 @@ impl<'a> ChainStoreUpdate<'a> {
                                 DBCol::TrieChanges,
                                 &get_block_shard_uid(&block_hash, &shard_uid),
                             );
-                            self.inc_gc_col_state();
                         }
                     }
                 }
@@ -2092,7 +2090,6 @@ impl<'a> ChainStoreUpdate<'a> {
                                 DBCol::TrieChanges,
                                 &get_block_shard_uid(&block_hash, &shard_uid),
                             );
-                            self.inc_gc_col_state();
                         }
                     }
                     // Set `block_hash` on previous one
@@ -2193,14 +2190,6 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    pub fn inc_gc_col_state(&mut self) {
-        self.inc_gc(DBCol::State);
-    }
-
-    fn inc_gc(&mut self, col: DBCol) {
-        self.chain_store_cache_update.gc_count.entry(col).and_modify(|x| *x += 1).or_insert(1);
-    }
-
     pub fn gc_col_block_per_height(
         &mut self,
         block_hash: &CryptoHash,
@@ -2225,7 +2214,6 @@ impl<'a> ChainStoreUpdate<'a> {
             store_update.set_ser(DBCol::BlockPerHeight, key, &epoch_to_hashes)?;
             self.chain_store.block_hash_per_height.put(key.to_vec(), Arc::new(epoch_to_hashes));
         }
-        self.inc_gc(DBCol::BlockPerHeight);
         if self.is_height_processed(height)? {
             self.gc_col(DBCol::ProcessedBlockHeights, key);
         }
@@ -2257,7 +2245,6 @@ impl<'a> ChainStoreUpdate<'a> {
                     let key: Vec<u8> = receipt_id.into();
                     store_update.decrement_refcount(DBCol::ReceiptIdToShardId, &key);
                     self.chain_store.receipt_id_to_shard_id.pop(&key);
-                    self.inc_gc(DBCol::ReceiptIdToShardId);
                 }
             }
             Err(error) => {
@@ -2276,7 +2263,6 @@ impl<'a> ChainStoreUpdate<'a> {
         let key = get_block_shard_id(block_hash, shard_id);
         store_update.delete(DBCol::OutgoingReceipts, &key);
         self.chain_store.outgoing_receipts.pop(&key);
-        self.inc_gc(DBCol::OutgoingReceipts);
         self.merge(store_update);
     }
 
@@ -2309,7 +2295,6 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     fn gc_col(&mut self, col: DBCol, key: &[u8]) {
-        assert!(col.is_gc());
         let mut store_update = self.store().store_update();
         match col {
             DBCol::OutgoingReceipts => {
@@ -2327,7 +2312,8 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
             }
             DBCol::BlockHeader => {
-                // TODO #3488
+                // TODO(#3488) At the moment header sync needs block headers.
+                // However, we want to eventually garbage collect headers.
                 store_update.delete(col, key);
                 self.chain_store.headers.pop(key);
                 unreachable!();
@@ -2420,8 +2406,8 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             DBCol::DbVersion
             | DBCol::BlockMisc
-            | DBCol::GCCount
-            | DBCol::BlockHeight
+            | DBCol::_GCCount
+            | DBCol::BlockHeight  // block sync needs it + genesis should be accessible
             | DBCol::Peers
             | DBCol::BlockMerkleTree
             | DBCol::AccountAnnouncements
@@ -2429,6 +2415,7 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::PeerComponent
             | DBCol::LastComponentNonce
             | DBCol::ComponentEdges
+            // https://github.com/nearprotocol/nearcore/pull/2952
             | DBCol::EpochInfo
             | DBCol::EpochStart
             | DBCol::EpochValidatorInfo
@@ -2445,7 +2432,6 @@ impl<'a> ChainStoreUpdate<'a> {
                 unreachable!();
             }
         }
-        self.inc_gc(col);
         self.merge(store_update);
     }
 
@@ -2885,19 +2871,6 @@ impl<'a> ChainStoreUpdate<'a> {
                 &(),
             )?;
         }
-        for (col, mut gc_count) in self.chain_store_cache_update.gc_count.clone().drain() {
-            if let Ok(Some(value)) = self.store().get_ser::<GCCount>(
-                DBCol::GCCount,
-                &col.try_to_vec().expect("Failed to serialize DBCol"),
-            ) {
-                gc_count += value;
-            }
-            store_update.set_ser(
-                DBCol::GCCount,
-                &col.try_to_vec().expect("Failed to serialize DBCol"),
-                &gc_count,
-            )?;
-        }
         for other in self.store_updates.drain(..) {
             store_update.merge(other);
         }
@@ -2932,7 +2905,6 @@ impl<'a> ChainStoreUpdate<'a> {
 
             outcomes: _,
             outcome_ids: _,
-            gc_count: _,
         } = self.chain_store_cache_update;
         for (hash, block) in blocks {
             self.chain_store.blocks.put(hash.into(), block);
@@ -3021,9 +2993,7 @@ impl<'a> ChainStoreUpdate<'a> {
 mod tests {
     use std::sync::Arc;
 
-    use borsh::BorshSerialize;
     use near_primitives::merkle::PartialMerkleTree;
-    use strum::IntoEnumIterator;
 
     use near_chain_configs::{GCConfig, GenesisConfig};
     use near_crypto::KeyType;
@@ -3031,7 +3001,7 @@ mod tests {
     use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::hash::hash;
-    use near_primitives::types::{BlockHeight, EpochId, GCCount, NumBlocks};
+    use near_primitives::types::{BlockHeight, EpochId, NumBlocks};
     use near_primitives::utils::index_to_bytes;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::create_test_store;
@@ -3302,53 +3272,6 @@ mod tests {
             } else {
                 assert!(chain.get_block(blocks[i].hash()).is_ok());
                 assert!(chain.mut_store().get_all_block_hashes_by_height(i as BlockHeight).is_ok());
-            }
-        }
-
-        let gced_cols = [
-            DBCol::Block,
-            DBCol::OutgoingReceipts,
-            DBCol::IncomingReceipts,
-            DBCol::BlockInfo,
-            DBCol::BlocksToCatchup,
-            DBCol::ChallengedBlocks,
-            DBCol::StateDlInfos,
-            DBCol::BlockExtra,
-            DBCol::BlockPerHeight,
-            DBCol::NextBlockHashes,
-            DBCol::ChunkPerHeightShard,
-            DBCol::BlockRefCount,
-            DBCol::OutcomeIds,
-            DBCol::ChunkExtra,
-        ];
-        for col in DBCol::iter() {
-            println!("current column is {col}");
-            if gced_cols.contains(&col) {
-                // only genesis block includes new chunk.
-                let count = if col == DBCol::OutcomeIds { Some(1) } else { Some(8) };
-                assert_eq!(
-                    chain
-                        .store()
-                        .store
-                        .get_ser::<GCCount>(
-                            DBCol::GCCount,
-                            &col.try_to_vec().expect("Failed to serialize DBCol")
-                        )
-                        .unwrap(),
-                    count
-                );
-            } else {
-                assert_eq!(
-                    chain
-                        .store()
-                        .store
-                        .get_ser::<GCCount>(
-                            DBCol::GCCount,
-                            &col.try_to_vec().expect("Failed to serialize DBCol")
-                        )
-                        .unwrap(),
-                    None
-                );
             }
         }
     }

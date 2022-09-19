@@ -644,7 +644,7 @@ fn col_name(col: DBCol) -> &'static str {
         DBCol::BlockMerkleTree => "col38",
         DBCol::ChunkHashesByHeight => "col39",
         DBCol::BlockOrdinal => "col40",
-        DBCol::GCCount => "col41",
+        DBCol::_GCCount => "col41",
         DBCol::OutcomeIds => "col42",
         DBCol::_TransactionRefCount => "col43",
         DBCol::ProcessedBlockHeights => "col44",
