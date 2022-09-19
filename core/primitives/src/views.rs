@@ -213,6 +213,9 @@ pub struct StateItem {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ViewStateResult {
     pub values: Vec<StateItem>,
+    // TODO(mina86): Empty proof (i.e. sending proof when include_proof is not
+    // set in the request) was deprecated in 1.30.  Add
+    // `#[serde(skip(Vec::if_empty))` at 1.33 or something.
     pub proof: Vec<Arc<[u8]>>,
 }
 
