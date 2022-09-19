@@ -35,7 +35,6 @@ use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::logging;
 use near_primitives::network::PeerId;
-use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
@@ -531,11 +530,6 @@ impl PeerActor {
                             self.clock.now().into(),
                         )
                     }
-                    RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk) => {
-                        NetworkClientMessages::PartialEncodedChunk(PartialEncodedChunk::V1(
-                            partial_encoded_chunk.clone(),
-                        ))
-                    }
                     RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
                         NetworkClientMessages::PartialEncodedChunk(chunk.clone())
                     }
@@ -548,6 +542,7 @@ impl PeerActor {
                     | RoutedMessageBody::TxStatusResponse(_)
                     | RoutedMessageBody::_UnusedQueryRequest
                     | RoutedMessageBody::_UnusedQueryResponse
+                    | RoutedMessageBody::_UnusedPartialEncodedChunk
                     | RoutedMessageBody::ReceiptOutcomeRequest(_)
                     | RoutedMessageBody::_UnusedReceiptOutcomeResponse
                     | RoutedMessageBody::StateRequestHeader(_, _)

@@ -19,6 +19,7 @@ pub use crate::trie::config::TrieConfig;
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 pub use crate::trie::nibble_slice::NibbleSlice;
+pub use crate::trie::prefetching_trie_storage::PrefetchApi;
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
@@ -30,14 +31,14 @@ mod config;
 mod insert_delete;
 pub mod iterator;
 mod nibble_slice;
+mod prefetching_trie_storage;
 mod shard_tries;
 pub mod split_state;
 mod state_parts;
 mod trie_storage;
-pub mod update;
-
 #[cfg(test)]
 mod trie_tests;
+pub mod update;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -875,7 +876,7 @@ impl Trie {
     pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
         let is_delayed = is_delayed_receipt_key(key);
         match &self.flat_state {
-            Some(flat_state) if !is_delayed => flat_state.get_ref(&self.root, &key),
+            Some(flat_state) if !is_delayed => flat_state.get_ref(&key),
             _ => {
                 let key = NibbleSlice::new(key);
                 self.lookup(key)

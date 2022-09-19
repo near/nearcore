@@ -1,5 +1,9 @@
+use crate::StoreConfig;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::types::AccountId;
 use std::collections::HashMap;
+use std::str::FromStr;
+use tracing::error;
 
 /// Default number of cache entries.
 /// It was chosen to fit into RAM well. RAM spend on trie cache should not exceed 50_000 * 4 (number of shards) *
@@ -27,6 +31,12 @@ const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 1000;
 pub struct TrieConfig {
     pub shard_cache_config: ShardCacheConfig,
     pub view_shard_cache_config: ShardCacheConfig,
+    pub enable_receipt_prefetching: bool,
+
+    /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as sender.
+    pub sweat_prefetch_receivers: Vec<AccountId>,
+    /// List of allowed predecessor accounts for SWEAT prefetching.
+    pub sweat_prefetch_senders: Vec<AccountId>,
 }
 
 pub struct ShardCacheConfig {
@@ -45,6 +55,27 @@ pub struct ShardCacheConfig {
 }
 
 impl TrieConfig {
+    pub fn from_config(config: &StoreConfig) -> Self {
+        let mut this = Self::default();
+        this.shard_cache_config
+            .override_max_entries
+            .extend(config.trie_cache_capacities.iter().cloned());
+        this.enable_receipt_prefetching = config.enable_receipt_prefetching;
+        for account in &config.sweat_prefetch_receivers {
+            match AccountId::from_str(account) {
+                Ok(account_id) => this.sweat_prefetch_receivers.push(account_id),
+                Err(e) => error!(target: "config", "invalid account id {account}: {e}"),
+            }
+        }
+        for account in &config.sweat_prefetch_senders {
+            match AccountId::from_str(account) {
+                Ok(account_id) => this.sweat_prefetch_senders.push(account_id),
+                Err(e) => error!(target: "config", "invalid account id {account}: {e}"),
+            }
+        }
+        this
+    }
+
     /// Shard cache capacity in number of trie nodes.
     pub fn shard_cache_capacity(&self, shard_uid: ShardUId, is_view: bool) -> u64 {
         if is_view { &self.view_shard_cache_config } else { &self.shard_cache_config }
