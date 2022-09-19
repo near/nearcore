@@ -21,6 +21,7 @@ num-traits = "0.2.11"
 hex = "0.4.2"
 rayon = "1.5"
 thiserror = "1.0"
+sha2 = "0.10"
 
 borsh = "0.9"
 
@@ -56,3 +57,4 @@ assert_matches = "1.3"
 testlib = { path = "../../test-utils/testlib" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
+near-store = { path = "../../core/store", features = ["test_features"] }

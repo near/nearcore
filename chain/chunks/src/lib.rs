@@ -7,18 +7,20 @@
 //! Currently, X is set to be 1/3 of total validator seats (num_data_parts).
 //!
 //! **How chunks are propagated in the network
-//! Instead sending the full chunk, chunk content is communicated between nodes through
-//! PartialEncodedChunk, which includes the chunk header, some parts and receipts of the chunk.
-//! Full chunk can be reconstructed if a node receives enough chunk parts.
+//! Instead sending the full chunk, chunk content is communicated between nodes
+//! through PartialEncodedChunk, which includes the chunk header, some parts and
+//! receipts of the chunk.  Full chunk can be reconstructed if a node receives
+//! enough chunk parts.
 //! A node receives partial encoded chunks in three ways,
 //! - by requesting it and receiving a PartialEncodedChunkResponse,
-//! - by receiving a PartialEncodedChunk, which is sent from the original chunk producer to the part owners
-//!   after the chunk is produced
-//! - by receiving a PartialEncodedChunkForward, which is sent from part owners to validators who
-//!   track the shard, when a validator first receives a part it owns.
-//!   TODO: this is actually not the current behavior. https://github.com/near/nearcore/issues/5886
-//! Note that last two messages can only be sent from validators to validators, so the only way a
-//! non-validator receives a partial encoded chunk is by requesting it.
+//! - by receiving a PartialEncodedChunk, which is sent from the original chunk
+//!   producer to the part owners after the chunk is produced
+//! - by receiving a PartialEncodedChunkForward, which is sent from part owners
+//!   to validators who track the shard, when a validator first receives a part
+//!   it owns.  TODO(#5886): this is actually not the current behavior.
+//! Note that last two messages can only be sent from validators to validators,
+//! so the only way a non-validator receives a partial encoded chunk is by
+//! requesting it.
 //!
 //! ** Requesting for chunks
 //! `ShardManager` keeps a request pool that stores all requests for chunks that are not completed
@@ -82,7 +84,6 @@ use std::collections::{btree_map, hash_map, BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use borsh::BorshSerialize;
 use chrono::DateTime;
 use near_primitives::time::Utc;
 use rand::seq::IteratorRandom;
@@ -96,7 +97,7 @@ use near_chain::{
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_pool::{PoolIteratorWrapper, TransactionPool};
 use near_primitives::block::Tip;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
@@ -1557,14 +1558,13 @@ impl ShardsManager {
 
         // 2. check protocol version
         let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
-        if !header.version_range().contains(protocol_version) {
-            return if epoch_id_confirmed {
-                Err(Error::InvalidChunkHeader)
-            } else {
-                Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
-            };
+        if header.valid_for(protocol_version) {
+            Ok(())
+        } else if epoch_id_confirmed {
+            Err(Error::InvalidChunkHeader)
+        } else {
+            Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
         }
-        Ok(())
     }
 
     /// Inserts the header if it is not already known, and process the forwarded chunk parts cached
@@ -1694,7 +1694,7 @@ impl ShardsManager {
             // because prev_block_hash may not be ready
             let shard_id = proof.1.to_shard_id;
             let ReceiptProof(shard_receipts, receipt_proof) = proof;
-            let receipt_hash = hash(&ReceiptList(shard_id, shard_receipts).try_to_vec().unwrap());
+            let receipt_hash = CryptoHash::hash_borsh(&ReceiptList(shard_id, shard_receipts));
             if !verify_path(header.outgoing_receipts_root(), &receipt_proof.proof, &receipt_hash) {
                 byzantine_assert!(false);
                 return Err(Error::ChainError(near_chain::Error::InvalidReceiptsProof));

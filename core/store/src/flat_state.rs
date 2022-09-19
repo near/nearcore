@@ -1,57 +1,103 @@
-//! Contains flat state optimization logic.
+//! FlatStorage is created as an additional representation of the state alongside with Tries.
+//! It simply stores a mapping for all key value pairs stored in our Tries (leaves of the trie)
+//! It is used for fast key value look up in the state. Reading a single key/value in trie
+//! requires traversing the trie from the root, loading many nodes from the database. In flat storage,
+//! we store a mapping from keys to value references so that key value lookup will only require two
+//! db accesses - one to get value reference, one to get the value itself. In fact, in the case of small
+//! values, flat storage only needs one read, because value will be stored in the mapping instead of
+//! value ref.
 //!
-//! The state of the contract is a key-value map, `Map<Vec<u8>, Vec<u8>>`.
-//! In the database, we store this map as a trie, which allows us to construct succinct proofs that a certain key/value
-//! belongs to contract's state. Using a trie has a drawback -- reading a single key/value requires traversing the trie
-//! from the root, loading many nodes from the database.
-//! To optimize this, we want to use flat state: alongside the trie, we store a mapping from keys to value
-//! references so that, if you don't need a proof, you can do a db lookup in just two db accesses - one to get value
-//! reference, one to get value itself.
-// TODO (#7327): consider inlining small values, so we could use only one db access.
+//! The main challenge in the flat storage implementation is that we need to able to handle forks,
+//! so the flat storage API must support key value lookups for different blocks.
+//! To achieve that, we store the key value pairs of the state on a block (head of the flat storage)
+//! on disk and also store the change deltas for some other blocks in memory. With these deltas,
+//! we can perform lookups for the other blocks. See comments in `FlatStorageState` to see
+//! which block should be the head of flat storage and which other blocks do flat storage support.
+//!
+//! This file contains the implementation of FlatStorage. It has three essential structs.
+//!
+//! `FlatState`: this provides an interface to get value or value references from flat storage. This
+//!              is the struct that will be stored as part of Trie. All trie reads will be directed
+//!              to the flat state.
+//! `FlatStateFactory`: this is to construct flat state.
+//! `FlatStorageState`: this stores some information about the state of the flat storage itself,
+//!                     for example, all block deltas that are stored in flat storage and a representation
+//!                     of the chain formed by these blocks (because we can't access ChainStore
+//!                     inside flat storage).
+
+#[allow(unused)]
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 #[cfg(feature = "protocol_feature_flat_state")]
 mod imp {
+    use crate::flat_state::{FlatStorageState, POISONED_LOCK_ERR};
     use near_primitives::errors::StorageError;
     use near_primitives::hash::CryptoHash;
     use near_primitives::state::ValueRef;
+    use near_primitives::types::ShardId;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
 
     use crate::Store;
 
     /// Struct for getting value references from the flat storage.
     ///
-    /// Used to speed up `get` and `get_ref` trie methods.  It should store all
-    /// trie keys for state on top of chain head, except delayed receipt keys,
+    /// The main interface is the `get_ref` method, which is called in `Trie::get`
+    /// `Trie::get_ref`
     /// because they are the same for each shard and they are requested only
     /// once during applying chunk.
-    // TODO (#7327): implement flat state deltas to support forks.
-    // TODO (#7327): store on top of final head (or earlier) so updates will
-    // only go forward.
+    // TODO (#7327): lock flat state when `get_ref` is called or head is being updated. Otherwise, `apply_chunks` and
+    // `postprocess_block` parallel execution may corrupt the state.
     #[derive(Clone)]
     pub struct FlatState {
+        /// Used to access flat state stored at the head of flat storage.
+        /// It should store all trie keys and values/value refs for the state on top of
+        /// flat_storage_state.head, except for delayed receipt keys.
         store: Store,
+        /// The block for which key-value pairs of its state will be retrieved.
+        block_hash: CryptoHash,
+        /// In-memory cache for the key value pairs stored on disk.
+        #[allow(unused)]
+        cache: FlatStateCache,
+        /// Stores the state of the flat storage, for example, where the head is at and which
+        /// blocks' state are stored in flat storage.
+        #[allow(unused)]
+        flat_storage_state: FlatStorageState,
+    }
+
+    #[derive(Clone)]
+    struct FlatStateCache {
+        // TODO: add implementation
     }
 
     impl FlatState {
-        fn get_raw_ref(&self, key: &[u8]) -> Result<Option<crate::db::DBSlice<'_>>, StorageError> {
-            return self
+        /// Returns value reference using raw trie key, taken from the state
+        /// corresponding to `FlatState::block_hash`.
+        ///
+        /// To avoid duplication, we don't store values themselves in flat state,
+        /// they are stored in `DBCol::State`. Also the separation is done so we
+        /// could charge users for the value length before loading the value.
+        // TODO (#7327): support different roots (or block hashes).
+        // TODO (#7327): consider inlining small values, so we could use only one db access.
+        pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
+            // Take deltas ordered from `self.block_hash` to flat state head.
+            // In other words, order of deltas is the opposite of the order of blocks in chain.
+            let deltas = self.flat_storage_state.get_deltas_between_blocks(&self.block_hash)?;
+            for delta in deltas {
+                // If we found a key in delta, we can return a value because it is the most recent key update.
+                match delta.get(key) {
+                    Some(value_ref) => {
+                        return Ok(value_ref);
+                    }
+                    None => {}
+                };
+            }
+
+            let raw_ref = self
                 .store
                 .get(crate::DBCol::FlatState, key)
                 .map_err(|_| StorageError::StorageInternalError);
-        }
-
-        /// Returns value reference using raw trie key and state root.
-        ///
-        /// We assume that flat state contains data for this root.  To avoid
-        /// duplication, we don't store values themselves in flat state, they
-        /// are stored in `DBCol::State`. Also the separation is done so we
-        /// could charge users for the value length before loading the value.
-        // TODO (#7327): support different roots (or block hashes).
-        pub fn get_ref(
-            &self,
-            _root: &CryptoHash,
-            key: &[u8],
-        ) -> Result<Option<ValueRef>, StorageError> {
-            match self.get_raw_ref(key)? {
+            match raw_ref? {
                 Some(bytes) => ValueRef::decode(&bytes)
                     .map(Some)
                     .map_err(|_| StorageError::StorageInternalError),
@@ -60,21 +106,99 @@ mod imp {
         }
     }
 
-    /// Possibly creates a new [`FlateState`] object backed by given storage.
-    ///
-    /// Always returns `None` if the `protocol_feature_flat_state` Cargo feature is
-    /// not enabled.  Otherwise, returns a new [`FlatState`] object backed by
-    /// specified storage if `use_flat_state` argument is true.
-    pub fn maybe_new(use_flat_state: bool, store: &Store) -> Option<FlatState> {
-        use_flat_state.then(|| FlatState { store: store.clone() })
+    /// `FlatStateFactory` provides a way to construct new flat state to pass to new tries.
+    /// It is owned by NightshadeRuntime, and thus can be owned by multiple threads, so the implementation
+    /// must be thread safe.
+    #[derive(Clone)]
+    pub struct FlatStateFactory(Arc<FlatStateFactoryInner>);
+
+    pub struct FlatStateFactoryInner {
+        store: Store,
+        caches: Mutex<HashMap<ShardId, FlatStateCache>>,
+        /// Here we store the flat_storage_state per shard. The reason why we don't use the same
+        /// FlatStorageState for all shards is that there are two modes of block processing,
+        /// normal block processing and block catchups. Since these are performed on different range
+        /// of blocks, we need flat storage to be able to support different range of blocks
+        /// on different shards. So we simply store a different state for each shard.
+        /// This may cause some overhead because the data like shards that the node is processing for
+        /// this epoch can share the same `head` and `tail`, similar for shards for the next epoch,
+        /// but such overhead is negligible comparing the delta sizes, so we think it's ok.
+        flat_storage_states: Mutex<HashMap<ShardId, FlatStorageState>>,
+    }
+
+    impl FlatStateFactory {
+        pub fn new(store: Store) -> Self {
+            Self(Arc::new(FlatStateFactoryInner {
+                store,
+                caches: Default::default(),
+                flat_storage_states: Default::default(),
+            }))
+        }
+
+        /// Creates `FlatState` for accessing flat storage data for particular shard and the given block.
+        /// If flat state feature was not enabled (see parallel implementation below), request was made from view client
+        /// or block was not provided, returns None.
+        pub fn new_flat_state_for_shard(
+            &self,
+            shard_id: ShardId,
+            block_hash: Option<CryptoHash>,
+            is_view: bool,
+        ) -> Option<FlatState> {
+            let block_hash = match block_hash {
+                Some(block_hash) => block_hash,
+                None => {
+                    return None;
+                }
+            };
+
+            if is_view {
+                // TODO: Technically, like TrieCache, we should have a separate set of caches for Client and
+                // ViewClient. Right now, we can get by by not enabling flat state for view trie
+                None
+            } else {
+                let cache = {
+                    let mut caches = self.0.caches.lock().expect(POISONED_LOCK_ERR);
+                    caches.entry(shard_id).or_insert_with(|| FlatStateCache {}).clone()
+                };
+                // TODO: initialize flat storage states correctly, the current FlatStorageState function
+                // doesn't take any argument
+                let flat_storage_state = match self.get_flat_storage_state_for_shard(shard_id) {
+                    Some(flat_storage_state) => flat_storage_state,
+                    None => {
+                        return None;
+                    }
+                };
+                Some(FlatState {
+                    store: self.0.store.clone(),
+                    block_hash,
+                    cache,
+                    flat_storage_state,
+                })
+            }
+        }
+
+        pub fn get_flat_storage_state_for_shard(
+            &self,
+            shard_id: ShardId,
+        ) -> Option<FlatStorageState> {
+            let mut flat_storage_states =
+                self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
+            Some(
+                flat_storage_states
+                    .entry(shard_id)
+                    .or_insert_with(|| FlatStorageState::new(self.0.store.clone(), shard_id))
+                    .clone(),
+            )
+        }
     }
 }
 
 #[cfg(not(feature = "protocol_feature_flat_state"))]
 mod imp {
-    use near_primitives::hash::CryptoHash;
-
+    use crate::flat_state::FlatStorageState;
     use crate::Store;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::types::ShardId;
 
     /// Since this has no variants it can never be instantiated.
     ///
@@ -83,17 +207,309 @@ mod imp {
     pub enum FlatState {}
 
     impl FlatState {
-        pub fn get_ref(&self, _root: &CryptoHash, _key: &[u8]) -> ! {
+        pub fn get_ref(&self, _key: &[u8]) -> ! {
             match *self {}
         }
     }
 
-    /// Always returns `None`; to use of flat state enable
-    /// `protocol_feature_flat_state` cargo feature.
-    #[inline]
-    pub fn maybe_new(_use_flat_state: bool, _store: &Store) -> Option<FlatState> {
-        None
+    #[derive(Clone)]
+    pub struct FlatStateFactory {}
+
+    impl FlatStateFactory {
+        pub fn new(_store: Store) -> Self {
+            Self {}
+        }
+
+        pub fn new_flat_state_for_shard(
+            &self,
+            _shard_id: ShardId,
+            _block_hash: Option<CryptoHash>,
+            _is_view: bool,
+        ) -> Option<FlatState> {
+            None
+        }
+
+        pub fn get_flat_storage_state_for_shard(
+            &self,
+            _shard_id: ShardId,
+        ) -> Option<FlatStorageState> {
+            None
+        }
     }
 }
 
-pub use imp::{maybe_new, FlatState};
+use borsh::{BorshDeserialize, BorshSerialize};
+
+use crate::{CryptoHash, Store, StoreUpdate};
+pub use imp::{FlatState, FlatStateFactory};
+use near_primitives::state::ValueRef;
+use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey, ShardId};
+use std::collections::HashMap;
+
+#[derive(BorshSerialize, BorshDeserialize)]
+pub struct KeyForFlatStateDelta {
+    pub shard_id: ShardId,
+    pub block_hash: CryptoHash,
+}
+
+/// Delta of the state for some shard and block, stores mapping from keys to value refs or None, if key was removed in
+/// this block.
+#[derive(BorshSerialize, BorshDeserialize)]
+pub struct FlatStateDelta(pub HashMap<Vec<u8>, Option<ValueRef>>);
+
+impl FlatStateDelta {
+    pub fn new() -> Self {
+        Self(HashMap::new())
+    }
+
+    /// Returns `Some(Option<ValueRef>)` from delta for the given key. If key is not present, returns None.
+    pub fn get(&self, key: &[u8]) -> Option<Option<ValueRef>> {
+        self.0.get(key).cloned()
+    }
+
+    /// Creates delta using raw state changes for some block.
+    pub fn from_state_changes(changes: &[RawStateChangesWithTrieKey]) -> Self {
+        let mut delta = HashMap::new();
+        for change in changes.iter() {
+            let key = change.trie_key.to_vec();
+            if near_primitives::state_record::is_delayed_receipt_key(&key) {
+                continue;
+            }
+
+            // `RawStateChangesWithTrieKey` stores all sequential changes for a key within a chunk, so it is sufficient
+            // to take only the last change.
+            let last_change = &change
+                .changes
+                .last()
+                .expect("Committed entry should have at least one change")
+                .data;
+            match last_change {
+                Some(value) => {
+                    delta.insert(key, Some(near_primitives::state::ValueRef::new(value)))
+                }
+                None => delta.insert(key, None),
+            };
+        }
+        Self(delta)
+    }
+
+    /// Applies delta to the flat state.
+    #[cfg(feature = "protocol_feature_flat_state")]
+    pub fn apply_to_flat_state(self, store_update: &mut StoreUpdate) {
+        for (key, value) in self.0.into_iter() {
+            match value {
+                Some(value) => {
+                    store_update
+                        .set_ser(crate::DBCol::FlatState, &key, &value)
+                        .expect("Borsh cannot fail");
+                }
+                None => {
+                    store_update.delete(crate::DBCol::FlatState, &key);
+                }
+            }
+        }
+    }
+
+    #[cfg(not(feature = "protocol_feature_flat_state"))]
+    pub fn apply_to_flat_state(self, _store_update: &mut StoreUpdate) {}
+}
+
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_primitives::block_header::BlockHeader;
+use std::sync::{Arc, RwLock};
+
+/// FlatStorageState stores information on which blocks flat storage current supports key lookups on.
+/// Note that this struct is shared by multiple threads, the chain thread, threads that apply chunks,
+/// and view client, so the implementation here must be thread safe and must have interior mutability,
+/// thus all methods in this class are with &self intead of &mut self.
+#[derive(Clone)]
+pub struct FlatStorageState(Arc<RwLock<FlatStorageStateInner>>);
+
+/// Max number of blocks that flat storage can keep
+/// FlatStorage will only support blocks at height [tail_height, tail_height + FLAT_STORAGE_MAX_BLOCKS).
+/// Since there is at most one block at each height, flat storage will keep at most FLAT_STORAGE_MAX_BLOCKS
+/// of block deltas in memory.
+#[allow(unused)]
+const FLAT_STORAGE_MAX_BLOCKS: u64 = 16;
+
+struct FlatStorageStateInner {
+    #[allow(unused)]
+    store: Store,
+    /// Id of the shard which state is accessed by this flat storage.
+    #[allow(unused)]
+    shard_id: ShardId,
+    /// The block for which we store the key value pairs of its state. Note that it is not necessarily
+    /// the latest block.
+    #[allow(unused)]
+    head: CryptoHash,
+    /// This is the oldest block that whose state is supported by flat storage. In normal block
+    /// processing mode, this should be the latest final block.
+    #[allow(unused)]
+    tail: CryptoHash,
+    #[allow(unused)]
+    tail_height: BlockHeight,
+    /// A mapping from all blocks in flat storage to its previous block hash. This is needed because
+    /// we don't have access to ChainStore inside this class (because ChainStore is not thread safe),
+    /// so we store a representation of the chain formed by the blocks in flat storage.
+    #[allow(unused)]
+    prev_blocks: HashMap<CryptoHash, CryptoHash>,
+    /// State deltas for all blocks supported by this flat storage.
+    /// All these deltas here are stored on disk too.
+    #[allow(unused)]
+    deltas: HashMap<CryptoHash, FlatStateDelta>,
+}
+
+impl FlatStorageState {
+    #[allow(unused)]
+    fn new(store: Store, shard_id: ShardId) -> Self {
+        // TODO: implement this correctly
+        Self(Arc::new(RwLock::new(FlatStorageStateInner {
+            store,
+            shard_id,
+            head: Default::default(),
+            tail: Default::default(),
+            tail_height: 0,
+            prev_blocks: Default::default(),
+            deltas: Default::default(),
+        })))
+    }
+
+    /// Get deltas for blocks, ordered from `self.block_hash` to flat state head (backwards chain order).
+    /// If sequence of deltas contains final block, head is moved to this block and all deltas until new head are
+    /// applied to flat state.
+    // TODO (#7327): move updating flat state head to block postprocessing.
+    // TODO (#7327): come up how the flat state head and tail should be positioned.
+    // TODO (#7327): implement garbage collection of old deltas.
+    // TODO (#7327): cache deltas to speed up multiple DB reads.
+    #[cfg(feature = "protocol_feature_flat_state")]
+    fn get_deltas_between_blocks(
+        &self,
+        target_block_hash: &CryptoHash,
+    ) -> Result<Vec<FlatStateDelta>, crate::StorageError> {
+        let guard = self.0.write().expect(POISONED_LOCK_ERR);
+        let flat_state_head: CryptoHash = guard
+            .store
+            .get_ser(crate::DBCol::FlatStateMisc, &guard.shard_id.try_to_vec().unwrap())
+            .map_err(|_| crate::StorageError::StorageInternalError)?
+            .expect("Borsh cannot fail");
+
+        let block_header: BlockHeader = guard
+            .store
+            .get_ser(crate::DBCol::BlockHeader, target_block_hash.as_ref())
+            .map_err(|_| crate::StorageError::StorageInternalError)?
+            .unwrap();
+        let final_block_hash = block_header.last_final_block().clone();
+
+        let mut block_hash = target_block_hash.clone();
+        let mut deltas = vec![];
+        let mut deltas_to_apply = vec![];
+        let mut found_final_block = false;
+        while block_hash != flat_state_head {
+            if block_hash == final_block_hash {
+                assert!(!found_final_block);
+                found_final_block = true;
+            }
+
+            let key = KeyForFlatStateDelta { shard_id: guard.shard_id, block_hash };
+            let delta: Option<FlatStateDelta> = guard
+                .store
+                .get_ser(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap())
+                .map_err(|_| crate::StorageError::StorageInternalError)?;
+            match delta {
+                Some(delta) => {
+                    if found_final_block {
+                        deltas_to_apply.push(delta);
+                    } else {
+                        deltas.push(delta);
+                    }
+                }
+                None => {}
+            }
+
+            let block_header: BlockHeader = guard
+                .store
+                .get_ser(crate::DBCol::BlockHeader, block_hash.as_ref())
+                .map_err(|_| crate::StorageError::StorageInternalError)?
+                .unwrap();
+            block_hash = block_header.prev_hash().clone();
+        }
+
+        let storage = guard.store.storage.clone();
+        std::mem::drop(guard);
+
+        if found_final_block {
+            let mut store_update = StoreUpdate::new(storage);
+            for delta in deltas_to_apply.drain(..).rev() {
+                delta.apply_to_flat_state(&mut store_update);
+            }
+            match self.update_head(&final_block_hash) {
+                Some(new_store_update) => {
+                    store_update.merge(new_store_update);
+                }
+                None => {}
+            };
+            store_update.commit().map_err(|_| crate::StorageError::StorageInternalError)?
+        }
+        Ok(deltas)
+    }
+
+    #[cfg(not(feature = "protocol_feature_flat_state"))]
+    #[allow(unused)]
+    fn get_deltas_between_blocks(
+        &self,
+        _target_block_hash: &CryptoHash,
+    ) -> Result<Vec<FlatStateDelta>, crate::StorageError> {
+        Ok(vec![])
+    }
+
+    // Update the head of the flat storage, this might require updating the flat state stored on disk.
+    // Returns a StoreUpdate for the disk update if there is any
+    #[cfg(feature = "protocol_feature_flat_state")]
+    pub fn update_head(&self, new_head: &CryptoHash) -> Option<StoreUpdate> {
+        let guard = self.0.write().expect(POISONED_LOCK_ERR);
+        let mut store_update = StoreUpdate::new(guard.store.storage.clone());
+        store_update
+            .set_ser(crate::DBCol::FlatStateMisc, &guard.shard_id.try_to_vec().unwrap(), new_head)
+            .expect("Borsh cannot fail");
+        Some(store_update)
+    }
+
+    #[cfg(not(feature = "protocol_feature_flat_state"))]
+    pub fn update_head(&self, _new_head: &CryptoHash) -> Option<StoreUpdate> {
+        None
+    }
+
+    // Update the tail of the flat storage, remove the deltas between the old tail and the new tail
+    // both in memory and on disk
+    // Return a StoreUpdate for the disk update if there is any
+    #[allow(unused)]
+    pub fn update_tail(&self, _new_tail: &CryptoHash) -> Option<StoreUpdate> {
+        // TODO:
+        None
+    }
+
+    /// Adds a delta for a block to flat storage, returns a StoreUpdate.
+    #[cfg(feature = "protocol_feature_flat_state")]
+    pub fn add_delta(
+        &self,
+        block_hash: &CryptoHash,
+        delta: FlatStateDelta,
+    ) -> Result<Option<StoreUpdate>, crate::StorageError> {
+        let guard = self.0.write().expect(POISONED_LOCK_ERR);
+        let mut store_update = StoreUpdate::new(guard.store.storage.clone());
+        let key = KeyForFlatStateDelta { shard_id: guard.shard_id, block_hash: block_hash.clone() };
+        store_update
+            .set_ser(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap(), &delta)
+            .map_err(|_| crate::StorageError::StorageInternalError)?;
+        Ok(Some(store_update))
+    }
+
+    #[cfg(not(feature = "protocol_feature_flat_state"))]
+    pub fn add_delta(
+        &self,
+        _block_hash: &CryptoHash,
+        _delta: FlatStateDelta,
+    ) -> Result<Option<StoreUpdate>, crate::StorageError> {
+        Ok(None)
+    }
+}

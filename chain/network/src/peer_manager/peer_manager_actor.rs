@@ -216,7 +216,7 @@ impl Actor for PeerManagerActor {
                             // we would like to exchange set of connected peers even without establishing
                             // a proper connection.
                             debug!(target: "network", from = ?client_addr, "got new connection");
-                            state.spawn_inbound(&clock, conn).await;
+                            state.clone().spawn_inbound(&clock, conn).await;
                         }
                     }
                 }
@@ -1314,7 +1314,10 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
-                if self.send_message_to_account(&account_id, partial_encoded_chunk.into()) {
+                if self.send_message_to_account(
+                    &account_id,
+                    RoutedMessageBody::VersionedPartialEncodedChunk(partial_encoded_chunk.into()),
+                ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
