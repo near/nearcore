@@ -90,7 +90,7 @@ pub trait Database: Sync + Send {
     /// will not be decoded or stripped from the value.  Similarly, cells with
     /// non-positive reference count will be returned as existing.
     ///
-    /// You most likely will want to use [`refcount::get_with_rc_logic`] to
+    /// You most likely will want to use [`Self::get_with_rc_stripped`] to
     /// properly handle reference-counted columns.
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>>;
 

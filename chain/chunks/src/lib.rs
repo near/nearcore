@@ -7,18 +7,20 @@
 //! Currently, X is set to be 1/3 of total validator seats (num_data_parts).
 //!
 //! **How chunks are propagated in the network
-//! Instead sending the full chunk, chunk content is communicated between nodes through
-//! PartialEncodedChunk, which includes the chunk header, some parts and receipts of the chunk.
-//! Full chunk can be reconstructed if a node receives enough chunk parts.
+//! Instead sending the full chunk, chunk content is communicated between nodes
+//! through PartialEncodedChunk, which includes the chunk header, some parts and
+//! receipts of the chunk.  Full chunk can be reconstructed if a node receives
+//! enough chunk parts.
 //! A node receives partial encoded chunks in three ways,
 //! - by requesting it and receiving a PartialEncodedChunkResponse,
-//! - by receiving a PartialEncodedChunk, which is sent from the original chunk producer to the part owners
-//!   after the chunk is produced
-//! - by receiving a PartialEncodedChunkForward, which is sent from part owners to validators who
-//!   track the shard, when a validator first receives a part it owns.
-//!   TODO: this is actually not the current behavior. https://github.com/near/nearcore/issues/5886
-//! Note that last two messages can only be sent from validators to validators, so the only way a
-//! non-validator receives a partial encoded chunk is by requesting it.
+//! - by receiving a PartialEncodedChunk, which is sent from the original chunk
+//!   producer to the part owners after the chunk is produced
+//! - by receiving a PartialEncodedChunkForward, which is sent from part owners
+//!   to validators who track the shard, when a validator first receives a part
+//!   it owns.  TODO(#5886): this is actually not the current behavior.
+//! Note that last two messages can only be sent from validators to validators,
+//! so the only way a non-validator receives a partial encoded chunk is by
+//! requesting it.
 //!
 //! ** Requesting for chunks
 //! `ShardManager` keeps a request pool that stores all requests for chunks that are not completed

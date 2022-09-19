@@ -61,8 +61,9 @@ impl Trie {
         Ok(())
     }
 
-    /// Part part_id has nodes with paths [ path(part_id) .. path(part_id + 1) )
-    /// path is returned as nibbles, last path is vec![16], previous paths end in nodes
+    /// Part part_id has nodes with paths `[path(part_id), path(part_id + 1))`
+    /// path is returned as nibbles, last path is `vec![16]`, previous paths end
+    /// in nodes
     pub(crate) fn find_path_for_part_boundary(
         &self,
         part_id: u64,

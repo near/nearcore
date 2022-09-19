@@ -76,9 +76,9 @@ impl RateLimit {
     }
 }
 
-/// A demux handler should be in practice of type [Arg;n] -> [Res;n] for arbitrary n.
-/// We approximate that by a function Vec<Arg> -> Vec<Res>. If the sizes do not match,
-/// demux will panic.
+/// A demux handler should be in practice of type `[Arg; n]` → `[Res; n]` for
+/// arbitrary `n`.  We approximate that by a function `Vec<Arg>` → `Vec<Res>`.
+/// If the sizes do not match, demux will panic.
 type Handler<Arg, Res> = BoxAsyncFn<Vec<Arg>, Vec<Res>>;
 
 struct Call<Arg, Res> {

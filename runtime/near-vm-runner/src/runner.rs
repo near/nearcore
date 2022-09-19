@@ -14,17 +14,20 @@ use crate::vm_kind::VMKind;
 
 /// Validate and run the specified contract.
 ///
-/// This is the entry point for executing a NEAR protocol contract. Before the entry point (as
-/// specified by the `method_name` argument) of the contract code is executed, the contract will be
-/// validated (see [`prepare::prepare_contract`]), instrumented (e.g. for gas accounting), and
-/// linked with the externs specified via the `ext` argument.
+/// This is the entry point for executing a NEAR protocol contract. Before the
+/// entry point (as specified by the `method_name` argument) of the contract
+/// code is executed, the contract will be validated (see
+/// [`crate::prepare::prepare_contract`]), instrumented (e.g. for gas
+/// accounting), and linked with the externs specified via the `ext` argument.
 ///
-/// [`VMContext::input`] will be passed to the contract entrypoint as an argument.
+/// [`VMContext::input`] will be passed to the contract entrypoint as an
+/// argument.
 ///
-/// The contract will be executed with the default VM implementation for the current protocol
-/// version. In order to specify a different VM implementation call [`run_vm`] instead.
+/// The contract will be executed with the default VM implementation for the
+/// current protocol version.
 ///
-/// The gas cost for contract preparation will be subtracted by the VM implementation.
+/// The gas cost for contract preparation will be subtracted by the VM
+/// implementation.
 pub fn run(
     code: &ContractCode,
     method_name: &str,
@@ -69,14 +72,18 @@ pub fn run(
 pub trait VM {
     /// Validate and run the specified contract.
     ///
-    /// This is the entry point for executing a NEAR protocol contract. Before the entry point (as
-    /// specified by the `method_name` argument) of the contract code is executed, the contract
-    /// will be validated (see [`prepare::prepare_contract`]), instrumented (e.g. for gas
-    /// accounting), and linked with the externs specified via the `ext` argument.
+    /// This is the entry point for executing a NEAR protocol contract. Before
+    /// the entry point (as specified by the `method_name` argument) of the
+    /// contract code is executed, the contract will be validated (see
+    /// [`crate::prepare::prepare_contract`]), instrumented (e.g. for gas
+    /// accounting), and linked with the externs specified via the `ext`
+    /// argument.
     ///
-    /// [`VMContext::input`] will be passed to the contract entrypoint as an argument.
+    /// [`VMContext::input`] will be passed to the contract entrypoint as an
+    /// argument.
     ///
-    /// The gas cost for contract preparation will be subtracted by the VM implementation.
+    /// The gas cost for contract preparation will be subtracted by the VM
+    /// implementation.
     fn run(
         &self,
         code: &ContractCode,
@@ -89,10 +96,12 @@ pub trait VM {
         cache: Option<&dyn CompiledContractCache>,
     ) -> VMResult;
 
-    /// Precompile a WASM contract to a VM specific format and store the result into the `cache`.
+    /// Precompile a WASM contract to a VM specific format and store the result
+    /// into the `cache`.
     ///
-    /// Further calls to [`Runtime::run`] or [`Runtime::precompile`] with the same `code`, `cache`
-    /// and [`VMConfig`] may reuse the results of this precompilation step.
+    /// Further calls to [`Self::run`] or [`Self::precompile`] with the same
+    /// `code`, `cache` and [`VMConfig`] may reuse the results of this
+    /// precompilation step.
     fn precompile(
         &self,
         code: &[u8],
@@ -100,14 +109,14 @@ pub trait VM {
         cache: &dyn CompiledContractCache,
     ) -> Option<VMError>;
 
-    /// Verify the `code` contract can be compiled with this [`Runtime`].
+    /// Verify the `code` contract can be compiled with this `VM`.
     ///
     /// This is intended primarily for testing purposes.
     fn check_compile(&self, code: &[u8]) -> bool;
 }
 
 impl VMKind {
-    /// Make a [`Runtime`] for this [`VMKind`].
+    /// Make a [`VM`] for this [`VMKind`].
     ///
     /// This is not intended to be used by code other than internal tools like
     /// the estimator.

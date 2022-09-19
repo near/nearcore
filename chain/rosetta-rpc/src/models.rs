@@ -1064,7 +1064,7 @@ impl TransactionIdentifier {
     /// Returns an identifier for block events constructed as <prefix>:<hash>.
     ///
     /// Note: If constructing identifiers for transactions or receipts, use
-    /// [`transaction`] or [`receipt`] methods instead.
+    /// [`Self::transaction`] or [`Self::receipt`] methods instead.
     pub(crate) fn block_event(
         prefix: &'static str,
         block_hash: &near_primitives::hash::CryptoHash,
@@ -1142,9 +1142,9 @@ impl TryFrom<&PublicKey> for near_crypto::PublicKey {
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum CurveType {
-    /// `y (255-bits) || x-sign-bit (1-bit)` - `32 bytes` (https://ed25519.cr.yp.to/ed25519-20110926.pdf)
+    /// `y (255-bits) || x-sign-bit (1-bit)` - 32 bytes (<https://ed25519.cr.yp.to/ed25519-20110926.pdf>)
     Edwards25519,
-    /// SEC compressed - `33 bytes` (https://secg.org/sec1-v2.pdf#subsubsection.2.3.3)
+    /// SEC compressed - 33 bytes (<https://secg.org/sec1-v2.pdf#subsubsection.2.3.3>)
     Secp256k1,
 }
 

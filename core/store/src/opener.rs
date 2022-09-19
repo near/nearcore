@@ -15,7 +15,7 @@ pub struct StoreOpener<'a> {
     /// Path to the database.
     ///
     /// This is resolved from nearcore home directory and store configuration
-    /// passed to [`NodeStorage::opener`].
+    /// passed to [`crate::NodeStorage::opener`].
     path: std::path::PathBuf,
 
     /// Configuration as provided by the user.

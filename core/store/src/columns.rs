@@ -20,11 +20,11 @@ use std::fmt;
 )]
 pub enum DBCol {
     /// Column to indicate which version of database this is.
-    /// - *Rows*: single row [VERSION_KEY]
+    /// - *Rows*: single row `"VERSION"`
     /// - *Content type*: The version of the database (u32), serialized as JSON.
     DbVersion,
     /// Column that store Misc cells.
-    /// - *Rows*: multiple, for example "GENESIS_JSON_HASH", "HEAD_KEY", [LATEST_KNOWN_KEY] etc.
+    /// - *Rows*: multiple, for example `"GENESIS_JSON_HASH"`, `"HEAD_KEY"`, `"LATEST_KNOWN_KEY"` etc.
     /// - *Content type*: cell specific.
     BlockMisc,
     /// Column that stores Block content.
@@ -45,12 +45,12 @@ pub enum DBCol {
     State,
     /// Mapping from BlockChunk to ChunkExtra
     /// - *Rows*: BlockChunk (block_hash, shard_uid)
-    /// - *Content type*: [near_primitives::types::ChunkExtra]
+    /// - *Content type*: [near_primitives::types::chunk_extra::ChunkExtra]
     ChunkExtra,
     /// Mapping from transaction outcome id (CryptoHash) to list of outcome ids with proofs.
     /// Multiple outcomes can arise due to forks.
     /// - *Rows*: outcome id (CryptoHash)
-    /// - *Content type*: Vec of [near_primitives::transactions::ExecutionOutcomeWithIdAndProof]
+    /// - *Content type*: Vec of [near_primitives::transaction::ExecutionOutcomeWithIdAndProof]
     TransactionResult,
     /// Mapping from Block + Shard to list of outgoing receipts.
     /// - *Rows*: block + shard
@@ -67,11 +67,11 @@ pub enum DBCol {
     Peers,
     /// Mapping from EpochId to EpochInfo
     /// - *Rows*: EpochId (CryptoHash)
-    /// - *Content type*: [near_primitives::epoch_manager::EpochInfo]
+    /// - *Content type*: [near_primitives::epoch_manager::epoch_info::EpochInfo]
     EpochInfo,
     /// Mapping from BlockHash to BlockInfo
     /// - *Rows*: BlockHash (CryptoHash)
-    /// - *Content type*: [near_primitives::epoch_manager::BlockInfo]
+    /// - *Content type*: [near_primitives::epoch_manager::block_info::BlockInfo]
     BlockInfo,
     /// Mapping from ChunkHash to ShardChunk.
     /// - *Rows*: ChunkHash (CryptoHash)
@@ -293,8 +293,9 @@ impl DBCol {
     /// but 'increment_refcount' and `decrement_refcount` instead.
     ///
     /// Under the hood, we’re using custom merge operator (see
-    /// [`RocksDB::refcount_merge`]) to properly ‘join’ the refcounted cells.
-    /// This means that the 'value' for a given key must never change.
+    /// [`crate::db::RocksDB::refcount_merge`]) to properly ‘join’ the
+    /// refcounted cells.  This means that the 'value' for a given key must
+    /// never change.
     ///
     /// Example:
     ///
