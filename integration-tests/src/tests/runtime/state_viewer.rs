@@ -199,10 +199,10 @@ fn assert_view_state(
         .map(|(key, value)| StateItem { key: key.to_vec(), value: value.to_vec(), proof: vec![] })
         .collect::<Vec<_>>();
 
-    // Test without proof
     let view_state =
         |include_proof| trie_viewer.view_state(&state_update, &alice, prefix, include_proof);
 
+    // Test without proof
     let result = view_state(false).unwrap();
     assert_eq!(values, result.values);
     assert_eq!(Vec::<Arc<[u8]>>::new(), result.proof);
