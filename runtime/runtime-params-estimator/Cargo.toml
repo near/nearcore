@@ -39,7 +39,13 @@ near-primitives = { path = "../../core/primitives" }
 near-o11y = { path = "../../core/o11y" }
 
 nearcore = { path = "../../nearcore" }
-rocksdb = { version = "0.18.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib"] }
+rocksdb = { version = "0.18.0", default-features = false, features = [
+  "snappy",
+  "lz4",
+  "zstd",
+  "zlib",
+  "jemalloc",
+] }
 walrus = "0.18.0"
 hex = "0.4"
 cfg-if = "1"
