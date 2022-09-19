@@ -6,7 +6,8 @@ pub const DB_VERSION: DbVersion = 31;
 
 /// Deserialises database version from data read from database.
 ///
-/// This is an inverse of [`serialise`].
+/// The data is first converted to a string (i.e. verified if it’s UTF-8) and
+/// then into a number.
 fn deserialise(bytes: &[u8]) -> Result<DbVersion, String> {
     let value =
         std::str::from_utf8(bytes).map_err(|_err| format!("invalid DbVersion: {bytes:x?}"))?;

@@ -812,7 +812,7 @@ pub(crate) fn view_trie(
     let shard_uid = ShardUId { version: shard_version, shard_id };
     let trie_config: TrieConfig = Default::default();
     let shard_cache = TrieCache::new(&trie_config, shard_uid, true);
-    let trie_storage = TrieCachingStorage::new(store, shard_cache, shard_uid, true);
+    let trie_storage = TrieCachingStorage::new(store, shard_cache, shard_uid, true, None);
     let trie = Trie::new(Box::new(trie_storage), Trie::EMPTY_ROOT, None);
     trie.print_recursive(&mut std::io::stdout().lock(), &hash, max_depth);
     Ok(())

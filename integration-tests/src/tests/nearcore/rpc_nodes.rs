@@ -78,17 +78,13 @@ fn outcome_view_to_hashes(outcome: &ExecutionOutcomeView) -> Vec<CryptoHash> {
         ExecutionStatusView::Failure(_) => PartialExecutionStatus::Failure,
         ExecutionStatusView::SuccessReceiptId(id) => PartialExecutionStatus::SuccessReceiptId(*id),
     };
-    let mut result = vec![hash(
-        &(
-            outcome.receipt_ids.clone(),
-            outcome.gas_burnt,
-            outcome.tokens_burnt,
-            outcome.executor_id.clone(),
-            status,
-        )
-            .try_to_vec()
-            .expect("Failed to serialize"),
-    )];
+    let mut result = vec![CryptoHash::hash_borsh(&(
+        outcome.receipt_ids.clone(),
+        outcome.gas_burnt,
+        outcome.tokens_burnt,
+        outcome.executor_id.clone(),
+        status,
+    ))];
     for log in outcome.logs.iter() {
         result.push(hash(log.as_bytes()));
     }

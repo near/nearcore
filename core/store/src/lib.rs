@@ -31,10 +31,11 @@ use crate::db::{
 pub use crate::trie::iterator::TrieIterator;
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
-    estimator, split_state, ApplyStatePartResult, KeyForStateChanges, PartialStorage, ShardTries,
-    Trie, TrieAccess, TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieStorage,
-    WrappedTrieChanges,
+    estimator, split_state, ApplyStatePartResult, KeyForStateChanges, NibbleSlice, PartialStorage,
+    PrefetchApi, RawTrieNode, RawTrieNodeWithSize, ShardTries, Trie, TrieAccess, TrieCache,
+    TrieCachingStorage, TrieChanges, TrieConfig, TrieStorage, WrappedTrieChanges,
 };
+pub use flat_state::FlatStateDelta;
 
 mod columns;
 pub mod config;

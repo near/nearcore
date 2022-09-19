@@ -78,6 +78,7 @@ use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::flat_state::FlatStateDelta;
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -604,6 +605,19 @@ impl Chain {
                 let header_head = block_head.clone();
                 store_update.save_head(&block_head)?;
                 store_update.save_final_head(&header_head)?;
+                for shard_id in 0..runtime_adapter.num_shards(&EpochId::default()).unwrap() {
+                    let flat_storage_state =
+                        runtime_adapter.get_flat_storage_state_for_shard(shard_id);
+                    let new_store_update = flat_storage_state.map_or(None, |flat_storage_state| {
+                        flat_storage_state.update_head(&block_head.last_block_hash)
+                    });
+                    match new_store_update {
+                        Some(new_store_update) => {
+                            store_update.merge(new_store_update);
+                        }
+                        None => {}
+                    };
+                }
 
                 info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
 
@@ -653,10 +667,6 @@ impl Chain {
         self.doomslug_threshold_mode = DoomslugThresholdMode::NoApprovals
     }
 
-    pub fn compute_collection_hash<T: BorshSerialize>(elems: Vec<T>) -> Result<CryptoHash, Error> {
-        Ok(hash(&elems.try_to_vec()?))
-    }
-
     pub fn compute_bp_hash(
         runtime_adapter: &dyn RuntimeAdapter,
         epoch_id: EpochId,
@@ -666,11 +676,11 @@ impl Chain {
         let bps = runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
         let protocol_version = runtime_adapter.get_epoch_protocol_version(&prev_epoch_id)?;
         if checked_feature!("stable", BlockHeaderV3, protocol_version) {
-            let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect();
-            Chain::compute_collection_hash(validator_stakes)
+            let validator_stakes: Vec<_> = bps.into_iter().map(|(bp, _)| bp).collect();
+            Ok(CryptoHash::hash_borsh(&validator_stakes))
         } else {
-            let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
-            Chain::compute_collection_hash(validator_stakes)
+            let validator_stakes: Vec<_> = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
+            Ok(CryptoHash::hash_borsh(&validator_stakes))
         }
     }
 
@@ -2611,7 +2621,7 @@ impl Chain {
             for receipt_proof in receipt_proofs.iter() {
                 let ReceiptProof(receipts, shard_proof) = receipt_proof;
                 let ShardProof { from_shard_id, to_shard_id: _, proof } = shard_proof;
-                let receipts_hash = hash(&ReceiptList(shard_id, receipts).try_to_vec()?);
+                let receipts_hash = CryptoHash::hash_borsh(&ReceiptList(shard_id, receipts));
                 let from_shard_id = *from_shard_id as usize;
 
                 let root_proof = block.chunks()[from_shard_id].outgoing_receipts_root();
@@ -2853,7 +2863,7 @@ impl Chain {
                     _ => visited_shard_ids.insert(*from_shard_id),
                 };
                 let RootProof(root, block_proof) = &shard_state_header.root_proofs()[i][j];
-                let receipts_hash = hash(&ReceiptList(shard_id, receipts).try_to_vec()?);
+                let receipts_hash = CryptoHash::hash_borsh(&ReceiptList(shard_id, receipts));
                 // 4e. Proving the set of receipts is the subset of outgoing_receipts of shard `shard_id`
                 if !verify_path(*root, proof, &receipts_hash) {
                     byzantine_assert!(false);
@@ -3115,7 +3125,7 @@ impl Chain {
         let block = self.store.get_block(block_hash)?;
         let prev_block = self.store.get_block(block.header().prev_hash())?;
         let mut chain_update = self.chain_update();
-        chain_update.apply_chunk_postprocessing(&block, &prev_block, results)?;
+        chain_update.apply_chunk_postprocessing(&block, &prev_block, results, true)?;
         chain_update.commit()?;
         Ok(())
     }
@@ -4278,7 +4288,7 @@ impl Chain {
         shard_layout: &ShardLayout,
     ) -> Vec<CryptoHash> {
         if shard_layout.num_shards() == 1 {
-            return vec![hash(&ReceiptList(0, receipts).try_to_vec().unwrap())];
+            return vec![CryptoHash::hash_borsh(&ReceiptList(0, receipts))];
         }
         let mut account_id_to_shard_id_map = HashMap::new();
         let mut shard_receipts: Vec<_> =
@@ -4444,10 +4454,16 @@ impl<'a> ChainUpdate<'a> {
         block: &Block,
         prev_block: &Block,
         apply_results: Vec<Result<ApplyChunkResult, Error>>,
+        is_catching_up: bool,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing").entered();
         for result in apply_results {
-            self.process_apply_chunk_result(result?, *block.hash(), *prev_block.hash())?
+            self.process_apply_chunk_result(
+                result?,
+                *block.hash(),
+                *prev_block.hash(),
+                is_catching_up,
+            )?
         }
         Ok(())
     }
@@ -4584,6 +4600,7 @@ impl<'a> ChainUpdate<'a> {
         result: ApplyChunkResult,
         block_hash: CryptoHash,
         prev_block_hash: CryptoHash,
+        is_catching_up: bool,
     ) -> Result<(), Error> {
         match result {
             ApplyChunkResult::SameHeight(SameHeightResult {
@@ -4609,6 +4626,20 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.total_balance_burnt,
                     ),
                 );
+                // Right now, we don't implement flat storage for catchup, so we only store
+                // the delta if we are not catching up
+                if !is_catching_up {
+                    if let Some(chain_flat_storage) =
+                        self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
+                    {
+                        let delta = FlatStateDelta::from_state_changes(
+                            &apply_result.trie_changes.state_changes(),
+                        );
+                        let store_update =
+                            chain_flat_storage.add_delta(&block_hash, delta)?.unwrap();
+                        self.chain_store_update.merge(store_update);
+                    }
+                }
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
                 self.chain_store_update.save_outgoing_receipt(
                     &block_hash,
@@ -4681,7 +4712,7 @@ impl<'a> ChainUpdate<'a> {
     ) -> Result<Option<Tip>, Error> {
         let prev_hash = block.header().prev_hash();
         let prev_block = self.chain_store_update.get_block(prev_hash)?;
-        self.apply_chunk_postprocessing(block, &prev_block, apply_chunks_results)?;
+        self.apply_chunk_postprocessing(block, &prev_block, apply_chunks_results, false)?;
 
         let BlockPreprocessInfo {
             is_caught_up,
@@ -4765,6 +4796,27 @@ impl<'a> ChainUpdate<'a> {
             }
         }
 
+        // TODO: fill in the logic here for which shards we need to update flat storage for
+        // only need shards that we have processed in this block (not the shards to catch up)
+        let flat_storage_shards = vec![];
+        for shard_id in flat_storage_shards {
+            if let Some(flat_storage_state) =
+                self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
+            {
+                // TODO: fill in the correct new head
+                // if let Some(_update) = flat_storage_state.update_head(&CryptoHash::default()) {
+                // TODO: add this update to chain update
+                // }
+                if let Some(_update) =
+                    flat_storage_state.update_tail(block.header().last_final_block())
+                {
+                    // TODO: add this update to chain update
+                }
+            } else {
+                // TODO: some error handling code here. Should probably return an error (or panic?)
+                // here if the flat storage doesn't exist.
+            }
+        }
         Ok(res)
     }
 
