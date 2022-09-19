@@ -184,7 +184,12 @@ impl PeerActor {
                 })
             }
         };
-
+        // Override force_encoding for outbound Tier1 connections,
+        // since Tier1Handshake is supported only with proto encoding.
+        let force_encoding = match &stream_config {
+            StreamConfig::Outbound{tier,..} if tier==&connection::Tier::T1 => Some(Encoding::Proto),
+            _ => force_encoding,
+        };
         let my_node_info = PeerInfo {
             id: network_state.config.node_id(),
             addr: network_state.config.node_addr.clone(),
@@ -204,7 +209,6 @@ impl PeerActor {
                 let clock = clock.clone();
                 let network_state = network_state.clone();
                 async move {
-                    tracing::debug!("read loop started");
                     let tier2_limiter = rate::Limiter::new(&clock, rate::Limit{
                         qps: NETWORK_MESSAGE_MAX_SIZE_BYTES as f64,
                         burst: NETWORK_MESSAGE_MAX_SIZE_BYTES as u64,
@@ -220,19 +224,16 @@ impl PeerActor {
                         };
                         match reader.recv(&clock,limiter).await {
                             Ok(frame) => {
-                                tracing::debug!("msg received");
                                 if let Err(err) = scope.addr.send(frame).await {
                                     tracing::debug!("err: {err:?}");
                                     return;
                                 }
-                                tracing::debug!("msg processed");
                             }
                             Err(err) => {
                                 scope.addr.do_send(stream::Error::Recv(err));
                                 return;
                             }
                         }
-                        tracing::debug!("read loop closing");
                     }
                 }
             });
@@ -1278,9 +1279,9 @@ impl actix::Handler<stream::Error> for PeerActor {
             },
         };
         if expected {
-            tracing::error!(target: "network", ?err, "Closing connection to {}", self.peer_info);
-        } else {
             tracing::info!(target: "network", ?err, "Closing connection to {}", self.peer_info);
+        } else {
+            tracing::error!(target: "network", ?err, "Closing connection to {}", self.peer_info);
         }
         ctx.stop();
     }

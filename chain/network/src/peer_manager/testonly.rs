@@ -1,5 +1,6 @@
 use crate::broadcast;
 use crate::config;
+use crate::peer_manager::connection;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Encoding, PeerAddr, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
@@ -17,15 +18,17 @@ use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, EpochId};
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::future::Future;
+use std::pin::Pin;
 
 #[derive(actix::Message)]
-#[rtype("Arc<NetworkState>")]
-struct GetNetworkState;
+#[rtype("()")]
+struct WithNetworkState(Box<dyn Send + FnOnce(Arc<NetworkState>) -> Pin<Box<dyn Send + 'static + Future<Output=()>>>>);
 
-impl actix::Handler<GetNetworkState> for PeerManagerActor {
-    type Result = Arc<NetworkState>;
-    fn handle(&mut self, _:GetNetworkState, _: &mut Self::Context) -> Self::Result {
-        self.state.clone()
+impl actix::Handler<WithNetworkState> for PeerManagerActor {
+    type Result = ();
+    fn handle(&mut self, WithNetworkState(f): WithNetworkState, _: &mut Self::Context) -> Self::Result {
+        assert!(actix::Arbiter::current().spawn(f(self.state.clone())));
     }
 }
 
@@ -37,7 +40,6 @@ pub enum Event {
 
 pub(crate) struct ActorHandler {
     pub cfg: config::NetworkConfig,
-    pub state: Arc<NetworkState>,
     pub events: broadcast::Receiver<Event>,
     pub actix: ActixSystem<PeerManagerActor>,
 }
@@ -84,7 +86,7 @@ impl RawConnection {
         // Wait for the peer manager to complete the handshake.
         self.events
             .recv_until(|ev| match ev {
-                Event::PeerManager(PME::PeerRegistered(info)) if node_id == info.id => Some(()),
+                Event::PeerManager(PME::PeerRegistered(info,connection::Tier::T2)) if node_id == info.id => Some(()),
                 _ => None,
             })
             .await;
@@ -118,10 +120,19 @@ impl ActorHandler {
             .unwrap();
         events
             .recv_until(|ev| match &ev {
-                Event::PeerManager(PME::PeerRegistered(info)) if peer_info == info => Some(()),
+                Event::PeerManager(PME::PeerRegistered(info,connection::Tier::T2)) if peer_info == info => Some(()),
                 _ => None,
             })
             .await;
+    }
+
+    pub async fn with_state<R:'static+Send,Fut:'static+Send+Future<Output=R>>(&self,f:impl 'static + Send + FnOnce(Arc<NetworkState>) -> Fut) -> R
+    {
+        let (send,recv) = tokio::sync::oneshot::channel();
+        self.actix.addr.send(WithNetworkState(Box::new(|s| Box::pin(async {
+            send.send(f(s).await).ok().unwrap()
+        })))).await.unwrap();
+        recv.await.unwrap()
     }
 
     pub async fn start_inbound(
@@ -264,8 +275,7 @@ pub(crate) async fn start(
         }
     })
     .await;
-    let state = actix.addr.send(GetNetworkState).await.unwrap();
-    let mut h = ActorHandler { cfg, state, actix, events: recv };
+    let mut h = ActorHandler { cfg, actix, events: recv };
     // Wait for the server to start.
     assert_eq!(Event::PeerManager(PME::ServerStarted), h.events.recv().await);
     h.actix.addr.send(SetChainInfo(chain.get_chain_info())).await.unwrap();

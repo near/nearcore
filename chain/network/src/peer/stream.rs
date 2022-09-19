@@ -177,7 +177,6 @@ impl<Actor:actix::Actor + actix::Handler<Error>> FramedWriter<Actor>
     /// If the message is too large, it will be silently dropped inside run_send_loop.
     /// Emits a critical error to Actor if send queue is full.
     pub fn send(&self, frame: Frame) {
-        tracing::debug!("sending msg");
         let msg = &frame.0;
         let mut buf_size =
             self.stats.bytes_to_send.fetch_add(msg.len() as u64, Ordering::Acquire) as usize;
@@ -195,7 +194,6 @@ impl<Actor:actix::Actor + actix::Handler<Error>> FramedWriter<Actor>
             }));
         }
         let _ = self.queue_send.send(frame);
-        tracing::debug!("sending msg: done");
     }
 
     async fn run_send_loop(

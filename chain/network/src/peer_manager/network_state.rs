@@ -169,6 +169,7 @@ impl NetworkState {
             }
         }
         if is_tier1_validator {
+            tracing::debug!(target:"test", "I am a validator!");
             // TIER1 nodes can also connect to TIER1 proxies.
             for peer_id in &ready {
                 for account_id in accounts_by_proxy.get(peer_id).into_iter().flatten() {
@@ -185,30 +186,35 @@ impl NetworkState {
         }
         if is_tier1_validator {
             // Try to establish new TIER1 connections to accounts in random order.
-            let mut rng = rand::thread_rng();
             let mut account_ids: Vec<_> = proxies_by_account.keys().copied().collect();
-            account_ids.shuffle(&mut rng);
+            account_ids.shuffle(&mut rand::thread_rng());
             let mut new_connections = 0;
             for account_id in account_ids {
+                tracing::debug!(target:"test","checking {account_id}");
                 if new_connections >= cfg.new_connections_per_tick {
                     break;
                 }
                 if safe.contains_key(account_id) {
+                    tracing::debug!(target:"test","TIER1 connection already exists");
                     continue;
                 }
-                let mut peers = proxies_by_account.get(account_id).into_iter().flatten();
+                let proxies : Vec<&PeerAddr> = proxies_by_account.get(account_id).into_iter().flatten().map(|x|*x).collect();
+                tracing::debug!(target: "test","available proxies: {proxies:?}");
                 // It there is an outound connection in progress to a potential proxy, then skip.
-                if peers.any(|p| tier1.outbound_handshakes.contains(&p.peer_id)) {
+                if proxies.iter().any(|p| tier1.outbound_handshakes.contains(&p.peer_id)) {
+                    tracing::debug!(target:"test","outbound handshake already in progress");
                     continue;
                 }
                 // Start a new connection to one of the proxies of the account A, if
                 // we are not already connected/connecting to any proxy of A.
-                if let Some(peer_addr) = peers.choose(&mut rng) {
+                let proxy = proxies.iter().choose(&mut rand::thread_rng());
+                if let Some(proxy) = proxy {
+                    tracing::debug!(target:"test", "starting connection to {:?}",proxy);
                     new_connections += 1;
                     self.clone()
                         .spawn_outbound(
                             clock.clone(),
-                            (*peer_addr).clone(),
+                            (*proxy).clone(),
                             connection::Tier::T1,
                         )
                         .await;

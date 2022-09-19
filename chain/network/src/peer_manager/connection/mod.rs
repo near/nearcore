@@ -23,7 +23,7 @@ use crate::network_protocol::{PeerMessage, RoutedMessageBody};
 mod tests;
 
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
-pub(crate) enum Tier { T1, T2 }
+pub enum Tier { T1, T2 }
 
 impl Tier {
     pub fn is_allowed(self, msg:&PeerMessage) -> bool {

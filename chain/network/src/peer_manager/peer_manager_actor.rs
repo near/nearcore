@@ -163,7 +163,7 @@ pub enum Event {
     ServerStarted,
     RoutedMessageDropped,
     RoutingTableUpdate(Arc<routing::NextHopTable>),
-    PeerRegistered(PeerInfo),
+    PeerRegistered(PeerInfo, connection::Tier),
     Ping(Ping),
     Pong(Pong),
     SetChainInfo,
@@ -1381,7 +1381,7 @@ impl PeerManagerActor {
         if let Err(err) = self.register_peer(msg.connection.clone(), ctx) {
             return RegisterPeerResponse::Reject(RegisterPeerError::PoolError(err));
         }
-        self.config.event_sink.push(Event::PeerRegistered(peer_info.clone()));
+        self.config.event_sink.push(Event::PeerRegistered(peer_info.clone(),msg.connection.tier));
         RegisterPeerResponse::Accept
     }
 

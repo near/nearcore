@@ -63,12 +63,10 @@ impl Limiter {
     /// It is cancel-safe and has FIFO semantics: subsequent call have to wait until the previous
     /// call acquires its permits. In case a call is cancelled, no permits are consumed.
     pub async fn acquire(&self, clock: &time::Clock, n:u64) -> Result<(),RequestTooLargeError> {
-        tracing::debug!("acquire({n})");
         if self.limit.burst<n {
             return Err(RequestTooLargeError{max:self.limit.burst,requested:n});
         }
         let mut state = self.state.lock().await;
-        tracing::debug!("acquire({n}): locked");
         if n <= state.permits {
             let now = clock.now();
             let new = ((now-state.last_refresh).as_seconds_f64()*self.limit.qps) as u64;
@@ -83,7 +81,6 @@ impl Limiter {
             state.last_refresh = t;
             state.permits = 0;
         }
-        tracing::debug!("acquire({n}): done");
         Ok(())
     }
 }
