@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::iter::Peekable;
+use std::ops::Bound;
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
@@ -140,16 +141,7 @@ impl TrieUpdate {
 
     /// Returns Error if the underlying storage fails
     pub fn iter(&self, key_prefix: &[u8]) -> Result<TrieUpdateIterator<'_>, StorageError> {
-        TrieUpdateIterator::new(self, key_prefix, b"", None)
-    }
-
-    pub fn range(
-        &self,
-        prefix: &[u8],
-        start: &[u8],
-        end: &[u8],
-    ) -> Result<TrieUpdateIterator<'_>, StorageError> {
-        TrieUpdateIterator::new(self, prefix, start, Some(end))
+        TrieUpdateIterator::new(self, key_prefix)
     }
 
     pub fn get_root(&self) -> &StateRoot {
@@ -200,48 +192,32 @@ impl<'a> Iterator for MergeIter<'a> {
 
 pub struct TrieUpdateIterator<'a> {
     prefix: Vec<u8>,
-    end_offset: Option<Vec<u8>>,
     trie_iter: Peekable<TrieIterator<'a>>,
     overlay_iter: Peekable<MergeIter<'a>>,
 }
 
 impl<'a> TrieUpdateIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
-    pub fn new(
-        state_update: &'a TrieUpdate,
-        prefix: &[u8],
-        start: &[u8],
-        end: Option<&[u8]>,
-    ) -> Result<Self, StorageError> {
+    pub fn new(state_update: &'a TrieUpdate, prefix: &[u8]) -> Result<Self, StorageError> {
         let mut trie_iter = state_update.trie.iter()?;
-        let mut start_offset = prefix.to_vec();
-        start_offset.extend_from_slice(start);
-        let end_offset = match end {
-            Some(end) => {
-                let mut p = prefix.to_vec();
-                p.extend_from_slice(end);
-                Some(p)
-            }
-            None => None,
-        };
-        trie_iter.seek_prefix(&start_offset)?;
-        let committed_iter = state_update.committed.range(start_offset.clone()..).map(
+        trie_iter.seek_prefix(prefix)?;
+        let range = (Bound::Included(prefix), Bound::Unbounded);
+        let committed_iter = state_update.committed.range::<[u8], _>(range).map(
             |(raw_key, changes_with_trie_key)| {
-                (
-                    raw_key.as_slice(),
-                    changes_with_trie_key
-                        .changes
-                        .last()
-                        .as_ref()
-                        .expect("Committed entry should have at least one change.")
-                        .data
-                        .as_deref(),
-                )
+                let key = raw_key.as_slice();
+                let value = changes_with_trie_key
+                    .changes
+                    .last()
+                    .as_ref()
+                    .expect("Committed entry should have at least one change.")
+                    .data
+                    .as_deref();
+                (key, value)
             },
         );
         let prospective_iter = state_update
             .prospective
-            .range(start_offset..)
+            .range::<[u8], _>(range)
             .map(|(raw_key, key_value)| (raw_key.as_slice(), key_value.value.as_deref()));
         let overlay_iter = MergeIter {
             left: (Box::new(committed_iter) as Box<dyn Iterator<Item = _>>).peekable(),
@@ -250,7 +226,6 @@ impl<'a> TrieUpdateIterator<'a> {
         .peekable();
         Ok(TrieUpdateIterator {
             prefix: prefix.to_vec(),
-            end_offset,
             trie_iter: trie_iter.peekable(),
             overlay_iter,
         })
@@ -261,9 +236,9 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
     type Item = Result<Vec<u8>, StorageError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let stop_cond = |key: &[u8], prefix: &[u8], end_offset: &Option<Vec<u8>>| {
+        let stop_cond = |key: &[u8], prefix: &[u8]| {
             // TODO(mina86): Figure out if starts_with check is still necessary.
-            !key.starts_with(prefix) || end_offset.as_deref().map_or(false, |end| key >= end)
+            !key.starts_with(prefix)
         };
         enum Ordering {
             Trie,
@@ -276,8 +251,8 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
                 match (self.trie_iter.peek(), self.overlay_iter.peek()) {
                     (Some(&Ok((ref left_key, _))), Some(&(ref right_key, _))) => {
                         match (
-                            stop_cond(left_key, &self.prefix, &self.end_offset),
-                            stop_cond(*right_key, &self.prefix, &self.end_offset),
+                            stop_cond(left_key, &self.prefix),
+                            stop_cond(*right_key, &self.prefix),
                         ) {
                             (false, false) => match left_key.as_slice().cmp(right_key) {
                                 std::cmp::Ordering::Less => Ordering::Trie,
@@ -292,13 +267,13 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
                         }
                     }
                     (Some(&Ok((ref left_key, _))), None) => {
-                        if stop_cond(left_key, &self.prefix, &self.end_offset) {
+                        if stop_cond(left_key, &self.prefix) {
                             return None;
                         }
                         Ordering::Trie
                     }
                     (None, Some(&(right_key, _))) => {
-                        if stop_cond(right_key, &self.prefix, &self.end_offset) {
+                        if stop_cond(right_key, &self.prefix) {
                             return None;
                         }
                         Ordering::Overlay
@@ -469,25 +444,6 @@ mod tests {
 
         let values: Result<Vec<Vec<u8>>, _> =
             trie_update.iter(&test_key(b"dog".to_vec()).to_vec()).unwrap().collect();
-        assert_eq!(
-            values.unwrap(),
-            vec![
-                test_key(b"dog".to_vec()).to_vec(),
-                test_key(b"dog2".to_vec()).to_vec(),
-                test_key(b"dog3".to_vec()).to_vec()
-            ]
-        );
-
-        let values: Result<Vec<Vec<u8>>, _> =
-            trie_update.range(&test_key(b"do".to_vec()).to_vec(), b"g", b"g21").unwrap().collect();
-        assert_eq!(
-            values.unwrap(),
-            vec![test_key(b"dog".to_vec()).to_vec(), test_key(b"dog2".to_vec()).to_vec(),]
-        );
-
-        let values: Result<Vec<Vec<u8>>, _> =
-            trie_update.range(&test_key(b"do".to_vec()).to_vec(), b"", b"xyz").unwrap().collect();
-
         assert_eq!(
             values.unwrap(),
             vec![
