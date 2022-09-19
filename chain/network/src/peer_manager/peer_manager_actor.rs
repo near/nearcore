@@ -216,7 +216,7 @@ impl Actor for PeerManagerActor {
                             // we would like to exchange set of connected peers even without establishing
                             // a proper connection.
                             debug!(target: "network", from = ?client_addr, "got new connection");
-                            state.spawn_inbound(&clock, conn).await;
+                            state.clone().spawn_inbound(&clock, conn).await;
                         }
                     }
                 }

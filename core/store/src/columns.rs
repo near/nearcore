@@ -1,4 +1,3 @@
-use borsh::{BorshDeserialize, BorshSerialize};
 use std::fmt;
 
 /// This enum holds the information about the columns that we use within the
@@ -17,17 +16,7 @@ use std::fmt;
 /// deprecation.  Make sure to add `#[strum(serialize = "OriginalName")]`
 /// attribute in front of the variant when you deprecate a column.
 #[derive(
-    PartialEq,
-    Copy,
-    Clone,
-    Debug,
-    Hash,
-    Eq,
-    BorshDeserialize,
-    BorshSerialize,
-    enum_map::Enum,
-    strum::EnumIter,
-    strum::IntoStaticStr,
+    PartialEq, Copy, Clone, Debug, Hash, Eq, enum_map::Enum, strum::EnumIter, strum::IntoStaticStr,
 )]
 pub enum DBCol {
     /// Column to indicate which version of database this is.
@@ -214,10 +203,9 @@ pub enum DBCol {
     /// - *Rows*: ordinal (u64)
     /// - *Column type*: BlockHash (CryptoHash)
     BlockOrdinal,
-    /// GC Count for each column - number of times we did the GarbageCollection on the column.
-    /// - *Rows*: column id (byte)
-    /// - *Column type*: u64
-    GCCount,
+    /// Deprecated.
+    #[strum(serialize = "GCCount")]
+    _GCCount,
     /// All Outcome ids by block hash and shard id. For each shard it is ordered by execution order.
     /// TODO: seems that it has only 'transaction ids' there (not sure if intentional)
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
@@ -341,42 +329,6 @@ impl DBCol {
             _ => false,
         }
     }
-
-    /// Whether this column is garbage collected.
-    pub const fn is_gc(&self) -> bool {
-        match self {
-            DBCol::DbVersion  // DB version is unrelated to GC
-            | DBCol::BlockMisc
-            // TODO #3488 remove
-            | DBCol::BlockHeader  // header sync needs headers
-            | DBCol::GCCount      // GC count it self isn't GCed
-            | DBCol::BlockHeight  // block sync needs it + genesis should be accessible
-            | DBCol::Peers        // Peers is unrelated to GC
-            | DBCol::BlockMerkleTree
-            | DBCol::AccountAnnouncements
-            | DBCol::EpochLightClientBlocks
-            | DBCol::PeerComponent  // Peer related info doesn't GC
-            | DBCol::LastComponentNonce
-            | DBCol::ComponentEdges
-            | DBCol::BlockOrdinal
-            | DBCol::EpochInfo           // https://github.com/nearprotocol/nearcore/pull/2952
-            | DBCol::EpochValidatorInfo  // https://github.com/nearprotocol/nearcore/pull/2952
-            | DBCol::EpochStart          // https://github.com/nearprotocol/nearcore/pull/2952
-            | DBCol::CachedContractCode => false,
-            _ => true,
-        }
-    }
-
-    /// Whether GC for this column is possible, but optional.
-    pub const fn is_gc_optional(&self) -> bool {
-        match self {
-            // A node may never restarted
-            DBCol::StateHeaders |
-            // True until #2515
-            DBCol::StateParts => true,
-            _ => false,
-        }
-    }
 }
 
 impl fmt::Display for DBCol {
@@ -390,9 +342,6 @@ fn column_props_sanity() {
     use strum::IntoEnumIterator;
 
     for col in DBCol::iter() {
-        if col.is_gc_optional() {
-            assert!(col.is_gc(), "{col}")
-        }
         // Check that rc and write_once are mutually exclusive.
         assert!((col.is_rc() as u32) + (col.is_insert_only() as u32) <= 1, "{col}")
     }
