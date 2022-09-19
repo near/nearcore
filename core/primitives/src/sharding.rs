@@ -403,7 +403,9 @@ impl ShardChunkHeader {
             ProtocolFeature::BlockHeaderV3.protocol_version();
         match &self {
             ShardChunkHeader::V1(_) => version < SHARD_CHUNK_HEADER_UPGRADE_VERSION,
-            ShardChunkHeader::V2(_) => SHARD_CHUNK_HEADER_UPGRADE_VERSION <= version && version < BLOCK_HEADER_V3_VERSION,
+            ShardChunkHeader::V2(_) => {
+                SHARD_CHUNK_HEADER_UPGRADE_VERSION <= version && version < BLOCK_HEADER_V3_VERSION
+            }
             ShardChunkHeader::V3(_) => BLOCK_HEADER_V3_VERSION <= version,
         }
     }
