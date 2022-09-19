@@ -402,8 +402,8 @@ impl ShardChunkHeader {
         const BLOCK_HEADER_V3_VERSION: ProtocolVersion =
             ProtocolFeature::BlockHeaderV3.protocol_version();
         match &self {
-            ShardChunkHeader::V1(_) => version <= SHARD_CHUNK_HEADER_UPGRADE_VERSION,
-            ShardChunkHeader::V2(_) => SHARD_CHUNK_HEADER_UPGRADE_VERSION <= version && version <= BLOCK_HEADER_V3_VERSION,
+            ShardChunkHeader::V1(_) => version < SHARD_CHUNK_HEADER_UPGRADE_VERSION,
+            ShardChunkHeader::V2(_) => SHARD_CHUNK_HEADER_UPGRADE_VERSION <= version && version < BLOCK_HEADER_V3_VERSION,
             ShardChunkHeader::V3(_) => BLOCK_HEADER_V3_VERSION <= version,
         }
     }
@@ -533,9 +533,9 @@ impl PartialEncodedChunk {
     }
 
     /// Returns whether the chenk is valid for given `ProtocolVersion`.
-    pub fn version_range(&self, version: ProtocolVersion) -> bool {
+    pub fn valid_for(&self, version: ProtocolVersion) -> bool {
         match &self {
-            PartialEncodedChunk::V1(_) => version <= SHARD_CHUNK_HEADER_UPGRADE_VERSION,
+            PartialEncodedChunk::V1(_) => version < SHARD_CHUNK_HEADER_UPGRADE_VERSION,
             PartialEncodedChunk::V2(_) => SHARD_CHUNK_HEADER_UPGRADE_VERSION <= version,
         }
     }

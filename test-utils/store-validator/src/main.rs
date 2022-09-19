@@ -69,8 +69,4 @@ fn main() {
     } else {
         println!("{}", Green.bold().paint("No errors found"));
     }
-    let gc_counters = store_validator.get_gc_counters();
-    for (col, count) in gc_counters {
-        println!("{} {}", White.bold().paint(col), count);
-    }
 }
