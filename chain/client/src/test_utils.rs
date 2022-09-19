@@ -1542,7 +1542,11 @@ impl TestEnv {
                 last_block.header().prev_hash(),
                 last_block.header().hash(),
                 last_block.header().epoch_id(),
-                &QueryRequest::ViewState { account_id, prefix: vec![].into() },
+                &QueryRequest::ViewState {
+                    account_id,
+                    prefix: vec![].into(),
+                    include_proof: false,
+                },
             )
             .unwrap();
         match response.kind {
