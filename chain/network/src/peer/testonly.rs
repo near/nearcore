@@ -83,27 +83,8 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
         println!("{}: PeerManager message {}", self.cfg.id(), msg_type);
         match msg {
             PeerToManagerMsg::RegisterPeer(msg) => {
-                let this_edge_info = match &msg.this_edge_info {
-                    Some(info) => info.clone(),
-                    None => self.cfg.partial_edge_info(
-                        &msg.connection.peer_info.id,
-                        msg.connection.partial_edge_info.nonce,
-                    ),
-                };
-                let edge = Edge::new(
-                    self.cfg.id(),
-                    msg.connection.peer_info.id.clone(),
-                    this_edge_info.nonce,
-                    this_edge_info.signature.clone(),
-                    msg.connection.partial_edge_info.signature.clone(),
-                );
-                self.event_sink.push(Event::HandshakeDone(edge.clone()));
-                PeerToManagerMsgResp::RegisterPeer(RegisterPeerResponse::Accept(
-                    match msg.this_edge_info {
-                        Some(_) => None,
-                        None => Some(this_edge_info),
-                    },
-                ))
+                self.event_sink.push(Event::HandshakeDone(msg.connection.edge.clone()));
+                PeerToManagerMsgResp::RegisterPeer(RegisterPeerResponse::Accept)
             }
             PeerToManagerMsg::SyncRoutingTable { routing_table_update, .. } => {
                 self.event_sink.push(Event::RoutingTable(routing_table_update));

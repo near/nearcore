@@ -13,12 +13,13 @@ use near_network::test_utils::{
     expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo,
 };
 use near_network::types::NetworkRecipient;
-use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
+use near_network::types::{
+    OutboundTcpConnect, PeerManagerMessageRequest, PeerManagerMessageResponse,
+};
 use near_network::{Event, PeerManagerActor};
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    Blacklist, BlacklistEntry, OutboundTcpConnect, PeerInfo, Ping as NetPing, Pong as NetPong,
-    ROUTED_MESSAGE_TTL,
+    Blacklist, BlacklistEntry, PeerInfo, Ping as NetPing, Pong as NetPong, ROUTED_MESSAGE_TTL,
 };
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::GenesisId;
@@ -264,7 +265,7 @@ impl StateMachine {
                     let peer_info = info.runner.test_config[to].peer_info();
                     let peer_id = peer_info.id.clone();
                     pm.send(PeerManagerMessageRequest::OutboundTcpConnect(
-                        OutboundTcpConnect { peer_info },
+                        OutboundTcpConnect(peer_info),
                     )).await?;
                     if !force {
                         return Ok(ControlFlow::Break(()))
