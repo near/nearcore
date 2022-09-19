@@ -1,6 +1,3 @@
-#[global_allocator]
-static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
-
 use std::mem::size_of;
 
 #[allow(unused)]
