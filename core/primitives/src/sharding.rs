@@ -397,16 +397,14 @@ impl ShardChunkHeader {
         }
     }
 
-    /// Returns the range of `ProtocolVersion`s where this variant of the
-    /// message is accepted.  For the newest variant the upper limit is the
-    /// maximum protocol version.
-    pub fn version_range(&self) -> std::ops::Range<ProtocolVersion> {
+    /// Returns whether the header is valid for given `ProtocolVersion`.
+    pub fn valid_for(&self, version: ProtocolVersion) -> bool {
         const BLOCK_HEADER_V3_VERSION: ProtocolVersion =
             ProtocolFeature::BlockHeaderV3.protocol_version();
         match &self {
-            ShardChunkHeader::V1(_) => 0..SHARD_CHUNK_HEADER_UPGRADE_VERSION,
-            ShardChunkHeader::V2(_) => SHARD_CHUNK_HEADER_UPGRADE_VERSION..BLOCK_HEADER_V3_VERSION,
-            ShardChunkHeader::V3(_) => BLOCK_HEADER_V3_VERSION..ProtocolVersion::MAX,
+            ShardChunkHeader::V1(_) => version <= SHARD_CHUNK_HEADER_UPGRADE_VERSION,
+            ShardChunkHeader::V2(_) => SHARD_CHUNK_HEADER_UPGRADE_VERSION <= version && version <= BLOCK_HEADER_V3_VERSION,
+            ShardChunkHeader::V3(_) => BLOCK_HEADER_V3_VERSION <= version,
         }
     }
 }
@@ -534,13 +532,11 @@ impl PartialEncodedChunk {
         }
     }
 
-    /// Returns the range of `ProtocolVersion`s where this variant of the
-    /// message is accepted.  For the newest variant the upper limit is the
-    /// maximum protocol version.
-    pub fn version_range(&self) -> std::ops::Range<ProtocolVersion> {
+    /// Returns whether the chenk is valid for given `ProtocolVersion`.
+    pub fn version_range(&self, version: ProtocolVersion) -> bool {
         match &self {
-            PartialEncodedChunk::V1(_) => 0..SHARD_CHUNK_HEADER_UPGRADE_VERSION,
-            PartialEncodedChunk::V2(_) => SHARD_CHUNK_HEADER_UPGRADE_VERSION..ProtocolVersion::MAX,
+            PartialEncodedChunk::V1(_) => version <= SHARD_CHUNK_HEADER_UPGRADE_VERSION,
+            PartialEncodedChunk::V2(_) => SHARD_CHUNK_HEADER_UPGRADE_VERSION <= version,
         }
     }
 
