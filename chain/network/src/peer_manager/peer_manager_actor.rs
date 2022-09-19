@@ -4,8 +4,8 @@ use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
-    PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerResponse, StopMsg, Unregister,
-    ValidateEdgeList,
+    PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerError, RegisterPeerResponse,
+    StopMsg, Unregister, ValidateEdgeList,
 };
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp, PeersResponse};
 use crate::routing;
@@ -15,8 +15,8 @@ use crate::stats::metrics;
 use crate::store;
 use crate::types::{
     ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, NetworkClientMessages, NetworkInfo,
-    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    SetChainInfo,
+    NetworkRequests, NetworkResponses, OutboundTcpConnect, PeerManagerMessageRequest,
+    PeerManagerMessageResponse, SetChainInfo,
 };
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
@@ -27,8 +27,8 @@ use anyhow::Context as _;
 use near_network_primitives::time;
 use near_network_primitives::types::{
     AccountOrPeerIdOrHash, Ban, Edge, KnownPeerStatus, KnownProducer, NetworkViewClientMessages,
-    NetworkViewClientResponses, OutboundTcpConnect, PeerInfo, PeerType, Ping, Pong,
-    RawRoutedMessage, ReasonForBan, RoutedMessageBody, StateResponseInfo,
+    NetworkViewClientResponses, PeerInfo, PeerType, Ping, Pong, RawRoutedMessage, ReasonForBan,
+    RoutedMessageBody, StateResponseInfo,
 };
 use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics_macros::perf;
@@ -80,9 +80,6 @@ const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 
 /// Remove the edges that were created more that this duration ago.
 const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
-// Don't accept nonces (edges) that are more than this delta from current time.
-// This value should be smaller than PRUNE_EDGES_AFTER (otherwise, the might accept the edge and garbage collect it seconds later).
-const EDGE_NONCE_MAX_TIME_DELTA: time::Duration = time::Duration::minutes(20);
 
 /// Send important messages three times.
 /// We send these messages multiple times to reduce the chance that they are lost
@@ -542,40 +539,22 @@ impl PeerManagerActor {
     fn register_peer(
         &mut self,
         connection: Arc<connection::Connection>,
-        partial_edge_info: PartialEdgeInfo,
         ctx: &mut Context<Self>,
     ) -> Result<(), connection::PoolError> {
         let peer_info = &connection.peer_info;
         let _span = tracing::trace_span!(target: "network", "register_peer").entered();
         debug!(target: "network", ?peer_info, "Consolidated connection");
-
-        let target_peer_id = peer_info.id.clone();
-
-        let new_edge = Edge::new(
-            self.my_peer_id.clone(),
-            target_peer_id.clone(),
-            partial_edge_info.nonce,
-            partial_edge_info.signature,
-            connection.partial_edge_info.signature.clone(),
-        );
-
         self.state.tier2.insert_ready(connection.clone())?;
-        self.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
         // Best effort write to DB.
         if let Err(err) = self.peer_store.peer_connected(&self.clock, peer_info) {
             error!(target: "network", ?err, "Failed to save peer data");
         }
-        self.sync_after_handshake(connection.clone(), ctx, new_edge);
-        self.config.event_sink.push(Event::PeerRegistered(peer_info.clone()));
+        self.add_verified_edges_to_routing_table(vec![connection.edge.clone()]);
+        self.sync_after_handshake(connection.clone(), ctx);
         Ok(())
     }
 
-    fn sync_after_handshake(
-        &self,
-        peer: Arc<connection::Connection>,
-        ctx: &mut Context<Self>,
-        new_edge: Edge,
-    ) {
+    fn sync_after_handshake(&self, peer: Arc<connection::Connection>, ctx: &mut Context<Self>) {
         let run_later_span = tracing::trace_span!(target: "network", "sync_after_handshake");
         // The full sync is delayed, so that handshake is completed before the sync starts.
         near_performance_metrics::actix::run_later(
@@ -603,7 +582,7 @@ impl PeerManagerActor {
                     // Only broadcast new message from the outbound endpoint.
                     // Wait a time out before broadcasting this new edge to let the other party finish handshake.
                     act.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-                        RoutingTableUpdate::from_edges(vec![new_edge]),
+                        RoutingTableUpdate::from_edges(vec![peer.edge.clone()]),
                     )));
                 }
             },
@@ -639,24 +618,6 @@ impl PeerManagerActor {
             }
         }
     }
-
-    /// Remove a peer from the connected peer set. If the peer doesn't belong to the connected peer set
-    /// data from ongoing connection established is removed.
-    fn unregister_peer(
-        &mut self,
-        peer_id: PeerId,
-        peer_type: PeerType,
-        remove_from_peer_store: bool,
-    ) {
-        debug!(target: "network", ?peer_id, ?peer_type, "Unregister peer");
-        if remove_from_peer_store {
-            self.remove_connected_peer(&peer_id, Some(peer_type));
-            if let Err(err) = self.peer_store.peer_disconnected(&self.clock, &peer_id) {
-                error!(target: "network", ?err, "Failed to save peer data");
-            };
-        }
-    }
-
     /// Add peer to ban list.
     /// This function should only be called after Peer instance is stopped.
     /// Note: Use `try_ban_peer` if there might be a Peer instance still connected.
@@ -699,12 +660,6 @@ impl PeerManagerActor {
             && !self.config.outbound_disabled
     }
 
-    fn is_inbound_allowed(&self) -> bool {
-        let tier2 = self.state.tier2.load();
-        tier2.ready.len() + tier2.outbound_handshakes.len() < self.max_num_peers as usize
-            && !self.config.inbound_disabled
-    }
-
     /// is_peer_whitelisted checks whether a peer is a whitelisted node.
     /// whitelisted nodes are allowed to connect, even if the inbound connections limit has
     /// been reached. This predicate should be evaluated AFTER the Handshake.
@@ -714,6 +669,23 @@ impl PeerManagerActor {
             .filter(|wn| wn.id == peer_info.id)
             .filter(|wn| Some(wn.addr) == peer_info.addr)
             .any(|wn| wn.account_id.is_none() || wn.account_id == peer_info.account_id)
+    }
+
+    // predicate checking whether we should allow an inbound connection from peer_info.
+    fn is_inbound_allowed(&self, peer_info: &PeerInfo) -> bool {
+        // Check if we have spare inbound connections capacity.
+        let tier2 = self.state.tier2.load();
+        if tier2.ready.len() + tier2.outbound_handshakes.len() < self.max_num_peers as usize
+            && !self.config.inbound_disabled
+        {
+            return true;
+        }
+        // Whitelisted nodes are allowed to connect, even if the inbound connections limit has
+        // been reached.
+        if self.is_peer_whitelisted(peer_info) {
+            return true;
+        }
+        false
     }
 
     /// Returns peers close to the highest height
@@ -847,14 +819,14 @@ impl PeerManagerActor {
         // Build safe set
         let mut safe_set = HashSet::new();
 
-        // If there is not enough non-whitelisted peers, return without disconnecting anyone.
+        // Add whitelisted nodes to the safe set.
         let whitelisted_peers = filter_peers(&|p| self.is_peer_whitelisted(&p.peer_info));
-        if tier2.ready.len() - whitelisted_peers.len() <= self.config.ideal_connections_hi as usize
-        {
+        safe_set.extend(whitelisted_peers);
+
+        // If there is not enough non-whitelisted peers, return without disconnecting anyone.
+        if tier2.ready.len() - safe_set.len() <= self.config.ideal_connections_hi as usize {
             return;
         }
-        // Add whitelisted nodes to the safe set.
-        safe_set.extend(whitelisted_peers);
 
         // If there is not enough outbound peers, add them to the safe set.
         let outbound_peers = filter_peers(&|p| p.peer_type == PeerType::Outbound);
@@ -882,6 +854,7 @@ impl PeerManagerActor {
             })
             .cloned()
             .collect();
+
         // Sort by established time.
         active_peers.sort_by_key(|p| p.connection_established_time);
         // Saturate safe set with recently active peers.
@@ -958,9 +931,9 @@ impl PeerManagerActor {
                     interval = default_interval;
                 }
 
-                ctx.notify(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect {
+                ctx.notify(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect(
                     peer_info,
-                }));
+                )));
             } else {
                 self.state.ask_for_more_peers(&self.clock);
             }
@@ -1377,81 +1350,42 @@ impl PeerManagerActor {
         // Check if this is a blacklisted peer.
         if peer_info.addr.as_ref().map_or(true, |addr| self.peer_store.is_blacklisted(addr)) {
             debug!(target: "network", peer_info = ?peer_info, "Dropping connection from blacklisted peer or unknown address");
-            return RegisterPeerResponse::Reject;
+            return RegisterPeerResponse::Reject(RegisterPeerError::Blacklisted);
         }
 
         if self.peer_store.is_banned(&peer_info.id) {
             debug!(target: "network", id = ?peer_info.id, "Dropping connection from banned peer");
-            return RegisterPeerResponse::Reject;
+            return RegisterPeerResponse::Reject(RegisterPeerError::Banned);
         }
-
-        let tier2 = self.state.tier2.load();
-        if msg.connection.peer_type == PeerType::Inbound
-            && !self.is_inbound_allowed()
-            && !self.is_peer_whitelisted(&peer_info)
-        {
-            // TODO(1896): Gracefully drop inbound connection for other peer.
-            debug!(target: "network",
-                tier2 = tier2.ready.len(), outgoing_peers = tier2.outbound_handshakes.len(),
-                max_num_peers = self.max_num_peers,
-                "Inbound connection dropped (network at max capacity)."
-            );
-            return RegisterPeerResponse::Reject;
-        }
-
-        let other_edge_info = &msg.connection.partial_edge_info;
-        if other_edge_info.nonce == 0 {
-            debug!(target: "network", nonce = other_edge_info.nonce, "Invalid nonce. It must be greater than 0.");
-            return RegisterPeerResponse::Reject;
-        }
-
-        let last_edge = self.state.routing_table_view.get_local_edge(&peer_info.id);
-        let last_nonce = last_edge.as_ref().map_or(0, |edge| edge.nonce());
-
-        // Check that the received nonce is greater than the current nonce of this connection.
-        if last_nonce >= other_edge_info.nonce {
-            debug!(target: "network", nonce = other_edge_info.nonce, last_nonce, my_peer_id = ?self.my_peer_id, ?peer_info.id, "Too low nonce");
-            // If the check fails don't allow this connection.
-            return RegisterPeerResponse::InvalidNonce(Box::new(last_edge.unwrap().clone()));
-        }
-
-        if let Ok(maybe_nonce_timestamp) = Edge::nonce_to_utc(other_edge_info.nonce) {
-            if let Some(nonce_timestamp) = maybe_nonce_timestamp {
-                if (self.clock.now_utc() - nonce_timestamp).abs() < EDGE_NONCE_MAX_TIME_DELTA {
-                    metrics::EDGE_NONCE.with_label_values(&["new_style"]).inc();
-                } else {
-                    metrics::EDGE_NONCE.with_label_values(&["error_timestamp_too_distant"]).inc();
-                    debug!(target: "network", nonce = other_edge_info.nonce, clock=self.clock.now_utc().unix_timestamp(), ?EDGE_NONCE_MAX_TIME_DELTA, ?self.my_peer_id, ?peer_info.id, "Nonce too much in future.");
-                    return RegisterPeerResponse::Reject;
-                }
-            } else {
-                metrics::EDGE_NONCE.with_label_values(&["old_style"]).inc();
+        if msg.connection.peer_type == PeerType::Inbound {
+            if !self.is_inbound_allowed(&peer_info) {
+                // TODO(1896): Gracefully drop inbound connection for other peer.
+                let tier2 = self.state.tier2.load();
+                debug!(target: "network",
+                    tier2 = tier2.ready.len(), outgoing_peers = tier2.outbound_handshakes.len(),
+                    max_num_peers = self.max_num_peers,
+                    "Dropping handshake (network at max capacity)."
+                );
+                return RegisterPeerResponse::Reject(RegisterPeerError::ConnectionLimitExceeded);
             }
-        } else {
-            debug!(target: "network", nonce = other_edge_info.nonce, clock=self.clock.now_utc().unix_timestamp(), ?EDGE_NONCE_MAX_TIME_DELTA, ?self.my_peer_id, ?peer_info.id, "Nonce is overflowing i64.");
-            return RegisterPeerResponse::Reject;
         }
-        let require_response = msg.this_edge_info.is_none();
-
-        let edge_info = msg
-            .this_edge_info
-            .clone()
-            .unwrap_or_else(|| self.state.propose_edge(&peer_info.id, Some(other_edge_info.nonce)));
-
-        let edge_info_response = if require_response { Some(edge_info.clone()) } else { None };
-
-        if let Err(err) = self.register_peer(msg.connection.clone(), edge_info, ctx) {
-            debug!(target: "network", nonce = other_edge_info.nonce, clock=self.clock.now_utc().unix_timestamp(), ?EDGE_NONCE_MAX_TIME_DELTA, ?self.my_peer_id, ?peer_info.id, ?err, "state.register_peer()");
-            return RegisterPeerResponse::Reject;
+        if let Err(err) = self.register_peer(msg.connection.clone(), ctx) {
+            return RegisterPeerResponse::Reject(RegisterPeerError::PoolError(err));
         }
-
-        RegisterPeerResponse::Accept(edge_info_response)
+        self.config.event_sink.push(Event::PeerRegistered(peer_info.clone()));
+        RegisterPeerResponse::Accept
     }
 
     #[perf]
     fn handle_msg_unregister(&mut self, msg: Unregister) {
         let _d = delay_detector::DelayDetector::new(|| "unregister".into());
-        self.unregister_peer(msg.peer_id, msg.peer_type, msg.remove_from_peer_store);
+        if !msg.remove_from_peer_store {
+            return;
+        }
+        self.remove_connected_peer(&msg.peer_id, Some(msg.peer_type));
+        if let Err(err) = self.peer_store.peer_disconnected(&self.clock, &msg.peer_id) {
+            error!(target: "network", ?err, "Failed to save peer data");
+        };
     }
 
     #[perf]
@@ -1494,10 +1428,7 @@ impl PeerManagerActor {
             // TEST-ONLY
             PeerManagerMessageRequest::OutboundTcpConnect(msg) => {
                 ctx.spawn(
-                    self.state
-                        .clone()
-                        .spawn_outbound(self.clock.clone(), msg.peer_info)
-                        .into_actor(self),
+                    self.state.clone().spawn_outbound(self.clock.clone(), msg.0).into_actor(self),
                 );
                 PeerManagerMessageResponse::OutboundTcpConnect
             }
