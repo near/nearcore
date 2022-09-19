@@ -1558,14 +1558,13 @@ impl ShardsManager {
 
         // 2. check protocol version
         let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
-        if !header.version_range().contains(protocol_version) {
-            return if epoch_id_confirmed {
-                Err(Error::InvalidChunkHeader)
-            } else {
-                Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
-            };
+        if header.valid_for(protocol_version) {
+            Ok(())
+        } else if epoch_id_confirmed {
+            Err(Error::InvalidChunkHeader)
+        } else {
+            Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
         }
-        Ok(())
     }
 
     /// Inserts the header if it is not already known, and process the forwarded chunk parts cached
