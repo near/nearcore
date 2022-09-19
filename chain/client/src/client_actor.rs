@@ -1512,7 +1512,7 @@ impl ClientActor {
     /// content of such block.
     ///
     /// The selected block will always be the first block on a new epoch:
-    /// https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862
+    /// <https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862>.
     ///
     /// To prevent syncing from a fork, we move `state_fetch_horizon` steps backwards and use that epoch.
     /// Usually `state_fetch_horizon` is much less than the expected number of produced blocks on an epoch,
