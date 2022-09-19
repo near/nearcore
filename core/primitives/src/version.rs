@@ -51,21 +51,6 @@ pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
 /// Updates the way receipt ID is constructed to use current block hash instead of last block hash
 pub const CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION: ProtocolVersion = 42;
 
-pub struct ProtocolVersionRange {
-    lower: ProtocolVersion,
-    upper: Option<ProtocolVersion>,
-}
-
-impl ProtocolVersionRange {
-    pub fn new(lower: ProtocolVersion, upper: Option<ProtocolVersion>) -> Self {
-        Self { lower, upper }
-    }
-
-    pub fn contains(&self, version: ProtocolVersion) -> bool {
-        self.lower <= version && self.upper.map_or(true, |upper| version < upper)
-    }
-}
-
 pub fn is_implicit_account_creation_enabled(protocol_version: ProtocolVersion) -> bool {
     protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
 }
