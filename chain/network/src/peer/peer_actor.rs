@@ -98,7 +98,6 @@ pub(crate) struct PeerActor {
     /// OUTBOUND-ONLY: Handshake specification. For outbound connections it is initialized
     /// in constructor and then can change as HandshakeFailure and LastEdge messages
     /// are received. For inbound connections, handshake is stateless.
-    handshake_spec: Option<HandshakeSpec>,
 
     /// Framed wrapper to send messages through the TCP connection.
     framed: stream::FramedStream<PeerActor>,
@@ -167,12 +166,18 @@ impl PeerActor {
                     .try_acquire_owned()
                     .context("too many connections in Connecting state")?,
             ),
-            StreamConfig::Outbound { peer_id } => ConnectingStatus::Outbound(
-                network_state
+            StreamConfig::Outbound { peer_id } => ConnectingStatus::Outbound{
+                permit: network_state
                     .tier2
                     .start_outbound(peer_id.clone())
                     .context("tier2.start_outbound()")?,
-            ),
+                handshake_spec: HandshakeSpec {
+                    partial_edge_info: network_state.propose_edge(peer_id, None),
+                    protocol_version: PROTOCOL_VERSION,
+                    peer_id: peer_id.clone(),
+                    genesis_id: network_state.genesis_id.clone(),
+                },
+            },
         };
 
         let my_node_info = PeerInfo {
@@ -191,15 +196,6 @@ impl PeerActor {
                 peer_type: match &stream_config {
                     StreamConfig::Inbound => PeerType::Inbound,
                     StreamConfig::Outbound { .. } => PeerType::Outbound,
-                },
-                handshake_spec: match &stream_config {
-                    StreamConfig::Inbound => None,
-                    StreamConfig::Outbound { peer_id } => Some(HandshakeSpec {
-                        partial_edge_info: network_state.propose_edge(peer_id, None),
-                        protocol_version: PROTOCOL_VERSION,
-                        peer_id: peer_id.clone(),
-                        genesis_id: network_state.genesis_id.clone(),
-                    }),
                 },
                 peer_status: PeerStatus::Connecting(connecting_status),
                 framed,
@@ -1338,7 +1334,10 @@ type InboundHandshakePermit = tokio::sync::OwnedSemaphorePermit;
 #[derive(Debug)]
 enum ConnectingStatus {
     Inbound(InboundHandshakePermit),
-    Outbound(connection::OutboundHandshakePermit),
+    Outbound{
+        permit: connection::OutboundHandshakePermit,
+        handshake_spec: HandshakeSpec,
+    }
 }
 
 /// State machine of the PeerActor.
