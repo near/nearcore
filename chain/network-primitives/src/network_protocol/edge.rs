@@ -38,8 +38,8 @@ impl PartialEdgeInfo {
 
 #[derive(thiserror::Error, Debug)]
 pub enum InvalidNonceError {
-    #[error("nonce is overflowing i64")]
-    NonceOutOfBoundsError,
+    #[error("nonce is overflowing i64: {nonce}")]
+    NonceOutOfBoundsError{nonce: u64},
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -254,9 +254,9 @@ impl Edge {
                         }
                     },
                 )
-                .map_err(|_| InvalidNonceError::NonceOutOfBoundsError)
+                .map_err(|_| InvalidNonceError::NonceOutOfBoundsError{nonce})
         } else {
-            Err(InvalidNonceError::NonceOutOfBoundsError)
+            Err(InvalidNonceError::NonceOutOfBoundsError{nonce})
         }
     }
 }
