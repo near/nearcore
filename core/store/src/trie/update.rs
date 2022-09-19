@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::iter::Peekable;
+use std::ops::Bound;
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
@@ -200,31 +201,34 @@ impl<'a> TrieUpdateIterator<'a> {
     pub fn new(state_update: &'a TrieUpdate, prefix: &[u8]) -> Result<Self, StorageError> {
         let mut trie_iter = state_update.trie.iter()?;
         trie_iter.seek_prefix(prefix)?;
-        let prefix = prefix.to_vec();
-        let committed_iter = state_update.committed.range(prefix.clone()..).map(
+        let range = (Bound::Included(prefix), Bound::Unbounded);
+        let committed_iter = state_update.committed.range::<[u8], _>(range).map(
             |(raw_key, changes_with_trie_key)| {
-                (
-                    raw_key.as_slice(),
-                    changes_with_trie_key
-                        .changes
-                        .last()
-                        .as_ref()
-                        .expect("Committed entry should have at least one change.")
-                        .data
-                        .as_deref(),
-                )
+                let key = raw_key.as_slice();
+                let value = changes_with_trie_key
+                    .changes
+                    .last()
+                    .as_ref()
+                    .expect("Committed entry should have at least one change.")
+                    .data
+                    .as_deref();
+                (key, value)
             },
         );
         let prospective_iter = state_update
             .prospective
-            .range(prefix.clone()..)
+            .range::<[u8], _>(range)
             .map(|(raw_key, key_value)| (raw_key.as_slice(), key_value.value.as_deref()));
         let overlay_iter = MergeIter {
             left: (Box::new(committed_iter) as Box<dyn Iterator<Item = _>>).peekable(),
             right: (Box::new(prospective_iter) as Box<dyn Iterator<Item = _>>).peekable(),
         }
         .peekable();
-        Ok(TrieUpdateIterator { prefix, trie_iter: trie_iter.peekable(), overlay_iter })
+        Ok(TrieUpdateIterator {
+            prefix: prefix.to_vec(),
+            trie_iter: trie_iter.peekable(),
+            overlay_iter,
+        })
     }
 }
 
