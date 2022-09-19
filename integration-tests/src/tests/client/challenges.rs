@@ -369,7 +369,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         0,
         vec![],
         vec![],
-        &vec![],
+        &[],
         last_block.chunks()[0].outgoing_receipts_root(),
         CryptoHash::default(),
         &validator_signer,
@@ -522,7 +522,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     let partial_encoded_chunk = chunk.create_partial_encoded_chunk(
         vec![0],
         one_part_receipt_proofs,
-        &vec![merkle_paths[0].clone()],
+        &[merkle_paths[0].clone()],
     );
     assert!(env.clients[1].process_partial_encoded_chunk(partial_encoded_chunk).is_ok());
     env.process_block(1, block, Provenance::NONE);

@@ -1535,7 +1535,7 @@ pub fn test_chunk_nodes_cache_mode(node: impl Node, runtime_config: RuntimeConfi
         make_receipt(&node, vec![make_write_key_value_action(vec![1], vec![1])], bob_account()),
         make_receipt(
             &node,
-            vec![DeployContractAction { code: test_utils::encode(&vec![2]) }.into()],
+            vec![DeployContractAction { code: test_utils::encode(&[2]) }.into()],
             alice_account(),
         ),
         make_receipt(&node, vec![make_write_key_value_action(vec![2], vec![2])], bob_account()),
