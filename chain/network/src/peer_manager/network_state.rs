@@ -1,9 +1,9 @@
 use crate::accounts_data;
 use crate::config;
 use crate::concurrency::rate;
-use crate::network_protocol::PartialEdgeInfo;
+use crate::network_protocol::{PartialEdgeInfo, PeerAddr};
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, PeerInfo, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
+    AccountOrPeerIdOrHash, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
     RoutedMessageV2,
 };
 use crate::routing::route_back_cache::RouteBackCache;
@@ -28,7 +28,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tokio::net::TcpStream;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, trace};
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::milliseconds(60_000);
@@ -197,6 +197,7 @@ impl NetworkState {
                     continue;
                 }
                 let mut peers = proxies_by_account.get(account_id).into_iter().flatten();
+                // It there is an outound connection in progress to a potential proxy, then skip.
                 if peers.any(|p| tier1.outbound_handshakes.contains(&p.peer_id)) {
                     continue;
                 }
@@ -207,11 +208,7 @@ impl NetworkState {
                     self.clone()
                         .spawn_outbound(
                             clock.clone(),
-                            PeerInfo {
-                                id: peer_addr.peer_id.clone(),
-                                addr: Some(peer_addr.addr),
-                                account_id: None,
-                            },
+                            (*peer_addr).clone(),
                             connection::Tier::T1,
                         )
                         .await;
@@ -288,16 +285,9 @@ impl NetworkState {
     pub async fn spawn_outbound(
         self: Arc<Self>,
         clock: time::Clock,
-        peer_info: PeerInfo,
+        peer: PeerAddr,
         tier: connection::Tier,
     ) {
-        let addr = match peer_info.addr {
-            Some(addr) => addr,
-            None => {
-                warn!(target: "network", ?peer_info, "Trying to connect to peer with no public address");
-                return;
-            }
-        };
         // The `connect` may take several minutes. This happens when the
         // `SYN` packet for establishing a TCP connection gets silently
         // dropped, in which case the default TCP timeout is applied. That's
@@ -307,24 +297,24 @@ impl NetworkState {
         // before, so we keep it to preserve behavior. Removing the timeout
         // completely was observed to break stuff for real on the testnet.
         let stream =
-            match tokio::time::timeout(std::time::Duration::from_secs(1), TcpStream::connect(addr))
+            match tokio::time::timeout(std::time::Duration::from_secs(1), TcpStream::connect(peer.addr))
                 .await
             {
                 Ok(Ok(it)) => it,
                 Ok(Err(err)) => {
-                    info!(target: "network", ?addr, ?err, "Error connecting to");
+                    info!(target: "network", addr=?peer.addr, ?err, "Error connecting to");
                     return;
                 }
                 Err(err) => {
-                    info!(target: "network", ?addr, ?err, "Error connecting to");
+                    info!(target: "network", addr=?peer.addr, ?err, "Error connecting to");
                     return;
                 }
             };
-        debug!(target: "network", ?peer_info, "Connecting");
+        debug!(target: "network", ?peer, "Connecting");
         self.spawn_peer_actor(
             &clock,
             stream,
-            StreamConfig::Outbound { peer_id: peer_info.id, tier },
+            StreamConfig::Outbound { peer_id: peer.peer_id, tier },
         );
     }
 

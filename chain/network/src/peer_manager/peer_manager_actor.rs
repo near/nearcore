@@ -1,5 +1,5 @@
 use crate::config;
-use crate::network_protocol::{AccountData, SyncAccountsData};
+use crate::network_protocol::{AccountData, SyncAccountsData, PeerAddr};
 use crate::network_protocol::{
     AccountOrPeerIdOrHash, Edge, PeerInfo, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
 };
@@ -1436,10 +1436,20 @@ impl PeerManagerActor {
             }
             // TEST-ONLY
             PeerManagerMessageRequest::OutboundTcpConnect(msg) => {
+                let addr = match msg.0.addr {
+                    None => {
+                        tracing::warn!(target:"network", "requested to connect to peer without addr");
+                        return PeerManagerMessageResponse::OutboundTcpConnect;
+                    }
+                    Some(addr) => addr,
+                };
                 ctx.spawn(
                     self.state
                         .clone()
-                        .spawn_outbound(self.clock.clone(), msg.0, connection::Tier::T2)
+                        .spawn_outbound(self.clock.clone(), PeerAddr{
+                            peer_id: msg.0.id,
+                            addr,
+                        }, connection::Tier::T2)
                         .into_actor(self),
                 );
                 PeerManagerMessageResponse::OutboundTcpConnect
