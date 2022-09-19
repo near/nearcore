@@ -2,9 +2,10 @@ use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo};
+use crate::network_protocol::{PeerMessage, RoutedMessageBody};
 use crate::network_protocol::{SignedAccountData, SyncAccountsData};
-use crate::peer::peer_actor::PeerActor;
 use crate::peer::peer_actor;
+use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
 use crate::stats::metrics;
 use crate::time;
@@ -18,31 +19,33 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use crate::network_protocol::{PeerMessage, RoutedMessageBody};
 
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone,Copy,Debug,PartialEq,Eq)]
-pub enum Tier { T1, T2 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tier {
+    T1,
+    T2,
+}
 
 impl Tier {
-    pub fn is_allowed(self, msg:&PeerMessage) -> bool {
+    pub fn is_allowed(self, msg: &PeerMessage) -> bool {
         match msg {
-            PeerMessage::Tier1Handshake(_) => self==Tier::T1,
-            PeerMessage::Tier2Handshake(_) => self==Tier::T2,
+            PeerMessage::Tier1Handshake(_) => self == Tier::T1,
+            PeerMessage::Tier2Handshake(_) => self == Tier::T2,
             PeerMessage::HandshakeFailure(_, _) => true,
             PeerMessage::LastEdge(_) => true,
             PeerMessage::Routed(msg) => self.is_allowed_routed(&msg.body),
-            _ => self==Tier::T2,
+            _ => self == Tier::T2,
         }
     }
 
-    pub fn is_allowed_routed(self, body:&RoutedMessageBody) -> bool {
+    pub fn is_allowed_routed(self, body: &RoutedMessageBody) -> bool {
         match body {
             RoutedMessageBody::BlockApproval(..) => true,
             RoutedMessageBody::VersionedPartialEncodedChunk(..) => true,
-            _ => self==Tier::T2,
+            _ => self == Tier::T2,
         }
     }
 }
@@ -128,10 +131,7 @@ impl Connection {
     }
 
     pub fn stop(&self, ban_reason: Option<ReasonForBan>) {
-        self.addr.do_send(peer_actor::Stop{
-            ban_reason,
-            context: Span::current().context(),
-        });
+        self.addr.do_send(peer_actor::Stop { ban_reason, context: Span::current().context() });
     }
 
     // TODO(gprusak): embed Stream directly in Connection,

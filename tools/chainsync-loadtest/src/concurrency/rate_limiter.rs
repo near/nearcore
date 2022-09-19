@@ -41,12 +41,12 @@ impl CoarseLimiter {
     /// task is spawned within provided context.
     // TODO(gprusak): this can be implemented with better precision,
     // as follows: replace Semaphore with a Mutex
-    pub fn spawn<A:actix::Actor>(
+    pub fn spawn<A: actix::Actor>(
         ctx: &mut actix::Context<A>,
-        limit:Limit,
+        limit: Limit,
         refresh_period: time::Duration,
     ) -> BytesLimiter {
-        assert!(refresh_period>0);
+        assert!(refresh_period > 0);
         let mut refresh_period = tokio::time::interval(refresh_period.try_into().unwrap());
         refresh_period.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let sem = Arc::new(tokio::sync::Semaphore::new(l.burst));
@@ -57,11 +57,11 @@ impl CoarseLimiter {
                 let got = sem.available_permits();
                 let t1 = clock.now();
                 // Casting to usize is saturating and rounds towards 0.
-                let new : usize = ((t1-t0).as_secs_f64()*limit.qps) as usize;
+                let new: usize = ((t1 - t0).as_secs_f64() * limit.qps) as usize;
                 // Progress time only by full units.
-                t0 += time::Duration::seconds_64(new as f64/limit.qps);
-                if got<limit.burst {
-                    sem.add_permits(cmp::min(limit.burst as usize -got,new));
+                t0 += time::Duration::seconds_64(new as f64 / limit.qps);
+                if got < limit.burst {
+                    sem.add_permits(cmp::min(limit.burst as usize - got, new));
                 }
             }
         }));
@@ -69,7 +69,7 @@ impl CoarseLimiter {
     }
 
     // See semantics of https://pkg.go.dev/golang.org/x/time/rate
-    pub async fn acquire(&self, ) -> anyhow::Result<()> {
+    pub async fn acquire(&self) -> anyhow::Result<()> {
         let mut rl = ctx.wrap(self.0.lock()).await?;
         let ticks_now = rl.ticks(time::Instant::now());
         rl.tokens = std::cmp::min(

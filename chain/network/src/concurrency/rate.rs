@@ -1,5 +1,5 @@
-use std::cmp;
 use crate::time;
+use std::cmp;
 
 /// Config of a rate limiter algorithm, which behaves like a semaphore
 /// - with maximal capacity `burst`
@@ -34,7 +34,7 @@ struct LimiterInner {
     last_refresh: time::Instant,
 }
 
-#[derive(thiserror::Error,Debug)]
+#[derive(thiserror::Error, Debug)]
 #[error("requested {requested} permits, max allowed {max}")]
 pub(crate) struct RequestTooLargeError {
     pub requested: u64,
@@ -50,8 +50,8 @@ pub(crate) struct Limiter {
 
 impl Limiter {
     pub fn new(clock: &time::Clock, limit: Limit) -> Limiter {
-        return Limiter{ 
-            state: tokio::sync::Mutex::new(LimiterInner{
+        return Limiter {
+            state: tokio::sync::Mutex::new(LimiterInner {
                 last_refresh: clock.now(),
                 permits: limit.burst,
             }),
@@ -62,21 +62,22 @@ impl Limiter {
     /// Acquire waits until `n` permits are available, then consumes them.
     /// It is cancel-safe and has FIFO semantics: subsequent call have to wait until the previous
     /// call acquires its permits. In case a call is cancelled, no permits are consumed.
-    pub async fn acquire(&self, clock: &time::Clock, n:u64) -> Result<(),RequestTooLargeError> {
-        if self.limit.burst<n {
-            return Err(RequestTooLargeError{max:self.limit.burst,requested:n});
+    pub async fn acquire(&self, clock: &time::Clock, n: u64) -> Result<(), RequestTooLargeError> {
+        if self.limit.burst < n {
+            return Err(RequestTooLargeError { max: self.limit.burst, requested: n });
         }
         let mut state = self.state.lock().await;
         if n <= state.permits {
             let now = clock.now();
-            let new = ((now-state.last_refresh).as_seconds_f64()*self.limit.qps) as u64;
-            state.last_refresh += time::Duration::seconds_f64((new as f64)/self.limit.qps);
-            state.permits = cmp::min(self.limit.burst, (state.permits-n).saturating_add(new));
-            if state.last_refresh>now {
+            let new = ((now - state.last_refresh).as_seconds_f64() * self.limit.qps) as u64;
+            state.last_refresh += time::Duration::seconds_f64((new as f64) / self.limit.qps);
+            state.permits = cmp::min(self.limit.burst, (state.permits - n).saturating_add(new));
+            if state.last_refresh > now {
                 state.last_refresh = now;
             }
         } else {
-            let t = state.last_refresh + time::Duration::seconds_f64((n-state.permits) as f64/self.limit.qps);
+            let t = state.last_refresh
+                + time::Duration::seconds_f64((n - state.permits) as f64 / self.limit.qps);
             clock.sleep_until(t).await;
             state.last_refresh = t;
             state.permits = 0;

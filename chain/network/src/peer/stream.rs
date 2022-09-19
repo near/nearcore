@@ -1,5 +1,5 @@
-use crate::peer_manager::connection;
 use crate::concurrency::rate;
+use crate::peer_manager::connection;
 use crate::stats::metrics;
 use crate::time;
 use std::io;
@@ -28,7 +28,7 @@ pub(crate) enum RecvError {
     #[error("IO error")]
     IO(#[source] io::Error),
     #[error("message too large: got {got_bytes}B, want <={want_max_bytes}B")]
-    MessageTooLarge{ got_bytes: u64, want_max_bytes: u64 },
+    MessageTooLarge { got_bytes: u64, want_max_bytes: u64 },
     #[error("stream closed")]
     Closed,
 }
@@ -81,12 +81,16 @@ impl FramedReader {
     /// Stream uses a fixed small buffer allocated by BufReader.
     /// It allocates a Vec with exact size of the message.
     /// If cancelled (or on error) FramedReader closes.
-    pub async fn recv(&mut self, clock: &time::Clock, bytes_limiter: &rate::Limiter) -> Result<Frame,RecvError> {
+    pub async fn recv(
+        &mut self,
+        clock: &time::Clock,
+        bytes_limiter: &rate::Limiter,
+    ) -> Result<Frame, RecvError> {
         if self.closed {
             return Err(RecvError::Closed);
         }
         let this = CloseOnDrop(self);
-        let frame = this.0.recv_inner(clock,bytes_limiter).await?;
+        let frame = this.0.recv_inner(clock, bytes_limiter).await?;
         let _ = std::mem::ManuallyDrop::new(this);
         Ok(frame)
     }
@@ -100,7 +104,7 @@ impl FramedReader {
     ) -> Result<Frame, RecvError> {
         let n = self.read.read_u32_le().await.map_err(RecvError::IO)? as u64;
         // TODO(gprusak): separate limit for TIER1 message size.
-        bytes_limiter.acquire(clock,n).await.map_err(|err|RecvError::MessageTooLarge {
+        bytes_limiter.acquire(clock, n).await.map_err(|err| RecvError::MessageTooLarge {
             got_bytes: err.requested,
             want_max_bytes: err.max,
         })?;
@@ -117,29 +121,27 @@ impl FramedReader {
     }
 }
 
-pub(crate) struct Scope<A:actix::Actor> {
-   pub arbiter: actix::ArbiterHandle,
-   pub addr: actix::Addr<A>,
+pub(crate) struct Scope<A: actix::Actor> {
+    pub arbiter: actix::ArbiterHandle,
+    pub addr: actix::Addr<A>,
 }
 
-impl<A:actix::Actor> Clone for Scope<A> {
-   fn clone(&self) -> Self {
-        Self {
-            arbiter: self.arbiter.clone(),
-            addr: self.addr.clone(),
-        }
-   }
+impl<A: actix::Actor> Clone for Scope<A> {
+    fn clone(&self) -> Self {
+        Self { arbiter: self.arbiter.clone(), addr: self.addr.clone() }
+    }
 }
 
-impl<Actor:actix::Actor + actix::Handler<Error>> FramedWriter<Actor> 
-    where Actor::Context : actix::dev::ToEnvelope<Actor, Error>
+impl<Actor: actix::Actor + actix::Handler<Error>> FramedWriter<Actor>
+where
+    Actor::Context: actix::dev::ToEnvelope<Actor, Error>,
 {
     pub fn spawn(
         scope: &Scope<Actor>,
         peer_addr: SocketAddr,
         stream: tokio::net::TcpStream,
         stats: Arc<connection::Stats>,
-    ) -> (Self,FramedReader) {
+    ) -> (Self, FramedReader) {
         let (tcp_recv, tcp_send) = tokio::io::split(stream);
         let (queue_send, queue_recv) = tokio::sync::mpsc::unbounded_channel();
         let send_buf_size_metric = Arc::new(metrics::MetricGuard::new(
@@ -158,18 +160,27 @@ impl<Actor:actix::Actor + actix::Handler<Error>> FramedWriter<Actor>
         });
 
         const READ_BUFFER_CAPACITY: usize = 8 * 1024;
-        (FramedWriter{
-            scope: scope.clone(), 
-            queue_send,
-            stats: stats.clone(),
-            buf_size_metric: send_buf_size_metric,
-        },FramedReader{
-            closed: false,
-            stats,
-            read: tokio::io::BufReader::with_capacity(READ_BUFFER_CAPACITY, tcp_recv),
-            msg_size_metric: metrics::MetricGuard::new(&metrics::PEER_MSG_SIZE_BYTES, vec![peer_addr.to_string()]),
-            buf_size_metric: metrics::MetricGuard::new(&metrics::PEER_DATA_READ_BUFFER_SIZE, vec![peer_addr.to_string()]),
-        })
+        (
+            FramedWriter {
+                scope: scope.clone(),
+                queue_send,
+                stats: stats.clone(),
+                buf_size_metric: send_buf_size_metric,
+            },
+            FramedReader {
+                closed: false,
+                stats,
+                read: tokio::io::BufReader::with_capacity(READ_BUFFER_CAPACITY, tcp_recv),
+                msg_size_metric: metrics::MetricGuard::new(
+                    &metrics::PEER_MSG_SIZE_BYTES,
+                    vec![peer_addr.to_string()],
+                ),
+                buf_size_metric: metrics::MetricGuard::new(
+                    &metrics::PEER_DATA_READ_BUFFER_SIZE,
+                    vec![peer_addr.to_string()],
+                ),
+            },
+        )
     }
 
     /// Pushes `msg` to the send queue.

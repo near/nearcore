@@ -1,8 +1,6 @@
 /// This file is contains all types used for communication between `Actors` within this crate.
 /// They are not meant to be used outside.
-use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PeerInfo, PeerMessage, RoutingTableUpdate,
-};
+use crate::network_protocol::{Edge, PartialEdgeInfo, PeerInfo, PeerMessage, RoutingTableUpdate};
 use crate::peer_manager::connection::{Connection, PoolError};
 use crate::types::{Ban, ReasonForBan};
 use conqueue::QueueSender;

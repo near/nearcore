@@ -1,7 +1,7 @@
 use crate::actix::ActixSystem;
+use crate::concurrency::rate;
 use crate::peer::stream;
 use crate::peer::stream::Scope;
-use crate::concurrency::rate;
 use crate::testonly::make_rng;
 use crate::time;
 use actix::Actor as _;
@@ -50,17 +50,19 @@ impl Actor {
             queue_recv,
             system: ActixSystem::spawn(|| {
                 Actor::create(|ctx| {
-                    let scope = Scope{
-                        arbiter: actix::Arbiter::current(),
-                        addr: ctx.address(),
-                    };
-                    let (writer,mut reader) =
-                        stream::FramedWriter::spawn(&scope, s.peer_addr().unwrap(), s, Arc::default());
+                    let scope = Scope { arbiter: actix::Arbiter::current(), addr: ctx.address() };
+                    let (writer, mut reader) = stream::FramedWriter::spawn(
+                        &scope,
+                        s.peer_addr().unwrap(),
+                        s,
+                        Arc::default(),
+                    );
                     let addr = ctx.address();
                     scope.arbiter.spawn(async move {
-                        let limiter = rate::Limiter::new(&clock,rate::Limit{qps:10000.,burst:10000});
+                        let limiter =
+                            rate::Limiter::new(&clock, rate::Limit { qps: 10000., burst: 10000 });
                         loop {
-                            match reader.recv(&clock,&limiter).await {
+                            match reader.recv(&clock, &limiter).await {
                                 Ok(frame) => queue_send.send(frame).ok().unwrap(),
                                 Err(err) => addr.do_send(stream::Error::Recv(err)),
                             }
@@ -82,8 +84,8 @@ async fn send_recv() {
         listener.accept(),
     );
     let clock = time::FakeClock::default();
-    let a1 = Actor::spawn(&clock.clock(),s1.unwrap()).await;
-    let mut a2 = Actor::spawn(&clock.clock(),s2.unwrap().0).await;
+    let a1 = Actor::spawn(&clock.clock(), s1.unwrap()).await;
+    let mut a2 = Actor::spawn(&clock.clock(), s2.unwrap().0).await;
 
     let mut rng = make_rng(98324532);
     for _ in 0..5 {

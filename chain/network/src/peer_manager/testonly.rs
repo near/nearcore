@@ -1,11 +1,11 @@
 use crate::broadcast;
 use crate::config;
-use crate::peer_manager::connection;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Encoding, PeerAddr, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
 };
 use crate::peer;
+use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::testonly::actix::ActixSystem;
@@ -17,17 +17,23 @@ use crate::PeerManagerActor;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, EpochId};
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 
 #[derive(actix::Message)]
 #[rtype("()")]
-struct WithNetworkState(Box<dyn Send + FnOnce(Arc<NetworkState>) -> Pin<Box<dyn Send + 'static + Future<Output=()>>>>);
+struct WithNetworkState(
+    Box<dyn Send + FnOnce(Arc<NetworkState>) -> Pin<Box<dyn Send + 'static + Future<Output = ()>>>>,
+);
 
 impl actix::Handler<WithNetworkState> for PeerManagerActor {
     type Result = ();
-    fn handle(&mut self, WithNetworkState(f): WithNetworkState, _: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        WithNetworkState(f): WithNetworkState,
+        _: &mut Self::Context,
+    ) -> Self::Result {
         assert!(actix::Arbiter::current().spawn(f(self.state.clone())));
     }
 }
@@ -86,7 +92,11 @@ impl RawConnection {
         // Wait for the peer manager to complete the handshake.
         self.events
             .recv_until(|ev| match ev {
-                Event::PeerManager(PME::PeerRegistered(info,connection::Tier::T2)) if node_id == info.id => Some(()),
+                Event::PeerManager(PME::PeerRegistered(info, connection::Tier::T2))
+                    if node_id == info.id =>
+                {
+                    Some(())
+                }
                 _ => None,
             })
             .await;
@@ -120,18 +130,28 @@ impl ActorHandler {
             .unwrap();
         events
             .recv_until(|ev| match &ev {
-                Event::PeerManager(PME::PeerRegistered(info,connection::Tier::T2)) if peer_info == info => Some(()),
+                Event::PeerManager(PME::PeerRegistered(info, connection::Tier::T2))
+                    if peer_info == info =>
+                {
+                    Some(())
+                }
                 _ => None,
             })
             .await;
     }
 
-    pub async fn with_state<R:'static+Send,Fut:'static+Send+Future<Output=R>>(&self,f:impl 'static + Send + FnOnce(Arc<NetworkState>) -> Fut) -> R
-    {
-        let (send,recv) = tokio::sync::oneshot::channel();
-        self.actix.addr.send(WithNetworkState(Box::new(|s| Box::pin(async {
-            send.send(f(s).await).ok().unwrap()
-        })))).await.unwrap();
+    pub async fn with_state<R: 'static + Send, Fut: 'static + Send + Future<Output = R>>(
+        &self,
+        f: impl 'static + Send + FnOnce(Arc<NetworkState>) -> Fut,
+    ) -> R {
+        let (send, recv) = tokio::sync::oneshot::channel();
+        self.actix
+            .addr
+            .send(WithNetworkState(Box::new(|s| {
+                Box::pin(async { send.send(f(s).await).ok().unwrap() })
+            })))
+            .await
+            .unwrap();
         recv.await.unwrap()
     }
 

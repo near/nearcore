@@ -17,8 +17,8 @@
 //! of the provided handlers will be executed asynchronously
 //! (other handlers will be dropped).
 //!
-use crate::time;
 use crate::concurrency::rate;
+use crate::time;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use std::future::Future;
@@ -49,7 +49,6 @@ where
         Box::new(move |a: Arg| self(a).boxed())
     }
 }
-
 
 /// A demux handler should be in practice of type [Arg;n] -> [Res;n] for arbitrary n.
 /// We approximate that by a function Vec<Arg> -> Vec<Res>. If the sizes do not match,

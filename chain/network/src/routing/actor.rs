@@ -6,9 +6,8 @@ use crate::stats::metrics;
 use crate::store;
 use crate::time;
 use actix::{
-    Actor as _,
-    ActorContext as _, ActorFutureExt, Addr, Context, ContextFutureSpawner as _, Running,
-    WrapFuture as _,
+    Actor as _, ActorContext as _, ActorFutureExt, Addr, Context, ContextFutureSpawner as _,
+    Running, WrapFuture as _,
 };
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
@@ -65,14 +64,14 @@ impl Actor {
             edge_validator_pool: actix::SyncArbiter::start(4, || EdgeValidatorActor {}),
         }
     }
-    
+
     pub fn spawn(
         clock: time::Clock,
         store: store::Store,
         graph: Arc<RwLock<routing::GraphWithCache>>,
     ) -> actix::Addr<Self> {
         let arbiter = actix::Arbiter::new();
-        Actor::start_in_arbiter(&arbiter.handle(), |_|Self::new(clock,store,graph))
+        Actor::start_in_arbiter(&arbiter.handle(), |_| Self::new(clock, store, graph))
     }
 
     /// Add several edges to the current view of the network.

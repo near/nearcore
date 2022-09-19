@@ -1,12 +1,11 @@
 use crate::broadcast;
 use crate::config::NetworkConfig;
-use crate::peer_manager::connection;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
 };
-use parking_lot::RwLock;
 use crate::peer::peer_actor::{PeerActor, StreamConfig};
+use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
@@ -21,6 +20,7 @@ use crate::types::{PeerMessage, RoutingTableUpdate};
 use actix::{Actor, Context, Handler};
 use near_crypto::{InMemorySigner, Signature};
 use near_primitives::network::PeerId;
+use parking_lot::RwLock;
 
 use crate::time;
 use std::sync::Arc;
@@ -194,8 +194,10 @@ impl PeerHandle {
             }
             let mut network_cfg = cfg.network.clone();
             network_cfg.event_sink = send.sink().compose(Event::Network);
-            let network_graph = Arc::new(RwLock::new(routing::GraphWithCache::new(network_cfg.node_id().clone())));
-            let routing_table_addr = routing::Actor::spawn(clock.clone(),store.clone(),network_graph.clone());
+            let network_graph =
+                Arc::new(RwLock::new(routing::GraphWithCache::new(network_cfg.node_id().clone())));
+            let routing_table_addr =
+                routing::Actor::spawn(clock.clone(), store.clone(), network_graph.clone());
             let network_state = Arc::new(NetworkState::new(
                 &clock,
                 Arc::new(network_cfg.verify().unwrap()),
@@ -211,7 +213,9 @@ impl PeerHandle {
                 stream,
                 match &cfg.start_handshake_with {
                     None => StreamConfig::Inbound,
-                    Some(id) => StreamConfig::Outbound { peer_id: id.clone(), tier: connection::Tier::T2 },
+                    Some(id) => {
+                        StreamConfig::Outbound { peer_id: id.clone(), tier: connection::Tier::T2 }
+                    }
                 },
                 cfg.force_encoding,
                 network_state,

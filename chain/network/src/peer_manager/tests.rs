@@ -1,11 +1,11 @@
 use crate::concurrency::rate;
 use crate::config;
-use crate::peer_manager::connection;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Encoding, SyncAccountsData};
 use crate::network_protocol::{Ping, RoutedMessageBody, EDGE_MIN_TIMESTAMP_NONCE};
 use crate::peer;
 use crate::peer_manager;
+use crate::peer_manager::connection;
 use crate::peer_manager::network_state::LIMIT_PENDING_PEERS;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::{Event, NormalAccountData};
@@ -15,12 +15,12 @@ use crate::types::{PeerMessage, RoutingTableUpdate};
 use itertools::Itertools;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
+use near_primitives::types::EpochId;
 use pretty_assertions::assert_eq;
 use rand::seq::SliceRandom as _;
 use rand::Rng as _;
 use std::collections::HashSet;
 use std::sync::Arc;
-use near_primitives::types::{EpochId};
 use tokio::net::TcpStream;
 
 // After the initial exchange, all subsequent SyncRoutingTable messages are
@@ -377,7 +377,7 @@ async fn accounts_data_broadcast() {
     assert_eq!(got1.accounts_data.as_set(), want.as_set());
 }
 
-fn peer_account_data(e:&EpochId, vc: &config::ValidatorConfig) -> NormalAccountData {
+fn peer_account_data(e: &EpochId, vc: &config::ValidatorConfig) -> NormalAccountData {
     NormalAccountData {
         epoch_id: e.clone(),
         account_id: vc.signer.validator_id().clone(),
@@ -386,7 +386,7 @@ fn peer_account_data(e:&EpochId, vc: &config::ValidatorConfig) -> NormalAccountD
             config::ValidatorEndpoints::TrustedStunServers(_) => {
                 panic!("tests only support PublicAddrs in validator config")
             }
-        }
+        },
     }
 }
 
@@ -442,7 +442,7 @@ async fn accounts_data_gradual_epoch_change() {
         }
 
         // Wait for data to arrive.
-        let want = vs.iter().map(|v|peer_account_data(&e,v)).collect();
+        let want = vs.iter().map(|v| peer_account_data(&e, v)).collect();
         for pm in &mut pms {
             pm.wait_for_accounts_data(&want).await;
         }
@@ -517,7 +517,7 @@ async fn accounts_data_rate_limiting() {
     let events: Vec<_> = pms.iter().map(|pm| pm.events.clone()).collect();
 
     // Wait for data to arrive.
-    let want = vs.iter().map(|v|peer_account_data(&e,v)).collect();
+    let want = vs.iter().map(|v| peer_account_data(&e, v)).collect();
     for pm in &mut pms {
         pm.wait_for_accounts_data(&want).await;
     }
@@ -601,9 +601,9 @@ async fn tier1_direct_connections() {
     }
 
     // Connect peers serially.
-    let peer_infos : Vec<_> = pms.iter().map(|pm|pm.peer_info()).collect();
-    for i in 0..pms.len()-1 {
-        pms[i].connect_to(&peer_infos[i+1]).await;
+    let peer_infos: Vec<_> = pms.iter().map(|pm| pm.peer_info()).collect();
+    for i in 0..pms.len() - 1 {
+        pms[i].connect_to(&peer_infos[i + 1]).await;
     }
 
     // Construct ChainInfo with tier1_accounts containing all validators.
@@ -615,7 +615,7 @@ async fn tier1_direct_connections() {
             .map(|v| ((e.clone(), v.signer.validator_id().clone()), v.signer.public_key()))
             .collect(),
     );
-    let want = vs.iter().map(|v|peer_account_data(&e,v)).collect();
+    let want = vs.iter().map(|v| peer_account_data(&e, v)).collect();
     // Send it to all peers.
     for pm in &mut pms {
         pm.set_chain_info(chain_info.clone()).await;
@@ -624,31 +624,38 @@ async fn tier1_direct_connections() {
     for pm in &mut pms {
         pm.wait_for_accounts_data(&want).await;
     }
-    let ids : Vec<_> = pms.iter().map(|x|x.cfg.node_id()).collect();
+    let ids: Vec<_> = pms.iter().map(|x| x.cfg.node_id()).collect();
     // Establish TIER1 connections.
     for pm in &mut pms {
         tracing::debug!(target: "test", "starting TIER1 connections from {}",pm.cfg.node_id());
         let mut events = pm.events.from_now();
         let clock = clock.clock();
         let ids = ids.clone();
-        pm.with_state(|s|async move {
+        pm.with_state(|s| async move {
             // Start the connections.
             let ids = ids.as_set();
-            s.tier1_daemon_tick(&clock,s.config.features.tier1.as_ref().unwrap()).await;
+            s.tier1_daemon_tick(&clock, s.config.features.tier1.as_ref().unwrap()).await;
             // Wait for all the connections to be established.
             loop {
                 let tier1 = s.tier1.load();
-                let mut got : HashSet<_> = tier1.ready.keys().collect();
+                let mut got: HashSet<_> = tier1.ready.keys().collect();
                 let id = s.config.node_id();
                 got.insert(&id);
-                assert_is_superset(&ids,&got);
-                if ids==got { break }
-                events.recv_until(|ev| match ev {
-                    Event::PeerManager(PME::PeerRegistered(_,connection::Tier::T1)) => Some(()),
-                    _ => None,
-                }).await;
+                assert_is_superset(&ids, &got);
+                if ids == got {
+                    break;
+                }
+                events
+                    .recv_until(|ev| match ev {
+                        Event::PeerManager(PME::PeerRegistered(_, connection::Tier::T1)) => {
+                            Some(())
+                        }
+                        _ => None,
+                    })
+                    .await;
             }
-        }).await;
+        })
+        .await;
     }
     drop(pms);
     // TODO: send messages over each connection.

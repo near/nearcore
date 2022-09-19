@@ -1,17 +1,15 @@
 use crate::accounts_data;
-use crate::config;
-use crate::routing;
 use crate::concurrency::rate;
-use crate::network_protocol::{PartialEdgeInfo, PeerAddr, Edge};
+use crate::config;
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
-    RoutedMessageV2,
+    AccountOrPeerIdOrHash, Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
 };
-use crate::routing::route_back_cache::RouteBackCache;
-use parking_lot::Mutex;
+use crate::network_protocol::{Edge, PartialEdgeInfo, PeerAddr};
 use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::connection;
 use crate::private_actix::PeerToManagerMsg;
+use crate::routing;
+use crate::routing::route_back_cache::RouteBackCache;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use crate::time;
@@ -23,6 +21,7 @@ use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
+use parking_lot::Mutex;
 use rand::seq::IteratorRandom as _;
 use rand::seq::SliceRandom as _;
 use std::collections::{HashMap, HashSet};
@@ -105,10 +104,13 @@ impl NetworkState {
             accounts_data: Arc::new(accounts_data::Cache::new()),
             routing_table_view,
             tier1_route_back: Mutex::new(RouteBackCache::default()),
-            tier1_recv_limiter: rate::Limiter::new(clock,rate::Limit{
-                qps: (20 * bytesize::MIB) as f64,
-                burst: (40 * bytesize::MIB) as u64,
-            }),
+            tier1_recv_limiter: rate::Limiter::new(
+                clock,
+                rate::Limit {
+                    qps: (20 * bytesize::MIB) as f64,
+                    burst: (40 * bytesize::MIB) as u64,
+                },
+            ),
             config,
             txns_since_last_block: AtomicUsize::new(0),
         }
@@ -203,7 +205,8 @@ impl NetworkState {
                     tracing::debug!(target:"test","TIER1 connection already exists");
                     continue;
                 }
-                let proxies : Vec<&PeerAddr> = proxies_by_account.get(account_id).into_iter().flatten().map(|x|*x).collect();
+                let proxies: Vec<&PeerAddr> =
+                    proxies_by_account.get(account_id).into_iter().flatten().map(|x| *x).collect();
                 tracing::debug!(target: "test","available proxies: {proxies:?}");
                 // It there is an outound connection in progress to a potential proxy, then skip.
                 if proxies.iter().any(|p| tier1.outbound_handshakes.contains(&p.peer_id)) {
@@ -217,11 +220,7 @@ impl NetworkState {
                     tracing::debug!(target:"test", "starting connection to {:?}",proxy);
                     new_connections += 1;
                     self.clone()
-                        .spawn_outbound(
-                            clock.clone(),
-                            (*proxy).clone(),
-                            connection::Tier::T1,
-                        )
+                        .spawn_outbound(clock.clone(), (*proxy).clone(), connection::Tier::T1)
                         .await;
                 }
             }
@@ -307,20 +306,22 @@ impl NetworkState {
         // Why exactly a second? It was hard-coded in a library we used
         // before, so we keep it to preserve behavior. Removing the timeout
         // completely was observed to break stuff for real on the testnet.
-        let stream =
-            match tokio::time::timeout(std::time::Duration::from_secs(1), TcpStream::connect(peer.addr))
-                .await
-            {
-                Ok(Ok(it)) => it,
-                Ok(Err(err)) => {
-                    info!(target: "network", addr=?peer.addr, ?err, "Error connecting to");
-                    return;
-                }
-                Err(err) => {
-                    info!(target: "network", addr=?peer.addr, ?err, "Error connecting to");
-                    return;
-                }
-            };
+        let stream = match tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            TcpStream::connect(peer.addr),
+        )
+        .await
+        {
+            Ok(Ok(it)) => it,
+            Ok(Err(err)) => {
+                info!(target: "network", addr=?peer.addr, ?err, "Error connecting to");
+                return;
+            }
+            Err(err) => {
+                info!(target: "network", addr=?peer.addr, ?err, "Error connecting to");
+                return;
+            }
+        };
         debug!(target: "network", ?peer, "Connecting");
         self.spawn_peer_actor(
             &clock,
@@ -340,13 +341,25 @@ impl NetworkState {
         }
     }
 
-    pub fn send_ping(&self, clock: &time::Clock, tier: connection::Tier, nonce: u64, target: PeerId) {
+    pub fn send_ping(
+        &self,
+        clock: &time::Clock,
+        tier: connection::Tier,
+        nonce: u64,
+        target: PeerId,
+    ) {
         let body = RoutedMessageBody::Ping(Ping { nonce, source: self.config.node_id() });
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
 
-    pub fn send_pong(&self, clock: &time::Clock, tier: connection::Tier, nonce: u64, target: CryptoHash) {
+    pub fn send_pong(
+        &self,
+        clock: &time::Clock,
+        tier: connection::Tier,
+        nonce: u64,
+        target: CryptoHash,
+    ) {
         let body = RoutedMessageBody::Pong(Pong { nonce, source: self.config.node_id() });
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body };
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
@@ -362,7 +375,12 @@ impl NetworkState {
 
     /// Route signed message to target peer.
     /// Return whether the message is sent or not.
-    pub fn send_message_to_peer(&self, clock: &time::Clock, tier: connection::Tier, msg: Box<RoutedMessageV2>) -> bool {
+    pub fn send_message_to_peer(
+        &self,
+        clock: &time::Clock,
+        tier: connection::Tier,
+        msg: Box<RoutedMessageV2>,
+    ) -> bool {
         let my_peer_id = self.config.node_id();
 
         // Check if the message is for myself and don't try to send it in that case.
@@ -376,13 +394,15 @@ impl NetworkState {
         match tier {
             connection::Tier::T1 => {
                 let peer_id = match &msg.target {
-                    PeerIdOrHash::Hash(hash) => match self.tier1_route_back.lock().remove(clock,hash) {
-                        Some(peer_id) => peer_id,
-                        None => return false,
+                    PeerIdOrHash::Hash(hash) => {
+                        match self.tier1_route_back.lock().remove(clock, hash) {
+                            Some(peer_id) => peer_id,
+                            None => return false,
+                        }
                     }
                     PeerIdOrHash::PeerId(peer_id) => peer_id.clone(),
                 };
-                return self.tier1.send_message(peer_id,Arc::new(PeerMessage::Routed(msg)));
+                return self.tier1.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
             connection::Tier::T2 => match self.routing_table_view.find_route(&clock, &msg.target) {
                 Ok(peer_id) => {
@@ -407,13 +427,18 @@ impl NetworkState {
                     );
                     return false;
                 }
-            }
+            },
         }
     }
 
     /// Send message to specific account.
     /// Return whether the message is sent or not.
-    pub fn send_message_to_account(&self, clock: &time::Clock, account_id: &AccountId, msg: RoutedMessageBody) -> bool { 
+    pub fn send_message_to_account(
+        &self,
+        clock: &time::Clock,
+        account_id: &AccountId,
+        msg: RoutedMessageBody,
+    ) -> bool {
         if connection::Tier::T1.is_allowed_routed(&msg) {
             if let Some((target, conn)) = self.get_tier1_proxy(account_id) {
                 // TODO(gprusak): in case of PartialEncodedChunk, consider stripping everything

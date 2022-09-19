@@ -73,7 +73,7 @@ pub struct Tier1 {
     // be possible to throttle faily at proxies, since TIER1 peer
     // trusts its proxies.
     pub recv_bytes_rate: rate::Limit,
-    pub send_bytes_buf: usize, 
+    pub send_bytes_buf: usize,
     */
 }
 

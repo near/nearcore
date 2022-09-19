@@ -122,10 +122,10 @@ impl FakeClock {
     }
     pub fn advance_until(&self, t: Instant) {
         let mut c = self.0.write().unwrap();
-        if t<=c.mono {
+        if t <= c.mono {
             return;
         }
-        let d = t-c.mono;
+        let d = t - c.mono;
         c.mono = t;
         c.utc += d;
     }

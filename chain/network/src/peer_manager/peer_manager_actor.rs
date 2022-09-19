@@ -1,9 +1,8 @@
 use crate::config;
-use crate::network_protocol::{AccountData, SyncAccountsData, PeerAddr};
+use crate::network_protocol::{AccountData, PeerAddr, SyncAccountsData};
 use crate::network_protocol::{
     AccountOrPeerIdOrHash, Edge, PeerInfo, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
 };
-use actix::fut::future::wrap_future;
 use crate::network_protocol::{EdgeState, PartialEdgeInfo};
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
@@ -19,17 +18,18 @@ use crate::stats::metrics;
 use crate::store;
 use crate::time;
 use crate::types::{
-    KnownPeerStatus, KnownProducer, NetworkViewClientMessages, NetworkViewClientResponses,
-    OutboundTcpConnect, PeerType, ReasonForBan, StateResponseInfo,
-};
-use crate::types::{
     ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, NetworkClientMessages, NetworkInfo,
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
     PeerMessage, RoutingTableUpdate, SetChainInfo,
 };
+use crate::types::{
+    KnownPeerStatus, KnownProducer, NetworkViewClientMessages, NetworkViewClientResponses,
+    OutboundTcpConnect, PeerType, ReasonForBan, StateResponseInfo,
+};
+use actix::fut::future::wrap_future;
 use actix::{
-    Actor, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler,
-    Recipient, Running, WrapFuture,
+    Actor, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
+    Running, WrapFuture,
 };
 use anyhow::bail;
 use anyhow::Context as _;
@@ -143,7 +143,7 @@ pub struct PeerManagerActor {
     /// Flag that track whether we started attempts to establish outbound connections.
     started_connect_attempts: bool,
     /// Connected peers we have sent new edge update, but we haven't received response so far.
-    local_peer_pending_update_nonce_request: HashMap<PeerId, u64>, 
+    local_peer_pending_update_nonce_request: HashMap<PeerId, u64>,
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
     /// reached.
     whitelist_nodes: Vec<WhitelistNode>,
@@ -307,7 +307,8 @@ impl PeerManagerActor {
 
         let my_peer_id = config.node_id();
         let network_graph = Arc::new(RwLock::new(routing::GraphWithCache::new(my_peer_id.clone())));
-        let routing_table_addr = routing::Actor::spawn(clock.clone(),store.clone(),network_graph.clone());
+        let routing_table_addr =
+            routing::Actor::spawn(clock.clone(), store.clone(), network_graph.clone());
         let whitelist_nodes = {
             let mut v = vec![];
             for wn in &config.whitelist_nodes {
@@ -346,7 +347,8 @@ impl PeerManagerActor {
         prune_unreachable_since: Option<time::Instant>,
         prune_edges_older_than: Option<time::Utc>,
     ) {
-        self.state.routing_table_addr
+        self.state
+            .routing_table_addr
             .send(routing::actor::Message::RoutingTableUpdate {
                 prune_unreachable_since,
                 prune_edges_older_than,
@@ -488,7 +490,8 @@ impl PeerManagerActor {
                     _ => {}
                 }
             }
-            self.state.routing_table_addr
+            self.state
+                .routing_table_addr
                 .send(routing::actor::Message::AddVerifiedEdges { edges: new_edges })
                 .in_current_span()
                 .into_actor(self)
@@ -598,7 +601,7 @@ impl PeerManagerActor {
             },
         );
     }
- 
+
     /// Ban peer. Stop peer instance if it is still connected,
     /// and then mark peer as banned in the peer store.
     pub(crate) fn try_ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan) {
@@ -955,7 +958,7 @@ impl PeerManagerActor {
     ) -> bool {
         match target {
             AccountOrPeerIdOrHash::AccountId(account_id) => {
-                self.state.send_message_to_account(&self.clock,account_id, msg)
+                self.state.send_message_to_account(&self.clock, account_id, msg)
             }
             peer_or_hash @ AccountOrPeerIdOrHash::PeerId(_)
             | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) => self.state.send_message_to_peer(
@@ -1228,7 +1231,11 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
-                if self.state.send_message_to_account(&self.clock, &account_id, partial_encoded_chunk.into()) {
+                if self.state.send_message_to_account(
+                    &self.clock,
+                    &account_id,
+                    partial_encoded_chunk.into(),
+                ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
@@ -1246,7 +1253,11 @@ impl PeerManagerActor {
                 }
             }
             NetworkRequests::ForwardTx(account_id, tx) => {
-                if self.state.send_message_to_account(&self.clock,&account_id, RoutedMessageBody::ForwardTx(tx)) {
+                if self.state.send_message_to_account(
+                    &self.clock,
+                    &account_id,
+                    RoutedMessageBody::ForwardTx(tx),
+                ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
@@ -1299,32 +1310,36 @@ impl PeerManagerActor {
         }
 
         match msg.connection.tier {
-            connection::Tier::T1 => if msg.connection.peer_type == PeerType::Inbound {
-                // Allow for inbound TIER1 connections only directly from a TIER1 peers
-                // (not from TIER1 proxies).
-                if !self.state.accounts_data.load().is_tier1_peer(&peer_info.id) {
-                    return RegisterPeerResponse::Reject(RegisterPeerError::NotTier1Peer);
+            connection::Tier::T1 => {
+                if msg.connection.peer_type == PeerType::Inbound {
+                    // Allow for inbound TIER1 connections only directly from a TIER1 peers
+                    // (not from TIER1 proxies).
+                    if !self.state.accounts_data.load().is_tier1_peer(&peer_info.id) {
+                        return RegisterPeerResponse::Reject(RegisterPeerError::NotTier1Peer);
+                    }
                 }
             }
-            connection::Tier::T2 => if msg.connection.peer_type == PeerType::Inbound {
-                if !self.is_inbound_allowed(&peer_info) {
-                    // TODO(1896): Gracefully drop inbound connection for other peer.
-                    let tier2 = self.state.tier2.load();
-                    debug!(target: "network",
-                        tier2 = tier2.ready.len(), outgoing_peers = tier2.outbound_handshakes.len(),
-                        max_num_peers = self.max_num_peers,
-                        "Dropping handshake (network at max capacity)."
-                    );
-                    return RegisterPeerResponse::Reject(
-                        RegisterPeerError::ConnectionLimitExceeded,
-                    );
+            connection::Tier::T2 => {
+                if msg.connection.peer_type == PeerType::Inbound {
+                    if !self.is_inbound_allowed(&peer_info) {
+                        // TODO(1896): Gracefully drop inbound connection for other peer.
+                        let tier2 = self.state.tier2.load();
+                        debug!(target: "network",
+                            tier2 = tier2.ready.len(), outgoing_peers = tier2.outbound_handshakes.len(),
+                            max_num_peers = self.max_num_peers,
+                            "Dropping handshake (network at max capacity)."
+                        );
+                        return RegisterPeerResponse::Reject(
+                            RegisterPeerError::ConnectionLimitExceeded,
+                        );
+                    }
                 }
             }
         }
         if let Err(err) = self.register_peer(msg.connection.clone(), ctx) {
             return RegisterPeerResponse::Reject(RegisterPeerError::PoolError(err));
         }
-        self.config.event_sink.push(Event::PeerRegistered(peer_info.clone(),msg.connection.tier));
+        self.config.event_sink.push(Event::PeerRegistered(peer_info.clone(), msg.connection.tier));
         RegisterPeerResponse::Accept
     }
 
@@ -1371,10 +1386,11 @@ impl PeerManagerActor {
                 ctx.spawn(
                     self.state
                         .clone()
-                        .spawn_outbound(self.clock.clone(), PeerAddr{
-                            peer_id: msg.0.id,
-                            addr,
-                        }, connection::Tier::T2)
+                        .spawn_outbound(
+                            self.clock.clone(),
+                            PeerAddr { peer_id: msg.0.id, addr },
+                            connection::Tier::T2,
+                        )
                         .into_actor(self),
                 );
                 PeerManagerMessageResponse::OutboundTcpConnect
@@ -1425,7 +1441,7 @@ impl PeerManagerActor {
                 PeerToManagerMsgResp::Empty
             }
             PeerToManagerMsg::Ban(msg) => {
-                self.try_ban_peer(&msg.peer_id,msg.ban_reason);
+                self.try_ban_peer(&msg.peer_id, msg.ban_reason);
                 PeerToManagerMsgResp::Empty
             }
             PeerToManagerMsg::RequestUpdateNonce(peer_id, edge_info) => {
