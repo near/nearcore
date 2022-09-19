@@ -4,10 +4,10 @@ use super::refcount;
 
 /// Data returned from the database.
 ///
-/// Abstraction layer for data returned by [`Database::get_raw_bytes`] and
-/// [`Database::get_with_rc_stripped`] methods.  Operating on the value as
-/// a slice is free while converting it to a vector on an arc may requires an
-/// allocation and memory copy.
+/// Abstraction layer for data returned by [`super::Database::get_raw_bytes`]
+/// and [`super::Database::get_with_rc_stripped`] methods.  Operating on the
+/// value as a slice is free while converting it to a vector on an arc may
+/// requires an allocation and memory copy.
 ///
 /// This is essentially a reference into a buffer owned by the database with an
 /// RAII guard which notifies the database when the buffer can be freed.
