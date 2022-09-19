@@ -9,8 +9,8 @@ use crate::stats::metrics;
 use crate::types::FullPeerInfo;
 use near_network_primitives::time;
 use near_network_primitives::types::{
-    PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext,
-    PeerType, ReasonForBan,
+    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest,
+    PeerManagerRequestWithContext, PeerType, ReasonForBan,
 };
 use near_primitives::network::PeerId;
 use std::collections::{hash_map::Entry, HashMap};
@@ -48,7 +48,7 @@ pub(crate) struct Connection {
     pub addr: actix::Addr<PeerActor>,
 
     pub peer_info: PeerInfo,
-    pub partial_edge_info: PartialEdgeInfo,
+    pub edge: Edge,
     pub initial_chain_info: PeerChainInfoV2,
     pub chain_height: AtomicU64,
 
@@ -74,7 +74,7 @@ impl fmt::Debug for Connection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Connection")
             .field("peer_info", &self.peer_info)
-            .field("partial_edge_info", &self.partial_edge_info)
+            .field("edge", &self.edge)
             .field("peer_type", &self.peer_type)
             .field("connection_established_time", &self.connection_established_time)
             .finish()
@@ -88,7 +88,14 @@ impl Connection {
         FullPeerInfo {
             peer_info: self.peer_info.clone(),
             chain_info,
-            partial_edge_info: self.partial_edge_info.clone(),
+            partial_edge_info: PartialEdgeInfo {
+                nonce: self.edge.nonce(),
+                signature: if self.edge.key().0 == self.peer_info.id {
+                    self.edge.signature0().clone()
+                } else {
+                    self.edge.signature1().clone()
+                },
+            },
         }
     }
 

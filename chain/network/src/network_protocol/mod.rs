@@ -26,9 +26,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, EpochId, ProtocolVersion};
+use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::PEER_MIN_ALLOWED_PROTOCOL_VERSION;
 use protobuf::Message as _;
 use std::fmt;
 use std::sync::Arc;
@@ -202,27 +201,6 @@ pub struct Handshake {
     pub(crate) partial_edge_info: PartialEdgeInfo,
 }
 
-impl Handshake {
-    pub fn new(
-        version: ProtocolVersion,
-        peer_id: PeerId,
-        target_peer_id: PeerId,
-        listen_port: Option<u16>,
-        chain_info: PeerChainInfoV2,
-        partial_edge_info: PartialEdgeInfo,
-    ) -> Self {
-        Handshake {
-            protocol_version: version,
-            oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
-            sender_peer_id: peer_id,
-            target_peer_id,
-            sender_listen_port: listen_port,
-            sender_chain_info: chain_info,
-            partial_edge_info,
-        }
-    }
-}
-
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr)]
 pub enum HandshakeFailureReason {
     ProtocolVersionMismatch { version: u32, oldest_supported_version: u32 },
@@ -298,14 +276,17 @@ pub enum ParsePeerMessageError {
 }
 
 impl PeerMessage {
-    pub fn serialize(&self, enc: Encoding) -> Vec<u8> {
+    pub(crate) fn serialize(&self, enc: Encoding) -> Vec<u8> {
         match enc {
             Encoding::Borsh => borsh::PeerMessage::from(self).try_to_vec().unwrap(),
             Encoding::Proto => proto::PeerMessage::from(self).write_to_bytes().unwrap(),
         }
     }
 
-    pub fn deserialize(enc: Encoding, data: &[u8]) -> Result<PeerMessage, ParsePeerMessageError> {
+    pub(crate) fn deserialize(
+        enc: Encoding,
+        data: &[u8],
+    ) -> Result<PeerMessage, ParsePeerMessageError> {
         Ok(match enc {
             Encoding::Borsh => (&borsh::PeerMessage::try_from_slice(data)
                 .map_err(ParsePeerMessageError::BorshDecode)?)
@@ -318,14 +299,14 @@ impl PeerMessage {
         })
     }
 
-    pub fn msg_variant(&self) -> &'static str {
+    pub(crate) fn msg_variant(&self) -> &'static str {
         match self {
             PeerMessage::Routed(routed_msg) => routed_msg.body_variant(),
             _ => self.into(),
         }
     }
 
-    pub fn is_client_message(&self) -> bool {
+    pub(crate) fn is_client_message(&self) -> bool {
         match self {
             PeerMessage::Block(_)
             | PeerMessage::BlockHeaders(_)
@@ -348,7 +329,7 @@ impl PeerMessage {
         }
     }
 
-    pub fn is_view_client_message(&self) -> bool {
+    pub(crate) fn is_view_client_message(&self) -> bool {
         match self {
             PeerMessage::BlockHeadersRequest(_)
             | PeerMessage::BlockRequest(_)
