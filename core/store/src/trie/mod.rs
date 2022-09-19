@@ -36,10 +36,9 @@ mod shard_tries;
 pub mod split_state;
 mod state_parts;
 mod trie_storage;
-pub mod update;
-
 #[cfg(test)]
 mod trie_tests;
+pub mod update;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -877,7 +876,7 @@ impl Trie {
     pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
         let is_delayed = is_delayed_receipt_key(key);
         match &self.flat_state {
-            Some(flat_state) if !is_delayed => flat_state.get_ref(&self.root, &key),
+            Some(flat_state) if !is_delayed => flat_state.get_ref(&key),
             _ => {
                 let key = NibbleSlice::new(key);
                 self.lookup(key)
