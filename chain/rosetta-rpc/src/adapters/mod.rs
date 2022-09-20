@@ -9,11 +9,13 @@ mod transactions;
 mod validated_operations;
 
 /// NEAR Protocol defines initial state in genesis records and treats the first
-/// block differently (e.g. it cannot contain any transactions: https://stackoverflow.com/a/63347167/1178806).
+/// block differently (e.g. [it cannot contain any
+/// transactions](https://stackoverflow.com/a/63347167/1178806).
 ///
-/// Genesis records can be huge (order of gigabytes of JSON data), and Rosetta
-/// API does not define any pagination, and suggests to use
-/// `other_transactions` to deal with this: https://community.rosetta-api.org/t/how-to-return-data-without-being-able-to-paginate/98
+/// Genesis records can be huge (order of gigabytes of JSON data).  Rosetta API
+/// doesn’t define any pagination and suggests to use `other_transactions` to
+/// deal with this:
+/// <https://community.rosetta-api.org/t/how-to-return-data-without-being-able-to-paginate/98>
 /// We choose to do a proper implementation for the genesis block later.
 async fn convert_genesis_records_to_transaction(
     genesis: &Genesis,
