@@ -44,7 +44,7 @@ steps:
   - label: "cargo test nightly not integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      cargo test --workspace --features nightly,test_features -p '*' --exclude 'integration-tests*'
+      cargo test --workspace --features nightly,test_features,mock_node -p '*' --exclude 'integration-tests*'
 
     timeout: 60
     agents:
