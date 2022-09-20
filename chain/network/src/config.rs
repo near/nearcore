@@ -204,7 +204,7 @@ impl NetworkConfig {
             archival_peer_connections_lower_bound: cfg.archival_peer_connections_lower_bound,
             ban_window: cfg.ban_window.try_into()?,
             max_send_peers: 512,
-            peer_expiration_duration: cfg.peer_expiration_duration,
+            peer_expiration_duration: cfg.peer_expiration_duration.try_into()?,
             peer_stats_period: cfg.peer_stats_period.try_into()?,
             ttl_account_id_router: cfg.ttl_account_id_router.try_into()?,
             routed_message_ttl: ROUTED_MESSAGE_TTL,

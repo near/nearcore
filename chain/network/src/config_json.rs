@@ -50,7 +50,7 @@ fn default_monitor_peers_max_period() -> Duration {
 
 /// Remove peers that we didn't hear about for this amount of time.
 fn default_peer_expiration_duration() -> Duration {
-    Duration::seconds(7 * 24 * 60 * 60)
+    Duration::from_secs(7 * 24 * 60 * 60)
 }
 
 // If non-zero - we'll skip sending tombstones during initial sync and for that many seconds after start.
@@ -126,7 +126,7 @@ pub struct Config {
     #[serde(default = "default_monitor_peers_max_period")]
     pub monitor_peers_max_period: Duration,
 
-    // Remove peers
+    // Remove peers that were not active for this amount of time.
     #[serde(default = "default_peer_expiration_duration")]
     pub peer_expiration_duration: Duration,
 
@@ -223,6 +223,7 @@ impl Default for Config {
             ttl_account_id_router: default_ttl_account_id_router(),
             peer_stats_period: default_peer_stats_period(),
             monitor_peers_max_period: default_monitor_peers_max_period(),
+            peer_expiration_duration: default_peer_expiration_duration(),
             public_addrs: vec![],
             trusted_stun_servers: vec![],
             experimental: Default::default(),
