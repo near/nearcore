@@ -34,7 +34,7 @@ pub use crate::network_protocol::{
 
 pub use crate::blacklist::{Blacklist, Entry as BlacklistEntry};
 pub use crate::network_protocol::edge::{
-    Edge, EdgeState, PartialEdgeInfo, EDGE_MIN_TIMESTAMP_NONCE,
+    Edge, EdgeState, InvalidNonceError, PartialEdgeInfo, EDGE_MIN_TIMESTAMP_NONCE,
 };
 
 /// Number of hops a message is allowed to travel before being dropped.
@@ -186,15 +186,6 @@ impl InboundTcpConnect {
     pub fn new(stream: TcpStream) -> InboundTcpConnect {
         InboundTcpConnect { stream }
     }
-}
-
-/// Actor message to request the creation of an outbound TCP connection to a peer.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Message, Clone, Debug)]
-#[rtype(result = "()")]
-pub struct OutboundTcpConnect {
-    /// Peer information of the outbound connection
-    pub peer_info: PeerInfo,
 }
 
 /// Ban reason.
@@ -360,7 +351,6 @@ mod tests {
         assert_size!(RoutedMessage);
         assert_size!(KnownPeerState);
         assert_size!(InboundTcpConnect);
-        assert_size!(OutboundTcpConnect);
         assert_size!(Ban);
         assert_size!(StateResponseInfoV1);
         assert_size!(PartialEncodedChunkRequestMsg);

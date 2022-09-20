@@ -118,6 +118,7 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
         prefix: &[u8],
+        include_proof: bool,
     ) -> Result<ViewStateResult, errors::ViewStateError> {
         match get_account(state_update, account_id)? {
             Some(account) => {
@@ -143,7 +144,7 @@ impl TrieViewer {
         let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, prefix);
         let acc_sep_len = query.len() - prefix.len();
         let mut iter = state_update.trie().iter()?;
-        iter.remember_visited_nodes(true);
+        iter.remember_visited_nodes(include_proof);
         iter.seek_prefix(&query)?;
         for item in &mut iter {
             let (key, value) = item?;

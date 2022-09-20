@@ -171,8 +171,8 @@ impl TriePrefetcher {
 
     /// Prefetcher specifically tuned for SWEAT record batch
     ///
-    /// Temporary hack, consider removing after merging flat storage.
-    /// https://github.com/near/nearcore/issues/7327
+    /// Temporary hack, consider removing after merging flat storage, see
+    /// <https://github.com/near/nearcore/issues/7327>.
     fn prefetch_sweat_record_batch(&self, account_id: AccountId, arg: &[u8]) -> Result<(), ()> {
         if let Ok(json) = serde_json::de::from_slice::<serde_json::Value>(arg) {
             if json.is_object() {

@@ -38,4 +38,6 @@ pub struct Config {
     pub json_output: bool,
     /// Clear all OS caches between measured blocks.
     pub drop_os_cache: bool,
+    /// Use in-memory test DB, useful to avoid variance caused by DB.
+    pub in_memory_db: bool,
 }
