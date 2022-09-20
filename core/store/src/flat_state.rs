@@ -27,6 +27,8 @@
 
 #[allow(unused)]
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+#[cfg(feature = "protocol_feature_flat_state")]
+const BORSH_ERR: &str = "Borsh cannot fail";
 
 #[cfg(feature = "protocol_feature_flat_state")]
 mod imp {
@@ -194,7 +196,7 @@ mod imp {
         }
 
         // TODO (#7327): change the function signature to Result<FlatStorageState, Error> when
-        // we stabilize feature protocol_feature_flat_stote. We use option now to return None when
+        // we stabilize feature protocol_feature_flat_state. We use option now to return None when
         // the feature is not enabled. Ideally, it should return an error because it is problematic
         // if the flat storage state does not exist
         pub fn get_flat_storage_state_for_shard(
@@ -264,8 +266,10 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use crate::{CryptoHash, Store, StoreUpdate};
 pub use imp::{FlatState, FlatStateFactory};
 use near_primitives::state::ValueRef;
-use near_primitives::types::{RawStateChangesWithTrieKey, ShardId};
+use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey, ShardId};
 use std::collections::HashMap;
+#[cfg(feature = "protocol_feature_flat_state")]
+use std::collections::HashSet;
 
 #[derive(BorshSerialize, BorshDeserialize)]
 pub struct KeyForFlatStateDelta {
@@ -335,6 +339,7 @@ impl FlatStateDelta {
     pub fn apply_to_flat_state(self, _store_update: &mut StoreUpdate) {}
 }
 
+#[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::block_header::BlockHeader;
 use std::sync::{Arc, RwLock};
 
@@ -352,49 +357,130 @@ pub struct FlatStorageState(Arc<RwLock<FlatStorageStateInner>>);
 #[allow(unused)]
 const FLAT_STORAGE_MAX_BLOCKS: u64 = 16;
 
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq)]
+pub struct BlockInfo {
+    pub hash: CryptoHash,
+    pub height: BlockHeight,
+    pub prev_hash: CryptoHash,
+}
+
 struct FlatStorageStateInner {
     #[allow(unused)]
     store: Store,
     /// Id of the shard which state is accessed by this flat storage.
     #[allow(unused)]
     shard_id: ShardId,
-    /// The block for which we store the key value pairs of its state. Note that it is not necessarily
-    /// the latest block.
+    /// The block for which we store the key value pairs of its state. For non catchup mode,
+    /// it should be the last final block.
     #[allow(unused)]
-    head: CryptoHash,
-    /// This is the oldest block that whose state is supported by flat storage. In normal block
-    /// processing mode, this should be the latest final block.
+    flat_head: CryptoHash,
+    /// Stores some information for all blocks supported by flat storage, this is used for finding
+    /// paths between the root block and a target block
     #[allow(unused)]
-    tail: CryptoHash,
-    /// Stores a copy for all block headers for blocks that flat storage supports. This is useful
-    /// for finding the path between the current head to a target block. It's possible that we don't
-    /// need all the information in block header and this can be simplified later, but for now,
-    /// for simplicity we store the entire BlockHeader.
-    #[allow(unused)]
-    block_headers: HashMap<CryptoHash, BlockHeader>,
+    blocks: HashMap<CryptoHash, BlockInfo>,
     /// State deltas for all blocks supported by this flat storage.
     /// All these deltas here are stored on disk too.
     #[allow(unused)]
     deltas: HashMap<CryptoHash, FlatStateDelta>,
 }
 
+#[cfg(feature = "protocol_feature_flat_state")]
+pub mod store_helper {
+    use crate::flat_state::KeyForFlatStateDelta;
+    use crate::{FlatStateDelta, Store, StoreUpdate};
+    use borsh::BorshSerialize;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::types::ShardId;
+
+    pub(crate) fn get_delta(
+        store: &Store,
+        shard_id: ShardId,
+        block_hash: CryptoHash,
+    ) -> Result<Option<FlatStateDelta>, crate::StorageError> {
+        let key = KeyForFlatStateDelta { shard_id, block_hash };
+        store
+            .get_ser(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap())
+            .map_err(|_| crate::StorageError::StorageInternalError)
+    }
+
+    pub fn set_delta(
+        store_update: &mut StoreUpdate,
+        shard_id: ShardId,
+        block_hash: CryptoHash,
+        delta: &FlatStateDelta,
+    ) -> Result<(), crate::StorageError> {
+        let key = KeyForFlatStateDelta { shard_id, block_hash };
+        store_update
+            .set_ser(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap(), delta)
+            .map_err(|_| crate::StorageError::StorageInternalError)
+    }
+
+    pub(crate) fn get_flat_head(store: &Store, shard_id: ShardId) -> CryptoHash {
+        store
+            .get_ser(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap())
+            .expect("Error reading flat head from storage")
+            .expect(&format!("Cannot read flat head for shard {} from storage", shard_id))
+    }
+
+    pub fn set_flat_head(store_update: &mut StoreUpdate, shard_id: ShardId, val: &CryptoHash) {
+        store_update
+            .set_ser(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap(), val)
+            .expect("Error writing flat head from storage")
+    }
+}
+
 impl FlatStorageState {
-    #[allow(unused)]
+    /// Create a new FlatStorageState for `shard_id`.
+    /// The root block of the FlatStorageState is initialized to be what is stored on storage.
+    /// We also load all blocks with height between the root block to the current chain head,
+    /// including those on forks into the returned FlatStorageState.
+    #[cfg(feature = "protocol_feature_flat_state")]
     pub fn new(
         store: Store,
-        head: CryptoHash,
-        tail: CryptoHash,
-        block_headers: HashMap<CryptoHash, BlockHeader>,
+        chain_head_height: BlockHeight,
+        // Unfortunately we don't have access to ChainStore inside this file because of package
+        // dependencies, so we pass these functions in to access chain info
+        hash_to_header: &dyn Fn(&CryptoHash) -> BlockHeader,
+        height_to_hashes: &dyn Fn(BlockHeight) -> HashSet<CryptoHash>,
         shard_id: ShardId,
     ) -> Self {
-        // TODO (#7327): load deltas from storage
-        let deltas = HashMap::new();
+        let flat_head = store_helper::get_flat_head(&store, shard_id);
+        let header = hash_to_header(&flat_head);
+        let flat_head_height = header.height();
+        let mut blocks = HashMap::from([(
+            flat_head,
+            BlockInfo { hash: flat_head, height: flat_head_height, prev_hash: *header.prev_hash() },
+        )]);
+        let mut deltas = HashMap::new();
+        for height in flat_head_height + 1..chain_head_height {
+            for hash in height_to_hashes(height) {
+                let header = hash_to_header(&hash);
+                let prev_hash = *header.prev_hash();
+                assert!(
+                    blocks.contains_key(&prev_hash),
+                    "Can't find a path from the current flat storage root {:?}@{} to block {:?}@{}",
+                    flat_head,
+                    flat_head_height,
+                    hash,
+                    header.height()
+                );
+                blocks.insert(hash, BlockInfo { hash, height: header.height(), prev_hash });
+            }
+        }
+        for hash in blocks.keys() {
+            deltas.insert(
+                *hash,
+                store_helper::get_delta(&store, shard_id, *hash).expect(BORSH_ERR).expect(
+                    &format!("Cannot find block delta for block {:?} shard {}", hash, shard_id),
+                ),
+            );
+        }
+
         Self(Arc::new(RwLock::new(FlatStorageStateInner {
             store,
             shard_id,
-            head,
-            tail,
-            block_headers,
+            flat_head,
+            blocks,
             deltas,
         })))
     }
@@ -412,11 +498,7 @@ impl FlatStorageState {
         target_block_hash: &CryptoHash,
     ) -> Result<Vec<FlatStateDelta>, crate::StorageError> {
         let guard = self.0.write().expect(POISONED_LOCK_ERR);
-        let flat_state_head: CryptoHash = guard
-            .store
-            .get_ser(crate::DBCol::FlatStateMisc, &guard.shard_id.try_to_vec().unwrap())
-            .map_err(|_| crate::StorageError::StorageInternalError)?
-            .expect("Borsh cannot fail");
+        let flat_state_head = store_helper::get_flat_head(&guard.store, guard.shard_id);
 
         let block_header: BlockHeader = guard
             .store
@@ -435,11 +517,7 @@ impl FlatStorageState {
                 found_final_block = true;
             }
 
-            let key = KeyForFlatStateDelta { shard_id: guard.shard_id, block_hash };
-            let delta: Option<FlatStateDelta> = guard
-                .store
-                .get_ser(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap())
-                .map_err(|_| crate::StorageError::StorageInternalError)?;
+            let delta = store_helper::get_delta(&guard.store, guard.shard_id, block_hash)?;
             match delta {
                 Some(delta) => {
                     if found_final_block {
@@ -467,7 +545,7 @@ impl FlatStorageState {
             for delta in deltas_to_apply.drain(..).rev() {
                 delta.apply_to_flat_state(&mut store_update);
             }
-            match self.update_head(&final_block_hash) {
+            match self.update_flat_head(&final_block_hash) {
                 Some(new_store_update) => {
                     store_update.merge(new_store_update);
                 }
@@ -490,26 +568,15 @@ impl FlatStorageState {
     // Update the head of the flat storage, this might require updating the flat state stored on disk.
     // Returns a StoreUpdate for the disk update if there is any
     #[cfg(feature = "protocol_feature_flat_state")]
-    pub fn update_head(&self, new_head: &CryptoHash) -> Option<StoreUpdate> {
+    pub fn update_flat_head(&self, new_head: &CryptoHash) -> Option<StoreUpdate> {
         let guard = self.0.write().expect(POISONED_LOCK_ERR);
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
-        store_update
-            .set_ser(crate::DBCol::FlatStateMisc, &guard.shard_id.try_to_vec().unwrap(), new_head)
-            .expect("Borsh cannot fail");
+        store_helper::set_flat_head(&mut store_update, guard.shard_id, new_head);
         Some(store_update)
     }
 
     #[cfg(not(feature = "protocol_feature_flat_state"))]
-    pub fn update_head(&self, _new_head: &CryptoHash) -> Option<StoreUpdate> {
-        None
-    }
-
-    // Update the tail of the flat storage, remove the deltas between the old tail and the new tail
-    // both in memory and on disk
-    // Return a StoreUpdate for the disk update if there is any
-    #[allow(unused)]
-    pub fn update_tail(&self, _new_tail: &CryptoHash) -> Option<StoreUpdate> {
-        // TODO:
+    pub fn update_flat_head(&self, _new_head: &CryptoHash) -> Option<StoreUpdate> {
         None
     }
 
@@ -519,14 +586,11 @@ impl FlatStorageState {
         &self,
         block_hash: &CryptoHash,
         delta: FlatStateDelta,
-    ) -> Result<Option<StoreUpdate>, crate::StorageError> {
+    ) -> Result<StoreUpdate, crate::StorageError> {
         let guard = self.0.write().expect(POISONED_LOCK_ERR);
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
-        let key = KeyForFlatStateDelta { shard_id: guard.shard_id, block_hash: block_hash.clone() };
-        store_update
-            .set_ser(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap(), &delta)
-            .map_err(|_| crate::StorageError::StorageInternalError)?;
-        Ok(Some(store_update))
+        store_helper::set_delta(&mut store_update, guard.shard_id, block_hash.clone(), &delta)?;
+        Ok(store_update)
     }
 
     #[cfg(not(feature = "protocol_feature_flat_state"))]
@@ -534,7 +598,7 @@ impl FlatStorageState {
         &self,
         _block_hash: &CryptoHash,
         _delta: FlatStateDelta,
-    ) -> Result<Option<StoreUpdate>, crate::StorageError> {
-        Ok(None)
+    ) -> Result<StoreUpdate, crate::StorageError> {
+        panic!("not implemented")
     }
 }
