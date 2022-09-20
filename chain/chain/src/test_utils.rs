@@ -407,7 +407,11 @@ impl KeyValueRuntime {
     }
 }
 
-impl EpochManagerAdapter for KeyValueRuntime {}
+impl EpochManagerAdapter for KeyValueRuntime {
+    fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
+        self.hash_to_valset.write().unwrap().contains_key(epoch_id)
+    }
+}
 
 impl RuntimeAdapter for KeyValueRuntime {
     fn genesis_state(&self) -> (Store, Vec<StateRoot>) {
@@ -1163,10 +1167,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         } else {
             0
         }
-    }
-
-    fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
-        self.hash_to_valset.write().unwrap().contains_key(epoch_id)
     }
 
     fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, Error> {

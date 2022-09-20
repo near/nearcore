@@ -1239,11 +1239,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         .unwrap_or(self.genesis_config.genesis_height)
     }
 
-    fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_epoch_info(epoch_id).is_ok()
-    }
-
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
         let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount())

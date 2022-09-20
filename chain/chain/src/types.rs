@@ -556,9 +556,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
     /// Get the block height for which garbage collection should not go over
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight;
 
-    /// Check if epoch exists.
-    fn epoch_exists(&self, epoch_id: &EpochId) -> bool;
-
     /// Amount of tokens minted in given epoch.
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
 

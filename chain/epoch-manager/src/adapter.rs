@@ -1,3 +1,5 @@
+use near_primitives::types::EpochId;
+
 use crate::{EpochManager, EpochManagerHandle};
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
@@ -8,7 +10,10 @@ use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 /// we move it to a new trait. The end goal is for the code to use the concrete
 /// epoch manager type directly. Though, we might want to still keep this trait
 /// in, to allow for easy overriding of epoch manager in tests.
-pub trait EpochManagerAdapter: Send + Sync {}
+pub trait EpochManagerAdapter: Send + Sync {
+    /// Check if epoch exists.
+    fn epoch_exists(&self, epoch_id: &EpochId) -> bool;
+}
 
 /// A technical plumbing trait to conveniently implement [`EpochManagerAdapter`]
 /// for `NightshadeRuntime` without too much copy-paste.
@@ -30,4 +35,9 @@ impl HasEpochMangerHandle for EpochManagerHandle {
     }
 }
 
-impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {}
+impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
+    fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
+        let epoch_manager = self.read();
+        epoch_manager.get_epoch_info(epoch_id).is_ok()
+    }
+}
