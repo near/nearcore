@@ -10,12 +10,12 @@
 
 # Code Practices
 
-- [Overview](./code/overview/README.md)
+- [Overview](./code/README.md)
 - [Code Style](./code/style.md)
 
 # Management Processes
 
-- [Overview](./code/management/README.md)
+- [Overview](./management/README.md)
 - [Contributing](./management/contributing.md)
 
 # Misc

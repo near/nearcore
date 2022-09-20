@@ -5,5 +5,5 @@ src = "src"
 title = "nearcore Dev Guide"
 
 [output.html]
-git-repository-url = "https://github.com/near/nearcore/book"
-edit-url-template = "https://github.com/near/nearcore/edit/master/book/{path}"
+git-repository-url = "https://github.com/matklad/nearcore/book"
+edit-url-template = "https://github.com/matklad/nearcore/edit/master/book/{path}"
