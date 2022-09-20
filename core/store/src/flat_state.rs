@@ -137,6 +137,10 @@ mod imp {
             }))
         }
 
+        /// Add a flat storage state for shard `shard_id`. The function also checks that
+        /// the shard's flat storage state hasn't been set before, otherwise it panics.
+        /// TODO (#7327): this behavior may change when we implement support for state sync
+        /// and resharding.
         pub fn add_flat_storage_state_for_shard(
             &self,
             shard_id: ShardId,
@@ -183,7 +187,9 @@ mod imp {
                     // added. If not, it is a bug in our code and we can't keep processing blocks
                     flat_storage_states
                         .get(&shard_id)
-                        .expect(&format!("FlatStorageState for shard {} is not ready", shard_id))
+                        .unwrap_or_else(|| {
+                            panic!("FlatStorageState for shard {} is not ready", shard_id)
+                        })
                         .clone()
                 };
                 Some(FlatState {
@@ -419,7 +425,7 @@ pub mod store_helper {
         store
             .get_ser(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap())
             .expect("Error reading flat head from storage")
-            .expect(&format!("Cannot read flat head for shard {} from storage", shard_id))
+            .unwrap_or_else(|| panic!("Cannot read flat head for shard {} from storage", shard_id))
     }
 
     pub fn set_flat_head(store_update: &mut StoreUpdate, shard_id: ShardId, val: &CryptoHash) {
@@ -452,7 +458,7 @@ impl FlatStorageState {
             BlockInfo { hash: flat_head, height: flat_head_height, prev_hash: *header.prev_hash() },
         )]);
         let mut deltas = HashMap::new();
-        for height in flat_head_height + 1..chain_head_height {
+        for height in flat_head_height + 1..=chain_head_height {
             for hash in height_to_hashes(height) {
                 let header = hash_to_header(&hash);
                 let prev_hash = *header.prev_hash();
@@ -470,8 +476,8 @@ impl FlatStorageState {
         for hash in blocks.keys() {
             deltas.insert(
                 *hash,
-                store_helper::get_delta(&store, shard_id, *hash).expect(BORSH_ERR).expect(
-                    &format!("Cannot find block delta for block {:?} shard {}", hash, shard_id),
+                store_helper::get_delta(&store, shard_id, *hash).expect(BORSH_ERR).unwrap_or_else(
+                    || panic!("Cannot find block delta for block {:?} shard {}", hash, shard_id),
                 ),
             );
         }

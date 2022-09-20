@@ -655,9 +655,7 @@ impl Chain {
                         .unwrap()
                         .values()
                         .flatten()
-                        .collect::<HashSet<_>>()
-                        .into_iter()
-                        .map(|h| *h)
+                        .copied()
                         .collect::<HashSet<_>>()
                 },
                 shard_id,
