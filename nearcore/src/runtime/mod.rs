@@ -694,6 +694,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.flat_state_factory.get_flat_storage_state_for_shard(shard_id)
     }
 
+    fn add_flat_storage_state_for_shard(
+        &self,
+        shard_id: ShardId,
+        flat_storage_state: FlatStorageState,
+    ) {
+        self.flat_state_factory.add_flat_storage_state_for_shard(shard_id, flat_storage_state)
+    }
+
     fn verify_block_vrf(
         &self,
         epoch_id: &EpochId,

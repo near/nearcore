@@ -445,6 +445,12 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_flat_storage_state_for_shard(&self, _shard_id: ShardId) -> Option<FlatStorageState> {
         None
     }
+    fn add_flat_storage_state_for_shard(
+        &self,
+        _shard_id: ShardId,
+        _flat_storage_state: FlatStorageState,
+    ) {
+    }
 
     fn verify_block_vrf(
         &self,
