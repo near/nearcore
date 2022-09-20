@@ -431,8 +431,8 @@ pub mod store_helper {
 
 impl FlatStorageState {
     /// Create a new FlatStorageState for `shard_id`.
-    /// The root block of the FlatStorageState is initialized to be what is stored on storage.
-    /// We also load all blocks with height between the root block to the current chain head,
+    /// Flat head is initialized to be what is stored on storage.
+    /// We also load all blocks with height between flat head to the current chain head,
     /// including those on forks into the returned FlatStorageState.
     #[cfg(feature = "protocol_feature_flat_state")]
     pub fn new(
