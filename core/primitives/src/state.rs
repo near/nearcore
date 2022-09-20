@@ -5,7 +5,7 @@ use near_primitives_core::hash::{hash, CryptoHash};
 use std::io::{Cursor, Read};
 
 /// State value reference. Used to charge fees for value length before retrieving the value itself.
-#[derive(BorshSerialize, BorshDeserialize, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 pub struct ValueRef {
     /// Value length in bytes.
     pub length: u32,
