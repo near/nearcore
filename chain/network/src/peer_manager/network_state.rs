@@ -1,12 +1,13 @@
 use crate::accounts_data;
 use crate::concurrency::demux;
 use crate::config;
+use crate::network_protocol::PeerMessage;
 use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::connection;
 use crate::private_actix::PeerToManagerMsg;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
-use crate::types::{ChainInfo, NetworkClientMessages, PeerMessage};
+use crate::types::{ChainInfo, NetworkClientMessages};
 use actix::Recipient;
 use arc_swap::ArcSwap;
 use near_network_primitives::time;
@@ -112,7 +113,7 @@ impl NetworkState {
     /// It will fail (and log) if we have too many connections already,
     /// or if the peer drops the connection in the meantime.
     fn spawn_peer_actor(
-        self: &Arc<Self>,
+        self: Arc<Self>,
         clock: &time::Clock,
         stream: TcpStream,
         stream_cfg: StreamConfig,
@@ -122,7 +123,7 @@ impl NetworkState {
         };
     }
 
-    pub async fn spawn_inbound(self: &Arc<Self>, clock: &time::Clock, stream: TcpStream) {
+    pub async fn spawn_inbound(self: Arc<Self>, clock: &time::Clock, stream: TcpStream) {
         self.spawn_peer_actor(clock, stream, StreamConfig::Inbound);
     }
 

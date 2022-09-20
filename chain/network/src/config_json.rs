@@ -160,10 +160,12 @@ pub struct Config {
     /// This setup is not reliable in presence of byzantine peers.
     #[serde(default)]
     pub public_addrs: Vec<PeerAddr>,
-    /// List of endpoints of trusted STUN servers (https://datatracker.ietf.org/doc/html/rfc8489).
-    /// Used only if this node is a validator and public_ips is empty (see description of
-    /// public_ips field). Format "<domain/ip>:<port>", for example "stun.l.google.com:19302".
-    /// TODO: unskip, once the functionality is implemented.
+    /// List of endpoints of trusted [STUN servers](https://datatracker.ietf.org/doc/html/rfc8489).
+    ///
+    /// Used only if this node is a validator and public_ips is empty (see
+    /// description of public_ips field).  Format `<domain/ip>:<port>`, for
+    /// example `stun.l.google.com:19302`.
+    // TODO: unskip, once the functionality is implemented.
     #[serde(skip)] // TODO: add a default list.
     pub trusted_stun_servers: Vec<String>,
     // Experimental part of the JSON config. Regular users/validators should not have to set any values there.

@@ -15,14 +15,11 @@ pub struct StoreOpener<'a> {
     /// Path to the database.
     ///
     /// This is resolved from nearcore home directory and store configuration
-    /// passed to [`NodeStorage::opener`].
+    /// passed to [`crate::NodeStorage::opener`].
     path: std::path::PathBuf,
 
     /// Configuration as provided by the user.
     config: &'a StoreConfig,
-
-    /// Which mode to open storeg in.
-    mode: Mode,
 }
 
 impl<'a> StoreOpener<'a> {
@@ -30,13 +27,7 @@ impl<'a> StoreOpener<'a> {
     pub(crate) fn new(home_dir: &std::path::Path, config: &'a StoreConfig) -> Self {
         let path =
             home_dir.join(config.path.as_deref().unwrap_or(std::path::Path::new(STORE_PATH)));
-        Self { path, config, mode: Mode::ReadWrite }
-    }
-
-    /// Configure which mode the database should be opened in.
-    pub fn mode(mut self, mode: Mode) -> Self {
-        self.mode = mode;
-        self
+        Self { path, config }
     }
 
     /// Returns path to the underlying RocksDB database.
@@ -56,33 +47,30 @@ impl<'a> StoreOpener<'a> {
         crate::RocksDB::get_version(&self.path, &self.config)
     }
 
+    /// Opens the storage in read-write mode.
+    ///
+    /// Creates the database if missing.
+    pub fn open(&self) -> std::io::Result<crate::NodeStorage> {
+        self.open_in_mode(Mode::ReadWrite)
+    }
+
     /// Opens the RocksDB database.
     ///
     /// When opening in read-only mode, verifies that the database version is
     /// what the node expects and fails if it isn’t.  If database doesn’t exist,
-    /// creates a new one unless mode is [`Mode::ReadWriteExisting`].
-    pub fn open(&self) -> std::io::Result<crate::NodeStorage> {
-        self.open_impl(false)
-    }
-
-    /// Creates a new RocksDB database.
-    ///
-    /// Works like `open` except that it fails if the database already exists.
-    /// Note that this is a best-effort check and the creation is not atomic.
-    pub fn create(&self) -> std::io::Result<crate::NodeStorage> {
-        self.open_impl(true)
-    }
-
-    fn open_impl(&self, create: bool) -> std::io::Result<crate::NodeStorage> {
+    /// creates a new one unless mode is [`Mode::ReadWriteExisting`].  On the
+    /// other hand, if mode is [`Mode::Create`], fails if the database already
+    /// exists.
+    pub fn open_in_mode(&self, mode: Mode) -> std::io::Result<crate::NodeStorage> {
         let db_version = crate::RocksDB::get_version(&self.path, self.config)?;
         let exists = if let Some(db_version) = db_version {
-            if create {
+            if mode.must_create() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
                     "Cannot create already existing database",
                 ));
             }
-            if self.mode == Mode::ReadOnly && db_version != crate::version::DB_VERSION {
+            if mode.read_only() && db_version != crate::version::DB_VERSION {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
                     format!(
@@ -93,10 +81,10 @@ impl<'a> StoreOpener<'a> {
                 ));
             }
             true
-        } else if self.mode == Mode::ReadOnly {
+        } else if !mode.can_create() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
-                "Cannot open non-existent database for reading",
+                "Cannot open non-existent database",
             ));
         } else {
             false
@@ -104,8 +92,7 @@ impl<'a> StoreOpener<'a> {
         tracing::info!(target: "near", path=%self.path.display(),
                        "{} RocksDB database",
                        if exists { "Opening" } else { "Creating a new" });
-        let storage =
-            std::sync::Arc::new(crate::RocksDB::open(&self.path, &self.config, self.mode)?);
+        let storage = std::sync::Arc::new(crate::RocksDB::open(&self.path, &self.config, mode)?);
         if !exists && version::get_db_version(storage.as_ref())?.is_none() {
             // Initialise newly created database by setting it’s version.
             let store = crate::Store { storage };

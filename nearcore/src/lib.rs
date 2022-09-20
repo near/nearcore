@@ -181,7 +181,17 @@ fn apply_store_migrations_if_exists(
 
     // DB migration was successful, remove the snapshot to avoid it taking up
     // precious disk space.
-    snapshot.remove();
+    if let Err(err) = snapshot.remove() {
+        anyhow::bail!(
+            "The DB migration has succeeded but deleting of the snapshot at {} \
+             has failed: {}\n
+             Try renaming the snapshot directory to temporary name (e.g. by \
+             adding tilde to its name) and starting the node.  If that works, \
+             the snapshot can be deleted.",
+            err.path.display(),
+            err.error
+        )
+    }
 
     Ok(())
 }
@@ -352,7 +362,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         skip_columns.push(DBCol::TrieChanges);
     }
 
-    let src_opener = NodeStorage::opener(home_dir, &config.store).mode(Mode::ReadOnly);
+    let src_opener = NodeStorage::opener(home_dir, &config.store);
     let src_path = src_opener.path();
 
     let mut dst_config = config.store.clone();
@@ -368,7 +378,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
           "Recompressing database");
 
     let src_store = src_opener
-        .open()
+        .open_in_mode(Mode::ReadOnly)
         .with_context(|| format!("Opening database at {}", src_opener.path().display()))?
         .get_store(Temperature::Hot);
 
@@ -387,8 +397,8 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     };
 
     let dst_store = dst_opener
-        .create()
-        .with_context(|| format!("Creating database at {}", dst_opener.path().display()))?
+        .open_in_mode(Mode::Create)
+        .with_context(|| format!("Creating database at {}", dst_path.display()))?
         .get_store(Temperature::Hot);
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;

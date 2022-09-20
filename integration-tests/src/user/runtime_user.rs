@@ -234,7 +234,7 @@ impl User for RuntimeUser {
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
         self.trie_viewer
-            .view_state(&state_update, account_id, prefix)
+            .view_state(&state_update, account_id, prefix, false)
             .map_err(|err| err.to_string())
     }
 
