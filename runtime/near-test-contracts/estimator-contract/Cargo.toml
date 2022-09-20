@@ -23,4 +23,5 @@ panic = "abort"
 members = []
 
 [features]
-nightly = []
+protocol_feature_ed25519_verify = []
+nightly = ["protocol_feature_ed25519_verify"]

@@ -54,7 +54,8 @@ extern "C" {
         malleability_flag: u64,
         register_id: u64,
     ) -> u64;
-    pub fn ed25519_verify(
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    fn ed25519_verify(
         sig_len: u64,
         sig_ptr: u64,
         msg_len: u64,
@@ -480,6 +481,7 @@ pub unsafe fn ecrecover_10k() {
 // so we are okay overcharging it. // TODO: validate this
 // Compute ecrecover 10k times.
 #[no_mangle]
+#[cfg(feature = "protocol_feature_ed25519_verify")]
 pub unsafe fn ed25519_verify_10k() {
     let signature: [u8; 64] = [
         145, 193, 203, 18, 114, 227, 14, 117, 33, 213, 121, 66, 130, 14, 25, 4, 36, 120, 46, 142,
