@@ -298,6 +298,11 @@ impl FlatStateDelta {
         self.0.get(key).cloned()
     }
 
+    /// Merge two deltas. Values from `other` should override values from `self`.
+    pub fn merge(&mut self, other: Self) {
+        self.0.extend(other.0)
+    }
+
     /// Creates delta using raw state changes for some block.
     pub fn from_state_changes(changes: &[RawStateChangesWithTrieKey]) -> Self {
         let mut delta = HashMap::new();
@@ -548,9 +553,11 @@ impl FlatStorageState {
 
         if found_final_block {
             let mut store_update = StoreUpdate::new(storage);
-            for delta in deltas_to_apply.drain(..).rev() {
-                delta.apply_to_flat_state(&mut store_update);
+            let mut delta = FlatStateDelta::new();
+            for new_delta in deltas_to_apply.drain(..).rev() {
+                delta.merge(new_delta);
             }
+            delta.apply_to_flat_state(&mut store_update);
             match self.update_flat_head(&final_block_hash) {
                 Some(new_store_update) => {
                     store_update.merge(new_store_update);
@@ -606,5 +613,133 @@ impl FlatStorageState {
         _delta: FlatStateDelta,
     ) -> Result<StoreUpdate, crate::StorageError> {
         panic!("not implemented")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::FlatStateDelta;
+    use near_primitives::state::ValueRef;
+    use near_primitives::trie_key::TrieKey;
+    use near_primitives::types::{RawStateChange, RawStateChangesWithTrieKey, StateChangeCause};
+    use std::collections::HashMap;
+
+    /// Check correctness of creating `FlatStateDelta` from state changes.
+    #[test]
+    fn flat_state_delta_creation() {
+        let alice_trie_key = TrieKey::ContractCode { account_id: "alice".parse().unwrap() };
+        let bob_trie_key = TrieKey::ContractCode { account_id: "bob".parse().unwrap() };
+        let carol_trie_key = TrieKey::ContractCode { account_id: "carol".parse().unwrap() };
+
+        let state_changes = vec![
+            RawStateChangesWithTrieKey {
+                trie_key: alice_trie_key.clone(),
+                changes: vec![
+                    RawStateChange {
+                        cause: StateChangeCause::InitialState,
+                        data: Some(vec![1, 2]),
+                    },
+                    RawStateChange {
+                        cause: StateChangeCause::ReceiptProcessing {
+                            receipt_hash: Default::default(),
+                        },
+                        data: Some(vec![3, 4]),
+                    },
+                ],
+            },
+            RawStateChangesWithTrieKey {
+                trie_key: bob_trie_key.clone(),
+                changes: vec![
+                    RawStateChange {
+                        cause: StateChangeCause::InitialState,
+                        data: Some(vec![5, 6]),
+                    },
+                    RawStateChange {
+                        cause: StateChangeCause::ReceiptProcessing {
+                            receipt_hash: Default::default(),
+                        },
+                        data: None,
+                    },
+                ],
+            },
+        ];
+
+        let flat_state_delta = FlatStateDelta::from_state_changes(&state_changes);
+        assert_eq!(
+            flat_state_delta.get(&alice_trie_key.to_vec()),
+            Some(Some(ValueRef::new(&[3, 4])))
+        );
+        assert_eq!(flat_state_delta.get(&bob_trie_key.to_vec()), Some(None));
+        assert_eq!(flat_state_delta.get(&carol_trie_key.to_vec()), None);
+    }
+
+    /// Check that keys related to delayed receipts are not included to `FlatStateDelta`.
+    #[test]
+    fn flat_state_delta_delayed_keys() {
+        let delayed_trie_key = TrieKey::DelayedReceiptIndices;
+        let delayed_receipt_trie_key = TrieKey::DelayedReceipt { index: 1 };
+
+        let state_changes = vec![
+            RawStateChangesWithTrieKey {
+                trie_key: delayed_trie_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: Some(vec![1]),
+                }],
+            },
+            RawStateChangesWithTrieKey {
+                trie_key: delayed_receipt_trie_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: Some(vec![2]),
+                }],
+            },
+        ];
+
+        let flat_state_delta = FlatStateDelta::from_state_changes(&state_changes);
+        assert!(flat_state_delta.get(&delayed_trie_key.to_vec()).is_none());
+        assert!(flat_state_delta.get(&delayed_receipt_trie_key.to_vec()).is_none());
+    }
+
+    /// Check that merge of `FlatStateDelta`s overrides the old changes for the same keys and doesn't conflict with
+    /// different keys.
+    #[test]
+    fn flat_state_delta_merge() {
+        let mut delta = FlatStateDelta(HashMap::from([
+            (vec![1], Some(ValueRef::new(&[4]))),
+            (vec![2], Some(ValueRef::new(&[5]))),
+            (vec![3], None),
+            (vec![4], Some(ValueRef::new(&[6]))),
+        ]));
+        let delta_new = FlatStateDelta(HashMap::from([
+            (vec![2], Some(ValueRef::new(&[7]))),
+            (vec![3], Some(ValueRef::new(&[8]))),
+            (vec![4], None),
+            (vec![5], Some(ValueRef::new(&[9]))),
+        ]));
+        delta.merge(delta_new);
+
+        assert_eq!(delta.get(&[1]), Some(Some(ValueRef::new(&[4]))));
+        assert_eq!(delta.get(&[2]), Some(Some(ValueRef::new(&[7]))));
+        assert_eq!(delta.get(&[3]), Some(Some(ValueRef::new(&[8]))));
+        assert_eq!(delta.get(&[4]), Some(None));
+        assert_eq!(delta.get(&[5]), Some(Some(ValueRef::new(&[9]))));
+    }
+
+    #[test]
+    fn flat_state_apply_single_delta() {
+        // TODO (#7327): check this scenario after implementing flat storage state:
+        // 1) create FlatState for one shard with FlatStorage
+        // 2) create FlatStateDelta and apply it
+        // 3) check that FlatStorageState contains the right values
+    }
+
+    #[test]
+    fn flat_state_apply_delta_range() {
+        // TODO (#7327): check this scenario after implementing flat storage state:
+        // 1) add tree of blocks and FlatStateDeltas for them
+        // 2) call `get_deltas_between_blocks` and check its correctness
+        // 3) apply deltas and check that FlatStorageState contains the right values;
+        // e.g. for the same key only the latest value is applied
     }
 }
