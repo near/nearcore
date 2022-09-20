@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database};
 use crate::{DBCol, StoreStatistics};
 
-/// An in-memory database intended for tests.
+/// An in-memory database intended for tests and IO-agnostic estimations.
 #[derive(Default)]
 pub struct TestDB {
     // In order to ensure determinism when iterating over column's results

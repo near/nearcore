@@ -42,7 +42,8 @@ impl<'c> EstimatorContext<'c> {
     }
 
     pub(crate) fn testbed(&mut self) -> Testbed<'_> {
-        let inner = RuntimeTestbed::from_state_dump(&self.config.state_dump_path);
+        let inner =
+            RuntimeTestbed::from_state_dump(&self.config.state_dump_path, self.config.in_memory_db);
         Testbed {
             config: self.config,
             inner,

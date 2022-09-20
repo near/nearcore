@@ -25,9 +25,10 @@ pub struct RuntimeTestbed {
 
 impl RuntimeTestbed {
     /// Copies dump from another directory and loads the state from it.
-    pub fn from_state_dump(dump_dir: &Path) -> Self {
+    pub fn from_state_dump(dump_dir: &Path, in_memory_db: bool) -> Self {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-        let StateDump { store, roots } = StateDump::from_dir(dump_dir, workdir.path());
+        let StateDump { store, roots } =
+            StateDump::from_dir(dump_dir, workdir.path(), in_memory_db);
         // Ensure decent RocksDB SST file layout.
         store.compact().expect("compaction failed");
         let tries = ShardTries::test(store, 1);
