@@ -37,7 +37,7 @@ static DEFAULT_HOME: Lazy<PathBuf> = Lazy::new(get_default_home);
 static ALLOC: near_rust_allocator_proxy::ProxyAllocator<tikv_jemallocator::Jemalloc> =
     near_rust_allocator_proxy::ProxyAllocator::new(tikv_jemallocator::Jemalloc);
 
-#[cfg(all(not(feature = "memory_stats"), feature = "jemalloc"))]
+#[cfg(not(feature = "memory_stats"))]
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
