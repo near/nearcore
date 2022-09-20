@@ -276,7 +276,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 /// Spawns another instance of this binary but inside docker.
-/// 
+///
 /// Most command line args are passed through but `--docker` is removed.
 /// We are now also running with an in-memory database to increase turn-around
 /// time and make the results more consistent. Note that this means qemu based
