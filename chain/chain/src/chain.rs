@@ -621,7 +621,7 @@ impl Chain {
                             &mut tmp_store_update,
                             shard_id,
                             &block_head.last_block_hash,
-                        )?;
+                        );
                         // The genesis block doesn't include any transactions or receipts, so the
                         // block delta is empty
                         flat_state::store_helper::set_delta(
