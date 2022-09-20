@@ -58,7 +58,7 @@ pub enum Cost {
     ///
     /// Estimation: Measure a transaction that creates an account and transfers
     /// an initial balance to it. Subtract the base cost of creating a receipt.
-    /// (TODO[jakmeier] consider also subtracting transfer fee)
+    // TODO(jakmeier): consider also subtracting transfer fee
     ActionCreateAccount,
     // Deploying a new contract for an account on the blockchain stores the WASM
     // code in the trie. Additionally, it also triggers a compilation of the
@@ -110,8 +110,8 @@ pub enum Cost {
     ///
     /// Estimation: Measure a transaction with only a staking action and
     /// subtract the base cost of creating a sir-receipt.
-    /// (TODO[jakmeier] find out and document the reasoning behind send vs exec
-    /// values in this specific case)
+    // TODO(jakmeier): find out and document the reasoning behind send vs exec
+    // values in this specific case
     ActionStake,
     /// Estimates `action_creation_config.add_key_cost.full_access_cost` which
     /// is charged for every `Action::AddKey` where the key is a full access
@@ -145,14 +145,14 @@ pub enum Cost {
     /// Estimation: Measure a transaction that deletes a full access key and
     /// transfers an initial balance to it. Subtract the base cost of creating a
     /// receipt.
-    /// (TODO[jakmeier] check cost for function call keys with many methods)
+    // TODO(jakmeier): check cost for function call keys with many methods
     ActionDeleteKey,
     /// Estimates `action_creation_config.delete_account_cost` which is charged
     /// for `DeleteAccount` actions, the same value on sending and executing.
     ///
     /// Estimation: Measure a transaction that deletes an existing account.
     /// Subtract the base cost of creating a sir-receipt.
-    /// (TODO[jakmeier] Consider different account states.
+    /// TODO(jakmeier): Consider different account states.
     ActionDeleteAccount,
 
     /// Estimates `wasm_config.ext_costs.base` which is intended to be charged

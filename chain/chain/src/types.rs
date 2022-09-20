@@ -289,6 +289,12 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_flat_storage_state_for_shard(&self, shard_id: ShardId) -> Option<FlatStorageState>;
 
+    fn add_flat_storage_state_for_shard(
+        &self,
+        shard_id: ShardId,
+        flat_storage_state: FlatStorageState,
+    );
+
     fn verify_block_vrf(
         &self,
         epoch_id: &EpochId,
@@ -819,8 +825,6 @@ mod tests {
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;
 
-    use crate::Chain;
-
     use super::*;
 
     #[test]
@@ -836,7 +840,7 @@ mod tests {
             0,
             100,
             1_000_000_000,
-            Chain::compute_collection_hash(genesis_bps).unwrap(),
+            CryptoHash::hash_borsh(&genesis_bps),
         );
         let signer =
             InMemoryValidatorSigner::from_seed("other".parse().unwrap(), KeyType::ED25519, "other");

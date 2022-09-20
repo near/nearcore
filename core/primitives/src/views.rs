@@ -213,6 +213,9 @@ pub struct StateItem {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ViewStateResult {
     pub values: Vec<StateItem>,
+    // TODO(mina86): Empty proof (i.e. sending proof when include_proof is not
+    // set in the request) was deprecated in 1.30.  Add
+    // `#[serde(skip(Vec::if_empty))` at 1.33 or something.
     pub proof: Vec<Arc<[u8]>>,
 }
 
@@ -274,6 +277,8 @@ pub enum QueryRequest {
         account_id: AccountId,
         #[serde(rename = "prefix_base64", with = "base64_format")]
         prefix: StoreKey,
+        #[serde(default, skip_serializing_if = "is_false")]
+        include_proof: bool,
     },
     ViewAccessKey {
         account_id: AccountId,
@@ -288,6 +293,10 @@ pub enum QueryRequest {
         #[serde(rename = "args_base64", with = "base64_format")]
         args: FunctionArgs,
     },
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]

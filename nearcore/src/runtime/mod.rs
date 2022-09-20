@@ -97,12 +97,7 @@ pub struct NightshadeRuntime {
 
 impl NightshadeRuntime {
     pub fn from_config(home_dir: &Path, store: Store, config: &NearConfig) -> Self {
-        let mut trie_config = TrieConfig::default();
-        trie_config
-            .shard_cache_config
-            .override_max_entries
-            .extend(config.config.store.trie_cache_capacities.iter().cloned());
-        trie_config.enable_receipt_prefetching = config.config.store.enable_receipt_prefetching;
+        let trie_config = TrieConfig::from_config(&config.config.store);
 
         Self::new(
             home_dir,
@@ -697,6 +692,14 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_flat_storage_state_for_shard(&self, shard_id: ShardId) -> Option<FlatStorageState> {
         self.flat_state_factory.get_flat_storage_state_for_shard(shard_id)
+    }
+
+    fn add_flat_storage_state_for_shard(
+        &self,
+        shard_id: ShardId,
+        flat_storage_state: FlatStorageState,
+    ) {
+        self.flat_state_factory.add_flat_storage_state_for_shard(shard_id, flat_storage_state)
     }
 
     fn verify_block_vrf(
@@ -1529,9 +1532,15 @@ impl RuntimeAdapter for NightshadeRuntime {
                     block_hash: *block_hash,
                 })
             }
-            QueryRequest::ViewState { account_id, prefix } => {
+            QueryRequest::ViewState { account_id, prefix, include_proof } => {
                 let view_state_result = self
-                    .view_state(&shard_uid, *state_root, account_id, prefix.as_ref())
+                    .view_state(
+                        &shard_uid,
+                        *state_root,
+                        account_id,
+                        prefix.as_ref(),
+                        *include_proof,
+                    )
                     .map_err(|err| {
                         near_chain::near_chain_primitives::error::QueryError::from_view_state_error(
                             err,
@@ -1948,9 +1957,10 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         prefix: &[u8],
+        include_proof: bool,
     ) -> Result<ViewStateResult, node_runtime::state_viewer::errors::ViewStateError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
-        self.trie_viewer.view_state(&state_update, account_id, prefix)
+        self.trie_viewer.view_state(&state_update, account_id, prefix, include_proof)
     }
 }
 

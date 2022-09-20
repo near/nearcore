@@ -171,7 +171,7 @@ fn create_receipt_nonce(
     amount: Balance,
     nonce: Nonce,
 ) -> CryptoHash {
-    hash(&ReceiptNonce { from, to, amount, nonce }.try_to_vec().unwrap())
+    CryptoHash::hash_borsh(&ReceiptNonce { from, to, amount, nonce })
 }
 
 impl KeyValueRuntime {
@@ -444,6 +444,12 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_flat_storage_state_for_shard(&self, _shard_id: ShardId) -> Option<FlatStorageState> {
         None
+    }
+    fn add_flat_storage_state_for_shard(
+        &self,
+        _shard_id: ShardId,
+        _flat_storage_state: FlatStorageState,
+    ) {
     }
 
     fn verify_block_vrf(
@@ -1529,10 +1535,9 @@ impl ChainGenesis {
 mod test {
     use std::convert::TryFrom;
 
-    use borsh::BorshSerialize;
     use rand::Rng;
 
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ReceiptList;
     use near_primitives::time::Clock;
@@ -1555,8 +1560,7 @@ mod test {
                 })
                 .cloned()
                 .collect();
-            receipts_hashes
-                .push(hash(&ReceiptList(shard_id, &shard_receipts).try_to_vec().unwrap()));
+            receipts_hashes.push(CryptoHash::hash_borsh(&ReceiptList(shard_id, &shard_receipts)));
         }
         receipts_hashes
     }
