@@ -1,10 +1,11 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::io::Write;
 
+use borsh::BorshSerialize;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::Digest;
 
-use crate::borsh::BorshSerialize;
 use crate::logging::pretty_hash;
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -25,22 +26,37 @@ impl CryptoHash {
 
     /// Calculates hash of borsh-serialised representation of an object.
     ///
-    /// Note that if you have a slice of objects to serialise, you might
-    /// prefer using [`Self::hash_borsh_slice`] instead.
+    /// Note that using this function with an array may lead to unexpected
+    /// results.  For example, `CryptoHash::hash_borsh(&[1u32, 2, 3])` hashes
+    /// a representation of a `[u32; 3]` array rather than a slice.  It may be
+    /// cleaner to use [`Self::hash_borsh_iter`] instead.
     pub fn hash_borsh<T: BorshSerialize>(value: &T) -> CryptoHash {
         let mut hasher = sha2::Sha256::default();
         BorshSerialize::serialize(value, &mut hasher).unwrap();
         CryptoHash(hasher.finalize().into())
     }
 
-    /// Calculates hash of borsh-serialised representation of vector of objects.
+    /// Calculates hash of a borsh-serialised representation of list of objects.
     ///
-    /// This does pretty much the same thing as [`Self::hash_borsh`] except
-    /// that it’s less error prone.  For example, `CryptoHash::hash_borsh(&[1u32,
-    ///  2, 3])` hashes a representation of a `[u32; 3]` array rather than
-    /// a slice.
-    pub fn hash_borsh_slice<T: BorshSerialize>(slice: &[T]) -> CryptoHash {
-        Self::hash_borsh(&slice)
+    /// This behaves as if it first collected all the items in the iterator into
+    /// a vector and then calculating hash of borsh-serialised representation of
+    /// that vector.
+    ///
+    /// Panics if the iterator lies about its length.
+    pub fn hash_borsh_iter<I>(values: I) -> CryptoHash
+    where
+        I: IntoIterator,
+        I::IntoIter: ExactSizeIterator,
+        I::Item: BorshSerialize,
+    {
+        let iter = values.into_iter();
+        let n = u32::try_from(iter.len()).unwrap();
+        let mut hasher = sha2::Sha256::default();
+        hasher.write_all(&n.to_le_bytes()).unwrap();
+        let count =
+            iter.inspect(|value| BorshSerialize::serialize(&value, &mut hasher).unwrap()).count();
+        assert_eq!(n as usize, count);
+        CryptoHash(hasher.finalize().into())
     }
 
     pub const fn as_bytes(&self) -> &[u8; 32] {
@@ -237,7 +253,17 @@ mod tests {
 
         fn slice<T: BorshSerialize>(want: &str, slice: &[T]) {
             assert_eq!(want, CryptoHash::hash_borsh(&slice).to_string());
-            assert_eq!(want, CryptoHash::hash_borsh_slice(slice).to_string());
+            iter(want, slice.iter());
+            iter(want, slice);
+        }
+
+        fn iter<I>(want: &str, iter: I)
+        where
+            I: IntoIterator,
+            I::IntoIter: ExactSizeIterator,
+            I::Item: BorshSerialize,
+        {
+            assert_eq!(want, CryptoHash::hash_borsh_iter(iter).to_string());
         }
 
         value("CuoNgQBWsXnTqup6FY3UXNz6RRufnYyQVxx8HKZLUaRt", "foo");
@@ -245,6 +271,10 @@ mod tests {
         value("CuoNgQBWsXnTqup6FY3UXNz6RRufnYyQVxx8HKZLUaRt", &b"foo"[..]);
         value("CuoNgQBWsXnTqup6FY3UXNz6RRufnYyQVxx8HKZLUaRt", [3, 0, 0, 0, b'f', b'o', b'o']);
         slice("CuoNgQBWsXnTqup6FY3UXNz6RRufnYyQVxx8HKZLUaRt", "foo".as_bytes());
+        iter(
+            "CuoNgQBWsXnTqup6FY3UXNz6RRufnYyQVxx8HKZLUaRt",
+            "FOO".bytes().map(|ch| u8::try_from(ch.to_ascii_lowercase()).unwrap()),
+        );
 
         value("3yMApqCuCjXDWPrbjfR5mjCPTHqFG8Pux1TxQrEM35jj", b"foo");
         value("3yMApqCuCjXDWPrbjfR5mjCPTHqFG8Pux1TxQrEM35jj", [b'f', b'o', b'o']);

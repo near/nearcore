@@ -686,11 +686,11 @@ impl Chain {
         let bps = runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
         let protocol_version = runtime_adapter.get_epoch_protocol_version(&prev_epoch_id)?;
         if checked_feature!("stable", BlockHeaderV3, protocol_version) {
-            let validator_stakes: Vec<_> = bps.into_iter().map(|(bp, _)| bp).collect();
-            Ok(CryptoHash::hash_borsh(&validator_stakes))
+            let validator_stakes = bps.into_iter().map(|(bp, _)| bp);
+            Ok(CryptoHash::hash_borsh_iter(validator_stakes))
         } else {
-            let validator_stakes: Vec<_> = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
-            Ok(CryptoHash::hash_borsh(&validator_stakes))
+            let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1());
+            Ok(CryptoHash::hash_borsh_iter(validator_stakes))
         }
     }
 
