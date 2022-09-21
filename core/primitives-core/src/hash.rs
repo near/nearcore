@@ -18,14 +18,29 @@ impl CryptoHash {
         Self([0; 32])
     }
 
+    /// Calculates hash of given bytes.
     pub fn hash_bytes(bytes: &[u8]) -> CryptoHash {
         CryptoHash(sha2::Sha256::digest(bytes).into())
     }
 
+    /// Calculates hash of borsh-serialised representation of an object.
+    ///
+    /// Note that if you have a slice of objects to serialise, you might
+    /// prefer using [`Self::hash_borsh_slice`] instead.
     pub fn hash_borsh<T: BorshSerialize>(value: &T) -> CryptoHash {
         let mut hasher = sha2::Sha256::default();
         BorshSerialize::serialize(value, &mut hasher).unwrap();
         CryptoHash(hasher.finalize().into())
+    }
+
+    /// Calculates hash of borsh-serialised representation of vector of objects.
+    ///
+    /// This does pretty much the same thing as [`Self::hash_borsh`] except
+    /// that it’s less error prone.  For example, `CryptoHash::hash_borsh(&[1u32,
+    ///  2, 3])` hashes a representation of a `[u32; 3]` array rather than
+    /// a slice.
+    pub fn hash_borsh_slice<T: BorshSerialize>(slice: &[T]) -> CryptoHash {
+        Self::hash_borsh(&slice)
     }
 
     pub const fn as_bytes(&self) -> &[u8; 32] {
