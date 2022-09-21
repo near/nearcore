@@ -939,29 +939,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.shard_tracker.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
     }
 
-    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.is_next_block_epoch_start(parent_hash).map_err(Error::from)
-    }
-
-    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
-    }
-
-    fn get_next_epoch_id_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<EpochId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
-    }
-
-    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_epoch_start_height(block_hash).map_err(Error::from)
-    }
-
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
         (|| -> Result<BlockHeight, Error> {
             let epoch_manager = self.epoch_manager.read();
