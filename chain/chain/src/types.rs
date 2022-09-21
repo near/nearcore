@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
-use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::time::Utc;
 use num_rational::Rational32;
@@ -30,8 +29,8 @@ use near_primitives::state_part::PartId;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, Gas,
-    MerkleHash, NumBlocks, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, Gas, MerkleHash,
+    NumBlocks, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
     ValidatorInfoIdentifier,
 };
 use near_primitives::version::{
@@ -39,10 +38,11 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
+use near_store::flat_state::FlatStorageState;
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
+pub use near_epoch_manager::EpochManagerAdapter;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
-use near_store::flat_state::FlatStorageState;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {

@@ -1,4 +1,10 @@
-use near_primitives::types::EpochId;
+use near_chain_primitives::Error;
+use near_primitives::{
+    hash::CryptoHash,
+    types::{
+        validator_stake::ValidatorStake, AccountId, ApprovalStake, BlockHeight, EpochId, ShardId,
+    },
+};
 
 use crate::{EpochManager, EpochManagerHandle};
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
@@ -91,7 +97,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         Ok(epoch_manager.get_all_block_producers_ordered(epoch_id, last_known_block_hash)?.to_vec())
     }
 
@@ -99,11 +105,11 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         &self,
         parent_hash: &CryptoHash,
     ) -> Result<Vec<(ApprovalStake, bool)>, Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         epoch_manager.get_all_block_approvers_ordered(parent_hash).map_err(Error::from)
     }
     fn get_epoch_chunk_producers(&self, epoch_id: &EpochId) -> Result<Vec<ValidatorStake>, Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         Ok(epoch_manager.get_all_chunk_producers(epoch_id)?.to_vec())
     }
 
@@ -112,7 +118,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         epoch_id: &EpochId,
         height: BlockHeight,
     ) -> Result<AccountId, Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         Ok(epoch_manager.get_block_producer_info(epoch_id, height)?.take_account_id())
     }
 
@@ -122,7 +128,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<AccountId, Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         Ok(epoch_manager.get_chunk_producer_info(epoch_id, height, shard_id)?.take_account_id())
     }
 
@@ -132,7 +138,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
     ) -> Result<(ValidatorStake, bool), Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         let validator = epoch_manager.get_validator_by_account_id(epoch_id, account_id)?;
         let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
         Ok((validator, block_info.slashed().contains_key(account_id)))
@@ -144,7 +150,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
     ) -> Result<(ValidatorStake, bool), Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         let fisherman = epoch_manager.get_fisherman_by_account_id(epoch_id, account_id)?;
         let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
         Ok((fisherman, block_info.slashed().contains_key(account_id)))
