@@ -411,26 +411,6 @@ impl EpochManagerAdapter for KeyValueRuntime {
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
         self.hash_to_valset.write().unwrap().contains_key(epoch_id)
     }
-    
-    fn get_validator_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), Error> {
-        let validators = &self.validators_by_valset[self.get_valset_for_epoch(epoch_id)?];
-        for validator_stake in validators.block_producers.iter() {
-            if validator_stake.account_id() == account_id {
-                return Ok((validator_stake.clone(), false));
-            }
-        }
-        for validator_stake in validators.chunk_producers.iter().flatten() {
-            if validator_stake.account_id() == account_id {
-                return Ok((validator_stake.clone(), false));
-            }
-        }
-        Err(Error::NotAValidator)
-    }
 
     fn get_epoch_block_producers_ordered(
         &self,
@@ -465,6 +445,7 @@ impl EpochManagerAdapter for KeyValueRuntime {
         let validators = validators.into_iter().map(|stake| (stake, false)).collect::<Vec<_>>();
         Ok(validators)
     }
+
     fn get_epoch_chunk_producers(&self, _epoch_id: &EpochId) -> Result<Vec<ValidatorStake>, Error> {
         tracing::warn!("not implemented, returning a dummy value");
         Ok(vec![])
@@ -489,6 +470,26 @@ impl EpochManagerAdapter for KeyValueRuntime {
         let chunk_producers = self.get_chunk_producers(valset, shard_id);
         let index = (shard_id + height + 1) as usize % chunk_producers.len();
         Ok(chunk_producers[index].account_id().clone())
+    }
+
+    fn get_validator_by_account_id(
+        &self,
+        epoch_id: &EpochId,
+        _last_known_block_hash: &CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<(ValidatorStake, bool), Error> {
+        let validators = &self.validators_by_valset[self.get_valset_for_epoch(epoch_id)?];
+        for validator_stake in validators.block_producers.iter() {
+            if validator_stake.account_id() == account_id {
+                return Ok((validator_stake.clone(), false));
+            }
+        }
+        for validator_stake in validators.chunk_producers.iter().flatten() {
+            if validator_stake.account_id() == account_id {
+                return Ok((validator_stake.clone(), false));
+            }
+        }
+        Err(Error::NotAValidator)
     }
 
     fn get_fisherman_by_account_id(
