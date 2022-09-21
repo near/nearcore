@@ -296,15 +296,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         flat_storage_state: FlatStorageState,
     );
 
-    fn verify_block_vrf(
-        &self,
-        epoch_id: &EpochId,
-        block_height: BlockHeight,
-        prev_random_value: &CryptoHash,
-        vrf_value: &near_crypto::vrf::Value,
-        vrf_proof: &near_crypto::vrf::Proof,
-    ) -> Result<(), Error>;
-
     /// Validates a given signed transaction.
     /// If the state root is given, then the verification will use the account. Otherwise it will
     /// only validate the transaction math, limits and signatures.
@@ -341,72 +332,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error>;
-
-    /// Verify validator signature for the given epoch.
-    /// Note: doesnt't account for slashed accounts within given epoch. USE WITH CAUTION.
-    fn verify_validator_signature(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-        data: &[u8],
-        signature: &Signature,
-    ) -> Result<bool, Error>;
-
-    /// Verify signature for validator or fisherman. Used for validating challenges.
-    fn verify_validator_or_fisherman_signature(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-        data: &[u8],
-        signature: &Signature,
-    ) -> Result<bool, Error>;
-
-    /// Verify header signature.
-    fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error>;
-
-    /// Verify chunk header signature.
-    /// return false if the header signature does not match the key for the assigned chunk producer
-    /// for this chunk, or if the chunk producer has been slashed
-    /// return `Error::NotAValidator` if cannot find chunk producer info for this chunk
-    /// `header`: chunk header
-    /// `epoch_id`: epoch_id that the chunk header belongs to
-    /// `last_known_hash`: used to determine the list of chunk producers that are slashed
-    fn verify_chunk_header_signature(
-        &self,
-        header: &ShardChunkHeader,
-        epoch_id: &EpochId,
-        last_known_hash: &CryptoHash,
-    ) -> Result<bool, Error> {
-        self.verify_chunk_signature_with_header_parts(
-            &header.chunk_hash(),
-            header.signature(),
-            epoch_id,
-            last_known_hash,
-            header.height_created(),
-            header.shard_id(),
-        )
-    }
-
-    fn verify_chunk_signature_with_header_parts(
-        &self,
-        chunk_hash: &ChunkHash,
-        signature: &Signature,
-        epoch_id: &EpochId,
-        last_known_hash: &CryptoHash,
-        height_created: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<bool, Error>;
-
-    /// Verify aggregated bls signature
-    fn verify_approval(
-        &self,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Signature>],
-    ) -> Result<bool, Error>;
 
     /// Verify approvals and check threshold, but ignore next epoch approvals and slashing
     fn verify_approvals_and_threshold_orphan(
