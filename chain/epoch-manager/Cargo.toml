@@ -24,6 +24,7 @@ near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-chain-configs = { path = "../../core/chain-configs" }
+near-chain-primitives = { path = "../chain-primitives" }
 near-cache = { path = "../../utils/near-cache" }
 
 [features]
