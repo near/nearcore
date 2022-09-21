@@ -331,8 +331,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error>;
 
-    /// Get current number of shards.
-    fn num_shards(&self, epoch_id: &EpochId) -> Result<ShardId, Error>;
 
     fn num_total_parts(&self) -> usize;
 
@@ -347,10 +345,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
 
     /// Returns `account_id` that suppose to have the `part_id`.
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error>;
-
-    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
-
-    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error>;
 
     fn get_prev_shard_ids(
         &self,

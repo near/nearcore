@@ -842,22 +842,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(transactions)
     }
 
-    fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.num_shards())
-    }
-
-    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.clone())
-    }
-
-    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let epoch_config = epoch_manager.get_epoch_config(epoch_id).map_err(Error::from)?;
-        Ok(ShardConfig::new(epoch_config))
-    }
-
     fn get_prev_shard_ids(
         &self,
         prev_hash: &CryptoHash,
