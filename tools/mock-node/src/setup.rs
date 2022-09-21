@@ -289,9 +289,6 @@ pub fn setup_mock_node(
         });
     network_adapter.set_recipient(mock_network_actor);
 
-    // for some reason, with "test_features", start_http requires PeerManagerActor,
-    // we are not going to run start_mock_network with test_features, so let's disable that for now
-    #[cfg(not(feature = "test_features"))]
     let servers = config.rpc_config.map(|rpc_config| {
         near_jsonrpc::start_http(
             rpc_config,
@@ -300,8 +297,6 @@ pub fn setup_mock_node(
             view_client.clone(),
         )
     });
-    #[cfg(feature = "test_features")]
-    let servers = None;
 
     MockNode { client, view_client, servers, target_height }
 }
@@ -333,6 +328,7 @@ mod tests {
     // to generate a chain history
     // then start a mock network with this chain history and test that
     // the client in the mock network can catch up these 20 blocks
+    #[cfg_attr(not(feature = "mock_node"), ignore)]
     #[test]
     fn test_mock_node_basic() {
         init_integration_logger();
