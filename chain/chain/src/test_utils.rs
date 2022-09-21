@@ -500,6 +500,67 @@ impl EpochManagerAdapter for KeyValueRuntime {
     ) -> Result<(ValidatorStake, bool), Error> {
         Err(Error::NotAValidator)
     }
+
+    fn verify_block_vrf(
+        &self,
+        _epoch_id: &EpochId,
+        _block_height: BlockHeight,
+        _prev_random_value: &CryptoHash,
+        _vrf_value: &near_crypto::vrf::Value,
+        _vrf_proof: &near_crypto::vrf::Proof,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn verify_validator_signature(
+        &self,
+        _epoch_id: &EpochId,
+        _last_known_block_hash: &CryptoHash,
+        _account_id: &AccountId,
+        _data: &[u8],
+        _signature: &Signature,
+    ) -> Result<bool, Error> {
+        Ok(true)
+    }
+
+    fn verify_validator_or_fisherman_signature(
+        &self,
+        _epoch_id: &EpochId,
+        _last_known_block_hash: &CryptoHash,
+        _account_id: &AccountId,
+        _data: &[u8],
+        _signature: &Signature,
+    ) -> Result<bool, Error> {
+        Ok(true)
+    }
+
+    fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
+        let validator = self.get_block_producer(&header.epoch_id(), header.height())?;
+        let validator_stake = &self.validators[&validator];
+        Ok(header.verify_block_producer(validator_stake.public_key()))
+    }
+
+    fn verify_chunk_signature_with_header_parts(
+        &self,
+        _chunk_hash: &ChunkHash,
+        _signature: &Signature,
+        _epoch_id: &EpochId,
+        _last_kown_hash: &CryptoHash,
+        _height_created: BlockHeight,
+        _shard_id: ShardId,
+    ) -> Result<bool, Error> {
+        Ok(true)
+    }
+
+    fn verify_approval(
+        &self,
+        _prev_block_hash: &CryptoHash,
+        _prev_block_height: BlockHeight,
+        _block_height: BlockHeight,
+        _approvals: &[Option<Signature>],
+    ) -> Result<bool, Error> {
+        Ok(true)
+    }
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
@@ -546,56 +607,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_id: ShardId,
         _flat_storage_state: FlatStorageState,
     ) {
-    }
-
-    fn verify_block_vrf(
-        &self,
-        _epoch_id: &EpochId,
-        _block_height: BlockHeight,
-        _prev_random_value: &CryptoHash,
-        _vrf_value: &near_crypto::vrf::Value,
-        _vrf_proof: &near_crypto::vrf::Proof,
-    ) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn verify_validator_signature(
-        &self,
-        _epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        _account_id: &AccountId,
-        _data: &[u8],
-        _signature: &Signature,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
-        let validator = self.get_block_producer(&header.epoch_id(), header.height())?;
-        let validator_stake = &self.validators[&validator];
-        Ok(header.verify_block_producer(validator_stake.public_key()))
-    }
-
-    fn verify_chunk_signature_with_header_parts(
-        &self,
-        _chunk_hash: &ChunkHash,
-        _signature: &Signature,
-        _epoch_id: &EpochId,
-        _last_kown_hash: &CryptoHash,
-        _height_created: BlockHeight,
-        _shard_id: ShardId,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_approval(
-        &self,
-        _prev_block_hash: &CryptoHash,
-        _prev_block_height: BlockHeight,
-        _block_height: BlockHeight,
-        _approvals: &[Option<Signature>],
-    ) -> Result<bool, Error> {
-        Ok(true)
     }
 
     fn verify_approvals_and_threshold_orphan(
@@ -1271,17 +1282,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _header_head: &CryptoHash,
     ) -> Result<bool, Error> {
         Ok(false)
-    }
-
-    fn verify_validator_or_fisherman_signature(
-        &self,
-        _epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        _account_id: &AccountId,
-        _data: &[u8],
-        _signature: &Signature,
-    ) -> Result<bool, Error> {
-        Ok(true)
     }
 
     fn get_protocol_config(&self, _epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
