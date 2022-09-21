@@ -17,7 +17,6 @@ use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
@@ -330,7 +329,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error>;
-
 
     fn num_total_parts(&self) -> usize;
 

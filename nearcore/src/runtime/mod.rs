@@ -13,7 +13,7 @@ use near_chain_configs::{
 };
 use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::PublicKey;
-use near_epoch_manager::{EpochManager, EpochManagerHandle};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_o11y::log_assert;
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -21,7 +21,7 @@ use near_primitives::challenge::ChallengesResult;
 use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
+use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;

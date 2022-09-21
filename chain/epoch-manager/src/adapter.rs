@@ -2,12 +2,14 @@ use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::{
     block_header::{Approval, ApprovalInner, BlockHeader},
+    epoch_manager::ShardConfig,
     errors::EpochError,
     hash::CryptoHash,
+    shard_layout::ShardLayout,
     sharding::{ChunkHash, ShardChunkHeader},
     types::{
         validator_stake::ValidatorStake, AccountId, ApprovalStake, Balance, BlockHeight, EpochId,
-        ShardId,
+        NumShards, ShardId,
     },
 };
 
@@ -195,17 +197,17 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
     }
 
     fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.num_shards())
     }
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.clone())
     }
 
     fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         let epoch_config = epoch_manager.get_epoch_config(epoch_id).map_err(Error::from)?;
         Ok(ShardConfig::new(epoch_config))
     }
