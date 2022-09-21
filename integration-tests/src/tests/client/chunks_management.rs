@@ -1,14 +1,8 @@
-use near_chain::test_utils::ValidatorSchedule;
-use near_primitives::time::Instant;
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
-
+use crate::test_helpers::heavy_test;
 use actix::{Addr, System};
 use futures::{future, FutureExt};
-use tracing::info;
-
-use crate::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
+use near_chain::test_utils::ValidatorSchedule;
 use near_chunks::{
     CHUNK_REQUEST_RETRY_MS, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
     CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
@@ -20,15 +14,20 @@ use near_network::types::{NetworkClientMessages, NetworkRequests, NetworkRespons
 use near_network_primitives::types::{AccountIdOrPeerTrackingShard, PeerInfo};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
+use near_primitives::time::Instant;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+use tracing::info;
 
 /// Runs block producing client and stops after network mock received seven blocks
 /// Confirms that the blocks form a chain (which implies the chunks are distributed).
 /// Confirms that the number of messages transmitting the chunks matches the expected number.
 fn chunks_produced_and_distributed_common(
     validator_groups: u64,
-    drop_from_1_to_4: bool,
+    chunk_only_producers: bool,
+    drop_to_4_from: &'static [&'static str],
     drop_all_chunk_forward_msgs: bool,
     block_timeout: u64,
 ) {
@@ -52,7 +51,7 @@ fn chunks_produced_and_distributed_common(
         assert_eq!(*map.entry(*hash).or_insert(height), height);
     };
 
-    let vs = ValidatorSchedule::new()
+    let mut vs = ValidatorSchedule::new()
         .num_shards(4)
         .block_producers_per_epoch(vec![
             vec![
@@ -69,9 +68,26 @@ fn chunks_produced_and_distributed_common(
             ],
         ])
         .validator_groups(validator_groups);
-    let archive = vec![false; vs.all_block_producers().count()];
-    let epoch_sync_enabled = vec![true; vs.all_block_producers().count()];
-    let key_pairs = (0..8).map(|_| PeerInfo::random()).collect::<Vec<_>>();
+    if chunk_only_producers {
+        vs = vs.chunk_only_producers_per_epoch_per_shard(vec![
+            vec![
+                vec!["cop1".parse().unwrap()],
+                vec!["cop2".parse().unwrap()],
+                vec!["cop3".parse().unwrap()],
+                vec!["cop4".parse().unwrap()],
+            ],
+            vec![
+                vec!["cop5".parse().unwrap()],
+                vec!["cop6".parse().unwrap()],
+                vec!["cop7".parse().unwrap()],
+                vec!["cop8".parse().unwrap()],
+            ],
+        ]);
+    }
+    let archive = vec![false; vs.all_validators().count()];
+    let epoch_sync_enabled = vec![true; vs.all_validators().count()];
+    let key_pairs =
+        (0..vs.all_validators().count()).map(|_| PeerInfo::random()).collect::<Vec<_>>();
 
     let mut partial_chunk_msgs = 0;
     let mut partial_chunk_request_msgs = 0;
@@ -142,7 +158,7 @@ fn chunks_produced_and_distributed_common(
                             // If messages from 1 to 4 are dropped, 4 at their heights will
                             //    receive the block significantly later than the chunks, and
                             //    thus would discard the chunks
-                            if !drop_from_1_to_4 || block.header().height() % 4 != 3 {
+                            if drop_to_4_from.is_empty() || block.header().height() % 4 != 3 {
                                 assert_eq!(
                                     block.header().height(),
                                     block.chunks()[shard_id].height_created()
@@ -166,11 +182,10 @@ fn chunks_produced_and_distributed_common(
                     partial_encoded_chunk: _,
                 } => {
                     partial_chunk_msgs += 1;
-                    if drop_from_1_to_4
-                        && from_whom.as_ref() == "test1"
-                        && to_whom.as_ref() == "test4"
-                    {
-                        println!("Dropping Partial Encoded Chunk Message from test1 to test4");
+                    if drop_to_4_from.contains(&from_whom.as_str()) && to_whom.as_ref() == "test4" {
+                        println!(
+                            "Dropping Partial Encoded Chunk Message from {from_whom} to test4"
+                        );
                         return (NetworkResponses::NoResponse.into(), false);
                     }
                 }
@@ -179,12 +194,9 @@ fn chunks_produced_and_distributed_common(
                         println!("Dropping Partial Encoded Chunk Forward Message");
                         return (NetworkResponses::NoResponse.into(), false);
                     }
-                    if drop_from_1_to_4
-                        && from_whom.as_ref() == "test1"
-                        && to_whom.as_ref() == "test4"
-                    {
+                    if drop_to_4_from.contains(&from_whom.as_str()) && to_whom.as_ref() == "test4" {
                         println!(
-                            "Dropping Partial Encoded Chunk Forward Message from test1 to test4"
+                            "Dropping Partial Encoded Chunk Forward Message from {from_whom} to test4"
                         );
                         return (NetworkResponses::NoResponse.into(), false);
                     }
@@ -196,14 +208,11 @@ fn chunks_produced_and_distributed_common(
                     target: AccountIdOrPeerTrackingShard { account_id: Some(to_whom), .. },
                     ..
                 } => {
-                    if drop_from_1_to_4
-                        && from_whom.as_ref() == "test4"
-                        && to_whom.as_ref() == "test1"
-                    {
-                        info!("Dropping Partial Encoded Chunk Request from test4 to test1");
+                    if drop_to_4_from.contains(&to_whom.as_str()) && from_whom.as_ref() == "test4" {
+                        info!("Dropping Partial Encoded Chunk Request from test4 to {to_whom}");
                         return (NetworkResponses::NoResponse.into(), false);
                     }
-                    if drop_from_1_to_4
+                    if !drop_to_4_from.is_empty()
                         && from_whom.as_ref() == "test4"
                         && to_whom.as_ref() == "test2"
                     {
@@ -245,7 +254,13 @@ fn chunks_produced_and_distributed_common(
 fn chunks_produced_and_distributed_all_in_all_shards() {
     heavy_test(|| {
         run_actix(async {
-            chunks_produced_and_distributed_common(1, false, false, 15 * CHUNK_REQUEST_RETRY_MS);
+            chunks_produced_and_distributed_common(
+                1,
+                false,
+                &[],
+                false,
+                15 * CHUNK_REQUEST_RETRY_MS,
+            );
         });
     });
 }
@@ -254,7 +269,13 @@ fn chunks_produced_and_distributed_all_in_all_shards() {
 fn chunks_produced_and_distributed_2_vals_per_shard() {
     heavy_test(|| {
         run_actix(async {
-            chunks_produced_and_distributed_common(2, false, false, 15 * CHUNK_REQUEST_RETRY_MS);
+            chunks_produced_and_distributed_common(
+                2,
+                false,
+                &[],
+                false,
+                15 * CHUNK_REQUEST_RETRY_MS,
+            );
         });
     });
 }
@@ -263,7 +284,13 @@ fn chunks_produced_and_distributed_2_vals_per_shard() {
 fn chunks_produced_and_distributed_one_val_per_shard() {
     heavy_test(|| {
         run_actix(async {
-            chunks_produced_and_distributed_common(4, false, false, 15 * CHUNK_REQUEST_RETRY_MS);
+            chunks_produced_and_distributed_common(
+                4,
+                false,
+                &[],
+                false,
+                15 * CHUNK_REQUEST_RETRY_MS,
+            );
         });
     });
 }
@@ -272,7 +299,13 @@ fn chunks_produced_and_distributed_one_val_per_shard() {
 fn chunks_produced_and_distributed_all_in_all_shards_should_succeed_even_without_forwarding() {
     heavy_test(|| {
         run_actix(async {
-            chunks_produced_and_distributed_common(1, false, false, 15 * CHUNK_REQUEST_RETRY_MS);
+            chunks_produced_and_distributed_common(
+                1,
+                false,
+                &[],
+                false,
+                15 * CHUNK_REQUEST_RETRY_MS,
+            );
         });
     });
 }
@@ -281,7 +314,13 @@ fn chunks_produced_and_distributed_all_in_all_shards_should_succeed_even_without
 fn chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_forwarding() {
     heavy_test(|| {
         run_actix(async {
-            chunks_produced_and_distributed_common(2, false, false, 15 * CHUNK_REQUEST_RETRY_MS);
+            chunks_produced_and_distributed_common(
+                2,
+                false,
+                &[],
+                false,
+                15 * CHUNK_REQUEST_RETRY_MS,
+            );
         });
     });
 }
@@ -290,7 +329,13 @@ fn chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_
 fn chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without_forwarding() {
     heavy_test(|| {
         run_actix(async {
-            chunks_produced_and_distributed_common(4, false, false, 15 * CHUNK_REQUEST_RETRY_MS);
+            chunks_produced_and_distributed_common(
+                4,
+                false,
+                &[],
+                false,
+                15 * CHUNK_REQUEST_RETRY_MS,
+            );
         });
     });
 }
@@ -311,7 +356,8 @@ fn chunks_recovered_from_others() {
         run_actix(async {
             chunks_produced_and_distributed_common(
                 2,
-                true,
+                false,
+                &["test1"],
                 true,
                 4 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
             );
@@ -331,7 +377,8 @@ fn chunks_recovered_from_full_timeout_too_short() {
         run_actix(async {
             chunks_produced_and_distributed_common(
                 4,
-                true,
+                false,
+                &["test1"],
                 true,
                 2 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
             );
@@ -348,7 +395,76 @@ fn chunks_recovered_from_full() {
         run_actix(async {
             chunks_produced_and_distributed_common(
                 4,
+                false,
+                &["test1"],
                 true,
+                2 * CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
+            );
+        })
+    });
+}
+
+// And now let's add chunk-only producers into the mix
+
+/// Happy case -- each shard is handled by one cop and one block producers.
+#[test]
+fn chunks_produced_and_distributed_one_val_shard_cop() {
+    heavy_test(|| {
+        run_actix(async {
+            chunks_produced_and_distributed_common(
+                4,
+                true,
+                &[],
+                false,
+                15 * CHUNK_REQUEST_RETRY_MS,
+            );
+        });
+    });
+}
+
+/// `test4` can't talk to `test1`, so it'll fetch the chunk for first shard from `cop1`.
+#[test]
+fn chunks_recovered_from_others_cop() {
+    heavy_test(|| {
+        run_actix(async {
+            chunks_produced_and_distributed_common(
+                1,
+                true,
+                &["test1"],
+                true,
+                4 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
+            );
+        });
+    });
+}
+
+/// `test4` can't talk neither to `cop1` nor to `test1`, so it can't fetch chunk
+/// from chunk producers and has to reconstruct it.
+#[test]
+#[should_panic]
+fn chunks_recovered_from_full_timeout_too_short_cop() {
+    heavy_test(|| {
+        run_actix(async {
+            chunks_produced_and_distributed_common(
+                4,
+                true,
+                &["test1", "cop1"],
+                true,
+                2 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
+            );
+        });
+    });
+}
+
+/// Same as above, but with longer block production timeout which should allow for full reconstruction.
+#[test]
+fn chunks_recovered_from_full_cop() {
+    heavy_test(|| {
+        run_actix(async {
+            chunks_produced_and_distributed_common(
+                4,
+                false,
+                &["test1", "cop1"],
                 true,
                 2 * CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
             );
