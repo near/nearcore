@@ -17,6 +17,7 @@ opentelemetry = { version = "0.17", default-features = false, features = ["trace
 opentelemetry-otlp = { version = "0.10.0" }
 opentelemetry-semantic-conventions = "0.9.0"
 prometheus = "0.13.1"
+serde = { version = "1", features = ["derive"] }
 strum = { version = "0.24", features = ["derive"] }
 thiserror = "1"
 tokio = { version = "1.16", features = ["rt-multi-thread"]}

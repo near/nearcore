@@ -8,17 +8,18 @@ use opentelemetry::sdk::trace::{self, IdGenerator, Sampler, Tracer};
 use opentelemetry::sdk::Resource;
 use opentelemetry::KeyValue;
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::path::PathBuf;
 use tracing::level_filters::LevelFilter;
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_opentelemetry::OpenTelemetryLayer;
-use tracing_subscriber::filter::{Filtered, ParseError};
+use tracing_subscriber::filter::ParseError;
 use tracing_subscriber::fmt::format::{DefaultFields, Format};
-use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::layer::Layered;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::reload::{Error, Handle};
-use tracing_subscriber::{EnvFilter, Layer, Registry};
+use tracing_subscriber::{reload, EnvFilter, Layer, Registry};
 
 /// Custom tracing subscriber implementation that produces IO traces.
 mod io_tracer;
@@ -41,16 +42,24 @@ macro_rules! io_trace {
     ($($fields:tt)*) => {};
 }
 
-static LOG_LAYER_RELOAD_HANDLE: OnceCell<
+static LOG_LAYER_RELOAD_HANDLE: OnceCell<Handle<EnvFilter, Registry>> = OnceCell::new();
+
+static OTLP_LAYER_RELOAD_HANDLE: OnceCell<
     Handle<
-        Filtered<
-            tracing_subscriber::fmt::Layer<Registry, DefaultFields, Format, NonBlocking>,
-            EnvFilter,
+        LevelFilter,
+        Layered<
+            Layered<
+                tracing_subscriber::fmt::Layer<Registry, DefaultFields, Format, NonBlocking>,
+                reload::Layer<EnvFilter, Registry>,
+                Registry,
+            >,
             Registry,
         >,
-        Registry,
     >,
 > = OnceCell::new();
+
+// Records the level of opentelemetry tracing verbosity configured via command-line flags at the startup.
+static DEFAULT_OTLP_LEVEL: OnceCell<OpenTelemetryLevel> = OnceCell::new();
 
 /// The default value for the `RUST_LOG` environment variable if one isn't specified otherwise.
 pub const DEFAULT_RUST_LOG: &'static str = "tokio_reactor=info,\
@@ -86,7 +95,7 @@ pub struct DefaultSubscriberGuard<S> {
 }
 
 // Doesn't define WARN and ERROR, because the highest verbosity of spans is INFO.
-#[derive(Copy, Clone, Debug, clap::ArgEnum)]
+#[derive(Copy, Clone, Debug, clap::ArgEnum, Serialize, Deserialize)]
 pub enum OpenTelemetryLevel {
     OFF,
     INFO,
@@ -169,10 +178,23 @@ fn make_log_layer<S>(
     filter: EnvFilter,
     writer: NonBlocking,
     ansi: bool,
-) -> Filtered<tracing_subscriber::fmt::Layer<S, DefaultFields, Format, NonBlocking>, EnvFilter, S>
+    subscriber: S,
+) -> (
+    Layered<
+        Layered<
+            tracing_subscriber::fmt::Layer<S, DefaultFields, Format, NonBlocking>,
+            reload::Layer<EnvFilter, S>,
+            S,
+        >,
+        S,
+    >,
+    Handle<EnvFilter, S>,
+)
 where
-    S: tracing::Subscriber + for<'span> LookupSpan<'span>,
+    S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
 {
+    let (filter, handle) = reload::Layer::<EnvFilter, S>::new(filter);
+
     let layer = tracing_subscriber::fmt::layer()
         .with_ansi(ansi)
         // Synthesizing ENTER and CLOSE events lets us log durations of spans to the log.
@@ -180,9 +202,9 @@ where
             tracing_subscriber::fmt::format::FmtSpan::ENTER
                 | tracing_subscriber::fmt::format::FmtSpan::CLOSE,
         )
-        .with_writer(writer)
-        .with_filter(filter);
-    layer
+        .with_writer(writer);
+    let subscriber = filter.and_then(layer).with_subscriber(subscriber);
+    (subscriber, handle)
 }
 
 /// Constructs an OpenTelemetryConfig which sends span data to an external collector.
@@ -190,10 +212,14 @@ where
 // NB: this function is `async` because `install_batch(Tokio)` requires a tokio context to
 // register timers and channels and whatnot.
 async fn make_opentelemetry_layer<S>(
-    config: &Options,
-) -> Filtered<OpenTelemetryLayer<S, Tracer>, LevelFilter, S>
+    opentelemetry_level: OpenTelemetryLevel,
+    subscriber: S,
+) -> (
+    Layered<Layered<OpenTelemetryLayer<S, Tracer>, reload::Layer<LevelFilter, S>, S>, S>,
+    Handle<LevelFilter, S>,
+)
 where
-    S: tracing::Subscriber + for<'span> LookupSpan<'span>,
+    S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
 {
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
@@ -206,18 +232,23 @@ where
         )
         .install_batch(opentelemetry::runtime::Tokio)
         .unwrap();
-    let filter = get_opentelemetry_filter(config);
-    let layer = tracing_opentelemetry::layer().with_tracer(tracer).with_filter(filter);
-    layer
+    let filter = get_opentelemetry_filter(opentelemetry_level);
+    let (filter, handle) = reload::Layer::<LevelFilter, S>::new(filter);
+    let layer = tracing_opentelemetry::layer().with_tracer(tracer);
+    let subscriber = filter.and_then(layer).with_subscriber(subscriber);
+    (subscriber, handle)
 }
 
-fn get_opentelemetry_filter(config: &Options) -> LevelFilter {
-    match config.opentelemetry {
+pub fn get_opentelemetry_filter(opentelemetry_level: OpenTelemetryLevel) -> LevelFilter {
+    println!("get_opentelemetry_filter");
+    let res = match opentelemetry_level {
         OpenTelemetryLevel::OFF => LevelFilter::OFF,
         OpenTelemetryLevel::INFO => LevelFilter::INFO,
         OpenTelemetryLevel::DEBUG => LevelFilter::DEBUG,
         OpenTelemetryLevel::TRACE => LevelFilter::TRACE,
-    }
+    };
+    println!("get_opentelemetry_filter !1");
+    res
 }
 
 /// The constructed layer writes storage and DB events in a custom format to a
@@ -270,13 +301,16 @@ pub async fn default_subscriber(
         ColorOutput::Auto => std::env::var_os("NO_COLOR").is_none() && is_terminal(),
     };
 
-    let log_layer = make_log_layer(env_filter, writer, ansi);
-    let (log_layer, handle) = tracing_subscriber::reload::Layer::new(log_layer);
-    LOG_LAYER_RELOAD_HANDLE.set(handle).unwrap();
-
     let subscriber = tracing_subscriber::registry();
-    let subscriber = subscriber.with(log_layer);
-    let subscriber = subscriber.with(make_opentelemetry_layer(options).await);
+    let (subscriber, handle) = make_log_layer(env_filter, writer, ansi, subscriber);
+    LOG_LAYER_RELOAD_HANDLE
+        .set(handle)
+        .unwrap_or_else(|_| panic!("Failed to set Log Layer Filter"));
+    DEFAULT_OTLP_LEVEL.set(options.opentelemetry).unwrap();
+    let (subscriber, handle) = make_opentelemetry_layer(options.opentelemetry, subscriber).await;
+    OTLP_LAYER_RELOAD_HANDLE
+        .set(handle)
+        .unwrap_or_else(|_| panic!("Failed to set OTLP Layer Filter"));
 
     #[allow(unused_mut)]
     let mut io_trace_guard = None;
@@ -316,10 +350,14 @@ pub enum ReloadError {
 /// `rust_log` is equivalent to setting `RUST_LOG` environment variable.
 /// `verbose` indicates whether `--verbose` command-line flag is present.
 /// `verbose_module` is equivalent to the value of the `--verbose` command-line flag.
-pub fn reload_log_layer(
+pub fn reload_layers(
     rust_log: Option<&str>,
     verbose_module: Option<&str>,
+    opentelemetry_level: Option<OpenTelemetryLevel>,
 ) -> Result<(), ReloadError> {
+    // tracing::info!(target: "neard", "Shutting down the existing tracer provider");
+    opentelemetry::global::shutdown_tracer_provider(); // Finish sending spans.
+
     LOG_LAYER_RELOAD_HANDLE.get().map_or(Err(ReloadError::NoReloadHandle), |reload_handle| {
         let mut builder = rust_log.map_or_else(
             || EnvFilterBuilder::from_env(),
@@ -331,12 +369,32 @@ pub fn reload_log_layer(
         let env_filter = builder.finish().map_err(ReloadError::Parse)?;
 
         reload_handle
-            .modify(|log_layer| {
-                *log_layer.filter_mut() = env_filter;
+            .modify(|log_filter| {
+                *log_filter = env_filter;
             })
             .map_err(ReloadError::Reload)?;
         Ok(())
-    })
+    })?;
+
+    let opentelemetry_level = opentelemetry_level
+        .unwrap_or(*DEFAULT_OTLP_LEVEL.get().unwrap_or(&OpenTelemetryLevel::OFF));
+    OTLP_LAYER_RELOAD_HANDLE.get().map_or(Err(ReloadError::NoReloadHandle), |reload_handle| {
+        reload_handle
+            .modify(|otlp_layer| {
+                println!("OpenTelemetryLevel: {:?}", opentelemetry_level);
+                let filter = get_opentelemetry_filter(opentelemetry_level);
+                println!("OpenTelemetryLevel: {:?}, got filter", opentelemetry_level);
+                *otlp_layer = filter;
+                println!("updated OpenTelemetryLevel: {:?}", opentelemetry_level);
+            })
+            .map_err(ReloadError::Reload)?;
+        println!("updated!2 OpenTelemetryLevel: {:?}", opentelemetry_level);
+        Ok(())
+    })?;
+
+    println!("reload_layers done");
+    tracing::info!(target:"neard","reload_layers done");
+    Ok(())
 }
 
 #[non_exhaustive]
