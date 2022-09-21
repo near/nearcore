@@ -419,51 +419,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         approvals: &[Option<Signature>],
     ) -> Result<(), Error>;
 
-    /// Epoch block producers ordered by their order in the proposals.
-    /// Returns error if height is outside of known boundaries.
-    fn get_epoch_block_producers_ordered(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(ValidatorStake, bool)>, Error>;
-
-    fn get_epoch_block_approvers_ordered(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<Vec<(ApprovalStake, bool)>, Error>;
-
-    /// Returns all the chunk producers for a given epoch.
-    fn get_epoch_chunk_producers(&self, epoch_id: &EpochId) -> Result<Vec<ValidatorStake>, Error>;
-
-    /// Block producers for given height for the main block. Return error if outside of known boundaries.
-    fn get_block_producer(
-        &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-    ) -> Result<AccountId, Error>;
-
-    /// Chunk producer for given height for given shard. Return error if outside of known boundaries.
-    fn get_chunk_producer(
-        &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<AccountId, Error>;
-
-    fn get_validator_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), Error>;
-
-    fn get_fisherman_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), Error>;
-
     /// Get current number of shards.
     fn num_shards(&self, epoch_id: &EpochId) -> Result<ShardId, Error>;
 

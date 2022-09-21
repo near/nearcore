@@ -411,6 +411,94 @@ impl EpochManagerAdapter for KeyValueRuntime {
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
         self.hash_to_valset.write().unwrap().contains_key(epoch_id)
     }
+    
+    fn get_validator_by_account_id(
+        &self,
+        epoch_id: &EpochId,
+        _last_known_block_hash: &CryptoHash,
+        account_id: &AccountId,
+    ) -> Result<(ValidatorStake, bool), Error> {
+        let validators = &self.validators_by_valset[self.get_valset_for_epoch(epoch_id)?];
+        for validator_stake in validators.block_producers.iter() {
+            if validator_stake.account_id() == account_id {
+                return Ok((validator_stake.clone(), false));
+            }
+        }
+        for validator_stake in validators.chunk_producers.iter().flatten() {
+            if validator_stake.account_id() == account_id {
+                return Ok((validator_stake.clone(), false));
+            }
+        }
+        Err(Error::NotAValidator)
+    }
+
+    fn get_epoch_block_producers_ordered(
+        &self,
+        epoch_id: &EpochId,
+        _last_known_block_hash: &CryptoHash,
+    ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
+        let validators = self.get_block_producers(self.get_valset_for_epoch(epoch_id)?);
+        Ok(validators.iter().map(|x| (x.clone(), false)).collect())
+    }
+
+    fn get_epoch_block_approvers_ordered(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<Vec<(ApprovalStake, bool)>, Error> {
+        let (_cur_epoch, cur_valset, next_epoch) = self.get_epoch_and_valset(*parent_hash)?;
+        let mut validators = self
+            .get_block_producers(cur_valset)
+            .iter()
+            .map(|x| x.get_approval_stake(false))
+            .collect::<Vec<_>>();
+        if *self.hash_to_next_epoch_approvals_req.write().unwrap().get(parent_hash).unwrap() {
+            let validators_copy = validators.clone();
+            validators.extend(
+                self.get_block_producers(self.get_valset_for_epoch(&next_epoch)?)
+                    .iter()
+                    .filter(|x| {
+                        !validators_copy.iter().any(|entry| &entry.account_id == x.account_id())
+                    })
+                    .map(|x| x.get_approval_stake(true)),
+            );
+        }
+        let validators = validators.into_iter().map(|stake| (stake, false)).collect::<Vec<_>>();
+        Ok(validators)
+    }
+    fn get_epoch_chunk_producers(&self, _epoch_id: &EpochId) -> Result<Vec<ValidatorStake>, Error> {
+        tracing::warn!("not implemented, returning a dummy value");
+        Ok(vec![])
+    }
+
+    fn get_block_producer(
+        &self,
+        epoch_id: &EpochId,
+        height: BlockHeight,
+    ) -> Result<AccountId, Error> {
+        let validators = self.get_block_producers(self.get_valset_for_epoch(epoch_id)?);
+        Ok(validators[(height as usize) % validators.len()].account_id().clone())
+    }
+
+    fn get_chunk_producer(
+        &self,
+        epoch_id: &EpochId,
+        height: BlockHeight,
+        shard_id: ShardId,
+    ) -> Result<AccountId, Error> {
+        let valset = self.get_valset_for_epoch(epoch_id)?;
+        let chunk_producers = self.get_chunk_producers(valset, shard_id);
+        let index = (shard_id + height + 1) as usize % chunk_producers.len();
+        Ok(chunk_producers[index].account_id().clone())
+    }
+
+    fn get_fisherman_by_account_id(
+        &self,
+        _epoch_id: &EpochId,
+        _last_known_block_hash: &CryptoHash,
+        _account_id: &AccountId,
+    ) -> Result<(ValidatorStake, bool), Error> {
+        Err(Error::NotAValidator)
+    }
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
@@ -541,65 +629,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         } else {
             Ok(())
         }
-    }
-
-    fn get_epoch_block_producers_ordered(
-        &self,
-        epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
-        let validators = self.get_block_producers(self.get_valset_for_epoch(epoch_id)?);
-        Ok(validators.iter().map(|x| (x.clone(), false)).collect())
-    }
-
-    fn get_epoch_block_approvers_ordered(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<Vec<(ApprovalStake, bool)>, Error> {
-        let (_cur_epoch, cur_valset, next_epoch) = self.get_epoch_and_valset(*parent_hash)?;
-        let mut validators = self
-            .get_block_producers(cur_valset)
-            .iter()
-            .map(|x| x.get_approval_stake(false))
-            .collect::<Vec<_>>();
-        if *self.hash_to_next_epoch_approvals_req.write().unwrap().get(parent_hash).unwrap() {
-            let validators_copy = validators.clone();
-            validators.extend(
-                self.get_block_producers(self.get_valset_for_epoch(&next_epoch)?)
-                    .iter()
-                    .filter(|x| {
-                        !validators_copy.iter().any(|entry| &entry.account_id == x.account_id())
-                    })
-                    .map(|x| x.get_approval_stake(true)),
-            );
-        }
-        let validators = validators.into_iter().map(|stake| (stake, false)).collect::<Vec<_>>();
-        Ok(validators)
-    }
-    fn get_epoch_chunk_producers(&self, _epoch_id: &EpochId) -> Result<Vec<ValidatorStake>, Error> {
-        tracing::warn!("not implemented, returning a dummy value");
-        Ok(vec![])
-    }
-
-    fn get_block_producer(
-        &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-    ) -> Result<AccountId, Error> {
-        let validators = self.get_block_producers(self.get_valset_for_epoch(epoch_id)?);
-        Ok(validators[(height as usize) % validators.len()].account_id().clone())
-    }
-
-    fn get_chunk_producer(
-        &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<AccountId, Error> {
-        let valset = self.get_valset_for_epoch(epoch_id)?;
-        let chunk_producers = self.get_chunk_producers(valset, shard_id);
-        let index = (shard_id + height + 1) as usize % chunk_producers.len();
-        Ok(chunk_producers[index].account_id().clone())
     }
 
     fn num_shards(&self, _epoch_id: &EpochId) -> Result<ShardId, Error> {
@@ -1252,35 +1281,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _signature: &Signature,
     ) -> Result<bool, Error> {
         Ok(true)
-    }
-
-    fn get_validator_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), Error> {
-        let validators = &self.validators_by_valset[self.get_valset_for_epoch(epoch_id)?];
-        for validator_stake in validators.block_producers.iter() {
-            if validator_stake.account_id() == account_id {
-                return Ok((validator_stake.clone(), false));
-            }
-        }
-        for validator_stake in validators.chunk_producers.iter().flatten() {
-            if validator_stake.account_id() == account_id {
-                return Ok((validator_stake.clone(), false));
-            }
-        }
-        Err(Error::NotAValidator)
-    }
-
-    fn get_fisherman_by_account_id(
-        &self,
-        _epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        _account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), Error> {
-        Err(Error::NotAValidator)
     }
 
     fn get_protocol_config(&self, _epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
