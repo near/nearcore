@@ -3470,7 +3470,6 @@ dependencies = [
  "enum-map",
  "fs2",
  "insta",
- "itoa 1.0.2",
  "lru",
  "near-crypto",
  "near-o11y",
