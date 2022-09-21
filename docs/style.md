@@ -393,3 +393,22 @@ The `INFO` level is enabled by default, use it for information useful for node
 operators. The `DEBUG` level is enabled on the canary nodes, use it for
 information useful in debugging testnet failures. The `TRACE` level is not
 generally enabled, use it for arbitrary debug output.
+
+## Metrics
+
+Consider adding metrics to new functionality. For example, how often each type
+of error was triggered, how often each message type was processed.
+
+**Rationale:** Metrics are cheap to increment, and they often provide a significant
+insight into operation of the code, almost as much as logging. But unlike logging
+metrics don't incur a significant runtime cost.
+
+### Naming
+
+Prefix all `nearcore` metrics with `near_`.
+Follow [https://prometheus.io/docs/practices/naming/](Prometheus naming convention)
+for new metrics.
+
+**Rationale:** The `near_` prefix makes it trivial to separate metrics exported
+by `nearcore` from other metrics, such as metrics about the state of the machine
+that runs `neard`.
