@@ -34,6 +34,7 @@ near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-cache = { path = "../../utils/near-cache" }
 near-client-primitives = { path = "../client-primitives"}
+near-epoch-manager = { path = "../epoch-manager" }
 
 [dev-dependencies]
 insta = "1"

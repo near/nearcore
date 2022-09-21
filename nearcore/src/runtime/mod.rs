@@ -68,7 +68,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
@@ -657,6 +657,16 @@ pub fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &Shard
     account_id_to_shard_id(state_record_to_account_id(state_record), shard_layout)
 }
 
+impl near_epoch_manager::HasEpochMangerHandle for NightshadeRuntime {
+    fn write(&self) -> RwLockWriteGuard<EpochManager> {
+        self.epoch_manager.write()
+    }
+
+    fn read(&self) -> RwLockReadGuard<EpochManager> {
+        self.epoch_manager.read()
+    }
+}
+
 impl RuntimeAdapter for NightshadeRuntime {
     fn genesis_state(&self) -> (Store, Vec<StateRoot>) {
         (self.store.clone(), self.genesis_state_roots.clone())
@@ -1227,11 +1237,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(epoch_start_height)
         }())
         .unwrap_or(self.genesis_config.genesis_height)
-    }
-
-    fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_epoch_info(epoch_id).is_ok()
     }
 
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
