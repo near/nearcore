@@ -2871,6 +2871,7 @@ dependencies = [
  "near-chain-primitives",
  "near-client-primitives",
  "near-crypto",
+ "near-epoch-manager",
  "near-o11y",
  "near-pool",
  "near-primitives",
