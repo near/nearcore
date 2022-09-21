@@ -198,7 +198,7 @@ const PROTOCOL_UPGRADE_SCHEDULE: Lazy<HashMap<ProtocolVersion, ProtocolUpgradeVo
         let mut schedule = HashMap::new();
         // Update to latest protocol version on release.
         schedule
-            .insert(56, ProtocolUpgradeVotingSchedule::from_str("2022-08-17 15:00:00").unwrap());
+            .insert(56, ProtocolUpgradeVotingSchedule::from_str("2022-09-28 15:00:00").unwrap());
         schedule
     });
 
