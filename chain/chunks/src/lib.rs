@@ -2283,6 +2283,7 @@ impl ShardsManager {
 mod test {
 
     use assert_matches::assert_matches;
+    use near_chain::types::EpochManagerAdapter;
     use std::sync::Arc;
     use std::time::Duration;
 

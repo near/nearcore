@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
-use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::time::Utc;
 use num_rational::Rational32;
@@ -30,8 +29,8 @@ use near_primitives::state_part::PartId;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, Gas,
-    MerkleHash, NumBlocks, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, Gas, MerkleHash,
+    NumBlocks, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
     ValidatorInfoIdentifier,
 };
 use near_primitives::version::{
@@ -39,10 +38,11 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
+use near_store::flat_state::FlatStorageState;
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
+pub use near_epoch_manager::EpochManagerAdapter;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
-use near_store::flat_state::FlatStorageState;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -418,51 +418,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         block_height: BlockHeight,
         approvals: &[Option<Signature>],
     ) -> Result<(), Error>;
-
-    /// Epoch block producers ordered by their order in the proposals.
-    /// Returns error if height is outside of known boundaries.
-    fn get_epoch_block_producers_ordered(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(ValidatorStake, bool)>, Error>;
-
-    fn get_epoch_block_approvers_ordered(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<Vec<(ApprovalStake, bool)>, Error>;
-
-    /// Returns all the chunk producers for a given epoch.
-    fn get_epoch_chunk_producers(&self, epoch_id: &EpochId) -> Result<Vec<ValidatorStake>, Error>;
-
-    /// Block producers for given height for the main block. Return error if outside of known boundaries.
-    fn get_block_producer(
-        &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-    ) -> Result<AccountId, Error>;
-
-    /// Chunk producer for given height for given shard. Return error if outside of known boundaries.
-    fn get_chunk_producer(
-        &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<AccountId, Error>;
-
-    fn get_validator_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), Error>;
-
-    fn get_fisherman_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), Error>;
 
     /// Get current number of shards.
     fn num_shards(&self, epoch_id: &EpochId) -> Result<ShardId, Error>;

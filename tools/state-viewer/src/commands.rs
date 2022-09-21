@@ -11,6 +11,7 @@ use near_chain::Error;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::EpochManager;
+use near_epoch_manager::EpochManagerAdapter;
 use near_network::iter_peers_from_store;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader};

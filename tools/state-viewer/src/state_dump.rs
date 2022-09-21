@@ -2,6 +2,7 @@ use borsh::BorshSerialize;
 use near_chain::RuntimeAdapter;
 use near_chain_configs::{Genesis, GenesisChangeConfig, GenesisConfig};
 use near_crypto::PublicKey;
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::BlockHeader;
 use near_primitives::state_record::state_record_to_account_id;

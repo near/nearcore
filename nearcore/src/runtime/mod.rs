@@ -13,7 +13,7 @@ use near_chain_configs::{
 };
 use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::{PublicKey, Signature};
-use near_epoch_manager::{EpochManager, EpochManagerHandle};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_o11y::log_assert;
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -37,9 +37,9 @@ use near_primitives::state_part::PartId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
+use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
+    AccountId, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
     EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause,
     StateChangesForSplitStates, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
@@ -1018,70 +1018,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(true)
     }
 
-    fn get_epoch_block_producers_ordered(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_all_block_producers_ordered(epoch_id, last_known_block_hash)?.to_vec())
-    }
-
-    fn get_epoch_block_approvers_ordered(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<Vec<(ApprovalStake, bool)>, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_all_block_approvers_ordered(parent_hash).map_err(Error::from)
-    }
-    fn get_epoch_chunk_producers(&self, epoch_id: &EpochId) -> Result<Vec<ValidatorStake>, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_all_chunk_producers(epoch_id)?.to_vec())
-    }
-
-    fn get_block_producer(
-        &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-    ) -> Result<AccountId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_block_producer_info(epoch_id, height)?.take_account_id())
-    }
-
-    fn get_chunk_producer(
-        &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<AccountId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_chunk_producer_info(epoch_id, height, shard_id)?.take_account_id())
-    }
-
-    fn get_validator_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let validator = epoch_manager.get_validator_by_account_id(epoch_id, account_id)?;
-        let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
-        Ok((validator, block_info.slashed().contains_key(account_id)))
-    }
-
-    fn get_fisherman_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let fisherman = epoch_manager.get_fisherman_by_account_id(epoch_id, account_id)?;
-        let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
-        Ok((fisherman, block_info.slashed().contains_key(account_id)))
-    }
-
     fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, Error> {
         let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.num_shards())
@@ -1973,6 +1909,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 mod test {
     use std::collections::BTreeSet;
 
+    use near_primitives::types::validator_stake::ValidatorStake;
     use num_rational::Ratio;
 
     use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
