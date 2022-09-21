@@ -29,9 +29,9 @@ impl CryptoHash {
     /// results.  For example, `CryptoHash::hash_borsh(&[1u32, 2, 3])` hashes
     /// a representation of a `[u32; 3]` array rather than a slice.  It may be
     /// cleaner to use [`Self::hash_borsh_iter`] instead.
-    pub fn hash_borsh<T: BorshSerialize>(value: &T) -> CryptoHash {
+    pub fn hash_borsh<T: BorshSerialize>(value: T) -> CryptoHash {
         let mut hasher = sha2::Sha256::default();
-        BorshSerialize::serialize(value, &mut hasher).unwrap();
+        value.serialize(&mut hasher).unwrap();
         CryptoHash(hasher.finalize().into())
     }
 

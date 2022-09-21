@@ -181,7 +181,7 @@ fn create_receipt_nonce(
     amount: Balance,
     nonce: Nonce,
 ) -> CryptoHash {
-    CryptoHash::hash_borsh(&ReceiptNonce { from, to, amount, nonce })
+    CryptoHash::hash_borsh(ReceiptNonce { from, to, amount, nonce })
 }
 
 impl KeyValueRuntime {
@@ -1583,7 +1583,7 @@ mod test {
                 })
                 .cloned()
                 .collect();
-            receipts_hashes.push(CryptoHash::hash_borsh(&ReceiptList(shard_id, &shard_receipts)));
+            receipts_hashes.push(CryptoHash::hash_borsh(ReceiptList(shard_id, &shard_receipts)));
         }
         receipts_hashes
     }
