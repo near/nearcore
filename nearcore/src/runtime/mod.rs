@@ -6,14 +6,14 @@ use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
 use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo};
-use near_chain::{BlockHeader, Doomslug, DoomslugThresholdMode, Error, RuntimeAdapter};
+use near_chain::{Doomslug, DoomslugThresholdMode, Error, RuntimeAdapter};
 use near_chain_configs::{
     Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
     MIN_GC_NUM_EPOCHS_TO_KEEP,
 };
 use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::{PublicKey, Signature};
-use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_o11y::log_assert;
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -32,7 +32,6 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
-use near_primitives::sharding::ChunkHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
@@ -1779,8 +1778,10 @@ mod test {
     use near_primitives::types::validator_stake::ValidatorStake;
     use num_rational::Ratio;
 
+    use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
     use near_crypto::{InMemorySigner, KeyType, Signer};
+    use near_epoch_manager::EpochManagerAdapter;
     use near_o11y::testonly::init_test_logger;
     use near_primitives::block::Tip;
     use near_primitives::challenge::SlashedValidator;
@@ -1791,8 +1792,6 @@ mod test {
         AccountView, CurrentEpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
     };
     use near_store::{NodeStorage, Temperature};
-
-    use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
     use super::*;
 

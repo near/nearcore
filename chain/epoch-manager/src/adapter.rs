@@ -1,6 +1,10 @@
 use near_chain_primitives::Error;
+use near_crypto::Signature;
 use near_primitives::{
+    block_header::{Approval, ApprovalInner, BlockHeader},
+    errors::EpochError,
     hash::CryptoHash,
+    sharding::{ChunkHash, ShardChunkHeader},
     types::{
         validator_stake::ValidatorStake, AccountId, ApprovalStake, BlockHeight, EpochId, ShardId,
     },
@@ -239,7 +243,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         vrf_value: &near_crypto::vrf::Value,
         vrf_proof: &near_crypto::vrf::Proof,
     ) -> Result<(), Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         let validator = epoch_manager.get_block_producer_info(epoch_id, block_height)?;
         let public_key = near_crypto::key_conversion::convert_public_key(
             validator.public_key().unwrap_as_ed25519(),
@@ -296,7 +300,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
     }
 
     fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         let block_producer =
             epoch_manager.get_block_producer_info(header.epoch_id(), header.height())?;
         match epoch_manager.get_block_info(header.prev_hash()) {
@@ -319,7 +323,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         height_created: BlockHeight,
         shard_id: ShardId,
     ) -> Result<bool, Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         let chunk_producer =
             epoch_manager.get_chunk_producer_info(epoch_id, height_created, shard_id)?;
         let block_info = epoch_manager.get_block_info(last_known_hash)?;
@@ -337,7 +341,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         approvals: &[Option<Signature>],
     ) -> Result<bool, Error> {
         let info = {
-            let epoch_manager = self.epoch_manager.read();
+            let epoch_manager = self.read();
             epoch_manager.get_all_block_approvers_ordered(prev_block_hash).map_err(Error::from)?
         };
         if approvals.len() > info.len() {
