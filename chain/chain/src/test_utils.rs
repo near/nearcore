@@ -6,6 +6,7 @@ use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_part::PartId;
 use num_rational::Ratio;
@@ -403,6 +404,12 @@ impl KeyValueRuntime {
         let block_producers = &self.validators_by_valset[valset].block_producers;
         let chunk_producers = &self.validators_by_valset[valset].chunk_producers[shard_id as usize];
         Ok(chunk_producers.iter().filter(|it| !block_producers.contains(it)).collect())
+    }
+}
+
+impl EpochManagerAdapter for KeyValueRuntime {
+    fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
+        self.hash_to_valset.write().unwrap().contains_key(epoch_id)
     }
 }
 
@@ -1160,10 +1167,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         } else {
             0
         }
-    }
-
-    fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
-        self.hash_to_valset.write().unwrap().contains_key(epoch_id)
     }
 
     fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, Error> {
