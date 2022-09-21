@@ -232,12 +232,12 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
     }
 
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         epoch_manager.is_next_block_epoch_start(parent_hash).map_err(Error::from)
     }
 
     fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         epoch_manager.get_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
     }
 
@@ -245,7 +245,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         &self,
         prev_block_hash: &CryptoHash,
     ) -> Result<EpochHeight, Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height()).map_err(Error::from)
     }
@@ -254,12 +254,12 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         &self,
         parent_hash: &CryptoHash,
     ) -> Result<EpochId, Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
     }
 
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         epoch_manager.get_epoch_start_height(block_hash).map_err(Error::from)
     }
 
@@ -279,6 +279,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         let epoch_manager = self.read();
         epoch_manager.get_all_block_approvers_ordered(parent_hash).map_err(Error::from)
     }
+
     fn get_epoch_chunk_producers(&self, epoch_id: &EpochId) -> Result<Vec<ValidatorStake>, Error> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_all_chunk_producers(epoch_id)?.to_vec())
