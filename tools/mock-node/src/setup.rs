@@ -9,7 +9,7 @@ use near_chain::{
 };
 use near_chain_configs::GenesisConfig;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
-use near_epoch_manager::EpochManager;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::types::NetworkClientMessages;
 use near_network::types::NetworkRecipient;
 use near_primitives::state_part::PartId;

@@ -26,9 +26,8 @@ use near_primitives::state_part::PartId;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
-    ValidatorInfoIdentifier,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks,
+    ShardId, StateChangesForSplitStates, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
@@ -392,25 +391,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         shard_id: ShardId,
         is_me: bool,
     ) -> bool;
-
-    /// Returns true, if given hash is last block in it's epoch.
-    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
-
-    /// Get epoch id given hash of previous block.
-    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error>;
-
-    /// Get epoch height given hash of previous block.
-    fn get_epoch_height_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<EpochHeight, Error>;
-
-    /// Get next epoch id given hash of previous block.
-    fn get_next_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash)
-        -> Result<EpochId, Error>;
-
-    /// Get epoch start for given block hash.
-    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
 
     /// Get the block height for which garbage collection should not go over
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight;

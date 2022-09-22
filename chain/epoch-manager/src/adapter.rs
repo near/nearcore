@@ -8,8 +8,8 @@ use near_primitives::{
     shard_layout::ShardLayout,
     sharding::{ChunkHash, ShardChunkHeader},
     types::{
-        validator_stake::ValidatorStake, AccountId, ApprovalStake, Balance, BlockHeight, EpochId,
-        NumShards, ShardId,
+        validator_stake::ValidatorStake, AccountId, ApprovalStake, Balance, BlockHeight,
+        EpochHeight, EpochId, NumShards, ShardId,
     },
 };
 
@@ -33,6 +33,25 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
 
     fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error>;
+
+    /// Returns true, if given hash is last block in it's epoch.
+    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
+
+    /// Get epoch id given hash of previous block.
+    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error>;
+
+    /// Get epoch height given hash of previous block.
+    fn get_epoch_height_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<EpochHeight, Error>;
+
+    /// Get next epoch id given hash of previous block.
+    fn get_next_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash)
+        -> Result<EpochId, Error>;
+
+    /// Get epoch start for given block hash.
+    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
 
     /// Epoch block producers ordered by their order in the proposals.
     /// Returns error if height is outside of known boundaries.
@@ -212,6 +231,38 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         Ok(ShardConfig::new(epoch_config))
     }
 
+    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
+        let epoch_manager = self.read();
+        epoch_manager.is_next_block_epoch_start(parent_hash).map_err(Error::from)
+    }
+
+    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
+        let epoch_manager = self.read();
+        epoch_manager.get_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
+    }
+
+    fn get_epoch_height_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<EpochHeight, Error> {
+        let epoch_manager = self.read();
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+        epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height()).map_err(Error::from)
+    }
+
+    fn get_next_epoch_id_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<EpochId, Error> {
+        let epoch_manager = self.read();
+        epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
+    }
+
+    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
+        let epoch_manager = self.read();
+        epoch_manager.get_epoch_start_height(block_hash).map_err(Error::from)
+    }
+
     fn get_epoch_block_producers_ordered(
         &self,
         epoch_id: &EpochId,
@@ -228,6 +279,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         let epoch_manager = self.read();
         epoch_manager.get_all_block_approvers_ordered(parent_hash).map_err(Error::from)
     }
+
     fn get_epoch_chunk_producers(&self, epoch_id: &EpochId) -> Result<Vec<ValidatorStake>, Error> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_all_chunk_producers(epoch_id)?.to_vec())
