@@ -2,12 +2,14 @@ use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::{
     block_header::{Approval, ApprovalInner, BlockHeader},
+    epoch_manager::ShardConfig,
     errors::EpochError,
     hash::CryptoHash,
+    shard_layout::ShardLayout,
     sharding::{ChunkHash, ShardChunkHeader},
     types::{
         validator_stake::ValidatorStake, AccountId, ApprovalStake, Balance, BlockHeight, EpochId,
-        ShardId,
+        NumShards, ShardId,
     },
 };
 
@@ -24,6 +26,13 @@ use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 pub trait EpochManagerAdapter: Send + Sync {
     /// Check if epoch exists.
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool;
+
+    /// Get current number of shards.
+    fn num_shards(&self, epoch_id: &EpochId) -> Result<ShardId, Error>;
+
+    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
+
+    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error>;
 
     /// Epoch block producers ordered by their order in the proposals.
     /// Returns error if height is outside of known boundaries.
@@ -185,6 +194,22 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
         let epoch_manager = self.read();
         epoch_manager.get_epoch_info(epoch_id).is_ok()
+    }
+
+    fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, Error> {
+        let epoch_manager = self.read();
+        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.num_shards())
+    }
+
+    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
+        let epoch_manager = self.read();
+        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.clone())
+    }
+
+    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error> {
+        let epoch_manager = self.read();
+        let epoch_config = epoch_manager.get_epoch_config(epoch_id).map_err(Error::from)?;
+        Ok(ShardConfig::new(epoch_config))
     }
 
     fn get_epoch_block_producers_ordered(
