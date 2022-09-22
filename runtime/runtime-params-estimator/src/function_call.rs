@@ -39,26 +39,19 @@ fn make_many_methods_contract(method_count: i32) -> ContractCode {
     for i in 0..method_count {
         write!(
             &mut methods,
-            "
-            (export \"hello{}\" (func {i}))
-              (func (;{i};)
+            r#"
+            (export "hello{i}" (func {i}))
+              (func
                 i32.const {i}
                 drop
                 return
               )
-            ",
-            i = i
+            "#,
         )
         .unwrap();
     }
 
-    let code = format!(
-        "
-        (module
-            {}
-            )",
-        methods
-    );
+    let code = format!("(module {methods})");
     ContractCode::new(wat::parse_str(code).unwrap(), None)
 }
 
