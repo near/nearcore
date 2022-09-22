@@ -412,6 +412,18 @@ impl EpochManagerAdapter for KeyValueRuntime {
         self.hash_to_valset.write().unwrap().contains_key(epoch_id)
     }
 
+    fn num_shards(&self, _epoch_id: &EpochId) -> Result<ShardId, Error> {
+        Ok(self.num_shards)
+    }
+
+    fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {
+        Ok(ShardLayout::v0(self.num_shards, 0))
+    }
+
+    fn get_shard_config(&self, _epoch_id: &EpochId) -> Result<ShardConfig, Error> {
+        panic!("get_shard_config not implemented for KeyValueRuntime");
+    }
+
     fn get_epoch_block_producers_ordered(
         &self,
         epoch_id: &EpochId,
@@ -644,18 +656,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_id: ShardId,
         _flat_storage_state: FlatStorageState,
     ) {
-    }
-
-    fn num_shards(&self, _epoch_id: &EpochId) -> Result<ShardId, Error> {
-        Ok(self.num_shards)
-    }
-
-    fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {
-        Ok(ShardLayout::v0(self.num_shards, 0))
-    }
-
-    fn get_shard_config(&self, _epoch_id: &EpochId) -> Result<ShardConfig, Error> {
-        panic!("get_shard_config not implemented for KeyValueRuntime");
     }
 
     fn get_prev_shard_ids(

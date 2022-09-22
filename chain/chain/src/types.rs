@@ -17,7 +17,6 @@ use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
@@ -331,9 +330,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error>;
 
-    /// Get current number of shards.
-    fn num_shards(&self, epoch_id: &EpochId) -> Result<ShardId, Error>;
-
     fn num_total_parts(&self) -> usize;
 
     fn num_data_parts(&self) -> usize;
@@ -347,10 +343,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
 
     /// Returns `account_id` that suppose to have the `part_id`.
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error>;
-
-    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
-
-    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error>;
 
     fn get_prev_shard_ids(
         &self,
