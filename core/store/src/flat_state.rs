@@ -351,7 +351,7 @@ use std::sync::{Arc, RwLock};
 /// FlatStorageState stores information on which blocks flat storage current supports key lookups on.
 /// Note that this struct is shared by multiple threads, the chain thread, threads that apply chunks,
 /// and view client, so the implementation here must be thread safe and must have interior mutability,
-/// thus all methods in this class are with &self intead of &mut self.
+/// thus all methods in this class are with &self instead of &mut self.
 #[derive(Clone)]
 pub struct FlatStorageState(Arc<RwLock<FlatStorageStateInner>>);
 
@@ -600,8 +600,8 @@ impl FlatStorageState {
     }
 
     #[cfg(not(feature = "protocol_feature_flat_state"))]
-    pub fn update_flat_head(&self, _new_head: &CryptoHash) -> Option<StoreUpdate> {
-        None
+    pub fn update_flat_head(&self, _new_head: &CryptoHash) -> Result<(), FlatStorageError> {
+        Ok(())
     }
 
     /// Adds a block (including the block delta and block info) to flat storage,
