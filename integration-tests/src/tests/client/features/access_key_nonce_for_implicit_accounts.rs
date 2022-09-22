@@ -3,7 +3,7 @@ use crate::tests::client::process_blocks::{
 };
 use assert_matches::assert_matches;
 use near_chain::chain::NUM_ORPHAN_ANCESTORS_CHECK;
-use near_chain::{ChainGenesis, ChainStore, ChainStoreAccess, Error, Provenance, RuntimeAdapter};
+use near_chain::{ChainGenesis, Error, Provenance, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -236,14 +236,8 @@ fn test_chunk_transaction_validity() {
     }
     let (encoded_shard_chunk, merkle_path, receipts, block) =
         create_chunk_with_transactions(&mut env.clients[0], vec![tx]);
-    let mut chain_store = ChainStore::new(
-        env.clients[0].chain.store().store().clone(),
-        genesis_block.header().height(),
-        true,
-    );
     env.clients[0]
-        .shards_mgr
-        .distribute_encoded_chunk(encoded_shard_chunk, merkle_path, receipts, &mut chain_store, 0)
+        .persist_and_distribute_encoded_chunk(encoded_shard_chunk, merkle_path, receipts)
         .unwrap();
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidTransactions);
@@ -746,14 +740,11 @@ fn test_chunk_forwarding_optimization() {
             }
         }
         // The block producer of course has the complete block so we can process that.
-        debug!(target: "test", "Processing block {} as the block producer", block.header().height());
-        test.env.process_block(0, block.clone(), Provenance::PRODUCED);
-
-        for i in 1..test.num_validators {
+        for i in 0..test.num_validators {
             debug!(target: "test", "Processing block {} as validator #{}", block.header().height(), i);
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
-                Provenance::NONE,
+                if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },
                 Arc::new(|_| {}),
             );
             let mut accepted_blocks =

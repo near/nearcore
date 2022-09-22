@@ -27,6 +27,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 
 use crate::client::ShardsManagerResponse;
+use crate::logic::ChunksLogic;
 use crate::{
     Seal, SealsManager, ShardsManager, ACCEPTING_SEAL_PERIOD_MS, PAST_SEAL_HEIGHT_HORIZON,
 };
@@ -103,7 +104,7 @@ impl SealsManagerTestFixture {
     }
 
     pub fn create_seals_manager(&self) -> SealsManager {
-        SealsManager::new(self.mock_me.clone(), self.mock_runtime.clone())
+        SealsManager::new(ChunksLogic::new(self.mock_me.clone(), self.mock_runtime.clone()))
     }
 
     pub fn create_seal(&self, seals_manager: &mut SealsManager) {
