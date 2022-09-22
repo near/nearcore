@@ -29,6 +29,7 @@ tracing-subscriber = { version = "0.3.15", features = ["fmt", "env-filter", "reg
 
 [dev-dependencies]
 bencher = "0.1.5"
+itoa = "1.0"
 smartstring = "1.0.1"
 
 [features]
