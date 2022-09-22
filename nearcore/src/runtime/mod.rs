@@ -6,23 +6,22 @@ use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
 use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo};
-use near_chain::{Doomslug, DoomslugThresholdMode, Error, RuntimeAdapter};
+use near_chain::{Error, RuntimeAdapter};
 use near_chain_configs::{
     Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
     MIN_GC_NUM_EPOCHS_TO_KEEP,
 };
 use near_client_primitives::types::StateSplitApplyingStatus;
-use near_crypto::{PublicKey, Signature};
-use near_epoch_manager::{EpochManager, EpochManagerHandle};
+use near_crypto::PublicKey;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_o11y::log_assert;
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
+use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -194,11 +193,6 @@ impl NightshadeRuntime {
             TrackedConfig::new_empty(),
             RuntimeConfigStore::test(),
         )
-    }
-
-    pub fn get_epoch_id(&self, hash: &CryptoHash) -> Result<EpochId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_epoch_id(hash).map_err(Error::from)
     }
 
     /// Create store of runtime configs for the given chain id.
@@ -843,63 +837,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(transactions)
     }
 
-    fn verify_approvals_and_threshold_orphan(
-        &self,
-        epoch_id: &EpochId,
-        doomslug_threshold_mode: DoomslugThresholdMode,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Signature>],
-    ) -> Result<(), Error> {
-        let info = {
-            let epoch_manager = self.epoch_manager.read();
-            epoch_manager.get_heuristic_block_approvers_ordered(epoch_id).map_err(Error::from)?
-        };
-
-        let message_to_sign = Approval::get_data_for_sig(
-            &if prev_block_height + 1 == block_height {
-                ApprovalInner::Endorsement(*prev_block_hash)
-            } else {
-                ApprovalInner::Skip(prev_block_height)
-            },
-            block_height,
-        );
-
-        for (validator, may_be_signature) in info.iter().zip(approvals.iter()) {
-            if let Some(signature) = may_be_signature {
-                if !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
-                    return Err(Error::InvalidApprovals);
-                }
-            }
-        }
-        let stakes = info
-            .iter()
-            .map(|stake| (stake.stake_this_epoch, stake.stake_next_epoch, false))
-            .collect::<Vec<_>>();
-        if !Doomslug::can_approved_block_be_produced(doomslug_threshold_mode, approvals, &stakes) {
-            Err(Error::NotEnoughApprovals)
-        } else {
-            Ok(())
-        }
-    }
-
-    fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.num_shards())
-    }
-
-    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.clone())
-    }
-
-    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let epoch_config = epoch_manager.get_epoch_config(epoch_id).map_err(Error::from)?;
-        Ok(ShardConfig::new(epoch_config))
-    }
-
     fn get_prev_shard_ids(
         &self,
         prev_hash: &CryptoHash,
@@ -995,29 +932,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         is_me: bool,
     ) -> bool {
         self.shard_tracker.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
-    }
-
-    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.is_next_block_epoch_start(parent_hash).map_err(Error::from)
-    }
-
-    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
-    }
-
-    fn get_next_epoch_id_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<EpochId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
-    }
-
-    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_epoch_start_height(block_hash).map_err(Error::from)
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
@@ -1656,15 +1570,6 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
         let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
-    }
-
-    fn get_epoch_height_from_prev_block(
-        &self,
-        prev_block_hash: &CryptoHash,
-    ) -> Result<EpochHeight, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
-        epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height()).map_err(Error::from)
     }
 
     fn get_protocol_upgrade_block_height(

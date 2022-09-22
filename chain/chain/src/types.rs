@@ -8,17 +8,15 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::time::Utc;
 use num_rational::Rational32;
 
-use crate::{metrics, DoomslugThresholdMode};
+use crate::metrics;
 use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
 use near_client_primitives::types::StateSplitApplyingStatus;
-use near_crypto::Signature;
 use near_pool::types::PoolIterator;
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
@@ -28,9 +26,8 @@ use near_primitives::state_part::PartId;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
-    ValidatorInfoIdentifier,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks,
+    ShardId, StateChangesForSplitStates, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
@@ -332,20 +329,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error>;
 
-    /// Verify approvals and check threshold, but ignore next epoch approvals and slashing
-    fn verify_approvals_and_threshold_orphan(
-        &self,
-        epoch_id: &EpochId,
-        doomslug_threshold_mode: DoomslugThresholdMode,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Signature>],
-    ) -> Result<(), Error>;
-
-    /// Get current number of shards.
-    fn num_shards(&self, epoch_id: &EpochId) -> Result<ShardId, Error>;
-
     fn num_total_parts(&self) -> usize;
 
     fn num_data_parts(&self) -> usize;
@@ -359,10 +342,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
 
     /// Returns `account_id` that suppose to have the `part_id`.
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error>;
-
-    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
-
-    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error>;
 
     fn get_prev_shard_ids(
         &self,
@@ -412,25 +391,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         shard_id: ShardId,
         is_me: bool,
     ) -> bool;
-
-    /// Returns true, if given hash is last block in it's epoch.
-    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
-
-    /// Get epoch id given hash of previous block.
-    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error>;
-
-    /// Get epoch height given hash of previous block.
-    fn get_epoch_height_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<EpochHeight, Error>;
-
-    /// Get next epoch id given hash of previous block.
-    fn get_next_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash)
-        -> Result<EpochId, Error>;
-
-    /// Get epoch start for given block hash.
-    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
 
     /// Get the block height for which garbage collection should not go over
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight;
