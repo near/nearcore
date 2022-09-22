@@ -412,3 +412,18 @@ for new metrics.
 **Rationale:** The `near_` prefix makes it trivial to separate metrics exported
 by `nearcore` from other metrics, such as metrics about the state of the machine
 that runs `neard`.
+
+### Performance
+
+In most cases incrementing a metric is cheap enough never to give it a second
+thought. However accessing a metric with labels on a hot path needs to be done
+carefully.
+
+If a label is based on an integer, use a faster way of converting an integer
+to the label, such as the `itoa` crate.
+
+For hot code paths, re-use results of `with_label_values()` as much as possible.
+
+**Rationale:** We've encountered issues caused by the runtime costs of
+incrementing metrics before. Avoid runtime costs of incrementing metrics too
+often.
