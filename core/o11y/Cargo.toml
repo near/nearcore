@@ -6,7 +6,7 @@ description = "Observability helpers for the near codebase"
 edition = "2021"
 publish = false
 readme = "README.md"
-rust-version = "1.63.0"
+rust-version = "1.64.0"
 
 [dependencies]
 atty = "0.2"
