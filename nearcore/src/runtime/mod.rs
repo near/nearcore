@@ -939,29 +939,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.shard_tracker.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
     }
 
-    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.is_next_block_epoch_start(parent_hash).map_err(Error::from)
-    }
-
-    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
-    }
-
-    fn get_next_epoch_id_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<EpochId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
-    }
-
-    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_epoch_start_height(block_hash).map_err(Error::from)
-    }
-
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
         (|| -> Result<BlockHeight, Error> {
             let epoch_manager = self.epoch_manager.read();
@@ -1598,15 +1575,6 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
         let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
-    }
-
-    fn get_epoch_height_from_prev_block(
-        &self,
-        prev_block_hash: &CryptoHash,
-    ) -> Result<EpochHeight, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
-        epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height()).map_err(Error::from)
     }
 
     fn get_protocol_upgrade_block_height(
