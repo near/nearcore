@@ -311,7 +311,7 @@ fn chunks_produced_and_distributed_all_in_all_shards_should_succeed_even_without
         validator_groups: 1,
         chunk_only_producers: false,
         drop_to_4_from: &[],
-        drop_all_chunk_forward_msgs: false,
+        drop_all_chunk_forward_msgs: true,
         block_timeout: 15 * CHUNK_REQUEST_RETRY_MS,
     }
     .run()
@@ -323,7 +323,7 @@ fn chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_
         validator_groups: 2,
         chunk_only_producers: false,
         drop_to_4_from: &[],
-        drop_all_chunk_forward_msgs: false,
+        drop_all_chunk_forward_msgs: true,
         block_timeout: 15 * CHUNK_REQUEST_RETRY_MS,
     }
     .run()
@@ -335,7 +335,7 @@ fn chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without
         validator_groups: 4,
         chunk_only_producers: false,
         drop_to_4_from: &[],
-        drop_all_chunk_forward_msgs: false,
+        drop_all_chunk_forward_msgs: true,
         block_timeout: 15 * CHUNK_REQUEST_RETRY_MS,
     }
     .run()
