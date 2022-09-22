@@ -424,6 +424,44 @@ impl EpochManagerAdapter for KeyValueRuntime {
         panic!("get_shard_config not implemented for KeyValueRuntime");
     }
 
+    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
+        if parent_hash == &CryptoHash::default() {
+            return Ok(true);
+        }
+        let prev_block_header = self.get_block_header(parent_hash)?.ok_or_else(|| {
+            Error::Other(format!("Missing block {} when computing the epoch", parent_hash))
+        })?;
+        let prev_prev_hash = *prev_block_header.prev_hash();
+        Ok(self.get_epoch_and_valset(*parent_hash)?.0
+            != self.get_epoch_and_valset(prev_prev_hash)?.0)
+    }
+
+    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
+        Ok(self.get_epoch_and_valset(*parent_hash)?.0)
+    }
+
+    fn get_epoch_height_from_prev_block(
+        &self,
+        _prev_block_hash: &CryptoHash,
+    ) -> Result<EpochHeight, Error> {
+        Ok(0)
+    }
+
+    fn get_next_epoch_id_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<EpochId, Error> {
+        Ok(self.get_epoch_and_valset(*parent_hash)?.2)
+    }
+
+    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
+        let epoch_id = self.get_epoch_and_valset(*block_hash)?.0;
+        match self.get_block_header(&epoch_id.0)? {
+            Some(block_header) => Ok(block_header.height()),
+            None => Ok(0),
+        }
+    }
+
     fn get_epoch_block_producers_ordered(
         &self,
         epoch_id: &EpochId,
@@ -1148,37 +1186,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         true
     }
 
-    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
-        if parent_hash == &CryptoHash::default() {
-            return Ok(true);
-        }
-        let prev_block_header = self.get_block_header(parent_hash)?.ok_or_else(|| {
-            Error::Other(format!("Missing block {} when computing the epoch", parent_hash))
-        })?;
-        let prev_prev_hash = *prev_block_header.prev_hash();
-        Ok(self.get_epoch_and_valset(*parent_hash)?.0
-            != self.get_epoch_and_valset(prev_prev_hash)?.0)
-    }
-
-    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
-        Ok(self.get_epoch_and_valset(*parent_hash)?.0)
-    }
-
-    fn get_next_epoch_id_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<EpochId, Error> {
-        Ok(self.get_epoch_and_valset(*parent_hash)?.2)
-    }
-
-    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        let epoch_id = self.get_epoch_and_valset(*block_hash)?.0;
-        match self.get_block_header(&epoch_id.0)? {
-            Some(block_header) => Ok(block_header.height()),
-            None => Ok(0),
-        }
-    }
-
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
         if !self.no_gc {
             // This code is 'incorrect' - as production one is always setting the GC to the
@@ -1339,13 +1346,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: CryptoHash,
     ) -> Result<Option<BlockHeight>, EpochError> {
         Ok(None)
-    }
-
-    fn get_epoch_height_from_prev_block(
-        &self,
-        _prev_block_hash: &CryptoHash,
-    ) -> Result<EpochHeight, Error> {
-        Ok(0)
     }
 }
 
