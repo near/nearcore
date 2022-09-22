@@ -23,7 +23,7 @@ use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
-use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
+use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -1410,7 +1410,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         ) {
             Ok(result) => Ok(result),
             Err(e) => match e {
-                Error::StorageError(_) => panic!("{e}"),
+                Error::StorageError(err) => match &err {
+                    StorageError::FlatStorageError(_) => Err(err.into()),
+                    _ => panic!("{err}"),
+                },
                 _ => Err(e),
             },
         }

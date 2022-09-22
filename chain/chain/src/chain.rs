@@ -21,6 +21,7 @@ use near_primitives::challenge::{
     MaybeEncodedShardChunk, PartialState, SlashedValidator,
 };
 use near_primitives::checked_feature;
+use near_primitives::errors::StorageError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{
     combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem, PartialMerkleTree,
@@ -628,7 +629,8 @@ impl Chain {
                             shard_id,
                             block_head.last_block_hash,
                             &FlatStateDelta::default(),
-                        )?;
+                        )
+                        .map_err(|e| StorageError::from(e))?;
                     }
                     store_update.merge(tmp_store_update);
                 }
@@ -2086,7 +2088,7 @@ impl Chain {
         // TODO (#7327): support flat storage for state sync and block catchups
         for shard_id in 0..self.runtime_adapter.num_shards(block.header().epoch_id())? {
             if self.runtime_adapter.cares_about_shard(
-                None,
+                me.as_ref(),
                 block.header().prev_hash(),
                 shard_id,
                 true,
@@ -2094,8 +2096,11 @@ impl Chain {
                 if let Some(flat_storage_state) =
                     self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
                 {
-                    let new_flat_head = block.header().last_final_block();
-                    flat_storage_state.update_flat_head(new_flat_head).unwrap_or_else(|_| {
+                    let mut new_flat_head = *block.header().last_final_block();
+                    if new_flat_head == CryptoHash::default() {
+                        new_flat_head = *self.genesis.hash();
+                    }
+                    flat_storage_state.update_flat_head(&new_flat_head).unwrap_or_else(|_| {
                         panic!(
                             "Cannot update flat head from {:?} to {:?}",
                             flat_storage_state.get_flat_head(),
@@ -3127,7 +3132,7 @@ impl Chain {
             if self.blocks_in_processing.has_blocks_to_catch_up(&queued_block) {
                 processed_blocks.insert(queued_block, results);
             } else {
-                match self.block_catch_up_postprocess(&queued_block, results) {
+                match self.block_catch_up_postprocess(me, &queued_block, results) {
                     Ok(_) => {
                         let mut saw_one = false;
                         for next_block_hash in
@@ -3180,13 +3185,14 @@ impl Chain {
 
     fn block_catch_up_postprocess(
         &mut self,
+        me: &Option<AccountId>,
         block_hash: &CryptoHash,
         results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<(), Error> {
         let block = self.store.get_block(block_hash)?;
         let prev_block = self.store.get_block(block.header().prev_hash())?;
         let mut chain_update = self.chain_update();
-        chain_update.apply_chunk_postprocessing(&block, &prev_block, results)?;
+        chain_update.apply_chunk_postprocessing(me, &block, &prev_block, results)?;
         chain_update.commit()?;
         Ok(())
     }
@@ -4515,6 +4521,7 @@ impl<'a> ChainUpdate<'a> {
 
     fn apply_chunk_postprocessing(
         &mut self,
+        me: &Option<AccountId>,
         block: &Block,
         prev_block: &Block,
         apply_results: Vec<Result<ApplyChunkResult, Error>>,
@@ -4522,6 +4529,7 @@ impl<'a> ChainUpdate<'a> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing").entered();
         for result in apply_results {
             self.process_apply_chunk_result(
+                me,
                 result?,
                 *block.hash(),
                 block.header().height(),
@@ -4660,6 +4668,7 @@ impl<'a> ChainUpdate<'a> {
     #[allow(unused_variables)]
     fn save_flat_state_changes(
         &mut self,
+        me: &Option<AccountId>,
         block_hash: CryptoHash,
         prev_hash: CryptoHash,
         height: BlockHeight,
@@ -4667,13 +4676,15 @@ impl<'a> ChainUpdate<'a> {
         trie_changes: &WrappedTrieChanges,
     ) -> Result<(), Error> {
         #[cfg(feature = "protocol_feature_flat_state")]
-        if self.runtime_adapter.cares_about_shard(None, &block_hash, shard_id, true) {
+        if self.runtime_adapter.cares_about_shard(me.as_ref(), &prev_hash, shard_id, true) {
             if let Some(chain_flat_storage) =
                 self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
             {
                 let delta = FlatStateDelta::from_state_changes(&trie_changes.state_changes());
                 let block_info = flat_state::BlockInfo { hash: block_hash, height, prev_hash };
-                let store_update = chain_flat_storage.add_block(&block_hash, delta, block_info)?;
+                let store_update = chain_flat_storage
+                    .add_block(&block_hash, delta, block_info)
+                    .map_err(|e| StorageError::from(e))?;
                 self.chain_store_update.merge(store_update);
             }
         }
@@ -4683,6 +4694,7 @@ impl<'a> ChainUpdate<'a> {
     /// Processed results of applying chunk
     fn process_apply_chunk_result(
         &mut self,
+        me: &Option<AccountId>,
         result: ApplyChunkResult,
         block_hash: CryptoHash,
         height: BlockHeight,
@@ -4715,6 +4727,7 @@ impl<'a> ChainUpdate<'a> {
                 // Right now, we don't implement flat storage for catchup, so we only store
                 // the delta if we are not catching up
                 self.save_flat_state_changes(
+                    me,
                     block_hash,
                     prev_block_hash,
                     height,
@@ -4755,6 +4768,7 @@ impl<'a> ChainUpdate<'a> {
                 *new_extra.state_root_mut() = apply_result.new_root;
 
                 self.save_flat_state_changes(
+                    me,
                     block_hash,
                     prev_block_hash,
                     height,
@@ -4800,7 +4814,7 @@ impl<'a> ChainUpdate<'a> {
     ) -> Result<Option<Tip>, Error> {
         let prev_hash = block.header().prev_hash();
         let prev_block = self.chain_store_update.get_block(prev_hash)?;
-        self.apply_chunk_postprocessing(block, &prev_block, apply_chunks_results)?;
+        self.apply_chunk_postprocessing(me, block, &prev_block, apply_chunks_results)?;
 
         let BlockPreprocessInfo {
             is_caught_up,
