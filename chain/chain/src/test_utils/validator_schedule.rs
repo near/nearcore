@@ -1,6 +1,5 @@
-use std::collections::HashSet;
-
 use near_primitives::types::{AccountId, NumShards};
+use std::collections::HashSet;
 
 /// Validator schedule describes how block and chunk producers are selected by
 /// the KeyValue runtime.

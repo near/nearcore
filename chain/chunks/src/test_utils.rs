@@ -3,7 +3,7 @@ use std::sync::Arc;
 use near_primitives::time::Clock;
 
 use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
-use near_chain::types::{RuntimeAdapter, Tip};
+use near_chain::types::{EpochManagerAdapter, RuntimeAdapter, Tip};
 use near_chain::{Chain, ChainStore};
 use near_crypto::KeyType;
 use near_network::test_utils::MockPeerManagerAdapter;

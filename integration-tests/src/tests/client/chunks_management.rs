@@ -1,14 +1,8 @@
-use near_chain::test_utils::ValidatorSchedule;
-use near_primitives::time::Instant;
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
-
+use crate::test_helpers::heavy_test;
 use actix::{Addr, System};
 use futures::{future, FutureExt};
-use tracing::info;
-
-use crate::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
+use near_chain::test_utils::ValidatorSchedule;
 use near_chunks::{
     CHUNK_REQUEST_RETRY_MS, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
     CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
@@ -20,88 +14,117 @@ use near_network::types::{NetworkClientMessages, NetworkRequests, NetworkRespons
 use near_network_primitives::types::{AccountIdOrPeerTrackingShard, PeerInfo};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
+use near_primitives::time::Instant;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+use tracing::info;
 
-/// Runs block producing client and stops after network mock received seven blocks
-/// Confirms that the blocks form a chain (which implies the chunks are distributed).
-/// Confirms that the number of messages transmitting the chunks matches the expected number.
-fn chunks_produced_and_distributed_common(
+struct Test {
     validator_groups: u64,
-    drop_from_1_to_4: bool,
+    chunk_only_producers: bool,
+    drop_to_4_from: &'static [&'static str],
     drop_all_chunk_forward_msgs: bool,
     block_timeout: u64,
-) {
-    init_test_logger();
+}
 
-    let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-        Arc::new(RwLock::new(vec![]));
-    let heights = Arc::new(RwLock::new(HashMap::new()));
-    let heights1 = heights;
+impl Test {
+    fn run(self) {
+        heavy_test(move || run_actix(async move { self.run_impl() }))
+    }
 
-    let height_to_hash = Arc::new(RwLock::new(HashMap::new()));
-    let height_to_epoch = Arc::new(RwLock::new(HashMap::new()));
+    /// Runs block producing client and stops after network mock received seven blocks
+    /// Confirms that the blocks form a chain (which implies the chunks are distributed).
+    /// Confirms that the number of messages transmitting the chunks matches the expected number.
+    fn run_impl(self) {
+        init_test_logger();
 
-    let check_heights = move |prev_hash: &CryptoHash, hash: &CryptoHash, height| {
-        let mut map = heights1.write().unwrap();
-        // Note that height of the previous block is not guaranteed to be height
-        // - 1.  All we know is that it’s less than height of the current block.
-        if let Some(prev_height) = map.get(prev_hash) {
-            assert!(*prev_height < height);
+        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+            Arc::new(RwLock::new(vec![]));
+        let heights = Arc::new(RwLock::new(HashMap::new()));
+        let heights1 = heights;
+
+        let height_to_hash = Arc::new(RwLock::new(HashMap::new()));
+        let height_to_epoch = Arc::new(RwLock::new(HashMap::new()));
+
+        let check_heights = move |prev_hash: &CryptoHash, hash: &CryptoHash, height| {
+            let mut map = heights1.write().unwrap();
+            // Note that height of the previous block is not guaranteed to be height
+            // - 1.  All we know is that it’s less than height of the current block.
+            if let Some(prev_height) = map.get(prev_hash) {
+                assert!(*prev_height < height);
+            }
+            assert_eq!(*map.entry(*hash).or_insert(height), height);
+        };
+
+        let mut vs = ValidatorSchedule::new()
+            .num_shards(4)
+            .block_producers_per_epoch(vec![
+                vec![
+                    "test1".parse().unwrap(),
+                    "test2".parse().unwrap(),
+                    "test3".parse().unwrap(),
+                    "test4".parse().unwrap(),
+                ],
+                vec![
+                    "test5".parse().unwrap(),
+                    "test6".parse().unwrap(),
+                    "test7".parse().unwrap(),
+                    "test8".parse().unwrap(),
+                ],
+            ])
+            .validator_groups(self.validator_groups);
+        if self.chunk_only_producers {
+            vs = vs.chunk_only_producers_per_epoch_per_shard(vec![
+                vec![
+                    vec!["cop1".parse().unwrap()],
+                    vec!["cop2".parse().unwrap()],
+                    vec!["cop3".parse().unwrap()],
+                    vec!["cop4".parse().unwrap()],
+                ],
+                vec![
+                    vec!["cop5".parse().unwrap()],
+                    vec!["cop6".parse().unwrap()],
+                    vec!["cop7".parse().unwrap()],
+                    vec!["cop8".parse().unwrap()],
+                ],
+            ]);
         }
-        assert_eq!(*map.entry(*hash).or_insert(height), height);
-    };
+        let archive = vec![false; vs.all_validators().count()];
+        let epoch_sync_enabled = vec![true; vs.all_validators().count()];
+        let key_pairs =
+            (0..vs.all_validators().count()).map(|_| PeerInfo::random()).collect::<Vec<_>>();
 
-    let vs = ValidatorSchedule::new()
-        .num_shards(4)
-        .block_producers_per_epoch(vec![
-            vec![
-                "test1".parse().unwrap(),
-                "test2".parse().unwrap(),
-                "test3".parse().unwrap(),
-                "test4".parse().unwrap(),
-            ],
-            vec![
-                "test5".parse().unwrap(),
-                "test6".parse().unwrap(),
-                "test7".parse().unwrap(),
-                "test8".parse().unwrap(),
-            ],
-        ])
-        .validator_groups(validator_groups);
-    let archive = vec![false; vs.all_block_producers().count()];
-    let epoch_sync_enabled = vec![true; vs.all_block_producers().count()];
-    let key_pairs = (0..8).map(|_| PeerInfo::random()).collect::<Vec<_>>();
+        let mut partial_chunk_msgs = 0;
+        let mut partial_chunk_request_msgs = 0;
 
-    let mut partial_chunk_msgs = 0;
-    let mut partial_chunk_request_msgs = 0;
+        let (_, conn, _) = setup_mock_all_validators(
+            vs,
+            key_pairs,
+            true,
+            self.block_timeout,
+            false,
+            false,
+            5,
+            true,
+            archive,
+            epoch_sync_enabled,
+            false,
+            Box::new(move |_, from_whom: AccountId, msg: &PeerManagerMessageRequest| {
+                let msg = msg.as_network_requests_ref();
+                match msg {
+                    NetworkRequests::Block { block } => {
+                        let h = block.header().height();
+                        check_heights(block.header().prev_hash(), block.hash(), h);
 
-    let (_, conn, _) = setup_mock_all_validators(
-        vs,
-        key_pairs,
-        true,
-        block_timeout,
-        false,
-        false,
-        5,
-        true,
-        archive,
-        epoch_sync_enabled,
-        false,
-        Box::new(move |_, from_whom: AccountId, msg: &PeerManagerMessageRequest| {
-            let msg = msg.as_network_requests_ref();
-            match msg {
-                NetworkRequests::Block { block } => {
-                    let h = block.header().height();
-                    check_heights(block.header().prev_hash(), block.hash(), h);
+                        let mut height_to_hash = height_to_hash.write().unwrap();
+                        height_to_hash.insert(h, *block.hash());
 
-                    let mut height_to_hash = height_to_hash.write().unwrap();
-                    height_to_hash.insert(h, *block.hash());
+                        let mut height_to_epoch = height_to_epoch.write().unwrap();
+                        height_to_epoch.insert(h, block.header().epoch_id().clone());
 
-                    let mut height_to_epoch = height_to_epoch.write().unwrap();
-                    height_to_epoch.insert(h, block.header().epoch_id().clone());
-
-                    println!(
+                        println!(
                             "[{:?}]: BLOCK {} HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {};\nAPPROVALS: {:?}",
                             Instant::now(),
                             block.hash(),
@@ -113,186 +136,209 @@ fn chunks_produced_and_distributed_common(
                             block.header().approvals(),
                         );
 
-                    if h > 1 {
-                        // Make sure doomslug finality is computed correctly.
-                        assert_eq!(
-                            block.header().last_ds_final_block(),
-                            height_to_hash.get(&(h - 1)).unwrap()
-                        );
+                        if h > 1 {
+                            // Make sure doomslug finality is computed correctly.
+                            assert_eq!(
+                                block.header().last_ds_final_block(),
+                                height_to_hash.get(&(h - 1)).unwrap()
+                            );
 
-                        // Make sure epoch length actually corresponds to the desired epoch length
-                        // The switches are expected at 0->1, 5->6 and 10->11
-                        let prev_epoch_id = height_to_epoch.get(&(h - 1)).unwrap().clone();
-                        assert_eq!(block.header().epoch_id() == &prev_epoch_id, h % 5 != 1);
+                            // Make sure epoch length actually corresponds to the desired epoch length
+                            // The switches are expected at 0->1, 5->6 and 10->11
+                            let prev_epoch_id = height_to_epoch.get(&(h - 1)).unwrap().clone();
+                            assert_eq!(block.header().epoch_id() == &prev_epoch_id, h % 5 != 1);
 
-                        // Make sure that the blocks leading to the epoch switch have twice as
-                        // many approval slots
-                        assert_eq!(block.header().approvals().len() == 8, h % 5 == 0 || h % 5 == 4);
-                    }
-                    if h > 2 {
-                        // Make sure BFT finality is computed correctly
-                        assert_eq!(
-                            block.header().last_final_block(),
-                            height_to_hash.get(&(h - 2)).unwrap()
-                        );
-                    }
+                            // Make sure that the blocks leading to the epoch switch have twice as
+                            // many approval slots
+                            assert_eq!(
+                                block.header().approvals().len() == 8,
+                                h % 5 == 0 || h % 5 == 4
+                            );
+                        }
+                        if h > 2 {
+                            // Make sure BFT finality is computed correctly
+                            assert_eq!(
+                                block.header().last_final_block(),
+                                height_to_hash.get(&(h - 2)).unwrap()
+                            );
+                        }
 
-                    if block.header().height() > 1 {
-                        for shard_id in 0..4 {
-                            // If messages from 1 to 4 are dropped, 4 at their heights will
-                            //    receive the block significantly later than the chunks, and
-                            //    thus would discard the chunks
-                            if !drop_from_1_to_4 || block.header().height() % 4 != 3 {
-                                assert_eq!(
-                                    block.header().height(),
-                                    block.chunks()[shard_id].height_created()
-                                );
+                        if block.header().height() > 1 {
+                            for shard_id in 0..4 {
+                                // If messages from 1 to 4 are dropped, 4 at their heights will
+                                //    receive the block significantly later than the chunks, and
+                                //    thus would discard the chunks
+                                if self.drop_to_4_from.is_empty()
+                                    || block.header().height() % 4 != 3
+                                {
+                                    assert_eq!(
+                                        block.header().height(),
+                                        block.chunks()[shard_id].height_created()
+                                    );
+                                }
                             }
                         }
-                    }
 
-                    if block.header().height() >= 12 {
-                        println!("PREV BLOCK HASH: {}", block.header().prev_hash());
-                        println!(
-                            "STATS: responses: {} requests: {}",
-                            partial_chunk_msgs, partial_chunk_request_msgs
+                        if block.header().height() >= 12 {
+                            println!("PREV BLOCK HASH: {}", block.header().prev_hash());
+                            println!(
+                                "STATS: responses: {} requests: {}",
+                                partial_chunk_msgs, partial_chunk_request_msgs
+                            );
+
+                            System::current().stop();
+                        }
+                    }
+                    NetworkRequests::PartialEncodedChunkMessage {
+                        account_id: to_whom,
+                        partial_encoded_chunk: _,
+                    } => {
+                        partial_chunk_msgs += 1;
+                        if self.drop_to_4_from.contains(&from_whom.as_str())
+                            && to_whom.as_ref() == "test4"
+                        {
+                            println!(
+                                "Dropping Partial Encoded Chunk Message from {from_whom} to test4"
+                            );
+                            return (NetworkResponses::NoResponse.into(), false);
+                        }
+                    }
+                    NetworkRequests::PartialEncodedChunkForward { account_id: to_whom, .. } => {
+                        if self.drop_all_chunk_forward_msgs {
+                            println!("Dropping Partial Encoded Chunk Forward Message");
+                            return (NetworkResponses::NoResponse.into(), false);
+                        }
+                        if self.drop_to_4_from.contains(&from_whom.as_str())
+                            && to_whom.as_ref() == "test4"
+                        {
+                            println!(
+                            "Dropping Partial Encoded Chunk Forward Message from {from_whom} to test4"
                         );
+                            return (NetworkResponses::NoResponse.into(), false);
+                        }
+                    }
+                    NetworkRequests::PartialEncodedChunkResponse { route_back: _, response: _ } => {
+                        partial_chunk_msgs += 1;
+                    }
+                    NetworkRequests::PartialEncodedChunkRequest {
+                        target: AccountIdOrPeerTrackingShard { account_id: Some(to_whom), .. },
+                        ..
+                    } => {
+                        if self.drop_to_4_from.contains(&to_whom.as_str())
+                            && from_whom.as_ref() == "test4"
+                        {
+                            info!("Dropping Partial Encoded Chunk Request from test4 to {to_whom}");
+                            return (NetworkResponses::NoResponse.into(), false);
+                        }
+                        if !self.drop_to_4_from.is_empty()
+                            && from_whom.as_ref() == "test4"
+                            && to_whom.as_ref() == "test2"
+                        {
+                            info!("Observed Partial Encoded Chunk Request from test4 to test2");
+                        }
+                        partial_chunk_request_msgs += 1;
+                    }
+                    _ => {}
+                };
+                (NetworkResponses::NoResponse.into(), true)
+            }),
+        );
+        *connectors.write().unwrap() = conn;
 
-                        System::current().stop();
-                    }
-                }
-                NetworkRequests::PartialEncodedChunkMessage {
-                    account_id: to_whom,
-                    partial_encoded_chunk: _,
-                } => {
-                    partial_chunk_msgs += 1;
-                    if drop_from_1_to_4
-                        && from_whom.as_ref() == "test1"
-                        && to_whom.as_ref() == "test4"
-                    {
-                        println!("Dropping Partial Encoded Chunk Message from test1 to test4");
-                        return (NetworkResponses::NoResponse.into(), false);
-                    }
-                }
-                NetworkRequests::PartialEncodedChunkForward { account_id: to_whom, .. } => {
-                    if drop_all_chunk_forward_msgs {
-                        println!("Dropping Partial Encoded Chunk Forward Message");
-                        return (NetworkResponses::NoResponse.into(), false);
-                    }
-                    if drop_from_1_to_4
-                        && from_whom.as_ref() == "test1"
-                        && to_whom.as_ref() == "test4"
-                    {
-                        println!(
-                            "Dropping Partial Encoded Chunk Forward Message from test1 to test4"
-                        );
-                        return (NetworkResponses::NoResponse.into(), false);
-                    }
-                }
-                NetworkRequests::PartialEncodedChunkResponse { route_back: _, response: _ } => {
-                    partial_chunk_msgs += 1;
-                }
-                NetworkRequests::PartialEncodedChunkRequest {
-                    target: AccountIdOrPeerTrackingShard { account_id: Some(to_whom), .. },
-                    ..
-                } => {
-                    if drop_from_1_to_4
-                        && from_whom.as_ref() == "test4"
-                        && to_whom.as_ref() == "test1"
-                    {
-                        info!("Dropping Partial Encoded Chunk Request from test4 to test1");
-                        return (NetworkResponses::NoResponse.into(), false);
-                    }
-                    if drop_from_1_to_4
-                        && from_whom.as_ref() == "test4"
-                        && to_whom.as_ref() == "test2"
-                    {
-                        info!("Observed Partial Encoded Chunk Request from test4 to test2");
-                    }
-                    partial_chunk_request_msgs += 1;
-                }
-                _ => {}
-            };
-            (NetworkResponses::NoResponse.into(), true)
-        }),
-    );
-    *connectors.write().unwrap() = conn;
-
-    let view_client = connectors.write().unwrap()[0].1.clone();
-    actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
-        let block_hash = res.unwrap().unwrap().header.hash;
-        let connectors_ = connectors.write().unwrap();
-        connectors_[0].0.do_send(NetworkClientMessages::Transaction {
-            transaction: SignedTransaction::empty(block_hash),
-            is_forwarded: false,
-            check_only: false,
-        });
-        connectors_[1].0.do_send(NetworkClientMessages::Transaction {
-            transaction: SignedTransaction::empty(block_hash),
-            is_forwarded: false,
-            check_only: false,
-        });
-        connectors_[2].0.do_send(NetworkClientMessages::Transaction {
-            transaction: SignedTransaction::empty(block_hash),
-            is_forwarded: false,
-            check_only: false,
-        });
-        future::ready(())
-    }));
+        let view_client = connectors.write().unwrap()[0].1.clone();
+        actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
+            let block_hash = res.unwrap().unwrap().header.hash;
+            let connectors_ = connectors.write().unwrap();
+            connectors_[0].0.do_send(NetworkClientMessages::Transaction {
+                transaction: SignedTransaction::empty(block_hash),
+                is_forwarded: false,
+                check_only: false,
+            });
+            connectors_[1].0.do_send(NetworkClientMessages::Transaction {
+                transaction: SignedTransaction::empty(block_hash),
+                is_forwarded: false,
+                check_only: false,
+            });
+            connectors_[2].0.do_send(NetworkClientMessages::Transaction {
+                transaction: SignedTransaction::empty(block_hash),
+                is_forwarded: false,
+                check_only: false,
+            });
+            future::ready(())
+        }));
+    }
 }
 
 #[test]
 fn chunks_produced_and_distributed_all_in_all_shards() {
-    heavy_test(|| {
-        run_actix(async {
-            chunks_produced_and_distributed_common(1, false, false, 15 * CHUNK_REQUEST_RETRY_MS);
-        });
-    });
+    Test {
+        validator_groups: 1,
+        chunk_only_producers: false,
+        drop_to_4_from: &[],
+        drop_all_chunk_forward_msgs: false,
+        block_timeout: 15 * CHUNK_REQUEST_RETRY_MS,
+    }
+    .run()
 }
 
 #[test]
 fn chunks_produced_and_distributed_2_vals_per_shard() {
-    heavy_test(|| {
-        run_actix(async {
-            chunks_produced_and_distributed_common(2, false, false, 15 * CHUNK_REQUEST_RETRY_MS);
-        });
-    });
+    Test {
+        validator_groups: 2,
+        chunk_only_producers: false,
+        drop_to_4_from: &[],
+        drop_all_chunk_forward_msgs: false,
+        block_timeout: 15 * CHUNK_REQUEST_RETRY_MS,
+    }
+    .run()
 }
 
 #[test]
 fn chunks_produced_and_distributed_one_val_per_shard() {
-    heavy_test(|| {
-        run_actix(async {
-            chunks_produced_and_distributed_common(4, false, false, 15 * CHUNK_REQUEST_RETRY_MS);
-        });
-    });
+    Test {
+        validator_groups: 4,
+        chunk_only_producers: false,
+        drop_to_4_from: &[],
+        drop_all_chunk_forward_msgs: false,
+        block_timeout: 15 * CHUNK_REQUEST_RETRY_MS,
+    }
+    .run()
 }
 
 #[test]
 fn chunks_produced_and_distributed_all_in_all_shards_should_succeed_even_without_forwarding() {
-    heavy_test(|| {
-        run_actix(async {
-            chunks_produced_and_distributed_common(1, false, false, 15 * CHUNK_REQUEST_RETRY_MS);
-        });
-    });
+    Test {
+        validator_groups: 1,
+        chunk_only_producers: false,
+        drop_to_4_from: &[],
+        drop_all_chunk_forward_msgs: false,
+        block_timeout: 15 * CHUNK_REQUEST_RETRY_MS,
+    }
+    .run()
 }
 
 #[test]
 fn chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_forwarding() {
-    heavy_test(|| {
-        run_actix(async {
-            chunks_produced_and_distributed_common(2, false, false, 15 * CHUNK_REQUEST_RETRY_MS);
-        });
-    });
+    Test {
+        validator_groups: 2,
+        chunk_only_producers: false,
+        drop_to_4_from: &[],
+        drop_all_chunk_forward_msgs: false,
+        block_timeout: 15 * CHUNK_REQUEST_RETRY_MS,
+    }
+    .run()
 }
 
 #[test]
 fn chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without_forwarding() {
-    heavy_test(|| {
-        run_actix(async {
-            chunks_produced_and_distributed_common(4, false, false, 15 * CHUNK_REQUEST_RETRY_MS);
-        });
-    });
+    Test {
+        validator_groups: 4,
+        chunk_only_producers: false,
+        drop_to_4_from: &[],
+        drop_all_chunk_forward_msgs: false,
+        block_timeout: 15 * CHUNK_REQUEST_RETRY_MS,
+    }
+    .run()
 }
 
 /// The timeout for requesting chunk from others is 1s. 3000 block timeout means that a participant
@@ -307,16 +353,14 @@ fn chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn chunks_recovered_from_others() {
-    heavy_test(|| {
-        run_actix(async {
-            chunks_produced_and_distributed_common(
-                2,
-                true,
-                true,
-                4 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
-            );
-        });
-    });
+    Test {
+        validator_groups: 2,
+        chunk_only_producers: false,
+        drop_to_4_from: &["test1"],
+        drop_all_chunk_forward_msgs: true,
+        block_timeout: 4 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
+    }
+    .run()
 }
 
 /// Same test as above, but the number of validator groups is four, therefore test2 doesn't have the
@@ -327,16 +371,14 @@ fn chunks_recovered_from_others() {
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 #[should_panic]
 fn chunks_recovered_from_full_timeout_too_short() {
-    heavy_test(|| {
-        run_actix(async {
-            chunks_produced_and_distributed_common(
-                4,
-                true,
-                true,
-                2 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
-            );
-        });
-    });
+    Test {
+        validator_groups: 4,
+        chunk_only_producers: false,
+        drop_to_4_from: &["test1"],
+        drop_all_chunk_forward_msgs: true,
+        block_timeout: 2 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
+    }
+    .run()
 }
 
 /// Same test as above, but the timeout is sufficiently large for test4 now to reconstruct the full
@@ -344,14 +386,68 @@ fn chunks_recovered_from_full_timeout_too_short() {
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn chunks_recovered_from_full() {
-    heavy_test(|| {
-        run_actix(async {
-            chunks_produced_and_distributed_common(
-                4,
-                true,
-                true,
-                2 * CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
-            );
-        })
-    });
+    Test {
+        validator_groups: 4,
+        chunk_only_producers: false,
+        drop_to_4_from: &["test1"],
+        drop_all_chunk_forward_msgs: true,
+        block_timeout: 2 * CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
+    }
+    .run()
+}
+
+// And now let's add chunk-only producers into the mix
+
+/// Happy case -- each shard is handled by one cop and one block producers.
+#[test]
+fn chunks_produced_and_distributed_one_val_shard_cop() {
+    Test {
+        validator_groups: 4,
+        chunk_only_producers: true,
+        drop_to_4_from: &[],
+        drop_all_chunk_forward_msgs: false,
+        block_timeout: 15 * CHUNK_REQUEST_RETRY_MS,
+    }
+    .run()
+}
+
+/// `test4` can't talk to `test1`, so it'll fetch the chunk for first shard from `cop1`.
+#[test]
+fn chunks_recovered_from_others_cop() {
+    Test {
+        validator_groups: 1,
+        chunk_only_producers: true,
+        drop_to_4_from: &["test1"],
+        drop_all_chunk_forward_msgs: true,
+        block_timeout: 4 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
+    }
+    .run()
+}
+
+/// `test4` can't talk neither to `cop1` nor to `test1`, so it can't fetch chunk
+/// from chunk producers and has to reconstruct it.
+#[test]
+#[should_panic]
+fn chunks_recovered_from_full_timeout_too_short_cop() {
+    Test {
+        validator_groups: 4,
+        chunk_only_producers: true,
+        drop_to_4_from: &["test1", "cop1"],
+        drop_all_chunk_forward_msgs: true,
+        block_timeout: 2 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
+    }
+    .run()
+}
+
+/// Same as above, but with longer block production timeout which should allow for full reconstruction.
+#[test]
+fn chunks_recovered_from_full_cop() {
+    Test {
+        validator_groups: 4,
+        chunk_only_producers: true,
+        drop_to_4_from: &["test1", "cop1"],
+        drop_all_chunk_forward_msgs: true,
+        block_timeout: 2 * CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
+    }
+    .run()
 }

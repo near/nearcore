@@ -268,8 +268,12 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
+        // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
+        let mut buffer = itoa::Buffer::new();
+        let shard_id = buffer.format(shard_uid.shard_id);
+
         metrics::APPLIED_TRIE_INSERTIONS
-            .with_label_values(&[&shard_uid.shard_id.to_string()])
+            .with_label_values(&[&shard_id])
             .inc_by(trie_changes.insertions.len() as u64);
         self.apply_insertions_inner(&trie_changes.insertions, shard_uid, store_update)
     }
@@ -280,8 +284,12 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
+        // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
+        let mut buffer = itoa::Buffer::new();
+        let shard_id = buffer.format(shard_uid.shard_id);
+
         metrics::APPLIED_TRIE_DELETIONS
-            .with_label_values(&[&shard_uid.shard_id.to_string()])
+            .with_label_values(&[&shard_id])
             .inc_by(trie_changes.deletions.len() as u64);
         self.apply_deletions_inner(&trie_changes.deletions, shard_uid, store_update)
     }
@@ -292,8 +300,12 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
+        // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
+        let mut buffer = itoa::Buffer::new();
+        let shard_id = buffer.format(shard_uid.shard_id);
+
         metrics::REVERTED_TRIE_INSERTIONS
-            .with_label_values(&[&shard_uid.shard_id.to_string()])
+            .with_label_values(&[&shard_id])
             .inc_by(trie_changes.insertions.len() as u64);
         self.apply_deletions_inner(&trie_changes.insertions, shard_uid, store_update)
     }

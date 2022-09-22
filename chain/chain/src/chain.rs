@@ -48,6 +48,8 @@ use near_primitives::views::{
     FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
     SignedTransactionView,
 };
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_store::flat_state;
 use near_store::{DBCol, ShardTries, StoreUpdate};
 
 use crate::block_processing_utils::{
@@ -79,6 +81,8 @@ use near_primitives::shard_layout::{
 };
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::flat_state::FlatStateDelta;
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_store::flat_state::FlatStorageState;
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -605,18 +609,29 @@ impl Chain {
                 let header_head = block_head.clone();
                 store_update.save_head(&block_head)?;
                 store_update.save_final_head(&header_head)?;
-                for shard_id in 0..runtime_adapter.num_shards(&EpochId::default()).unwrap() {
-                    let flat_storage_state =
-                        runtime_adapter.get_flat_storage_state_for_shard(shard_id);
-                    let new_store_update = flat_storage_state.map_or(None, |flat_storage_state| {
-                        flat_storage_state.update_head(&block_head.last_block_hash)
-                    });
-                    match new_store_update {
-                        Some(new_store_update) => {
-                            store_update.merge(new_store_update);
-                        }
-                        None => {}
-                    };
+
+                #[cfg(feature = "protocol_feature_flat_state")]
+                {
+                    let mut tmp_store_update = store_update.store().store_update();
+                    // Set the root block of flat state to be the genesis block. Later, when we
+                    // init FlatStorageStates, we will read the from this column in storage, so it
+                    // must be set here.
+                    for shard_id in 0..runtime_adapter.num_shards(&block_head.epoch_id)? {
+                        flat_state::store_helper::set_flat_head(
+                            &mut tmp_store_update,
+                            shard_id,
+                            &block_head.last_block_hash,
+                        );
+                        // The genesis block doesn't include any transactions or receipts, so the
+                        // block delta is empty
+                        flat_state::store_helper::set_delta(
+                            &mut tmp_store_update,
+                            shard_id,
+                            block_head.last_block_hash,
+                            &FlatStateDelta::new(),
+                        )?;
+                    }
+                    store_update.merge(tmp_store_update);
                 }
 
                 info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
@@ -626,6 +641,27 @@ impl Chain {
             Err(err) => return Err(err),
         };
         store_update.commit()?;
+
+        // set up flat storage
+        #[cfg(feature = "protocol_feature_flat_state")]
+        for shard_id in 0..runtime_adapter.num_shards(&block_head.epoch_id)? {
+            let flat_storage_state = FlatStorageState::new(
+                store.store().clone(),
+                store.head()?.height,
+                &|hash| store.get_block_header(hash).unwrap(),
+                &|height| {
+                    store
+                        .get_all_block_hashes_by_height(height)
+                        .unwrap()
+                        .values()
+                        .flatten()
+                        .copied()
+                        .collect::<HashSet<_>>()
+                },
+                shard_id,
+            );
+            runtime_adapter.add_flat_storage_state_for_shard(shard_id, flat_storage_state);
+        }
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
               block_head.height, block_head.last_block_hash,
@@ -4635,8 +4671,7 @@ impl<'a> ChainUpdate<'a> {
                         let delta = FlatStateDelta::from_state_changes(
                             &apply_result.trie_changes.state_changes(),
                         );
-                        let store_update =
-                            chain_flat_storage.add_delta(&block_hash, delta)?.unwrap();
+                        let store_update = chain_flat_storage.add_delta(&block_hash, delta)?;
                         self.chain_store_update.merge(store_update);
                     }
                 }
@@ -4800,18 +4835,13 @@ impl<'a> ChainUpdate<'a> {
         // only need shards that we have processed in this block (not the shards to catch up)
         let flat_storage_shards = vec![];
         for shard_id in flat_storage_shards {
-            if let Some(flat_storage_state) =
+            if let Some(_flat_storage_state) =
                 self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
             {
                 // TODO: fill in the correct new head
                 // if let Some(_update) = flat_storage_state.update_head(&CryptoHash::default()) {
                 // TODO: add this update to chain update
                 // }
-                if let Some(_update) =
-                    flat_storage_state.update_tail(block.header().last_final_block())
-                {
-                    // TODO: add this update to chain update
-                }
             } else {
                 // TODO: some error handling code here. Should probably return an error (or panic?)
                 // here if the flat storage doesn't exist.
@@ -4850,7 +4880,13 @@ impl<'a> ChainUpdate<'a> {
         let approvals = header.approvals();
         self.runtime_adapter.verify_approvals_and_threshold_orphan(
             epoch_id,
-            self.doomslug_threshold_mode,
+            &|approvals, stakes| {
+                Doomslug::can_approved_block_be_produced(
+                    self.doomslug_threshold_mode,
+                    approvals,
+                    stakes,
+                )
+            },
             prev_hash,
             prev_height,
             height,
