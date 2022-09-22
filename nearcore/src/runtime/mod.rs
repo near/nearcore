@@ -195,11 +195,6 @@ impl NightshadeRuntime {
         )
     }
 
-    pub fn get_epoch_id(&self, hash: &CryptoHash) -> Result<EpochId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_epoch_id(hash).map_err(Error::from)
-    }
-
     /// Create store of runtime configs for the given chain id.
     ///
     /// For mainnet and other chains except testnet we don't need to override runtime config for

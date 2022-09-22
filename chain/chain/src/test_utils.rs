@@ -454,8 +454,13 @@ impl EpochManagerAdapter for KeyValueRuntime {
         Ok(self.get_epoch_and_valset(*parent_hash)?.2)
     }
 
+    fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, Error> {
+        let (epoch_id, _, _) = self.get_epoch_and_valset(*block_hash)?;
+        Ok(epoch_id)
+    }
+
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
-        let epoch_id = self.get_epoch_and_valset(*block_hash)?.0;
+        let epoch_id = self.get_epoch_id(block_hash)?;
         match self.get_block_header(&epoch_id.0)? {
             Some(block_header) => Ok(block_header.height()),
             None => Ok(0),
