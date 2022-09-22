@@ -55,8 +55,6 @@ const WAIT_PEER_BEFORE_REMOVE: time::Duration = time::Duration::milliseconds(6_0
 /// Ratio between consecutive attempts to establish connection with another peer.
 /// In the kth step node should wait `10 * EXPONENTIAL_BACKOFF_RATIO**k` milliseconds
 const EXPONENTIAL_BACKOFF_RATIO: f64 = 1.1;
-/// The maximum waiting time between consecutive attempts to establish connection
-const MONITOR_PEERS_MAX_DURATION: time::Duration = time::Duration::milliseconds(60_000);
 /// The initial waiting time between consecutive attempts to establish connection
 const MONITOR_PEERS_INITIAL_DURATION: time::Duration = time::Duration::milliseconds(10);
 /// How ofter should we broadcast edges.
@@ -225,12 +223,11 @@ impl Actor for PeerManagerActor {
         self.push_network_info_trigger(ctx, self.config.push_info_period);
 
         // Periodically starts peer monitoring.
-        let max_interval = min(MONITOR_PEERS_MAX_DURATION, self.config.bootstrap_peers_period);
-        debug!(target: "network", ?max_interval, "monitor_peers_trigger");
+        debug!(target: "network", max_period=?self.config.monitor_peers_max_period, "monitor_peers_trigger");
         self.monitor_peers_trigger(
             ctx,
             MONITOR_PEERS_INITIAL_DURATION,
-            (MONITOR_PEERS_INITIAL_DURATION, max_interval),
+            (MONITOR_PEERS_INITIAL_DURATION, self.config.monitor_peers_max_period),
         );
 
         let skip_tombstones = self.config.skip_tombstones.map(|it| self.clock.now() + it);
