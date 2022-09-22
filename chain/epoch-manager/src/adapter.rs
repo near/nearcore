@@ -6,7 +6,8 @@ use near_primitives::{
     hash::CryptoHash,
     sharding::{ChunkHash, ShardChunkHeader},
     types::{
-        validator_stake::ValidatorStake, AccountId, ApprovalStake, BlockHeight, EpochId, ShardId,
+        validator_stake::ValidatorStake, AccountId, ApprovalStake, Balance, BlockHeight, EpochId,
+        ShardId,
     },
 };
 
@@ -143,6 +144,21 @@ pub trait EpochManagerAdapter: Send + Sync {
         block_height: BlockHeight,
         approvals: &[Option<Signature>],
     ) -> Result<bool, Error>;
+
+    /// Verify approvals and check threshold, but ignore next epoch approvals and slashing
+    fn verify_approvals_and_threshold_orphan(
+        &self,
+        epoch_id: &EpochId,
+        can_approved_block_be_produced: &dyn Fn(
+            &[Option<Signature>],
+            // (stake this in epoch, stake in next epoch, is_slashed)
+            &[(Balance, Balance, bool)],
+        ) -> bool,
+        prev_block_hash: &CryptoHash,
+        prev_block_height: BlockHeight,
+        block_height: BlockHeight,
+        approvals: &[Option<Signature>],
+    ) -> Result<(), Error>;
 }
 
 /// A technical plumbing trait to conveniently implement [`EpochManagerAdapter`]
@@ -366,5 +382,49 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
             }
         }
         Ok(true)
+    }
+
+    fn verify_approvals_and_threshold_orphan(
+        &self,
+        epoch_id: &EpochId,
+        can_approved_block_be_produced: &dyn Fn(
+            &[Option<Signature>],
+            &[(Balance, Balance, bool)],
+        ) -> bool,
+        prev_block_hash: &CryptoHash,
+        prev_block_height: BlockHeight,
+        block_height: BlockHeight,
+        approvals: &[Option<Signature>],
+    ) -> Result<(), Error> {
+        let info = {
+            let epoch_manager = self.read();
+            epoch_manager.get_heuristic_block_approvers_ordered(epoch_id).map_err(Error::from)?
+        };
+
+        let message_to_sign = Approval::get_data_for_sig(
+            &if prev_block_height + 1 == block_height {
+                ApprovalInner::Endorsement(*prev_block_hash)
+            } else {
+                ApprovalInner::Skip(prev_block_height)
+            },
+            block_height,
+        );
+
+        for (validator, may_be_signature) in info.iter().zip(approvals.iter()) {
+            if let Some(signature) = may_be_signature {
+                if !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
+                    return Err(Error::InvalidApprovals);
+                }
+            }
+        }
+        let stakes = info
+            .iter()
+            .map(|stake| (stake.stake_this_epoch, stake.stake_next_epoch, false))
+            .collect::<Vec<_>>();
+        if !can_approved_block_be_produced(approvals, &stakes) {
+            Err(Error::NotEnoughApprovals)
+        } else {
+            Ok(())
+        }
     }
 }
