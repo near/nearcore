@@ -57,7 +57,7 @@ use crate::types::{
     AcceptedBlock, ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ChainGenesis,
 };
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
-use crate::{BlockProcessingArtifact, Doomslug, Provenance};
+use crate::{BlockProcessingArtifact, Provenance};
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::time::Clock;
 use near_primitives::utils::MaybeValidated;
@@ -561,6 +561,43 @@ impl EpochManagerAdapter for KeyValueRuntime {
     ) -> Result<bool, Error> {
         Ok(true)
     }
+
+    fn verify_approvals_and_threshold_orphan(
+        &self,
+        epoch_id: &EpochId,
+        can_approved_block_be_produced: &dyn Fn(
+            &[Option<Signature>],
+            &[(Balance, Balance, bool)],
+        ) -> bool,
+        prev_block_hash: &CryptoHash,
+        prev_block_height: BlockHeight,
+        block_height: BlockHeight,
+        approvals: &[Option<Signature>],
+    ) -> Result<(), Error> {
+        let validators = self.get_block_producers(self.get_valset_for_epoch(epoch_id)?);
+        let message_to_sign = Approval::get_data_for_sig(
+            &if prev_block_height + 1 == block_height {
+                ApprovalInner::Endorsement(*prev_block_hash)
+            } else {
+                ApprovalInner::Skip(prev_block_height)
+            },
+            block_height,
+        );
+
+        for (validator, may_be_signature) in validators.iter().zip(approvals.iter()) {
+            if let Some(signature) = may_be_signature {
+                if !signature.verify(message_to_sign.as_ref(), validator.public_key()) {
+                    return Err(Error::InvalidApprovals);
+                }
+            }
+        }
+        let stakes = validators.iter().map(|stake| (stake.stake(), 0, false)).collect::<Vec<_>>();
+        if !can_approved_block_be_produced(approvals, &stakes) {
+            Err(Error::NotEnoughApprovals)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
@@ -607,40 +644,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_id: ShardId,
         _flat_storage_state: FlatStorageState,
     ) {
-    }
-
-    fn verify_approvals_and_threshold_orphan(
-        &self,
-        epoch_id: &EpochId,
-        doomslug_threshold_mode: DoomslugThresholdMode,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Signature>],
-    ) -> Result<(), Error> {
-        let validators = self.get_block_producers(self.get_valset_for_epoch(epoch_id)?);
-        let message_to_sign = Approval::get_data_for_sig(
-            &if prev_block_height + 1 == block_height {
-                ApprovalInner::Endorsement(*prev_block_hash)
-            } else {
-                ApprovalInner::Skip(prev_block_height)
-            },
-            block_height,
-        );
-
-        for (validator, may_be_signature) in validators.iter().zip(approvals.iter()) {
-            if let Some(signature) = may_be_signature {
-                if !signature.verify(message_to_sign.as_ref(), validator.public_key()) {
-                    return Err(Error::InvalidApprovals);
-                }
-            }
-        }
-        let stakes = validators.iter().map(|stake| (stake.stake(), 0, false)).collect::<Vec<_>>();
-        if !Doomslug::can_approved_block_be_produced(doomslug_threshold_mode, approvals, &stakes) {
-            Err(Error::NotEnoughApprovals)
-        } else {
-            Ok(())
-        }
     }
 
     fn num_shards(&self, _epoch_id: &EpochId) -> Result<ShardId, Error> {
