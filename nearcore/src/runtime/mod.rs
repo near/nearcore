@@ -519,7 +519,10 @@ impl NightshadeRuntime {
                 state_patch,
             )
             .map_err(|e| match e {
-                RuntimeError::InvalidTxError(_) => Error::InvalidTransactions,
+                RuntimeError::InvalidTxError(err) => {
+                    tracing::warn!("Invalid tx {:?}", err);
+                    Error::InvalidTransactions
+                }
                 // TODO(#2152): process gracefully
                 RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
                 // TODO(#2152): process gracefully
