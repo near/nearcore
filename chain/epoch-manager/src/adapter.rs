@@ -50,7 +50,10 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn get_next_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash)
         -> Result<EpochId, Error>;
 
-    /// Get epoch start for given block hash.
+    /// Get [`EpochId`] from a block belonging to the epoch.
+    fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, Error>;
+
+    /// Get epoch start from a block belonging to the epoch.
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
 
     /// Epoch block producers ordered by their order in the proposals.
@@ -256,6 +259,11 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
     ) -> Result<EpochId, Error> {
         let epoch_manager = self.read();
         epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
+    }
+
+    fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, Error> {
+        let epoch_manager = self.read();
+        epoch_manager.get_epoch_id(block_hash).map_err(Error::from)
     }
 
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
