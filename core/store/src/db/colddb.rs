@@ -196,14 +196,6 @@ fn get_cold_key<'a>(col: DBCol, key: &[u8], buffer: &'a mut [u8; 32]) -> Option<
             buffer[..8].copy_from_slice(&num.to_be_bytes());
             Some(&buffer[..8])
         }
-        DBCol::ChunkPerHeightShard => {
-            // Key is `little_endian(height) || ShardUId`.  We’re leaving
-            // ShardUId alone.
-            let num = u64::from_le_bytes(key[..8].try_into().unwrap());
-            buffer[..8].copy_from_slice(&num.to_be_bytes());
-            buffer[8..16].copy_from_slice(&key[8..16]);
-            Some(&buffer[..16])
-        }
         DBCol::State => {
             // Key is `ShardUId || CryptoHash(node_or_value)`.  We’re stripping
             // the ShardUId.
@@ -330,7 +322,6 @@ mod test {
             DBCol::HeaderHashesByHeight,
         ];
         let mut ops: Vec<_> = height_columns.iter().map(|col| set(*col, HEIGHT_LE)).collect();
-        ops.push(set(DBCol::ChunkPerHeightShard, &[HEIGHT_LE, SHARD].concat()));
         ops.push(set(DBCol::State, &[SHARD, HASH].concat()));
         ops.push(set(DBCol::Block, HASH));
         db.write(DBTransaction { ops }).unwrap();
@@ -364,8 +355,6 @@ mod test {
             fetch(col, HEIGHT_LE, false);
             fetch(col, HEIGHT_BE, false);
         }
-        fetch(DBCol::ChunkPerHeightShard, &[HEIGHT_LE, SHARD].concat(), false);
-        fetch(DBCol::ChunkPerHeightShard, &[HEIGHT_BE, SHARD].concat(), false);
         fetch(DBCol::State, &[SHARD, HASH].concat(), false);
         fetch(DBCol::State, &[HASH].concat(), true);
         fetch(DBCol::Block, HASH, false);
@@ -402,12 +391,6 @@ mod test {
             [cold] get_raw_bytes → FooBar
             [raw ] get_raw_bytes → ∅
         HeaderHashesByHeight be(42)
-            [cold] get_raw_bytes → ∅
-            [raw ] get_raw_bytes → FooBar
-        ChunkPerHeightShard `le(42) || ShardUId`
-            [cold] get_raw_bytes → FooBar
-            [raw ] get_raw_bytes → ∅
-        ChunkPerHeightShard `be(42) || ShardUId`
             [cold] get_raw_bytes → ∅
             [raw ] get_raw_bytes → FooBar
         State `ShardUId || 11111111111111111111111111111111`
