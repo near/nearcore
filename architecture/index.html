@@ -75,7 +75,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html" class="active"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html"><strong aria-hidden="true">2.</strong> Overview</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html"><strong aria-hidden="true">3.</strong> Misc</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html" class="active"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../architecture/trie.html"><strong aria-hidden="true">2.</strong> Trie</a></li><li class="chapter-item expanded "><a href="../architecture/network.html"><strong aria-hidden="true">3.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html"><strong aria-hidden="true">4.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../practices/style.html"><strong aria-hidden="true">5.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../practices/protocol_upgrade.html"><strong aria-hidden="true">6.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html"><strong aria-hidden="true">7.</strong> Misc</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -141,7 +141,188 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="overview"><a class="header" href="#overview">Overview</a></h1>
-<p>This chapter describes how <code>nearcore</code> works.</p>
+<p>This document describes the high-level architecture of nearcore. The focus here
+is on the implementation of the blockchain protocol, not the protocol itself.
+For reference documentation of the protocol, please refer to
+<a href="https://nomicon.io/">nomicon</a></p>
+<h2 id="birds-eye-view"><a class="header" href="#birds-eye-view">Bird's Eye View</a></h2>
+<p><img src="/images/architecture.svg" alt="" /></p>
+<p>Since nearcore is an implementation of NEAR blockchain protocol, its goal is to
+produce a binary that runs as a blockchain client. More specifically, the
+<code>neard</code> binary can do the following:</p>
+<ul>
+<li>generate files necessary to start a node</li>
+<li>start a node with a given folder that contains required data</li>
+</ul>
+<p>There are three major components of nearcore:</p>
+<ul>
+<li>
+<p>Network. We implement a peer-to-peer network that powers communications
+between blockchain nodes. This includes initiating connections with other
+nodes, maintaining a view of the entire network, routing messages to the right
+nodes, etc. Network is a somewhat standalone module, though it uses
+information about validators to propagate and validate certain messages.</p>
+</li>
+<li>
+<p>Chain. Chain is responsible for building and maintaining the blockchain data
+structure. This includes block and chunk production and processing, consensus,
+and validator selection. However, chain is not responsible for actually
+applying transactions and receipts.</p>
+</li>
+<li>
+<p>Runtime. Runtime is the execution engine that actually applies transactions
+and receipts and performs state transitions. This also includes compilation of
+contracts (wasm binaries) and execution of contract calls.</p>
+</li>
+</ul>
+<h2 id="entry-points"><a class="header" href="#entry-points">Entry Points</a></h2>
+<p><code>neard/src/main.rs</code> contains the main function that starts a blockchain node.
+However, this file mostly only contains the logic to parse arguments and
+dispatch different commands.</p>
+<p><code>start_with_config</code> in <code>nearcore/src/lib.rs</code> is the actual entry point and it
+starts all the actors.</p>
+<h2 id="code-map"><a class="header" href="#code-map">Code Map</a></h2>
+<p>This section contains some high-level overview of important crates and data
+structures.</p>
+<h3 id="coreprimitives"><a class="header" href="#coreprimitives"><code>core/primitives</code></a></h3>
+<p>This crate contains most of the types that are shared across different crates.</p>
+<h3 id="coreprimitives-core"><a class="header" href="#coreprimitives-core"><code>core/primitives-core</code></a></h3>
+<p>This crate contains types needed for runtime.</p>
+<h3 id="corestoretrie"><a class="header" href="#corestoretrie"><code>core/store/trie</code></a></h3>
+<p>This directory contains the MPT state implementation. Note that we usually use
+<code>TrieUpdate</code> to interact with the state.</p>
+<h3 id="chainchain"><a class="header" href="#chainchain"><code>chain/chain</code></a></h3>
+<p>This crate contains most of the chain logic (consensus, block processing, etc).
+<code>ChainUpdate::process_block</code> is where most of the block processing logic
+happens.</p>
+<p><strong>Architecture Invariant</strong>: interface between chain and runtime is defined by
+<code>RuntimeAdapter</code>. All invocations of runtime goes through <code>RuntimeAdapter</code></p>
+<p><strong>State update</strong></p>
+<p>The blockchain state can be changed in the following two ways:</p>
+<ul>
+<li>Applying a chunk. This is how the state is normally updated: through
+<code>Runtime::apply</code>.</li>
+<li>State sync. State sync can happen in two cases:
+<ul>
+<li>A node is far enough behind the most recent block and triggers state sync to
+fast forward to the state of a very recent block without having to apply
+blocks in the middle.</li>
+<li>A node is about to become validator for some shard in the next epoch, but it
+does not yet have the state for that shard. In this case, it would run state
+sync through the <code>catchup</code> routine.</li>
+</ul>
+</li>
+</ul>
+<h3 id="chainchunks"><a class="header" href="#chainchunks"><code>chain/chunks</code></a></h3>
+<p>This crate contains most of the sharding logic which includes chunk creation,
+distribution, and processing. <code>ShardsManager</code> is the main struct that
+orchestrates everything here.</p>
+<h3 id="chainclient"><a class="header" href="#chainclient"><code>chain/client</code></a></h3>
+<p>This crate defines two important structs, <code>Client</code> and <code>ViewClient</code>. <code>Client</code>
+includes everything necessary for the chain (without network and runtime) to
+function and runs in a single thread. <code>ViewClient</code> is a &quot;read-only&quot; client that
+answers queries without interfering with the operations of <code>Client</code>.
+<code>ViewClient</code> runs in multiple threads.</p>
+<h3 id="chainnetwork"><a class="header" href="#chainnetwork"><code>chain/network</code></a></h3>
+<p>This crate contains the entire implementation of the p2p network used by NEAR
+blockchain nodes.</p>
+<p>Two important structs here: <code>PeerManagerActor</code> and <code>Peer</code>. Peer manager
+orchestrates all the communications from network to other components and from
+other components to network. <code>Peer</code> is responsible for low-level network
+communications from and to a given peer. Peer manager runs in one thread while
+each <code>Peer</code> runs in its own thread.</p>
+<p><strong>Architecture Invariant</strong>: Network communicates to <code>Client</code> through
+<code>NetworkClientMessages</code> and to <code>ViewClient</code> through <code>NetworkViewClientMessages</code>.
+Conversely, <code>Client</code> and <code>ViewClient</code> communicates to network through
+<code>NetworkRequests</code>.</p>
+<h3 id="chainepoch_manager"><a class="header" href="#chainepoch_manager"><code>chain/epoch_manager</code></a></h3>
+<p>This crate is responsible for determining validators and other epoch related
+information such as epoch id for each epoch.</p>
+<p>Note: <code>EpochManager</code> is constructed in <code>NightshadeRuntime</code> rather than in
+<code>Chain</code>, partially because we had this idea of making epoch manager a smart
+contract.</p>
+<h3 id="chainjsonrpc"><a class="header" href="#chainjsonrpc"><code>chain/jsonrpc</code></a></h3>
+<p>This crate implements <a href="https://www.jsonrpc.org/">JSON-RPC</a> API server to enable
+submission of new transactions and inspection of the blockchain data, the
+network state, and the node status. When a request is processed, it generates a
+message to either <code>ClientActor</code> or <code>ViewClientActor</code> to interact with the
+blockchain. For queries of blockchain data, such as block, chunk, account, etc,
+the request usually generates a message to <code>ViewClientActor</code>. Transactions, on
+the other hand, are sent to <code>ClientActor</code> for further processing.</p>
+<h3 id="runtimeruntime"><a class="header" href="#runtimeruntime"><code>runtime/runtime</code></a></h3>
+<p>This crate contains the main entry point to runtime -- <code>Runtime::apply</code>. This
+function takes <code>ApplyState</code>, which contains necessary information passed from
+chain to runtime, and a list of <code>SignedTransaction</code> and a list of <code>Receipt</code>, and
+returns a <code>ApplyResult</code>, which includes state changes, execution outcomes, etc.</p>
+<p><strong>Architecture Invariant</strong>: The state update is only finalized at the end of
+<code>apply</code>. During all intermediate steps state changes can be reverted.</p>
+<h3 id="runtimenear-vm-logic"><a class="header" href="#runtimenear-vm-logic"><code>runtime/near-vm-logic</code></a></h3>
+<p><code>VMLogic</code> contains all the implementations of host functions and is the
+interface between runtime and wasm. <code>VMLogic</code> is constructed when runtime
+applies function call actions. In <code>VMLogic</code>, interaction with NEAR blockchain
+happens in the following two ways:</p>
+<ul>
+<li><code>VMContext</code>, which contains lightweight information such as current block
+hash, current block height, epoch id, etc.</li>
+<li><code>External</code>, which is a trait that contains functions to interact with
+blockchain by either reading some nontrivial data, or writing to the
+blockchain.</li>
+</ul>
+<h3 id="runtimenear-vm-runner"><a class="header" href="#runtimenear-vm-runner"><code>runtime/near-vm-runner</code></a></h3>
+<p><code>run</code> function in <code>runner.rs</code> is the entry point to the vm runner. This function
+essentially spins up the vm and executes some function in a contract. It
+supports different wasm compilers including wasmer0, wasmer2, and wasmtime
+through compile-time feature flags. Currently we use wasmer0 and wasmer2 in
+production. The <code>imports</code> module exposes host functions defined in
+<code>near-vm-logic</code> to WASM code. In other words, it defines the ABI of the
+contracts on NEAR.</p>
+<h3 id="neard"><a class="header" href="#neard"><code>neard</code></a></h3>
+<p>As mentioned before, <code>neard</code> is the crate that contains that main entry points.
+All the actors are spawned in <code>start_with_config</code>. It is also worth noting that
+<code>NightshadeRuntime</code> is the struct that implements <code>RuntimeAdapter</code>.</p>
+<h3 id="corestoresrcdbrs"><a class="header" href="#corestoresrcdbrs"><code>core/store/src/db.rs</code></a></h3>
+<p>This file contains schema (DBCol) of our internal RocksDB storage - a good
+starting point when reading the code base.</p>
+<h2 id="cross-cutting-concerns"><a class="header" href="#cross-cutting-concerns">Cross Cutting Concerns</a></h2>
+<h3 id="observability"><a class="header" href="#observability">Observability</a></h3>
+<p>The <a href="https://tracing.rs">tracing</a> crate is used for structured, hierarchical
+event output and logging. We also integrate <a href="https://prometheus.io">Prometheus</a>
+for light-weight metric output. See the <a href="./style.html">style</a> documentation for
+more information on the usage.</p>
+<h3 id="testing"><a class="header" href="#testing">Testing</a></h3>
+<p>Rust has built-in support for writing unit tests by marking functions
+with <code>#[test]</code> directive.  Take full advantage of that!  Testing not
+only confirms that what was written works the way it was intended but
+also help during refactoring since the caught unintended behaviour
+changes.</p>
+<p>Not all tests are created equal though and while some can need only
+milliseconds to run, others may run for several seconds or even
+minutes.  Tests that take a long time should be marked as such with an
+<code>expensive_tests</code> feature, for example:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[test]
+#[cfg_attr(not(feature = &quot;expensive_tests&quot;), ignore)]
+fn test_catchup_random_single_part_sync() {
+    test_catchup_random_single_part_sync_common(false, false, 13)
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p>Such tests will be ignored by default and can be executed by using
+<code>--ignored</code> or <code>--include-ignored</code> flag as in <code>cargo test -- --ignored</code> or by compiling the tests with <code>expensive_tests</code> feature
+enabled.</p>
+<p>Because expensive tests are not run by default, they are also not run
+in CI.  Instead, they are run nightly and need to be explicitly
+included in <code>nightly/expensive.txt</code> file; for example:</p>
+<pre><code class="language-text">expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync --features nightly
+</code></pre>
+<p>For more details regarding nightly tests see <code>nightly/README.md</code>.</p>
+<p>Note that what counts as a slow test isn’t exactly defined as of now.
+If it takes just a couple seconds than it’s probably fine.  Anything
+slower should probably be classified as expensive test.  In
+particular, if libtest complains the test takes more than 60 seconds
+than it definitely is.</p>
 
                     </main>
 
@@ -150,7 +331,7 @@
                             <a rel="prev" href="../index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
-                            <a rel="next" href="../practices/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next" href="../architecture/trie.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
                         <div style="clear: both"></div>
@@ -162,7 +343,7 @@
                     <a rel="prev" href="../index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
-                    <a rel="next" href="../practices/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next" href="../architecture/trie.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>

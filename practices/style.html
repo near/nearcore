@@ -1,0 +1,550 @@
+<!DOCTYPE HTML>
+<html lang="en" class="sidebar-visible no-js light">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Code Style - nearcore Dev Guide</title>
+        <!-- Custom HTML head -->
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff" />
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+    </head>
+    <body>
+        <!-- Provide site root to javascript -->
+        <script type="text/javascript">
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script type="text/javascript">
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('no-js')
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add('js');
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var html = document.querySelector('html');
+            var sidebar = 'hidden';
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            }
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../architecture/trie.html"><strong aria-hidden="true">2.</strong> Trie</a></li><li class="chapter-item expanded "><a href="../architecture/network.html"><strong aria-hidden="true">3.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html"><strong aria-hidden="true">4.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../practices/style.html" class="active"><strong aria-hidden="true">5.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../practices/protocol_upgrade.html"><strong aria-hidden="true">6.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html"><strong aria-hidden="true">7.</strong> Misc</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky bordered">
+                    <div class="left-buttons">
+                        <button id="sidebar-toggle" class="icon-button" type="button" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </button>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light (default)</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">nearcore Dev Guide</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/edit/master/book/src/practices/style.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script type="text/javascript">
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="code-style"><a class="header" href="#code-style">Code Style</a></h1>
+<p>This document specifies the code style to use in the nearcore repository. The
+primary goal here is to achieve consistency, maintain it over time, and cut down
+on the mental overhead related to style choices.</p>
+<p>Right now, <code>nearcore</code> codebase is not perfectly consistent, and the style
+acknowledges this. It guides newly written code and serves as a tie breaker for
+decisions. Rewriting existing code to conform 100% to the style is not a goal.
+Local consistency is more important: if new code is added to a specific file,
+it's more important to be consistent with the file rather than with this style
+guide.</p>
+<p>This is a live document, which intentionally starts in a minimal case. When
+doing code-reviews, consider if some recurring advice you give could be moved
+into this document.</p>
+<h2 id="formatting"><a class="header" href="#formatting">Formatting</a></h2>
+<p>Use <code>rustfmt</code> for minor code formatting decisions. This rule is enforced by CI</p>
+<p><strong>Rationale:</strong> <code>rustfmt</code> style is almost always good enough, even if not always
+perfect. The amount of bikeshedding saved by <code>rustfmt</code> far outweighs any
+imperfections.</p>
+<h2 id="idiomatic-rust"><a class="header" href="#idiomatic-rust">Idiomatic Rust</a></h2>
+<p>While the most important thing is to solve the problem at hand, we strive to
+implement the solution in idiomatic Rust, if possible. To learn what is
+considered idiomatic Rust, a good start are the Rust API guidelines (but keep in
+mind that <code>nearcore</code> is not a library with public API, not all advice applies
+literally):</p>
+<p>https://rust-lang.github.io/api-guidelines/about.html</p>
+<p>When in doubt, ask question in the <a href="https://near.zulipchat.com/#narrow/stream/300659-Rust-.F0.9F.A6.80">Rust
+🦀</a> Zulip
+stream or during code review.</p>
+<p><strong>Rationale:</strong> Consistency, as there's usually only one idiomatic solution
+amidst many non-idiomatic ones. Predictability, you can use the APIs without
+consulting documentation. Performance, ergonomics and correctness: language
+idioms usually reflect learned truths, which might not be immediately obvious.</p>
+<h2 id="style"><a class="header" href="#style">Style</a></h2>
+<p>This section documents all micro-rules which are not otherwise enforced by
+<code>rustfmt</code>.</p>
+<h3 id="avoid-asrefas_ref"><a class="header" href="#avoid-asrefas_ref">Avoid <code>AsRef::as_ref</code></a></h3>
+<p>When you have some concrete type, prefer <code>.as_str</code>, <code>.as_bytes</code>, <code>.as_path</code> over
+generic <code>.as_ref</code>. Only use <code>.as_ref</code> when the type in question is a generic
+<code>T: AsRef&lt;U&gt;</code>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+fn log_validator(account_id: AccountId) {
+    metric_for(account_id.as_str())
+       .increment()
+}
+
+// BAD
+fn log_validator(account_id: AccountId) {
+    metric_for(account_id.as_ref())
+       .increment()
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p>Note that <code>Option::as_ref</code>, <code>Result::as_ref</code> are great, use do use them!</p>
+<p><strong>Rationale:</strong> readability and churn-resistance. There might be more than one
+<code>AsRef&lt;U&gt;</code> implementation for a given type (with different <code>U</code>s). If a new
+implementation is added, some of the <code>.as_ref()</code> calls might break. See also
+https://github.com/rust-lang/rust/issues/62586.</p>
+<h3 id="avoid-references-to-copy-types"><a class="header" href="#avoid-references-to-copy-types">Avoid references to <code>Copy</code>-types</a></h3>
+<p>Various generic APIs in Rust often return references to data (<code>&amp;T</code>). When <code>T</code> is
+a small <code>Copy</code> type like <code>i32</code>, you end up with <code>&amp;i32</code> while many API expect
+<code>i32</code>, so dereference has to happen <em>somewhere</em>. Prefer dereferencing as early
+as possible, typically in a pattern:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+fn compute(map: HashMap&lt;&amp;'str, i32&gt;) {
+    if let Some(&amp;value) = map.get(&quot;key&quot;) {
+        process(value)
+    }
+}
+fn process(value: i32) { ... }
+
+// BAD
+fn compute(map: HashMap&lt;&amp;'str, i32&gt;) {
+    if let Some(value) = map.get(&quot;key&quot;) {
+        process(*value)
+    }
+}
+fn process(value: i32) { ... }
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Rationale:</strong> if the value is used multiple times, dereferencing in the pattern
+saves keystrokes. If the value is used exactly once, we just want to be
+consistent. Additional benefit of early deref is reduced scope of borrow.</p>
+<p>Note that for some <em>big</em> <code>Copy</code> types, notably <code>CryptoHash</code>, we sometimes use
+references for performance reasons. As a rule of thumb, <code>T</code> is considered <em>big</em> if
+<code>size_of::&lt;T&gt;() &gt; 2 * size_of::&lt;usize&gt;()</code>.</p>
+<h3 id="prefer-for-loops-over-for_each-and-try_for_each-methods"><a class="header" href="#prefer-for-loops-over-for_each-and-try_for_each-methods">Prefer for loops over <code>for_each</code> and <code>try_for_each</code> methods</a></h3>
+<p>Iterators offer <code>for_each</code> and <code>try_for_each</code> methods which allow executing
+a closure over all items of the iterator.  This is similar to using a for loop
+but comes with various complications and may lead to less readable code.  Prefer
+using a loop rather than those methods, for example:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+for outcome_with_id in result? {
+    *total_gas_burnt =
+        safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
+    outcomes.push(outcome_with_id);
+}
+
+// BAD
+result?.into_iter().try_for_each(
+    |outcome_with_id: ExecutionOutcomeWithId| -&gt; Result&lt;(), RuntimeError&gt; {
+        *total_gas_burnt =
+            safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
+        outcomes.push(outcome_with_id);
+        Ok(())
+    },
+)?;
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Rationale:</strong> The <code>for_each</code> and <code>try_for_each</code> method don’t play nice with
+<code>break</code> and <code>continue</code> statements nor do they mesh well with async IO (since
+<code>.await</code> inside of the closure isn’t possible).  And while <code>try_for_each</code> allows
+for the use of question mark operator, one may end up having to uses it twice:
+once inside the closure and second time outside the call to <code>try_for_each</code>.
+Furthermore, usage of the functions often introduce some minor syntax noise.</p>
+<p>There are situations when those methods may lead to more readable code.  Common
+example are long call chains.  Even then such code may evolve with the closure
+growing and leading to less readable code.  If advantages of using the methods
+aren’t clear cut, it’s usually better to err on side of more imperative style.</p>
+<p>Lastly, anecdotally the methods (e.g. when used with <code>chain</code> or <code>flat_map</code>) may
+lead to faster code.  This intuitively makes sense but it’s worth to keep in
+mind that compilers are pretty good at optimising and in practice may generate
+optimal code anyway.  Furthermore, optimising code for readability may be more
+important (especially outside of hot path) than small performance gains.</p>
+<h3 id="prefer-to_string-to-format"><a class="header" href="#prefer-to_string-to-format">Prefer <code>to_string</code> to <code>format!(&quot;{}&quot;)</code></a></h3>
+<p>Prefer calling <code>to_string</code> method on an object rather than passing it through
+<code>format!(&quot;{}&quot;)</code> if all you’re doing is converting it to a <code>String</code>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+lat hash = block_hash.to_string();
+let msg = format!(&quot;{}: failed to open&quot;, path.display());
+
+// BAD
+lat hash = format!(&quot;{block_hash}&quot;);
+let msg = path.display() + &quot;: failed to open&quot;;
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Rationale:</strong> <code>to_string</code> is shorter to type and also faster.</p>
+<h3 id="import-granularity"><a class="header" href="#import-granularity">Import Granularity</a></h3>
+<p>Group import by module, but not deeper:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+use std::collections::{hash_map, BTreeSet};
+use std::sync::Arc;
+
+// BAD - nested groups.
+use std::{
+    collections::{hash_map, BTreeSet},
+    sync::Arc,
+};
+
+// BAD - not grouped together.
+use std::collections::BTreeSet;
+use std::collections::hash_map;
+use std::sync::Arc;
+<span class="boring">}
+</span></code></pre></pre>
+<p>This corresponds to <code>&quot;rust-analyzer.assist.importGranularity&quot;: &quot;module&quot;</code> setting
+in rust-analyzer
+(<a href="https://rust-analyzer.github.io/manual.html#rust-analyzer.assist.importGranularity">docs</a>).</p>
+<p><strong>Rationale:</strong> Consistency, matches existing practice.</p>
+<h3 id="import-blocks"><a class="header" href="#import-blocks">Import Blocks</a></h3>
+<p>Do not separate imports into groups with blank lines. Write a single block of
+imports and rely on <code>rustfmt</code> to sort them.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+use crate::types::KnownPeerState;
+use borsh::BorshSerialize;
+use near_primitives::utils::to_timestamp;
+use near_store::{DBCol::Peers, Store};
+use rand::seq::SliceRandom;
+use std::collections::HashMap;
+use std::net::SocketAddr;
+
+// BAD -- several groups of imports
+use std::collections::HashMap;
+use std::net::SocketAddr;
+
+use borsh::BorshSerialize;
+use rand::seq::SliceRandom;
+
+use near_primitives::utils::to_timestamp;
+use near_store::{DBCol::Peers, Store};
+
+use crate::types::KnownPeerState;
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Rationale:</strong> Consistency, ease of automatic enforcement. Today stable rustfmt
+can't split imports into groups automatically, and doing that manually
+consistently is a chore.</p>
+<h3 id="derives"><a class="header" href="#derives">Derives</a></h3>
+<p>When deriving an implementation of a trait, specify a full path to the traits provided by the
+external libraries:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+#[derive(Copy, Clone, serde::Serialize, thiserror::Error, strum::Display)]
+struct Grapefruit;
+
+// BAD
+use serde::Serialize;
+use thiserror::Error;
+use strum::Display;
+
+#[derive(Copy, Clone, Serialize, Error, Display)]
+struct Banana;
+<span class="boring">}
+</span></code></pre></pre>
+<p>As an exception to this rule, it is okay to use either style when the derived trait already
+includes the name of the library (as would be the case for <code>borsh::BorshSerialize</code>.)</p>
+<p><strong>Rationale:</strong> Specifying a full path to the externally provided derivations here makes it
+straightforward to differentiate between the built-in derivations and those provided by the
+external crates. The surprise factor for derivations sharing a name with the standard
+library traits (<code>Display</code>) is reduced and it also acts as natural mechanism to tell apart names
+prone to collision (<code>Serialize</code>), all without needing to look up the list of imports.</p>
+<h2 id="standard-naming"><a class="header" href="#standard-naming">Standard Naming</a></h2>
+<ul>
+<li>Use <code>-</code> rather than <code>_</code> in crate names and in corresponding folder names.</li>
+<li>Avoid single-letter variable names especially in long functions.  Common <code>i</code>,
+<code>j</code> etc. loop variables are somewhat of an exception but since Rust encourages
+use of iterators those cases aren’t that common anyway.</li>
+<li>Follow standard <a href="https://rust-lang.github.io/api-guidelines/naming.html">Rust naming patterns</a> such as:
+<ul>
+<li>Don’t use <code>get_</code> prefix for getter methods.  A getter method is one which
+returns (reference to) a field of an object.</li>
+<li>Use <code>set_</code> prefix for setter methods.  An exception are builder objects
+which may use different naming style.</li>
+<li>Use <code>into_</code> prefix for methods which consume <code>self</code> and <code>to_</code> prefix for
+methods which don’t.</li>
+</ul>
+</li>
+<li>Use <code>get_block_header</code> rather than <code>get_header</code> for methods which return
+a block header.</li>
+<li>Don’t use <code>_by_hash</code> suffix for methods which lookup chain objects (blocks,
+chunks, block headers etc.) by their hash (i.e. their primary identifier).</li>
+<li>Use <code>_by_height</code> and similar suffixes for methods which lookup chain objects
+(blocks, chunks, block headers etc.) by their height or other property which
+is not their hash.</li>
+</ul>
+<p><strong>Rationale:</strong> Consistency.</p>
+<h2 id="documentation"><a class="header" href="#documentation">Documentation</a></h2>
+<p>When writing documentation in <code>.md</code> files, wrap lines at approximately 80
+columns.</p>
+<pre><code class="language-markdown">&lt;!-- GOOD --&gt;
+Manually reflowing paragraphs is tedious. Luckily, most editors have this
+functionality built in or available via extensions. For example, in Emacs you
+can use `fill-paragraph` (&lt;kbd&gt;M-q&lt;/kbd&gt;), (neo)vim allows rewrapping with `gq`,
+and VS Code has `stkb.rewrap` extension.
+
+&lt;!-- BAD --&gt;
+One sentence per-line is also occasionally used for technical writing.
+We avoid that format though.
+While convenient for editing, it may be poorly legible in unrendered form
+
+&lt;!-- BAD --&gt;
+Definitely don't use soft-wrapping. While markdown mostly ignores source level line breaks, relying on soft wrap makes the source completely unreadable, especially on modern wide displays.
+</code></pre>
+<h2 id="tracing"><a class="header" href="#tracing"><a href="https://tracing.rs">Tracing</a></a></h2>
+<p>When emitting events and spans with <code>tracing</code> prefer adding variable data via
+<a href="https://docs.rs/tracing/latest/tracing/#recording-fields"><code>tracing</code>'s field mechanism</a>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+debug!(
+    target: &quot;client&quot;,
+    validator_id = self.client.validator_signer.as_ref().map(|vs| {
+        tracing::field::display(vs.validator_id())
+    }),
+    %hash,
+    &quot;block.previous_hash&quot; = %block.header().prev_hash(),
+    &quot;block.height&quot; = block.header().height(),
+    %peer_id,
+    was_requested
+    &quot;Received block&quot;,
+);
+<span class="boring">}
+</span></code></pre></pre>
+<p>Most apparent violation of this rule will be when the event message utilizes any
+form of formatting, as seen in the following example:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// BAD
+debug!(
+    target: &quot;client&quot;,
+    &quot;{:?} Received block {} &lt;- {} at {} from {}, requested: {}&quot;,
+    self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
+    hash,
+    block.header().prev_hash(),
+    block.header().height(),
+    peer_id,
+    was_requested
+);
+<span class="boring">}
+</span></code></pre></pre>
+<p>Always specify the <code>target</code> explicitly. A good default value to use is the crate
+name, or the module path (e.g. <code>chain::client</code>) so that events and spans common
+to a topic can be grouped together. This grouping can later be used for
+customizing of which events to output.</p>
+<p><strong>Rationale:</strong> This makes the events structured – one of the major value
+propositions of the tracing ecosystem. Structured events allow for immediately
+actionable data without additional post-processing, especially when using some
+of the more advanced tracing subscribers. Of particular interest would be those
+that output events as JSON, or those that publish data to distributed event
+collection systems such as opentelemetry. Maintaining this rule will also
+usually result in faster execution (when logs at the relevant level are enabled.)</p>
+<h3 id="spans"><a class="header" href="#spans">Spans</a></h3>
+<p>Use the <a href="https://docs.rs/tracing/latest/tracing/#spans">spans</a> to introduce context and grouping to and between events
+instead of manually adding such information as part of the events themselves.
+Most of the subscribers ingesting spans also provide a built-in timing facility,
+so prefer using spans for measuring the amount of time a section of code needs
+to execute.</p>
+<p>Give spans simple names that make them both easy to trace back to code, and to
+find a particular span in logs or other tools ingesting the span data. If a
+span begins at the top of a function, prefer giving it a name of that function,
+otherwise prefer a <code>snake_case</code> name.</p>
+<p>Use the regular span API over convenience macros such as <code>#[instrument]</code>, as
+this allows instrumenting portions of a function without affecting the code
+structure:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn compile_and_serialize_wasmer(code: &amp;[u8]) -&gt; Result&lt;wasmer::Module&gt; {
+    let _span = tracing::debug_span!(target: &quot;vm&quot;, &quot;compile_and_serialize_wasmer&quot;).entered();
+    // ...
+    // _span will be dropped when this scope ends, terminating the span created above.
+    // You can also `drop` it manually, to end the span early with `drop(_span)`.
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Rationale:</strong> Much as with events, this makes the information provided by spans
+structured and contextual. This information can then be output to tooling in an
+industry standard format, and can be interpreted by an extensive ecosystem of
+<code>tracing</code> subscribers.</p>
+<h3 id="event-and-span-levels"><a class="header" href="#event-and-span-levels">Event and span levels</a></h3>
+<p>The <code>INFO</code> level is enabled by default, use it for information useful for node
+operators. The <code>DEBUG</code> level is enabled on the canary nodes, use it for
+information useful in debugging testnet failures. The <code>TRACE</code> level is not
+generally enabled, use it for arbitrary debug output.</p>
+<h2 id="metrics"><a class="header" href="#metrics">Metrics</a></h2>
+<p>Consider adding metrics to new functionality. For example, how often each type
+of error was triggered, how often each message type was processed.</p>
+<p><strong>Rationale:</strong> Metrics are cheap to increment, and they often provide a significant
+insight into operation of the code, almost as much as logging. But unlike logging
+metrics don't incur a significant runtime cost.</p>
+<h3 id="naming"><a class="header" href="#naming">Naming</a></h3>
+<p>Prefix all <code>nearcore</code> metrics with <code>near_</code>.
+Follow [https://prometheus.io/docs/practices/naming/](Prometheus naming convention)
+for new metrics.</p>
+<p><strong>Rationale:</strong> The <code>near_</code> prefix makes it trivial to separate metrics exported
+by <code>nearcore</code> from other metrics, such as metrics about the state of the machine
+that runs <code>neard</code>.</p>
+<h3 id="performance"><a class="header" href="#performance">Performance</a></h3>
+<p>In most cases incrementing a metric is cheap enough never to give it a second
+thought. However accessing a metric with labels on a hot path needs to be done
+carefully.</p>
+<p>If a label is based on an integer, use a faster way of converting an integer
+to the label, such as the <code>itoa</code> crate.</p>
+<p>For hot code paths, re-use results of <code>with_label_values()</code> as much as possible.</p>
+<p><strong>Rationale:</strong> We've encountered issues caused by the runtime costs of
+incrementing metrics before. Avoid runtime costs of incrementing metrics too
+often.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../practices/index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+                            <a rel="next" href="../practices/protocol_upgrade.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../practices/index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                    <a rel="next" href="../practices/protocol_upgrade.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+        <script type="text/javascript">
+            window.playground_copyable = true;
+        </script>
+        <script src="../elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../mark.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../searcher.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../clipboard.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../highlight.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../book.js" type="text/javascript" charset="utf-8"></script>
+
+        <!-- Custom JS scripts -->
+    </body>
+</html>

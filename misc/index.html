@@ -75,7 +75,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html"><strong aria-hidden="true">2.</strong> Overview</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html" class="active"><strong aria-hidden="true">3.</strong> Misc</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../architecture/trie.html"><strong aria-hidden="true">2.</strong> Trie</a></li><li class="chapter-item expanded "><a href="../architecture/network.html"><strong aria-hidden="true">3.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html"><strong aria-hidden="true">4.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../practices/style.html"><strong aria-hidden="true">5.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../practices/protocol_upgrade.html"><strong aria-hidden="true">6.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html" class="active"><strong aria-hidden="true">7.</strong> Misc</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -143,12 +143,38 @@
                         <h1 id="overview"><a class="header" href="#overview">Overview</a></h1>
 <p>This chapter holds various assorted bits of docs. If you want to document
 something, but don't know where to put it, put it here!</p>
+<h2 id="crate-versioning-and-publishing"><a class="header" href="#crate-versioning-and-publishing">Crate Versioning and Publishing</a></h2>
+<p>While all the crates in the workspace are directly unversioned (<code>v0.0.0</code>), they
+all share a unified variable version in the <a href="Cargo.toml">workspace manifest</a>.
+This keeps versions consistent across the workspace and informs their versions
+at the moment of publishing.</p>
+<p>We also have CI infrastructure set up to automate the publishing process to
+crates.io.  So, on every merge to master, if there's a version change, it is
+automatically applied to all the crates in the workspace and it attempts to
+publish the new versions of all non-private crates.  All crates that should be
+exempt from this process should be marked <code>private</code>.  That is, they should have
+the <code>publish = false</code> specification in their package manifest.</p>
+<p>This process is managed by
+<a href="https://github.com/pksunkara/cargo-workspaces">cargo-workspaces</a>, with a <a href="https://github.com/pksunkara/cargo-workspaces/compare/master...miraclx:grouping-and-exclusion#files_bucket">bit
+of
+magic</a>
+sprinkled on top.</p>
+<h2 id="issue-labels"><a class="header" href="#issue-labels">Issue Labels</a></h2>
+<p>Issue labels are of the following format <code>&lt;type&gt;-&lt;content&gt;</code> where <code>&lt;type&gt;</code> is a
+capital letter indicating the type of the label and <code>&lt;content&gt;</code> is a hyphened
+phrase indicating what is label is about.  For example, in the label <code>C-bug</code>,
+<code>C</code> means category and <code>bug</code> means that the label is about bugs.  Common types
+include <code>C</code>, which means category, <code>A</code>, which means area, <code>T</code>, which means team.</p>
+<p>An issue can have multiple labels including which area it touches, which team
+should be responsible for the issue, and so on.  Each issue should have at least
+one label attached to it after it is triaged and the label could be a general
+one, such as <code>C-enhancement</code> or <code>C-bug</code>.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../practices/index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../practices/protocol_upgrade.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
                         <div style="clear: both"></div>
@@ -157,7 +183,7 @@ something, but don't know where to put it, put it here!</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../practices/index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../practices/protocol_upgrade.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
             </nav>

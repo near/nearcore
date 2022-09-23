@@ -1,0 +1,613 @@
+<!DOCTYPE HTML>
+<html lang="en" class="sidebar-visible no-js light">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Network - nearcore Dev Guide</title>
+        <!-- Custom HTML head -->
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff" />
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+    </head>
+    <body>
+        <!-- Provide site root to javascript -->
+        <script type="text/javascript">
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script type="text/javascript">
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('no-js')
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add('js');
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var html = document.querySelector('html');
+            var sidebar = 'hidden';
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            }
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../architecture/trie.html"><strong aria-hidden="true">2.</strong> Trie</a></li><li class="chapter-item expanded "><a href="../architecture/network.html" class="active"><strong aria-hidden="true">3.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html"><strong aria-hidden="true">4.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../practices/style.html"><strong aria-hidden="true">5.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../practices/protocol_upgrade.html"><strong aria-hidden="true">6.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html"><strong aria-hidden="true">7.</strong> Misc</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky bordered">
+                    <div class="left-buttons">
+                        <button id="sidebar-toggle" class="icon-button" type="button" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </button>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light (default)</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">nearcore Dev Guide</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/edit/master/book/src/architecture/network.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script type="text/javascript">
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <p>This document describes how our network works. At this moment, it is known to be
+somewhat outdated, as we are in the process of refactoring the network protocol
+somewhat significantly.</p>
+<h1 id="1-overview"><a class="header" href="#1-overview">1. Overview</a></h1>
+<p>Near Protocol uses its own implementation of a custom peer-to-peer network Peers
+who join network are represented by nodes and connections between them by edges.</p>
+<p>The purpose of this document is to describe inner workings of <code>near-network</code>
+package; and to be used as reference by future engineers to understand network
+code without any prior knowledge.</p>
+<h1 id="2-code-structure"><a class="header" href="#2-code-structure">2. Code structure</a></h1>
+<p><code>near-network</code> runs on top of <code>actor</code> framework called <code>Actix</code>
+(https://actix.rs/docs/). Code structure is split between 4 actors
+<code>PeerManagerActor</code>, <code>PeerActor</code>, <code>RoutingTableActor</code>, <code>EdgeValidatorActor</code></p>
+<h3 id="21-edgevalidatoractor-currently-called-edgeverifieractor-in-the-code-todo-rename"><a class="header" href="#21-edgevalidatoractor-currently-called-edgeverifieractor-in-the-code-todo-rename">2.1 <code>EdgeValidatorActor</code> (currently called <code>EdgeVerifierActor</code> in the code (TODO rename))</a></h3>
+<p><code>EdgeValidatorActor</code> runs on separate thread. The purpose of this <code>actor</code> is to
+validate <code>edges</code>, where each <code>edge</code> represents a connection between two peers,
+and it's signed with a cryptographic signature of both parties. The process of
+edge validation involves verifying cryptographic signatures, which can be quite
+expensive, and therefore was moved to another thread.</p>
+<p>Responsibilities:</p>
+<ul>
+<li>validating edges by checking whenever cryptographic signatures match.</li>
+</ul>
+<h3 id="22-routingtableactor"><a class="header" href="#22-routingtableactor">2.2 <code>RoutingTableActor</code></a></h3>
+<p><code>RoutingTableActor</code> maintain view of the <code>P2P network</code> represented by set of
+nodes and edges.</p>
+<p>In case a message needs to be sent between two nodes, that can be done directly
+through <code>Tcp</code> connection. Otherwise, <code>RoutingTableActor</code> is responsible for ping
+the best path between them.</p>
+<p>Responsibilities:</p>
+<ul>
+<li>keep set of all edges of <code>P2P network</code> called routing table</li>
+<li>connects to <code>EdgeValidatorActor</code>, and asks for edges to be validated, when
+needed</li>
+<li>has logic related to exchanging edges between peers</li>
+</ul>
+<h3 id="23-peeractor"><a class="header" href="#23-peeractor">2.3 <code>PeerActor</code></a></h3>
+<p>Whenever a new connection gets accepted, an instance of <code>PeerActor</code> gets
+created. Each <code>PeerActor</code> keeps a physical a <code>TCP connection</code> to exactly one
+peer.</p>
+<p>Responsibilities:</p>
+<ul>
+<li>Maintaining physical connection.</li>
+<li>Reading messages from peers, decoding them, and then forwarding them to the
+right place.</li>
+<li>Encoding messages, sending them to peers on physical layer.</li>
+<li>Routing messages between <code>PeerManagerActor</code> and other peers.</li>
+</ul>
+<h3 id="24-peermanageractor"><a class="header" href="#24-peermanageractor">2.4 <code>PeerManagerActor</code></a></h3>
+<p><code>PeerManagerActor</code> is the main actor of <code>near-network</code> crate. It's acts as a
+bridge connecting to the world outside, the other peers, and <code>ClientActor</code> and
+<code>ClientViewActor</code>, which handle processing any operations on the chain.
+<code>PeerManagerActor</code> maintains information about p2p network via (Routing Table
+Actor), and indirectly, through <code>PeerActor</code>, connections to all some nodes on
+the network. All messages going to other nodes, or coming from other nodes will
+be routed through this <code>Actor</code>. <code>PeerManagerActor</code> is responsible for accepting
+incoming connections from the outside world and creating <code>PeerActors</code> to manage
+them.</p>
+<p>Responsibilities:</p>
+<ul>
+<li>Accepting new connections</li>
+<li>Maintaining list of <code>PeerActors</code>, creating, deleting them</li>
+<li>Routing information about new edges between <code>PeerActors</code> and
+<code>RoutingTableManager</code></li>
+<li>Routing messages between <code>ViewClient</code>, <code>ViewClientActor</code> and <code>PeerActors</code>, and
+consequently other peers.</li>
+<li>Maintains <code>RouteBack</code> structure, which has information on how to send replies to messages</li>
+</ul>
+<h1 id="3-code-flow---initialization"><a class="header" href="#3-code-flow---initialization">3. Code flow - initialization</a></h1>
+<p><code>PeerManagerActor</code> actor gets started. <code>PeerManagerActor</code> open tcp server, which
+listens to incoming connection. It starts <code>RoutingTableActor</code>, which then starts
+<code>EdgeValidatorActor</code>. When connection incoming connection gets accepted, it
+starts a new <code>PeerActor</code> on its own thread.</p>
+<h1 id="4-networkconfig"><a class="header" href="#4-networkconfig">4. NetworkConfig</a></h1>
+<p><code>near-network</code> reads configuration from <code>NetworkConfig</code>, which is a part <code>client config</code>.</p>
+<p>Here is a list of features read from config</p>
+<ul>
+<li><code>boot_nodes</code> - list of nodes to connect to on start</li>
+<li><code>addr</code> - listening address</li>
+<li><code>max_num_peers</code> - by default we connect up to 40 peers, current implementation
+supports upto 128 nodes.</li>
+</ul>
+<h1 id="5-connecting-to-other-peers"><a class="header" href="#5-connecting-to-other-peers">5. Connecting to other peers.</a></h1>
+<p>Each peer maintains list of known peers. They are stored in the database. If
+database is empty, the list of peers, called boot nodes, will be read from
+<code>boot_nodes</code> option in config. Peer to connect to is chosen at random from list
+of known nodes by <code>PeerManagerActor::sample_random_peer</code> method.</p>
+<h1 id="6-edges--network---in-code-representation"><a class="header" href="#6-edges--network---in-code-representation">6. Edges &amp; network - in code representation</a></h1>
+<p><code>P2P network</code> is represented by list of <code>peers</code>, where each <code>peer</code> is
+represented by structure <code>PeerId</code>, which is defined by <code>peer's</code> public key
+<code>PublicKey</code>. And a list of edges, where each edge is represented by the
+structure <code>Edge</code>.</p>
+<p>Both are defined below.</p>
+<h1 id="61-publickey"><a class="header" href="#61-publickey">6.1 PublicKey</a></h1>
+<p>We use two types of public keys:</p>
+<ul>
+<li>a 256 bit <code>ED25519</code> public key</li>
+<li>a 512 bit <code>Secp256K1</code> public key</li>
+</ul>
+<p>Public keys are defined in <code>PublicKey</code> enum, which consists of those two
+variants.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct ED25519PublicKey(pub [u8; 32]);
+pub struct Secp256K1PublicKey([u8; 64]);
+pub enum PublicKey {
+    ED25519(ED25519PublicKey),
+    SECP256K1(Secp256K1PublicKey),
+}
+<span class="boring">}
+</span></code></pre></pre>
+<h1 id="62-peerid"><a class="header" href="#62-peerid">6.2 PeerId</a></h1>
+<p>Each <code>peer</code> is uniquely defined by its <code>PublicKey</code>, and represented by <code>PeerId</code>
+struct.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct PeerId(PublicKey);
+<span class="boring">}
+</span></code></pre></pre>
+<h1 id="63-edge"><a class="header" href="#63-edge">6.3 Edge</a></h1>
+<p>Each <code>edge</code> is represented by <code>Edge</code> structure. It contains the following</p>
+<ul>
+<li>pair of nodes represented by their public keys.</li>
+<li><code>nonce</code> - a unique number representing state of an edge. Starting with 1. Odd
+number represents an active edge. Even number represent an edge in which one
+of nodes, confirmed that the edge is removed.</li>
+<li>Signatures from both peers for active edges.</li>
+<li>Signature from one peers in case an edge got removed.</li>
+</ul>
+<h1 id="64-graph-representation"><a class="header" href="#64-graph-representation">6.4 Graph representation</a></h1>
+<p><code>RoutingTableActor</code> is responsible for storing and maintaining set of all edges.
+They are kept in <code>edge_info</code> data structure of type <code>HashSet&lt;Edge&gt;</code>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct RoutingTableActor {
+    /// Collection of edges representing P2P network.
+    /// It's indexed by `Edge::key()` key and can be search through by called `get()` function
+    /// with `(PeerId, PeerId)` as argument.
+    pub edges_info: HashSet&lt;Edge&gt;,
+    /// ...
+}
+<span class="boring">}
+</span></code></pre></pre>
+<h1 id="7-code-flow---connecting-to-a-peer---handshake"><a class="header" href="#7-code-flow---connecting-to-a-peer---handshake">7. Code flow - connecting to a peer - handshake</a></h1>
+<p>When <code>PeerManagerActor</code> starts it starts to listen to a specific port.</p>
+<h2 id="71---step-1---monitor_peers_trigger-runs"><a class="header" href="#71---step-1---monitor_peers_trigger-runs">7.1 - Step 1 - <code>monitor_peers_trigger</code> runs</a></h2>
+<p><code>PeerManager</code> checks if we need to connect to another peer by running
+<code>PeerManager::is_outbound_bootstrap_needed</code> method. If <code>true</code> we will try to
+connect to new node. Let's call current node, node <code>A</code>.</p>
+<h2 id="72---step-2---choosing-node-to-connect-to"><a class="header" href="#72---step-2---choosing-node-to-connect-to">7.2 - Step 2 - choosing node to connect to</a></h2>
+<p>Method <code>PeerManager::sample_random_peer</code> will be called, and it returns node <code>B</code>
+that we will try to connect to.</p>
+<h2 id="73---step-3---outboundtcpconnect-message"><a class="header" href="#73---step-3---outboundtcpconnect-message">7.3 - Step 3 - <code>OutboundTcpConnect</code> message</a></h2>
+<p><code>PeerManagerActor</code> will send to itself a message <code>OutboundTcpConnect</code> in order
+to connect to node <code>B</code>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct OutboundTcpConnect {
+    /// Peer information of the outbound connection
+    pub target_peer_info: PeerInfo,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<h2 id="74---step-4---outboundtcpconnect-message"><a class="header" href="#74---step-4---outboundtcpconnect-message">7.4 - Step 4 - <code>OutboundTcpConnect</code> message</a></h2>
+<p>On receiving the message <code>handle_msg_outbound_tcp_connect</code> method will be
+called, which calls <code>TcpStream::connect</code> to create new connection.</p>
+<h2 id="75---step-5---connection-gets-established"><a class="header" href="#75---step-5---connection-gets-established">7.5 - Step 5 - Connection gets established</a></h2>
+<p>Once connection with outgoing peer gets established. <code>try_connect_peer</code> method
+will be called. And then new <code>PeerActor</code> will be created and started. Once
+<code>PeerActor</code> starts it will send <code>Handshake</code> message to outgoing node <code>B</code> over
+tcp connection.</p>
+<p>This message contains <code>protocol_version</code>, node's <code>A</code> metadata, as well as all
+information necessary to create <code>Edge</code>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct Handshake {
+    /// Current protocol version.
+    pub(crate) protocol_version: u32,
+    /// Oldest supported protocol version.
+    pub(crate) oldest_supported_version: u32,
+    /// Sender's peer id.
+    pub(crate) sender_peer_id: PeerId,
+    /// Receiver's peer id.
+    pub(crate) target_peer_id: PeerId,
+    /// Sender's listening addr.
+    pub(crate) sender_listen_port: Option&lt;u16&gt;,
+    /// Peer's chain information.
+    pub(crate) sender_chain_info: PeerChainInfoV2,
+    /// Represents new `edge`. Contains only `none` and `Signature` from the sender.
+    pub(crate) partial_edge_info: PartialEdgeInfo,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<h2 id="76---step-6---handshake-arrives-at-node-b"><a class="header" href="#76---step-6---handshake-arrives-at-node-b">7.6 - Step 6 - <code>Handshake</code> arrives at node <code>B</code></a></h2>
+<p>Node <code>B</code> receives <code>Handshake</code> message. Then it performs various validation
+checks. That includes:</p>
+<ul>
+<li>Check signature of edge from the other peer.</li>
+<li>Whenever, <code>nonce</code> is the edge send matches.</li>
+<li>Check whenever the protocol is above the minimum
+<code>OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION</code></li>
+<li>Other node <code>view of chain</code> state</li>
+</ul>
+<p>If everything is successful, <code>PeerActor</code> will send <code>RegisterPeer</code> message to
+<code>PeerManagerActor</code>. This message contains everything needed to add <code>PeerActor</code>
+to list of active connections in <code>PeerManagerActor</code>.</p>
+<p>Otherwise, <code>PeerActor</code> will be stopped immediately or after some timeout.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct RegisterPeer {
+    pub(crate) actor: Addr&lt;PeerActor&gt;,
+    pub(crate) peer_info: PeerInfo,
+    pub(crate) peer_type: PeerType,
+    pub(crate) chain_info: PeerChainInfoV2,
+    // Edge information from this node.
+    // If this is None it implies we are outbound connection, so we need to create our
+    // EdgeInfo part and send it to the other peer.
+    pub(crate) this_edge_info: Option&lt;EdgeInfo&gt;,
+    // Edge information from other node.
+    pub(crate) other_edge_info: EdgeInfo,
+    // Protocol version of new peer. May be higher than ours.
+    pub(crate) peer_protocol_version: ProtocolVersion,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<h2 id="77---step-7---peermanageractor-receives-registerpeer-message---node-b"><a class="header" href="#77---step-7---peermanageractor-receives-registerpeer-message---node-b">7.7 - Step 7 - <code>PeerManagerActor</code> receives <code>RegisterPeer</code> message - node <code>B</code></a></h2>
+<p>In <code>handle_msg_consolidate</code> method <code>RegisterPeer</code> message will be validated. If
+successful <code>register_peer</code> method will be called, which adds <code>PeerActor</code> to list
+of connected peers.</p>
+<p>Each connected peer is represented in <code>PeerActorManager</code> in <code>ActivePeer</code> data
+structure.</p>
+<p>TODO: Rename <code>ActivePeer</code> to <code>RegisterPeer</code>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Contains information relevant to an active peer.
+struct ActivePeer { // will be renamed to `ConnectedPeer` see #5428
+    addr: Addr&lt;PeerActor&gt;,
+    full_peer_info: FullPeerInfo,
+    /// Number of bytes we've received from the peer.
+    received_bytes_per_sec: u64,
+    /// Number of bytes we've sent to the peer.
+    sent_bytes_per_sec: u64,
+    /// Last time requested peers.
+    last_time_peer_requested: Instant,
+    /// Last time we received a message from this peer.
+    last_time_received_message: Instant,
+    /// Time where the connection was established.
+    connection_established_time: Instant,
+    /// Who started connection. Inbound (other) or Outbound (us).
+    peer_type: PeerType,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<h2 id="78---step-8---exchange-routing-table-part-1---node-b"><a class="header" href="#78---step-8---exchange-routing-table-part-1---node-b">7.8 - Step 8 - Exchange routing table part 1 - node <code>B</code></a></h2>
+<p>At the end of <code>register_peer</code> method node <code>B</code> will performance
+<code>RoutingTableSync</code> sync. Sending list of known <code>edges</code> representing full graph,
+and list of known <code>AnnounceAccount</code>. Those will be covered later, in their
+dedicated sections see sections TODO1, TODO2.</p>
+<pre><code class="language-rust  ignore">message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
+</code></pre>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Contains metadata used for routing messages to particular `PeerId` or `AccountId`.
+pub struct RoutingTableSync { // also known as `SyncData` (#5489)
+    /// List of known edges from `RoutingTableActor::edges_info`.
+    pub(crate) edges: Vec&lt;Edge&gt;,
+    /// List of known `account_id` to `PeerId` mappings.
+    /// Useful for `send_message_to_account` method, to route message to particular account.
+    pub(crate) accounts: Vec&lt;AnnounceAccount&gt;,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<h2 id="79---step-9----exchange-routing-table-part-2---node-a"><a class="header" href="#79---step-9----exchange-routing-table-part-2---node-a">7.9 - Step 9 -  Exchange routing table part 2 - node <code>A</code></a></h2>
+<p>Upon receiving <code>RoutingTableSync</code> message. Node <code>A</code> will reply with own
+<code>RoutingTableSync</code> message.</p>
+<h2 id="710---step-10----exchange-routing-table-part-2---node-b"><a class="header" href="#710---step-10----exchange-routing-table-part-2---node-b">7.10 - Step 10 -  Exchange routing table part 2 - node <code>B</code></a></h2>
+<p>Node <code>B</code> will get the message from <code>A</code> and update it's routing table.</p>
+<h1 id="8-adding-new-edges-to-routing-tables"><a class="header" href="#8-adding-new-edges-to-routing-tables">8. Adding new edges to routing tables</a></h1>
+<p>This section covers the process of adding new edges, received from another
+nodes, to the routing table. It consists of several steps covered below.</p>
+<h2 id="81-step-1"><a class="header" href="#81-step-1">8.1 Step 1</a></h2>
+<p><code>PeerManagerActor</code> receives <code>RoutingTableSync</code> message containing list of new
+<code>edges</code> to add. <code>RoutingTableSync</code> contains list of edges of the P2P network.
+This message is then forwarded to <code>RoutingTableActor</code>.</p>
+<h2 id="82-step-2"><a class="header" href="#82-step-2">8.2 Step 2</a></h2>
+<p><code>PeerManagerActor</code> forwards those edges to <code>RoutingTableActor</code> inside of
+<code>ValidateEdgeList</code> struct.</p>
+<p><code>ValidateEdgeList</code> contains:</p>
+<ul>
+<li>list of edges to verify</li>
+<li>peer who send us the edges</li>
+</ul>
+<h2 id="83-step-3"><a class="header" href="#83-step-3">8.3 Step 3</a></h2>
+<p><code>RoutingTableActor</code> gets the <code>ValidateEdgeList</code> message. Filters out <code>edges</code>
+that have already been verified, those that are already in
+<code>RoutingTableActor::edges_info</code>.</p>
+<p>Then, it updates <code>edge_verifier_requests_in_progress</code> to mark that edge
+verifications are in progress, and edges shouldn't be pruned from Routing Table
+(see section TODO).</p>
+<p>Then, after removing already validated edges, the modified message is forwarded
+to <code>EdgeValidatorActor</code>.</p>
+<h2 id="84-step-4"><a class="header" href="#84-step-4">8.4 Step 4</a></h2>
+<p><code>EdgeValidatorActor</code> goes through list of all edges. It checks whether all edges
+are valid (their cryptographic signatures match, etc.).</p>
+<p>If any edge is not valid peer will be banned.</p>
+<p>Edges that are validated are written to a concurrent queue
+<code>ValidateEdgeList::sender</code>. This queue is used to transfer edges from
+<code>EdgeValidatorActor</code>, back to <code>PeerManagerActor</code>.</p>
+<h2 id="85-step-5"><a class="header" href="#85-step-5">8.5 Step 5</a></h2>
+<p><code>broadcast_validated_edges_trigger</code> runs, and gets validated edges from
+<code>EdgeVerifierActor</code>.</p>
+<p>Every new edge will be broadcast to all connected peers.</p>
+<p>And then, all validated edges received from <code>EdgeVerifierActor</code> will be sent
+again to <code>RoutingTableActor</code> inside <code>AddVerifiedEdges</code>.</p>
+<h2 id="85-step-6"><a class="header" href="#85-step-6">8.5 Step 6</a></h2>
+<p>When <code>RoutingTableActor</code> receives <code>RoutingTableMessages::AddVerifiedEdges</code>, the
+method<code>add_verified_edges_to_routing_table</code> will be called. It will add edges to
+<code>RoutingTableActor::edges_info</code> struct, and mark routing table, that it needs
+recalculation see <code>RoutingTableActor::needs_routing_table_recalculation</code>.</p>
+<h1 id="9-routing-table-computation"><a class="header" href="#9-routing-table-computation">9 Routing table computation</a></h1>
+<p>Routing table computation does a few things:</p>
+<ul>
+<li>For each peer <code>B</code>, calculates set of peers <code>|C_b|</code>, such that each peer is on
+the shortest path to <code>B</code>.</li>
+<li>Removing unreachable edges from memory and storing them to disk.</li>
+<li>The distance is calculated as the minimum number of nodes on the path from
+given node <code>A</code>, to each other node on the network. That is, <code>A</code> has a distance
+of <code>0</code> to itself. It's neighbors will have a distance of <code>1</code>. The neighbors of
+theirs neighbors will have a distance of <code>2</code>, etc.</li>
+</ul>
+<h2 id="91-step-1"><a class="header" href="#91-step-1">9.1 Step 1</a></h2>
+<p><code>PeerManagerActor</code> runs a <code>update_routing_table_trigger</code> every
+<code>UPDATE_ROUTING_TABLE_INTERVAL</code> seconds.</p>
+<p><code>RoutingTableMessages::RoutingTableUpdate</code> message is sent to
+<code>RoutingTableActor</code> to request routing table re-computation.</p>
+<h2 id="92-step-2"><a class="header" href="#92-step-2">9.2 Step 2</a></h2>
+<p><code>RoutingTableActor</code> receives the message, and then</p>
+<ul>
+<li>calls <code>recalculate_routing_table</code> method, which computes
+<code>RoutingTableActor::peer_forwarding: HashMap&lt;PeerId, Vec&lt;PeerId&gt;&gt;</code>. For each
+<code>PeerId</code> on the network, gives list of connected peers, which are on the
+shortest path to the destination. It marks reachable peers in
+<code>peer_last_time_reachable</code> struct.</li>
+<li>calls <code>prune_edges</code> which removes from memory all edges, that were not
+reachable for at least 1 hour, based on <code>peer_last_time_reachable</code> data
+structure. Those edges are then stored to disk.</li>
+</ul>
+<h2 id="93-step-3"><a class="header" href="#93-step-3">9.3 Step 3</a></h2>
+<p><code>RoutingTableActor</code> sends <code>RoutingTableUpdateResponse</code> message back to
+<code>PeerManagerActor</code>.</p>
+<p><code>PeerManagerActor</code> keep local copy of <code>edges_info</code>, called <code>local_edges_info</code>
+containing only edges adjacent to current node.</p>
+<ul>
+<li><code>RoutingTableUpdateResponse</code> contains list of local edges, which
+<code>PeerManagerActor</code> should remove.</li>
+<li><code>peer_forwarding</code> which represent on how to route messages in the P2P network</li>
+<li><code>peers_to_ban</code> - list of peers to ban for sending us edges, which failed
+validation in <code>EdgeVerifierActor</code>.</li>
+</ul>
+<h2 id="94-step-4"><a class="header" href="#94-step-4">9.4 Step 4</a></h2>
+<p><code>PeerManagerActor</code> received <code>RoutingTableUpdateResponse</code> and then:</p>
+<ul>
+<li>updates local copy of<code>peer_forwarding</code>, used for routing messages.</li>
+<li>removes <code>local_edges_to_remove</code> from <code>local_edges_info</code>.</li>
+<li>bans peers, who sent us invalid edges.</li>
+</ul>
+<h1 id="10-message-transportation-layers"><a class="header" href="#10-message-transportation-layers">10. Message transportation layers.</a></h1>
+<p>This section describes different protocols of sending messages currently used in
+<code>Near</code></p>
+<h2 id="101-messages-between-actors"><a class="header" href="#101-messages-between-actors">10.1 Messages between Actors.</a></h2>
+<p><code>Near</code> is build on <code>Actix</code>'s <code>actor</code> framework.
+(https://actix.rs/book/actix/sec-2-actor.html) Usually each actor runs on its
+own dedicated thread. Some, like <code>PeerActor</code> have one thread per each instance.
+Only messages implementing <code>actix::Message</code>, can be sent using between threads.
+Each actor has its own queue; Processing of messages happens asynchronously.</p>
+<p>We should not leak implementation details into the spec.</p>
+<p>Actix messages can be found by looking for <code>impl actix::Message</code>.</p>
+<h2 id="102-messages-sent-through-tcp"><a class="header" href="#102-messages-sent-through-tcp">10.2 Messages sent through TCP</a></h2>
+<p>Near is using <code>borsh</code> serialization to exchange messages between nodes (See
+https://borsh.io/). We should be careful when making changes to them. We have to
+maintain backward compatibility. Only messages implementing <code>BorshSerialize</code>,
+<code>BorshDeserialize</code> can be sent. We also use <code>borsh</code> for database storage.</p>
+<h2 id="103-messages-sentreceived-through-chainjsonrpc"><a class="header" href="#103-messages-sentreceived-through-chainjsonrpc">10.3 Messages sent/received through <code>chain/jsonrpc</code></a></h2>
+<p>Near runs a <code>json REST server</code>. (See <code>actix_web::HttpServer</code>). All messages sent
+and received must implement <code>serde::Serialize</code> and <code>serde::Deserialize</code>.</p>
+<h1 id="11-code-flow---routing-a-message"><a class="header" href="#11-code-flow---routing-a-message">11. Code flow - routing a message</a></h1>
+<p>This is the example of the message that is being sent between nodes
+(<code>RawRoutedMessage</code>)
+(https://github.com/near/nearcore/blob/fa8749dc60fe0de8e94c3046571731c622326e9f/chain/network-primitives/src/types.rs#L362)</p>
+<p>Each of these methods have a <code>target</code> - that is either the account_id or peer_id
+or hash (which seems to be used only for route back...). If target is the
+account - it will be converted using <code>routing_table.account_owner</code> to the peer.</p>
+<p>Upon receiving the message, the <code>PeerManagerActor</code> will sign it
+(https://github.com/near/nearcore/blob/master/chain/network/src/peer_manager.rs#L1285)
+And convert into RoutedMessage (which also have things like TTL etc.).</p>
+<p>Then it will use the <code>routing_table</code>, to find the route to the target peer (add
+<code>route_back</code> if needed) and then send the message over the network as
+<code>PeerMessage::Routed</code>. Details about routing table computations are covered in
+section 8.</p>
+<p>When Peer receives this message (as <code>PeerMessage::Routed</code>), it will pass it to
+PeerManager (as <code>RoutedMessageFrom</code>), which would then check if the message is
+for the current <code>PeerActor</code>. (if yes, it would pass it for the client) and if
+not - it would pass it along the network.</p>
+<p>All these messages are handled by <code>receive_client_message</code> in Peer.
+(<code>NetworkClientMessags</code>) - and transferred to <code>ClientActor</code> in
+(<code>chain/client/src/client_actor.rs</code>)</p>
+<p><code>NetworkRequests</code> to <code>PeerManager</code> actor trigger the <code>RawRoutedMessage</code> for
+messages that are meant to be sent to another <code>peer</code>.</p>
+<p><code>lib.rs</code> (<code>ShardsManager</code>) has a <code>network_adapter</code> - coming from client’s
+network_adapter that comes from <code>ClientActor</code> that comes from start_client call
+that comes from <code>start_with_config</code> (that crates <code>PeerManagerActor</code> - that is
+passed as target to <code>network_recipent</code>).</p>
+<h1 id="12-database"><a class="header" href="#12-database">12. Database</a></h1>
+<h3 id="121-storage-of-deleted-edges"><a class="header" href="#121-storage-of-deleted-edges">12.1 Storage of deleted edges</a></h3>
+<p>Everytime a group of peers becomes unreachable at the same time; We store edges
+belonging to them in components. We remove all of those edges from memory, and
+save them to database, If any of them were to be reachable again, we would
+re-add them. This is useful in case there is a network split, to recover edges
+if needed.</p>
+<p>Each component is assigned a unique <code>nonce</code>, where first one is assigned nonce
+0. Each new component, a get assigned a consecutive integer.</p>
+<p>To store components, we have the following columns in the DB.</p>
+<ul>
+<li><code>DBCol::LastComponentNonce</code> Stores <code>component_nonce: u64</code>, which is the last
+used nonce.</li>
+<li><code>DBCol::ComponentEdges</code> Mapping from <code>component_nonce</code> to list of edges.</li>
+<li><code>DBCol::PeerComponent</code> Mapping from <code>peer_id</code> to last component <code>nonce</code> it belongs to.</li>
+</ul>
+<h3 id="122-storage-of-account_id-to-peer_id-mapping"><a class="header" href="#122-storage-of-account_id-to-peer_id-mapping">12.2 Storage of <code>account_id</code> to <code>peer_id</code> mapping</a></h3>
+<p><code>ColAccountAnouncements</code> -&gt; Stores a mapping from <code>account_id</code> to tuple
+(<code>account_id</code>, <code>peer_id</code>, <code>epoch_id</code>, <code>signature</code>).</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../architecture/trie.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+                            <a rel="next" href="../practices/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../architecture/trie.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                    <a rel="next" href="../practices/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+        <script type="text/javascript">
+            window.playground_copyable = true;
+        </script>
+        <script src="../elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../mark.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../searcher.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../clipboard.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../highlight.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../book.js" type="text/javascript" charset="utf-8"></script>
+
+        <!-- Custom JS scripts -->
+    </body>
+</html>

@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Overview - nearcore Dev Guide</title>
+        <title>Trie - nearcore Dev Guide</title>
         <!-- Custom HTML head -->
         <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
         <meta name="description" content="">
@@ -75,7 +75,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../architecture/trie.html"><strong aria-hidden="true">2.</strong> Trie</a></li><li class="chapter-item expanded "><a href="../architecture/network.html"><strong aria-hidden="true">3.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html" class="active"><strong aria-hidden="true">4.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../practices/style.html"><strong aria-hidden="true">5.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../practices/protocol_upgrade.html"><strong aria-hidden="true">6.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html"><strong aria-hidden="true">7.</strong> Misc</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../architecture/trie.html" class="active"><strong aria-hidden="true">2.</strong> Trie</a></li><li class="chapter-item expanded "><a href="../architecture/network.html"><strong aria-hidden="true">3.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html"><strong aria-hidden="true">4.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../practices/style.html"><strong aria-hidden="true">5.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../practices/protocol_upgrade.html"><strong aria-hidden="true">6.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html"><strong aria-hidden="true">7.</strong> Misc</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -113,7 +113,7 @@
                         <a href="https://github.com/near/nearcore" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/near/nearcore/edit/master/book/src/practices/README.md" title="Suggest an edit" aria-label="Suggest an edit">
+                        <a href="https://github.com/near/nearcore/edit/master/book/src/architecture/trie.md" title="Suggest an edit" aria-label="Suggest an edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
                     </div>
@@ -140,18 +140,121 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="overview"><a class="header" href="#overview">Overview</a></h1>
-<p>This chapter describes various development processes and best practices employed
-at nearcore.</p>
+                        <h1 id="trie"><a class="header" href="#trie">Trie</a></h1>
+<p>We use Merkle-Patricia Trie to store blockchain state. Trie is persistent, which
+means that insertion of new node actually leads to creation of new path to this
+node, and thus root of Trie after insertion will also be presented by new
+object.</p>
+<p>Here we describe its implementation details which are closely related to
+Runtime.</p>
+<h2 id="main-structures"><a class="header" href="#main-structures">Main structures</a></h2>
+<h3 id="trie-1"><a class="header" href="#trie-1">Trie</a></h3>
+<p>Trie stores the state - accounts, contract codes, access keys, etc. Each state
+item corresponds to the unique trie key. All types of trie keys are described in
+the <a href="#triekey">TrieKey</a> section. You can read more about this structure on
+<a href="https://en.wikipedia.org/wiki/Trie">Wikipedia</a>.</p>
+<p>Trie is stored in the RocksDB, which is persistent across node restarts. Trie
+communicates with database using <code>TrieStorage</code>. On the database level, data is
+stored in key-value format in <code>DBCol::State</code> column. There are two kinds of
+records:</p>
+<ul>
+<li>trie nodes, for which key is constructed from shard id and
+<code>RawTrieNodeWithSize</code> hash, and value is a <code>RawTrieNodeWithSize</code> serialized by
+custom algorithm;</li>
+<li>values (encoded contract codes, postponed receipts, etc.), for which key is
+constructed from shard id and hash of value, which maps to the encoded value.</li>
+</ul>
+<p>So, value can be obtained from <code>TrieKey</code> as follows:</p>
+<ul>
+<li>start from the hash of <code>RawTrieNodeWithSize</code> corresponding to the root;</li>
+<li>descend to the needed node using nibbles from <code>TrieKey</code>;</li>
+<li>extract underlying <code>RawTrieNode</code>;</li>
+<li>if it is a <code>Leaf</code> or <code>Branch</code>, it should contain hash of the value;</li>
+<li>get value from storage by its hash and shard id.</li>
+</ul>
+<p>Note that <code>Trie</code> is almost never called directly from <code>Runtime</code>, modifications
+are made using <code>TrieUpdate</code>.</p>
+<h3 id="trieupdate"><a class="header" href="#trieupdate">TrieUpdate</a></h3>
+<p>Provides a way to access storage and record changes to commit in the future.
+Update is prepared as follows:</p>
+<ul>
+<li>changes are made using <code>set</code> and <code>remove</code> methods, which are added to
+<code>prospective</code> field,</li>
+<li>call <code>commit</code> method which moves <code>prospective</code> changes to <code>committed</code>,</li>
+<li>call <code>finalize</code> method which prepares <code>TrieChanges</code> and state changes based on
+<code>committed</code> field.</li>
+</ul>
+<p>Note that <code>finalize</code>, <code>Trie::insert</code> and <code>Trie::update</code> do not update the
+database storage. These functions only modify trie nodes in memory. Instead,
+these functions prepares <code>TrieChanges</code> object, and <code>Trie</code> is actually updated
+when <code>ShardTries::apply_insertions</code> is called, which puts new values to
+<code>DBCol::State</code> part of key-value database.</p>
+<h3 id="triestorage"><a class="header" href="#triestorage">TrieStorage</a></h3>
+<p>Stores all <code>Trie</code> nodes and allows to get serialized nodes by <code>TrieKey</code> hash
+using <code>retrieve_raw_bytes</code> method.</p>
+<p>There are three implementations of <code>TrieStorage</code>:</p>
+<ul>
+<li><code>TrieCachingStorage</code> - caches big values ever read by <code>retrieve_raw_bytes</code>.</li>
+<li><code>TrieRecordingStorage</code> - records all key-value pairs ever read by
+<code>retrieve_raw_bytes</code>. Used for obtaining state parts (and challenges in the
+future).</li>
+<li><code>TrieMemoryPartialStorage</code> - used for validating recorded partial storage.</li>
+</ul>
+<p>Note that these storages use database keys, which are retrieved using hashes of
+trie nodes using <code>get_key_from_shard_id_and_hash</code> method.</p>
+<h3 id="shardtries"><a class="header" href="#shardtries">ShardTries</a></h3>
+<p>Contains stores and caches and allows to get <code>Trie</code> object for any shard.</p>
+<h2 id="primitives"><a class="header" href="#primitives">Primitives</a></h2>
+<h3 id="triekey"><a class="header" href="#triekey">TrieKey</a></h3>
+<p>Describes all keys which may be inserted to <code>Trie</code>:</p>
+<ul>
+<li><code>Account</code></li>
+<li><code>ContractCode</code></li>
+<li><code>AccessKey</code></li>
+<li><code>ReceivedData</code></li>
+<li><code>PostponedReceiptId</code></li>
+<li><code>PendingDataCount</code></li>
+<li><code>PostponedReceipt</code></li>
+<li><code>DelayedReceiptIndices</code></li>
+<li><code>DelayedReceipt</code></li>
+<li><code>ContractData</code></li>
+</ul>
+<p>Each key is uniquely converted to <code>Vec&lt;u8&gt;</code>. Internally, each such vector is
+converted to <code>NibbleSlice</code> (nibble is a half of a byte), and each its item
+corresponds to one step down in <code>Trie</code>.</p>
+<h3 id="triechanges"><a class="header" href="#triechanges">TrieChanges</a></h3>
+<p>Stores result of updating <code>Trie</code>.</p>
+<ul>
+<li><code>old_root</code>: root before updating <code>Trie</code>, i.e. inserting new nodes and deleting
+old ones,</li>
+<li><code>new_root</code>: root after updating <code>Trie</code>,</li>
+<li><code>insertions</code>, <code>deletions</code>: vectors of <code>TrieRefcountChange</code>, describing all
+inserted and deleted nodes.</li>
+</ul>
+<h3 id="trierefcountchange"><a class="header" href="#trierefcountchange">TrieRefcountChange</a></h3>
+<p>Because we remove unused nodes during garbage collection, we need to track
+reference count (<code>rc</code>) for each node. Another reason is that we can dedup
+values. If the same contract is deployed 1000 times, we only store one contract
+binary in storage and track its count.</p>
+<p>This structure is used to update <code>rc</code> in the database:</p>
+<ul>
+<li><code>trie_node_or_value_hash</code> - hash of the trie node or value, used for uniting
+with shard id to get DB key,</li>
+<li><code>trie_node_or_value</code> - serialized trie node or value,</li>
+<li><code>rc</code> - change of reference count.</li>
+</ul>
+<p>Note that for all reference-counted records, the actual value stored in DB is
+the concatenation of <code>trie_node_or_value</code> and <code>rc</code>. The reference count is
+updated using custom merge operation <code>merge_refcounted_records</code>.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../architecture/network.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../architecture/index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
-                            <a rel="next" href="../practices/style.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next" href="../architecture/network.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
                         <div style="clear: both"></div>
@@ -160,10 +263,10 @@ at nearcore.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../architecture/network.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../architecture/index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
-                    <a rel="next" href="../practices/style.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next" href="../architecture/network.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>

@@ -76,7 +76,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><a href="index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="practices/index.html"><strong aria-hidden="true">2.</strong> Overview</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="misc/index.html"><strong aria-hidden="true">3.</strong> Misc</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="architecture/trie.html"><strong aria-hidden="true">2.</strong> Trie</a></li><li class="chapter-item expanded "><a href="architecture/network.html"><strong aria-hidden="true">3.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="practices/index.html"><strong aria-hidden="true">4.</strong> Overview</a></li><li class="chapter-item expanded "><a href="practices/style.html"><strong aria-hidden="true">5.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="practices/protocol_upgrade.html"><strong aria-hidden="true">6.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="misc/index.html"><strong aria-hidden="true">7.</strong> Misc</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -164,13 +164,1236 @@ just put it in misc!</li>
 </ul>
 <p>If you are unsure, start with the next chapter, <a href="./architecture/index.html">Architecture Overview</a></p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="overview"><a class="header" href="#overview">Overview</a></h1>
-<p>This chapter describes how <code>nearcore</code> works.</p>
+<p>This document describes the high-level architecture of nearcore. The focus here
+is on the implementation of the blockchain protocol, not the protocol itself.
+For reference documentation of the protocol, please refer to
+<a href="https://nomicon.io/">nomicon</a></p>
+<h2 id="birds-eye-view"><a class="header" href="#birds-eye-view">Bird's Eye View</a></h2>
+<p><img src="architecture//images/architecture.svg" alt="" /></p>
+<p>Since nearcore is an implementation of NEAR blockchain protocol, its goal is to
+produce a binary that runs as a blockchain client. More specifically, the
+<code>neard</code> binary can do the following:</p>
+<ul>
+<li>generate files necessary to start a node</li>
+<li>start a node with a given folder that contains required data</li>
+</ul>
+<p>There are three major components of nearcore:</p>
+<ul>
+<li>
+<p>Network. We implement a peer-to-peer network that powers communications
+between blockchain nodes. This includes initiating connections with other
+nodes, maintaining a view of the entire network, routing messages to the right
+nodes, etc. Network is a somewhat standalone module, though it uses
+information about validators to propagate and validate certain messages.</p>
+</li>
+<li>
+<p>Chain. Chain is responsible for building and maintaining the blockchain data
+structure. This includes block and chunk production and processing, consensus,
+and validator selection. However, chain is not responsible for actually
+applying transactions and receipts.</p>
+</li>
+<li>
+<p>Runtime. Runtime is the execution engine that actually applies transactions
+and receipts and performs state transitions. This also includes compilation of
+contracts (wasm binaries) and execution of contract calls.</p>
+</li>
+</ul>
+<h2 id="entry-points"><a class="header" href="#entry-points">Entry Points</a></h2>
+<p><code>neard/src/main.rs</code> contains the main function that starts a blockchain node.
+However, this file mostly only contains the logic to parse arguments and
+dispatch different commands.</p>
+<p><code>start_with_config</code> in <code>nearcore/src/lib.rs</code> is the actual entry point and it
+starts all the actors.</p>
+<h2 id="code-map"><a class="header" href="#code-map">Code Map</a></h2>
+<p>This section contains some high-level overview of important crates and data
+structures.</p>
+<h3 id="coreprimitives"><a class="header" href="#coreprimitives"><code>core/primitives</code></a></h3>
+<p>This crate contains most of the types that are shared across different crates.</p>
+<h3 id="coreprimitives-core"><a class="header" href="#coreprimitives-core"><code>core/primitives-core</code></a></h3>
+<p>This crate contains types needed for runtime.</p>
+<h3 id="corestoretrie"><a class="header" href="#corestoretrie"><code>core/store/trie</code></a></h3>
+<p>This directory contains the MPT state implementation. Note that we usually use
+<code>TrieUpdate</code> to interact with the state.</p>
+<h3 id="chainchain"><a class="header" href="#chainchain"><code>chain/chain</code></a></h3>
+<p>This crate contains most of the chain logic (consensus, block processing, etc).
+<code>ChainUpdate::process_block</code> is where most of the block processing logic
+happens.</p>
+<p><strong>Architecture Invariant</strong>: interface between chain and runtime is defined by
+<code>RuntimeAdapter</code>. All invocations of runtime goes through <code>RuntimeAdapter</code></p>
+<p><strong>State update</strong></p>
+<p>The blockchain state can be changed in the following two ways:</p>
+<ul>
+<li>Applying a chunk. This is how the state is normally updated: through
+<code>Runtime::apply</code>.</li>
+<li>State sync. State sync can happen in two cases:
+<ul>
+<li>A node is far enough behind the most recent block and triggers state sync to
+fast forward to the state of a very recent block without having to apply
+blocks in the middle.</li>
+<li>A node is about to become validator for some shard in the next epoch, but it
+does not yet have the state for that shard. In this case, it would run state
+sync through the <code>catchup</code> routine.</li>
+</ul>
+</li>
+</ul>
+<h3 id="chainchunks"><a class="header" href="#chainchunks"><code>chain/chunks</code></a></h3>
+<p>This crate contains most of the sharding logic which includes chunk creation,
+distribution, and processing. <code>ShardsManager</code> is the main struct that
+orchestrates everything here.</p>
+<h3 id="chainclient"><a class="header" href="#chainclient"><code>chain/client</code></a></h3>
+<p>This crate defines two important structs, <code>Client</code> and <code>ViewClient</code>. <code>Client</code>
+includes everything necessary for the chain (without network and runtime) to
+function and runs in a single thread. <code>ViewClient</code> is a &quot;read-only&quot; client that
+answers queries without interfering with the operations of <code>Client</code>.
+<code>ViewClient</code> runs in multiple threads.</p>
+<h3 id="chainnetwork"><a class="header" href="#chainnetwork"><code>chain/network</code></a></h3>
+<p>This crate contains the entire implementation of the p2p network used by NEAR
+blockchain nodes.</p>
+<p>Two important structs here: <code>PeerManagerActor</code> and <code>Peer</code>. Peer manager
+orchestrates all the communications from network to other components and from
+other components to network. <code>Peer</code> is responsible for low-level network
+communications from and to a given peer. Peer manager runs in one thread while
+each <code>Peer</code> runs in its own thread.</p>
+<p><strong>Architecture Invariant</strong>: Network communicates to <code>Client</code> through
+<code>NetworkClientMessages</code> and to <code>ViewClient</code> through <code>NetworkViewClientMessages</code>.
+Conversely, <code>Client</code> and <code>ViewClient</code> communicates to network through
+<code>NetworkRequests</code>.</p>
+<h3 id="chainepoch_manager"><a class="header" href="#chainepoch_manager"><code>chain/epoch_manager</code></a></h3>
+<p>This crate is responsible for determining validators and other epoch related
+information such as epoch id for each epoch.</p>
+<p>Note: <code>EpochManager</code> is constructed in <code>NightshadeRuntime</code> rather than in
+<code>Chain</code>, partially because we had this idea of making epoch manager a smart
+contract.</p>
+<h3 id="chainjsonrpc"><a class="header" href="#chainjsonrpc"><code>chain/jsonrpc</code></a></h3>
+<p>This crate implements <a href="https://www.jsonrpc.org/">JSON-RPC</a> API server to enable
+submission of new transactions and inspection of the blockchain data, the
+network state, and the node status. When a request is processed, it generates a
+message to either <code>ClientActor</code> or <code>ViewClientActor</code> to interact with the
+blockchain. For queries of blockchain data, such as block, chunk, account, etc,
+the request usually generates a message to <code>ViewClientActor</code>. Transactions, on
+the other hand, are sent to <code>ClientActor</code> for further processing.</p>
+<h3 id="runtimeruntime"><a class="header" href="#runtimeruntime"><code>runtime/runtime</code></a></h3>
+<p>This crate contains the main entry point to runtime -- <code>Runtime::apply</code>. This
+function takes <code>ApplyState</code>, which contains necessary information passed from
+chain to runtime, and a list of <code>SignedTransaction</code> and a list of <code>Receipt</code>, and
+returns a <code>ApplyResult</code>, which includes state changes, execution outcomes, etc.</p>
+<p><strong>Architecture Invariant</strong>: The state update is only finalized at the end of
+<code>apply</code>. During all intermediate steps state changes can be reverted.</p>
+<h3 id="runtimenear-vm-logic"><a class="header" href="#runtimenear-vm-logic"><code>runtime/near-vm-logic</code></a></h3>
+<p><code>VMLogic</code> contains all the implementations of host functions and is the
+interface between runtime and wasm. <code>VMLogic</code> is constructed when runtime
+applies function call actions. In <code>VMLogic</code>, interaction with NEAR blockchain
+happens in the following two ways:</p>
+<ul>
+<li><code>VMContext</code>, which contains lightweight information such as current block
+hash, current block height, epoch id, etc.</li>
+<li><code>External</code>, which is a trait that contains functions to interact with
+blockchain by either reading some nontrivial data, or writing to the
+blockchain.</li>
+</ul>
+<h3 id="runtimenear-vm-runner"><a class="header" href="#runtimenear-vm-runner"><code>runtime/near-vm-runner</code></a></h3>
+<p><code>run</code> function in <code>runner.rs</code> is the entry point to the vm runner. This function
+essentially spins up the vm and executes some function in a contract. It
+supports different wasm compilers including wasmer0, wasmer2, and wasmtime
+through compile-time feature flags. Currently we use wasmer0 and wasmer2 in
+production. The <code>imports</code> module exposes host functions defined in
+<code>near-vm-logic</code> to WASM code. In other words, it defines the ABI of the
+contracts on NEAR.</p>
+<h3 id="neard"><a class="header" href="#neard"><code>neard</code></a></h3>
+<p>As mentioned before, <code>neard</code> is the crate that contains that main entry points.
+All the actors are spawned in <code>start_with_config</code>. It is also worth noting that
+<code>NightshadeRuntime</code> is the struct that implements <code>RuntimeAdapter</code>.</p>
+<h3 id="corestoresrcdbrs"><a class="header" href="#corestoresrcdbrs"><code>core/store/src/db.rs</code></a></h3>
+<p>This file contains schema (DBCol) of our internal RocksDB storage - a good
+starting point when reading the code base.</p>
+<h2 id="cross-cutting-concerns"><a class="header" href="#cross-cutting-concerns">Cross Cutting Concerns</a></h2>
+<h3 id="observability"><a class="header" href="#observability">Observability</a></h3>
+<p>The <a href="https://tracing.rs">tracing</a> crate is used for structured, hierarchical
+event output and logging. We also integrate <a href="https://prometheus.io">Prometheus</a>
+for light-weight metric output. See the <a href="architecture/./style.html">style</a> documentation for
+more information on the usage.</p>
+<h3 id="testing"><a class="header" href="#testing">Testing</a></h3>
+<p>Rust has built-in support for writing unit tests by marking functions
+with <code>#[test]</code> directive.  Take full advantage of that!  Testing not
+only confirms that what was written works the way it was intended but
+also help during refactoring since the caught unintended behaviour
+changes.</p>
+<p>Not all tests are created equal though and while some can need only
+milliseconds to run, others may run for several seconds or even
+minutes.  Tests that take a long time should be marked as such with an
+<code>expensive_tests</code> feature, for example:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[test]
+#[cfg_attr(not(feature = &quot;expensive_tests&quot;), ignore)]
+fn test_catchup_random_single_part_sync() {
+    test_catchup_random_single_part_sync_common(false, false, 13)
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p>Such tests will be ignored by default and can be executed by using
+<code>--ignored</code> or <code>--include-ignored</code> flag as in <code>cargo test -- --ignored</code> or by compiling the tests with <code>expensive_tests</code> feature
+enabled.</p>
+<p>Because expensive tests are not run by default, they are also not run
+in CI.  Instead, they are run nightly and need to be explicitly
+included in <code>nightly/expensive.txt</code> file; for example:</p>
+<pre><code class="language-text">expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync
+expensive --timeout=1800 near-client near_client tests::catching_up::test_catchup_random_single_part_sync --features nightly
+</code></pre>
+<p>For more details regarding nightly tests see <code>nightly/README.md</code>.</p>
+<p>Note that what counts as a slow test isn’t exactly defined as of now.
+If it takes just a couple seconds than it’s probably fine.  Anything
+slower should probably be classified as expensive test.  In
+particular, if libtest complains the test takes more than 60 seconds
+than it definitely is.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="trie"><a class="header" href="#trie">Trie</a></h1>
+<p>We use Merkle-Patricia Trie to store blockchain state. Trie is persistent, which
+means that insertion of new node actually leads to creation of new path to this
+node, and thus root of Trie after insertion will also be presented by new
+object.</p>
+<p>Here we describe its implementation details which are closely related to
+Runtime.</p>
+<h2 id="main-structures"><a class="header" href="#main-structures">Main structures</a></h2>
+<h3 id="trie-1"><a class="header" href="#trie-1">Trie</a></h3>
+<p>Trie stores the state - accounts, contract codes, access keys, etc. Each state
+item corresponds to the unique trie key. All types of trie keys are described in
+the <a href="architecture/trie.html#triekey">TrieKey</a> section. You can read more about this structure on
+<a href="https://en.wikipedia.org/wiki/Trie">Wikipedia</a>.</p>
+<p>Trie is stored in the RocksDB, which is persistent across node restarts. Trie
+communicates with database using <code>TrieStorage</code>. On the database level, data is
+stored in key-value format in <code>DBCol::State</code> column. There are two kinds of
+records:</p>
+<ul>
+<li>trie nodes, for which key is constructed from shard id and
+<code>RawTrieNodeWithSize</code> hash, and value is a <code>RawTrieNodeWithSize</code> serialized by
+custom algorithm;</li>
+<li>values (encoded contract codes, postponed receipts, etc.), for which key is
+constructed from shard id and hash of value, which maps to the encoded value.</li>
+</ul>
+<p>So, value can be obtained from <code>TrieKey</code> as follows:</p>
+<ul>
+<li>start from the hash of <code>RawTrieNodeWithSize</code> corresponding to the root;</li>
+<li>descend to the needed node using nibbles from <code>TrieKey</code>;</li>
+<li>extract underlying <code>RawTrieNode</code>;</li>
+<li>if it is a <code>Leaf</code> or <code>Branch</code>, it should contain hash of the value;</li>
+<li>get value from storage by its hash and shard id.</li>
+</ul>
+<p>Note that <code>Trie</code> is almost never called directly from <code>Runtime</code>, modifications
+are made using <code>TrieUpdate</code>.</p>
+<h3 id="trieupdate"><a class="header" href="#trieupdate">TrieUpdate</a></h3>
+<p>Provides a way to access storage and record changes to commit in the future.
+Update is prepared as follows:</p>
+<ul>
+<li>changes are made using <code>set</code> and <code>remove</code> methods, which are added to
+<code>prospective</code> field,</li>
+<li>call <code>commit</code> method which moves <code>prospective</code> changes to <code>committed</code>,</li>
+<li>call <code>finalize</code> method which prepares <code>TrieChanges</code> and state changes based on
+<code>committed</code> field.</li>
+</ul>
+<p>Note that <code>finalize</code>, <code>Trie::insert</code> and <code>Trie::update</code> do not update the
+database storage. These functions only modify trie nodes in memory. Instead,
+these functions prepares <code>TrieChanges</code> object, and <code>Trie</code> is actually updated
+when <code>ShardTries::apply_insertions</code> is called, which puts new values to
+<code>DBCol::State</code> part of key-value database.</p>
+<h3 id="triestorage"><a class="header" href="#triestorage">TrieStorage</a></h3>
+<p>Stores all <code>Trie</code> nodes and allows to get serialized nodes by <code>TrieKey</code> hash
+using <code>retrieve_raw_bytes</code> method.</p>
+<p>There are three implementations of <code>TrieStorage</code>:</p>
+<ul>
+<li><code>TrieCachingStorage</code> - caches big values ever read by <code>retrieve_raw_bytes</code>.</li>
+<li><code>TrieRecordingStorage</code> - records all key-value pairs ever read by
+<code>retrieve_raw_bytes</code>. Used for obtaining state parts (and challenges in the
+future).</li>
+<li><code>TrieMemoryPartialStorage</code> - used for validating recorded partial storage.</li>
+</ul>
+<p>Note that these storages use database keys, which are retrieved using hashes of
+trie nodes using <code>get_key_from_shard_id_and_hash</code> method.</p>
+<h3 id="shardtries"><a class="header" href="#shardtries">ShardTries</a></h3>
+<p>Contains stores and caches and allows to get <code>Trie</code> object for any shard.</p>
+<h2 id="primitives"><a class="header" href="#primitives">Primitives</a></h2>
+<h3 id="triekey"><a class="header" href="#triekey">TrieKey</a></h3>
+<p>Describes all keys which may be inserted to <code>Trie</code>:</p>
+<ul>
+<li><code>Account</code></li>
+<li><code>ContractCode</code></li>
+<li><code>AccessKey</code></li>
+<li><code>ReceivedData</code></li>
+<li><code>PostponedReceiptId</code></li>
+<li><code>PendingDataCount</code></li>
+<li><code>PostponedReceipt</code></li>
+<li><code>DelayedReceiptIndices</code></li>
+<li><code>DelayedReceipt</code></li>
+<li><code>ContractData</code></li>
+</ul>
+<p>Each key is uniquely converted to <code>Vec&lt;u8&gt;</code>. Internally, each such vector is
+converted to <code>NibbleSlice</code> (nibble is a half of a byte), and each its item
+corresponds to one step down in <code>Trie</code>.</p>
+<h3 id="triechanges"><a class="header" href="#triechanges">TrieChanges</a></h3>
+<p>Stores result of updating <code>Trie</code>.</p>
+<ul>
+<li><code>old_root</code>: root before updating <code>Trie</code>, i.e. inserting new nodes and deleting
+old ones,</li>
+<li><code>new_root</code>: root after updating <code>Trie</code>,</li>
+<li><code>insertions</code>, <code>deletions</code>: vectors of <code>TrieRefcountChange</code>, describing all
+inserted and deleted nodes.</li>
+</ul>
+<h3 id="trierefcountchange"><a class="header" href="#trierefcountchange">TrieRefcountChange</a></h3>
+<p>Because we remove unused nodes during garbage collection, we need to track
+reference count (<code>rc</code>) for each node. Another reason is that we can dedup
+values. If the same contract is deployed 1000 times, we only store one contract
+binary in storage and track its count.</p>
+<p>This structure is used to update <code>rc</code> in the database:</p>
+<ul>
+<li><code>trie_node_or_value_hash</code> - hash of the trie node or value, used for uniting
+with shard id to get DB key,</li>
+<li><code>trie_node_or_value</code> - serialized trie node or value,</li>
+<li><code>rc</code> - change of reference count.</li>
+</ul>
+<p>Note that for all reference-counted records, the actual value stored in DB is
+the concatenation of <code>trie_node_or_value</code> and <code>rc</code>. The reference count is
+updated using custom merge operation <code>merge_refcounted_records</code>.</p>
+<div style="break-before: page; page-break-before: always;"></div><p>This document describes how our network works. At this moment, it is known to be
+somewhat outdated, as we are in the process of refactoring the network protocol
+somewhat significantly.</p>
+<h1 id="1-overview"><a class="header" href="#1-overview">1. Overview</a></h1>
+<p>Near Protocol uses its own implementation of a custom peer-to-peer network Peers
+who join network are represented by nodes and connections between them by edges.</p>
+<p>The purpose of this document is to describe inner workings of <code>near-network</code>
+package; and to be used as reference by future engineers to understand network
+code without any prior knowledge.</p>
+<h1 id="2-code-structure"><a class="header" href="#2-code-structure">2. Code structure</a></h1>
+<p><code>near-network</code> runs on top of <code>actor</code> framework called <code>Actix</code>
+(https://actix.rs/docs/). Code structure is split between 4 actors
+<code>PeerManagerActor</code>, <code>PeerActor</code>, <code>RoutingTableActor</code>, <code>EdgeValidatorActor</code></p>
+<h3 id="21-edgevalidatoractor-currently-called-edgeverifieractor-in-the-code-todo-rename"><a class="header" href="#21-edgevalidatoractor-currently-called-edgeverifieractor-in-the-code-todo-rename">2.1 <code>EdgeValidatorActor</code> (currently called <code>EdgeVerifierActor</code> in the code (TODO rename))</a></h3>
+<p><code>EdgeValidatorActor</code> runs on separate thread. The purpose of this <code>actor</code> is to
+validate <code>edges</code>, where each <code>edge</code> represents a connection between two peers,
+and it's signed with a cryptographic signature of both parties. The process of
+edge validation involves verifying cryptographic signatures, which can be quite
+expensive, and therefore was moved to another thread.</p>
+<p>Responsibilities:</p>
+<ul>
+<li>validating edges by checking whenever cryptographic signatures match.</li>
+</ul>
+<h3 id="22-routingtableactor"><a class="header" href="#22-routingtableactor">2.2 <code>RoutingTableActor</code></a></h3>
+<p><code>RoutingTableActor</code> maintain view of the <code>P2P network</code> represented by set of
+nodes and edges.</p>
+<p>In case a message needs to be sent between two nodes, that can be done directly
+through <code>Tcp</code> connection. Otherwise, <code>RoutingTableActor</code> is responsible for ping
+the best path between them.</p>
+<p>Responsibilities:</p>
+<ul>
+<li>keep set of all edges of <code>P2P network</code> called routing table</li>
+<li>connects to <code>EdgeValidatorActor</code>, and asks for edges to be validated, when
+needed</li>
+<li>has logic related to exchanging edges between peers</li>
+</ul>
+<h3 id="23-peeractor"><a class="header" href="#23-peeractor">2.3 <code>PeerActor</code></a></h3>
+<p>Whenever a new connection gets accepted, an instance of <code>PeerActor</code> gets
+created. Each <code>PeerActor</code> keeps a physical a <code>TCP connection</code> to exactly one
+peer.</p>
+<p>Responsibilities:</p>
+<ul>
+<li>Maintaining physical connection.</li>
+<li>Reading messages from peers, decoding them, and then forwarding them to the
+right place.</li>
+<li>Encoding messages, sending them to peers on physical layer.</li>
+<li>Routing messages between <code>PeerManagerActor</code> and other peers.</li>
+</ul>
+<h3 id="24-peermanageractor"><a class="header" href="#24-peermanageractor">2.4 <code>PeerManagerActor</code></a></h3>
+<p><code>PeerManagerActor</code> is the main actor of <code>near-network</code> crate. It's acts as a
+bridge connecting to the world outside, the other peers, and <code>ClientActor</code> and
+<code>ClientViewActor</code>, which handle processing any operations on the chain.
+<code>PeerManagerActor</code> maintains information about p2p network via (Routing Table
+Actor), and indirectly, through <code>PeerActor</code>, connections to all some nodes on
+the network. All messages going to other nodes, or coming from other nodes will
+be routed through this <code>Actor</code>. <code>PeerManagerActor</code> is responsible for accepting
+incoming connections from the outside world and creating <code>PeerActors</code> to manage
+them.</p>
+<p>Responsibilities:</p>
+<ul>
+<li>Accepting new connections</li>
+<li>Maintaining list of <code>PeerActors</code>, creating, deleting them</li>
+<li>Routing information about new edges between <code>PeerActors</code> and
+<code>RoutingTableManager</code></li>
+<li>Routing messages between <code>ViewClient</code>, <code>ViewClientActor</code> and <code>PeerActors</code>, and
+consequently other peers.</li>
+<li>Maintains <code>RouteBack</code> structure, which has information on how to send replies to messages</li>
+</ul>
+<h1 id="3-code-flow---initialization"><a class="header" href="#3-code-flow---initialization">3. Code flow - initialization</a></h1>
+<p><code>PeerManagerActor</code> actor gets started. <code>PeerManagerActor</code> open tcp server, which
+listens to incoming connection. It starts <code>RoutingTableActor</code>, which then starts
+<code>EdgeValidatorActor</code>. When connection incoming connection gets accepted, it
+starts a new <code>PeerActor</code> on its own thread.</p>
+<h1 id="4-networkconfig"><a class="header" href="#4-networkconfig">4. NetworkConfig</a></h1>
+<p><code>near-network</code> reads configuration from <code>NetworkConfig</code>, which is a part <code>client config</code>.</p>
+<p>Here is a list of features read from config</p>
+<ul>
+<li><code>boot_nodes</code> - list of nodes to connect to on start</li>
+<li><code>addr</code> - listening address</li>
+<li><code>max_num_peers</code> - by default we connect up to 40 peers, current implementation
+supports upto 128 nodes.</li>
+</ul>
+<h1 id="5-connecting-to-other-peers"><a class="header" href="#5-connecting-to-other-peers">5. Connecting to other peers.</a></h1>
+<p>Each peer maintains list of known peers. They are stored in the database. If
+database is empty, the list of peers, called boot nodes, will be read from
+<code>boot_nodes</code> option in config. Peer to connect to is chosen at random from list
+of known nodes by <code>PeerManagerActor::sample_random_peer</code> method.</p>
+<h1 id="6-edges--network---in-code-representation"><a class="header" href="#6-edges--network---in-code-representation">6. Edges &amp; network - in code representation</a></h1>
+<p><code>P2P network</code> is represented by list of <code>peers</code>, where each <code>peer</code> is
+represented by structure <code>PeerId</code>, which is defined by <code>peer's</code> public key
+<code>PublicKey</code>. And a list of edges, where each edge is represented by the
+structure <code>Edge</code>.</p>
+<p>Both are defined below.</p>
+<h1 id="61-publickey"><a class="header" href="#61-publickey">6.1 PublicKey</a></h1>
+<p>We use two types of public keys:</p>
+<ul>
+<li>a 256 bit <code>ED25519</code> public key</li>
+<li>a 512 bit <code>Secp256K1</code> public key</li>
+</ul>
+<p>Public keys are defined in <code>PublicKey</code> enum, which consists of those two
+variants.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct ED25519PublicKey(pub [u8; 32]);
+pub struct Secp256K1PublicKey([u8; 64]);
+pub enum PublicKey {
+    ED25519(ED25519PublicKey),
+    SECP256K1(Secp256K1PublicKey),
+}
+<span class="boring">}
+</span></code></pre></pre>
+<h1 id="62-peerid"><a class="header" href="#62-peerid">6.2 PeerId</a></h1>
+<p>Each <code>peer</code> is uniquely defined by its <code>PublicKey</code>, and represented by <code>PeerId</code>
+struct.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct PeerId(PublicKey);
+<span class="boring">}
+</span></code></pre></pre>
+<h1 id="63-edge"><a class="header" href="#63-edge">6.3 Edge</a></h1>
+<p>Each <code>edge</code> is represented by <code>Edge</code> structure. It contains the following</p>
+<ul>
+<li>pair of nodes represented by their public keys.</li>
+<li><code>nonce</code> - a unique number representing state of an edge. Starting with 1. Odd
+number represents an active edge. Even number represent an edge in which one
+of nodes, confirmed that the edge is removed.</li>
+<li>Signatures from both peers for active edges.</li>
+<li>Signature from one peers in case an edge got removed.</li>
+</ul>
+<h1 id="64-graph-representation"><a class="header" href="#64-graph-representation">6.4 Graph representation</a></h1>
+<p><code>RoutingTableActor</code> is responsible for storing and maintaining set of all edges.
+They are kept in <code>edge_info</code> data structure of type <code>HashSet&lt;Edge&gt;</code>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct RoutingTableActor {
+    /// Collection of edges representing P2P network.
+    /// It's indexed by `Edge::key()` key and can be search through by called `get()` function
+    /// with `(PeerId, PeerId)` as argument.
+    pub edges_info: HashSet&lt;Edge&gt;,
+    /// ...
+}
+<span class="boring">}
+</span></code></pre></pre>
+<h1 id="7-code-flow---connecting-to-a-peer---handshake"><a class="header" href="#7-code-flow---connecting-to-a-peer---handshake">7. Code flow - connecting to a peer - handshake</a></h1>
+<p>When <code>PeerManagerActor</code> starts it starts to listen to a specific port.</p>
+<h2 id="71---step-1---monitor_peers_trigger-runs"><a class="header" href="#71---step-1---monitor_peers_trigger-runs">7.1 - Step 1 - <code>monitor_peers_trigger</code> runs</a></h2>
+<p><code>PeerManager</code> checks if we need to connect to another peer by running
+<code>PeerManager::is_outbound_bootstrap_needed</code> method. If <code>true</code> we will try to
+connect to new node. Let's call current node, node <code>A</code>.</p>
+<h2 id="72---step-2---choosing-node-to-connect-to"><a class="header" href="#72---step-2---choosing-node-to-connect-to">7.2 - Step 2 - choosing node to connect to</a></h2>
+<p>Method <code>PeerManager::sample_random_peer</code> will be called, and it returns node <code>B</code>
+that we will try to connect to.</p>
+<h2 id="73---step-3---outboundtcpconnect-message"><a class="header" href="#73---step-3---outboundtcpconnect-message">7.3 - Step 3 - <code>OutboundTcpConnect</code> message</a></h2>
+<p><code>PeerManagerActor</code> will send to itself a message <code>OutboundTcpConnect</code> in order
+to connect to node <code>B</code>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct OutboundTcpConnect {
+    /// Peer information of the outbound connection
+    pub target_peer_info: PeerInfo,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<h2 id="74---step-4---outboundtcpconnect-message"><a class="header" href="#74---step-4---outboundtcpconnect-message">7.4 - Step 4 - <code>OutboundTcpConnect</code> message</a></h2>
+<p>On receiving the message <code>handle_msg_outbound_tcp_connect</code> method will be
+called, which calls <code>TcpStream::connect</code> to create new connection.</p>
+<h2 id="75---step-5---connection-gets-established"><a class="header" href="#75---step-5---connection-gets-established">7.5 - Step 5 - Connection gets established</a></h2>
+<p>Once connection with outgoing peer gets established. <code>try_connect_peer</code> method
+will be called. And then new <code>PeerActor</code> will be created and started. Once
+<code>PeerActor</code> starts it will send <code>Handshake</code> message to outgoing node <code>B</code> over
+tcp connection.</p>
+<p>This message contains <code>protocol_version</code>, node's <code>A</code> metadata, as well as all
+information necessary to create <code>Edge</code>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct Handshake {
+    /// Current protocol version.
+    pub(crate) protocol_version: u32,
+    /// Oldest supported protocol version.
+    pub(crate) oldest_supported_version: u32,
+    /// Sender's peer id.
+    pub(crate) sender_peer_id: PeerId,
+    /// Receiver's peer id.
+    pub(crate) target_peer_id: PeerId,
+    /// Sender's listening addr.
+    pub(crate) sender_listen_port: Option&lt;u16&gt;,
+    /// Peer's chain information.
+    pub(crate) sender_chain_info: PeerChainInfoV2,
+    /// Represents new `edge`. Contains only `none` and `Signature` from the sender.
+    pub(crate) partial_edge_info: PartialEdgeInfo,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<h2 id="76---step-6---handshake-arrives-at-node-b"><a class="header" href="#76---step-6---handshake-arrives-at-node-b">7.6 - Step 6 - <code>Handshake</code> arrives at node <code>B</code></a></h2>
+<p>Node <code>B</code> receives <code>Handshake</code> message. Then it performs various validation
+checks. That includes:</p>
+<ul>
+<li>Check signature of edge from the other peer.</li>
+<li>Whenever, <code>nonce</code> is the edge send matches.</li>
+<li>Check whenever the protocol is above the minimum
+<code>OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION</code></li>
+<li>Other node <code>view of chain</code> state</li>
+</ul>
+<p>If everything is successful, <code>PeerActor</code> will send <code>RegisterPeer</code> message to
+<code>PeerManagerActor</code>. This message contains everything needed to add <code>PeerActor</code>
+to list of active connections in <code>PeerManagerActor</code>.</p>
+<p>Otherwise, <code>PeerActor</code> will be stopped immediately or after some timeout.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct RegisterPeer {
+    pub(crate) actor: Addr&lt;PeerActor&gt;,
+    pub(crate) peer_info: PeerInfo,
+    pub(crate) peer_type: PeerType,
+    pub(crate) chain_info: PeerChainInfoV2,
+    // Edge information from this node.
+    // If this is None it implies we are outbound connection, so we need to create our
+    // EdgeInfo part and send it to the other peer.
+    pub(crate) this_edge_info: Option&lt;EdgeInfo&gt;,
+    // Edge information from other node.
+    pub(crate) other_edge_info: EdgeInfo,
+    // Protocol version of new peer. May be higher than ours.
+    pub(crate) peer_protocol_version: ProtocolVersion,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<h2 id="77---step-7---peermanageractor-receives-registerpeer-message---node-b"><a class="header" href="#77---step-7---peermanageractor-receives-registerpeer-message---node-b">7.7 - Step 7 - <code>PeerManagerActor</code> receives <code>RegisterPeer</code> message - node <code>B</code></a></h2>
+<p>In <code>handle_msg_consolidate</code> method <code>RegisterPeer</code> message will be validated. If
+successful <code>register_peer</code> method will be called, which adds <code>PeerActor</code> to list
+of connected peers.</p>
+<p>Each connected peer is represented in <code>PeerActorManager</code> in <code>ActivePeer</code> data
+structure.</p>
+<p>TODO: Rename <code>ActivePeer</code> to <code>RegisterPeer</code>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Contains information relevant to an active peer.
+struct ActivePeer { // will be renamed to `ConnectedPeer` see #5428
+    addr: Addr&lt;PeerActor&gt;,
+    full_peer_info: FullPeerInfo,
+    /// Number of bytes we've received from the peer.
+    received_bytes_per_sec: u64,
+    /// Number of bytes we've sent to the peer.
+    sent_bytes_per_sec: u64,
+    /// Last time requested peers.
+    last_time_peer_requested: Instant,
+    /// Last time we received a message from this peer.
+    last_time_received_message: Instant,
+    /// Time where the connection was established.
+    connection_established_time: Instant,
+    /// Who started connection. Inbound (other) or Outbound (us).
+    peer_type: PeerType,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<h2 id="78---step-8---exchange-routing-table-part-1---node-b"><a class="header" href="#78---step-8---exchange-routing-table-part-1---node-b">7.8 - Step 8 - Exchange routing table part 1 - node <code>B</code></a></h2>
+<p>At the end of <code>register_peer</code> method node <code>B</code> will performance
+<code>RoutingTableSync</code> sync. Sending list of known <code>edges</code> representing full graph,
+and list of known <code>AnnounceAccount</code>. Those will be covered later, in their
+dedicated sections see sections TODO1, TODO2.</p>
+<pre><code class="language-rust  ignore">message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
+</code></pre>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Contains metadata used for routing messages to particular `PeerId` or `AccountId`.
+pub struct RoutingTableSync { // also known as `SyncData` (#5489)
+    /// List of known edges from `RoutingTableActor::edges_info`.
+    pub(crate) edges: Vec&lt;Edge&gt;,
+    /// List of known `account_id` to `PeerId` mappings.
+    /// Useful for `send_message_to_account` method, to route message to particular account.
+    pub(crate) accounts: Vec&lt;AnnounceAccount&gt;,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<h2 id="79---step-9----exchange-routing-table-part-2---node-a"><a class="header" href="#79---step-9----exchange-routing-table-part-2---node-a">7.9 - Step 9 -  Exchange routing table part 2 - node <code>A</code></a></h2>
+<p>Upon receiving <code>RoutingTableSync</code> message. Node <code>A</code> will reply with own
+<code>RoutingTableSync</code> message.</p>
+<h2 id="710---step-10----exchange-routing-table-part-2---node-b"><a class="header" href="#710---step-10----exchange-routing-table-part-2---node-b">7.10 - Step 10 -  Exchange routing table part 2 - node <code>B</code></a></h2>
+<p>Node <code>B</code> will get the message from <code>A</code> and update it's routing table.</p>
+<h1 id="8-adding-new-edges-to-routing-tables"><a class="header" href="#8-adding-new-edges-to-routing-tables">8. Adding new edges to routing tables</a></h1>
+<p>This section covers the process of adding new edges, received from another
+nodes, to the routing table. It consists of several steps covered below.</p>
+<h2 id="81-step-1"><a class="header" href="#81-step-1">8.1 Step 1</a></h2>
+<p><code>PeerManagerActor</code> receives <code>RoutingTableSync</code> message containing list of new
+<code>edges</code> to add. <code>RoutingTableSync</code> contains list of edges of the P2P network.
+This message is then forwarded to <code>RoutingTableActor</code>.</p>
+<h2 id="82-step-2"><a class="header" href="#82-step-2">8.2 Step 2</a></h2>
+<p><code>PeerManagerActor</code> forwards those edges to <code>RoutingTableActor</code> inside of
+<code>ValidateEdgeList</code> struct.</p>
+<p><code>ValidateEdgeList</code> contains:</p>
+<ul>
+<li>list of edges to verify</li>
+<li>peer who send us the edges</li>
+</ul>
+<h2 id="83-step-3"><a class="header" href="#83-step-3">8.3 Step 3</a></h2>
+<p><code>RoutingTableActor</code> gets the <code>ValidateEdgeList</code> message. Filters out <code>edges</code>
+that have already been verified, those that are already in
+<code>RoutingTableActor::edges_info</code>.</p>
+<p>Then, it updates <code>edge_verifier_requests_in_progress</code> to mark that edge
+verifications are in progress, and edges shouldn't be pruned from Routing Table
+(see section TODO).</p>
+<p>Then, after removing already validated edges, the modified message is forwarded
+to <code>EdgeValidatorActor</code>.</p>
+<h2 id="84-step-4"><a class="header" href="#84-step-4">8.4 Step 4</a></h2>
+<p><code>EdgeValidatorActor</code> goes through list of all edges. It checks whether all edges
+are valid (their cryptographic signatures match, etc.).</p>
+<p>If any edge is not valid peer will be banned.</p>
+<p>Edges that are validated are written to a concurrent queue
+<code>ValidateEdgeList::sender</code>. This queue is used to transfer edges from
+<code>EdgeValidatorActor</code>, back to <code>PeerManagerActor</code>.</p>
+<h2 id="85-step-5"><a class="header" href="#85-step-5">8.5 Step 5</a></h2>
+<p><code>broadcast_validated_edges_trigger</code> runs, and gets validated edges from
+<code>EdgeVerifierActor</code>.</p>
+<p>Every new edge will be broadcast to all connected peers.</p>
+<p>And then, all validated edges received from <code>EdgeVerifierActor</code> will be sent
+again to <code>RoutingTableActor</code> inside <code>AddVerifiedEdges</code>.</p>
+<h2 id="85-step-6"><a class="header" href="#85-step-6">8.5 Step 6</a></h2>
+<p>When <code>RoutingTableActor</code> receives <code>RoutingTableMessages::AddVerifiedEdges</code>, the
+method<code>add_verified_edges_to_routing_table</code> will be called. It will add edges to
+<code>RoutingTableActor::edges_info</code> struct, and mark routing table, that it needs
+recalculation see <code>RoutingTableActor::needs_routing_table_recalculation</code>.</p>
+<h1 id="9-routing-table-computation"><a class="header" href="#9-routing-table-computation">9 Routing table computation</a></h1>
+<p>Routing table computation does a few things:</p>
+<ul>
+<li>For each peer <code>B</code>, calculates set of peers <code>|C_b|</code>, such that each peer is on
+the shortest path to <code>B</code>.</li>
+<li>Removing unreachable edges from memory and storing them to disk.</li>
+<li>The distance is calculated as the minimum number of nodes on the path from
+given node <code>A</code>, to each other node on the network. That is, <code>A</code> has a distance
+of <code>0</code> to itself. It's neighbors will have a distance of <code>1</code>. The neighbors of
+theirs neighbors will have a distance of <code>2</code>, etc.</li>
+</ul>
+<h2 id="91-step-1"><a class="header" href="#91-step-1">9.1 Step 1</a></h2>
+<p><code>PeerManagerActor</code> runs a <code>update_routing_table_trigger</code> every
+<code>UPDATE_ROUTING_TABLE_INTERVAL</code> seconds.</p>
+<p><code>RoutingTableMessages::RoutingTableUpdate</code> message is sent to
+<code>RoutingTableActor</code> to request routing table re-computation.</p>
+<h2 id="92-step-2"><a class="header" href="#92-step-2">9.2 Step 2</a></h2>
+<p><code>RoutingTableActor</code> receives the message, and then</p>
+<ul>
+<li>calls <code>recalculate_routing_table</code> method, which computes
+<code>RoutingTableActor::peer_forwarding: HashMap&lt;PeerId, Vec&lt;PeerId&gt;&gt;</code>. For each
+<code>PeerId</code> on the network, gives list of connected peers, which are on the
+shortest path to the destination. It marks reachable peers in
+<code>peer_last_time_reachable</code> struct.</li>
+<li>calls <code>prune_edges</code> which removes from memory all edges, that were not
+reachable for at least 1 hour, based on <code>peer_last_time_reachable</code> data
+structure. Those edges are then stored to disk.</li>
+</ul>
+<h2 id="93-step-3"><a class="header" href="#93-step-3">9.3 Step 3</a></h2>
+<p><code>RoutingTableActor</code> sends <code>RoutingTableUpdateResponse</code> message back to
+<code>PeerManagerActor</code>.</p>
+<p><code>PeerManagerActor</code> keep local copy of <code>edges_info</code>, called <code>local_edges_info</code>
+containing only edges adjacent to current node.</p>
+<ul>
+<li><code>RoutingTableUpdateResponse</code> contains list of local edges, which
+<code>PeerManagerActor</code> should remove.</li>
+<li><code>peer_forwarding</code> which represent on how to route messages in the P2P network</li>
+<li><code>peers_to_ban</code> - list of peers to ban for sending us edges, which failed
+validation in <code>EdgeVerifierActor</code>.</li>
+</ul>
+<h2 id="94-step-4"><a class="header" href="#94-step-4">9.4 Step 4</a></h2>
+<p><code>PeerManagerActor</code> received <code>RoutingTableUpdateResponse</code> and then:</p>
+<ul>
+<li>updates local copy of<code>peer_forwarding</code>, used for routing messages.</li>
+<li>removes <code>local_edges_to_remove</code> from <code>local_edges_info</code>.</li>
+<li>bans peers, who sent us invalid edges.</li>
+</ul>
+<h1 id="10-message-transportation-layers"><a class="header" href="#10-message-transportation-layers">10. Message transportation layers.</a></h1>
+<p>This section describes different protocols of sending messages currently used in
+<code>Near</code></p>
+<h2 id="101-messages-between-actors"><a class="header" href="#101-messages-between-actors">10.1 Messages between Actors.</a></h2>
+<p><code>Near</code> is build on <code>Actix</code>'s <code>actor</code> framework.
+(https://actix.rs/book/actix/sec-2-actor.html) Usually each actor runs on its
+own dedicated thread. Some, like <code>PeerActor</code> have one thread per each instance.
+Only messages implementing <code>actix::Message</code>, can be sent using between threads.
+Each actor has its own queue; Processing of messages happens asynchronously.</p>
+<p>We should not leak implementation details into the spec.</p>
+<p>Actix messages can be found by looking for <code>impl actix::Message</code>.</p>
+<h2 id="102-messages-sent-through-tcp"><a class="header" href="#102-messages-sent-through-tcp">10.2 Messages sent through TCP</a></h2>
+<p>Near is using <code>borsh</code> serialization to exchange messages between nodes (See
+https://borsh.io/). We should be careful when making changes to them. We have to
+maintain backward compatibility. Only messages implementing <code>BorshSerialize</code>,
+<code>BorshDeserialize</code> can be sent. We also use <code>borsh</code> for database storage.</p>
+<h2 id="103-messages-sentreceived-through-chainjsonrpc"><a class="header" href="#103-messages-sentreceived-through-chainjsonrpc">10.3 Messages sent/received through <code>chain/jsonrpc</code></a></h2>
+<p>Near runs a <code>json REST server</code>. (See <code>actix_web::HttpServer</code>). All messages sent
+and received must implement <code>serde::Serialize</code> and <code>serde::Deserialize</code>.</p>
+<h1 id="11-code-flow---routing-a-message"><a class="header" href="#11-code-flow---routing-a-message">11. Code flow - routing a message</a></h1>
+<p>This is the example of the message that is being sent between nodes
+(<code>RawRoutedMessage</code>)
+(https://github.com/near/nearcore/blob/fa8749dc60fe0de8e94c3046571731c622326e9f/chain/network-primitives/src/types.rs#L362)</p>
+<p>Each of these methods have a <code>target</code> - that is either the account_id or peer_id
+or hash (which seems to be used only for route back...). If target is the
+account - it will be converted using <code>routing_table.account_owner</code> to the peer.</p>
+<p>Upon receiving the message, the <code>PeerManagerActor</code> will sign it
+(https://github.com/near/nearcore/blob/master/chain/network/src/peer_manager.rs#L1285)
+And convert into RoutedMessage (which also have things like TTL etc.).</p>
+<p>Then it will use the <code>routing_table</code>, to find the route to the target peer (add
+<code>route_back</code> if needed) and then send the message over the network as
+<code>PeerMessage::Routed</code>. Details about routing table computations are covered in
+section 8.</p>
+<p>When Peer receives this message (as <code>PeerMessage::Routed</code>), it will pass it to
+PeerManager (as <code>RoutedMessageFrom</code>), which would then check if the message is
+for the current <code>PeerActor</code>. (if yes, it would pass it for the client) and if
+not - it would pass it along the network.</p>
+<p>All these messages are handled by <code>receive_client_message</code> in Peer.
+(<code>NetworkClientMessags</code>) - and transferred to <code>ClientActor</code> in
+(<code>chain/client/src/client_actor.rs</code>)</p>
+<p><code>NetworkRequests</code> to <code>PeerManager</code> actor trigger the <code>RawRoutedMessage</code> for
+messages that are meant to be sent to another <code>peer</code>.</p>
+<p><code>lib.rs</code> (<code>ShardsManager</code>) has a <code>network_adapter</code> - coming from client’s
+network_adapter that comes from <code>ClientActor</code> that comes from start_client call
+that comes from <code>start_with_config</code> (that crates <code>PeerManagerActor</code> - that is
+passed as target to <code>network_recipent</code>).</p>
+<h1 id="12-database"><a class="header" href="#12-database">12. Database</a></h1>
+<h3 id="121-storage-of-deleted-edges"><a class="header" href="#121-storage-of-deleted-edges">12.1 Storage of deleted edges</a></h3>
+<p>Everytime a group of peers becomes unreachable at the same time; We store edges
+belonging to them in components. We remove all of those edges from memory, and
+save them to database, If any of them were to be reachable again, we would
+re-add them. This is useful in case there is a network split, to recover edges
+if needed.</p>
+<p>Each component is assigned a unique <code>nonce</code>, where first one is assigned nonce
+0. Each new component, a get assigned a consecutive integer.</p>
+<p>To store components, we have the following columns in the DB.</p>
+<ul>
+<li><code>DBCol::LastComponentNonce</code> Stores <code>component_nonce: u64</code>, which is the last
+used nonce.</li>
+<li><code>DBCol::ComponentEdges</code> Mapping from <code>component_nonce</code> to list of edges.</li>
+<li><code>DBCol::PeerComponent</code> Mapping from <code>peer_id</code> to last component <code>nonce</code> it belongs to.</li>
+</ul>
+<h3 id="122-storage-of-account_id-to-peer_id-mapping"><a class="header" href="#122-storage-of-account_id-to-peer_id-mapping">12.2 Storage of <code>account_id</code> to <code>peer_id</code> mapping</a></h3>
+<p><code>ColAccountAnouncements</code> -&gt; Stores a mapping from <code>account_id</code> to tuple
+(<code>account_id</code>, <code>peer_id</code>, <code>epoch_id</code>, <code>signature</code>).</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="overview-1"><a class="header" href="#overview-1">Overview</a></h1>
 <p>This chapter describes various development processes and best practices employed
 at nearcore.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="code-style"><a class="header" href="#code-style">Code Style</a></h1>
+<p>This document specifies the code style to use in the nearcore repository. The
+primary goal here is to achieve consistency, maintain it over time, and cut down
+on the mental overhead related to style choices.</p>
+<p>Right now, <code>nearcore</code> codebase is not perfectly consistent, and the style
+acknowledges this. It guides newly written code and serves as a tie breaker for
+decisions. Rewriting existing code to conform 100% to the style is not a goal.
+Local consistency is more important: if new code is added to a specific file,
+it's more important to be consistent with the file rather than with this style
+guide.</p>
+<p>This is a live document, which intentionally starts in a minimal case. When
+doing code-reviews, consider if some recurring advice you give could be moved
+into this document.</p>
+<h2 id="formatting"><a class="header" href="#formatting">Formatting</a></h2>
+<p>Use <code>rustfmt</code> for minor code formatting decisions. This rule is enforced by CI</p>
+<p><strong>Rationale:</strong> <code>rustfmt</code> style is almost always good enough, even if not always
+perfect. The amount of bikeshedding saved by <code>rustfmt</code> far outweighs any
+imperfections.</p>
+<h2 id="idiomatic-rust"><a class="header" href="#idiomatic-rust">Idiomatic Rust</a></h2>
+<p>While the most important thing is to solve the problem at hand, we strive to
+implement the solution in idiomatic Rust, if possible. To learn what is
+considered idiomatic Rust, a good start are the Rust API guidelines (but keep in
+mind that <code>nearcore</code> is not a library with public API, not all advice applies
+literally):</p>
+<p>https://rust-lang.github.io/api-guidelines/about.html</p>
+<p>When in doubt, ask question in the <a href="https://near.zulipchat.com/#narrow/stream/300659-Rust-.F0.9F.A6.80">Rust
+🦀</a> Zulip
+stream or during code review.</p>
+<p><strong>Rationale:</strong> Consistency, as there's usually only one idiomatic solution
+amidst many non-idiomatic ones. Predictability, you can use the APIs without
+consulting documentation. Performance, ergonomics and correctness: language
+idioms usually reflect learned truths, which might not be immediately obvious.</p>
+<h2 id="style"><a class="header" href="#style">Style</a></h2>
+<p>This section documents all micro-rules which are not otherwise enforced by
+<code>rustfmt</code>.</p>
+<h3 id="avoid-asrefas_ref"><a class="header" href="#avoid-asrefas_ref">Avoid <code>AsRef::as_ref</code></a></h3>
+<p>When you have some concrete type, prefer <code>.as_str</code>, <code>.as_bytes</code>, <code>.as_path</code> over
+generic <code>.as_ref</code>. Only use <code>.as_ref</code> when the type in question is a generic
+<code>T: AsRef&lt;U&gt;</code>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+fn log_validator(account_id: AccountId) {
+    metric_for(account_id.as_str())
+       .increment()
+}
+
+// BAD
+fn log_validator(account_id: AccountId) {
+    metric_for(account_id.as_ref())
+       .increment()
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p>Note that <code>Option::as_ref</code>, <code>Result::as_ref</code> are great, use do use them!</p>
+<p><strong>Rationale:</strong> readability and churn-resistance. There might be more than one
+<code>AsRef&lt;U&gt;</code> implementation for a given type (with different <code>U</code>s). If a new
+implementation is added, some of the <code>.as_ref()</code> calls might break. See also
+https://github.com/rust-lang/rust/issues/62586.</p>
+<h3 id="avoid-references-to-copy-types"><a class="header" href="#avoid-references-to-copy-types">Avoid references to <code>Copy</code>-types</a></h3>
+<p>Various generic APIs in Rust often return references to data (<code>&amp;T</code>). When <code>T</code> is
+a small <code>Copy</code> type like <code>i32</code>, you end up with <code>&amp;i32</code> while many API expect
+<code>i32</code>, so dereference has to happen <em>somewhere</em>. Prefer dereferencing as early
+as possible, typically in a pattern:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+fn compute(map: HashMap&lt;&amp;'str, i32&gt;) {
+    if let Some(&amp;value) = map.get(&quot;key&quot;) {
+        process(value)
+    }
+}
+fn process(value: i32) { ... }
+
+// BAD
+fn compute(map: HashMap&lt;&amp;'str, i32&gt;) {
+    if let Some(value) = map.get(&quot;key&quot;) {
+        process(*value)
+    }
+}
+fn process(value: i32) { ... }
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Rationale:</strong> if the value is used multiple times, dereferencing in the pattern
+saves keystrokes. If the value is used exactly once, we just want to be
+consistent. Additional benefit of early deref is reduced scope of borrow.</p>
+<p>Note that for some <em>big</em> <code>Copy</code> types, notably <code>CryptoHash</code>, we sometimes use
+references for performance reasons. As a rule of thumb, <code>T</code> is considered <em>big</em> if
+<code>size_of::&lt;T&gt;() &gt; 2 * size_of::&lt;usize&gt;()</code>.</p>
+<h3 id="prefer-for-loops-over-for_each-and-try_for_each-methods"><a class="header" href="#prefer-for-loops-over-for_each-and-try_for_each-methods">Prefer for loops over <code>for_each</code> and <code>try_for_each</code> methods</a></h3>
+<p>Iterators offer <code>for_each</code> and <code>try_for_each</code> methods which allow executing
+a closure over all items of the iterator.  This is similar to using a for loop
+but comes with various complications and may lead to less readable code.  Prefer
+using a loop rather than those methods, for example:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+for outcome_with_id in result? {
+    *total_gas_burnt =
+        safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
+    outcomes.push(outcome_with_id);
+}
+
+// BAD
+result?.into_iter().try_for_each(
+    |outcome_with_id: ExecutionOutcomeWithId| -&gt; Result&lt;(), RuntimeError&gt; {
+        *total_gas_burnt =
+            safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
+        outcomes.push(outcome_with_id);
+        Ok(())
+    },
+)?;
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Rationale:</strong> The <code>for_each</code> and <code>try_for_each</code> method don’t play nice with
+<code>break</code> and <code>continue</code> statements nor do they mesh well with async IO (since
+<code>.await</code> inside of the closure isn’t possible).  And while <code>try_for_each</code> allows
+for the use of question mark operator, one may end up having to uses it twice:
+once inside the closure and second time outside the call to <code>try_for_each</code>.
+Furthermore, usage of the functions often introduce some minor syntax noise.</p>
+<p>There are situations when those methods may lead to more readable code.  Common
+example are long call chains.  Even then such code may evolve with the closure
+growing and leading to less readable code.  If advantages of using the methods
+aren’t clear cut, it’s usually better to err on side of more imperative style.</p>
+<p>Lastly, anecdotally the methods (e.g. when used with <code>chain</code> or <code>flat_map</code>) may
+lead to faster code.  This intuitively makes sense but it’s worth to keep in
+mind that compilers are pretty good at optimising and in practice may generate
+optimal code anyway.  Furthermore, optimising code for readability may be more
+important (especially outside of hot path) than small performance gains.</p>
+<h3 id="prefer-to_string-to-format"><a class="header" href="#prefer-to_string-to-format">Prefer <code>to_string</code> to <code>format!(&quot;{}&quot;)</code></a></h3>
+<p>Prefer calling <code>to_string</code> method on an object rather than passing it through
+<code>format!(&quot;{}&quot;)</code> if all you’re doing is converting it to a <code>String</code>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+lat hash = block_hash.to_string();
+let msg = format!(&quot;{}: failed to open&quot;, path.display());
+
+// BAD
+lat hash = format!(&quot;{block_hash}&quot;);
+let msg = path.display() + &quot;: failed to open&quot;;
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Rationale:</strong> <code>to_string</code> is shorter to type and also faster.</p>
+<h3 id="import-granularity"><a class="header" href="#import-granularity">Import Granularity</a></h3>
+<p>Group import by module, but not deeper:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+use std::collections::{hash_map, BTreeSet};
+use std::sync::Arc;
+
+// BAD - nested groups.
+use std::{
+    collections::{hash_map, BTreeSet},
+    sync::Arc,
+};
+
+// BAD - not grouped together.
+use std::collections::BTreeSet;
+use std::collections::hash_map;
+use std::sync::Arc;
+<span class="boring">}
+</span></code></pre></pre>
+<p>This corresponds to <code>&quot;rust-analyzer.assist.importGranularity&quot;: &quot;module&quot;</code> setting
+in rust-analyzer
+(<a href="https://rust-analyzer.github.io/manual.html#rust-analyzer.assist.importGranularity">docs</a>).</p>
+<p><strong>Rationale:</strong> Consistency, matches existing practice.</p>
+<h3 id="import-blocks"><a class="header" href="#import-blocks">Import Blocks</a></h3>
+<p>Do not separate imports into groups with blank lines. Write a single block of
+imports and rely on <code>rustfmt</code> to sort them.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+use crate::types::KnownPeerState;
+use borsh::BorshSerialize;
+use near_primitives::utils::to_timestamp;
+use near_store::{DBCol::Peers, Store};
+use rand::seq::SliceRandom;
+use std::collections::HashMap;
+use std::net::SocketAddr;
+
+// BAD -- several groups of imports
+use std::collections::HashMap;
+use std::net::SocketAddr;
+
+use borsh::BorshSerialize;
+use rand::seq::SliceRandom;
+
+use near_primitives::utils::to_timestamp;
+use near_store::{DBCol::Peers, Store};
+
+use crate::types::KnownPeerState;
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Rationale:</strong> Consistency, ease of automatic enforcement. Today stable rustfmt
+can't split imports into groups automatically, and doing that manually
+consistently is a chore.</p>
+<h3 id="derives"><a class="header" href="#derives">Derives</a></h3>
+<p>When deriving an implementation of a trait, specify a full path to the traits provided by the
+external libraries:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+#[derive(Copy, Clone, serde::Serialize, thiserror::Error, strum::Display)]
+struct Grapefruit;
+
+// BAD
+use serde::Serialize;
+use thiserror::Error;
+use strum::Display;
+
+#[derive(Copy, Clone, Serialize, Error, Display)]
+struct Banana;
+<span class="boring">}
+</span></code></pre></pre>
+<p>As an exception to this rule, it is okay to use either style when the derived trait already
+includes the name of the library (as would be the case for <code>borsh::BorshSerialize</code>.)</p>
+<p><strong>Rationale:</strong> Specifying a full path to the externally provided derivations here makes it
+straightforward to differentiate between the built-in derivations and those provided by the
+external crates. The surprise factor for derivations sharing a name with the standard
+library traits (<code>Display</code>) is reduced and it also acts as natural mechanism to tell apart names
+prone to collision (<code>Serialize</code>), all without needing to look up the list of imports.</p>
+<h2 id="standard-naming"><a class="header" href="#standard-naming">Standard Naming</a></h2>
+<ul>
+<li>Use <code>-</code> rather than <code>_</code> in crate names and in corresponding folder names.</li>
+<li>Avoid single-letter variable names especially in long functions.  Common <code>i</code>,
+<code>j</code> etc. loop variables are somewhat of an exception but since Rust encourages
+use of iterators those cases aren’t that common anyway.</li>
+<li>Follow standard <a href="https://rust-lang.github.io/api-guidelines/naming.html">Rust naming patterns</a> such as:
+<ul>
+<li>Don’t use <code>get_</code> prefix for getter methods.  A getter method is one which
+returns (reference to) a field of an object.</li>
+<li>Use <code>set_</code> prefix for setter methods.  An exception are builder objects
+which may use different naming style.</li>
+<li>Use <code>into_</code> prefix for methods which consume <code>self</code> and <code>to_</code> prefix for
+methods which don’t.</li>
+</ul>
+</li>
+<li>Use <code>get_block_header</code> rather than <code>get_header</code> for methods which return
+a block header.</li>
+<li>Don’t use <code>_by_hash</code> suffix for methods which lookup chain objects (blocks,
+chunks, block headers etc.) by their hash (i.e. their primary identifier).</li>
+<li>Use <code>_by_height</code> and similar suffixes for methods which lookup chain objects
+(blocks, chunks, block headers etc.) by their height or other property which
+is not their hash.</li>
+</ul>
+<p><strong>Rationale:</strong> Consistency.</p>
+<h2 id="documentation"><a class="header" href="#documentation">Documentation</a></h2>
+<p>When writing documentation in <code>.md</code> files, wrap lines at approximately 80
+columns.</p>
+<pre><code class="language-markdown">&lt;!-- GOOD --&gt;
+Manually reflowing paragraphs is tedious. Luckily, most editors have this
+functionality built in or available via extensions. For example, in Emacs you
+can use `fill-paragraph` (&lt;kbd&gt;M-q&lt;/kbd&gt;), (neo)vim allows rewrapping with `gq`,
+and VS Code has `stkb.rewrap` extension.
+
+&lt;!-- BAD --&gt;
+One sentence per-line is also occasionally used for technical writing.
+We avoid that format though.
+While convenient for editing, it may be poorly legible in unrendered form
+
+&lt;!-- BAD --&gt;
+Definitely don't use soft-wrapping. While markdown mostly ignores source level line breaks, relying on soft wrap makes the source completely unreadable, especially on modern wide displays.
+</code></pre>
+<h2 id="tracing"><a class="header" href="#tracing"><a href="https://tracing.rs">Tracing</a></a></h2>
+<p>When emitting events and spans with <code>tracing</code> prefer adding variable data via
+<a href="https://docs.rs/tracing/latest/tracing/#recording-fields"><code>tracing</code>'s field mechanism</a>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD
+debug!(
+    target: &quot;client&quot;,
+    validator_id = self.client.validator_signer.as_ref().map(|vs| {
+        tracing::field::display(vs.validator_id())
+    }),
+    %hash,
+    &quot;block.previous_hash&quot; = %block.header().prev_hash(),
+    &quot;block.height&quot; = block.header().height(),
+    %peer_id,
+    was_requested
+    &quot;Received block&quot;,
+);
+<span class="boring">}
+</span></code></pre></pre>
+<p>Most apparent violation of this rule will be when the event message utilizes any
+form of formatting, as seen in the following example:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// BAD
+debug!(
+    target: &quot;client&quot;,
+    &quot;{:?} Received block {} &lt;- {} at {} from {}, requested: {}&quot;,
+    self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
+    hash,
+    block.header().prev_hash(),
+    block.header().height(),
+    peer_id,
+    was_requested
+);
+<span class="boring">}
+</span></code></pre></pre>
+<p>Always specify the <code>target</code> explicitly. A good default value to use is the crate
+name, or the module path (e.g. <code>chain::client</code>) so that events and spans common
+to a topic can be grouped together. This grouping can later be used for
+customizing of which events to output.</p>
+<p><strong>Rationale:</strong> This makes the events structured – one of the major value
+propositions of the tracing ecosystem. Structured events allow for immediately
+actionable data without additional post-processing, especially when using some
+of the more advanced tracing subscribers. Of particular interest would be those
+that output events as JSON, or those that publish data to distributed event
+collection systems such as opentelemetry. Maintaining this rule will also
+usually result in faster execution (when logs at the relevant level are enabled.)</p>
+<h3 id="spans"><a class="header" href="#spans">Spans</a></h3>
+<p>Use the <a href="https://docs.rs/tracing/latest/tracing/#spans">spans</a> to introduce context and grouping to and between events
+instead of manually adding such information as part of the events themselves.
+Most of the subscribers ingesting spans also provide a built-in timing facility,
+so prefer using spans for measuring the amount of time a section of code needs
+to execute.</p>
+<p>Give spans simple names that make them both easy to trace back to code, and to
+find a particular span in logs or other tools ingesting the span data. If a
+span begins at the top of a function, prefer giving it a name of that function,
+otherwise prefer a <code>snake_case</code> name.</p>
+<p>Use the regular span API over convenience macros such as <code>#[instrument]</code>, as
+this allows instrumenting portions of a function without affecting the code
+structure:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn compile_and_serialize_wasmer(code: &amp;[u8]) -&gt; Result&lt;wasmer::Module&gt; {
+    let _span = tracing::debug_span!(target: &quot;vm&quot;, &quot;compile_and_serialize_wasmer&quot;).entered();
+    // ...
+    // _span will be dropped when this scope ends, terminating the span created above.
+    // You can also `drop` it manually, to end the span early with `drop(_span)`.
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p><strong>Rationale:</strong> Much as with events, this makes the information provided by spans
+structured and contextual. This information can then be output to tooling in an
+industry standard format, and can be interpreted by an extensive ecosystem of
+<code>tracing</code> subscribers.</p>
+<h3 id="event-and-span-levels"><a class="header" href="#event-and-span-levels">Event and span levels</a></h3>
+<p>The <code>INFO</code> level is enabled by default, use it for information useful for node
+operators. The <code>DEBUG</code> level is enabled on the canary nodes, use it for
+information useful in debugging testnet failures. The <code>TRACE</code> level is not
+generally enabled, use it for arbitrary debug output.</p>
+<h2 id="metrics"><a class="header" href="#metrics">Metrics</a></h2>
+<p>Consider adding metrics to new functionality. For example, how often each type
+of error was triggered, how often each message type was processed.</p>
+<p><strong>Rationale:</strong> Metrics are cheap to increment, and they often provide a significant
+insight into operation of the code, almost as much as logging. But unlike logging
+metrics don't incur a significant runtime cost.</p>
+<h3 id="naming"><a class="header" href="#naming">Naming</a></h3>
+<p>Prefix all <code>nearcore</code> metrics with <code>near_</code>.
+Follow [https://prometheus.io/docs/practices/naming/](Prometheus naming convention)
+for new metrics.</p>
+<p><strong>Rationale:</strong> The <code>near_</code> prefix makes it trivial to separate metrics exported
+by <code>nearcore</code> from other metrics, such as metrics about the state of the machine
+that runs <code>neard</code>.</p>
+<h3 id="performance"><a class="header" href="#performance">Performance</a></h3>
+<p>In most cases incrementing a metric is cheap enough never to give it a second
+thought. However accessing a metric with labels on a hot path needs to be done
+carefully.</p>
+<p>If a label is based on an integer, use a faster way of converting an integer
+to the label, such as the <code>itoa</code> crate.</p>
+<p>For hot code paths, re-use results of <code>with_label_values()</code> as much as possible.</p>
+<p><strong>Rationale:</strong> We've encountered issues caused by the runtime costs of
+incrementing metrics before. Avoid runtime costs of incrementing metrics too
+often.</p>
+<div style="break-before: page; page-break-before: always;"></div><h2 id="protocol-upgrade"><a class="header" href="#protocol-upgrade">Protocol Upgrade</a></h2>
+<p>This document describes the entire cycle of how a protocol upgrade is done, from
+the initial PR to the final release. It is important for everyone who
+contributes to the development of the protocol and its client(s) to understand
+this process.</p>
+<h3 id="background"><a class="header" href="#background">Background</a></h3>
+<p>At NEAR, we use protocol version to mean the version of the blockchain protocol
+and is separate from the version of some specific client (such as nearcore),
+since the protocol version defines the protocol rather than some specific
+implementation of the protocol. More concretely, for each epoch, there is a
+corresponding protocol version that is agreed upon by validators through <a href="https://github.com/near/NEPs/blob/master/specs/ChainSpec/Upgradability.md">a
+voting
+mechanism</a>.
+Our upgrade scheme dictates that protocol version X is backward compatible with
+protocol version X-1, so that nodes in the network can seamlessly upgrade into
+the new protocol. However, there is <strong>no guarantee</strong> that protocol version X is
+backward compatible with protocol version X-2.</p>
+<p>Despite the upgrade mechanism, rolling out a protocol change can be scary,
+especially if the change is invasive. For those changes, we may want to have
+several months of testing before we are confident that the change itself works
+and that it doesn't break other parts of the system.</p>
+<h3 id="nightly-protocol-features"><a class="header" href="#nightly-protocol-features">Nightly Protocol features</a></h3>
+<p>To make protocol upgrades more robust, we introduce the concept of nightly
+protocol version together with the protocol feature flags to allow easy testing
+of the cutting-edge protocol changes without jeopardizing the stability of the
+codebase overall. In <code>Cargo.toml</code> file of the crates we have in nearcore, we
+introduce rust compile-time features <code>nightly_protocol</code> and <code>nightly</code></p>
+<pre><code class="language-toml">nightly_protocol = []
+nightly = [
+    &quot;nightly_protocol&quot;,
+    ...
+]
+</code></pre>
+<p>where <code>nightly_protocol</code> is a marker feature that indicates that we are on
+nightly protocol whereas <code>nightly</code> is a collection of new protocol features
+which also implies <code>nightly_protocol</code>. For example, when we introduce EVM as a
+new protocol change, suppose the current protocol version is 40, then we would
+do the following change in Cargo.toml:</p>
+<pre><code class="language-toml">nightly_protocol = []
+nightly = [
+    &quot;nightly_protocol&quot;,
+    &quot;protocol_features_evm&quot;,
+    ...
+]
+</code></pre>
+<p>In <a href="practices/../core/primitives/src/version.rs">core/primitives/src/version.rs</a>, we would
+change the protocol version by:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[cfg(feature = “nightly_protocol”)]
+pub const PROTOCOL_VERSION: u32 = 100;
+#[cfg(not(feature = “nightly_protocol”)]
+pub const PROTOCOL_VERSION: u32 = 40;
+<span class="boring">}
+</span></code></pre></pre>
+<p>This way the stable versions remain unaffected after the change. Note that
+nightly protocol version intentionally starts at a much higher number to make
+the distinction between stable protocol and nightly protocol more clear.</p>
+<p>To determine whether a protocol feature is enabled, we do the following:</p>
+<ul>
+<li>We maintain a <code>ProtocolFeature</code> enum where each variant corresponds to some
+protocol feature. For nightly protocol features, the variant is gated by the
+corresponding rust compile-time feature.</li>
+<li>We implement a function <code>protocol_version</code> to return, for each variant, the
+corresponding protocol version in which the feature is enabled.</li>
+<li>When we need to decide whether to use the new feature based on the protocol
+version of the current network, we can simply compare it to the protocol
+version of the feature. To make this simpler, we also introduced a macro
+<code>checked_feature</code></li>
+</ul>
+<p>For more details, please refer to
+<a href="practices/../core/primitives/src/version.rs">core/primitives/src/version.rs</a>.</p>
+<h3 id="feature-gating"><a class="header" href="#feature-gating">Feature Gating</a></h3>
+<p>It is worth mentioning that there are two types of checks related to protocol features:</p>
+<ul>
+<li>For stable features, we check whether they should be enabled by checking the
+protocol version of the current epoch. This does not involve any rust
+compile-time features.</li>
+<li>For nightly features, we have both the check of protocol version and the rust
+compile-time feature gating.</li>
+</ul>
+<h3 id="testing-1"><a class="header" href="#testing-1">Testing</a></h3>
+<p>Nightly protocol features allow us to enable the most bleeding-edge code in some
+testing environment. We can choose to enable all nightly protocol features by</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>cargo build -p neard --release --features nightly
+<span class="boring">}
+</span></code></pre></pre>
+<p>or enable some specific protocol feature by</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>cargo build -p neard --release --features nightly_protocol,&lt;protocol_feature&gt;
+<span class="boring">}
+</span></code></pre></pre>
+<p>In practice, we have all nightly protocol features enabled for Nayduck tests and
+on betanet, which is updated daily.</p>
+<h3 id="feature-stabilization"><a class="header" href="#feature-stabilization">Feature Stabilization</a></h3>
+<p>New protocol features are introduced first as nightly features and when the
+author of the feature thinks that the feature is ready to be stabilized, they
+should submit a pull request to stabilize the feature using <a href="practices/../.github/PULL_REQUEST_TEMPLATE/feature_stabilization.html">this
+template</a>. In this
+pull request, they should the feature gating, increase the <code>PROTOCOL_VERSION</code>
+constant (if it hasn't been increased since the last release), and change the
+<code>protocol_version</code> implementation to map the stabilized features to the new
+protocol version.</p>
+<p>A feature stabilization request must be approved by at least <strong>two</strong> <a href="https://github.com/orgs/near/teams/nearcore-codeowners">nearcore
+code owners</a> Unless it
+is a security related fix, a protocol feature cannot be included in any release
+until at least <strong>one</strong> week after its stabilization. This is to ensure that
+feature implementation and stabilization are not rushed.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="overview-2"><a class="header" href="#overview-2">Overview</a></h1>
 <p>This chapter holds various assorted bits of docs. If you want to document
 something, but don't know where to put it, put it here!</p>
+<h2 id="crate-versioning-and-publishing"><a class="header" href="#crate-versioning-and-publishing">Crate Versioning and Publishing</a></h2>
+<p>While all the crates in the workspace are directly unversioned (<code>v0.0.0</code>), they
+all share a unified variable version in the <a href="misc/Cargo.toml">workspace manifest</a>.
+This keeps versions consistent across the workspace and informs their versions
+at the moment of publishing.</p>
+<p>We also have CI infrastructure set up to automate the publishing process to
+crates.io.  So, on every merge to master, if there's a version change, it is
+automatically applied to all the crates in the workspace and it attempts to
+publish the new versions of all non-private crates.  All crates that should be
+exempt from this process should be marked <code>private</code>.  That is, they should have
+the <code>publish = false</code> specification in their package manifest.</p>
+<p>This process is managed by
+<a href="https://github.com/pksunkara/cargo-workspaces">cargo-workspaces</a>, with a <a href="https://github.com/pksunkara/cargo-workspaces/compare/master...miraclx:grouping-and-exclusion#files_bucket">bit
+of
+magic</a>
+sprinkled on top.</p>
+<h2 id="issue-labels"><a class="header" href="#issue-labels">Issue Labels</a></h2>
+<p>Issue labels are of the following format <code>&lt;type&gt;-&lt;content&gt;</code> where <code>&lt;type&gt;</code> is a
+capital letter indicating the type of the label and <code>&lt;content&gt;</code> is a hyphened
+phrase indicating what is label is about.  For example, in the label <code>C-bug</code>,
+<code>C</code> means category and <code>bug</code> means that the label is about bugs.  Common types
+include <code>C</code>, which means category, <code>A</code>, which means area, <code>T</code>, which means team.</p>
+<p>An issue can have multiple labels including which area it touches, which team
+should be responsible for the issue, and so on.  Each issue should have at least
+one label attached to it after it is triaged and the label could be a general
+one, such as <code>C-enhancement</code> or <code>C-bug</code>.</p>
 
                     </main>
 
