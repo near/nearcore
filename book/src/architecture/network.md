@@ -1,3 +1,7 @@
+This document describes how our network works. At this moment, it is known to be
+somewhat outdated, as we are in the process of refactoring the network protocol
+somewhat significantly.
+
 # 1. Overview
 Near Protocol uses its own implementation of a custom peer-to-peer network
 Peers who join network are represented by nodes and connections between them by edges.
@@ -371,7 +375,7 @@ Routing table computation does a few things:
 - updates local copy of`peer_forwarding`, used for routing messages.
 - removes `local_edges_to_remove` from `local_edges_info`.
 - bans peers, who sent us invalid edges.
- 
+
 # 10. Message transportation layers.
 
 This section describes different protocols of sending messages currently used in `Near`
@@ -382,7 +386,7 @@ This section describes different protocols of sending messages currently used in
 Usually each actor runs on its own dedicated thread.
 Some, like `PeerActor` have one thread per each instance.
 Only messages implementing `actix::Message`, can be sent using between threads.
-Each actor has its own queue; Processing of messages happens asynchronously. 
+Each actor has its own queue; Processing of messages happens asynchronously.
 
 We should not leak implementation details into the spec.
 
@@ -391,7 +395,7 @@ Actix messages can be found by looking for `impl actix::Message`.
 ## 10.2 Messages sent through TCP
 
 Near is using `borsh` serialization to exchange messages between nodes (See https://borsh.io/).
-We should be careful when making changes to them. 
+We should be careful when making changes to them.
 We have to maintain backward compatibility.
 Only messages implementing `BorshSerialize`, `BorshDeserialize` can be sent.
 We also use `borsh` for database storage.
@@ -444,4 +448,3 @@ To store components, we have the following columns in the DB.
 ### 12.2 Storage of `account_id` to `peer_id` mapping
 
 `ColAccountAnouncements` -> Stores a mapping from `account_id` to tuple (`account_id`, `peer_id`, `epoch_id`, `signature`).
-

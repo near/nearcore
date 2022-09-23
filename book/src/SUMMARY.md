@@ -5,6 +5,7 @@
 # Architecture
 
 - [Overview](./architecture/README.md)
+- [Network](./architecture/network.md)
 
 # Practices
 
