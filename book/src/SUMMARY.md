@@ -9,6 +9,7 @@
 # Practices
 
 - [Overview](./practices/README.md)
+- [Code Style](./practices/style.md)
 
 # Misc
 
