@@ -31,7 +31,17 @@ impl RuntimeTestbed {
             StateDump::from_dir(dump_dir, workdir.path(), in_memory_db);
         // Ensure decent RocksDB SST file layout.
         store.compact().expect("compaction failed");
-        let tries = ShardTries::test(store, 1);
+
+        // Create ShardTries with relevant settings adjusted for estimator.
+        let shard_uids = [ShardUId { shard_id: 0, version: 0 }];
+        let mut trie_config = near_store::TrieConfig::default();
+        trie_config.enable_receipt_prefetching = true;
+        let tries = ShardTries::new(
+            store.clone(),
+            trie_config,
+            &shard_uids,
+            near_store::flat_state::FlatStateFactory::new(store.clone()),
+        );
 
         assert!(roots.len() <= 1, "Parameter estimation works with one shard only.");
         assert!(!roots.is_empty(), "No state roots found.");
