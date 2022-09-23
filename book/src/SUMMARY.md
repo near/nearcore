@@ -11,6 +11,7 @@
 
 - [Overview](./practices/README.md)
 - [Code Style](./practices/style.md)
+- [Protocol Upgrade](./practices/protocol_upgrade.md)
 
 # Misc
 
