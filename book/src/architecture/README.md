@@ -7,7 +7,7 @@ For reference documentation of the protocol, please refer to
 
 ## Bird's Eye View
 
-![](images/architecture.svg)
+![](/images/architecture.svg)
 
 Since nearcore is an implementation of NEAR blockchain protocol, its goal is to
 produce a binary that runs as a blockchain client. More specifically, the
