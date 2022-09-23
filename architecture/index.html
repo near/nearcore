@@ -3,34 +3,33 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>nearcore Dev Guide</title>
-        <meta name="robots" content="noindex" />
+        <title>Overview - nearcore Dev Guide</title>
         <!-- Custom HTML head -->
         <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
         <meta name="description" content="">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff" />
 
-        <link rel="icon" href="favicon.svg">
-        <link rel="shortcut icon" href="favicon.png">
-        <link rel="stylesheet" href="css/variables.css">
-        <link rel="stylesheet" href="css/general.css">
-        <link rel="stylesheet" href="css/chrome.css">
-        <link rel="stylesheet" href="css/print.css" media="print">
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
         <!-- Fonts -->
-        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
-        <link rel="stylesheet" href="fonts/fonts.css">
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
         <!-- Highlight.js Stylesheets -->
-        <link rel="stylesheet" href="highlight.css">
-        <link rel="stylesheet" href="tomorrow-night.css">
-        <link rel="stylesheet" href="ayu-highlight.css">
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
 
         <!-- Custom theme stylesheets -->
     </head>
     <body>
         <!-- Provide site root to javascript -->
         <script type="text/javascript">
-            var path_to_root = "";
+            var path_to_root = "../";
             var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
         </script>
 
@@ -76,7 +75,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><a href="index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="practices/index.html"><strong aria-hidden="true">2.</strong> Overview</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="misc/index.html"><strong aria-hidden="true">3.</strong> Misc</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html" class="active"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html"><strong aria-hidden="true">2.</strong> Overview</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html"><strong aria-hidden="true">3.</strong> Misc</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -108,11 +107,14 @@
                     <h1 class="menu-title">nearcore Dev Guide</h1>
 
                     <div class="right-buttons">
-                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
                             <i id="print-button" class="fa fa-print"></i>
                         </a>
                         <a href="https://github.com/near/nearcore" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/edit/master/book/src/architecture/README.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
                     </div>
                 </div>
@@ -138,51 +140,31 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="introduction"><a class="header" href="#introduction">Introduction</a></h1>
-<p>Welcome to nearcore development guide!</p>
-<p>The target audience of this guide are developers of nearcore itself. If you are
-a user of NEAR (either a contract developer, or validator running a node),
-please refer to the user docs at <a href="https://docs.near.org">https://docs.near.org</a>.</p>
-<p>This guide is build with <a href="https://rust-lang.github.io/mdBook/index.html">mdBook</a>
-from sources in the <a href="https://github.com/near/nearcore/">nearcore repository</a>.
-You can edit it by pressing the &quot;edit&quot; icon in the top right corner, so feel
-free to correct all the typos and such. The guide is hosted at
-<a href="https://near.github.io/nearcore/">https://near.github.io/nearcore/</a>.</p>
-<p>The guide is organized as a collection of loosely coupled chapters -- you don't
-need to read it in order, feel free to peruse the TOC and focus on interesting
-bits. The chapters are classified into three parts:</p>
-<ul>
-<li><a href="./architecture/index.html"><strong>Architecture</strong></a> talks about how the code works.
-So, for example, if you are interested in how a transaction flows through the
-system, look there!</li>
-<li><a href="./practices/index.html"><strong>Practices</strong></a> describe, broadly, how we write the code.
-For example, if you want to learn about code style, issue tracking, or
-debugging performance problems, this is a chapter for you.</li>
-<li>Finally, the <a href="./misc/index.html"><strong>Misc</strong></a> part holds various assorted bit and
-pieces. We are trying to bias ourself towards writing more docs, so, if you
-want to document something and it doesn't cleanly map to any category, just
-put it in misc!</li>
-</ul>
-<p>If you are unsure, start with the next chapter, <a href="./architecture/index.html">Architecture Overview</a></p>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="overview"><a class="header" href="#overview">Overview</a></h1>
+                        <h1 id="overview"><a class="header" href="#overview">Overview</a></h1>
 <p>This chapter describes how <code>nearcore</code> works.</p>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="overview-1"><a class="header" href="#overview-1">Overview</a></h1>
-<p>This chapter describes various development processes and best practices employed
-at nearcore.</p>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="overview-2"><a class="header" href="#overview-2">Overview</a></h1>
-<p>This chapter holds various assorted bits of docs. If you want to document
-something, but don't know where to put it, put it here!</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+                            <a rel="next" href="../practices/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
                         <div style="clear: both"></div>
                     </nav>
                 </div>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                    <a rel="next" href="../practices/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
             </nav>
 
         </div>
@@ -190,18 +172,13 @@ something, but don't know where to put it, put it here!</p>
         <script type="text/javascript">
             window.playground_copyable = true;
         </script>
-        <script src="elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
-        <script src="mark.min.js" type="text/javascript" charset="utf-8"></script>
-        <script src="searcher.js" type="text/javascript" charset="utf-8"></script>
-        <script src="clipboard.min.js" type="text/javascript" charset="utf-8"></script>
-        <script src="highlight.js" type="text/javascript" charset="utf-8"></script>
-        <script src="book.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../mark.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../searcher.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../clipboard.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../highlight.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../book.js" type="text/javascript" charset="utf-8"></script>
 
         <!-- Custom JS scripts -->
-        <script type="text/javascript">
-        window.addEventListener('load', function() {
-            window.setTimeout(window.print, 100);
-        });
-        </script>
     </body>
 </html>
