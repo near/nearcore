@@ -13,7 +13,7 @@ all contributions. The guide is hosted at <https://near.github.io/nearcore/>.
 
 The guide is organized as a collection of loosely coupled chapters -- you don't
 need to read them in order, feel free to peruse the TOC, and focus on
-interesting bits. The chapters are classified into three parts:
+the interesting bits. The chapters are classified into three parts:
 
 * [**Architecture**](./architecture/index.html) talks about how the code works.
   So, for example, if you are interested in how a transaction flows through the
