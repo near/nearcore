@@ -42,6 +42,11 @@
 * A `[path, data]` JSON RPC query format has been removed.  It has been
   deprecated for over two years and not documented anywhere.  Use proper
   structured queries with `rquest_type` set instead.
+* Enable receipt prefetching by default. This feature makes receipt processing
+  faster by parallelizing IO requests, which has been introduced in
+  [#7590](https://github.com/near/nearcore/pull/7590) and enabled by default
+  with [#7661](https://github.com/near/nearcore/pull/7661).
+  Configurable in `config.json` using `store.enable_receipt_prefetching`.
 
 ## 1.28.0 [2022-07-27]
 

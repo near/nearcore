@@ -65,7 +65,9 @@ pub struct NetworkConfig {
     pub whitelist_nodes: Vec<PeerInfo>,
     pub handshake_timeout: time::Duration,
     pub reconnect_delay: time::Duration,
-    pub bootstrap_peers_period: time::Duration,
+
+    /// Maximum time between refreshing the peer list.
+    pub monitor_peers_max_period: time::Duration,
     /// Maximum number of active peers. Hard limit.
     pub max_num_peers: u32,
     /// Minimum outbound connections a peer should have to avoid eclipse attacks.
@@ -192,7 +194,7 @@ impl NetworkConfig {
             },
             handshake_timeout: cfg.handshake_timeout.try_into()?,
             reconnect_delay: cfg.reconnect_delay.try_into()?,
-            bootstrap_peers_period: time::Duration::seconds(60),
+            monitor_peers_max_period: cfg.monitor_peers_max_period.try_into()?,
             max_num_peers: cfg.max_num_peers,
             minimum_outbound_peers: cfg.minimum_outbound_peers,
             ideal_connections_lo: cfg.ideal_connections_lo,
@@ -202,8 +204,8 @@ impl NetworkConfig {
             archival_peer_connections_lower_bound: cfg.archival_peer_connections_lower_bound,
             ban_window: cfg.ban_window.try_into()?,
             max_send_peers: 512,
-            peer_expiration_duration: time::Duration::seconds(7 * 24 * 60 * 60),
-            peer_stats_period: time::Duration::seconds(5),
+            peer_expiration_duration: cfg.peer_expiration_duration.try_into()?,
+            peer_stats_period: cfg.peer_stats_period.try_into()?,
             ttl_account_id_router: cfg.ttl_account_id_router.try_into()?,
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: MAX_ROUTES_TO_STORE,
@@ -259,7 +261,7 @@ impl NetworkConfig {
             whitelist_nodes: vec![],
             handshake_timeout: time::Duration::seconds(60),
             reconnect_delay: time::Duration::seconds(60),
-            bootstrap_peers_period: time::Duration::seconds(100),
+            monitor_peers_max_period: time::Duration::seconds(100),
             max_num_peers: 40,
             minimum_outbound_peers: 5,
             ideal_connections_lo: 30,
