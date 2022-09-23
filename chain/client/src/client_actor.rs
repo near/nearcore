@@ -1822,7 +1822,12 @@ impl ClientActor {
             statistics,
             &self.client.config,
         );
-        debug!(target: "stats", "{}", self.client.chain.print_chain_processing_info_to_string(self.client.config.log_summary_style).unwrap_or(String::from("Upcoming block info failed.")));
+        let summary = self
+            .client
+            .chain
+            .print_chain_processing_info_to_string(self.client.config.log_summary_style)
+            .unwrap_or(String::from("Upcoming block info failed."));
+        debug!(target: "stats", "{}", summary);
     }
 }
 
