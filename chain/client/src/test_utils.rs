@@ -1,6 +1,8 @@
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::DateTime;
 use futures::{future, FutureExt};
+use near_chunks::client::{ClientAdapterForShardsManager, ShardsManagerResponse};
+use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_o11y::testonly::TracingCapture;
 use near_primitives::time::Utc;
 use num_rational::Ratio;
@@ -34,7 +36,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper};
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, ShardId,
@@ -1090,6 +1092,7 @@ pub fn setup_client_with_runtime(
     account_id: Option<AccountId>,
     enable_doomslug: bool,
     network_adapter: Arc<dyn PeerManagerAdapter>,
+    client_adapter: Arc<dyn ClientAdapterForShardsManager>,
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     rng_seed: RngSeed,
@@ -1105,6 +1108,7 @@ pub fn setup_client_with_runtime(
         chain_genesis,
         runtime_adapter,
         network_adapter,
+        client_adapter,
         validator_signer,
         enable_doomslug,
         rng_seed,
@@ -1120,6 +1124,7 @@ pub fn setup_client(
     account_id: Option<AccountId>,
     enable_doomslug: bool,
     network_adapter: Arc<dyn PeerManagerAdapter>,
+    client_adapter: Arc<dyn ClientAdapterForShardsManager>,
     chain_genesis: ChainGenesis,
     rng_seed: RngSeed,
 ) -> Client {
@@ -1131,6 +1136,7 @@ pub fn setup_client(
         account_id,
         enable_doomslug,
         network_adapter,
+        client_adapter,
         chain_genesis,
         runtime_adapter,
         rng_seed,
@@ -1143,6 +1149,7 @@ pub struct TestEnv {
     pub chain_genesis: ChainGenesis,
     pub validators: Vec<AccountId>,
     pub network_adapters: Vec<Arc<MockPeerManagerAdapter>>,
+    pub client_adapters: Vec<Arc<MockClientAdapterForShardsManager>>,
     pub clients: Vec<Client>,
     account_to_client_index: HashMap<AccountId, usize>,
     paused_blocks: Arc<Mutex<HashMap<CryptoHash, Arc<OnceCell<()>>>>>,
@@ -1258,12 +1265,16 @@ impl TestEnvBuilder {
         let network_adapters = self
             .network_adapters
             .unwrap_or_else(|| (0..num_clients).map(|_| Arc::new(Default::default())).collect());
+        let client_adapters = (0..num_clients)
+            .map(|_| Arc::new(MockClientAdapterForShardsManager::default()))
+            .collect::<Vec<_>>();
         assert_eq!(clients.len(), network_adapters.len());
         let clients = match self.runtime_adapters {
             None => clients
                 .into_iter()
                 .zip(network_adapters.iter())
-                .map(|(account_id, network_adapter)| {
+                .zip(client_adapters.iter())
+                .map(|((account_id, network_adapter), client_adapter)| {
                     let rng_seed = match seeds.get(&account_id) {
                         Some(seed) => *seed,
                         None => TEST_SEED,
@@ -1276,6 +1287,7 @@ impl TestEnvBuilder {
                         Some(account_id),
                         false,
                         network_adapter.clone(),
+                        client_adapter.clone(),
                         chain_genesis.clone(),
                         rng_seed,
                     )
@@ -1286,8 +1298,8 @@ impl TestEnvBuilder {
                 clients
                     .into_iter()
                     .zip((&network_adapters).iter())
-                    .zip(runtime_adapters.into_iter())
-                    .map(|((account_id, network_adapter), runtime_adapter)| {
+                    .zip(runtime_adapters.into_iter().zip(client_adapters.iter()))
+                    .map(|((account_id, network_adapter), (runtime_adapter, client_adapter))| {
                         let rng_seed = match seeds.get(&account_id) {
                             Some(seed) => *seed,
                             None => TEST_SEED,
@@ -1297,6 +1309,7 @@ impl TestEnvBuilder {
                             Some(account_id),
                             false,
                             network_adapter.clone(),
+                            client_adapter.clone(),
                             chain_genesis.clone(),
                             runtime_adapter,
                             rng_seed,
@@ -1310,6 +1323,7 @@ impl TestEnvBuilder {
             chain_genesis,
             validators,
             network_adapters,
+            client_adapters,
             clients,
             account_to_client_index: self
                 .clients
@@ -1398,10 +1412,7 @@ impl TestEnv {
                 ) = request
                 {
                     self.client(&account_id)
-                        .process_partial_encoded_chunk(
-                            MaybeValidated::from(PartialEncodedChunk::from(partial_encoded_chunk)),
-                            Arc::new(|_| {}),
-                        )
+                        .process_partial_encoded_chunk(partial_encoded_chunk.into())
                         .unwrap();
                 }
             }
@@ -1428,9 +1439,7 @@ impl TestEnv {
         {
             let target_id = self.account_to_client_index[&target.account_id.unwrap()];
             let response = self.get_partial_encoded_chunk_response(target_id, request);
-            self.clients[id]
-                .process_partial_encoded_chunk_response(response, Arc::new(|_| {}))
-                .unwrap();
+            self.clients[id].process_partial_encoded_chunk_response(response).unwrap();
         } else {
             panic!("The request is not a PartialEncodedChunk request {:?}", request);
         }
@@ -1446,7 +1455,6 @@ impl TestEnv {
             request,
             CryptoHash::default(),
             client.chain.mut_store(),
-            &mut client.rs,
         );
         let response = self.network_adapters[id].pop_most_recent().unwrap();
         if let PeerManagerMessageRequest::NetworkRequests(
@@ -1459,6 +1467,25 @@ impl TestEnv {
                 "did not find PartialEncodedChunkResponse from the network queue {:?}",
                 response
             );
+        }
+    }
+
+    pub fn process_shards_manager_responses(&mut self, id: usize) {
+        while let Some(msg) = self.client_adapters[id].pop() {
+            match msg {
+                ShardsManagerResponse::ChunkCompleted(chunk_header) => {
+                    self.clients[id].on_chunk_completed(&chunk_header, Arc::new(|_| {}));
+                }
+            }
+        }
+    }
+
+    pub fn process_shards_manager_responses_and_finish_processing_blocks(&mut self, idx: usize) {
+        loop {
+            self.process_shards_manager_responses(idx);
+            if self.clients[idx].finish_blocks_in_processing().is_empty() {
+                return;
+            }
         }
     }
 
@@ -1577,6 +1604,7 @@ impl TestEnv {
             Some(self.get_client_id(idx).clone()),
             false,
             self.network_adapters[idx].clone(),
+            self.client_adapters[idx].clone(),
             self.chain_genesis.clone(),
             rng_seed,
         )
