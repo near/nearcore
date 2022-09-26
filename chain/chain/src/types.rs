@@ -292,6 +292,12 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         flat_storage_state: FlatStorageState,
     );
 
+    fn set_flat_storage_state_for_genesis(
+        &self,
+        genesis_block: &CryptoHash,
+        genesis_epoch_id: &EpochId,
+    ) -> Result<StoreUpdate, Error>;
+
     /// Validates a given signed transaction.
     /// If the state root is given, then the verification will use the account. Otherwise it will
     /// only validate the transaction math, limits and signatures.
