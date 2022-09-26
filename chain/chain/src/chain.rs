@@ -609,21 +609,14 @@ impl Chain {
                 store_update.save_head(&block_head)?;
                 store_update.save_final_head(&header_head)?;
 
-                #[cfg(feature = "protocol_feature_flat_state")]
-                {
-                    let mut tmp_store_update = store_update.store().store_update();
-                    // Set the root block of flat state to be the genesis block. Later, when we
-                    // init FlatStorageStates, we will read the from this column in storage, so it
-                    // must be set here.
-                    for shard_id in 0..runtime_adapter.num_shards(&block_head.epoch_id)? {
-                        flat_state::store_helper::set_flat_head(
-                            &mut tmp_store_update,
-                            shard_id,
-                            &block_head.last_block_hash,
-                        );
-                    }
-                    store_update.merge(tmp_store_update);
-                }
+                // Set the root block of flat state to be the genesis block. Later, when we
+                // init FlatStorageStates, we will read the from this column in storage, so it
+                // must be set here.
+                let tmp_store_update = runtime_adapter.set_flat_storage_state_for_genesis(
+                    genesis.hash(),
+                    genesis.header().epoch_id(),
+                )?;
+                store_update.merge(tmp_store_update);
 
                 info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
 

@@ -58,7 +58,7 @@ mod imp {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
-    use crate::Store;
+    use crate::{Store, StoreUpdate};
 
     /// Struct for getting value references from the flat storage.
     ///
@@ -145,6 +145,32 @@ mod imp {
                 caches: Default::default(),
                 flat_storage_states: Default::default(),
             }))
+        }
+
+        /// When a node starts from an empty database, this function must be called  to ensure
+        /// information such as flat head is set up correctly in the database.
+        /// Note that this function is different from `add_flat_storage_state_for_shard`,
+        /// it must be called before `add_flat_storage_state_for_shard` if the node starts from
+        /// an empty database.
+        #[cfg(feature = "protocol_feature_flat_state")]
+        pub fn set_flat_storage_state_for_genesis(
+            &self,
+            store_update: &mut StoreUpdate,
+            shard_id: ShardId,
+            genesis_block: &CryptoHash,
+        ) {
+            let flat_storage_states = self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
+            assert!(!flat_storage_states.contains_key(&shard_id));
+            store_helper::set_flat_head(store_update, shard_id, genesis_block);
+        }
+
+        #[cfg(not(feature = "protocol_feature_flat_state"))]
+        pub fn set_flat_storage_state_for_genesis(
+            &self,
+            _store_update: &mut StoreUpdate,
+            _shard_id: ShardId,
+            _genesis_block: &CryptoHash,
+        ) {
         }
 
         /// Add a flat storage state for shard `shard_id`. The function also checks that
@@ -457,7 +483,11 @@ pub mod store_helper {
             .unwrap_or_else(|| panic!("Cannot read flat head for shard {} from storage", shard_id))
     }
 
-    pub fn set_flat_head(store_update: &mut StoreUpdate, shard_id: ShardId, val: &CryptoHash) {
+    pub(crate) fn set_flat_head(
+        store_update: &mut StoreUpdate,
+        shard_id: ShardId,
+        val: &CryptoHash,
+    ) {
         store_update
             .set_ser(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap(), val)
             .expect("Error writing flat head from storage")

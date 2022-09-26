@@ -708,6 +708,22 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.flat_state_factory.add_flat_storage_state_for_shard(shard_id, flat_storage_state)
     }
 
+    fn set_flat_storage_state_for_genesis(
+        &self,
+        genesis_block: &CryptoHash,
+        genesis_epoch_id: &EpochId,
+    ) -> Result<StoreUpdate, Error> {
+        let mut store_update = self.store.store_update();
+        for shard_id in 0..self.num_shards(genesis_epoch_id)? {
+            self.flat_state_factory.set_flat_storage_state_for_genesis(
+                &mut store_update,
+                shard_id,
+                genesis_block,
+            );
+        }
+        Ok(store_update)
+    }
+
     fn validate_tx(
         &self,
         gas_price: Balance,
