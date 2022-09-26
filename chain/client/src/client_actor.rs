@@ -774,7 +774,7 @@ impl Handler<GetNetworkInfo> for ClientActor {
 
     #[perf]
     fn handle(&mut self, _msg: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
-        let _span = tracing::info_span!(
+        let _span = tracing::debug_span!(
             target: "client",
             "handle",
             handler="GetNetworkInfo")
