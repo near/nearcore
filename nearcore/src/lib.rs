@@ -14,7 +14,7 @@ use near_network_primitives::time;
 use near_primitives::block::GenesisId;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;
-use near_store::migrations::{migrate_28_to_29, migrate_29_to_30};
+use near_store::migrations::{migrate_28_to_29, migrate_29_to_30, migrate_31_to_32};
 use near_store::version::{set_store_version, DbVersion, DB_VERSION};
 use near_store::{DBCol, Mode, NodeStorage, StoreOpener, Temperature};
 use near_telemetry::TelemetryActor;
@@ -166,6 +166,11 @@ fn apply_store_migrations_if_exists(
         // version 30 => 31: recompute block ordinal due to a bug fixed in #5761
         info!(target: "near", "Migrate DB from version 30 to 31");
         migrate_30_to_31(store_opener, &near_config)?;
+    }
+    if db_version <= 31 {
+        // version 31 => 32: delete column ChunkPerHeightShard
+        info!(target: "near", "Migrate DB from version 30 to 31");
+        migrate_31_to_32(store_opener)?;
     }
 
     if cfg!(feature = "nightly") || cfg!(feature = "nightly_protocol") {
