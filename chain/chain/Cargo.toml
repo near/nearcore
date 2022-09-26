@@ -21,7 +21,7 @@ rand = "0.7"
 rayon = "1.5"
 strum = "0.24"
 thiserror = "1.0"
-tracing = "0.1.13"
+tracing = "0.1.36"
 crossbeam-channel = "0.5"
 
 delay-detector = { path = "../../tools/delay-detector"}

@@ -36,7 +36,7 @@ serde_json = "1"
 strum = { version = "0.24", features = ["derive"] }
 tempfile = "3"
 thiserror = "1"
-tracing = "0.1.13"
+tracing = "0.1.36"
 
 near-crypto = { path = "../crypto" }
 near-o11y = { path = "../o11y" }

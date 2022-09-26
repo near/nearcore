@@ -11,7 +11,7 @@ edition = "2021"
 actix = "0.13.0"
 anyhow = "1.0.51"
 async-recursion = "0.3.2"
-tracing = "0.1.13"
+tracing = "0.1.36"
 futures = "0.3.5"
 rocksdb = { version = "0.18.0", default-features = false, features = [
   "snappy",
