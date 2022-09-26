@@ -1,7 +1,7 @@
 [package]
 name = "storage-usage-delta-calculator"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>", "Egor Kulikov <egor@near.org>"]
+authors.workspace = true
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
 rust-version.workspace = true
