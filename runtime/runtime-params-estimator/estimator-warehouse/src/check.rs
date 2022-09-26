@@ -170,9 +170,7 @@ fn estimation_uncertain_changes(
                 add_warning(&mut warnings, name.clone(), "None".to_owned(), uncertain_after)
             }
             (Some(uncertain_before), Some(uncertain_after)) => {
-                if !uncertain_before.eq(&uncertain_after) {
-                    add_warning(&mut warnings, name.clone(), uncertain_before, uncertain_after);
-                }
+                add_warning(&mut warnings, name.clone(), uncertain_before, uncertain_after);
             }
         }
     }

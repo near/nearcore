@@ -57,7 +57,7 @@ members = [
 ]
 
 [workspace.metadata.workspaces]
-version = "0.14.0"
+version = "0.15.0"
 exclude = [ "neard" ]
 
 [patch.crates-io]
@@ -82,3 +82,8 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.sha2]
 opt-level = 3
+
+[workspace.package]
+edition = "2021"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+rust-version = "1.64.0"

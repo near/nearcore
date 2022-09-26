@@ -283,7 +283,7 @@ impl crate::runner::VM for WasmtimeVM {
                 Some(func) => match func.typed::<(), (), _>(&mut store) {
                     Ok(run) => match run.call(&mut store, ()) {
                         Ok(_) => VMResult::ok(logic),
-                        Err(err) => (VMResult::abort(logic, err.into_vm_error())),
+                        Err(err) => VMResult::abort(logic, err.into_vm_error()),
                     },
                     Err(err) => VMResult::abort(logic, err.into_vm_error()),
                 },

@@ -8,40 +8,37 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::time::Utc;
 use num_rational::Rational32;
 
-use crate::{metrics, DoomslugThresholdMode};
+use crate::metrics;
 use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
 use near_client_primitives::types::StateSplitApplyingStatus;
-use near_crypto::Signature;
 use near_pool::types::PoolIterator;
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochHeight, EpochId, Gas,
-    MerkleHash, NumBlocks, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
-    ValidatorInfoIdentifier,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks,
+    ShardId, StateChangesForSplitStates, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
+use near_store::flat_state::FlatStorageState;
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
+pub use near_epoch_manager::EpochManagerAdapter;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
-use near_store::flat_state::FlatStorageState;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -261,7 +258,7 @@ impl ChainGenesis {
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators.
-pub trait RuntimeAdapter: Send + Sync {
+pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
     /// Get store and genesis state roots
     fn genesis_state(&self) -> (Store, Vec<StateRoot>);
 
@@ -294,15 +291,6 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         flat_storage_state: FlatStorageState,
     );
-
-    fn verify_block_vrf(
-        &self,
-        epoch_id: &EpochId,
-        block_height: BlockHeight,
-        prev_random_value: &CryptoHash,
-        vrf_value: &near_crypto::vrf::Value,
-        vrf_proof: &near_crypto::vrf::Proof,
-    ) -> Result<(), Error>;
 
     /// Validates a given signed transaction.
     /// If the state root is given, then the verification will use the account. Otherwise it will
@@ -341,131 +329,6 @@ pub trait RuntimeAdapter: Send + Sync {
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error>;
 
-    /// Verify validator signature for the given epoch.
-    /// Note: doesnt't account for slashed accounts within given epoch. USE WITH CAUTION.
-    fn verify_validator_signature(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-        data: &[u8],
-        signature: &Signature,
-    ) -> Result<bool, Error>;
-
-    /// Verify signature for validator or fisherman. Used for validating challenges.
-    fn verify_validator_or_fisherman_signature(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-        data: &[u8],
-        signature: &Signature,
-    ) -> Result<bool, Error>;
-
-    /// Verify header signature.
-    fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error>;
-
-    /// Verify chunk header signature.
-    /// return false if the header signature does not match the key for the assigned chunk producer
-    /// for this chunk, or if the chunk producer has been slashed
-    /// return `Error::NotAValidator` if cannot find chunk producer info for this chunk
-    /// `header`: chunk header
-    /// `epoch_id`: epoch_id that the chunk header belongs to
-    /// `last_known_hash`: used to determine the list of chunk producers that are slashed
-    fn verify_chunk_header_signature(
-        &self,
-        header: &ShardChunkHeader,
-        epoch_id: &EpochId,
-        last_known_hash: &CryptoHash,
-    ) -> Result<bool, Error> {
-        self.verify_chunk_signature_with_header_parts(
-            &header.chunk_hash(),
-            header.signature(),
-            epoch_id,
-            last_known_hash,
-            header.height_created(),
-            header.shard_id(),
-        )
-    }
-
-    fn verify_chunk_signature_with_header_parts(
-        &self,
-        chunk_hash: &ChunkHash,
-        signature: &Signature,
-        epoch_id: &EpochId,
-        last_known_hash: &CryptoHash,
-        height_created: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<bool, Error>;
-
-    /// Verify aggregated bls signature
-    fn verify_approval(
-        &self,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Signature>],
-    ) -> Result<bool, Error>;
-
-    /// Verify approvals and check threshold, but ignore next epoch approvals and slashing
-    fn verify_approvals_and_threshold_orphan(
-        &self,
-        epoch_id: &EpochId,
-        doomslug_threshold_mode: DoomslugThresholdMode,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Signature>],
-    ) -> Result<(), Error>;
-
-    /// Epoch block producers ordered by their order in the proposals.
-    /// Returns error if height is outside of known boundaries.
-    fn get_epoch_block_producers_ordered(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(ValidatorStake, bool)>, Error>;
-
-    fn get_epoch_block_approvers_ordered(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<Vec<(ApprovalStake, bool)>, Error>;
-
-    /// Returns all the chunk producers for a given epoch.
-    fn get_epoch_chunk_producers(&self, epoch_id: &EpochId) -> Result<Vec<ValidatorStake>, Error>;
-
-    /// Block producers for given height for the main block. Return error if outside of known boundaries.
-    fn get_block_producer(
-        &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-    ) -> Result<AccountId, Error>;
-
-    /// Chunk producer for given height for given shard. Return error if outside of known boundaries.
-    fn get_chunk_producer(
-        &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<AccountId, Error>;
-
-    fn get_validator_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), Error>;
-
-    fn get_fisherman_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), Error>;
-
-    /// Get current number of shards.
-    fn num_shards(&self, epoch_id: &EpochId) -> Result<ShardId, Error>;
-
     fn num_total_parts(&self) -> usize;
 
     fn num_data_parts(&self) -> usize;
@@ -479,10 +342,6 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Returns `account_id` that suppose to have the `part_id`.
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error>;
-
-    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
-
-    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error>;
 
     fn get_prev_shard_ids(
         &self,
@@ -533,30 +392,8 @@ pub trait RuntimeAdapter: Send + Sync {
         is_me: bool,
     ) -> bool;
 
-    /// Returns true, if given hash is last block in it's epoch.
-    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
-
-    /// Get epoch id given hash of previous block.
-    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error>;
-
-    /// Get epoch height given hash of previous block.
-    fn get_epoch_height_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<EpochHeight, Error>;
-
-    /// Get next epoch id given hash of previous block.
-    fn get_next_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash)
-        -> Result<EpochId, Error>;
-
-    /// Get epoch start for given block hash.
-    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
-
     /// Get the block height for which garbage collection should not go over
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight;
-
-    /// Check if epoch exists.
-    fn epoch_exists(&self, epoch_id: &EpochId) -> bool;
 
     /// Amount of tokens minted in given epoch.
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error>;

@@ -1,11 +1,11 @@
 [package]
 name = "near-chain"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.60.0"
-edition = "2021"
+rust-version.workspace = true
+edition.workspace = true
 
 [dependencies]
 ansi_term = "0.12"
@@ -34,6 +34,7 @@ near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-cache = { path = "../../utils/near-cache" }
 near-client-primitives = { path = "../client-primitives"}
+near-epoch-manager = { path = "../epoch-manager" }
 
 [dev-dependencies]
 insta = "1"

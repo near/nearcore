@@ -1,11 +1,11 @@
 [package]
 name = "near-vm-runner"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.63.0"
-edition = "2021"
+rust-version.workspace = true
+edition.workspace = true
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 categories = ["wasm"]
@@ -109,7 +109,7 @@ io_trace = ["near-vm-logic/io_trace"]
 protocol_feature_ed25519_verify = [
     "near-primitives/protocol_feature_ed25519_verify",
     "near-vm-logic/protocol_feature_ed25519_verify"
-] 
+]
 
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate

@@ -24,7 +24,6 @@ use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, EpochId};
-use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
@@ -539,12 +538,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
         one_part_receipt_proofs,
         &vec![merkle_paths[0].clone()],
     );
-    assert!(env.clients[1]
-        .process_partial_encoded_chunk(
-            MaybeValidated::from(partial_encoded_chunk),
-            Arc::new(|_| {})
-        )
-        .is_ok());
+    assert!(env.clients[1].process_partial_encoded_chunk(partial_encoded_chunk).is_ok());
     env.process_block(1, block, Provenance::NONE);
 
     // At this point we should create a challenge and send it out.

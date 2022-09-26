@@ -1,12 +1,12 @@
 [package]
 name = "near-o11y"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 description = "Observability helpers for the near codebase"
-edition = "2021"
+edition.workspace = true
 publish = false
 readme = "README.md"
-rust-version = "1.63.0"
+rust-version.workspace = true
 
 [dependencies]
 atty = "0.2"
@@ -28,6 +28,7 @@ tracing-subscriber = { version = "0.3.9", features = ["fmt", "env-filter", "regi
 
 [dev-dependencies]
 bencher = "0.1.5"
+itoa = "1.0"
 smartstring = "1.0.1"
 
 [features]
