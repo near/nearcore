@@ -2,7 +2,7 @@
 name = "near-test-contracts"
 version = "0.0.0"
 publish = false
-authors.workspace = true
+authors = ["Near Inc <hello@nearprotocol.com>"]
 # Please update rust-toolchain.toml as well when changing version here:
 rust-version = "1.64.0"
 edition = "2021"
