@@ -30,7 +30,7 @@ pub fn has_rust_version(workspace: &Workspace) -> anyhow::Result<()> {
     let outliers: Vec<_> = workspace
         .members
         .iter()
-        .filter(|pkg| pkg.raw["package"].get("rust-version").is_none())
+        .filter(|pkg| pkg.parsed.rust_version.is_none())
         .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None })
         .collect();
 
@@ -95,20 +95,19 @@ pub fn has_debuggable_rust_version(workspace: &Workspace) -> anyhow::Result<()> 
 
     let mut outliers = vec![];
     for pkg in &workspace.members {
-        let (rust_version, raw) = match pkg.raw["package"].get("rust-version") {
+        match &pkg.parsed.rust_version {
             Some(rust_version) => {
-                let raw = rust_version.as_str().unwrap();
-                (semver::VersionReq::parse(raw)?, raw)
+                if !rust_version.matches(&rust_toolchain) {
+                    outliers.push(Outlier {
+                        path: pkg.parsed.manifest_path.clone(),
+                        found: Some(format!("{}", rust_version)),
+                    });
+                }
             }
-            // we can skip, since we have has_rust_version check
-            None => continue,
-        };
-
-        if !rust_version.matches(&rust_toolchain) {
-            outliers.push(Outlier {
-                path: pkg.parsed.manifest_path.clone(),
-                found: Some(raw.to_owned()),
-            });
+            None => {
+                // we can skip, since we have has_rust_version check
+                continue;
+            }
         }
     }
 

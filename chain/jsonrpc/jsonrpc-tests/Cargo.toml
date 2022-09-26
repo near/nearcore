@@ -1,11 +1,11 @@
 [package]
 name = "near-jsonrpc-tests"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.64.0"
-edition = "2021"
+rust-version.workspace = true
+edition.workspace = true
 
 [dependencies]
 actix = "0.13.0"

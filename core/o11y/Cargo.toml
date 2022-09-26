@@ -1,12 +1,12 @@
 [package]
 name = "near-o11y"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 description = "Observability helpers for the near codebase"
-edition = "2021"
+edition.workspace = true
 publish = false
 readme = "README.md"
-rust-version = "1.64.0"
+rust-version.workspace = true
 
 [dependencies]
 atty = "0.2"

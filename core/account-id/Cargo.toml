@@ -1,7 +1,7 @@
 [package]
 name = "near-account-id"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = true
 # This crate is published to crates.io with a semver API.  Care must be taken
 # when updaing its rust-version.
