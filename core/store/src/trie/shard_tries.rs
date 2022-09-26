@@ -402,7 +402,7 @@ impl WrappedTrieChanges {
     }
 }
 
-#[derive(derive_more::AsRef, derive_more::Into, Debug)]
+#[derive(derive_more::AsRef, derive_more::Into)]
 pub struct KeyForStateChanges(Vec<u8>);
 
 impl KeyForStateChanges {
