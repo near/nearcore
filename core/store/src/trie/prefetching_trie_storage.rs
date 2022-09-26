@@ -547,7 +547,7 @@ mod tests {
         }
 
         pub fn work_queued(&self) -> bool {
-            !self.work_queue_rx.is_empty()
+            !self.work_queue.rx.is_empty()
         }
     }
 
