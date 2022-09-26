@@ -173,3 +173,13 @@ pub fn migrate_29_to_30(store_opener: &StoreOpener) -> anyhow::Result<()> {
     set_store_version(&store, 30)?;
     Ok(())
 }
+
+pub fn migrate_31_to_32(store_opener: &StoreOpener) -> anyhow::Result<()> {
+    let store = store_opener.open().unwrap().get_store(crate::Temperature::Hot);
+    let mut store_update = store.store_update();
+    store_update.delete_all(DBCol::_ChunkPerHeightShard);
+    store_update.commit()?;
+
+    set_store_version(&store, 32)?;
+    Ok(())
+}
