@@ -718,10 +718,12 @@ impl ChainStore {
 
         Ok(match state_changes_request {
             StateChangesRequest::AccountChanges { account_ids } => {
+                tracing::info!(?account_ids, "StateChangesRequest::AccountChanges");
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
                     let data_key = TrieKey::Account { account_id: account_id.clone() };
                     let storage_key = KeyForStateChanges::from_trie_key(block_hash, &data_key);
+                    tracing::info!(?account_id, ?data_key, ?storage_key, "StateChangesRequest::AccountChanges");
                     let changes_per_key = storage_key.find_exact_iter(&self.store);
                     changes.extend(StateChanges::from_account_changes(changes_per_key)?);
                 }
