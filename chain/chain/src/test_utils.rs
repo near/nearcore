@@ -701,6 +701,14 @@ impl RuntimeAdapter for KeyValueRuntime {
     ) {
     }
 
+    fn set_flat_storage_state_for_genesis(
+        &self,
+        _genesis_block: &CryptoHash,
+        _genesis_epoch_id: &EpochId,
+    ) -> Result<StoreUpdate, Error> {
+        Ok(self.store.store_update())
+    }
+
     fn get_prev_shard_ids(
         &self,
         _prev_hash: &CryptoHash,
