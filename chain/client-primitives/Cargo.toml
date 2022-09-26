@@ -1,11 +1,11 @@
 [package]
 name = "near-client-primitives"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = true
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.64.0"
-edition = "2021"
+rust-version.workspace = true
+edition.workspace = true
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/near/nearcore"
 description = "This crate hosts NEAR client-related error types"
