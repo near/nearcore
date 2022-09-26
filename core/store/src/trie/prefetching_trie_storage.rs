@@ -106,19 +106,6 @@ pub(crate) enum PrefetcherResult {
     MemoryLimitReached,
 }
 
-/// Only exists to implement `Drop`.
-struct JoinGuard(Vec<std::thread::JoinHandle<()>>);
-
-impl Drop for JoinGuard {
-    fn drop(&mut self) {
-        for handle in self.0.drain(..) {
-            if let Err(e) = handle.join() {
-                error!("Failed to join background thread: {e:?}")
-            }
-        }
-    }
-}
-
 struct StagedMetrics {
     prefetch_staged_bytes: GenericGauge<prometheus::core::AtomicI64>,
     prefetch_staged_items: GenericGauge<prometheus::core::AtomicI64>,
@@ -413,9 +400,10 @@ impl PrefetchApi {
                 )
             })
             .collect();
+        // Do not clone tx before this point, or `WorkQueue` invariant is broken.
+        let work_queue = WorkQueue { rx, tx, _handles: Arc::new(JoinGuard(handles)) };
         Self {
-            // Do not clone tx before this point, or `WorkQueue` invariant is broken.
-            work_queue: WorkQueue { rx, tx, _handles: Arc::new(JoinGuard(handles)) },
+            work_queue,
             prefetching,
             enable_receipt_prefetching,
             sweat_prefetch_receivers,
@@ -507,6 +495,19 @@ struct WorkQueue {
     /// already been dropped (field order matters!) and therefore the crossbeam
     /// channel has been closed.
     _handles: Arc<JoinGuard>,
+}
+
+/// Only exists to implement `Drop`.
+struct JoinGuard(Vec<std::thread::JoinHandle<()>>);
+
+impl Drop for JoinGuard {
+    fn drop(&mut self) {
+        for handle in self.0.drain(..) {
+            if let Err(e) = handle.join() {
+                error!("Failed to join background thread: {e:?}")
+            }
+        }
+    }
 }
 
 fn prefetch_state_matches(expected: PrefetchSlot, actual: &PrefetchSlot) -> bool {
