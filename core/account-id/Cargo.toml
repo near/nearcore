@@ -3,7 +3,8 @@ name = "near-account-id"
 version = "0.0.0"
 authors.workspace = true
 publish = true
-# Please update rust-toolchain.toml as well when changing version here:
+# This crate is published to crates.io with a semver API.  Care must be taken
+# when updaing its rust-version.
 rust-version = "1.60.0"
 edition.workspace = true
 license = "MIT OR Apache-2.0"
