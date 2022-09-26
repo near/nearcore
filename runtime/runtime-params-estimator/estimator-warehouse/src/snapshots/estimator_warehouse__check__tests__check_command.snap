@@ -10,7 +10,7 @@ expression: report.to_string()
 ```
 LogBase                                         4.00 Ggas ➜        5.00 Ggas (+25.00%)
 ```
-### Gas estimator uncertain changes: 1
+### Gas estimator uncertain estimations: 1
 ```
 UncertainTest                                               NEGATIVE-COST ➜ HIGH-VARIANCE                   
 ```
