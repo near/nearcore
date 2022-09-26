@@ -2394,6 +2394,8 @@ fn test_catchup_gas_price_change() {
 
 #[test]
 fn test_block_execution_outcomes() {
+    init_test_logger();
+
     let epoch_length = 5;
     let min_gas_price = 10000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -2876,6 +2878,8 @@ fn test_fork_receipt_ids() {
 
 #[test]
 fn test_fork_execution_outcome() {
+    init_test_logger();
+
     let (mut env, tx_hash) = prepare_env_with_transaction();
 
     let mut last_height = 0;

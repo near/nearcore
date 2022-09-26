@@ -56,4 +56,5 @@ required-features = ["mock_node"]
 
 [features]
 test_features = ["nearcore/test_features"]
+protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
 mock_node = ["near-chain/mock_node", "near-epoch-manager/mock_node"]

@@ -22,7 +22,7 @@ use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
-use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
+use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -512,7 +512,10 @@ impl NightshadeRuntime {
                 state_patch,
             )
             .map_err(|e| match e {
-                RuntimeError::InvalidTxError(_) => Error::InvalidTransactions,
+                RuntimeError::InvalidTxError(err) => {
+                    tracing::warn!("Invalid tx {:?}", err);
+                    Error::InvalidTransactions
+                }
                 // TODO(#2152): process gracefully
                 RuntimeError::BalanceMismatchError(e) => panic!("{}", e),
                 // TODO(#2152): process gracefully
@@ -703,6 +706,22 @@ impl RuntimeAdapter for NightshadeRuntime {
         flat_storage_state: FlatStorageState,
     ) {
         self.flat_state_factory.add_flat_storage_state_for_shard(shard_id, flat_storage_state)
+    }
+
+    fn set_flat_storage_state_for_genesis(
+        &self,
+        genesis_block: &CryptoHash,
+        genesis_epoch_id: &EpochId,
+    ) -> Result<StoreUpdate, Error> {
+        let mut store_update = self.store.store_update();
+        for shard_id in 0..self.num_shards(genesis_epoch_id)? {
+            self.flat_state_factory.set_flat_storage_state_for_genesis(
+                &mut store_update,
+                shard_id,
+                genesis_block,
+            );
+        }
+        Ok(store_update)
     }
 
     fn validate_tx(
@@ -1128,7 +1147,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         ) {
             Ok(result) => Ok(result),
             Err(e) => match e {
-                Error::StorageError(_) => panic!("{e}"),
+                Error::StorageError(err) => match &err {
+                    StorageError::FlatStorageError(_) => Err(err.into()),
+                    _ => panic!("{err}"),
+                },
                 _ => Err(e),
             },
         }
