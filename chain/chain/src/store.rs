@@ -42,6 +42,8 @@ use near_store::{
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeAdapter};
 use near_store::db::StoreStatistics;
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_store::flat_state::{BlockInfo, ChainAccessForFlatStorage};
 use std::sync::Arc;
 
 /// lru cache size
@@ -1115,6 +1117,23 @@ impl ChainStoreAccess for ChainStore {
         )
         .map(|r| r.is_some())
         .map_err(|e| e.into())
+    }
+}
+
+#[cfg(feature = "protocol_feature_flat_state")]
+impl ChainAccessForFlatStorage for ChainStore {
+    fn get_block_info(&self, block_hash: &CryptoHash) -> BlockInfo {
+        let header = self.get_block_header(block_hash).unwrap();
+        BlockInfo { hash: *block_hash, height: header.height(), prev_hash: *header.prev_hash() }
+    }
+
+    fn get_block_hashes_at_height(&self, height: BlockHeight) -> HashSet<CryptoHash> {
+        self.get_all_block_hashes_by_height(height)
+            .unwrap()
+            .values()
+            .flatten()
+            .copied()
+            .collect::<HashSet<_>>()
     }
 }
 
