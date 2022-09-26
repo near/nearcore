@@ -317,6 +317,15 @@ impl ShardTries {
     ) -> (StoreUpdate, StateRoot) {
         self.apply_all_inner(trie_changes, shard_uid, true)
     }
+
+    // Stop prefetching background threads and wait until they have terminated.
+    pub fn stop_prefetching_threads(&self) -> std::thread::Result<()> {
+        for prefetcher in self.0.prefetchers.write().expect(POISONED_LOCK_ERR).values_mut() {
+            prefetcher.clear_queue();
+            prefetcher.stop_background_threads()?;
+        }
+        Ok(())
+    }
 }
 
 pub struct WrappedTrieChanges {

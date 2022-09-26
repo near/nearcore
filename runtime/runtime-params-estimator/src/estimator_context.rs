@@ -149,3 +149,9 @@ impl Testbed<'_> {
         }
     }
 }
+
+impl<'a> Drop for Testbed<'a> {
+    fn drop(&mut self) {
+        self.inner.stop_prefetching_threads();
+    }
+}

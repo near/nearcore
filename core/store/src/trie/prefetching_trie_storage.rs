@@ -53,7 +53,6 @@ struct TriePrefetchingStorage {
 /// The former puts requests in, the latter serves requests.
 /// With this API, the store does not know about receipts etc, and the runtime
 /// does not know about the trie structure. The only thing they share is this object.
-#[derive(Clone)]
 pub struct PrefetchApi {
     /// Bounded, shared queue for all IO threads to take work from.
     ///
@@ -64,6 +63,9 @@ pub struct PrefetchApi {
     /// at the same time.
     work_queue_tx: crossbeam::channel::Sender<(StateRoot, TrieKey)>,
     work_queue_rx: crossbeam::channel::Receiver<(StateRoot, TrieKey)>,
+    /// Threads spawned by this instance of `PrefetchApi`, clones created for chunk processing
+    /// will have an empty vector instead.
+    io_thread_handles: Vec<std::thread::JoinHandle<()>>,
     /// Prefetching IO threads will insert fetched data here. This is also used
     /// to mark what is already being fetched, to avoid fetching the same data
     /// multiple times.
@@ -388,9 +390,10 @@ impl PrefetchApi {
         let sweat_prefetch_senders = trie_config.sweat_prefetch_senders.clone();
         let enable_receipt_prefetching = trie_config.enable_receipt_prefetching;
 
-        let this = Self {
+        let mut this = Self {
             work_queue_tx,
             work_queue_rx,
+            io_thread_handles: vec![],
             prefetching: PrefetchStagingArea::new(shard_uid.shard_id()),
             enable_receipt_prefetching,
             sweat_prefetch_receivers,
@@ -412,12 +415,7 @@ impl PrefetchApi {
         self.work_queue_tx.send((root, trie_key)).map_err(|e| e.0)
     }
 
-    pub fn start_io_thread(
-        &self,
-        store: Store,
-        shard_cache: TrieCache,
-        shard_uid: ShardUId,
-    ) -> std::thread::JoinHandle<()> {
+    pub fn start_io_thread(&mut self, store: Store, shard_cache: TrieCache, shard_uid: ShardUId) {
         let prefetcher_storage =
             TriePrefetchingStorage::new(store, shard_uid, shard_cache, self.prefetching.clone());
         let work_queue = self.work_queue_rx.clone();
@@ -425,7 +423,7 @@ impl PrefetchApi {
             metrics::PREFETCH_SENT.with_label_values(&[&shard_uid.shard_id.to_string()]);
         let metric_prefetch_fail =
             metrics::PREFETCH_FAIL.with_label_values(&[&shard_uid.shard_id.to_string()]);
-        std::thread::spawn(move || {
+        let handle = std::thread::spawn(move || {
             while let Ok((trie_root, trie_key)) = work_queue.recv() {
                 // Since the trie root can change,and since the root is not known at the time when the IO threads starts,
                 // we need to redefine the trie before each request.
@@ -443,7 +441,8 @@ impl PrefetchApi {
                     metric_prefetch_fail.inc();
                 }
             }
-        })
+        });
+        self.io_thread_handles.push(handle);
     }
 
     /// Remove queued up requests so IO threads will be paused after they finish their current task.
@@ -458,6 +457,18 @@ impl PrefetchApi {
     pub fn clear_data(&self) {
         self.prefetching.0.lock().expect(POISONED_LOCK_ERR).slots.clear();
     }
+
+    /// Interrupt and wait for all prefetching background threads to terminate.
+    pub fn stop_background_threads(&mut self) -> std::thread::Result<()> {
+        // close cross-beam channel
+        (self.work_queue_tx, self.work_queue_rx) =
+            crossbeam::channel::bounded(MAX_QUEUED_WORK_ITEMS);
+        // wait for IO threads to terminate
+        for handle in self.io_thread_handles.drain(..) {
+            handle.join()?;
+        }
+        Ok(())
+    }
 }
 
 fn prefetch_state_matches(expected: PrefetchSlot, actual: &PrefetchSlot) -> bool {
@@ -466,6 +477,23 @@ fn prefetch_state_matches(expected: PrefetchSlot, actual: &PrefetchSlot) -> bool
         | (PrefetchSlot::PendingFetch, PrefetchSlot::PendingFetch)
         | (PrefetchSlot::Done(_), PrefetchSlot::Done(_)) => true,
         _ => false,
+    }
+}
+
+// Manual implementation to avoid cloning thread handles. Those handles should
+// be in exclusive ownership of the original object, stored in `ShardTries`.
+impl Clone for PrefetchApi {
+    fn clone(&self) -> Self {
+        Self {
+            work_queue_tx: self.work_queue_tx.clone(),
+            work_queue_rx: self.work_queue_rx.clone(),
+            io_thread_handles: vec![],
+            prefetching: self.prefetching.clone(),
+            enable_receipt_prefetching: self.enable_receipt_prefetching.clone(),
+            sweat_prefetch_receivers: self.sweat_prefetch_receivers.clone(),
+            sweat_prefetch_senders: self.sweat_prefetch_senders.clone(),
+            shard_uid: self.shard_uid.clone(),
+        }
     }
 }
 
