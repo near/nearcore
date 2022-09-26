@@ -49,7 +49,7 @@ use near_primitives::views::{
     SignedTransactionView,
 };
 #[cfg(feature = "protocol_feature_flat_state")]
-use near_store::flat_state;
+use near_store::{flat_state, StorageError};
 use near_store::{DBCol, ShardTries, StoreUpdate, WrappedTrieChanges};
 
 use crate::block_processing_utils::{
@@ -621,15 +621,6 @@ impl Chain {
                             shard_id,
                             &block_head.last_block_hash,
                         );
-                        // The genesis block doesn't include any transactions or receipts, so the
-                        // block delta is empty
-                        flat_state::store_helper::set_delta(
-                            &mut tmp_store_update,
-                            shard_id,
-                            block_head.last_block_hash,
-                            &FlatStateDelta::default(),
-                        )
-                        .map_err(|e| StorageError::from(e))?;
                     }
                     store_update.merge(tmp_store_update);
                 }
@@ -648,7 +639,7 @@ impl Chain {
             let flat_storage_state = FlatStorageState::new(
                 store.store().clone(),
                 shard_id,
-                store.head().unwrap().height,
+                store.head()?.height,
                 &store,
             );
             runtime_adapter.add_flat_storage_state_for_shard(shard_id, flat_storage_state);
@@ -4674,6 +4665,8 @@ impl<'a> ChainUpdate<'a> {
         shard_id: ShardId,
         trie_changes: &WrappedTrieChanges,
     ) -> Result<(), Error> {
+        // Right now, we don't implement flat storage for catchup, so we only store
+        // the delta for the shards that we are tracking this epoch
         #[cfg(feature = "protocol_feature_flat_state")]
         if self.runtime_adapter.cares_about_shard(me.as_ref(), &prev_hash, shard_id, true) {
             if let Some(chain_flat_storage) =
@@ -4723,8 +4716,6 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.total_balance_burnt,
                     ),
                 );
-                // Right now, we don't implement flat storage for catchup, so we only store
-                // the delta if we are not catching up
                 self.save_flat_state_changes(
                     me,
                     block_hash,

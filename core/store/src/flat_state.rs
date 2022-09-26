@@ -114,7 +114,7 @@ mod imp {
                 };
             }
 
-            Ok(store_helper::get_state(&self.store, key)?)
+            Ok(store_helper::get_ref(&self.store, key)?)
         }
     }
 
@@ -351,7 +351,7 @@ impl FlatStateDelta {
     #[cfg(feature = "protocol_feature_flat_state")]
     pub fn apply_to_flat_state(self, store_update: &mut StoreUpdate) {
         for (key, value) in self.0.into_iter() {
-            store_helper::set_state(store_update, key, value).expect(BORSH_ERR);
+            store_helper::set_ref(store_update, key, value).expect(BORSH_ERR);
         }
     }
 
@@ -388,8 +388,8 @@ pub struct BlockInfo {
 // - `flat_head` is stored on disk. The value of flat_head in memory and on disk should always
 //   be consistent with the flat state stored in `DbCol::FlatState` on disk. This means, updates to
 //   these values much be atomic from the outside.
-// - `blocks` and `deltas` store the same set of blocks, which is the set of blocks that
-//    `FlatStorageState::get_deltas_between_blocks` supports. For any block in `blocks`, `flat_head`
+// - `blocks` and `deltas` store the same set of blocks, except that `flat_head` is in `blocks`,
+//     but not in `deltas`. For any block in `blocks`, `flat_head`
 //    must be on the same chain as the block and all blocks between `flat_head` and the block must
 //    also be in `blocks`.
 // - All deltas in `deltas` are stored on disk. And if a block is accepted by chain, its deltas
@@ -402,8 +402,8 @@ struct FlatStorageStateInner {
     /// Id of the shard which state is accessed by this flat storage.
     #[allow(unused)]
     shard_id: ShardId,
-    /// The block for which we store the key value pairs of its state. For non catchup mode,
-    /// it should be the last final block.
+    /// The block for which we store the key value pairs of the state after it is applied.
+    /// For non catchup mode, it should be the last final block.
     #[allow(unused)]
     flat_head: CryptoHash,
     /// Stores some information for all blocks supported by flat storage, this is used for finding
@@ -463,10 +463,7 @@ pub mod store_helper {
             .expect("Error writing flat head from storage")
     }
 
-    pub(crate) fn get_state(
-        store: &Store,
-        key: &[u8],
-    ) -> Result<Option<ValueRef>, FlatStorageError> {
+    pub(crate) fn get_ref(store: &Store, key: &[u8]) -> Result<Option<ValueRef>, FlatStorageError> {
         let raw_ref = store
             .get(crate::DBCol::FlatState, key)
             .map_err(|_| FlatStorageError::StorageInternalError);
@@ -478,7 +475,7 @@ pub mod store_helper {
         }
     }
 
-    pub(crate) fn set_state(
+    pub(crate) fn set_ref(
         store_update: &mut StoreUpdate,
         key: Vec<u8>,
         value: Option<ValueRef>,
@@ -503,7 +500,7 @@ pub trait ChainAccessForFlatStorage {
 
 #[cfg(feature = "protocol_feature_flat_state")]
 impl FlatStorageStateInner {
-    /// Get deltas between blocks `target_block_hash`(inclusive) to flat head(inclusive),
+    /// Get deltas between blocks `target_block_hash`(inclusive) to flat head(exclusive),
     /// in backwards chain order. Returns an error if there is no path between these two them.
     fn get_deltas_between_blocks(
         &self,
@@ -513,7 +510,7 @@ impl FlatStorageStateInner {
 
         let mut block_hash = target_block_hash.clone();
         let mut deltas = vec![];
-        loop {
+        while block_hash != self.flat_head {
             let block_info = self
                 .blocks
                 .get(&block_hash)
@@ -530,10 +527,6 @@ impl FlatStorageStateInner {
                 // should be in self.deltas too
                 .unwrap_or_else(|| panic!("block delta for {:?} is not available", block_hash));
             deltas.push(delta.clone());
-
-            if block_hash == self.flat_head {
-                break;
-            }
 
             block_hash = block_info.prev_hash;
         }
@@ -580,15 +573,18 @@ impl FlatStorageState {
                     block_info.height
                 );
                 blocks.insert(hash, block_info);
+                deltas.insert(
+                    hash,
+                    store_helper::get_delta(&store, shard_id, hash)
+                        .expect(BORSH_ERR)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "Cannot find block delta for block {:?} shard {}",
+                                hash, shard_id
+                            )
+                        }),
+                );
             }
-        }
-        for hash in blocks.keys() {
-            deltas.insert(
-                *hash,
-                store_helper::get_delta(&store, shard_id, *hash).expect(BORSH_ERR).unwrap_or_else(
-                    || panic!("Cannot find block delta for block {:?} shard {}", hash, shard_id),
-                ),
-            );
         }
 
         Self(Arc::new(RwLock::new(FlatStorageStateInner {
@@ -882,7 +878,8 @@ mod tests {
         let store = create_test_store();
         let mut store_update = store.store_update();
         store_helper::set_flat_head(&mut store_update, 0, &chain.get_block_hash(0));
-        for i in 0..10 {
+        store_helper::set_ref(&mut store_update, vec![1], Some(ValueRef::new(&[0]))).unwrap();
+        for i in 1..10 {
             store_helper::set_delta(
                 &mut store_update,
                 0,
@@ -902,7 +899,7 @@ mod tests {
         for i in 0..10 {
             let block_hash = chain.get_block_hash(i);
             let deltas = flat_storage_state.get_deltas_between_blocks(&block_hash).unwrap();
-            assert_eq!(deltas.len(), i as usize + 1);
+            assert_eq!(deltas.len(), i as usize);
             let flat_state =
                 flat_state_factory.new_flat_state_for_shard(0, Some(block_hash), false).unwrap();
             assert_eq!(flat_state.get_ref(&[1]).unwrap(), Some(ValueRef::new(&[i as u8])));
@@ -924,7 +921,7 @@ mod tests {
         //    Verify that they return the correct values
         let deltas =
             flat_storage_state.get_deltas_between_blocks(&chain.get_block_hash(10)).unwrap();
-        assert_eq!(deltas.len(), 11);
+        assert_eq!(deltas.len(), 10);
         let flat_state0 = flat_state_factory
             .new_flat_state_for_shard(0, Some(chain.get_block_hash(10)), false)
             .unwrap();
@@ -939,10 +936,10 @@ mod tests {
         // 5. Move the flat head to block 5, verify that flat_state0 still returns the same values
         // and flat_state1 returns an error. Also check that DBCol::FlatState is updated correctly
         flat_storage_state.update_flat_head(&chain.get_block_hash(5)).unwrap();
-        assert_eq!(store_helper::get_state(&store, &[1]).unwrap(), Some(ValueRef::new(&[5])));
+        assert_eq!(store_helper::get_ref(&store, &[1]).unwrap(), Some(ValueRef::new(&[5])));
         let deltas =
             flat_storage_state.get_deltas_between_blocks(&chain.get_block_hash(10)).unwrap();
-        assert_eq!(deltas.len(), 6);
+        assert_eq!(deltas.len(), 5);
         assert_eq!(flat_state0.get_ref(&[1]).unwrap(), None);
         assert_eq!(flat_state0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
         assert_matches!(flat_state1.get_ref(&[1]), Err(StorageError::FlatStorageError(_)));
@@ -950,26 +947,12 @@ mod tests {
         // 6. Move the flat head to block 10, verify that flat_state0 still returns the same values
         //    Also checks that DBCol::FlatState is updated correctly.
         flat_storage_state.update_flat_head(&chain.get_block_hash(10)).unwrap();
-        assert_eq!(store_helper::get_state(&store, &[1]).unwrap(), None);
-        assert_eq!(store_helper::get_state(&store, &[2]).unwrap(), Some(ValueRef::new(&[1])));
+        let deltas =
+            flat_storage_state.get_deltas_between_blocks(&chain.get_block_hash(10)).unwrap();
+        assert_eq!(deltas.len(), 0);
+        assert_eq!(store_helper::get_ref(&store, &[1]).unwrap(), None);
+        assert_eq!(store_helper::get_ref(&store, &[2]).unwrap(), Some(ValueRef::new(&[1])));
         assert_eq!(flat_state0.get_ref(&[1]).unwrap(), None);
         assert_eq!(flat_state0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
-    }
-
-    #[test]
-    fn flat_state_apply_single_delta() {
-        // TODO (#7327): check this scenario after implementing flat storage state:
-        // 1) create FlatState for one shard with FlatStorage
-        // 2) create FlatStateDelta and apply it
-        // 3) check that FlatStorageState contains the right values
-    }
-
-    #[test]
-    fn flat_state_apply_delta_range() {
-        // TODO (#7327): check this scenario after implementing flat storage state:
-        // 1) add tree of blocks and FlatStateDeltas for them
-        // 2) call `get_deltas_between_blocks` and check its correctness
-        // 3) apply deltas and check that FlatStorageState contains the right values;
-        // e.g. for the same key only the latest value is applied
     }
 }
