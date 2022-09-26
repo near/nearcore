@@ -151,8 +151,7 @@ pub(crate) fn fn_cost_with_setup(
         let block_latency = 0;
         let overhead = overhead_per_measured_block(ctx, block_latency);
         let block_size = 2usize;
-        let warmup_iters = ctx.config.warmup_iters_per_block;
-        let n_blocks = warmup_iters + ctx.config.iter_per_block;
+        let n_blocks = ctx.config.warmup_iters_per_block + ctx.config.iter_per_block;
 
         let mut testbed = ctx.testbed();
 
@@ -181,7 +180,7 @@ pub(crate) fn fn_cost_with_setup(
         // Filter out setup blocks.
         let measurements: Vec<_> = measurements
             .into_iter()
-            .skip(warmup_iters * 2)
+            .skip(ctx.config.warmup_iters_per_block * 2)
             .enumerate()
             .filter(|(i, _)| i % 2 == 1)
             .map(|(_, m)| m)

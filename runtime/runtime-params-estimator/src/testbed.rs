@@ -158,8 +158,4 @@ impl RuntimeTestbed {
     pub fn store(&mut self) -> Store {
         self.tries.get_store()
     }
-
-    pub fn stop_prefetching_threads(&self) {
-        self.tries.stop_prefetching_threads().unwrap();
-    }
 }

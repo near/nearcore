@@ -1155,9 +1155,6 @@ fn apply_block_cost(ctx: &mut EstimatorContext) -> GasCost {
 
     let gas_cost = average_cost(measurements);
 
-    // Drop required if `Drop` is implemented on testbed to satisfy lifetime
-    // requirements on `ctx`.
-    std::mem::drop(testbed);
     ctx.cached.apply_block = Some(gas_cost.clone());
 
     gas_cost
