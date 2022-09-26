@@ -164,15 +164,6 @@ mod imp {
             store_helper::set_flat_head(store_update, shard_id, genesis_block);
         }
 
-        #[cfg(not(feature = "protocol_feature_flat_state"))]
-        pub fn set_flat_storage_state_for_genesis(
-            &self,
-            _store_update: &mut StoreUpdate,
-            _shard_id: ShardId,
-            _genesis_block: &CryptoHash,
-        ) {
-        }
-
         /// Add a flat storage state for shard `shard_id`. The function also checks that
         /// the shard's flat storage state hasn't been set before, otherwise it panics.
         /// TODO (#7327): this behavior may change when we implement support for state sync
@@ -260,7 +251,7 @@ mod imp {
 #[cfg(not(feature = "protocol_feature_flat_state"))]
 mod imp {
     use crate::flat_state::FlatStorageState;
-    use crate::Store;
+    use crate::{Store, StoreUpdate};
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::ShardId;
 
@@ -304,6 +295,14 @@ mod imp {
             &self,
             _shard_id: ShardId,
             _flat_storage_state: FlatStorageState,
+        ) {
+        }
+
+        pub fn set_flat_storage_state_for_genesis(
+            &self,
+            _store_update: &mut StoreUpdate,
+            _shard_id: ShardId,
+            _genesis_block: &CryptoHash,
         ) {
         }
     }
