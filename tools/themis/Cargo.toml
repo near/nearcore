@@ -2,8 +2,8 @@
 name = "themis"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>", "Miraculous Owonubi <omiraculous@gmail.com>"]
-edition = "2021"
-rust-version = "1.64.0"
+edition.workspace = true
+rust-version.workspace = true
 publish = false
 license = "MIT OR Apache-2.0"
 description = "https://en.wikipedia.org/wiki/Themis"

@@ -1,11 +1,11 @@
 [package]
 name = "near-account-id"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = true
 # Please update rust-toolchain.toml as well when changing version here:
 rust-version = "1.60.0"
-edition = "2021"
+edition.workspace = true
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/near/nearcore"
 description = "This crate contains the Account ID primitive and its validation facilities"
