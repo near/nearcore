@@ -8,5 +8,5 @@ rust-version = "1.64.0"
 edition = "2021"
 
 [dependencies]
-tracing = "0.1"
+tracing = "0.1.13"
 near-o11y = { path = "../../core/o11y" }
