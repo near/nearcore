@@ -14,7 +14,7 @@ clap = { version = "3.1.6", features = ["derive", "env"] }
 openssl-probe = "0.1.2"
 serde_json = "1.0.55"
 tokio = { version = "1.16.1", features = ["rt-multi-thread", "sync"]}
-tracing = "0.1.13"
+tracing = "0.1"
 
 near-indexer = { path = "../../../chain/indexer" }
 near-o11y = { path = "../../../core/o11y" }
