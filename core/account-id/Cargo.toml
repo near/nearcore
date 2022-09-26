@@ -6,7 +6,7 @@ publish = true
 # This crate is published to crates.io with a semver API.  Care must be taken
 # when updaing its rust-version.
 rust-version = "1.60.0"
-edition = "2018"
+edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/near/nearcore"
 description = "This crate contains the Account ID primitive and its validation facilities"
