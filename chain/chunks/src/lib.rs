@@ -1701,10 +1701,11 @@ impl ShardsManager {
                 return Err(Error::ChainError(near_chain::Error::InvalidChunkHeight));
             }
             // We shouldn't process unrequested chunk if we have seen one with same (height_created + shard_id) but different chunk_hash
-            if let Ok(hash) = chain_store
-                .get_any_chunk_hash_by_height_shard(header.height_created(), header.shard_id())
+            if let Some(hash) = self
+                .encoded_chunks
+                .get_chunk_hash_by_height_and_shard(header.height_created(), header.shard_id())
             {
-                if hash != chunk_hash {
+                if hash != &chunk_hash {
                     warn!(target: "client", "Rejecting unrequested chunk {:?}, height {}, shard_id {}, because of having {:?}", chunk_hash, header.height_created(), header.shard_id(), hash);
                     return Err(Error::DuplicateChunkHeight);
                 }
@@ -1753,17 +1754,8 @@ impl ShardsManager {
             }
         }
 
-        // 2. Consider it valid and stores it
-        // Store chunk hash into chunk_hash_per_height_shard collection
-        let mut store_update = chain_store.store_update();
-        store_update.save_chunk_hash(
-            header.height_created(),
-            header.shard_id(),
-            chunk_hash.clone(),
-        );
-        store_update.commit()?;
-
-        // Merge parts and receipts included in the partial encoded chunk into chunk cache
+        // 2. Consider it valid; mergeparts and receipts included in the partial encoded chunk
+        // into chunk cache
         let new_part_ords =
             self.encoded_chunks.merge_in_partial_encoded_chunk(partial_encoded_chunk);
 

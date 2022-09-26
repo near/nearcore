@@ -93,7 +93,12 @@ fn retrieve_starting_chunk_hash(
 ) -> anyhow::Result<ChunkHash> {
     let mut last_err = None;
     for height in client_start_height..target_height + 1 {
-        match chain.store().get_any_chunk_hash_by_height_shard(height, 0) {
+        match chain
+            .store()
+            .get_block_hash_by_height(height)
+            .and_then(|hash| chain.store().get_block(&hash))
+            .map(|block| block.chunks().iter().next().unwrap().chunk_hash())
+        {
             Ok(hash) => return Ok(hash),
             Err(e) => {
                 last_err = Some(e);

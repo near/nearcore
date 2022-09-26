@@ -175,10 +175,9 @@ pub enum DBCol {
     /// - *Rows*: transaction hash
     /// - *Column type*: SignedTransaction
     Transactions,
-    /// Mapping from a given (Height, ShardId) to the Chunk hash.
-    /// - *Rows*: (Height || ShardId) - (u64 || u64)
-    /// - *Column type*: ChunkHash (CryptoHash)
-    ChunkPerHeightShard,
+    /// Deprecated.
+    #[strum(serialize = "ChunkPerHeightShard")]
+    _ChunkPerHeightShard,
     /// Changes to state (Trie) that we have recorded.
     /// - *Rows*: BlockHash || TrieKey (TrieKey is written via custom to_vec)
     /// - *Column type*: TrieKey, new value and reason for change (RawStateChangesWithTrieKey)
@@ -277,7 +276,6 @@ impl DBCol {
             | DBCol::BlockHeader
             | DBCol::BlockExtra
             | DBCol::BlockInfo
-            | DBCol::ChunkPerHeightShard
             | DBCol::Chunks
             | DBCol::InvalidChunks
             | DBCol::PartialChunks => true,
