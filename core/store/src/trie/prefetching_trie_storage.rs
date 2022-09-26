@@ -487,7 +487,7 @@ struct WorkQueue {
     /// the reference count of join handles.
     ///
     /// The invariant holds because when `WorkQueue` is created there is no
-    /// clone of it, yet. And afterwards the only clones are through
+    /// clone of `tx`, yet. And afterwards the only `tx` clones are through
     /// `WorkQueue.clone()` which also increases the handles reference count.
     ///
     /// When the last reference to `handles` is dropped, the handles
