@@ -2,11 +2,11 @@
 name = "near-crypto"
 version = "0.0.0"
 license = "MIT OR Apache-2.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = true
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.64.0"
-edition = "2021"
+rust-version.workspace = true
+edition.workspace = true
 repository = "https://github.com/near/nearcore"
 description = "This is an internal crate for common cryptographic types"
 
