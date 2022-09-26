@@ -676,7 +676,6 @@ impl Handler<GetStateChanges> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetStateChanges, _: &mut Self::Context) -> Self::Result {
-        tracing::info!(?msg, "GetStateChanges handle");
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetStateChanges"]).start_timer();
         Ok(self
