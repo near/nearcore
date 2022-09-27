@@ -10,7 +10,7 @@ description = "https://en.wikipedia.org/wiki/Themis"
 
 [dependencies]
 toml = "0.5.8"
-serde = "1"
-anyhow = "1"
+serde.workspace = true
+anyhow.workspace = true
 semver = "1.0.4"
 cargo_metadata = "0.14.1"

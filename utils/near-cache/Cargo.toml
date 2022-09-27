@@ -8,10 +8,10 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-lru = "0.7.2"
+lru.workspace = true
 
 [dev-dependencies]
-bencher = "0.1.5"
+bencher.workspace = true
 rand = "0.7"
 
 [[bench]]

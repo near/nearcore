@@ -15,13 +15,13 @@ Error that can occur inside Near Runtime encapsulated in a separate crate. Might
 """
 
 [dependencies]
+borsh.workspace = true
+deepsize = { workspace = true, optional = true }
+serde.workspace = true
+strum = { workspace = true, features = ["derive"] }
+
 near-account-id = { path = "../../core/account-id" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
-
-borsh = "0.9"
-deepsize = { version = "0.2.0", optional = true }
-serde = { version = "1", features = ["derive"] }
-strum = { version = "0.24", features = ["derive"] }
 
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]

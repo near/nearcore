@@ -8,13 +8,13 @@ rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
-actix = "0.13.0"
-anyhow = "1.0"
-clap = { version = "3.1.6", features = ["derive", "env"] }
-openssl-probe = "0.1.2"
-serde_json = "1.0.55"
-tokio = { version = "1.16.1", features = ["rt-multi-thread", "sync"]}
-tracing = "0.1.13"
+actix.workspace = true
+anyhow.workspace = true
+clap = { workspace = true, features = ["env"] }
+openssl-probe.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
+tracing.workspace = true
 
 near-indexer = { path = "../../../chain/indexer" }
 near-o11y = { path = "../../../core/o11y" }
