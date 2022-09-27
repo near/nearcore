@@ -28,10 +28,10 @@ rand_xorshift = "0.2"
 rocksdb.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
-tracing-span-tree = "0.1"
+tracing-span-tree.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
-walrus = "0.18.0"
+walrus.workspace = true
 wat.workspace = true
 
 genesis-populate = { path = "../../genesis-tools/genesis-populate"}

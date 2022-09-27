@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 actix.workspace = true
-bitflags = "1.2"
+bitflags.workspace = true
 bytes.workspace = true
 bytesize = { workspace = true, optional = true }
 futures.workspace = true

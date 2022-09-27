@@ -58,7 +58,7 @@ near-store = { path = "../../core/store" }
 
 [dev-dependencies]
 criterion.workspace = true
-pretty_assertions = "1.2"
+pretty_assertions.workspace = true
 tempfile.workspace = true
 
 [features]

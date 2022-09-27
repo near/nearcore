@@ -10,7 +10,7 @@ edition.workspace = true
 [dependencies]
 chrono.workspace = true
 clap.workspace = true
-csv = "1.1.1"
+csv.workspace = true
 serde.workspace = true
 
 nearcore = { path = "../../nearcore" }

@@ -10,7 +10,7 @@ edition.workspace = true
 [dependencies]
 actix.workspace = true
 anyhow.workspace = true
-async-recursion = "0.3.2"
+async-recursion.workspace = true
 futures.workspace = true
 once_cell.workspace = true
 rocksdb.workspace = true

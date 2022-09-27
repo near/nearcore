@@ -17,14 +17,14 @@ This crate implements the specification of the interface that Near blockchain ex
 [dependencies]
 anyhow = { workspace = true, optional = true }
 borsh.workspace = true
-loupe = "0.1"
-memoffset = "0.6"
+loupe.workspace = true
+memoffset.workspace = true
 once_cell.workspace = true
-parity-wasm = { version = "0.42", default-features = false }
+parity-wasm.workspace = true
 serde.workspace = true
 tracing = { workspace = true, default-features = false }
-wasmparser = "0.78"
-wasmtime = { version = "0.37.0", default-features = false, features = ["cranelift", "wasm-backtrace"], optional = true }
+wasmparser.workspace = true
+wasmtime = { workspace = true, optional = true }
 
 near-cache = { path = "../../utils/near-cache" }
 near-vm-logic = { path = "../near-vm-logic", default-features = false, features = [] }
@@ -35,7 +35,7 @@ near-stable-hasher = { path = "../../utils/near-stable-hasher" }
 # Old versions of pwasm-utils we need to preserve backwards compatibility under
 # old protocol versions.
 pwasm-utils_12 = { package = "pwasm-utils", version = "0.12" }
-parity-wasm_41 = { package = "parity-wasm", version = "0.41" }
+parity-wasm_41.workspace = true
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 wasmer-runtime = { version = "0.18.0", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near", optional = true }
@@ -57,7 +57,7 @@ wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.0", optional = true }
 arbitrary.workspace = true
 assert_matches.workspace = true
 bolero.workspace = true
-expect-test = "1.3.0"
+expect-test.workspace = true
 rand.workspace = true
 wasm-smith.workspace = true
 wasmprinter.workspace = true

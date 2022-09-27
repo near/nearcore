@@ -18,12 +18,12 @@ awc.workspace = true
 derive_more.workspace = true
 futures.workspace = true
 hex.workspace = true
-paperclip = { version = "0.7.0", features = ["actix4"] }
+paperclip.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 strum = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["net", "rt-multi-thread"] }
-validator = "0.12"
+validator.workspace = true
 
 near-primitives = { path = "../../core/primitives" }
 near-account-id = { path = "../../core/account-id" }

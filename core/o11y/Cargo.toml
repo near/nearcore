@@ -9,19 +9,19 @@ readme = "README.md"
 rust-version.workspace = true
 
 [dependencies]
-atty = "0.2"
-backtrace = "0.3.64"
+atty.workspace = true
+backtrace.workspace = true
 clap.workspace = true
 once_cell.workspace = true
 opentelemetry = { workspace = true, default-features = false, features = ["trace", "rt-tokio"] }
-opentelemetry-otlp = "0.10.0"
-opentelemetry-semantic-conventions = "0.9.0"
-prometheus = "0.13.1"
+opentelemetry-otlp.workspace = true
+opentelemetry-semantic-conventions.workspace = true
+prometheus.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true, features = ["std"] }
-tracing-appender = "0.2.2"
+tracing-appender.workspace = true
 tracing-opentelemetry.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "std"] }
 

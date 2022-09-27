@@ -18,7 +18,7 @@ This crate implements the specification of the interface that Near blockchain ex
 borsh.workspace = true
 bs58.workspace = true
 byteorder.workspace = true
-ripemd = "0.1.1"
+ripemd.workspace = true
 serde.workspace = true
 sha2.workspace = true
 sha3 = ">=0.8,<=0.10"

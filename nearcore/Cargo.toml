@@ -19,8 +19,8 @@ chrono = { workspace = true, features = ["serde"] }
 dirs.workspace = true
 easy-ext.workspace = true
 futures.workspace = true
-hyper = { version = "0.14", features = ["full"] }
-hyper-tls = "0.5.0"
+hyper.workspace = true
+hyper-tls.workspace = true
 indicatif.workspace = true
 near-rust-allocator-proxy = { workspace = true, optional = true }
 num-rational = { workspace = true, features = ["serde"] }
@@ -29,7 +29,7 @@ rand = "0.7"
 rayon.workspace = true
 rlimit.workspace = true
 serde.workspace = true
-serde_ignored = "0.1"
+serde_ignored.workspace = true
 serde_json.workspace = true
 smart-default.workspace = true
 strum.workspace = true
@@ -37,7 +37,7 @@ tempfile.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs"] }
 tracing.workspace = true
-xz2 = "0.1.6"
+xz2.workspace = true
 
 near-chain = { path = "../chain/chain" }
 near-chain-configs = { path = "../core/chain-configs" }

@@ -13,13 +13,13 @@ actix-web.workspace = true
 actix.workspace = true
 anyhow.workspace = true
 clap.workspace = true
-flate2 = "1.0.22"
+flate2.workspace = true
 futures.workspace = true
 rand = "0.7"
 rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tar = "0.4.38"
+tar.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["time"] }
 tracing.workspace = true
