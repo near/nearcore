@@ -1,6 +1,6 @@
 use super::types::{ComplianceError, Expected, Outlier, Workspace};
-use super::{style, utils};
-use anyhow::{bail, Context};
+use super::utils;
+use anyhow::bail;
 use std::collections::HashMap;
 
 /// Ensure all crates have the `publish = <true/false>` specification
@@ -23,58 +23,21 @@ pub fn has_publish_spec(workspace: &Workspace) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Ensure all crates specify a MSRV and that it is <= to the version in the
-/// rust-toolchain.toml file.
+/// Ensure all crates specify a MSRV
 pub fn has_rust_version(workspace: &Workspace) -> anyhow::Result<()> {
-    let rust_toolchain =
-        utils::parse_toml::<toml::Value>(&workspace.root.join("rust-toolchain.toml"))
-            .context("Failed to read rust-toolchain file")?;
-    let rust_toolchain = rust_toolchain["toolchain"]["channel"].as_str().unwrap().to_owned();
-    let rust_toolchain = match semver::Version::parse(&rust_toolchain) {
-        Ok(rust_toolchain) => rust_toolchain,
-        Err(err) => {
-            bail!(
-                "semver: unable to parse rustup channel from {}: {}",
-                style::highlight("rust-toolchain.toml"),
-                err
-            );
-        }
-    };
+    let outliers: Vec<_> = workspace
+        .members
+        .iter()
+        .filter(|pkg| pkg.parsed.rust_version.is_none())
+        .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None })
+        .collect();
 
-    let mut no_rust_version = vec![];
-    let mut wrong_rust_version = vec![];
-
-    for pkg in &workspace.members {
-        match &pkg.parsed.rust_version {
-            Some(rust_version) => {
-                if !rust_version.matches(&rust_toolchain) {
-                    wrong_rust_version.push(Outlier {
-                        path: pkg.parsed.manifest_path.clone(),
-                        found: Some(format!("{}", rust_version)),
-                    });
-                }
-            }
-            None => no_rust_version
-                .push(Outlier { path: pkg.parsed.manifest_path.clone(), found: None }),
-        }
-    }
-
-    if !no_rust_version.is_empty() {
+    if !outliers.is_empty() {
         bail!(ComplianceError {
             msg: "These packages should specify a Minimum Supported Rust Version (MSRV)"
                 .to_string(),
             expected: None,
-            outliers: no_rust_version,
-        });
-    }
-    if !wrong_rust_version.is_empty() {
-        bail!(ComplianceError {
-            msg: "These packages have an incompatible `rust-version`".to_string(),
-            expected: Some(Expected {
-                value: format!("<={}", rust_toolchain),
-                reason: Some("as defined in the `rust-toolchain`".to_string()),
-            }),
-            outliers: wrong_rust_version,
+            outliers,
         });
     }
 
