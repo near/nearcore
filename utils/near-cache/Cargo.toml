@@ -12,7 +12,7 @@ lru.workspace = true
 
 [dev-dependencies]
 bencher.workspace = true
-rand = "0.7"
+rand.workspace = true
 
 [[bench]]
 name = "cache"

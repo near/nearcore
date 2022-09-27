@@ -11,7 +11,7 @@ edition.workspace = true
 [dependencies]
 borsh.workspace = true
 once_cell.workspace = true
-rand = "0.7"
+rand.workspace = true
 
 near-crypto = { path = "../../core/crypto" }
 near-o11y = { path = "../../core/o11y" }

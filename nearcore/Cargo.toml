@@ -19,13 +19,13 @@ chrono.workspace = true
 dirs.workspace = true
 easy-ext.workspace = true
 futures.workspace = true
-hyper.workspace = true
 hyper-tls.workspace = true
+hyper.workspace = true
 indicatif.workspace = true
 near-rust-allocator-proxy = { workspace = true, optional = true }
 num-rational.workspace = true
 once_cell.workspace = true
-rand = "0.7"
+rand.workspace = true
 rayon.workspace = true
 rlimit.workspace = true
 serde.workspace = true

@@ -16,7 +16,7 @@ borsh.workspace = true
 chrono = { workspace = true, optional = true }
 num-rational.workspace = true
 primitive-types.workspace = true
-rand = "0.7"
+rand.workspace = true
 serde_json.workspace = true
 smart-default.workspace = true
 tracing.workspace = true

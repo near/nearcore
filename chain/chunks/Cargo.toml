@@ -9,14 +9,14 @@ edition.workspace = true
 
 [dependencies]
 actix.workspace = true
-futures.workspace = true
-rand = "0.7"
-chrono.workspace = true
-tracing.workspace = true
 borsh.workspace = true
+chrono.workspace = true
+futures.workspace = true
 lru.workspace = true
-reed-solomon-erasure.workspace = true
 once_cell.workspace = true
+rand.workspace = true
+reed-solomon-erasure.workspace = true
+tracing.workspace = true
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
