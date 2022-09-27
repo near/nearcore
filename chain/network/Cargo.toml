@@ -34,7 +34,7 @@ lru = "0.7.2"
 thiserror = "1"
 near-rust-allocator-proxy = { version = "0.4", optional = true }
 once_cell = "1.12.0"
-opentelemetry = { version = "0.17.0", features = ["trace"] }
+opentelemetry = { version = "0.18.0", features = ["trace"] }
 rand = "0.7"
 rand_xorshift = "0.2"
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
@@ -43,7 +43,7 @@ tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec", "io"] }
 tokio = { version = "1.18", features = ["macros", "net", "rt-multi-thread","macros"] }
 tracing = "0.1.36"
-tracing-opentelemetry = { version = "0.17.0" }
+tracing-opentelemetry = { version = "0.18.0" }
 assert_matches = "1.3"
 
 delay-detector = { path = "../../tools/delay-detector" }
