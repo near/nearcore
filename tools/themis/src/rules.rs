@@ -1,9 +1,7 @@
-use std::collections::HashMap;
-
-use anyhow::{bail, Context};
-
 use super::types::{ComplianceError, Expected, Outlier, Workspace};
-use super::{style, utils};
+use super::utils;
+use anyhow::bail;
+use std::collections::HashMap;
 
 /// Ensure all crates have the `publish = <true/false>` specification
 pub fn has_publish_spec(workspace: &Workspace) -> anyhow::Result<()> {
@@ -65,59 +63,6 @@ pub fn is_unversioned(workspace: &Workspace) -> anyhow::Result<()> {
         bail!(ComplianceError {
             msg: "These packages shouldn't be versioned".to_string(),
             expected: Some(Expected { value: "0.0.0".to_string(), reason: None }),
-            outliers,
-        });
-    }
-
-    Ok(())
-}
-
-/// Ensures all crates have a rust-version spec less than
-/// or equal to the version defined in rust-toolchain.toml
-pub fn has_debuggable_rust_version(workspace: &Workspace) -> anyhow::Result<()> {
-    let rust_toolchain =
-        utils::parse_toml::<toml::Value>(&workspace.root.join("rust-toolchain.toml"))
-            .context("Failed to read rust-toolchain file")?;
-    let rust_toolchain = rust_toolchain["toolchain"]["channel"].as_str().unwrap().to_owned();
-
-    let rust_toolchain = match semver::Version::parse(&rust_toolchain) {
-        Ok(rust_toolchain) => rust_toolchain,
-        Err(err) => {
-            utils::warn!(
-                "semver: unable to parse rustup channel from {}: {}",
-                style::highlight("rust-toolchain.toml"),
-                err
-            );
-
-            return Ok(());
-        }
-    };
-
-    let mut outliers = vec![];
-    for pkg in &workspace.members {
-        match &pkg.parsed.rust_version {
-            Some(rust_version) => {
-                if !rust_version.matches(&rust_toolchain) {
-                    outliers.push(Outlier {
-                        path: pkg.parsed.manifest_path.clone(),
-                        found: Some(format!("{}", rust_version)),
-                    });
-                }
-            }
-            None => {
-                // we can skip, since we have has_rust_version check
-                continue;
-            }
-        }
-    }
-
-    if !outliers.is_empty() {
-        bail!(ComplianceError {
-            msg: "These packages have an incompatible `rust-version`".to_string(),
-            expected: Some(Expected {
-                value: format!("<={}", rust_toolchain),
-                reason: Some("as defined in the `rust-toolchain`".to_string()),
-            }),
             outliers,
         });
     }
