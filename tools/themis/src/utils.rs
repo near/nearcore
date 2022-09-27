@@ -12,8 +12,6 @@ macro_rules! _warn {
     }
 }
 
-pub(crate) use _warn as warn;
-
 pub fn parse_toml<T: DeserializeOwned>(path: &Utf8PathBuf) -> anyhow::Result<T> {
     Ok(toml::from_slice(&fs::read(path)?)?)
 }
