@@ -4,7 +4,7 @@ pub use {backtrace, tracing, tracing_appender, tracing_subscriber};
 
 use clap::Parser;
 use once_cell::sync::OnceCell;
-use opentelemetry::sdk::trace::{self, RandomIdGenerator, Sampler, Tracer};
+use opentelemetry::sdk::trace::{self, IdGenerator, Sampler, Tracer};
 use opentelemetry::sdk::Resource;
 use opentelemetry::KeyValue;
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
@@ -197,11 +197,11 @@ where
 {
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
-        .with_exporter(opentelemetry_otlp::new_exporter().http())
+        .with_exporter(opentelemetry_otlp::new_exporter().tonic())
         .with_trace_config(
             trace::config()
                 .with_sampler(Sampler::AlwaysOn)
-                .with_id_generator(RandomIdGenerator::default())
+                .with_id_generator(IdGenerator::default())
                 .with_resource(Resource::new(vec![KeyValue::new(SERVICE_NAME, "neard")])),
         )
         .install_batch(opentelemetry::runtime::Tokio)
