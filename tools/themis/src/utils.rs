@@ -5,15 +5,6 @@ use serde::de::DeserializeOwned;
 
 use super::types::{Package, Workspace};
 
-macro_rules! _warn {
-    ($msg:literal $($arg:tt)*) => {
-        use $crate::style::{fg, bold, reset, Color};
-        eprintln!(concat!("{}warning:{} ", $msg), fg(Color::Yellow) + bold(), reset() $($arg)*)
-    }
-}
-
-pub(crate) use _warn as warn;
-
 pub fn parse_toml<T: DeserializeOwned>(path: &Utf8PathBuf) -> anyhow::Result<T> {
     Ok(toml::from_slice(&fs::read(path)?)?)
 }
