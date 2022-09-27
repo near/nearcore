@@ -21,7 +21,7 @@ futures = "0.3"
 log = "0.4"
 openssl-probe = "0.1.4"
 parking_lot = "0.12.1"
-rand = "0.8"
+rand = "0.8.5"
 tokio = { version = "1.16.1", features = ["rt-multi-thread", "sync"]}
 
 near-chain-configs = { path = "../../core/chain-configs" }
