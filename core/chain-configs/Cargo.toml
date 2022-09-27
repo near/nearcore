@@ -12,9 +12,9 @@ description = "This crate provides typed interfaces to the NEAR Genesis and Chai
 
 [dependencies]
 anyhow.workspace = true
-chrono = { workspace = true, features = ["serde"] }
+chrono.workspace = true
 derive_more.workspace = true
-num-rational = { workspace = true, features = ["serde"] }
+num-rational = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

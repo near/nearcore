@@ -9,7 +9,7 @@ edition.workspace = true
 
 [dependencies]
 actix.workspace = true
-awc = { workspace = true, features = [ "openssl" ] }
+awc = { workspace = true }
 futures.workspace = true
 once_cell.workspace = true
 openssl.workspace = true

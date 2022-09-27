@@ -12,7 +12,7 @@ edition.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 byteorder.workspace = true
-bytesize = { workspace = true, features = ["serde"] }
+bytesize = { workspace = true }
 crossbeam.workspace = true
 derive_more.workspace = true
 elastic-array.workspace = true
@@ -27,7 +27,7 @@ rlimit.workspace = true
 rocksdb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-strum = { workspace = true, features = ["derive"] }
+strum.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

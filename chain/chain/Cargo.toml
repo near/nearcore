@@ -11,7 +11,7 @@ edition.workspace = true
 actix.workspace = true
 ansi_term.workspace = true
 borsh.workspace = true
-chrono = { workspace = true, features = ["serde"] }
+chrono.workspace = true
 crossbeam-channel.workspace = true
 enum-map.workspace = true
 itertools.workspace = true

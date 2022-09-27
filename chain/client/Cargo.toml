@@ -12,7 +12,7 @@ actix-rt.workspace = true
 actix.workspace = true
 ansi_term.workspace = true
 borsh.workspace = true
-chrono = { workspace = true, features = ["serde"] }
+chrono.workspace = true
 futures.workspace = true
 itertools.workspace = true
 lru.workspace = true
@@ -21,10 +21,10 @@ once_cell.workspace = true
 rand = "0.7"
 reed-solomon-erasure.workspace = true
 serde_json.workspace = true
-strum = { workspace = true, features = ["derive"] }
+strum.workspace = true
 sysinfo.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["sync"] }
+tokio.workspace = true
 tracing.workspace = true
 
 near-chain-primitives = { path = "../chain-primitives" }

@@ -17,7 +17,7 @@ libc.workspace = true
 near-rust-allocator-proxy = { workspace = true, optional = true }
 once_cell.workspace = true
 strum.workspace = true
-tokio = { workspace = true, features = ["net", "rt-multi-thread"] }
+tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 

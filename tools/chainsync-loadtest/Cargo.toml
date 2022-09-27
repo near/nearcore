@@ -22,7 +22,7 @@ log.workspace = true
 openssl-probe.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
+tokio.workspace = true
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }

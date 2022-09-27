@@ -9,40 +9,40 @@ publish = false
 
 [build-dependencies]
 anyhow.workspace = true
-protobuf-codegen = "3.0.1"
+protobuf-codegen.workspace = true
 
 [dependencies]
 actix.workspace = true
 anyhow.workspace = true
-arc-swap = "1.5"
+arc-swap.workspace = true
 assert_matches.workspace = true
-borsh = { workspace = true, features = ["rc"] }
+borsh = { workspace = true }
 bytes.workspace = true
 bytesize.workspace = true
 chrono.workspace = true
-conqueue = "0.4.0"
+conqueue.workspace = true
 crossbeam-channel.workspace = true
 deepsize = { workspace = true, optional = true }
-futures-util = "0.3"
+futures-util.workspace = true
 futures.workspace = true
-im = "15"
+im.workspace = true
 itertools.workspace = true
 lru.workspace = true
 near-rust-allocator-proxy = { workspace = true, optional = true }
 once_cell.workspace = true
-opentelemetry = { workspace = true, features = ["trace"] }
+opentelemetry = { workspace = true }
 parking_lot.workspace = true
-protobuf = "3.0.1"
+protobuf.workspace = true
 rand = "0.7"
 rand_xorshift = "0.2"
 rayon.workspace = true
-serde = { workspace = true, features = ["alloc", "rc"] }
+serde = { workspace = true }
 smart-default.workspace = true
-strum = { workspace = true, features = ["derive"] }
+strum.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "macros"] }
-tokio-stream = { version = "0.1.2", features = ["net"] }
-tokio-util = { workspace = true, features = ["io"] }
+tokio.workspace = true
+tokio-stream.workspace = true
+tokio-util = { workspace = true }
 tracing-opentelemetry.workspace = true
 tracing.workspace = true
 

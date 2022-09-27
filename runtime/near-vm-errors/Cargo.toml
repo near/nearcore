@@ -18,7 +18,7 @@ Error that can occur inside Near Runtime encapsulated in a separate crate. Might
 borsh.workspace = true
 deepsize = { workspace = true, optional = true }
 serde.workspace = true
-strum = { workspace = true, features = ["derive"] }
+strum.workspace = true
 
 near-account-id = { path = "../../core/account-id" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }

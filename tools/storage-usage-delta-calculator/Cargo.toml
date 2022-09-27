@@ -11,7 +11,7 @@ edition.workspace = true
 
 [dependencies]
 serde_json.workspace = true
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio.workspace = true
 tracing.workspace = true
 
 near-chain-configs = { path = "../../core/chain-configs" }

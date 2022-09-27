@@ -14,11 +14,11 @@ description = "This crate hosts NEAR client-related error types"
 
 [dependencies]
 actix.workspace = true
-chrono = { workspace = true, features = ["serde"] }
+chrono.workspace = true
 once_cell.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-strum = { workspace = true, features = ["derive"] }
+strum.workspace = true
 thiserror.workspace = true
 
 near-chain-primitives = { path = "../chain-primitives" }

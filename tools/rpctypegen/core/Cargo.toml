@@ -15,7 +15,7 @@ This crate generates schema for Rust structs which can be used by TypeScript.
 [dependencies]
 quote.workspace = true
 serde.workspace = true
-syn = { workspace = true, features = ["extra-traits"] }
+syn = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true, features = ["preserve_order"] }

@@ -9,7 +9,7 @@ edition.workspace = true
 
 [dependencies]
 clap.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio.workspace = true
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }

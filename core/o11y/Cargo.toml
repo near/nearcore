@@ -13,17 +13,17 @@ atty.workspace = true
 backtrace.workspace = true
 clap.workspace = true
 once_cell.workspace = true
-opentelemetry = { workspace = true, default-features = false, features = ["trace", "rt-tokio"] }
+opentelemetry = { workspace = true }
 opentelemetry-otlp.workspace = true
 opentelemetry-semantic-conventions.workspace = true
 prometheus.workspace = true
 strum.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread"] }
-tracing = { workspace = true, features = ["std"] }
+tokio.workspace = true
+tracing = { workspace = true }
 tracing-appender.workspace = true
 tracing-opentelemetry.workspace = true
-tracing-subscriber = { workspace = true, features = ["env-filter", "std"] }
+tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 bencher.workspace = true

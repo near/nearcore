@@ -18,7 +18,7 @@ proc-macro = true
 [dependencies]
 serde.workspace = true
 serde_json = { workspace = true, optional = true, features = ["preserve_order"] }
-syn = { workspace = true, features = ["extra-traits"] }
+syn = { workspace = true }
 
 near-rpc-error-core = { path = "../core" }
 

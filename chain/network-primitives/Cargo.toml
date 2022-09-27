@@ -14,15 +14,15 @@ publish = true
 actix.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
-chrono = { workspace = true, features = ["serde"] }
+chrono.workspace = true
 deepsize = { workspace = true, optional = true }
 once_cell.workspace = true
-opentelemetry = { workspace = true, features = ["trace"] }
-serde = { workspace = true, features = ["alloc", "rc"] }
-strum = { workspace = true, features = ["derive"] }
+opentelemetry = { workspace = true }
+serde.workspace = true
+strum.workspace = true
 thiserror.workspace = true
 time.workspace = true
-tokio = { workspace = true, features = ["net", "rt-multi-thread"] }
+tokio.workspace = true
 tracing.workspace = true
 
 near-crypto = { path = "../../core/crypto" }

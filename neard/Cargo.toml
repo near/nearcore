@@ -19,14 +19,14 @@ futures.workspace = true
 near-rust-allocator-proxy = { workspace = true, optional = true }
 once_cell.workspace = true
 openssl-probe.workspace = true
-opentelemetry = { workspace = true, features = ["rt-tokio"] }
+opentelemetry = { workspace = true }
 rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 shell-escape.workspace = true
 thiserror.workspace = true
 tikv-jemallocator.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio.workspace = true
 tracing.workspace = true
 
 nearcore = { path = "../nearcore" }

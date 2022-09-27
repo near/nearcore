@@ -15,7 +15,7 @@ anyhow.workspace = true
 awc.workspace = true
 borsh.workspace = true
 byteorder.workspace = true
-chrono = { workspace = true, features = ["serde"] }
+chrono.workspace = true
 dirs.workspace = true
 easy-ext.workspace = true
 futures.workspace = true
@@ -23,7 +23,7 @@ hyper.workspace = true
 hyper-tls.workspace = true
 indicatif.workspace = true
 near-rust-allocator-proxy = { workspace = true, optional = true }
-num-rational = { workspace = true, features = ["serde"] }
+num-rational = { workspace = true }
 once_cell.workspace = true
 rand = "0.7"
 rayon.workspace = true
@@ -35,7 +35,7 @@ smart-default.workspace = true
 strum.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["fs"] }
+tokio.workspace = true
 tracing.workspace = true
 xz2.workspace = true
 

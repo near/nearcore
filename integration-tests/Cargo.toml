@@ -12,7 +12,7 @@ actix-rt.workspace = true
 actix.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
-chrono = { workspace = true, features = ["serde"] }
+chrono.workspace = true
 clap.workspace = true
 futures.workspace = true
 hex.workspace = true
@@ -20,11 +20,11 @@ once_cell.workspace = true
 parking_lot.workspace = true
 primitive-types.workspace = true
 rand = "0.7"
-serde = { workspace = true, features = ["derive"] }
+serde = { workspace = true }
 serde_json.workspace = true
 smart-default.workspace = true
 tempfile.workspace = true
-tokio = { workspace = true, features = ["net", "rt-multi-thread"] }
+tokio.workspace = true
 tracing.workspace = true
 wat.workspace = true
 
