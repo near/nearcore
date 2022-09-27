@@ -61,7 +61,7 @@ assert_matches = "1.3"
 bolero = "0.6.2"
 expect-test = "1.3.0"
 near-test-contracts = { path = "../near-test-contracts" }
-rand = "0.8"
+rand = "0.8.5"
 wasmprinter = "0.2"
 wasm-smith = "0.10"
 wat = "1.0.40"

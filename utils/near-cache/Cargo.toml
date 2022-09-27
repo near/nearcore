@@ -12,7 +12,7 @@ lru = "0.7.2"
 
 [dev-dependencies]
 bencher = "0.1.5"
-rand = "0.7"
+rand = "0.8.5"
 
 [[bench]]
 name = "cache"
