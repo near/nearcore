@@ -20,6 +20,7 @@ pub struct Workspace {
 pub struct Outlier {
     pub path: Utf8PathBuf,
     pub found: Option<String>,
+    pub extra: Option<String>,
 }
 
 #[derive(Debug)]
@@ -64,9 +65,9 @@ impl ComplianceError {
             c_none = style::reset()
         );
 
-        for Outlier { path, found } in &self.outliers {
+        for Outlier { path, found, extra: reason } in &self.outliers {
             report.push_str(&format!(
-                "\n {c_path}\u{21b3} {}{c_none}{}",
+                "\n {c_path}\u{21b3} {}{c_none}{}{}",
                 path.strip_prefix(&workspace.root).unwrap(),
                 match found {
                     None => "".to_string(),
@@ -78,6 +79,10 @@ impl ComplianceError {
                             + style::bold(),
                         c_none = style::reset()
                     ),
+                },
+                match reason {
+                    None => "".to_string(),
+                    Some(reason) => format!(" ({})", reason),
                 },
                 c_path = style::fg(style::Color::Gray { shade: 12 }),
                 c_none = style::reset(),

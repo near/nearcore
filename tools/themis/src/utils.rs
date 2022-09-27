@@ -40,3 +40,28 @@ pub fn is_publishable(pkg: &Package) -> bool {
 pub fn exists(pkg: &Package, file: &str) -> bool {
     pkg.parsed.manifest_path.parent().unwrap().join(file).exists()
 }
+
+/// Prints a string-ish iterator as a human-readable list
+///
+/// ```
+/// assert_eq!(
+///     print_list(&["a", "b", "c"]),
+///     "a, b and c"
+/// );
+/// ```
+pub fn human_list<I, T>(i: I) -> String
+where
+    I: Iterator<Item = T>,
+    T: AsRef<str>,
+{
+    let mut items = i.peekable();
+    let mut s = match items.next() {
+        Some(s) => s.as_ref().to_owned(),
+        None => return String::new(),
+    };
+    while let Some(i) = items.next() {
+        s += if items.peek().is_some() { ", " } else { " and " };
+        s += i.as_ref();
+    }
+    return s;
+}

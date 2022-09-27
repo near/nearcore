@@ -2,11 +2,13 @@
 name = "near-o11y"
 version = "0.0.0"
 authors.workspace = true
-description = "Observability helpers for the near codebase"
-edition.workspace = true
-publish = false
-readme = "README.md"
+publish = true
 rust-version.workspace = true
+edition.workspace = true
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/near/nearcore"
+description = "Observability helpers for the near codebase"
 
 [dependencies]
 atty.workspace = true
