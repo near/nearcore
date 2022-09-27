@@ -23,7 +23,6 @@ tokio = { version = "1.16", features = ["rt-multi-thread"]}
 tracing = { version = "0.1.36", features = ["std"] }
 tracing-appender = "0.2.2"
 tracing-opentelemetry = { version = "0.17.0" }
-tracing-serde = "0.1.3"
 tracing-subscriber = { version = "0.3.15", features = ["fmt", "env-filter", "registry", "std"] }
 
 [dev-dependencies]
