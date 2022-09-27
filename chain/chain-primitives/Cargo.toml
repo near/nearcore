@@ -14,7 +14,7 @@ description = "This crate hosts NEAR chain-related error types"
 
 [dependencies]
 chrono = { version = "0.4.4", features = ["serde"] }
-tracing = "0.1.36"
+tracing = "0.1.13"
 thiserror = "1.0"
 
 near-primitives = { path = "../../core/primitives" }

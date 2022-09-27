@@ -4,7 +4,7 @@ pub use {backtrace, tracing, tracing_appender, tracing_subscriber};
 
 use clap::Parser;
 use once_cell::sync::OnceCell;
-use opentelemetry::sdk::trace::{self, RandomIdGenerator, Sampler, Tracer};
+use opentelemetry::sdk::trace::{self, IdGenerator, Sampler, Tracer};
 use opentelemetry::sdk::Resource;
 use opentelemetry::KeyValue;
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
@@ -12,14 +12,12 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::path::PathBuf;
 use tracing::level_filters::LevelFilter;
-use tracing::span::{Attributes, Record};
-use tracing::subscriber::{DefaultGuard, Interest};
-use tracing::{Id, Metadata};
+use tracing::subscriber::DefaultGuard;
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::filter::{Filtered, ParseError};
 use tracing_subscriber::fmt::format::{DefaultFields, Format};
-use tracing_subscriber::layer::{Context, Layered, SubscriberExt};
+use tracing_subscriber::layer::{Layered, SubscriberExt};
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::reload::{Error, Handle};
 use tracing_subscriber::{reload, EnvFilter, Layer, Registry};
@@ -234,7 +232,7 @@ where
         .with_trace_config(
             trace::config()
                 .with_sampler(Sampler::AlwaysOn)
-                .with_id_generator(RandomIdGenerator::default())
+                .with_id_generator(IdGenerator::default())
                 .with_resource(Resource::new(vec![KeyValue::new(SERVICE_NAME, "neard")])),
         )
         .install_batch(opentelemetry::runtime::Tokio)
@@ -383,8 +381,8 @@ pub fn reload_layers(
         .unwrap_or(*DEFAULT_OTLP_LEVEL.get().unwrap_or(&OpenTelemetryLevel::OFF));
     OTLP_LAYER_RELOAD_HANDLE.get().map_or(Err(ReloadError::NoReloadHandle), |reload_handle| {
         reload_handle
-            .modify(|otlp_layer| {
-                *otlp_layer = get_opentelemetry_filter(opentelemetry_level);
+            .modify(|otlp_filter| {
+                *otlp_filter = get_opentelemetry_filter(opentelemetry_level);
             })
             .map_err(ReloadError::Reload)?;
         Ok(())

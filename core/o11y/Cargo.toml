@@ -1,29 +1,28 @@
 [package]
 name = "near-o11y"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 description = "Observability helpers for the near codebase"
-edition = "2021"
+edition.workspace = true
 publish = false
 readme = "README.md"
-rust-version = "1.64.0"
+rust-version.workspace = true
 
 [dependencies]
 atty = "0.2"
 backtrace = "0.3.64"
 clap = { version = "3", features = ["derive"] }
 once_cell = "1.5.2"
-opentelemetry = { version = "0.18.0", default-features = false, features = ["trace", "rt-tokio"] }
-opentelemetry-otlp = { version = "0.11.0" }
-opentelemetry-semantic-conventions = "0.10.0"
+opentelemetry = { version = "0.17.0", default-features = false, features = ["trace", "rt-tokio"] }
+opentelemetry-otlp = { version = "0.10.0" }
+opentelemetry-semantic-conventions = "0.9.0"
 prometheus = "0.13.1"
 strum = { version = "0.24", features = ["derive"] }
 thiserror = "1"
 tokio = { version = "1.16", features = ["rt-multi-thread"]}
 tracing = { version = "0.1.36", features = ["std"] }
 tracing-appender = "0.2.2"
-tracing-opentelemetry = { version = "0.18.0" }
-tracing-serde = "0.1.3"
+tracing-opentelemetry = { version = "0.17.0" }
 tracing-subscriber = { version = "0.3.15", features = ["fmt", "env-filter", "registry", "std"] }
 
 [dev-dependencies]
