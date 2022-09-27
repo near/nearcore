@@ -409,7 +409,7 @@ impl PrefetchApi {
         root: StateRoot,
         trie_key: TrieKey,
     ) -> Result<(), (StateRoot, TrieKey)> {
-        self.work_queue_tx.send((root, trie_key)).map_err(|e| e.0)
+        self.work_queue_tx.try_send((root, trie_key)).map_err(|e| e.into_inner())
     }
 
     pub fn start_io_thread(
