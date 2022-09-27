@@ -472,7 +472,7 @@ fn test_shard_layout_upgrade_simple() {
     let initial_accounts = test_env.initial_accounts.clone();
     let generate_create_accounts_txs: &mut dyn FnMut(usize, bool) -> Vec<SignedTransaction> =
         &mut |max_size: usize, check_accounts: bool| -> Vec<SignedTransaction> {
-            let size = rng.gen_range(0, max_size) + 1;
+            let size = rng.gen_range(0..max_size) + 1;
             std::iter::repeat_with(|| loop {
                 let signer_account = initial_accounts.choose(&mut rng).unwrap();
                 let signer0 = InMemorySigner::from_seed(
@@ -607,8 +607,8 @@ fn setup_test_env_with_cross_contract_txs(
     let contract_accounts = vec![
         test_env.initial_accounts[0].clone(),
         test_env.initial_accounts[1].clone(),
-        test_env.initial_accounts[rng.gen_range(0, test_env.initial_accounts.len())].clone(),
-        test_env.initial_accounts[rng.gen_range(0, test_env.initial_accounts.len())].clone(),
+        test_env.initial_accounts[rng.gen_range(0..test_env.initial_accounts.len())].clone(),
+        test_env.initial_accounts[rng.gen_range(0..test_env.initial_accounts.len())].clone(),
     ];
     test_env.set_init_tx(
         contract_accounts
@@ -639,7 +639,7 @@ fn setup_test_env_with_cross_contract_txs(
     let generate_txs: &mut dyn FnMut(usize, usize) -> Vec<SignedTransaction> =
         &mut |min_size: usize, max_size: usize| -> Vec<SignedTransaction> {
             let mut rng = thread_rng();
-            let size = rng.gen_range(min_size, max_size + 1);
+            let size = rng.gen_range(min_size..max_size + 1);
             std::iter::repeat_with(|| loop {
                 let account_id = gen_account(&mut rng, b"abcdefghijkmn");
                 if all_accounts.insert(account_id.clone()) {

@@ -235,7 +235,7 @@ fn test_consensus_with_epoch_switches() {
                             skips_per_height.push(if thread_rng().gen_bool(0.8) {
                                 0
                             } else {
-                                thread_rng().gen_range(2, 9)
+                                thread_rng().gen_range(2..9)
                             });
                         }
                         if skips_per_height[source_height as usize] > 0

@@ -422,7 +422,7 @@ mod tests {
     fn test_get_trie_items_for_part() {
         let mut rng = rand::thread_rng();
         let tries = create_tries();
-        let num_parts = rng.gen_range(5, 10);
+        let num_parts = rng.gen_range(5..10);
 
         let changes = gen_larger_changes(&mut rng, 1000);
         let changes = simplify_changes(&changes);
@@ -508,7 +508,7 @@ mod tests {
     fn test_get_delayed_receipts() {
         let mut rng = rand::thread_rng();
         for _ in 0..20 {
-            let memory_limit = bytesize::ByteSize::b(rng.gen_range(200, 1000));
+            let memory_limit = bytesize::ByteSize::b(rng.gen_range(200..1000));
             let all_receipts = gen_receipts(&mut rng, 200);
 
             // push receipt to trie
@@ -610,7 +610,7 @@ mod tests {
             let mut start_index = 0;
             for _ in 0..10 {
                 let receipts = gen_receipts(&mut rng, 100);
-                let new_start_index = rng.gen_range(start_index, all_receipts.len() + 1);
+                let new_start_index = rng.gen_range(start_index..all_receipts.len() + 1);
 
                 all_receipts.extend_from_slice(&receipts);
                 state_roots = test_apply_delayed_receipts(
@@ -720,7 +720,7 @@ mod tests {
             }
             // remove accounts
             account_ids.shuffle(rng);
-            let remove_count = rng.gen_range(0, 10).min(account_ids.len());
+            let remove_count = rng.gen_range(0..10).min(account_ids.len());
             for account_id in account_ids[0..remove_count].iter() {
                 trie_update.remove(TrieKey::Account { account_id: account_id.clone() });
             }
@@ -734,8 +734,8 @@ mod tests {
                 delayed_receipt_indices.first_index, delayed_receipt_indices.next_available_index
             );
             let next_first_index = rng.gen_range(
-                delayed_receipt_indices.first_index,
-                delayed_receipt_indices.next_available_index + 1,
+                delayed_receipt_indices.first_index
+                    ..delayed_receipt_indices.next_available_index + 1,
             );
             let mut removed_receipts = vec![];
             for index in delayed_receipt_indices.first_index..next_first_index {

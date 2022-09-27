@@ -13,7 +13,7 @@ edition.workspace = true
 protocol_defining_rand = { package = "rand", version = "0.6.5", default-features = false }
 tracing = "0.1.13"
 borsh = "0.9"
-rand = "0.7"
+rand = "0.8.5"
 serde_json = "1"
 smart-default = "0.6"
 primitive-types = { version = "0.10", default-features = false }

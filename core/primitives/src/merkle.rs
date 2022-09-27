@@ -180,7 +180,7 @@ mod tests {
     fn test_with_len(n: u32, rng: &mut StdRng) {
         let mut arr: Vec<u32> = vec![];
         for _ in 0..n {
-            arr.push(rng.gen_range(0, 1000));
+            arr.push(rng.gen_range(0..1000));
         }
         let (root, paths) = merklize(&arr);
         assert_eq!(paths.len() as u32, n);
@@ -193,7 +193,7 @@ mod tests {
     fn test_merkle_path() {
         let mut rng: StdRng = SeedableRng::seed_from_u64(1);
         for _ in 0..10 {
-            let len: u32 = rng.gen_range(1, 100);
+            let len: u32 = rng.gen_range(1..100);
             test_with_len(len, &mut rng);
         }
     }

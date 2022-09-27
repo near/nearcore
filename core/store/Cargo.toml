@@ -22,7 +22,7 @@ itoa = "1.0"
 lru = "0.7.2"
 num_cpus = "1.11"
 once_cell = "1.5.2"
-rand = "0.7"
+rand = "0.8.5"
 rlimit = "0.7"
 rocksdb = { version = "0.18.0", default-features = false, features = [
   "snappy",
@@ -46,7 +46,7 @@ near-primitives = { path = "../primitives" }
 assert_matches = "1.5.0"
 bencher = "0.1.5"
 insta = "1"
-rand = "0.7"
+rand = "0.8.5"
 
 [[bench]]
 name = "trie_bench"

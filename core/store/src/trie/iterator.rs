@@ -437,8 +437,8 @@ mod tests {
                 test_get_trie_items(&trie, &map, seek_key, max_key);
             }
             for _ in 0..20 {
-                let alphabet = &b"abcdefgh"[0..rng.gen_range(2, 8)];
-                let key_length = rng.gen_range(1, 8);
+                let alphabet = &b"abcdefgh"[0..rng.gen_range(2..8)];
+                let key_length = rng.gen_range(1..8);
                 let seek_key: Vec<u8> =
                     (0..key_length).map(|_| *alphabet.choose(&mut rng).unwrap()).collect();
                 test_seek_prefix(&trie, &map, &seek_key);

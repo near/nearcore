@@ -424,7 +424,8 @@ pub fn get_num_seats_per_shard(num_shards: NumShards, num_seats: NumSeats) -> Ve
 
 /// Generate random string of given length
 pub fn generate_random_string(len: usize) -> String {
-    thread_rng().sample_iter(&Alphanumeric).take(len).collect::<String>()
+    let bytes = thread_rng().sample_iter(&Alphanumeric).take(len).collect();
+    String::from_utf8(bytes).unwrap()
 }
 
 pub struct Serializable<'a, T>(&'a T);

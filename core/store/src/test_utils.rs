@@ -58,13 +58,12 @@ fn gen_accounts_from_alphabet(
     max_size: usize,
     alphabet: &[u8],
 ) -> Vec<AccountId> {
-    let size = rng.gen_range(0, max_size) + 1;
-
+    let size = rng.gen_range(0..max_size) + 1;
     std::iter::repeat_with(|| gen_account(rng, alphabet)).take(size).collect()
 }
 
 pub fn gen_account(rng: &mut impl Rng, alphabet: &[u8]) -> AccountId {
-    let str_length = rng.gen_range(4, 8);
+    let str_length = rng.gen_range(4..8);
     let s: Vec<u8> = (0..str_length).map(|_| *alphabet.choose(rng).unwrap()).collect();
     from_utf8(&s).unwrap().parse().unwrap()
 }
@@ -76,7 +75,7 @@ pub fn gen_unique_accounts(rng: &mut impl Rng, max_size: usize) -> Vec<AccountId
 }
 
 pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
-    let alphabet = &b"abcdefgh"[0..rng.gen_range(4, 8)];
+    let alphabet = &b"abcdefgh"[0..rng.gen_range(4..8)];
     let accounts = gen_accounts_from_alphabet(rng, max_size, alphabet);
     accounts
         .iter()
@@ -100,13 +99,13 @@ fn gen_changes_helper(
 ) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
     let mut state: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
     let mut result = Vec::new();
-    let delete_probability = rng.gen_range(0.1, 0.5);
-    let size = rng.gen_range(0, max_size) + 1;
+    let delete_probability = rng.gen_range(0.1..0.5);
+    let size = rng.gen_range(0..max_size) + 1;
     for _ in 0..size {
-        let key_length = rng.gen_range(1, max_length);
+        let key_length = rng.gen_range(1..max_length);
         let key: Vec<u8> = (0..key_length).map(|_| *alphabet.choose(rng).unwrap()).collect();
 
-        let delete = rng.gen_range(0.0, 1.0) < delete_probability;
+        let delete = rng.gen_range(0.0..1.0) < delete_probability;
         if delete {
             let mut keys: Vec<_> = state.keys().cloned().collect();
             keys.push(key);
@@ -114,7 +113,7 @@ fn gen_changes_helper(
             state.remove(&key);
             result.push((key.clone(), None));
         } else {
-            let value_length = rng.gen_range(1, max_length);
+            let value_length = rng.gen_range(1..max_length);
             let value: Vec<u8> =
                 (0..value_length).map(|_| *alphabet.choose(rng).unwrap()).collect();
             result.push((key.clone(), Some(value.clone())));
@@ -125,14 +124,14 @@ fn gen_changes_helper(
 }
 
 pub fn gen_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
-    let alphabet = &b"abcdefgh"[0..rng.gen_range(2, 8)];
-    let max_length = rng.gen_range(2, 8);
+    let alphabet = &b"abcdefgh"[0..rng.gen_range(2..8)];
+    let max_length = rng.gen_range(2..8);
     gen_changes_helper(rng, max_size, alphabet, max_length)
 }
 
 pub fn gen_larger_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
     let alphabet = b"abcdefghijklmnopqrst";
-    let max_length = rng.gen_range(10, 20);
+    let max_length = rng.gen_range(10..20);
     gen_changes_helper(rng, max_size, alphabet, max_length)
 }
 
