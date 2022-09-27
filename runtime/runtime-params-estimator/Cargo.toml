@@ -25,7 +25,7 @@ chrono = "0.4"
 bytesize = "1.1"
 tracing = "0.1"
 tracing-span-tree = "0.1"
-tracing-subscriber = { version = "0.3.11", features = ["fmt", "registry"] }
+tracing-subscriber = { version = "0.3", features = ["fmt", "registry"] }
 
 genesis-populate = { path = "../../genesis-tools/genesis-populate"}
 near-chain-configs = { path = "../../core/chain-configs" }
