@@ -13,12 +13,12 @@ This crate generates schema for Rust structs which can be used by TypeScript.
 """
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
-syn = { version = "1.0", features = ["full", "extra-traits"]}
-quote = "1.0"
+quote.workspace = true
+serde.workspace = true
+syn.workspace = true
 
 [dev-dependencies]
-serde_json = {version = "1.0", features = ["preserve_order"]}
+serde_json = { workspace = true, features = ["preserve_order"] }
 
 [features]
 test = []

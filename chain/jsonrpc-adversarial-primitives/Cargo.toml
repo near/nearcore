@@ -8,11 +8,11 @@ rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-near-primitives = { path = "../../core/primitives" }
+deepsize = { workspace = true, optional = true }
+serde.workspace = true
 
 near-network-primitives = { path = "../network-primitives" }
-deepsize = { version = "0.2.0", optional = true }
+near-primitives = { path = "../../core/primitives" }
 
 [features]
 test_features = ["near-network-primitives/test_features"]

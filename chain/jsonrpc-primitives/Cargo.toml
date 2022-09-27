@@ -13,9 +13,9 @@ description = "This crate hosts structures for the NEAR JSON RPC Requests, Respo
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "1.0"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }

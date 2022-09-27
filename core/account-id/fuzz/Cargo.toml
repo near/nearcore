@@ -12,9 +12,9 @@ edition.workspace = true
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4"
-borsh = "0.9"
-serde_json = "1"
+libfuzzer-sys.workspace = true
+borsh.workspace = true
+serde_json.workspace = true
 
 [dependencies.near-account-id]
 path = ".."

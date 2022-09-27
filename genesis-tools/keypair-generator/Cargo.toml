@@ -8,7 +8,7 @@ rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
-clap = { version = "3.1.6", features = ["derive"] }
+clap.workspace = true
 
 nearcore = { path = "../../nearcore" }
 near-crypto = { path = "../../core/crypto" }

@@ -8,8 +8,8 @@ rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
-ansi_term = "0.12"
-clap = { version = "3.1.6", features = ["derive"] }
+ansi_term.workspace = true
+clap.workspace = true
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-primitives = { path = "../../core/primitives" }
@@ -20,5 +20,5 @@ nearcore = { path = "../../nearcore" }
 
 [dev-dependencies]
 testlib = { path = "../../test-utils/testlib" }
-serde_json = "1"
+serde_json.workspace = true
 near-client = { path = "../../chain/client" }

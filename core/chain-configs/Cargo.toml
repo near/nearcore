@@ -11,15 +11,15 @@ repository = "https://github.com/near/nearcore"
 description = "This crate provides typed interfaces to the NEAR Genesis and Chain Configs"
 
 [dependencies]
-chrono = { version = "0.4.4", features = ["serde"] }
-derive_more = "0.99.3"
-num-rational = { version = "0.3", features = ["serde"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-sha2 = "0.10"
-smart-default = "0.6"
-tracing = "0.1.13"
-anyhow = "1.0.51"
+anyhow.workspace = true
+chrono.workspace = true
+derive_more.workspace = true
+num-rational.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+smart-default.workspace = true
+tracing.workspace = true
 
 near-crypto = { path = "../crypto" }
 near-primitives = { path = "../primitives" }
