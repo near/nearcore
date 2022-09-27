@@ -197,7 +197,7 @@ where
 {
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
-        .with_exporter(opentelemetry_otlp::new_exporter().tonic())
+        .with_exporter(opentelemetry_otlp::new_exporter().http())
         .with_trace_config(
             trace::config()
                 .with_sampler(Sampler::AlwaysOn)
