@@ -11,25 +11,25 @@ repository = "https://github.com/near/nearcore"
 description = "Observability helpers for the near codebase"
 
 [dependencies]
-atty = "0.2"
-backtrace = "0.3.64"
-clap = { version = "3", features = ["derive"] }
-once_cell = "1.5.2"
-opentelemetry = { version = "0.17.0", default-features = false, features = ["trace", "rt-tokio"] }
-opentelemetry-otlp = { version = "0.10.0" }
-opentelemetry-semantic-conventions = "0.9.0"
-prometheus = "0.13.1"
-strum = { version = "0.24", features = ["derive"] }
-thiserror = "1"
-tokio = { version = "1.16", features = ["rt-multi-thread"]}
-tracing = { version = "0.1.36", features = ["std"] }
-tracing-appender = "0.2.2"
-tracing-opentelemetry = { version = "0.17.0" }
-tracing-subscriber = { version = "0.3.15", features = ["fmt", "env-filter", "registry", "std"] }
+atty.workspace = true
+backtrace.workspace = true
+clap.workspace = true
+once_cell.workspace = true
+opentelemetry.workspace = true
+opentelemetry-otlp.workspace = true
+opentelemetry-semantic-conventions.workspace = true
+prometheus.workspace = true
+strum.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-appender.workspace = true
+tracing-opentelemetry.workspace = true
+tracing-subscriber.workspace = true
 
 [dev-dependencies]
-bencher = "0.1.5"
-itoa = "1.0"
+bencher.workspace = true
+itoa.workspace = true
 smartstring = "1.0.1"
 
 [features]
