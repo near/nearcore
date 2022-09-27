@@ -22,7 +22,7 @@ memoffset.workspace = true
 once_cell.workspace = true
 parity-wasm.workspace = true
 serde.workspace = true
-tracing = { workspace = true }
+tracing.workspace = true
 wasmparser.workspace = true
 wasmtime = { workspace = true, optional = true }
 

@@ -12,7 +12,7 @@ edition.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 byteorder.workspace = true
-bytesize = { workspace = true }
+bytesize.workspace = true
 crossbeam.workspace = true
 derive_more.workspace = true
 elastic-array.workspace = true

@@ -34,7 +34,7 @@ near-primitives-core = { path = "../../core/primitives-core" }
 near-vm-errors = { path = "../near-vm-errors" }
 
 [dev-dependencies]
-hex = { workspace = true }
+hex.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
 
 [features]

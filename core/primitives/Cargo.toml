@@ -13,7 +13,7 @@ This crate provides the base set of primitives used by other nearcore crates
 """
 
 [dependencies]
-borsh = { workspace = true }
+borsh.workspace = true
 byteorder.workspace = true
 bytesize.workspace = true
 cfg-if.workspace = true
@@ -22,12 +22,12 @@ deepsize = { workspace = true, optional = true }
 derive_more.workspace = true
 easy-ext.workspace = true
 hex.workspace = true
-num-rational = { workspace = true }
+num-rational.workspace = true
 once_cell.workspace = true
 primitive-types.workspace = true
 rand = "0.7"
 reed-solomon-erasure.workspace = true
-serde = { workspace = true }
+serde.workspace = true
 serde_json.workspace = true
 smart-default.workspace = true
 strum.workspace = true

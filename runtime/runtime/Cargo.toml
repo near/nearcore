@@ -48,7 +48,7 @@ sandbox = ["near-vm-logic/sandbox", "near-vm-runner/sandbox"]
 
 [dev-dependencies]
 assert_matches.workspace = true
-indicatif = { workspace = true }
+indicatif.workspace = true
 rayon.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true

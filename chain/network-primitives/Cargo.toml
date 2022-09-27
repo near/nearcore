@@ -17,7 +17,7 @@ borsh.workspace = true
 chrono.workspace = true
 deepsize = { workspace = true, optional = true }
 once_cell.workspace = true
-opentelemetry = { workspace = true }
+opentelemetry.workspace = true
 serde.workspace = true
 strum.workspace = true
 thiserror.workspace = true

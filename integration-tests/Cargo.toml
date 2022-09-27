@@ -20,7 +20,7 @@ once_cell.workspace = true
 parking_lot.workspace = true
 primitive-types.workspace = true
 rand = "0.7"
-serde = { workspace = true }
+serde.workspace = true
 serde_json.workspace = true
 smart-default.workspace = true
 tempfile.workspace = true

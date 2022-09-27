@@ -16,7 +16,7 @@ actix.workspace = true
 anyhow.workspace = true
 arc-swap.workspace = true
 assert_matches.workspace = true
-borsh = { workspace = true }
+borsh.workspace = true
 bytes.workspace = true
 bytesize.workspace = true
 chrono.workspace = true
@@ -30,19 +30,19 @@ itertools.workspace = true
 lru.workspace = true
 near-rust-allocator-proxy = { workspace = true, optional = true }
 once_cell.workspace = true
-opentelemetry = { workspace = true }
+opentelemetry.workspace = true
 parking_lot.workspace = true
 protobuf.workspace = true
 rand = "0.7"
 rand_xorshift = "0.2"
 rayon.workspace = true
-serde = { workspace = true }
+serde.workspace = true
 smart-default.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
-tokio-util = { workspace = true }
+tokio-util.workspace = true
 tracing-opentelemetry.workspace = true
 tracing.workspace = true
 
