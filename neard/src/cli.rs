@@ -1,23 +1,21 @@
 use crate::log_config_watcher::{LogConfigWatcher, UpdateBehavior};
-use actix::SystemRunner;
 use clap::{Args, Parser};
 use near_chain_configs::GenesisValidationMode;
-use near_o11y::tracing_subscriber::EnvFilter;
+use near_o11y::tracing_subscriber::Registry;
 use near_o11y::{
-    default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
-    EnvFilterBuilder, OpenTelemetryLevel,
+    default_subscriber_everything, default_subscriber_logging, BuildEnvFilterError,
+    DefaultSubscriberGuard, Options,
 };
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use near_store::Mode;
-use std::cell::Cell;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
-use tracing::{debug, error, info, warn};
+use tracing::subscriber::Interest;
+use tracing::{debug, error, info, warn, Event, Metadata};
 
 /// NEAR Protocol Node
 #[derive(Parser)]
@@ -34,12 +32,17 @@ impl NeardCmd {
     pub(super) fn parse_and_run() -> Result<(), RunError> {
         let neard_cmd = Self::parse();
 
-        // Enable logging of the current thread.
-        let _subscriber_guard = default_subscriber(
-            make_env_filter(neard_cmd.opts.verbose_target())?,
-            &neard_cmd.opts.o11y,
-        )
-        .local();
+        println!("parse_and_run");
+        let subscriber_guard = DefaultSubscriberGuard::<Registry> {
+            subscriber: None,
+            local_subscriber_guard: None,
+            writer_guard: None,
+            io_trace_guard: None,
+        };
+        // default_subscriber_logging(neard_cmd.opts.verbose_target(), &neard_cmd.opts.o11y);
+        println!("parse_and_run done init_logging");
+        // let subscriber_guard = subscriber_guard.local();
+        println!("parse_and_run done init_logging set local");
 
         info!(
             target: "neard",
@@ -74,6 +77,7 @@ impl NeardCmd {
             NeardSubCommand::Run(cmd) => cmd.run(
                 &home_dir,
                 genesis_validation,
+                subscriber_guard,
                 neard_cmd.opts.verbose_target(),
                 &neard_cmd.opts.o11y,
             ),
@@ -336,8 +340,9 @@ impl RunCmd {
         self,
         home_dir: &Path,
         genesis_validation: GenesisValidationMode,
+        local_subscriber_guard: DefaultSubscriberGuard<impl tracing::Subscriber + Send + Sync>,
         verbose_target: Option<&str>,
-        o11y_opts: &near_o11y::Options,
+        o11y_opts: &Options,
     ) {
         // Load configs from home.
         let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation)
@@ -403,11 +408,12 @@ impl RunCmd {
         }
 
         let (tx, rx) = oneshot::channel::<()>();
+        // opentelemetry::global::shutdown_tracer_provider(); // Finish sending spans.
         let sys = actix::System::new();
-
         sys.block_on(async move {
-            let _subscriber_guard = default_subscriber_with_opentelemetry(
-                make_env_filter(verbose_target).unwrap(),
+            println!("RunCmd::run");
+            let subscriber_guard = default_subscriber_everything(
+                verbose_target,
                 o11y_opts,
                 near_config.client_config.chain_id.clone(),
                 near_config.network_config.node_key.public_key().clone(),
@@ -417,28 +423,37 @@ impl RunCmd {
                     .as_ref()
                     .map(|validator| validator.account_id()),
             )
-            .await
-            .global();
-
+            .await;
+            println!("RunCmd::run inited otlp");
+            let subscriber_guard = subscriber_guard.global();
+            println!("RunCmd::run set global ");
             let nearcore::NearNode { rpc_servers, .. } =
                 nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
                     .expect("start_with_config");
 
             let sig = wait_for_interrupt_signal(home_dir, rx).await;
+            println!("Shutdown !1");
             warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
+            println!("Shutdown !2");
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
+                println!("Shutdown !3");
                 server.stop(true).await;
+                println!("Shutdown !4");
                 debug!(target: "neard", "{} server stopped", name);
             }))
             .await;
+            println!("Shutdown !5");
             actix::System::current().stop();
-
-            // Disable the subscriber.
-            near_o11y::reload_layers(Some("error"), None, Some(OpenTelemetryLevel::OFF)).unwrap();
+            println!("Shutdown !6");
+            opentelemetry::global::shutdown_tracer_provider(); // Finish sending spans.
+            println!("Shutdown !7");
         });
+        println!("Shutdown !8");
         sys.run().unwrap();
+        println!("Shutdown !9");
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
+        println!("Shutdown !10");
     }
 }
 
@@ -553,19 +568,6 @@ impl RecompressStorageSubCommand {
     }
 }
 
-fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, RunError> {
-    let env_filter =
-        EnvFilterBuilder::from_env().verbose(verbose).finish().map_err(RunError::EnvFilter)?;
-    // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
-    // This is hidden by default so we enable it for sandbox node.
-    let env_filter = if cfg!(feature = "sandbox") {
-        env_filter.add_directive("sandbox=debug".parse().unwrap())
-    } else {
-        env_filter
-    };
-    Ok(env_filter)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -594,4 +596,32 @@ mod tests {
         ])
         .is_err());
     }
+}
+
+#[derive(Copy, Clone, Debug, Default)]
+pub struct MyNoSubscriber(());
+
+impl tracing::Subscriber for MyNoSubscriber {
+    #[inline]
+    fn register_callsite(&self, _: &'static Metadata<'static>) -> Interest {
+        Interest::never()
+    }
+
+    #[inline]
+    fn enabled(&self, _metadata: &Metadata<'_>) -> bool {
+        false
+    }
+
+    fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        tracing::span::Id::from_u64(0xDEAD)
+    }
+
+    fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
+
+    fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
+
+    fn event(&self, _event: &Event<'_>) {}
+
+    fn enter(&self, _span: &tracing::span::Id) {}
+    fn exit(&self, _span: &tracing::span::Id) {}
 }

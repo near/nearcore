@@ -3278,6 +3278,8 @@ dependencies = [
  "backtrace",
  "bencher",
  "clap 3.1.18",
+ "near-crypto",
+ "near-primitives",
  "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
