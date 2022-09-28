@@ -12,11 +12,11 @@
 
 - [Overview](./practices/README.md)
 - [Code Style](./practices/style.md)
+- [Tracking issues](./practices/tracking_issues.md)
 - [Testing](./practices/testing/README.md)
   - [Python Tests](./practices/testing/python_tests.md)
   - [cross_shard_tx Test](./practices/testing/cross_shard_tx_test.md)
 - [Protocol Upgrade](./practices/protocol_upgrade.md)
-- [Tracking issues](./practices/tracking_issues.md)
 
 # Misc
 
