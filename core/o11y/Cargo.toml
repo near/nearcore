@@ -9,6 +9,9 @@ readme = "README.md"
 rust-version = "1.63.0"
 
 [dependencies]
+near-crypto = { path = "../../core/crypto"}
+near-primitives = { path = "../../core/primitives" }
+
 atty = "0.2"
 backtrace = "0.3.64"
 clap = { version = "3", features = ["derive"] }
