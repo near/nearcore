@@ -41,18 +41,23 @@ macro_rules! io_trace {
     ($($fields:tt)*) => {};
 }
 
-type SubscriberWithLogLayer = Layered<
+static LOG_LAYER_RELOAD_HANDLE: OnceCell<reload::Handle<EnvFilter, Registry>> = OnceCell::new();
+static OTLP_LAYER_RELOAD_HANDLE: OnceCell<reload::Handle<LevelFilter, LogLayer<Registry>>> =
+    OnceCell::new();
+
+type LogLayer<Inner> = Layered<
     Filtered<
-        fmt::Layer<Registry, fmt::format::DefaultFields, fmt::format::Format, NonBlocking>,
-        reload::Layer<EnvFilter, Registry>,
-        Registry,
+        fmt::Layer<Inner, fmt::format::DefaultFields, fmt::format::Format, NonBlocking>,
+        reload::Layer<EnvFilter, Inner>,
+        Inner,
     >,
-    Registry,
+    Inner,
 >;
 
-static LOG_LAYER_RELOAD_HANDLE: OnceCell<reload::Handle<EnvFilter, Registry>> = OnceCell::new();
-static OTLP_LAYER_RELOAD_HANDLE: OnceCell<reload::Handle<LevelFilter, SubscriberWithLogLayer>> =
-    OnceCell::new();
+type TracingLayer<Inner> = Layered<
+    Filtered<OpenTelemetryLayer<Inner, Tracer>, reload::Layer<LevelFilter, Inner>, Inner>,
+    Inner,
+>;
 
 // Records the level of opentelemetry tracing verbosity configured via command-line flags at the startup.
 static DEFAULT_OTLP_LEVEL: OnceCell<OpenTelemetryLevel> = OnceCell::new();
@@ -175,17 +180,7 @@ fn add_log_layer<S>(
     writer: NonBlocking,
     ansi: bool,
     subscriber: S,
-) -> (
-    Layered<
-        Filtered<
-            fmt::Layer<S, fmt::format::DefaultFields, fmt::format::Format, NonBlocking>,
-            reload::Layer<EnvFilter, S>,
-            S,
-        >,
-        S,
-    >,
-    reload::Handle<EnvFilter, S>,
-)
+) -> (LogLayer<S>, reload::Handle<EnvFilter, S>)
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
 {
@@ -208,10 +203,7 @@ where
 async fn add_opentelemetry_layer<S>(
     opentelemetry_level: OpenTelemetryLevel,
     subscriber: S,
-) -> (
-    Layered<Filtered<OpenTelemetryLayer<S, Tracer>, reload::Layer<LevelFilter, S>, S>, S>,
-    reload::Handle<LevelFilter, S>,
-)
+) -> (TracingLayer<S>, reload::Handle<LevelFilter, S>)
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
 {
