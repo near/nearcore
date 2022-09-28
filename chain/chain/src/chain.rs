@@ -5378,9 +5378,6 @@ mod tests {
             &mut receipt_proofs,
             &CryptoHash::hash_bytes(&[1, 2, 3, 4, 5]),
         );
-        assert_eq!(
-            receipt_proofs,
-            vec![2, 3, 1, 4, 0, 5, 6],
-        );
+        assert_eq!(receipt_proofs, vec![2, 3, 1, 4, 0, 5, 6],);
     }
 }
