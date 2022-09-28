@@ -5,7 +5,7 @@ use near_primitives::{
     epoch_manager::ShardConfig,
     errors::EpochError,
     hash::CryptoHash,
-    shard_layout::{ShardLayout, ShardLayoutError},
+    shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutError},
     sharding::{ChunkHash, ShardChunkHeader},
     types::{
         validator_stake::ValidatorStake, AccountId, ApprovalStake, Balance, BlockHeight,
@@ -255,13 +255,13 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         account_id: &AccountId,
         epoch_id: &EpochId,
     ) -> Result<ShardId, Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
         Ok(account_id_to_shard_id(account_id, &shard_layout))
     }
 
     fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error> {
-        let epoch_manager = self.epoch_manager.read();
+        let epoch_manager = self.read();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
         Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
     }
