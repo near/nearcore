@@ -1,4 +1,4 @@
-use near_o11y::{reload_layers, OpenTelemetryLevel, ReloadError};
+use near_o11y::{reload, OpenTelemetryLevel, ReloadError};
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::io::ErrorKind;
@@ -30,7 +30,7 @@ pub(crate) enum UpdateBehavior {
 #[non_exhaustive]
 enum LogConfigError {
     #[error("Failed to reload the logging config")]
-    Reload(#[source] ReloadError),
+    Reload(Vec<ReloadError>),
     #[error("Failed to reload the logging config")]
     Parse(#[source] serde_json::Error),
     #[error("Can't open or read the logging config file")]
@@ -44,7 +44,7 @@ impl LogConfigWatcher {
                 let log_config = serde_json::from_str::<LogConfig>(&log_config_str)
                     .map_err(LogConfigError::Parse)?;
                 info!(target: "neard", log_config=?log_config, "Changing the logging config.");
-                return reload_layers(
+                return reload(
                     log_config.rust_log.as_deref(),
                     log_config.verbose_module.as_deref(),
                     log_config.opentelemetry_level,
@@ -55,7 +55,7 @@ impl LogConfigWatcher {
                 ErrorKind::NotFound => {
                     if let UpdateBehavior::UpdateOrReset = update_behavior {
                         info!(target: "neard", logging_config_path=%self.watched_path.display(), ?err, "Reset the logging config because the logging config file doesn't exist.");
-                        return reload_layers(None, None, None).map_err(LogConfigError::Reload);
+                        return reload(None, None, None).map_err(LogConfigError::Reload);
                     }
                     Ok(())
                 }
