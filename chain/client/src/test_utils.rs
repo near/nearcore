@@ -571,7 +571,7 @@ pub fn setup_mock_all_validators(
             AccountId,
             // The message itself
             &PeerManagerMessageRequest,
-        ) -> (PeerManagerMessageResponse, /*perform default*/ bool),
+        ) -> (PeerManagerMessageResponse, /* perform default */ bool),
     >,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>, Arc<RwLock<BlockStats>>) {
     let peer_manager_mock = Arc::new(RwLock::new(peer_manager_mock));
