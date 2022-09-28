@@ -3278,6 +3278,7 @@ dependencies = [
  "backtrace",
  "bencher",
  "clap 3.1.18",
+ "itoa 1.0.2",
  "near-crypto",
  "near-primitives",
  "once_cell",

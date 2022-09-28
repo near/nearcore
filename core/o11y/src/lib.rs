@@ -3,6 +3,8 @@
 pub use {backtrace, tracing, tracing_appender, tracing_subscriber};
 
 use clap::Parser;
+use near_crypto::PublicKey;
+use near_primitives::types::AccountId;
 use once_cell::sync::OnceCell;
 use opentelemetry::sdk::trace::{self, RandomIdGenerator, Sampler, Tracer};
 use opentelemetry::sdk::Resource;
@@ -175,12 +177,36 @@ fn is_terminal() -> bool {
     atty::is(atty::Stream::Stderr)
 }
 
+fn add_simple_log_layer<S>(
+    filter: EnvFilter,
+    ansi: bool,
+    subscriber: S,
+) -> Layered<Filtered<fmt::Layer<S>, EnvFilter, S>, S>
+where
+    S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
+{
+    let layer = tracing_subscriber::fmt::layer()
+        .with_ansi(ansi)
+        // Synthesizing ENTER and CLOSE events lets us log durations of spans to the log.
+        .with_span_events(
+            fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::CLOSE,
+        )
+        .with_filter(filter);
+
+    let subscriber = subscriber.with(layer);
+    subscriber
+}
+
 fn add_log_layer<S>(
     filter: EnvFilter,
     writer: NonBlocking,
     ansi: bool,
     subscriber: S,
-) -> (LogLayer<S>, reload::Handle<EnvFilter, S>)
+) -> (
+    LogLayer<S>
+    ,
+    Handle<EnvFilter, S>,
+)
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
 {
@@ -189,11 +215,13 @@ where
     let layer = fmt::layer()
         .with_ansi(ansi)
         // Synthesizing ENTER and CLOSE events lets us log durations of spans to the log.
-        .with_span_events(fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::CLOSE)
+        .with_span_events(
+            fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::CLOSE,
+        )
         .with_writer(writer)
         .with_filter(filter);
-    let subscriber = subscriber.with(layer);
-    (subscriber, handle)
+
+    (subscriber.with(layer), handle)
 }
 
 /// Constructs an OpenTelemetryConfig which sends span data to an external collector.
@@ -202,13 +230,28 @@ where
 // register timers and channels and whatnot.
 async fn add_opentelemetry_layer<S>(
     opentelemetry_level: OpenTelemetryLevel,
+    chain_id: String,
+    node_public_key: PublicKey,
+    account_id: Option<AccountId>,
     subscriber: S,
-) -> (TracingLayer<S>, reload::Handle<LevelFilter, S>)
+) -> (
+    TracingLayer<S>,
+    Handle<LevelFilter, S>,
+)
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
 {
     let filter = get_opentelemetry_filter(opentelemetry_level);
     let (filter, handle) = reload::Layer::<LevelFilter, S>::new(filter);
+
+    let mut resource = vec![
+        KeyValue::new(SERVICE_NAME, "neard"),
+        KeyValue::new("chain_id", chain_id),
+        KeyValue::new("node_id", node_public_key.to_string()),
+    ];
+    if let Some(account_id) = account_id {
+        resource.push(KeyValue::new("account_id", account_id.to_string()));
+    }
 
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
@@ -217,13 +260,12 @@ where
             trace::config()
                 .with_sampler(Sampler::AlwaysOn)
                 .with_id_generator(RandomIdGenerator::default())
-                .with_resource(Resource::new(vec![KeyValue::new(SERVICE_NAME, "neard")])),
+                .with_resource(Resource::new(resource)),
         )
         .install_batch(opentelemetry::runtime::Tokio)
         .unwrap();
     let layer = tracing_opentelemetry::layer().with_tracer(tracer).with_filter(filter);
-    let subscriber = subscriber.with(layer);
-    (subscriber, handle)
+        (subscriber.with(layer), handle)
 }
 
 pub fn get_opentelemetry_filter(opentelemetry_level: OpenTelemetryLevel) -> LevelFilter {
@@ -255,10 +297,43 @@ where
     (io_layer, guard)
 }
 
-/// Run the code with a default subscriber set to the option appropriate for the NEAR code.
+fn use_color_output(options: &Options) -> bool {
+    match options.color {
+        ColorOutput::Always => true,
+        ColorOutput::Never => false,
+        ColorOutput::Auto => std::env::var_os("NO_COLOR").is_none() && is_terminal(),
+    }
+}
+
+/// Constructs a subscriber set to the option appropriate for the NEAR code.
 ///
-/// This will override any subscribers set until now, and will be in effect until the value
-/// returned by this function goes out of scope.
+/// Subscriber enables only logging.
+///
+/// # Example
+///
+/// ```rust
+/// let _subscriber = near_o11y::default_subscriber(filter, &Default::default()).global();
+/// ```
+pub fn default_subscriber(
+    env_filter: EnvFilter,
+    options: &Options,
+) -> DefaultSubscriberGuard<impl tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync> {
+    let color_output = use_color_output(options);
+
+    let subscriber = tracing_subscriber::registry();
+    let subscriber = add_simple_log_layer(env_filter, color_output, subscriber);
+
+    DefaultSubscriberGuard {
+        subscriber: Some(subscriber),
+        local_subscriber_guard: None,
+        writer_guard: None,
+        io_trace_guard: None,
+    }
+}
+
+/// Constructs a subscriber set to the option appropriate for the NEAR code.
+///
+/// The subscriber enables logging, tracing and io tracing.
 /// Subscriber creation needs an async runtime.
 ///
 /// # Example
@@ -270,32 +345,41 @@ where
 ///     near_o11y::default_subscriber(filter, &Default::default()).await.global()
 /// });
 /// ```
-pub async fn default_subscriber(
+pub async fn default_subscriber_with_opentelemetry(
+    env_filter: EnvFilter,
     env_filter: EnvFilter,
     options: &Options,
-) -> DefaultSubscriberGuard<impl tracing::Subscriber + Send + Sync> {
+    chain_id: String,
+    node_public_key: PublicKey,
+    account_id: Option<AccountId>,
+) -> DefaultSubscriberGuard<impl tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync> {
+    let color_output = use_color_output(options);
+
     // Do not lock the `stderr` here to allow for things like `dbg!()` work during development.
     let stderr = std::io::stderr();
     let lined_stderr = std::io::LineWriter::new(stderr);
     let (writer, writer_guard) = tracing_appender::non_blocking(lined_stderr);
 
-    let ansi = match options.color {
-        ColorOutput::Always => true,
-        ColorOutput::Never => false,
-        ColorOutput::Auto => std::env::var_os("NO_COLOR").is_none() && is_terminal(),
-    };
-
     let subscriber = tracing_subscriber::registry();
-    // Record the initial OTLP level specified as a command-line flag. Use this recorded value to
+
+    // Record the initial tracing level specified as a command-line flag. Use this recorded value to
     // reset opentelemetry filter when the LogConfig file gets deleted.
     DEFAULT_OTLP_LEVEL.set(options.opentelemetry).unwrap();
 
-    let (subscriber, handle) = add_log_layer(env_filter, writer, ansi, subscriber);
+    let (subscriber, handle) =
+        add_non_blocking_log_layer(env_filter, writer, color_output, subscriber);
     LOG_LAYER_RELOAD_HANDLE
         .set(handle)
         .unwrap_or_else(|_| panic!("Failed to set Log Layer Filter"));
 
-    let (subscriber, handle) = add_opentelemetry_layer(options.opentelemetry, subscriber).await;
+    let (subscriber, handle) = add_opentelemetry_layer(
+        options.opentelemetry,
+        chain_id,
+        node_public_key,
+        account_id,
+        subscriber,
+    )
+    .await;
     OTLP_LAYER_RELOAD_HANDLE
         .set(handle)
         .unwrap_or_else(|_| panic!("Failed to set OTLP Layer Filter"));
@@ -315,7 +399,7 @@ pub async fn default_subscriber(
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),
         local_subscriber_guard: None,
-        writer_guard,
+        writer_guard: Some(writer_guard),
         io_trace_guard,
     }
 }
@@ -323,21 +407,15 @@ pub async fn default_subscriber(
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum ReloadError {
-    #[error("env_filter reload handle is not available")]
-    NoLogReloadHandle,
-    #[error("opentelemetry reload handle is not available")]
-    NoOpentelemetryReloadHandle,
     #[error("could not set the new log filter")]
-    ReloadLogLayer(#[source] reload::Error),
-    #[error("could not set the new opentelemetry filter")]
-    ReloadOpentelemetryLayer(#[source] reload::Error),
+    Reload(#[source] Error),
     #[error("could not create the log filter")]
     Parse(#[source] BuildEnvFilterError),
+    #[error("env_filter reload handle is not available")]
+    NoReloadHandle,
 }
 
 /// Constructs new filters for the logging and opentelemetry layers.
-///
-/// Attempts to reload all available errors. Returns errors for each layer that failed to reload.
 ///
 /// The newly constructed `EnvFilter` provides behavior equivalent to what can be obtained via
 /// setting `RUST_LOG` environment variable and the `--verbose` command-line flag.
