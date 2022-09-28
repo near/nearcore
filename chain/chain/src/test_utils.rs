@@ -61,7 +61,7 @@ use crate::{BlockProcessingArtifact, Provenance};
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::time::Clock;
 use near_primitives::utils::MaybeValidated;
-use near_store::flat_state::FlatStorageState;
+use near_store::flat_state::{ChainAccessForFlatStorage, FlatStorageState};
 
 pub use self::validator_schedule::ValidatorSchedule;
 
@@ -694,10 +694,12 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_flat_storage_state_for_shard(&self, _shard_id: ShardId) -> Option<FlatStorageState> {
         None
     }
-    fn add_flat_storage_state_for_shard(
+
+    fn create_flat_storage_state_for_shard(
         &self,
         _shard_id: ShardId,
-        _flat_storage_state: FlatStorageState,
+        _latest_block_height: BlockHeight,
+        _chain_access: &dyn ChainAccessForFlatStorage,
     ) {
     }
 
