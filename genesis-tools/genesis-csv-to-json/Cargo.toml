@@ -8,10 +8,10 @@ rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
-chrono = "0.4.7"
-csv = "1.1.1"
-serde = { version = "1", features = ["derive"] }
-clap = { version = "3.1.6", features = ["derive"] }
+chrono.workspace = true
+clap.workspace = true
+csv.workspace = true
+serde.workspace = true
 
 nearcore = { path = "../../nearcore" }
 near-chain-configs = { path = "../../core/chain-configs" }
@@ -20,6 +20,6 @@ near-primitives = { path = "../../core/primitives" }
 near-network-primitives = { path = "../../chain/network-primitives" }
 
 [dev-dependencies]
-tempfile = "3"
-serde_json = "^1.0.41"
-serde = "^1.0.102"
+tempfile.workspace = true
+serde_json.workspace = true
+serde.workspace = true

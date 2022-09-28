@@ -19,6 +19,7 @@ fn main() -> anyhow::Result<()> {
         rules::publishable_has_license_file,
         rules::publishable_has_description,
         rules::publishable_has_near_link,
+        rules::recursively_publishable,
     ];
 
     let _unused_rules = [
