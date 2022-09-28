@@ -879,7 +879,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
         let epoch_manager = self.epoch_manager.read();
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;

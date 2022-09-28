@@ -31,13 +31,15 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Get current number of shards.
     fn num_shards(&self, epoch_id: &EpochId) -> Result<ShardId, Error>;
 
-    /// Account Id to Shard Id mapping, given current number of shards.
+    /// Which shard the account belongs to in the given epoch.
     fn account_id_to_shard_id(
         &self,
         account_id: &AccountId,
         epoch_id: &EpochId,
     ) -> Result<ShardId, Error>;
 
+    /// Converts `ShardId` (index of shard in the *current* layout) to
+    /// `ShardUId` (`ShardId` + the version of shard layout itself.)
     fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error>;
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
