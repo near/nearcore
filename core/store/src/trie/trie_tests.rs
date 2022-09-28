@@ -117,7 +117,7 @@ fn test_reads_with_incomplete_storage() {
         }
         {
             let (key, _) = trie_changes.choose(&mut rng).unwrap();
-            let key_prefix = &key[0..rng.gen_range(0, key.len() + 1)];
+            let key_prefix = &key[0..rng.gen_range(0..key.len() + 1)];
             println!("Testing TrieUpdateIterator over prefix {:?}", key_prefix);
             let trie_update_keys = |trie: Rc<Trie>| -> Result<_, StorageError> {
                 let trie_update = TrieUpdate::new(trie);
@@ -233,7 +233,7 @@ mod caching_storage_tests {
         let store = create_store_with_values(&values, shard_uid);
         let trie_cache = TrieCache::new(&TrieConfig::default(), shard_uid, false);
         let trie_caching_storage =
-            TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false);
+            TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false, None);
         let key = hash(&value);
         assert_eq!(trie_cache.get(&key), None);
 
@@ -258,6 +258,7 @@ mod caching_storage_tests {
             TrieCache::new(&TrieConfig::default(), shard_uid, false),
             shard_uid,
             false,
+            None,
         );
         let value = vec![1u8];
         let key = hash(&value);
@@ -275,7 +276,7 @@ mod caching_storage_tests {
         let store = create_store_with_values(&values, shard_uid);
         let trie_cache = TrieCache::new(&TrieConfig::default(), shard_uid, false);
         let trie_caching_storage =
-            TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false);
+            TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false, None);
         let key = hash(&value);
 
         trie_caching_storage.set_mode(TrieCacheMode::CachingChunk);
@@ -298,7 +299,7 @@ mod caching_storage_tests {
         let store = create_store_with_values(&values, shard_uid);
         let trie_cache = TrieCache::new(&TrieConfig::default(), shard_uid, false);
         let trie_caching_storage =
-            TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false);
+            TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false, None);
         let value = &values[0];
         let key = hash(&value);
 
@@ -349,7 +350,7 @@ mod caching_storage_tests {
         trie_config.shard_cache_config.override_max_entries.insert(shard_uid, shard_cache_size);
         let trie_cache = TrieCache::new(&trie_config, shard_uid, false);
         let trie_caching_storage =
-            TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false);
+            TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false, None);
 
         let value = &values[0];
         let key = hash(&value);

@@ -1,11 +1,11 @@
 [package]
 name = "near-vm-logic"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = true
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.63.0"
-edition = "2021"
+rust-version.workspace = true
+edition.workspace = true
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 categories = ["wasm"]
@@ -15,14 +15,16 @@ This crate implements the specification of the interface that Near blockchain ex
 """
 
 [dependencies]
-borsh = "0.9"
-bs58 = "0.4"
-byteorder = "1.2"
-ripemd = "0.1.1"
-serde = { version = "1", features = ["derive"] }
-sha2 = ">=0.8,<=0.10"
-sha3 = ">=0.8,<=0.10"
-ed25519-dalek = "1"
+bn.workspace = true
+borsh.workspace = true
+bs58.workspace = true
+byteorder.workspace = true
+ed25519-dalek.workspace = true
+ripemd.workspace = true
+serde.workspace = true
+sha2.workspace = true
+sha3.workspace = true
+tracing = { workspace = true, optional = true }
 
 near-crypto = { path = "../../core/crypto" }
 near-account-id = { path = "../../core/account-id", features = [ "internal_unstable" ] }
@@ -31,13 +33,9 @@ near-primitives = { path = "../../core/primitives" }
 near-primitives-core = { path = "../../core/primitives-core" }
 near-vm-errors = { path = "../near-vm-errors" }
 
-bn = { package = "zeropool-bn", version = "0.5.11", features = [] }
-tracing = { version = "0.1.13", optional = true }
-
 [dev-dependencies]
-hex = { version = "0.4", features = ["serde"] }
-serde_json = { version = "1", features = ["preserve_order"] }
-
+hex.workspace = true
+serde_json = { workspace = true, features = ["preserve_order"] }
 
 [features]
 default = []

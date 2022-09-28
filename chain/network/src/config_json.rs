@@ -43,6 +43,15 @@ fn default_ttl_account_id_router() -> Duration {
 fn default_peer_stats_period() -> Duration {
     Duration::from_secs(5)
 }
+/// Period to update the list of peers we connect to.
+fn default_monitor_peers_max_period() -> Duration {
+    Duration::from_secs(60)
+}
+
+/// Remove peers that we didn't hear about for this amount of time.
+fn default_peer_expiration_duration() -> Duration {
+    Duration::from_secs(7 * 24 * 60 * 60)
+}
 
 // If non-zero - we'll skip sending tombstones during initial sync and for that many seconds after start.
 fn default_skip_tombstones() -> i64 {
@@ -113,6 +122,13 @@ pub struct Config {
     /// Period to check on peer status
     #[serde(default = "default_peer_stats_period")]
     pub peer_stats_period: Duration,
+    // Period to monitor peers (connect to new ones etc).
+    #[serde(default = "default_monitor_peers_max_period")]
+    pub monitor_peers_max_period: Duration,
+
+    // Remove peers that were not active for this amount of time.
+    #[serde(default = "default_peer_expiration_duration")]
+    pub peer_expiration_duration: Duration,
 
     /// List of the public addresses (in the format "<node public key>@<IP>:<port>") of trusted nodes,
     /// which are willing to route messages to this node. Useful only if this node is a validator.
@@ -144,10 +160,12 @@ pub struct Config {
     /// This setup is not reliable in presence of byzantine peers.
     #[serde(default)]
     pub public_addrs: Vec<PeerAddr>,
-    /// List of endpoints of trusted STUN servers (https://datatracker.ietf.org/doc/html/rfc8489).
-    /// Used only if this node is a validator and public_ips is empty (see description of
-    /// public_ips field). Format "<domain/ip>:<port>", for example "stun.l.google.com:19302".
-    /// TODO: unskip, once the functionality is implemented.
+    /// List of endpoints of trusted [STUN servers](https://datatracker.ietf.org/doc/html/rfc8489).
+    ///
+    /// Used only if this node is a validator and public_ips is empty (see
+    /// description of public_ips field).  Format `<domain/ip>:<port>`, for
+    /// example `stun.l.google.com:19302`.
+    // TODO: unskip, once the functionality is implemented.
     #[serde(skip)] // TODO: add a default list.
     pub trusted_stun_servers: Vec<String>,
     // Experimental part of the JSON config. Regular users/validators should not have to set any values there.
@@ -204,6 +222,8 @@ impl Default for Config {
             blacklist: vec![],
             ttl_account_id_router: default_ttl_account_id_router(),
             peer_stats_period: default_peer_stats_period(),
+            monitor_peers_max_period: default_monitor_peers_max_period(),
+            peer_expiration_duration: default_peer_expiration_duration(),
             public_addrs: vec![],
             trusted_stun_servers: vec![],
             experimental: Default::default(),

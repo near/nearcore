@@ -1,8 +1,11 @@
+use borsh::{BorshDeserialize, BorshSerialize};
+
 use byteorder::{LittleEndian, ReadBytesExt};
 use near_primitives_core::hash::{hash, CryptoHash};
 use std::io::{Cursor, Read};
 
 /// State value reference. Used to charge fees for value length before retrieving the value itself.
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 pub struct ValueRef {
     /// Value length in bytes.
     pub length: u32,
@@ -14,11 +17,8 @@ impl ValueRef {
     /// Create serialized value reference by the value.
     /// Resulting array stores 4 bytes of length and then 32 bytes of hash.
     /// TODO (#7327): consider passing hash here to avoid double computation
-    pub fn create_serialized(value: &[u8]) -> [u8; 36] {
-        let mut result = [0u8; 36];
-        result[0..4].copy_from_slice(&(value.len() as u32).to_le_bytes());
-        result[4..36].copy_from_slice(&hash(value).0);
-        result
+    pub fn new(value: &[u8]) -> Self {
+        Self { length: value.len() as u32, hash: hash(value) }
     }
 
     /// Decode value reference from the raw byte array.
@@ -41,7 +41,10 @@ mod tests {
     #[test]
     fn test_encode_decode() {
         let value = vec![1, 2, 3];
-        let value_ref_ser = ValueRef::create_serialized(&value);
+        let old_value_ref = ValueRef::new(&value);
+        let mut value_ref_ser = [0u8; 36];
+        value_ref_ser[0..4].copy_from_slice(&old_value_ref.length.to_le_bytes());
+        value_ref_ser[4..36].copy_from_slice(&old_value_ref.hash.0);
         let value_ref = ValueRef::decode(&value_ref_ser).unwrap();
         assert_eq!(value_ref.length, value.len() as u32);
         assert_eq!(value_ref.hash, hash(&value));

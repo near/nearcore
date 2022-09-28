@@ -1,9 +1,7 @@
-use std::collections::HashMap;
-
-use anyhow::{bail, Context};
-
 use super::types::{ComplianceError, Expected, Outlier, Workspace};
 use super::{style, utils};
+use anyhow::bail;
+use std::collections::{BTreeMap, HashMap};
 
 /// Ensure all crates have the `publish = <true/false>` specification
 pub fn has_publish_spec(workspace: &Workspace) -> anyhow::Result<()> {
@@ -11,7 +9,7 @@ pub fn has_publish_spec(workspace: &Workspace) -> anyhow::Result<()> {
         .members
         .iter()
         .filter(|pkg| pkg.raw["package"].get("publish").is_none())
-        .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None })
+        .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None, extra: None })
         .collect();
 
     if !outliers.is_empty() {
@@ -30,8 +28,8 @@ pub fn has_rust_version(workspace: &Workspace) -> anyhow::Result<()> {
     let outliers: Vec<_> = workspace
         .members
         .iter()
-        .filter(|pkg| pkg.raw["package"].get("rust-version").is_none())
-        .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None })
+        .filter(|pkg| pkg.parsed.rust_version.is_none())
+        .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None, extra: None })
         .collect();
 
     if !outliers.is_empty() {
@@ -58,6 +56,7 @@ pub fn is_unversioned(workspace: &Workspace) -> anyhow::Result<()> {
         .map(|pkg| Outlier {
             path: pkg.parsed.manifest_path.clone(),
             found: Some(pkg.parsed.version.to_string()),
+            extra: None,
         })
         .collect::<Vec<_>>();
 
@@ -65,60 +64,6 @@ pub fn is_unversioned(workspace: &Workspace) -> anyhow::Result<()> {
         bail!(ComplianceError {
             msg: "These packages shouldn't be versioned".to_string(),
             expected: Some(Expected { value: "0.0.0".to_string(), reason: None }),
-            outliers,
-        });
-    }
-
-    Ok(())
-}
-
-/// Ensures all crates have a rust-version spec less than
-/// or equal to the version defined in rust-toolchain.toml
-pub fn has_debuggable_rust_version(workspace: &Workspace) -> anyhow::Result<()> {
-    let rust_toolchain =
-        utils::parse_toml::<toml::Value>(&workspace.root.join("rust-toolchain.toml"))
-            .context("Failed to read rust-toolchain file")?;
-    let rust_toolchain = rust_toolchain["toolchain"]["channel"].as_str().unwrap().to_owned();
-
-    let rust_toolchain = match semver::Version::parse(&rust_toolchain) {
-        Ok(rust_toolchain) => rust_toolchain,
-        Err(err) => {
-            utils::warn!(
-                "semver: unable to parse rustup channel from {}: {}",
-                style::highlight("rust-toolchain.toml"),
-                err
-            );
-
-            return Ok(());
-        }
-    };
-
-    let mut outliers = vec![];
-    for pkg in &workspace.members {
-        let (rust_version, raw) = match pkg.raw["package"].get("rust-version") {
-            Some(rust_version) => {
-                let raw = rust_version.as_str().unwrap();
-                (semver::VersionReq::parse(raw)?, raw)
-            }
-            // we can skip, since we have has_rust_version check
-            None => continue,
-        };
-
-        if !rust_version.matches(&rust_toolchain) {
-            outliers.push(Outlier {
-                path: pkg.parsed.manifest_path.clone(),
-                found: Some(raw.to_owned()),
-            });
-        }
-    }
-
-    if !outliers.is_empty() {
-        bail!(ComplianceError {
-            msg: "These packages have an incompatible `rust-version`".to_string(),
-            expected: Some(Expected {
-                value: format!("<={}", rust_toolchain),
-                reason: Some("as defined in the `rust-toolchain`".to_string()),
-            }),
             outliers,
         });
     }
@@ -144,6 +89,7 @@ pub fn has_unified_rust_edition(workspace: &Workspace) -> anyhow::Result<()> {
         .map(|pkg| Outlier {
             path: pkg.parsed.manifest_path.clone(),
             found: Some(pkg.parsed.edition.clone()),
+            extra: None,
         })
         .collect::<Vec<_>>();
 
@@ -172,6 +118,7 @@ pub fn author_is_near(workspace: &Workspace) -> anyhow::Result<()> {
         .map(|pkg| Outlier {
             path: pkg.parsed.manifest_path.clone(),
             found: Some(format!("{:?}", pkg.parsed.authors)),
+            extra: None,
         })
         .collect::<Vec<_>>();
 
@@ -195,7 +142,7 @@ pub fn publishable_has_license(workspace: &Workspace) -> anyhow::Result<()> {
             utils::is_publishable(pkg)
                 && !(pkg.parsed.license.is_some() || pkg.parsed.license_file.is_some())
         })
-        .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None })
+        .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None, extra: None })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {
@@ -228,6 +175,7 @@ pub fn publishable_has_license_file(workspace: &Workspace) -> anyhow::Result<()>
         .map(|pkg| Outlier {
             path: pkg.parsed.manifest_path.clone(),
             found: pkg.parsed.license_file.as_ref().map(ToString::to_string),
+            extra: None,
         })
         .collect::<Vec<_>>();
 
@@ -256,6 +204,7 @@ pub fn publishable_has_unified_license(workspace: &Workspace) -> anyhow::Result<
         .map(|pkg| Outlier {
             path: pkg.parsed.manifest_path.clone(),
             found: pkg.parsed.license.as_ref().map(ToString::to_string),
+            extra: None,
         })
         .collect::<Vec<_>>();
 
@@ -276,7 +225,7 @@ pub fn publishable_has_description(workspace: &Workspace) -> anyhow::Result<()> 
         .members
         .iter()
         .filter(|pkg| utils::is_publishable(pkg) && pkg.parsed.description.is_none())
-        .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None })
+        .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None, extra: None })
         .collect::<Vec<_>>();
 
     if !outliers.is_empty() {
@@ -303,6 +252,7 @@ pub fn publishable_has_readme(workspace: &Workspace) -> anyhow::Result<()> {
         .map(|pkg| Outlier {
             path: pkg.parsed.manifest_path.clone(),
             found: pkg.parsed.readme.as_ref().map(ToString::to_string),
+            extra: None,
         })
         .collect::<Vec<_>>();
 
@@ -331,6 +281,7 @@ pub fn publishable_has_near_link(workspace: &Workspace) -> anyhow::Result<()> {
         .map(|pkg| Outlier {
             path: pkg.parsed.manifest_path.clone(),
             found: pkg.parsed.repository.as_ref().map(ToString::to_string),
+            extra: None,
         })
         .collect::<Vec<_>>();
 
@@ -343,5 +294,43 @@ pub fn publishable_has_near_link(workspace: &Workspace) -> anyhow::Result<()> {
         });
     }
 
+    Ok(())
+}
+
+/// Ensure all publishable crates do not depend on private crates
+pub fn recursively_publishable(workspace: &Workspace) -> anyhow::Result<()> {
+    let mut outliers = BTreeMap::new();
+    for pkg in workspace.members.iter().filter(|pkg| utils::is_publishable(pkg)) {
+        for dep in &pkg.parsed.dependencies {
+            if let Some(dep) = workspace.members.iter().find(|p| p.parsed.name == dep.name) {
+                if !utils::is_publishable(dep) {
+                    outliers
+                        .entry(dep.parsed.manifest_path.clone())
+                        .or_insert_with(Vec::new)
+                        .push(pkg.parsed.name.clone())
+                }
+            }
+        }
+    }
+    if !outliers.is_empty() {
+        bail!(ComplianceError {
+            msg: "These private packages are depended on by publishable packages".to_string(),
+            expected: None,
+            outliers: outliers
+                .into_iter()
+                .map(|(path, found)| Outlier {
+                    path,
+                    found: None,
+                    extra: Some(format!(
+                        "depended on by {}",
+                        utils::human_list(found.iter().map(|name| style::fg(style::Color::White)
+                            + style::bold()
+                            + name
+                            + style::reset()))
+                    )),
+                })
+                .collect(),
+        });
+    }
     Ok(())
 }

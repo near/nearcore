@@ -89,10 +89,10 @@ async fn send_recv() {
 
     let mut rng = make_rng(98324532);
     for _ in 0..5 {
-        let n = rng.gen_range(1, 10);
+        let n = rng.gen_range(1..10);
         let msgs: Vec<_> = (0..n)
             .map(|_| {
-                let size = rng.gen_range(0, 10000);
+                let size = rng.gen_range(0..10000);
                 let mut msg = vec![0; size];
                 rng.fill(&mut msg[..]);
                 stream::Frame(msg)

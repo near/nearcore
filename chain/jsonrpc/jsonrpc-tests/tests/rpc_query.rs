@@ -127,29 +127,6 @@ fn test_chunk_invalid_shard_id() {
     });
 }
 
-/// Connect to json rpc and query account info with soft-deprecated query API.
-#[test]
-fn test_query_by_path_account() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
-        let status = client.status().await.unwrap();
-        let block_hash = status.sync_info.latest_block_hash;
-        let query_response =
-            client.query_by_path("account/test".to_string(), "".to_string()).await.unwrap();
-        assert_eq!(query_response.block_height, 0);
-        assert_eq!(query_response.block_hash, block_hash);
-        let account_info = if let QueryResponseKind::ViewAccount(account) = query_response.kind {
-            account
-        } else {
-            panic!("queried account, but received something else: {:?}", query_response.kind);
-        };
-        assert_eq!(account_info.amount, 0);
-        assert_eq!(account_info.code_hash.as_ref(), &[0; 32]);
-        assert_eq!(account_info.locked, 0);
-        assert_eq!(account_info.storage_paid_at, 0);
-        assert_eq!(account_info.storage_usage, 0);
-    });
-}
-
 /// Connect to json rpc and query account info.
 #[test]
 fn test_query_account() {
@@ -196,25 +173,6 @@ fn test_query_account() {
     });
 }
 
-/// Connect to json rpc and query account info with soft-deprecated query API.
-#[test]
-fn test_query_by_path_access_keys() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
-        let query_response =
-            client.query_by_path("access_key/test".to_string(), "".to_string()).await.unwrap();
-        assert_eq!(query_response.block_height, 0);
-        let access_keys = if let QueryResponseKind::AccessKeyList(access_keys) = query_response.kind
-        {
-            access_keys
-        } else {
-            panic!("queried access keys, but received something else: {:?}", query_response.kind);
-        };
-        assert_eq!(access_keys.keys.len(), 1);
-        assert_eq!(access_keys.keys[0].access_key, AccessKey::full_access().into());
-        assert_eq!(access_keys.keys[0].public_key, PublicKey::empty(KeyType::ED25519));
-    });
-}
-
 /// Connect to json rpc and query account info.
 #[test]
 fn test_query_access_keys() {
@@ -236,28 +194,6 @@ fn test_query_access_keys() {
         assert_eq!(access_keys.keys.len(), 1);
         assert_eq!(access_keys.keys[0].access_key, AccessKey::full_access().into());
         assert_eq!(access_keys.keys[0].public_key, PublicKey::empty(KeyType::ED25519));
-    });
-}
-
-/// Connect to json rpc and query account info with soft-deprecated query API.
-#[test]
-fn test_query_by_path_access_key() {
-    test_with_client!(test_utils::NodeType::NonValidator, client, async move {
-        let query_response = client
-            .query_by_path(
-                "access_key/test/ed25519:23vYngy8iL7q94jby3gszBnZ9JptpMf5Hgf7KVVa2yQ2".to_string(),
-                "".to_string(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(query_response.block_height, 0);
-        let access_key = if let QueryResponseKind::AccessKey(access_keys) = query_response.kind {
-            access_keys
-        } else {
-            panic!("queried access keys, but received something else: {:?}", query_response.kind);
-        };
-        assert_eq!(access_key.nonce, 0);
-        assert_eq!(access_key.permission, AccessKeyPermission::FullAccess.into());
     });
 }
 
@@ -298,6 +234,7 @@ fn test_query_state() {
                 request: QueryRequest::ViewState {
                     account_id: "test".parse().unwrap(),
                     prefix: vec![].into(),
+                    include_proof: false,
                 },
             })
             .await

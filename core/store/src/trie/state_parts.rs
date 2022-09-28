@@ -61,8 +61,9 @@ impl Trie {
         Ok(())
     }
 
-    /// Part part_id has nodes with paths [ path(part_id) .. path(part_id + 1) )
-    /// path is returned as nibbles, last path is vec![16], previous paths end in nodes
+    /// Part part_id has nodes with paths `[path(part_id), path(part_id + 1))`
+    /// path is returned as nibbles, last path is `vec![16]`, previous paths end
+    /// in nodes
     pub(crate) fn find_path_for_part_boundary(
         &self,
         part_id: u64,
@@ -612,7 +613,7 @@ mod tests {
 
             {
                 // Test that combining all parts gets all nodes
-                let num_parts = rng.gen_range(2, 10);
+                let num_parts = rng.gen_range(2..10);
                 let parts = (0..num_parts)
                     .map(|part_id| {
                         trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap().0
@@ -699,8 +700,8 @@ mod tests {
 
             for _ in 0..10 {
                 // Test that creating and validating are consistent
-                let num_parts: u64 = rng.gen_range(1, 10);
-                let part_id = rng.gen_range(0, num_parts);
+                let num_parts: u64 = rng.gen_range(1..10);
+                let part_id = rng.gen_range(0..num_parts);
                 let trie_nodes =
                     trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap();
                 let trie_nodes2 =

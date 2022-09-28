@@ -42,7 +42,8 @@ impl<'c> EstimatorContext<'c> {
     }
 
     pub(crate) fn testbed(&mut self) -> Testbed<'_> {
-        let inner = RuntimeTestbed::from_state_dump(&self.config.state_dump_path);
+        let inner =
+            RuntimeTestbed::from_state_dump(&self.config.state_dump_path, self.config.in_memory_db);
         Testbed {
             config: self.config,
             inner,
@@ -119,11 +120,14 @@ impl Testbed<'_> {
 
     pub(crate) fn trie_caching_storage(&mut self) -> TrieCachingStorage {
         let store = self.inner.store();
+        let is_view = false;
+        let prefetcher = None;
         let caching_storage = TrieCachingStorage::new(
             store,
             TrieCache::new(&TrieConfig::default(), ShardUId::single_shard(), false),
             ShardUId::single_shard(),
-            false,
+            is_view,
+            prefetcher,
         );
         caching_storage
     }

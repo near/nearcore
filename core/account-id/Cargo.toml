@@ -1,9 +1,10 @@
 [package]
 name = "near-account-id"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = true
-# Please update rust-toolchain.toml as well when changing version here:
+# This crate is published to crates.io with a semver API.  Care must be taken
+# when updaing its rust-version.
 rust-version = "1.60.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -16,10 +17,10 @@ internal_unstable = []
 deepsize_feature = ["deepsize"]
 
 [dependencies]
-borsh = { version = "0.9", optional = true }
-serde = { version = "1", optional = true }
-deepsize = { version = "0.2.0", optional = true }
+borsh = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+deepsize = { workspace = true, optional = true }
 
 [dev-dependencies]
-bolero = "0.6.2"
-serde_json = "1"
+bolero.workspace = true
+serde_json.workspace = true

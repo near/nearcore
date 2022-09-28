@@ -2,7 +2,7 @@
 <br />
 
 <p align="center">
-<img src="docs/images/logo.svg" width="240">
+<img src="docs/src/images/logo.svg" width="240">
 </p>
 
 <br />
@@ -11,7 +11,7 @@
 
 ## Reference implementation of NEAR Protocol
 
-![Buildkite](https://img.shields.io/buildkite/0eae07525f8e44a19b48fa937813e2c21ee04aa351361cd851) 
+![Buildkite](https://img.shields.io/buildkite/0eae07525f8e44a19b48fa937813e2c21ee04aa351361cd851)
 ![Stable Status][stable-release]
 ![Prerelease Status][prerelease]
 [![codecov][codecov-badge]][codecov-url]
@@ -44,8 +44,8 @@ Overall, *NEAR* provides a wide range of tools for developers to easily build ap
  - [Numerous examples][examples-url] with links to hack on them right inside your browser.
  - [Lots of documentation][docs-url], with [Tutorials][tutorials-url] and [API docs][api-docs-url].
 
-[open-web-url]: https://techcrunch.com/2016/04/10/1301496/ 
-[js-api]: https://github.com/near/near-api-js 
+[open-web-url]: https://techcrunch.com/2016/04/10/1301496/
+[js-api]: https://github.com/near/near-api-js
 [rust-sdk]: https://github.com/near/near-sdk-rs
 [as-sdk]: https://github.com/near/near-sdk-as
 [examples-url]: https://near.dev

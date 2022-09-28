@@ -51,21 +51,6 @@ pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
 /// Updates the way receipt ID is constructed to use current block hash instead of last block hash
 pub const CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION: ProtocolVersion = 42;
 
-pub struct ProtocolVersionRange {
-    lower: ProtocolVersion,
-    upper: Option<ProtocolVersion>,
-}
-
-impl ProtocolVersionRange {
-    pub fn new(lower: ProtocolVersion, upper: Option<ProtocolVersion>) -> Self {
-        Self { lower, upper }
-    }
-
-    pub fn contains(&self, version: ProtocolVersion) -> bool {
-        self.lower <= version && self.upper.map_or(true, |upper| version < upper)
-    }
-}
-
 pub fn is_implicit_account_creation_enabled(protocol_version: ProtocolVersion) -> bool {
     protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
 }
@@ -121,9 +106,10 @@ pub enum ProtocolFeature {
     /// <https://github.com/near/nearcore/pull/4954> for more details.
     LimitContractFunctionsNumber,
     BlockHeaderV3,
-    /// Changes how we select validators for epoch and how we select validators within epoch. See
-    /// https://github.com/near/NEPs/pull/167 for general description, note that we would not
-    /// introduce chunk-only validators with this feature
+    /// Changes how we select validators for epoch and how we select validators
+    /// within epoch.  See <https://github.com/near/NEPs/pull/167> for general
+    /// description, note that we would not introduce chunk-only validators with
+    /// this feature
     AliasValidatorSelectionAlgorithm,
     /// Make block producers produce chunks for the same block they would later produce to avoid
     /// network delays
@@ -207,8 +193,9 @@ const PROTOCOL_UPGRADE_SCHEDULE: Lazy<HashMap<ProtocolVersion, ProtocolUpgradeVo
         schedule
     });
 
-/// Gives new clients an option to upgrade without announcing that they support the new version.
-/// This gives non-validator nodes time to upgrade. See https://github.com/near/NEPs/issues/205
+/// Gives new clients an option to upgrade without announcing that they support
+/// the new version.  This gives non-validator nodes time to upgrade.  See
+/// <https://github.com/near/NEPs/issues/205>
 pub fn get_protocol_version(next_epoch_protocol_version: ProtocolVersion) -> ProtocolVersion {
     get_protocol_version_internal(
         next_epoch_protocol_version,

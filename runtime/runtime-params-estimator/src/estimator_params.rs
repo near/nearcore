@@ -26,7 +26,7 @@ pub(crate) const IO_WRITE_BYTE_COST: Ratio<Gas> = Ratio::new_raw(0, 1);
 ///
 /// This runs outside the WASM runtime and is intended to measure the overall hardware capabilities of the test system.
 /// (The motivation is to stay as close as possible to original estimations done with this code:
-/// https://github.com/near/calibrator/blob/c6fbb170a905fbc630ebd84ebc97f7226ec87ead/src/main.rs#L8-L21)
+/// <https://github.com/near/calibrator/blob/c6fbb170a905fbc630ebd84ebc97f7226ec87ead/src/main.rs#L8-L21>)
 pub(crate) fn sha256_cost(metric: GasMetric, repeats: u64) -> GasCost {
     let cpu = measure_operation(repeats, metric, exec_sha256);
     let cpu_per_rep = cpu / repeats;

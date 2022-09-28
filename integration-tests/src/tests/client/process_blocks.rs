@@ -8,6 +8,7 @@ use actix::System;
 use assert_matches::assert_matches;
 use futures::{future, FutureExt};
 use near_chain::test_utils::ValidatorSchedule;
+use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_primitives::num_rational::{Ratio, Rational32};
 
 use near_actix_test_utils::run_actix;
@@ -1064,6 +1065,7 @@ fn test_time_attack() {
     init_test_logger();
     let store = create_test_store();
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
+    let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
     let chain_genesis = ChainGenesis::test();
     let vs =
         ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
@@ -1073,6 +1075,7 @@ fn test_time_attack() {
         Some("test1".parse().unwrap()),
         false,
         network_adapter,
+        client_adapter,
         chain_genesis,
         TEST_SEED,
     );
@@ -1097,6 +1100,7 @@ fn test_invalid_approvals() {
     init_test_logger();
     let store = create_test_store();
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
+    let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
     let chain_genesis = ChainGenesis::test();
     let vs =
         ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
@@ -1106,6 +1110,7 @@ fn test_invalid_approvals() {
         Some("test1".parse().unwrap()),
         false,
         network_adapter,
+        client_adapter,
         chain_genesis,
         TEST_SEED,
     );
@@ -1145,6 +1150,7 @@ fn test_invalid_gas_price() {
     init_test_logger();
     let store = create_test_store();
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
+    let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.min_gas_price = 100;
     let vs =
@@ -1155,6 +1161,7 @@ fn test_invalid_gas_price() {
         Some("test1".parse().unwrap()),
         false,
         network_adapter,
+        client_adapter,
         chain_genesis,
         TEST_SEED,
     );
@@ -1314,6 +1321,7 @@ fn test_bad_chunk_mask() {
                 Some(account_id.clone()),
                 false,
                 Arc::new(MockPeerManagerAdapter::default()),
+                Arc::new(MockClientAdapterForShardsManager::default()),
                 chain_genesis.clone(),
                 TEST_SEED,
             )
@@ -1920,6 +1928,7 @@ fn test_incorrect_validator_key_produce_block() {
         chain_genesis,
         runtime_adapter,
         Arc::new(MockPeerManagerAdapter::default()),
+        Arc::new(MockClientAdapterForShardsManager::default()),
         Some(signer),
         false,
         TEST_SEED,
@@ -2385,6 +2394,8 @@ fn test_catchup_gas_price_change() {
 
 #[test]
 fn test_block_execution_outcomes() {
+    init_test_logger();
+
     let epoch_length = 5;
     let min_gas_price = 10000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -2867,6 +2878,8 @@ fn test_fork_receipt_ids() {
 
 #[test]
 fn test_fork_execution_outcome() {
+    init_test_logger();
+
     let (mut env, tx_hash) = prepare_env_with_transaction();
 
     let mut last_height = 0;

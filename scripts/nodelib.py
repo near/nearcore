@@ -254,15 +254,15 @@ def setup_and_run(nodocker,
                   telemetry_url,
                   verbose=False,
                   no_gas_price=False):
-    if nodocker:
-        install_cargo()
-    else:
-        try:
-            subprocess.check_output(['docker', 'pull', image])
-            subprocess.check_output(['docker', 'pull', 'v2tec/watchtower'])
-        except subprocess.CalledProcessError as exc:
-            print("Failed to fetch docker containers: %s" % exc)
-            exit(1)
+    # if nodocker:
+    #     install_cargo()
+    # else:
+    #     try:
+    #         subprocess.check_output(['docker', 'pull', image])
+    #         subprocess.check_output(['docker', 'pull', 'v2tec/watchtower'])
+    #     except subprocess.CalledProcessError as exc:
+    #         print("Failed to fetch docker containers: %s" % exc)
+    #         exit(1)
 
     check_and_setup(nodocker, is_release, image, home_dir, init_flags,
                     no_gas_price)

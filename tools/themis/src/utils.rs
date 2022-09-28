@@ -5,15 +5,6 @@ use serde::de::DeserializeOwned;
 
 use super::types::{Package, Workspace};
 
-macro_rules! _warn {
-    ($msg:literal $($arg:tt)*) => {
-        use $crate::style::{fg, bold, reset, Color};
-        eprintln!(concat!("{}warning:{} ", $msg), fg(Color::Yellow) + bold(), reset() $($arg)*)
-    }
-}
-
-pub(crate) use _warn as warn;
-
 pub fn parse_toml<T: DeserializeOwned>(path: &Utf8PathBuf) -> anyhow::Result<T> {
     Ok(toml::from_slice(&fs::read(path)?)?)
 }
@@ -48,4 +39,29 @@ pub fn is_publishable(pkg: &Package) -> bool {
 /// Checks if the file specified exists relative to the crate folder
 pub fn exists(pkg: &Package, file: &str) -> bool {
     pkg.parsed.manifest_path.parent().unwrap().join(file).exists()
+}
+
+/// Prints a string-ish iterator as a human-readable list
+///
+/// ```
+/// assert_eq!(
+///     print_list(&["a", "b", "c"]),
+///     "a, b and c"
+/// );
+/// ```
+pub fn human_list<I, T>(i: I) -> String
+where
+    I: Iterator<Item = T>,
+    T: AsRef<str>,
+{
+    let mut items = i.peekable();
+    let mut s = match items.next() {
+        Some(s) => s.as_ref().to_owned(),
+        None => return String::new(),
+    };
+    while let Some(i) = items.next() {
+        s += if items.peek().is_some() { ", " } else { " and " };
+        s += i.as_ref();
+    }
+    return s;
 }

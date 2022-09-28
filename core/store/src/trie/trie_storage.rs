@@ -1,7 +1,8 @@
 use crate::db::refcount::decode_value_with_rc;
 use crate::trie::config::TrieConfig;
+use crate::trie::prefetching_trie_storage::PrefetcherResult;
 use crate::trie::POISONED_LOCK_ERR;
-use crate::{metrics, DBCol, StorageError, Store};
+use crate::{metrics, DBCol, PrefetchApi, StorageError, Store};
 use lru::LruCache;
 use near_o11y::log_assert;
 use near_o11y::metrics::prometheus;
@@ -97,7 +98,11 @@ impl TrieCacheInner {
         is_view: bool,
     ) -> Self {
         assert!(cache_capacity > 0 && total_size_limit > 0);
-        let metrics_labels: [&str; 2] = [&shard_id.to_string(), if is_view { "1" } else { "0" }];
+        // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
+        let mut buffer = itoa::Buffer::new();
+        let shard_id_str = buffer.format(shard_id);
+
+        let metrics_labels: [&str; 2] = [&shard_id_str, if is_view { "1" } else { "0" }];
         let metrics = TrieCacheMetrics {
             shard_cache_too_large: metrics::SHARD_CACHE_TOO_LARGE
                 .with_label_values(&metrics_labels),
@@ -204,7 +209,7 @@ impl TrieCacheInner {
 
 /// Wrapper over LruCache to handle concurrent access.
 #[derive(Clone)]
-pub struct TrieCache(Arc<Mutex<TrieCacheInner>>);
+pub struct TrieCache(pub(crate) Arc<Mutex<TrieCacheInner>>);
 
 impl TrieCache {
     pub fn new(config: &TrieConfig, shard_uid: ShardUId, is_view: bool) -> Self {
@@ -353,6 +358,9 @@ pub struct TrieCachingStorage {
     pub(crate) chunk_cache: RefCell<HashMap<CryptoHash, Arc<[u8]>>>,
     pub(crate) cache_mode: Cell<TrieCacheMode>,
 
+    /// The entry point for the runtime to submit prefetch requests.
+    pub(crate) prefetch_api: Option<PrefetchApi>,
+
     /// Counts potentially expensive trie node reads which are served from disk in the worst case. Here we count reads
     /// from DB or shard cache.
     pub(crate) db_read_nodes: Cell<u64>,
@@ -372,6 +380,11 @@ struct TrieCacheInnerMetrics {
     shard_cache_size: GenericGauge<prometheus::core::AtomicI64>,
     chunk_cache_size: GenericGauge<prometheus::core::AtomicI64>,
     shard_cache_current_total_size: GenericGauge<prometheus::core::AtomicI64>,
+    prefetch_hits: GenericCounter<prometheus::core::AtomicU64>,
+    prefetch_pending: GenericCounter<prometheus::core::AtomicU64>,
+    prefetch_not_requested: GenericCounter<prometheus::core::AtomicU64>,
+    prefetch_memory_limit_reached: GenericCounter<prometheus::core::AtomicU64>,
+    prefetch_retry: GenericCounter<prometheus::core::AtomicU64>,
 }
 
 impl TrieCachingStorage {
@@ -380,9 +393,13 @@ impl TrieCachingStorage {
         shard_cache: TrieCache,
         shard_uid: ShardUId,
         is_view: bool,
+        prefetch_api: Option<PrefetchApi>,
     ) -> TrieCachingStorage {
-        let metrics_labels: [&str; 2] =
-            [&shard_uid.shard_id.to_string(), if is_view { "1" } else { "0" }];
+        // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
+        let mut buffer = itoa::Buffer::new();
+        let shard_id = buffer.format(shard_uid.shard_id);
+
+        let metrics_labels: [&str; 2] = [&shard_id, if is_view { "1" } else { "0" }];
         let metrics = TrieCacheInnerMetrics {
             chunk_cache_hits: metrics::CHUNK_CACHE_HITS.with_label_values(&metrics_labels),
             chunk_cache_misses: metrics::CHUNK_CACHE_MISSES.with_label_values(&metrics_labels),
@@ -394,12 +411,20 @@ impl TrieCachingStorage {
             chunk_cache_size: metrics::CHUNK_CACHE_SIZE.with_label_values(&metrics_labels),
             shard_cache_current_total_size: metrics::SHARD_CACHE_CURRENT_TOTAL_SIZE
                 .with_label_values(&metrics_labels),
+            prefetch_hits: metrics::PREFETCH_HITS.with_label_values(&metrics_labels[..1]),
+            prefetch_pending: metrics::PREFETCH_PENDING.with_label_values(&metrics_labels[..1]),
+            prefetch_not_requested: metrics::PREFETCH_NOT_REQUESTED
+                .with_label_values(&metrics_labels[..1]),
+            prefetch_memory_limit_reached: metrics::PREFETCH_MEMORY_LIMIT_REACHED
+                .with_label_values(&metrics_labels[..1]),
+            prefetch_retry: metrics::PREFETCH_RETRY.with_label_values(&metrics_labels[..1]),
         };
         TrieCachingStorage {
             store,
             shard_uid,
             shard_cache,
             cache_mode: Cell::new(TrieCacheMode::CachingShard),
+            prefetch_api,
             chunk_cache: RefCell::new(Default::default()),
             db_read_nodes: Cell::new(0),
             mem_read_nodes: Cell::new(0),
@@ -467,26 +492,73 @@ impl TrieStorage for TrieCachingStorage {
             None => {
                 self.metrics.shard_cache_misses.inc();
                 near_o11y::io_trace!(count: "shard_cache_miss");
-                // If value is not present in cache, get it from the storage.
-                let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
-                let val = self
-                    .store
-                    .get(DBCol::State, key.as_ref())
-                    .map_err(|_| StorageError::StorageInternalError)?
-                    .ok_or_else(|| {
-                        StorageError::StorageInconsistentState("Trie node missing".to_string())
-                    })?;
-                let val: Arc<[u8]> = val.into();
+                let val;
+                if let Some(prefetcher) = &self.prefetch_api {
+                    let prefetch_state = prefetcher.prefetching.get_or_set_fetching(hash.clone());
+                    // Keep lock until here to avoid race condition between shard cache lookup and reserving prefetch slot.
+                    std::mem::drop(guard);
+
+                    val = match prefetch_state {
+                        // Slot reserved for us, the main thread.
+                        // `SlotReserved` for the main thread means, either we have not submitted a prefetch request for
+                        // this value, or maybe it is just still queued up. Either way, prefetching is not going to help
+                        // so the main thread should fetch data from DB on its own.
+                        PrefetcherResult::SlotReserved => {
+                            self.metrics.prefetch_not_requested.inc();
+                            self.read_from_db(hash)?
+                        }
+                        // `MemoryLimitReached` is not really relevant for the main thread,
+                        // we always have to go to DB even if we could not stage a new prefetch.
+                        // It only means we were not able to mark it as already being fetched, which in turn could lead to
+                        // a prefetcher trying to fetch the same value before we can put it in the shard cache.
+                        PrefetcherResult::MemoryLimitReached => {
+                            self.metrics.prefetch_memory_limit_reached.inc();
+                            self.read_from_db(hash)?
+                        }
+                        PrefetcherResult::Prefetched(value) => {
+                            near_o11y::io_trace!(count: "prefetch_hit");
+                            self.metrics.prefetch_hits.inc();
+                            value
+                        }
+                        PrefetcherResult::Pending => {
+                            near_o11y::io_trace!(count: "prefetch_pending");
+                            self.metrics.prefetch_pending.inc();
+                            std::thread::yield_now();
+                            // If data is already being prefetched, wait for that instead of sending a new request.
+                            match prefetcher.prefetching.blocking_get(hash.clone()) {
+                                Some(value) => value,
+                                // Only main thread (this one) removes values from staging area,
+                                // therefore blocking read will usually not return empty unless there
+                                // was a storage error. Or in the case of forks and parallel chunk
+                                // processing where one chunk cleans up prefetched data from the other.
+                                // In any case, we can try again from the main thread.
+                                None => {
+                                    self.metrics.prefetch_retry.inc();
+                                    self.read_from_db(hash)?
+                                }
+                            }
+                        }
+                    };
+                } else {
+                    std::mem::drop(guard);
+                    val = self.read_from_db(hash)?;
+                }
 
                 // Insert value to shard cache, if its size is small enough.
                 // It is fine to have a size limit for shard cache and **not** have a limit for chunk cache, because key
                 // is always a value hash, so for each key there could be only one value, and it is impossible to have
                 // **different** values for the given key in shard and chunk caches.
                 if val.len() < TrieConfig::max_cached_value_size() {
+                    let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
                     guard.put(*hash, val.clone());
                 } else {
                     self.metrics.shard_cache_too_large.inc();
                     near_o11y::io_trace!(count: "shard_cache_too_large");
+                }
+
+                if let Some(prefetcher) = &self.prefetch_api {
+                    // Only release after insertion in shard cache. See comment on fn release.
+                    prefetcher.prefetching.release(hash);
                 }
 
                 val
@@ -517,6 +589,24 @@ impl TrieStorage for TrieCachingStorage {
 
     fn get_trie_nodes_count(&self) -> TrieNodesCount {
         TrieNodesCount { db_reads: self.db_read_nodes.get(), mem_reads: self.mem_read_nodes.get() }
+    }
+}
+
+impl TrieCachingStorage {
+    fn read_from_db(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
+        let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
+        let val = self
+            .store
+            .get(DBCol::State, key.as_ref())
+            .map_err(|_| StorageError::StorageInternalError)?
+            .ok_or_else(|| {
+                StorageError::StorageInconsistentState("Trie node missing".to_string())
+            })?;
+        Ok(val.into())
+    }
+
+    pub fn prefetch_api(&self) -> &Option<PrefetchApi> {
+        &self.prefetch_api
     }
 }
 

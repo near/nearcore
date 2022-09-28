@@ -34,7 +34,7 @@ impl<L: Labels> Gauge<L> {
     /// Constructs a new prometheus Gauge with schema `L`.
     pub fn new(name: &str, help: &str) -> Result<Self, near_o11y::metrics::prometheus::Error> {
         Ok(Self {
-            inner: near_o11y::metrics::try_create_int_gauge_vec(name, help, L::NAMES.as_ref())?,
+            inner: try_create_int_gauge_vec(name, help, L::NAMES.as_ref())?,
             _labels: std::marker::PhantomData,
         })
     }
@@ -329,7 +329,7 @@ pub static RECEIVED_INFO_ABOUT_ITSELF: Lazy<IntCounter> = Lazy::new(|| {
     .unwrap()
 });
 static DROPPED_MESSAGE_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
-    near_o11y::metrics::try_create_int_counter_vec(
+    try_create_int_counter_vec(
         "near_dropped_message_by_type_and_reason_count",
         "Total count of messages which were dropped by type of message and \
          reason why the message has been dropped",
@@ -339,19 +339,14 @@ static DROPPED_MESSAGE_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
 });
 pub(crate) static PARTIAL_ENCODED_CHUNK_REQUEST_DELAY: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram(
-        "partial_encoded_chunk_request_delay",
+        "near_partial_encoded_chunk_request_delay",
         "Delay between when a partial encoded chunk request is sent from ClientActor and when it is received by PeerManagerActor",
     )
         .unwrap()
 });
 
 pub(crate) static BROADCAST_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
-    near_o11y::metrics::try_create_int_counter_vec(
-        "near_broadcast_msg",
-        "Broadcasted messages",
-        &["type"],
-    )
-    .unwrap()
+    try_create_int_counter_vec("near_broadcast_msg", "Broadcasted messages", &["type"]).unwrap()
 });
 
 static NETWORK_ROUTED_MSG_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {

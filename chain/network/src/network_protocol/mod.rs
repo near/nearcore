@@ -29,8 +29,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
-    PartialEncodedChunkWithArcReceipts, ReceiptProof, ShardChunkHeader,
+    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
@@ -332,7 +331,6 @@ impl PeerMessage {
                 r.msg.body,
                 RoutedMessageBody::BlockApproval(_)
                     | RoutedMessageBody::ForwardTx(_)
-                    | RoutedMessageBody::PartialEncodedChunk(_)
                     | RoutedMessageBody::PartialEncodedChunkForward(_)
                     | RoutedMessageBody::PartialEncodedChunkRequest(_)
                     | RoutedMessageBody::PartialEncodedChunkResponse(_)
@@ -395,7 +393,7 @@ pub enum RoutedMessageBody {
     StateResponse(StateResponseInfoV1),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
-    PartialEncodedChunk(PartialEncodedChunkV1),
+    _UnusedPartialEncodedChunk,
     /// Ping/Pong used for testing networking and routing.
     Ping(Ping),
     Pong(Pong),
@@ -410,25 +408,12 @@ impl RoutedMessageBody {
     // lost
     pub fn is_important(&self) -> bool {
         match self {
-            // Both BlockApproval and PartialEncodedChunk is essential for block production and
+            // Both BlockApproval and VersionedPartialEncodedChunk is essential for block production and
             // are only sent by the original node and if they are lost, the receiver node doesn't
             // know to request them.
-            RoutedMessageBody::BlockApproval(_) | RoutedMessageBody::PartialEncodedChunk(_) => true,
+            RoutedMessageBody::BlockApproval(_)
+            | RoutedMessageBody::VersionedPartialEncodedChunk(_) => true,
             _ => false,
-        }
-    }
-}
-
-impl From<PartialEncodedChunkWithArcReceipts> for RoutedMessageBody {
-    fn from(pec: PartialEncodedChunkWithArcReceipts) -> Self {
-        if let ShardChunkHeader::V1(legacy_header) = pec.header {
-            Self::PartialEncodedChunk(PartialEncodedChunkV1 {
-                header: legacy_header,
-                parts: pec.parts,
-                receipts: pec.receipts.into_iter().map(|r| ReceiptProof::clone(&r)).collect(),
-            })
-        } else {
-            Self::VersionedPartialEncodedChunk(pec.into())
         }
     }
 }
@@ -470,11 +455,9 @@ impl fmt::Debug for RoutedMessageBody {
                 response.chunk_hash,
                 response.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>()
             ),
-            RoutedMessageBody::PartialEncodedChunk(chunk) => {
-                write!(f, "PartialChunk({:?})", chunk.header.hash)
-            }
+            RoutedMessageBody::_UnusedPartialEncodedChunk => write!(f, "PartiaEncodedChunk"),
             RoutedMessageBody::VersionedPartialEncodedChunk(_) => {
-                write!(f, "VersionedPartialChunk(?)")
+                write!(f, "VersionedPartialEncodedChunk(?)")
             }
             RoutedMessageBody::VersionedStateResponse(response) => write!(
                 f,

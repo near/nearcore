@@ -22,6 +22,7 @@ use near_chain::{
     ChainGenesis, DoneApplyChunkCallback, Provenance, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
+use near_chunks::client::ShardsManagerResponse;
 use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
     StatusError, StatusSyncInfo, SyncStatus,
@@ -146,11 +147,12 @@ impl ClientActor {
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
+        let self_addr_clone = self_addr.clone();
         let sync_jobs_actor_addr = SyncJobsActor::start_in_arbiter(
             &state_parts_arbiter.handle(),
             move |ctx: &mut Context<SyncJobsActor>| -> SyncJobsActor {
                 ctx.set_mailbox_capacity(SyncJobsActor::MAILBOX_CAPACITY);
-                SyncJobsActor { client_addr: self_addr }
+                SyncJobsActor { client_addr: self_addr_clone }
             },
         );
         wait_until_genesis(&chain_genesis.time);
@@ -163,6 +165,7 @@ impl ClientActor {
             chain_genesis,
             runtime_adapter,
             network_adapter.clone(),
+            Arc::new(self_addr.clone()),
             validator_signer,
             enable_doomslug,
             rng_seed,
@@ -575,16 +578,12 @@ impl ClientActor {
                     part_request_msg,
                     route_back,
                     self.client.chain.mut_store(),
-                    &mut self.client.rs,
                 );
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunkResponse(response, time) => {
                 PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(time.elapsed().as_secs_f64());
-                let _ = self.client.process_partial_encoded_chunk_response(
-                    response,
-                    self.get_apply_chunks_done_callback(),
-                );
+                let _ = self.client.process_partial_encoded_chunk_response(response);
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
@@ -592,17 +591,11 @@ impl ClientActor {
                     partial_encoded_chunk.height_created(),
                     partial_encoded_chunk.shard_id(),
                 );
-                let _ = self.client.process_partial_encoded_chunk(
-                    MaybeValidated::from(partial_encoded_chunk),
-                    self.get_apply_chunks_done_callback(),
-                );
+                let _ = self.client.process_partial_encoded_chunk(partial_encoded_chunk);
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunkForward(forward) => {
-                match self.client.process_partial_encoded_chunk_forward(
-                    forward,
-                    self.get_apply_chunks_done_callback(),
-                ) {
+                match self.client.process_partial_encoded_chunk_forward(forward) {
                     Ok(()) => {}
                     // Unknown chunk is normal if we get parts before the header
                     Err(Error::Chunk(near_chunks::Error::UnknownChunk)) => (),
@@ -1518,7 +1511,7 @@ impl ClientActor {
     /// content of such block.
     ///
     /// The selected block will always be the first block on a new epoch:
-    /// https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862
+    /// <https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862>.
     ///
     /// To prevent syncing from a fork, we move `state_fetch_horizon` steps backwards and use that epoch.
     /// Usually `state_fetch_horizon` is much less than the expected number of produced blocks on an epoch,
@@ -1738,10 +1731,7 @@ impl ClientActor {
                             self.get_apply_chunks_done_callback(),
                         ));
 
-                        self.client.process_block_processing_artifact(
-                            block_processing_artifacts,
-                            self.get_apply_chunks_done_callback(),
-                        );
+                        self.client.process_block_processing_artifact(block_processing_artifacts);
 
                         self.client.sync_status = SyncStatus::BodySync {
                             start_height: 0,
@@ -1969,6 +1959,22 @@ impl Handler<StateSplitResponse> for ClientActor {
             sync.set_split_result(msg.shard_id, msg.new_state_roots);
         } else {
             self.client.state_sync.set_split_result(msg.shard_id, msg.new_state_roots);
+        }
+    }
+}
+
+impl Handler<ShardsManagerResponse> for ClientActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: ShardsManagerResponse, _: &mut Self::Context) -> Self::Result {
+        let _span =
+            tracing::debug_span!(target: "client", "handle", handler = "ShardsManagerResponse")
+                .entered();
+        match msg {
+            ShardsManagerResponse::ChunkCompleted(chunk_header) => {
+                self.client
+                    .on_chunk_completed(&chunk_header, self.get_apply_chunks_done_callback());
+            }
         }
     }
 }

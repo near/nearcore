@@ -38,7 +38,6 @@ use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::logging;
 use near_primitives::network::PeerId;
-use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
@@ -100,11 +99,8 @@ pub(crate) struct PeerActor {
 
     /// Peer address from connection.
     peer_addr: SocketAddr,
+    /// Peer type.
     peer_type: PeerType,
-    /// OUTBOUND-ONLY: Handshake specification. For outbound connections it is initialized
-    /// in constructor and then can change as HandshakeFailure and LastEdge messages
-    /// are received. For inbound connections, handshake is stateless.
-    handshake_spec: Option<HandshakeSpec>,
 
     /// Framed wrapper to send messages through the TCP connection.
     framed: stream::FramedWriter<PeerActor>,
@@ -124,7 +120,10 @@ pub(crate) struct PeerActor {
     /// Peer status.
     peer_status: PeerStatus,
     ban_reason: Option<ReasonForBan>,
-    /// Peer id and info. Present when ready.
+    /// Peer id and info. Present when Ready,
+    /// or (for outbound only) when Connecting.
+    // TODO: move it to ConnectingStatus::Outbound.
+    // When ready, use connection.peer_info instead.
     peer_info: DisplayOption<PeerInfo>,
     /// Guard which (when dropped) removes prometheus metrics related to this connection.
     _connection_guard: ConnectionGuard,
@@ -142,8 +141,9 @@ pub(crate) enum StreamConfig {
     Outbound { peer_id: PeerId, tier: connection::Tier },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct HandshakeSpec {
+    /// ID of the peer on the other side of the connection.
     peer_id: PeerId,
     genesis_id: GenesisId,
     tier: connection::Tier,
@@ -174,16 +174,25 @@ impl PeerActor {
                     .try_acquire_owned()
                     .context("too many connections in Connecting state")?,
             ),
-            StreamConfig::Outbound { tier, peer_id } => ConnectingStatus::Outbound(match tier {
-                connection::Tier::T1 => network_state
-                    .tier1
-                    .start_outbound(peer_id.clone())
-                    .context("tier1.start_outbound()")?,
-                connection::Tier::T2 => network_state
-                    .tier2
-                    .start_outbound(peer_id.clone())
-                    .context("tier2.start_outbound()")?,
-            }),
+            StreamConfig::Outbound { tier, peer_id } => ConnectingStatus::Outbound {
+                _permit: match tier {
+                    connection::Tier::T1 => network_state
+                        .tier1
+                        .start_outbound(peer_id.clone())
+                        .context("tier1.start_outbound()")?,
+                    connection::Tier::T2 => network_state
+                        .tier2
+                        .start_outbound(peer_id.clone())
+                        .context("tier2.start_outbound()")?,
+                },
+                handshake_spec: HandshakeSpec {
+                    partial_edge_info: network_state.propose_edge(peer_id, None),
+                    protocol_version: PROTOCOL_VERSION,
+                    tier: *tier,
+                    peer_id: peer_id.clone(),
+                    genesis_id: network_state.genesis_id.clone(),
+                },
+            },
         };
         // Override force_encoding for outbound Tier1 connections,
         // since Tier1Handshake is supported only with proto encoding.
@@ -205,7 +214,6 @@ impl PeerActor {
             let (writer, mut reader) =
                 stream::FramedWriter::spawn(&scope, peer_addr, stream, stats.clone());
 
-            let peer_status = PeerStatus::Connecting(connecting_status);
             scope.arbiter.spawn({
                 let clock = clock.clone();
                 let network_state = network_state.clone();
@@ -252,17 +260,7 @@ impl PeerActor {
                     StreamConfig::Inbound => PeerType::Inbound,
                     StreamConfig::Outbound { .. } => PeerType::Outbound,
                 },
-                handshake_spec: match &stream_config {
-                    StreamConfig::Inbound => None,
-                    StreamConfig::Outbound { tier, peer_id } => Some(HandshakeSpec {
-                        partial_edge_info: network_state.propose_edge(peer_id, None),
-                        protocol_version: PROTOCOL_VERSION,
-                        peer_id: peer_id.clone(),
-                        genesis_id: network_state.genesis_id.clone(),
-                        tier: *tier,
-                    }),
-                },
-                peer_status,
+                peer_status: PeerStatus::Connecting(connecting_status),
                 framed: writer,
                 tracker: Default::default(),
                 stats,
@@ -313,11 +311,11 @@ impl PeerActor {
         return PeerMessage::deserialize(Encoding::Borsh, msg);
     }
 
-    fn send_message_or_log(&mut self, msg: &PeerMessage) {
+    fn send_message_or_log(&self, msg: &PeerMessage) {
         self.send_message(msg);
     }
 
-    fn send_message(&mut self, msg: &PeerMessage) {
+    fn send_message(&self, msg: &PeerMessage) {
         if let (PeerStatus::Ready(conn), PeerMessage::PeersRequest) = (&self.peer_status, msg) {
             conn.last_time_peer_requested.store(self.clock.now());
         }
@@ -328,7 +326,7 @@ impl PeerActor {
         self.send_message_with_encoding(msg, Encoding::Borsh);
     }
 
-    fn send_message_with_encoding(&mut self, msg: &PeerMessage, enc: Encoding) {
+    fn send_message_with_encoding(&self, msg: &PeerMessage, enc: Encoding) {
         if let PeerStatus::Ready(conn) = &self.peer_status {
             if !conn.tier.is_allowed(msg) {
                 panic!(
@@ -370,7 +368,7 @@ impl PeerActor {
             .inc_by(bytes_len as u64);
     }
 
-    fn send_handshake(&mut self, spec: HandshakeSpec) {
+    fn send_handshake(&self, spec: HandshakeSpec) {
         let chain_info = self.network_state.chain_info.load();
         let msg = Handshake {
             protocol_version: spec.protocol_version,
@@ -622,11 +620,6 @@ impl PeerActor {
                             self.clock.now().into(),
                         )
                     }
-                    RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk) => {
-                        NetworkClientMessages::PartialEncodedChunk(PartialEncodedChunk::V1(
-                            partial_encoded_chunk.clone(),
-                        ))
-                    }
                     RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
                         NetworkClientMessages::PartialEncodedChunk(chunk.clone())
                     }
@@ -639,6 +632,7 @@ impl PeerActor {
                     | RoutedMessageBody::TxStatusResponse(_)
                     | RoutedMessageBody::_UnusedQueryRequest
                     | RoutedMessageBody::_UnusedQueryResponse
+                    | RoutedMessageBody::_UnusedPartialEncodedChunk
                     | RoutedMessageBody::ReceiptOutcomeRequest(_)
                     | RoutedMessageBody::_UnusedReceiptOutcomeResponse
                     | RoutedMessageBody::StateRequestHeader(_, _)
@@ -718,83 +712,88 @@ impl PeerActor {
         handshake: Handshake,
     ) {
         debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
-
-        if self.peer_type == PeerType::Outbound {
-            let spec = self.handshake_spec.as_ref().unwrap();
-            if handshake.protocol_version != spec.protocol_version {
-                warn!(target: "network", "Protocol version mismatch. Disconnecting peer {}", handshake.sender_peer_id);
-                self.stop(ctx, None);
-                return;
-            }
-            if handshake.sender_chain_info.genesis_id != spec.genesis_id {
-                warn!(target: "network", "Genesis mismatch. Disconnecting peer {}", handshake.sender_peer_id);
-                self.stop(ctx, None);
-                return;
-            }
-            if handshake.sender_peer_id != spec.peer_id {
-                warn!(target: "network", "PeerId mismatch. Disconnecting peer {}", handshake.sender_peer_id);
-                self.stop(ctx, None);
-                return;
-            }
-            if tier != spec.tier {
-                warn!(target: "network", "Connection TIER mismatch. Disconnecting peer {}", handshake.sender_peer_id);
-                self.stop(ctx, None);
-                return;
-            }
-            if handshake.partial_edge_info.nonce != spec.partial_edge_info.nonce {
-                warn!(target: "network", "Nonce mismatch. Disconnecting peer {}", handshake.sender_peer_id);
-                self.stop(ctx, None);
-                return;
-            }
-        } else {
-            if PEER_MIN_ALLOWED_PROTOCOL_VERSION > handshake.protocol_version
-                || handshake.protocol_version > PROTOCOL_VERSION
-            {
-                debug!(
-                    target: "network",
-                    version = handshake.protocol_version,
-                    "Received connection from node with unsupported PROTOCOL_VERSION.");
-                self.send_message_or_log(&PeerMessage::HandshakeFailure(
-                    self.my_node_info.clone(),
-                    HandshakeFailureReason::ProtocolVersionMismatch {
-                        version: PROTOCOL_VERSION,
-                        oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
-                    },
-                ));
-                return;
-            }
-            let genesis_id = self.network_state.genesis_id.clone();
-            if handshake.sender_chain_info.genesis_id != genesis_id {
-                debug!(target: "network", "Received connection from node with different genesis.");
-                self.send_message_or_log(&PeerMessage::HandshakeFailure(
-                    self.my_node_info.clone(),
-                    HandshakeFailureReason::GenesisMismatch(genesis_id),
-                ));
-                return;
-            }
-            if handshake.target_peer_id != self.my_node_info.id {
-                debug!(target: "network", "Received handshake from {:?} to {:?} but I am {:?}", handshake.sender_peer_id, handshake.target_peer_id, self.my_node_info.id);
-                self.send_message_or_log(&PeerMessage::HandshakeFailure(
-                    self.my_node_info.clone(),
-                    HandshakeFailureReason::InvalidTarget,
-                ));
-                return;
-            }
-            // Verify if nonce is sane.
-            if let Err(err) = verify_nonce(&self.clock, handshake.partial_edge_info.nonce) {
-                debug!(target: "network", nonce=?handshake.partial_edge_info.nonce, my_node_id = ?self.my_node_id(), peer_id=?handshake.sender_peer_id, "bad nonce, disconnecting: {err}");
-                self.stop(ctx, None);
-                return;
-            }
-            // Check that the received nonce is greater than the current nonce of this connection.
-            // If not (and this is an inbound connection) propose a new nonce.
-            if let Some(last_edge) =
-                self.network_state.routing_table_view.get_local_edge(&handshake.sender_peer_id)
-            {
-                if last_edge.nonce() >= handshake.partial_edge_info.nonce {
-                    debug!(target: "network", "{:?}: Received too low nonce from peer {:?} sending evidence.", self.my_node_id(), self.peer_addr);
-                    self.send_message_or_log(&PeerMessage::LastEdge(last_edge));
+        let cs = match &self.peer_status {
+            PeerStatus::Connecting(it) => it,
+            _ => panic!("process_handshake called in non-connecting state"),
+        };
+        match cs {
+            ConnectingStatus::Outbound { handshake_spec: spec, .. } => {
+                if handshake.protocol_version != spec.protocol_version {
+                    warn!(target: "network", "Protocol version mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                    self.stop(ctx, None);
                     return;
+                }
+                if handshake.sender_chain_info.genesis_id != spec.genesis_id {
+                    warn!(target: "network", "Genesis mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                    self.stop(ctx, None);
+                    return;
+                }
+                if handshake.sender_peer_id != spec.peer_id {
+                    warn!(target: "network", "PeerId mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                    self.stop(ctx, None);
+                    return;
+                }
+                if tier != spec.tier {
+                    warn!(target: "network", "Connection TIER mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                    self.stop(ctx, None);
+                    return;
+                }
+                if handshake.partial_edge_info.nonce != spec.partial_edge_info.nonce {
+                    warn!(target: "network", "Nonce mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                    self.stop(ctx, None);
+                    return;
+                }
+            }
+            ConnectingStatus::Inbound { .. } => {
+                if PEER_MIN_ALLOWED_PROTOCOL_VERSION > handshake.protocol_version
+                    || handshake.protocol_version > PROTOCOL_VERSION
+                {
+                    debug!(
+                        target: "network",
+                        version = handshake.protocol_version,
+                        "Received connection from node with unsupported PROTOCOL_VERSION.");
+                    self.send_message_or_log(&PeerMessage::HandshakeFailure(
+                        self.my_node_info.clone(),
+                        HandshakeFailureReason::ProtocolVersionMismatch {
+                            version: PROTOCOL_VERSION,
+                            oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
+                        },
+                    ));
+                    return;
+                }
+                let genesis_id = self.network_state.genesis_id.clone();
+                if handshake.sender_chain_info.genesis_id != genesis_id {
+                    debug!(target: "network", "Received connection from node with different genesis.");
+                    self.send_message_or_log(&PeerMessage::HandshakeFailure(
+                        self.my_node_info.clone(),
+                        HandshakeFailureReason::GenesisMismatch(genesis_id),
+                    ));
+                    return;
+                }
+                if handshake.target_peer_id != self.my_node_info.id {
+                    debug!(target: "network", "Received handshake from {:?} to {:?} but I am {:?}", handshake.sender_peer_id, handshake.target_peer_id, self.my_node_info.id);
+                    self.send_message_or_log(&PeerMessage::HandshakeFailure(
+                        self.my_node_info.clone(),
+                        HandshakeFailureReason::InvalidTarget,
+                    ));
+                    return;
+                }
+                // Verify if nonce is sane.
+                if let Err(err) = verify_nonce(&self.clock, handshake.partial_edge_info.nonce) {
+                    debug!(target: "network", nonce=?handshake.partial_edge_info.nonce, my_node_id = ?self.my_node_id(), peer_id=?handshake.sender_peer_id, "bad nonce, disconnecting: {err}");
+                    self.stop(ctx, None);
+                    return;
+                }
+                // Check that the received nonce is greater than the current nonce of this connection.
+                // If not (and this is an inbound connection) propose a new nonce.
+                if let Some(last_edge) =
+                    self.network_state.routing_table_view.get_local_edge(&handshake.sender_peer_id)
+                {
+                    if last_edge.nonce() >= handshake.partial_edge_info.nonce {
+                        debug!(target: "network", "{:?}: Received too low nonce from peer {:?} sending evidence.", self.my_node_id(), self.peer_addr);
+                        self.send_message_or_log(&PeerMessage::LastEdge(last_edge));
+                        return;
+                    }
                 }
             }
         }
@@ -820,9 +819,11 @@ impl PeerActor {
 
         // Merge partial edges.
         let nonce = handshake.partial_edge_info.nonce;
-        let partial_edge_info = match self.peer_type {
-            PeerType::Outbound => self.handshake_spec.as_ref().unwrap().partial_edge_info.clone(),
-            PeerType::Inbound => {
+        let partial_edge_info = match cs {
+            ConnectingStatus::Outbound { handshake_spec, .. } => {
+                handshake_spec.partial_edge_info.clone()
+            }
+            ConnectingStatus::Inbound { .. } => {
                 self.network_state.propose_edge(&handshake.sender_peer_id, Some(nonce))
             }
         };
@@ -945,18 +946,15 @@ impl PeerActor {
     }
 
     fn handle_msg_connecting(&mut self, ctx: &mut actix::Context<Self>, msg: PeerMessage) {
-        match msg {
-            PeerMessage::HandshakeFailure(peer_info, reason) => {
-                if self.peer_type == PeerType::Inbound {
-                    warn!(target: "network", "Received unexpected HandshakeFailure on an inbound connection, disconnecting");
-                    self.stop(ctx, None);
-                    return;
-                };
+        match (&mut self.peer_status, msg) {
+            (
+                PeerStatus::Connecting(ConnectingStatus::Outbound { handshake_spec, .. }),
+                PeerMessage::HandshakeFailure(peer_info, reason),
+            ) => {
                 match reason {
                     HandshakeFailureReason::GenesisMismatch(genesis) => {
                         warn!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {:?}, their genesis: {:?}", peer_info, self.network_state.genesis_id, genesis);
                         self.stop(ctx, None);
-                        return;
                     }
                     HandshakeFailureReason::ProtocolVersionMismatch {
                         version,
@@ -971,12 +969,12 @@ impl PeerActor {
                             self.stop(ctx, None);
                             return;
                         }
-                        let spec = {
-                            let spec = self.handshake_spec.as_mut().unwrap();
-                            spec.protocol_version = common_version;
-                            spec.clone()
-                        };
-                        self.send_handshake(spec);
+                        handshake_spec.protocol_version = common_version;
+                        let spec = handshake_spec.clone();
+                        ctx.wait(actix::fut::ready(()).then(move |_, act: &mut Self, _| {
+                            act.send_handshake(spec);
+                            actix::fut::ready(())
+                        }));
                     }
                     HandshakeFailureReason::InvalidTarget => {
                         debug!(target: "network", "Peer found was not what expected. Updating peer info with {:?}", peer_info);
@@ -984,20 +982,15 @@ impl PeerActor {
                             .peer_manager_addr
                             .do_send(PeerToManagerMsg::UpdatePeerInfo(peer_info));
                         self.stop(ctx, None);
-                        return;
                     }
                 }
             }
             // TODO(gprusak): LastEdge should rather be a variant of HandshakeFailure.
             // Clean this up (you don't have to modify the proto, just the translation layer).
-            PeerMessage::LastEdge(edge) => {
-                // This message will be received only if we started the connection.
-                if self.peer_type == PeerType::Inbound {
-                    info!(target: "network", "{:?}: Inbound peer {:?} sent invalid message. Disconnect.", self.my_node_id(), self.peer_addr);
-                    self.stop(ctx, None);
-                    return;
-                }
-
+            (
+                PeerStatus::Connecting(ConnectingStatus::Outbound { handshake_spec, .. }),
+                PeerMessage::LastEdge(edge),
+            ) => {
                 // Disconnect if neighbor proposed an invalid edge.
                 if !edge.verify() {
                     info!(target: "network", "{:?}: Peer {:?} sent invalid edge. Disconnect.", self.my_node_id(), self.peer_addr);
@@ -1005,21 +998,23 @@ impl PeerActor {
                     return;
                 }
                 // Recreate the edge with a newer nonce.
-                let spec = {
-                    let spec = self.handshake_spec.as_mut().unwrap();
-                    spec.partial_edge_info =
-                        self.network_state.propose_edge(&spec.peer_id, Some(edge.next()));
-                    spec.clone()
-                };
-                self.send_handshake(spec);
+                handshake_spec.partial_edge_info =
+                    self.network_state.propose_edge(&handshake_spec.peer_id, Some(edge.next()));
+                let spec = handshake_spec.clone();
+                ctx.wait(actix::fut::ready(()).then(move |_, act: &mut Self, _| {
+                    act.send_handshake(spec);
+                    actix::fut::ready(())
+                }));
             }
-            PeerMessage::Tier1Handshake(msg) => {
+            (PeerStatus::Connecting { .. }, PeerMessage::Tier1Handshake(msg)) => {
                 self.process_handshake(ctx, connection::Tier::T1, msg)
             }
-            PeerMessage::Tier2Handshake(msg) => {
+            (PeerStatus::Connecting { .. }, PeerMessage::Tier2Handshake(msg)) => {
                 self.process_handshake(ctx, connection::Tier::T2, msg)
             }
-            msg => tracing::warn!(target:"network","unexpected message during handshake: {}",msg),
+            (_, msg) => {
+                tracing::warn!(target:"network","unexpected message during handshake: {}",msg)
+            }
         }
     }
 
@@ -1253,8 +1248,10 @@ impl Actor for PeerActor {
         );
 
         // If outbound peer, initiate handshake.
-        if self.peer_type == PeerType::Outbound {
-            self.send_handshake(self.handshake_spec.clone().unwrap());
+        if let PeerStatus::Connecting(ConnectingStatus::Outbound { handshake_spec, .. }) =
+            &self.peer_status
+        {
+            self.send_handshake(handshake_spec.clone());
         }
         self.network_state.config.event_sink.push(Event::PeerActorStarted(self.peer_addr));
     }
@@ -1491,7 +1488,7 @@ type InboundHandshakePermit = tokio::sync::OwnedSemaphorePermit;
 #[derive(Debug)]
 enum ConnectingStatus {
     Inbound(InboundHandshakePermit),
-    Outbound(connection::OutboundHandshakePermit),
+    Outbound { _permit: connection::OutboundHandshakePermit, handshake_spec: HandshakeSpec },
 }
 
 /// State machine of the PeerActor.

@@ -1283,7 +1283,7 @@ impl<T: Clone> Iterator for SamplerLimited<T> {
             None
         } else {
             let len = self.limit.len();
-            let ix = thread_rng().gen_range(0, len);
+            let ix = thread_rng().gen_range(0..len);
             self.limit[ix] -= 1;
 
             if self.limit[ix] == 0 {

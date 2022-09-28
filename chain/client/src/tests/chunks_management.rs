@@ -6,7 +6,6 @@ use near_network::types::NetworkRequests;
 use near_network::types::PartialEncodedChunkRequestMsg;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::ReedSolomonWrapper;
 
 #[test]
 fn test_request_chunk_restart() {
@@ -23,14 +22,10 @@ fn test_request_chunk_restart() {
         tracking_shards: HashSet::default(),
     };
     let client = &mut env.clients[0];
-    let num_total_parts = client.runtime_adapter.num_total_parts();
-    let num_data_parts = client.runtime_adapter.num_data_parts();
-    let mut rs = ReedSolomonWrapper::new(num_data_parts, num_total_parts - num_data_parts);
     client.shards_mgr.process_partial_encoded_chunk_request(
         request.clone(),
         CryptoHash::default(),
         client.chain.mut_store(),
-        &mut rs,
     );
     assert!(env.network_adapters[0].pop().is_some());
 
@@ -40,7 +35,6 @@ fn test_request_chunk_restart() {
         request,
         CryptoHash::default(),
         client.chain.mut_store(),
-        &mut rs,
     );
     let response = env.network_adapters[0].pop().unwrap().as_network_requests();
 

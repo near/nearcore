@@ -1,11 +1,11 @@
 [package]
 name = "near-primitives"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = true
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.63.0"
-edition = "2021"
+rust-version.workspace = true
+edition.workspace = true
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/near/nearcore"
 description = """
@@ -13,26 +13,25 @@ This crate provides the base set of primitives used by other nearcore crates
 """
 
 [dependencies]
-byteorder = "1.3"
-bytesize = "1.1"
-cfg-if = "1.0.0"
-chrono = { version = "0.4.4", features = ["serde"] }
-deepsize = { version = "0.2.0", features = ["chrono"], optional=true }
-derive_more = "0.99.3"
-easy-ext = "0.2"
-hex = "0.4"
-num-rational = { version = "0.3", features = ["serde"] }
-once_cell = "1.5.2"
-primitive-types = { version = "0.10", default-features = false }
-rand = "0.7"
-reed-solomon-erasure = "4"
-serde = { version = "1", features = ["derive", "rc"] }
-serde_json = "1"
-smart-default = "0.6"
-strum = "0.24"
-thiserror = "1.0.30"
-
-borsh = { version = "0.9", features = ["rc"] }
+borsh.workspace = true
+byteorder.workspace = true
+bytesize.workspace = true
+cfg-if.workspace = true
+chrono.workspace = true
+deepsize = { workspace = true, optional = true }
+derive_more.workspace = true
+easy-ext.workspace = true
+hex.workspace = true
+num-rational.workspace = true
+once_cell.workspace = true
+primitive-types.workspace = true
+rand.workspace = true
+reed-solomon-erasure.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+smart-default.workspace = true
+strum.workspace = true
+thiserror.workspace = true
 
 near-primitives-core = { path = "../primitives-core"}
 near-crypto = { path = "../crypto" }
@@ -70,9 +69,9 @@ deepsize_feature = [
 ]
 
 [dev-dependencies]
-assert_matches = "1.5.0"
-bencher = "0.1.5"
-insta = "1.14.0"
+assert_matches.workspace = true
+bencher.workspace = true
+insta.workspace = true
 
 [[bench]]
 name = "serialization"

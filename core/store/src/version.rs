@@ -2,13 +2,12 @@
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 31;
+pub const DB_VERSION: DbVersion = 32;
 
 /// Returns serialisation of the version.
 ///
 /// The serialisation simply converts the version into decimal integer and
-/// returns that as ASCII string.  [`deserialises`] is inverse of this
-/// operation.
+/// returns that as ASCII string.  [`deserialise`] is inverse of this operation.
 pub fn serialise(version: DbVersion) -> Vec<u8> {
     version.to_string().into_bytes()
 }

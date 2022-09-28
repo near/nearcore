@@ -278,7 +278,7 @@ impl NetworkState {
     /// It will fail (and log) if we have too many connections already,
     /// or if the peer drops the connection in the meantime.
     fn spawn_peer_actor(
-        self: &Arc<Self>,
+        self: Arc<Self>,
         clock: &time::Clock,
         stream: TcpStream,
         stream_cfg: StreamConfig,
@@ -288,7 +288,7 @@ impl NetworkState {
         };
     }
 
-    pub async fn spawn_inbound(self: &Arc<Self>, clock: &time::Clock, stream: TcpStream) {
+    pub async fn spawn_inbound(self: Arc<Self>, clock: &time::Clock, stream: TcpStream) {
         self.spawn_peer_actor(clock, stream, StreamConfig::Inbound);
     }
 

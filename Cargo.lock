@@ -1234,6 +1234,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossbeam"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2801af0d36612ae591caa9568261fddce32ce6e08a7275ea334a06a4ad021a2c"
+dependencies = [
+ "cfg-if 1.0.0",
+ "crossbeam-channel 0.5.4",
+ "crossbeam-deque",
+ "crossbeam-epoch",
+ "crossbeam-queue",
+ "crossbeam-utils 0.8.8",
+]
+
+[[package]]
 name = "crossbeam-channel"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1276,6 +1290,16 @@ dependencies = [
  "lazy_static",
  "memoffset",
  "scopeguard",
+]
+
+[[package]]
+name = "crossbeam-queue"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1cd42583b04998a5363558e5f9291ee5a5ff6b49944332103f251e7479a82aa7"
+dependencies = [
+ "cfg-if 1.0.0",
+ "crossbeam-utils 0.8.8",
 ]
 
 [[package]]
@@ -2341,7 +2365,7 @@ dependencies = [
  "once_cell",
  "parking_lot 0.12.1",
  "primitive-types",
- "rand 0.7.3",
+ "rand 0.8.5",
  "serde",
  "serde_json",
  "smart-default",
@@ -2484,6 +2508,7 @@ dependencies = [
  "glob",
  "libc",
  "libz-sys",
+ "tikv-jemalloc-sys",
  "zstd-sys",
 ]
 
@@ -2743,7 +2768,7 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "nearcore",
- "rand 0.7.3",
+ "rand 0.8.5",
  "rayon",
  "serde",
  "serde_json",
@@ -2820,7 +2845,7 @@ version = "0.0.0"
 dependencies = [
  "bencher",
  "lru",
- "rand 0.7.3",
+ "rand 0.8.5",
 ]
 
 [[package]]
@@ -2843,13 +2868,14 @@ dependencies = [
  "near-chain-primitives",
  "near-client-primitives",
  "near-crypto",
+ "near-epoch-manager",
  "near-o11y",
  "near-pool",
  "near-primitives",
  "near-store",
  "num-rational",
  "once_cell",
- "rand 0.7.3",
+ "rand 0.8.5",
  "rayon",
  "strum",
  "thiserror",
@@ -2903,7 +2929,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "once_cell",
- "rand 0.7.3",
+ "rand 0.8.5",
  "reed-solomon-erasure",
  "tracing",
 ]
@@ -2947,7 +2973,7 @@ dependencies = [
  "near-telemetry",
  "num-rational",
  "once_cell",
- "rand 0.7.3",
+ "rand 0.8.5",
  "reed-solomon-erasure",
  "serde_json",
  "strum",
@@ -3011,13 +3037,14 @@ dependencies = [
  "chrono",
  "near-cache",
  "near-chain-configs",
+ "near-chain-primitives",
  "near-crypto",
  "near-primitives",
  "near-store",
  "num-rational",
  "primitive-types",
  "rand 0.6.5",
- "rand 0.7.3",
+ "rand 0.8.5",
  "serde_json",
  "smart-default",
  "tracing",
@@ -3207,8 +3234,8 @@ dependencies = [
  "pretty_assertions",
  "protobuf 3.0.2",
  "protobuf-codegen",
- "rand 0.7.3",
- "rand_xorshift 0.2.0",
+ "rand 0.8.5",
+ "rand_xorshift 0.3.0",
  "rayon",
  "serde",
  "smart-default",
@@ -3231,6 +3258,7 @@ dependencies = [
  "backtrace",
  "bencher",
  "clap 3.1.18",
+ "itoa 1.0.2",
  "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -3243,7 +3271,6 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-opentelemetry",
- "tracing-serde",
  "tracing-subscriber",
 ]
 
@@ -3282,7 +3309,7 @@ dependencies = [
  "near-o11y",
  "near-primitives",
  "once_cell",
- "rand 0.7.3",
+ "rand 0.8.5",
 ]
 
 [[package]]
@@ -3308,7 +3335,7 @@ dependencies = [
  "num-rational",
  "once_cell",
  "primitive-types",
- "rand 0.7.3",
+ "rand 0.8.5",
  "reed-solomon-erasure",
  "serde",
  "serde_json",
@@ -3408,18 +3435,20 @@ dependencies = [
  "borsh",
  "byteorder",
  "bytesize",
+ "crossbeam",
  "derive_more",
  "elastic-array",
  "enum-map",
  "fs2",
  "insta",
+ "itoa 1.0.2",
  "lru",
  "near-crypto",
  "near-o11y",
  "near-primitives",
  "num_cpus",
  "once_cell",
- "rand 0.7.3",
+ "rand 0.8.5",
  "rlimit",
  "rocksdb",
  "serde",
@@ -3469,6 +3498,7 @@ dependencies = [
  "near-account-id",
  "near-rpc-error-macro",
  "serde",
+ "strum",
 ]
 
 [[package]]
@@ -3595,7 +3625,7 @@ dependencies = [
  "num-rational",
  "once_cell",
  "primitive-types",
- "rand 0.7.3",
+ "rand 0.8.5",
  "rayon",
  "rlimit",
  "serde",
@@ -3676,10 +3706,11 @@ dependencies = [
  "num-rational",
  "num-traits",
  "once_cell",
- "rand 0.7.3",
+ "rand 0.8.5",
  "rayon",
  "serde",
  "serde_json",
+ "sha2 0.10.2",
  "tempfile",
  "testlib",
  "thiserror",
@@ -4579,11 +4610,11 @@ dependencies = [
 
 [[package]]
 name = "rand_xorshift"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77d416b86801d23dde1aa643023b775c3a462efc0ed96443add11546cdf1dca8"
+checksum = "d25bf25ec5ae4a3f1b92f929810509a2f53d7dca2f50b794ff57e3face536c8f"
 dependencies = [
- "rand_core 0.5.1",
+ "rand_core 0.6.3",
 ]
 
 [[package]]
@@ -4878,8 +4909,8 @@ dependencies = [
  "node-runtime",
  "num-rational",
  "num-traits",
- "rand 0.7.3",
- "rand_xorshift 0.2.0",
+ "rand 0.8.5",
+ "rand_xorshift 0.3.0",
  "rocksdb",
  "serde_json",
  "tempfile",
@@ -5398,7 +5429,7 @@ dependencies = [
  "nearcore",
  "node-runtime",
  "once_cell",
- "rand 0.7.3",
+ "rand 0.8.5",
  "rayon",
  "redis",
  "serde",
@@ -5933,9 +5964,9 @@ checksum = "360dfd1d6d30e05fda32ace2c8c70e9c0a9da713275777f5a4dbb8a1893930c6"
 
 [[package]]
 name = "tracing"
-version = "0.1.34"
+version = "0.1.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d0ecdcb44a79f0fe9844f0c4f33a342cbcbb5117de8001e6ba0dc2351327d09"
+checksum = "2fce9567bd60a67d08a16488756721ba392f24f29006402881e43b19aac64307"
 dependencies = [
  "cfg-if 1.0.0",
  "log",
@@ -5957,9 +5988,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-attributes"
-version = "0.1.21"
+version = "0.1.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc6b8ad3567499f98a1db7a752b07a7c8c7c7c34c332ec00effb2b0027974b7c"
+checksum = "11c75893af559bc8e10716548bdef5cb2b983f8e637db9d0e15126b61b484ee2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5968,11 +5999,11 @@ dependencies = [
 
 [[package]]
 name = "tracing-core"
-version = "0.1.26"
+version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f54c8ca710e81886d498c2fd3331b56c93aa248d49de2222ad2742247c60072f"
+checksum = "5aeea4303076558a00714b823f9ad67d58a3bbda1df83d8827d21193156e22f7"
 dependencies = [
- "lazy_static",
+ "once_cell",
  "valuable",
 ]
 
@@ -5999,25 +6030,16 @@ dependencies = [
 
 [[package]]
 name = "tracing-opentelemetry"
-version = "0.17.2"
+version = "0.17.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f9378e96a9361190ae297e7f3a8ff644aacd2897f244b1ff81f381669196fa6"
+checksum = "fbbe89715c1dbbb790059e2565353978564924ee85017b5fff365c872ff6721f"
 dependencies = [
+ "once_cell",
  "opentelemetry",
  "tracing",
  "tracing-core",
  "tracing-log",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "tracing-serde"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc6b213177105856957181934e4920de57730fc69bf42c37ee5bb664d406d9e1"
-dependencies = [
- "serde",
- "tracing-core",
 ]
 
 [[package]]
@@ -6032,13 +6054,13 @@ dependencies = [
 
 [[package]]
 name = "tracing-subscriber"
-version = "0.3.11"
+version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bc28f93baff38037f64e6f43d34cfa1605f27a49c34e8a04c5e78b0babf2596"
+checksum = "60db860322da191b40952ad9affe65ea23e7dd6a5c442c2c42865810c6ab8e6b"
 dependencies = [
  "ansi_term",
- "lazy_static",
  "matchers",
+ "once_cell",
  "regex",
  "sharded-slab",
  "smallvec",

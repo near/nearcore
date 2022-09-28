@@ -1,11 +1,11 @@
 [package]
 name = "near-vm-errors"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = true
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.63.0"
-edition = "2021"
+rust-version.workspace = true
+edition.workspace = true
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 categories = ["wasm"]
@@ -15,10 +15,11 @@ Error that can occur inside Near Runtime encapsulated in a separate crate. Might
 """
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
+borsh.workspace = true
+deepsize = { workspace = true, optional = true }
+serde.workspace = true
+strum.workspace = true
 
-borsh = "0.9"
-deepsize = { version = "0.2.0", optional = true }
 near-account-id = { path = "../../core/account-id" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 

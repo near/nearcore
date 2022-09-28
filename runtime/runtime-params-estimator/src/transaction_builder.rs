@@ -99,7 +99,7 @@ impl TransactionBuilder {
         get_account_id(account_index)
     }
     pub(crate) fn random_account(&mut self) -> AccountId {
-        let account_index = self.rng().gen_range(0, self.accounts.len());
+        let account_index = self.rng().gen_range(0..self.accounts.len());
         self.accounts[account_index].clone()
     }
     pub(crate) fn random_unused_account(&mut self) -> AccountId {
