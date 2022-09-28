@@ -81,7 +81,7 @@ use near_primitives::shard_layout::{
 };
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "protocol_feature_flat_state")]
-use near_store::flat_state::{FlatStateDelta, FlatStorageState};
+use near_store::flat_state::FlatStateDelta;
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
