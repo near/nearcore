@@ -147,7 +147,7 @@ mod imp {
             }))
         }
 
-        /// When a node starts from an empty database, this function must be called  to ensure
+        /// When a node starts from an empty database, this function must be called to ensure
         /// information such as flat head is set up correctly in the database.
         /// Note that this function is different from `add_flat_storage_state_for_shard`,
         /// it must be called before `add_flat_storage_state_for_shard` if the node starts from

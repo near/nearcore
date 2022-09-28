@@ -81,7 +81,7 @@ use near_primitives::shard_layout::{
 };
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "protocol_feature_flat_state")]
-use near_store::flat_state::{FlatStateDelta, FlatStorageState};
+use near_store::flat_state::FlatStateDelta;
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -629,13 +629,11 @@ impl Chain {
         // set up flat storage
         #[cfg(feature = "protocol_feature_flat_state")]
         for shard_id in 0..runtime_adapter.num_shards(&block_head.epoch_id)? {
-            let flat_storage_state = FlatStorageState::new(
-                store.store().clone(),
+            runtime_adapter.create_flat_storage_state_for_shard(
                 shard_id,
                 store.head()?.height,
                 &store,
             );
-            runtime_adapter.add_flat_storage_state_for_shard(shard_id, flat_storage_state);
         }
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
