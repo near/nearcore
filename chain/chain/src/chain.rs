@@ -1538,13 +1538,20 @@ impl Chain {
         }
         // sort the receipts deterministically so the order that they will be processed is deterministic
         for (_, receipt_proofs) in receipt_proofs_by_shard_id.iter_mut() {
-            let mut slice = [0u8; 32];
-            slice.copy_from_slice(block.hash().as_ref());
-            let mut rng: ChaCha20Rng = SeedableRng::from_seed(slice);
-            receipt_proofs.shuffle(&mut rng);
+            Self::shuffle_receipt_proofs(receipt_proofs, block.hash());
         }
 
         Ok(receipt_proofs_by_shard_id)
+    }
+
+    fn shuffle_receipt_proofs<ReceiptProofType>(
+        receipt_proofs: &mut Vec<ReceiptProofType>,
+        block_hash: &CryptoHash,
+    ) {
+        let mut slice = [0u8; 32];
+        slice.copy_from_slice(block_hash.as_ref());
+        let mut rng: ChaCha20Rng = SeedableRng::from_seed(slice);
+        receipt_proofs.shuffle(&mut rng);
     }
 
     #[cfg(test)]
@@ -5363,14 +5370,19 @@ impl Chain {
 
 #[cfg(test)]
 mod tests {
-    use rand::Rng;
-    use rand_chacha::ChaCha20Rng;
+    use near_primitives::hash::CryptoHash;
 
     #[test]
     pub fn receipt_randomness_reproducibility() {
-        // Sanity check that the ChaCha20Rng implementation does not change (it should not).
-        // This is important to ensure that receipt ordering stays the same.
-        let mut rng: ChaCha20Rng = rand::SeedableRng::seed_from_u64(123456);
-        assert_eq!(rng.gen::<u32>(), 2966023666);
+        // Sanity check that the receipt shuffling implementation does not change.
+        let mut receipt_proofs = vec![0, 1, 2, 3, 4, 5, 6];
+        crate::Chain::shuffle_receipt_proofs(
+            &mut receipt_proofs,
+            &CryptoHash::hash_bytes(&[1, 2, 3, 4, 5]),
+        );
+        assert_eq!(
+            receipt_proofs,
+            vec![2, 3, 1, 4, 0, 5, 6],
+        );
     }
 }
