@@ -140,11 +140,14 @@ impl NetworkState {
         let accounts_data = self.accounts_data.load();
         // Check if our node is currently a TIER1 validator.
         // If so, it should establish TIER1 connections.
-        let is_tier1_validator = match &self.config.validator {
-            Some(v) => {
-                accounts_data.contains_account_key(v.signer.validator_id(), &v.signer.public_key())
+        let my_tier1_account_id = match &self.config.validator {
+            Some(v)
+                if accounts_data
+                    .contains_account_key(v.signer.validator_id(), &v.signer.public_key()) =>
+            {
+                Some(v.signer.validator_id())
             }
-            None => false,
+            _ => None,
         };
         let mut accounts_by_peer = HashMap::<_, Vec<_>>::new();
         let mut accounts_by_proxy = HashMap::<_, Vec<_>>::new();
@@ -175,7 +178,7 @@ impl NetworkState {
                 safe.insert(account_id, peer_id);
             }
         }
-        if is_tier1_validator {
+        if my_tier1_account_id.is_some() {
             tracing::debug!(target:"test", "I am a validator!");
             // TIER1 nodes can also connect to TIER1 proxies.
             for peer_id in &ready {
@@ -191,13 +194,17 @@ impl NetworkState {
                 conn.stop(None);
             }
         }
-        if is_tier1_validator {
+        if let Some(my_tier1_account_id) = my_tier1_account_id {
             // Try to establish new TIER1 connections to accounts in random order.
             let mut account_ids: Vec<_> = proxies_by_account.keys().copied().collect();
             account_ids.shuffle(&mut rand::thread_rng());
             let mut new_connections = 0;
             for account_id in account_ids {
                 tracing::debug!(target:"test","checking {account_id}");
+                // Do not connect to yourself.
+                if account_id == my_tier1_account_id {
+                    continue;
+                }
                 if new_connections >= cfg.new_connections_per_tick {
                     break;
                 }
