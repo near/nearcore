@@ -660,3 +660,23 @@ async fn tier1_direct_connections() {
     drop(pms);
     // TODO: send messages over each connection.
 }
+
+#[tokio::test]
+async fn loop_connection_should_fail_safely() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    ).await;
+    let mut cfg = chain.make_config(rng);
+    cfg.node_key = pm.cfg.node_key.clone(); 
+    pm.start_inbound(chain.clone(), cfg.clone()).await.fail_handshake(&clock.clock()).await;
+    pm.start_outbound(chain.clone(), cfg).await.fail_handshake(&clock.clock()).await;
+}
