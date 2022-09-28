@@ -9,9 +9,9 @@ use itertools::Itertools;
 use near_o11y::log_assert;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::time::Clock;
-use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
+use rand_chacha::ChaCha20Rng;
 use tracing::{debug, error, info, warn, Span};
 
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
@@ -1540,7 +1540,7 @@ impl Chain {
         for (_, receipt_proofs) in receipt_proofs_by_shard_id.iter_mut() {
             let mut slice = [0u8; 32];
             slice.copy_from_slice(block.hash().as_ref());
-            let mut rng: StdRng = SeedableRng::from_seed(slice);
+            let mut rng: ChaCha20Rng = SeedableRng::from_seed(slice);
             receipt_proofs.shuffle(&mut rng);
         }
 
@@ -5358,5 +5358,19 @@ impl Chain {
                 hash: *block_hash,
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rand::Rng;
+    use rand_chacha::ChaCha20Rng;
+
+    #[test]
+    pub fn receipt_randomness_reproducibility() {
+        // Sanity check that the ChaCha20Rng implementation does not change (it should not).
+        // This is important to ensure that receipt ordering stays the same.
+        let mut rng: ChaCha20Rng = rand::SeedableRng::seed_from_u64(123456);
+        assert_eq!(rng.gen::<u32>(), 2966023666);
     }
 }

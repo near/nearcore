@@ -86,6 +86,9 @@ mod old_validator_selection {
         AccountId, Balance, NumSeats, ValidatorId, ValidatorKickoutReason,
     };
     use near_primitives::version::ProtocolVersion;
+    use rand::seq::SliceRandom;
+    use rand::SeedableRng;
+    use rand_hc::Hc128Rng;
 
     use crate::proposals::find_threshold;
     use crate::types::RngSeed;
@@ -184,10 +187,8 @@ mod old_validator_selection {
 
         assert!(dup_proposals.len() >= num_total_seats as usize, "bug in find_threshold");
         {
-            use protocol_defining_rand::seq::SliceRandom;
-            use protocol_defining_rand::{rngs::StdRng, SeedableRng};
             // Shuffle duplicate proposals.
-            let mut rng: StdRng = SeedableRng::from_seed(rng_seed);
+            let mut rng: Hc128Rng = SeedableRng::from_seed(rng_seed);
             dup_proposals.shuffle(&mut rng);
         }
 
@@ -269,5 +270,19 @@ mod old_validator_selection {
             next_version,
             rng_seed,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rand::Rng;
+    use rand_hc::Hc128Rng;
+
+    #[test]
+    pub fn proposal_randomness_reproducibility() {
+        // Sanity check that the Hc128Rng implementation does not change (it should not).
+        // This is important to ensure that receipt ordering stays the same.
+        let mut rng: Hc128Rng = rand::SeedableRng::seed_from_u64(123456);
+        assert_eq!(rng.gen::<u32>(), 3090581895);
     }
 }
