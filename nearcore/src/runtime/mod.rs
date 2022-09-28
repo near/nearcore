@@ -46,8 +46,9 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
     QueryResponseKind, ViewApplyState, ViewStateResult,
 };
-
-use near_store::flat_state::{ChainAccessForFlatStorage, FlatStateFactory, FlatStorageState};
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_store::flat_state::ChainAccessForFlatStorage;
+use near_store::flat_state::{FlatStateFactory, FlatStorageState};
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
