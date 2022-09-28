@@ -707,7 +707,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chain_access: &dyn ChainAccessForFlatStorage,
     ) {
         let flat_storage_state =
-            FlatStorageState::new(self.store.clone(), shard_id, latest_block_height, &chain_access);
+            FlatStorageState::new(self.store.clone(), shard_id, latest_block_height, chain_access);
         self.flat_state_factory.add_flat_storage_state_for_shard(shard_id, flat_storage_state)
     }
 
