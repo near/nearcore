@@ -26,19 +26,8 @@ skip = [
     # criterion uses clap=2.34.0 which relies on an older textwrap
     { name = "textwrap", version = "=0.11.0" },
 
-    # near-epoch-manager fixed the rand version to ensure protocol
-    # stability.  This pulls in other ancient crates.
-    { name = "rand", version = "=0.6.5" },
-    { name = "rand_xorshift", version = "=0.1.1" },
-    # rand 0.6.5 uses two versions of rand_core due to weird dependencies mismatch with rand_chacha
-    { name = "rand_core", version = "=0.3.1" },
-    { name = "rand_chacha", version = "=0.1.1" },
-
-    { name = "autocfg", version = "=0.1.8" },
-
     # wasmer 0.17 and wasmtime 0.17 use conflicting versions of those
     { name = "wasmparser", version = "=0.51.4" },
-    { name = "rand_core", version = "=0.4.2" },
     # wasmer 0.17 and wasmtime 0.17 uses older versions of some crates
     { name = "generic-array", version = "=0.12.4" },
 
