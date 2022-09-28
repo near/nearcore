@@ -5,7 +5,7 @@ use near_chain_configs::GenesisValidationMode;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
     default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
-    EnvFilterBuilder, Options,
+    EnvFilterBuilder, OpenTelemetryLevel,
 };
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
@@ -337,7 +337,7 @@ impl RunCmd {
         home_dir: &Path,
         genesis_validation: GenesisValidationMode,
         verbose_target: Option<&str>,
-        o11y_opts: &Options,
+        o11y_opts: &near_o11y::Options,
     ) {
         // Load configs from home.
         let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation)
@@ -403,29 +403,23 @@ impl RunCmd {
         }
 
         let (tx, rx) = oneshot::channel::<()>();
+        let sys = actix::System::new();
 
-        // For an unknown reason, opentelemetry exporter pipeline needs to be created separately
-        // from the actix system.
-        let runtime = Runtime::new().unwrap();
-        let _subscriber_guard = runtime
-            .block_on(async {
-                default_subscriber_with_opentelemetry(
-                    make_env_filter(verbose_target).unwrap(),
-                    o11y_opts,
-                    near_config.client_config.chain_id.clone(),
-                    near_config.network_config.node_key.public_key().clone(),
-                    near_config
-                        .network_config
-                        .validator
-                        .as_ref()
-                        .map(|validator| validator.account_id()),
-                )
-                .await
-            })
+        sys.block_on(async move {
+            let _subscriber_guard = default_subscriber_with_opentelemetry(
+                make_env_filter(verbose_target).unwrap(),
+                o11y_opts,
+                near_config.client_config.chain_id.clone(),
+                near_config.network_config.node_key.public_key().clone(),
+                near_config
+                    .network_config
+                    .validator
+                    .as_ref()
+                    .map(|validator| validator.account_id()),
+            )
+            .await
             .global();
 
-        let sys = new_actix_system(runtime);
-        sys.block_on(async move {
             let nearcore::NearNode { rpc_servers, .. } =
                 nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
                     .expect("start_with_config");
@@ -438,25 +432,14 @@ impl RunCmd {
             }))
             .await;
             actix::System::current().stop();
-            opentelemetry::global::shutdown_tracer_provider(); // Finish sending spans.
+
+            // Disable the subscriber.
+            near_o11y::reload_layers(Some("error"), None, Some(OpenTelemetryLevel::OFF)).unwrap();
         });
         sys.run().unwrap();
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
     }
-}
-
-/// Creates a new actix SystemRunner using the given tokio Runtime.
-fn new_actix_system(runtime: Runtime) -> SystemRunner {
-    // `with_tokio_rt()` accepts an `Fn()->Runtime`, however we know that this function is called exactly once.
-    // This makes it safe to move out of the captured variable `runtime`, which is done by a trick
-    // using a `swap` of `Cell<Option<Runtime>>`s.
-    let runtime_cell = Cell::new(Some(runtime));
-    actix::System::with_tokio_rt(|| {
-        let r = Cell::new(None);
-        runtime_cell.swap(&r);
-        r.into_inner().unwrap()
-    })
 }
 
 #[cfg(not(unix))]
