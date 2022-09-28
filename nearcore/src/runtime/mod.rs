@@ -46,6 +46,7 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
     QueryResponseKind, ViewApplyState, ViewStateResult,
 };
+
 use near_store::flat_state::{ChainAccessForFlatStorage, FlatStateFactory, FlatStorageState};
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
@@ -700,6 +701,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.flat_state_factory.get_flat_storage_state_for_shard(shard_id)
     }
 
+    #[cfg(feature = "protocol_feature_flat_state")]
     fn create_flat_storage_state_for_shard(
         &self,
         shard_id: ShardId,
