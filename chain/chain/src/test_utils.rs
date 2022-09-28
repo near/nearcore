@@ -1597,7 +1597,7 @@ mod test {
         let mut rng = rand::thread_rng();
         let receipts = (0..3000)
             .map(|_| {
-                let random_number = rng.gen_range(0, 1000);
+                let random_number = rng.gen_range(0..1000);
                 create_receipt_from_receiver_id(
                     AccountId::try_from(format!("test{}", random_number)).unwrap(),
                 )

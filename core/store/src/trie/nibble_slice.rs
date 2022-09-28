@@ -307,8 +307,8 @@ mod tests {
         encode_decode(&[0u8], true);
         let mut rng = thread_rng();
         for _ in 0..100 {
-            let l = rng.gen_range(0, 10);
-            let nibbles: Vec<_> = (0..l).map(|_| rng.gen_range(0, 16) as u8).collect();
+            let l = rng.gen_range(0..10);
+            let nibbles: Vec<_> = (0..l).map(|_| rng.gen_range(0..16) as u8).collect();
             encode_decode(&nibbles, true);
             encode_decode(&nibbles, false);
         }

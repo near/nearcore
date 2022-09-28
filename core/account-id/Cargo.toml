@@ -17,10 +17,10 @@ internal_unstable = []
 deepsize_feature = ["deepsize"]
 
 [dependencies]
-borsh = { version = "0.9", optional = true }
-serde = { version = "1", optional = true }
-deepsize = { version = "0.2.0", optional = true }
+borsh = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+deepsize = { workspace = true, optional = true }
 
 [dev-dependencies]
-bolero = "0.6.2"
-serde_json = "1"
+bolero.workspace = true
+serde_json.workspace = true
