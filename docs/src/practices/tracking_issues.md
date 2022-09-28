@@ -16,16 +16,6 @@ Different types of audiences want to track progress on feature development on `n
 Using tracking issues can help the above audience come up to speed with projects
 quickly and makes it easy for engineers working on projects to share updates.
 
-## Background
-
-The idea of tracking issues is also used to track project work in the Rust
-language.  See [this
-post](https://internals.rust-lang.org/t/how-the-rust-issue-tracker-works/3951)
-for a rough description and
-[these](https://github.com/rust-lang/rust/issues/101840)
-[issues](https://github.com/rust-lang/rust/issues/100717) for how they are used
-in Rust.
-
 ## Guidelines
 
 - There should be one tracking issue per project.  Discretion can be used to
@@ -53,3 +43,13 @@ in Rust.
 - Please avoid using slack and DM messages for engineering discussions.  We
   encourage all discussions to happen on open Zulip streams.  For security
   sensitive discussions, please use the appropriate private Zulip streams.
+
+## Background
+
+The idea of tracking issues is also used to track project work in the Rust
+language.  See [this
+post](https://internals.rust-lang.org/t/how-the-rust-issue-tracker-works/3951)
+for a rough description and
+[these](https://github.com/rust-lang/rust/issues/101840)
+[issues](https://github.com/rust-lang/rust/issues/100717) for how they are used
+in Rust.
