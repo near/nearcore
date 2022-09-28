@@ -152,6 +152,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
             28 => near_store::migrations::migrate_28_to_29(storage),
             29 => near_store::migrations::migrate_29_to_30(storage),
             30 => migrate_30_to_31(storage, &self.config),
+            31 => near_store::migrations::migrate_31_to_32(storage),
             DB_VERSION.. => unreachable!(),
         }
     }

@@ -174,3 +174,10 @@ pub fn migrate_29_to_30(storage: &crate::NodeStorage) -> anyhow::Result<()> {
     store_update.finish()?;
     Ok(())
 }
+
+pub fn migrate_31_to_32(storage: &crate::NodeStorage) -> anyhow::Result<()> {
+    let mut update = storage.get_store(crate::Temperature::Hot).store_update();
+    update.delete_all(DBCol::_ChunkPerHeightShard);
+    update.commit()?;
+    Ok(())
+}

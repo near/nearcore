@@ -1,6 +1,7 @@
-This directory contains an assorted set of documentation about `nearcore` and
-the protocol.  Currently, the directory is not properly organised and is missing
-key pieces of documentation.  We hope to address the shortcomings soon.
+# Overview
+
+This chapter holds various assorted bits of docs. If you want to document
+something, but don't know where to put it, put it here!
 
 ## Crate Versioning and Publishing
 

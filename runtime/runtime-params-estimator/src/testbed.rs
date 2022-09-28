@@ -25,12 +25,23 @@ pub struct RuntimeTestbed {
 
 impl RuntimeTestbed {
     /// Copies dump from another directory and loads the state from it.
-    pub fn from_state_dump(dump_dir: &Path) -> Self {
+    pub fn from_state_dump(dump_dir: &Path, in_memory_db: bool) -> Self {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-        let StateDump { store, roots } = StateDump::from_dir(dump_dir, workdir.path());
+        let StateDump { store, roots } =
+            StateDump::from_dir(dump_dir, workdir.path(), in_memory_db);
         // Ensure decent RocksDB SST file layout.
         store.compact().expect("compaction failed");
-        let tries = ShardTries::test(store, 1);
+
+        // Create ShardTries with relevant settings adjusted for estimator.
+        let shard_uids = [ShardUId { shard_id: 0, version: 0 }];
+        let mut trie_config = near_store::TrieConfig::default();
+        trie_config.enable_receipt_prefetching = true;
+        let tries = ShardTries::new(
+            store.clone(),
+            trie_config,
+            &shard_uids,
+            near_store::flat_state::FlatStateFactory::new(store.clone()),
+        );
 
         assert!(roots.len() <= 1, "Parameter estimation works with one shard only.");
         assert!(!roots.is_empty(), "No state roots found.");

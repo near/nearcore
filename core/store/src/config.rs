@@ -182,7 +182,7 @@ impl Default for StoreConfig {
             block_size: bytesize::ByteSize::kib(16),
 
             trie_cache_capacities: vec![(ShardUId { version: 1, shard_id: 3 }, 45_000_000)],
-            enable_receipt_prefetching: false,
+            enable_receipt_prefetching: true,
             sweat_prefetch_receivers: vec![
                 "token.sweat".to_owned(),
                 "vfinal.token.sweat.testnet".to_owned(),

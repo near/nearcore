@@ -2,37 +2,36 @@
 name = "node-runtime"
 version = "0.0.0"
 license = "MIT OR Apache-2.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.63.0"
-edition = "2021"
+rust-version.workspace = true
+edition.workspace = true
 
 [dependencies]
-byteorder = "1.2"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1.0"
-tracing = "0.1.13"
-rand = "0.7"
-once_cell = "1.5.2"
-num-rational = "0.3"
-num-bigint = "0.3"
-num-traits = "0.2.11"
-hex = "0.4.2"
-rayon = "1.5"
-thiserror = "1.0"
-sha2 = "0.10"
-
-borsh = "0.9"
+borsh.workspace = true
+byteorder.workspace = true
+hex.workspace = true
+num-bigint.workspace = true
+num-rational.workspace = true
+num-traits.workspace = true
+once_cell.workspace = true
+rand.workspace = true
+rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
+near-o11y = { path = "../../core/o11y" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
-near-o11y = { path = "../../core/o11y" }
+near-vm-errors = { path = "../../runtime/near-vm-errors" }
 near-vm-logic = { path = "../../runtime/near-vm-logic" }
 near-vm-runner = { path = "../../runtime/near-vm-runner" }
-near-vm-errors = { path = "../../runtime/near-vm-errors" }
 
 [features]
 default = []
@@ -48,13 +47,13 @@ no_cache = [
 sandbox = ["near-vm-logic/sandbox", "near-vm-runner/sandbox"]
 
 [dev-dependencies]
-tempfile = "3"
-serde_json = "^1.0.40"
-indicatif = {version = "0.15.0", features = ["with_rayon"]}
-rayon = "^1.1"
-assert_matches = "1.3"
+assert_matches.workspace = true
+indicatif.workspace = true
+rayon.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
 
-testlib = { path = "../../test-utils/testlib" }
 near-chain-configs = { path = "../../core/chain-configs" }
-near-test-contracts = { path = "../../runtime/near-test-contracts" }
 near-store = { path = "../../core/store", features = ["test_features"] }
+near-test-contracts = { path = "../../runtime/near-test-contracts" }
+testlib = { path = "../../test-utils/testlib" }

@@ -76,6 +76,7 @@ impl User for RpcUser {
         let query = QueryRequest::ViewState {
             account_id: account_id.clone(),
             prefix: prefix.to_vec().into(),
+            include_proof: false,
         };
         match self.query(query)?.kind {
             near_jsonrpc_primitives::types::query::QueryResponseKind::ViewState(

@@ -637,7 +637,7 @@ fn col_name(col: DBCol) -> &'static str {
         DBCol::ComponentEdges => "col31",
         DBCol::LastComponentNonce => "col32",
         DBCol::Transactions => "col33",
-        DBCol::ChunkPerHeightShard => "col34",
+        DBCol::_ChunkPerHeightShard => "col34",
         DBCol::StateChanges => "col35",
         DBCol::BlockRefCount => "col36",
         DBCol::TrieChanges => "col37",
