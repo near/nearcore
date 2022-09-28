@@ -2367,7 +2367,7 @@ dependencies = [
  "once_cell",
  "parking_lot 0.12.1",
  "primitive-types",
- "rand 0.7.3",
+ "rand 0.8.5",
  "serde",
  "serde_json",
  "smart-default",
@@ -2771,7 +2771,7 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "nearcore",
- "rand 0.7.3",
+ "rand 0.8.5",
  "rayon",
  "serde",
  "serde_json",
@@ -2848,7 +2848,7 @@ version = "0.0.0"
 dependencies = [
  "bencher",
  "lru",
- "rand 0.7.3",
+ "rand 0.8.5",
 ]
 
 [[package]]
@@ -2878,7 +2878,7 @@ dependencies = [
  "near-store",
  "num-rational",
  "once_cell",
- "rand 0.7.3",
+ "rand 0.8.5",
  "rayon",
  "strum",
  "thiserror",
@@ -2933,7 +2933,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "once_cell",
- "rand 0.7.3",
+ "rand 0.8.5",
  "reed-solomon-erasure",
  "tracing",
 ]
@@ -2978,7 +2978,7 @@ dependencies = [
  "near-telemetry",
  "num-rational",
  "once_cell",
- "rand 0.7.3",
+ "rand 0.8.5",
  "reed-solomon-erasure",
  "serde_json",
  "strum",
@@ -3049,7 +3049,7 @@ dependencies = [
  "num-rational",
  "primitive-types",
  "rand 0.6.5",
- "rand 0.7.3",
+ "rand 0.8.5",
  "serde_json",
  "smart-default",
  "tracing",
@@ -3242,8 +3242,8 @@ dependencies = [
  "pretty_assertions",
  "protobuf 3.0.2",
  "protobuf-codegen",
- "rand 0.7.3",
- "rand_xorshift 0.2.0",
+ "rand 0.8.5",
+ "rand_xorshift 0.3.0",
  "rayon",
  "serde",
  "smart-default",
@@ -3338,7 +3338,7 @@ dependencies = [
  "near-o11y",
  "near-primitives",
  "once_cell",
- "rand 0.7.3",
+ "rand 0.8.5",
 ]
 
 [[package]]
@@ -3364,7 +3364,7 @@ dependencies = [
  "num-rational",
  "once_cell",
  "primitive-types",
- "rand 0.7.3",
+ "rand 0.8.5",
  "reed-solomon-erasure",
  "serde",
  "serde_json",
@@ -3477,7 +3477,7 @@ dependencies = [
  "near-primitives",
  "num_cpus",
  "once_cell",
- "rand 0.7.3",
+ "rand 0.8.5",
  "rlimit",
  "rocksdb",
  "serde",
@@ -3655,7 +3655,7 @@ dependencies = [
  "num-rational",
  "once_cell",
  "primitive-types",
- "rand 0.7.3",
+ "rand 0.8.5",
  "rayon",
  "rlimit",
  "serde",
@@ -3736,7 +3736,7 @@ dependencies = [
  "num-rational",
  "num-traits",
  "once_cell",
- "rand 0.7.3",
+ "rand 0.8.5",
  "rayon",
  "serde",
  "serde_json",
@@ -4640,11 +4640,11 @@ dependencies = [
 
 [[package]]
 name = "rand_xorshift"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77d416b86801d23dde1aa643023b775c3a462efc0ed96443add11546cdf1dca8"
+checksum = "d25bf25ec5ae4a3f1b92f929810509a2f53d7dca2f50b794ff57e3face536c8f"
 dependencies = [
- "rand_core 0.5.1",
+ "rand_core 0.6.3",
 ]
 
 [[package]]
@@ -4939,8 +4939,8 @@ dependencies = [
  "node-runtime",
  "num-rational",
  "num-traits",
- "rand 0.7.3",
- "rand_xorshift 0.2.0",
+ "rand 0.8.5",
+ "rand_xorshift 0.3.0",
  "rocksdb",
  "serde_json",
  "tempfile",
@@ -5459,7 +5459,7 @@ dependencies = [
  "nearcore",
  "node-runtime",
  "once_cell",
- "rand 0.7.3",
+ "rand 0.8.5",
  "rayon",
  "redis",
  "serde",

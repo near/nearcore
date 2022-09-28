@@ -392,10 +392,6 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     (client_addr, vca.unwrap())
 }
 
-fn sample_binary(n: u64, k: u64) -> bool {
-    thread_rng().gen_range(0, k) <= n
-}
-
 pub struct BlockStats {
     hash2depth: HashMap<CryptoHash, u64>,
     num_blocks: u64,
@@ -508,7 +504,7 @@ fn send_chunks<T, I, F>(
 {
     for (i, name) in recipients {
         if name == target {
-            if !drop_chunks || !sample_binary(1, 10) {
+            if !drop_chunks || !thread_rng().gen_ratio(1, 5) {
                 connectors[i].0.do_send(create_msg());
             }
         }

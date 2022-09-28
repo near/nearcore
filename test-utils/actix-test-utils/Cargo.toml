@@ -8,8 +8,8 @@ rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
-actix-rt = "2"
-futures = "0.3"
-once_cell = "1.5.2"
+actix-rt.workspace = true
+futures.workspace = true
+once_cell.workspace = true
 
 near-store = { path = "../../core/store" }
