@@ -75,6 +75,7 @@ steps:
       cargo build -p neard --bin neard
       python3 scripts/state/update_res.py check
 
+      python3 scripts/check_rust-version.py
       python3 scripts/check_nightly.py
       python3 scripts/check_pytests.py
       python3 scripts/check_fuzzing.py
