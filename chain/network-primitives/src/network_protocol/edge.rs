@@ -25,12 +25,7 @@ pub struct PartialEdgeInfo {
 
 impl PartialEdgeInfo {
     pub fn new(peer0: &PeerId, peer1: &PeerId, nonce: u64, secret_key: &SecretKey) -> Self {
-        let data = if peer0 < peer1 {
-            Edge::build_hash(peer0, peer1, nonce)
-        } else {
-            Edge::build_hash(peer1, peer0, nonce)
-        };
-
+        let data = Edge::build_hash(peer0, peer1, nonce);
         let signature = secret_key.sign(data.as_ref());
         Self { nonce, signature }
     }
@@ -114,7 +109,7 @@ impl Edge {
     /// Build the hash of the edge given its content.
     /// It is important that peer0 < peer1 at this point.
     pub fn build_hash(peer0: &PeerId, peer1: &PeerId, nonce: u64) -> CryptoHash {
-        debug_assert!(peer0 < peer1);
+        let (peer0,peer1) = if peer0 < peer1 { (peer0,peer1) } else { (peer1,peer0) };
         CryptoHash::hash_borsh(&(peer0, peer1, nonce))
     }
 
@@ -130,11 +125,7 @@ impl Edge {
     /// to verify the signature.
     pub fn partial_verify(peer0: &PeerId, peer1: &PeerId, edge_info: &PartialEdgeInfo) -> bool {
         let pk = peer1.public_key();
-        let data = if peer0 < peer1 {
-            Edge::build_hash(peer0, peer1, edge_info.nonce)
-        } else {
-            Edge::build_hash(peer1, peer0, edge_info.nonce)
-        };
+        let data = Edge::build_hash(peer0, peer1, edge_info.nonce);
         edge_info.signature.verify(data.as_ref(), pk)
     }
 

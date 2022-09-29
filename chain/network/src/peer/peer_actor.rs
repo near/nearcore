@@ -32,7 +32,6 @@ use near_network_primitives::types::{
 };
 use near_network_primitives::types::{Edge, PartialEdgeInfo};
 use near_performance_metrics_macros::perf;
-use near_primitives::block::GenesisId;
 use near_primitives::logging;
 use near_primitives::network::PeerId;
 use near_primitives::utils::DisplayOption;
@@ -141,7 +140,6 @@ pub(crate) enum StreamConfig {
 struct HandshakeSpec {
     /// ID of the peer on the other side of the connection.
     peer_id: PeerId,
-    genesis_id: GenesisId,
     protocol_version: ProtocolVersion,
     partial_edge_info: PartialEdgeInfo,
 }
@@ -178,7 +176,6 @@ impl PeerActor {
                     partial_edge_info: network_state.propose_edge(peer_id, None),
                     protocol_version: PROTOCOL_VERSION,
                     peer_id: peer_id.clone(),
-                    genesis_id: network_state.genesis_id.clone(),
                 },
             },
         };
@@ -298,21 +295,21 @@ impl PeerActor {
 
     fn send_handshake(&self, spec: HandshakeSpec) {
         let chain_info = self.network_state.chain_info.load();
-        let msg = Handshake {
+        let handshake = Handshake {
             protocol_version: spec.protocol_version,
             oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
-            sender_peer_id: self.my_node_id().clone(),
-            target_peer_id: spec.peer_id.clone(),
-            sender_listen_port: self.my_node_info.addr_port(),
+            sender_peer_id: self.network_state.config.node_id(),
+            target_peer_id: spec.peer_id,
+            sender_listen_port: self.network_state.config.node_addr.map(|a| a.port()),
             sender_chain_info: PeerChainInfoV2 {
-                genesis_id: spec.genesis_id,
+                genesis_id: self.network_state.genesis_id.clone(),
                 height: chain_info.height,
                 tracked_shards: chain_info.tracked_shards.clone(),
                 archival: self.network_state.config.archive,
             },
             partial_edge_info: spec.partial_edge_info,
         };
-        let msg = PeerMessage::Handshake(msg);
+        let msg = PeerMessage::Handshake(handshake);
         self.send_message_or_log(&msg);
     }
 
@@ -657,7 +654,7 @@ impl PeerActor {
                     ctx.stop();
                     return;
                 }
-                if handshake.sender_chain_info.genesis_id != spec.genesis_id {
+                if handshake.sender_chain_info.genesis_id != self.network_state.genesis_id {
                     warn!(target: "network", "Genesis mismatch. Disconnecting peer {}", handshake.sender_peer_id);
                     ctx.stop();
                     return;
@@ -851,7 +848,6 @@ impl PeerActor {
                         if act.peer_type == PeerType::Inbound {
                             act.send_handshake(HandshakeSpec{
                                 peer_id: handshake.sender_peer_id.clone(),
-                                genesis_id: act.network_state.genesis_id.clone(),
                                 protocol_version: handshake.protocol_version,
                                 partial_edge_info: partial_edge_info,
                             });
@@ -963,9 +959,9 @@ impl actix::Handler<stream::Error> for PeerActor {
             },
         };
         if expected {
-            tracing::error!(target: "network", ?err, "Closing connection to {}", self.peer_info);
-        } else {
             tracing::info!(target: "network", ?err, "Closing connection to {}", self.peer_info);
+        } else {
+            tracing::error!(target: "network", ?err, "Closing connection to {}", self.peer_info);
         }
         ctx.stop();
     }
@@ -1087,8 +1083,19 @@ impl actix::Handler<stream::Frame> for PeerActor {
                 PeerStatus::Connecting(ConnectingStatus::Outbound { handshake_spec, .. }),
                 PeerMessage::LastEdge(edge),
             ) => {
-                // Disconnect if neighbor proposed an invalid edge.
-                if !edge.verify() {
+                // Check that the edge provided is:
+                let ok =
+                    // - for the relevant pair of peers
+                    edge.key()==&Edge::make_key(self.my_node_info.id.clone(),handshake_spec.peer_id.clone()) &&
+                    // - is not older than what we proposed originally
+                    edge.nonce() >= handshake_spec.partial_edge_info.nonce &&
+                    // - is not using the partial edge we just sent
+                    edge.signature0()!=&handshake_spec.partial_edge_info.signature &&
+                    edge.signature1()!=&handshake_spec.partial_edge_info.signature &&
+                    // - is a correctly signed edge
+                    edge.verify();
+                // Disconnect if neighbor sent an invalid edge.
+                if !ok {
                     info!(target: "network", "{:?}: Peer {:?} sent invalid edge. Disconnect.", self.my_node_id(), self.peer_addr);
                     ctx.stop();
                     return;

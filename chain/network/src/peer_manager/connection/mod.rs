@@ -236,6 +236,8 @@ pub(crate) enum PoolError {
     AlreadyConnected,
     #[error("already started another outbound connection to this peer")]
     AlreadyStartedConnecting,
+    #[error("loop connections are not allowed")]
+    LoopConnection,
 }
 
 impl Pool {
@@ -254,6 +256,9 @@ impl Pool {
     pub fn insert_ready(&self, peer: Arc<Connection>) -> Result<(), PoolError> {
         self.0.update(move |pool| {
             let id = &peer.peer_info.id;
+            if id == &pool.me {
+                return Err(PoolError::LoopConnection);
+            }
             if pool.ready.contains_key(id) {
                 return Err(PoolError::AlreadyConnected);
             }
@@ -283,6 +288,9 @@ impl Pool {
 
     pub fn start_outbound(&self, peer_id: PeerId) -> Result<OutboundHandshakePermit, PoolError> {
         self.0.update(move |pool| {
+            if peer_id == pool.me {
+                return Err(PoolError::LoopConnection);
+            }
             if pool.ready.contains_key(&peer_id) {
                 return Err(PoolError::AlreadyConnected);
             }
