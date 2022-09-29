@@ -28,7 +28,7 @@ pub(crate) fn extract_gas_counters(
                             let parameter_value =
                                 ext_cost_kind.value(&config.wasm_config.ext_costs);
                             let gas = meta_data.get_ext_cost(ext_cost_kind);
-                            if parameter_value != 0 {
+                            if parameter_value != 0 && gas != 0 {
                                 assert_eq!(
                                     0,
                                     gas % parameter_value,
@@ -58,7 +58,7 @@ pub(crate) fn extract_gas_counters(
 impl std::fmt::Display for GasFeeCounters {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for (param, counter) in self.counters.iter() {
-            writeln!(f, "{param}: {counter}")?;
+            writeln!(f, "{param:<48} {counter:>16}")?;
         }
         Ok(())
     }
