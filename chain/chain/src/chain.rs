@@ -2088,13 +2088,17 @@ impl Chain {
                     if new_flat_head == CryptoHash::default() {
                         new_flat_head = *self.genesis.hash();
                     }
-                    flat_storage_state.update_flat_head(&new_flat_head).unwrap_or_else(|_| {
-                        panic!(
-                            "Cannot update flat head from {:?} to {:?}",
-                            flat_storage_state.get_flat_head(),
-                            new_flat_head
-                        )
-                    });
+                    let old_flat_head = flat_storage_state.get_flat_head();
+                    if self.get_block_header(&old_flat_head)?.height()
+                        < self.get_block_header(&new_flat_head)?.height()
+                    {
+                        flat_storage_state.update_flat_head(&new_flat_head).unwrap_or_else(|err| {
+                            panic!(
+                                "Cannot update flat head from {:?} to {:?}: {:?}",
+                                old_flat_head, new_flat_head, err
+                            )
+                        });
+                    }
                 } else {
                     // TODO (#7327): some error handling code here. Should probably return an error (or panic?)
                     // here if the flat storage doesn't exist. We don't do that yet because
