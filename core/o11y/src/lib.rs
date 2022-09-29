@@ -185,7 +185,9 @@ fn add_simple_log_layer<S>(
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
 {
-    let layer = tracing_subscriber::fmt::layer()
+    let (filter, handle) = reload::Layer::<EnvFilter, S>::new(filter);
+
+    let layer = fmt::layer()
         .with_ansi(ansi)
         // Synthesizing ENTER and CLOSE events lets us log durations of spans to the log.
         .with_span_events(fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::CLOSE)
