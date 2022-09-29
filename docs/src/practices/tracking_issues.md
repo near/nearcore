@@ -1,20 +1,19 @@
 # Tracking issues
 
-`nearcore` uses tracking issues on github to make it easier to follow progress
-on individual projects.
+`nearcore` uses so called "tracking issues" to coordinate larger pieces of work
+(e.g. implementation of new NEPs).  Such issues are tagged with the
+[`C-tracking-issue`
+label](https://github.com/near/nearcore/issues?q=is%3Aopen+is%3Aissue+label%3AC-tracking-issue).
 
-## Purpose
+One can use tracking issues to:
+- get a feeling for what's happening in `nearcore` by looking at the set of
+  open tracking issues.
+- find larger efforts to contribute to as tracking issues usually contain
+  up-for-grabs todo lists.
+- follow progress of a specific features by subscribing to the issue on Github.
 
-Different types of audiences want to track progress on feature development on `nearcore`:
-- Other engineers contributing to the feature development but who may have
-  missed some progress while they were unavailable.
-- Pagoda management who would like to have an overview of which teams are
-  working on what features and how much work is left to be done.
-- The general NEAR community who are interested in development of new features
-  in the protocol.
-
-Using tracking issues can help the above audience come up to speed with projects
-quickly and makes it easy for engineers working on projects to share updates.
+If you are leading or participating in a larger effort, please create a tracking
+issue for your work.
 
 ## Guidelines
 
@@ -22,7 +21,7 @@ quickly and makes it easy for engineers working on projects to share updates.
   decide what kind of project necessitates a tracking issue.
 - Tracking issues should be maintained on the `nearcore` github repository.  If
   the projects are security sensitive, they should be tracked on the
-  `nearcore-private-1` github repository.
+  `nearcore-private` github repository.
 - The tracking issues should contain links to all the relevant design documents.
   Care should be taken that when the design changes during the development
   lifecycle (which should be expected as norm), that the summary is kept
