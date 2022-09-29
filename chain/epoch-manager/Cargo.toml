@@ -9,14 +9,12 @@ edition.workspace = true
 
 
 [dependencies]
-# Changing this version will lead to change to the protocol, as will change how validators get shuffled.
-protocol_defining_rand = { package = "rand", version = "0.6.5", default-features = false }
-
 borsh.workspace = true
 chrono = { workspace = true, optional = true }
 num-rational.workspace = true
 primitive-types.workspace = true
 rand.workspace = true
+rand_hc.workspace = true
 serde_json.workspace = true
 smart-default.workspace = true
 tracing.workspace = true
