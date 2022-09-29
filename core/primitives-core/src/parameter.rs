@@ -110,9 +110,7 @@ pub enum Parameter {
     WasmRipemd160Base,
     WasmRipemd160Block,
     WasmEcrecoverBase,
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     WasmEd25519VerifyBase,
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     WasmEd25519VerifyByte,
     WasmLogBase,
     WasmLogByte,
@@ -242,9 +240,7 @@ impl Parameter {
             Parameter::WasmRipemd160Base,
             Parameter::WasmRipemd160Block,
             Parameter::WasmEcrecoverBase,
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
             Parameter::WasmEd25519VerifyBase,
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
             Parameter::WasmEd25519VerifyByte,
             Parameter::WasmLogBase,
             Parameter::WasmLogByte,
@@ -402,6 +398,8 @@ impl Parameter {
             Parameter::WasmEd25519VerifyByte => {
                 Some(Cost::ExtCost { ext_cost_kind: ExtCosts::ed25519_verify_byte })
             }
+            #[cfg(not(feature = "protocol_feature_ed25519_verify"))]
+            Parameter::WasmEd25519VerifyBase | Parameter::WasmEd25519VerifyByte => None,
             Parameter::WasmLogBase => Some(Cost::ExtCost { ext_cost_kind: ExtCosts::log_base }),
             Parameter::WasmLogByte => Some(Cost::ExtCost { ext_cost_kind: ExtCosts::log_byte }),
             Parameter::WasmStorageWriteBase => {
