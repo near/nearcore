@@ -1,3 +1,5 @@
+use crate::network_protocol::PeerInfo;
+use crate::types::ReasonForBan;
 use crate::types::{
     MsgRecipient, NetworkInfo, NetworkResponses, PeerManagerMessageRequest,
     PeerManagerMessageResponse, SetChainInfo,
@@ -7,7 +9,6 @@ use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::future::BoxFuture;
 use futures::{future, Future, FutureExt};
 use near_crypto::{KeyType, SecretKey};
-use near_network_primitives::types::{PeerInfo, ReasonForBan};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
@@ -309,12 +310,12 @@ impl MockPeerManagerAdapter {
 pub mod test_features {
     use crate::config;
     use crate::test_utils::convert_boot_nodes;
+    use crate::time;
     use crate::types::{NetworkClientMessages, NetworkClientResponses};
+    use crate::types::{NetworkViewClientMessages, NetworkViewClientResponses};
     use crate::PeerManagerActor;
     use actix::actors::mocker::Mocker;
     use actix::Actor;
-    use near_network_primitives::time;
-    use near_network_primitives::types::{NetworkViewClientMessages, NetworkViewClientResponses};
     use near_primitives::block::GenesisId;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;

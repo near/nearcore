@@ -10,6 +10,7 @@ mod peer;
 mod peer_manager;
 
 pub mod actix;
+pub mod blacklist;
 pub mod config;
 pub mod config_json;
 pub(crate) mod private_actix;
@@ -17,6 +18,7 @@ pub mod routing;
 pub(crate) mod stats;
 pub(crate) mod store;
 pub mod test_utils;
+pub mod time;
 pub mod types;
 
 #[cfg(test)]

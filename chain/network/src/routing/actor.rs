@@ -1,14 +1,14 @@
+use crate::network_protocol::Edge;
 use crate::private_actix::{StopMsg, ValidateEdgeList};
 use crate::routing;
 use crate::routing::edge_validator_actor::EdgeValidatorActor;
 use crate::stats::metrics;
 use crate::store;
+use crate::time;
 use actix::{
     ActorContext as _, ActorFutureExt, Addr, Context, ContextFutureSpawner as _, Running,
     WrapFuture as _,
 };
-use near_network_primitives::time;
-use near_network_primitives::types::Edge;
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
 use parking_lot::RwLock;
@@ -231,7 +231,7 @@ impl actix::Handler<StopMsg> for Actor {
 /// Messages for `RoutingTableActor`
 #[derive(actix::Message, Debug, strum::IntoStaticStr)]
 #[rtype(result = "Response")]
-pub enum Message {
+pub(crate) enum Message {
     /// Gets list of edges to validate from another peer.
     /// Those edges will be filtered, by removing existing edges, and then
     /// those edges will be sent to `EdgeValidatorActor`.
@@ -246,8 +246,6 @@ pub enum Message {
         prune_unreachable_since: Option<time::Instant>,
         prune_edges_older_than: Option<time::Utc>,
     },
-    /// TEST-ONLY Remove edges.
-    AdvRemoveEdges(Vec<Edge>),
 }
 
 #[derive(actix::MessageResponse, Debug)]
@@ -307,13 +305,6 @@ impl actix::Handler<Message> for Actor {
                     next_hops,
                     peers_to_ban: std::mem::take(&mut self.peers_to_ban),
                 }
-            }
-            // TEST-ONLY
-            Message::AdvRemoveEdges(edges) => {
-                for edge in edges {
-                    self.graph.write().remove_edge(edge.key());
-                }
-                Response::Empty
             }
         }
     }

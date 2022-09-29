@@ -2,18 +2,17 @@ use crate::broadcast;
 use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Encoding, PeerAddr, PeerMessage, SignedAccountData, SyncAccountsData,
+    Encoding, PeerAddr, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
 };
 use crate::peer;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
+use crate::time;
 use crate::types::{
     ChainInfo, GetNetworkInfo, OutboundTcpConnect, PeerManagerMessageRequest, SetChainInfo,
 };
 use crate::PeerManagerActor;
-use near_network_primitives::time;
-use near_network_primitives::types::PeerInfo;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, EpochId};
 use std::collections::HashSet;

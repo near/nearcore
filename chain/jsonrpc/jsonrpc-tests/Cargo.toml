@@ -23,7 +23,6 @@ near-client = { path = "../../client" }
 near-store = { path = "../../../core/store" }
 near-o11y = { path = "../../../core/o11y" }
 near-network = { path = "../../network" }
-near-network-primitives = { path = "../../network-primitives" }
 near-jsonrpc = { path = "../" }
 near-jsonrpc-primitives = { path = "../../jsonrpc-primitives" }
 

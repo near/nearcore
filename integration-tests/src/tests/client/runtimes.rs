@@ -9,7 +9,7 @@ use near_chunks::ProcessPartialEncodedChunkResult;
 use near_client::test_utils::TestEnv;
 use near_crypto::KeyType;
 use near_network::test_utils::MockPeerManagerAdapter;
-use near_network_primitives::types::PartialEncodedChunkForwardMsg;
+use near_network::types::PartialEncodedChunkForwardMsg;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::hash::hash;

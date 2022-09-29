@@ -120,7 +120,7 @@ use near_primitives::version::ProtocolVersion;
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
 pub use near_chunks_primitives::Error;
-use near_network_primitives::types::{
+use near_network::types::{
     AccountIdOrPeerTrackingShard, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
     PartialEncodedChunkResponseMsg,
 };

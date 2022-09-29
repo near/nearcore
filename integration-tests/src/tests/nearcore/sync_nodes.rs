@@ -14,7 +14,7 @@ use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
 use near_network::types::NetworkClientMessages;
-use near_network_primitives::types::PeerInfo;
+use near_network::types::PeerInfo;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::block::Approval;
 use near_primitives::hash::CryptoHash;

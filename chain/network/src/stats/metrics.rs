@@ -1,6 +1,7 @@
 use crate::network_protocol::Encoding;
-use near_network_primitives::time;
-use near_network_primitives::types::{PeerType, RoutedMessageBody, RoutedMessageV2};
+use crate::network_protocol::{RoutedMessageBody, RoutedMessageV2};
+use crate::time;
+use crate::types::PeerType;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::{
     exponential_buckets, try_create_histogram, try_create_histogram_vec,

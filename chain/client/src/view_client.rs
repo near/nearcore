@@ -25,12 +25,12 @@ use near_client_primitives::types::{
     GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
     GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
 };
-use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 #[cfg(feature = "test_features")]
-use near_network_primitives::types::NetworkAdversarialMessage;
-use near_network_primitives::types::{
-    NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
-    StateResponseInfoV1, StateResponseInfoV2,
+use near_network::types::NetworkAdversarialMessage;
+use near_network::types::{
+    NetworkRequests, NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerAdapter,
+    PeerManagerMessageRequest, ReasonForBan, StateResponseInfo, StateResponseInfoV1,
+    StateResponseInfoV2,
 };
 use near_performance_metrics_macros::{perf, perf_with_debug};
 use near_primitives::block::{Block, BlockHeader};

@@ -1,10 +1,10 @@
+use crate::blacklist::Blacklist;
 use crate::config;
+use crate::network_protocol::PeerInfo;
 use crate::store;
+use crate::time;
+use crate::types::{KnownPeerState, KnownPeerStatus, ReasonForBan};
 use anyhow::bail;
-use near_network_primitives::time;
-use near_network_primitives::types::{
-    Blacklist, KnownPeerState, KnownPeerStatus, PeerInfo, ReasonForBan,
-};
 use near_primitives::network::PeerId;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;

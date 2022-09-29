@@ -26,7 +26,6 @@ near-network = { path = "../network" }
 near-o11y = { path = "../../core/o11y" }
 near-chain = { path = "../chain" }
 near-pool = { path = "../pool" }
-near-network-primitives = { path = "../network-primitives" }
 
 [dev-dependencies]
 assert_matches.workspace = true

@@ -15,11 +15,11 @@ use near_actix_test_utils::run_actix;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
+use near_network::types::PeerInfo;
 use near_network::types::{
     NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
 };
-use near_network_primitives::types::PeerInfo;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
 use near_primitives::transaction::SignedTransaction;

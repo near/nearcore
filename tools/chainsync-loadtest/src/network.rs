@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::concurrency::{Ctx, Once, RateLimiter, Scope, WeakMap};
 
-use near_network_primitives::types::{
+use near_network::types::{
     AccountIdOrPeerTrackingShard, NetworkViewClientMessages, NetworkViewClientResponses,
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
 };
