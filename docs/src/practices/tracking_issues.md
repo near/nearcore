@@ -17,31 +17,24 @@ issue for your work.
 
 ## Guidelines
 
-- There should be one tracking issue per project.  Discretion can be used to
-  decide what kind of project necessitates a tracking issue.
-- Tracking issues should be maintained on the `nearcore` github repository.  If
-  the projects are security sensitive, they should be tracked on the
-  `nearcore-private` github repository.
-- The tracking issues should contain links to all the relevant design documents.
-  Care should be taken that when the design changes during the development
-  lifecycle (which should be expected as norm), that the summary is kept
-  up-to-date.
-- If the feature development is associated with a NEP, then the above issue
-  should have a link to the said NEP and the NEP should be kept up-to-date in
-  accordance with the guidelines.
-- The above issue should maintain a list of tasks done and list of tasks left to
-  do.  This allows one to estimate the progress on the feature and when it might
-  be delivered.  It can also lower the barrier to entry for other engineers to
-  participate in feature development.
-- Links to Zulip discussions pertaining to the feature development.  In general,
-  engineers are encouraged to have discussions on Zulip as it is an open forum
-  and affords everyone the opportunity to participate.  However, sometimes it is
-  necessary to discuss design in other forums that are closed (e.g. video
-  calls).  Such discussions are also perfectly fine.  Care should be taken to
-  update the relevant Zulip discussions and the summary of the design.
-- Please avoid using slack and DM messages for engineering discussions.  We
-  encourage all discussions to happen on open Zulip streams.  For security
-  sensitive discussions, please use the appropriate private Zulip streams.
+- Tracking issues should be maintained in the `nearcore` repository.  If the
+  projects are security sensitive, then they should be maintained in the
+  `nearcore-private` repository.
+- Tracking issues should be kept up-to-date.  At a minimum, all new context
+  should be added as comments, but preferably the original description should be
+  edited to reflect the current status.
+- Tracking issues should contain links to all the relevant design documents
+  which should also be kept up-to-date.
+- Tracking issues should link to any relevant NEP if applicable.
+- Tracking issues should contain a list of todo tasks which should be kept
+  up-to-date as new work items are discovered and other items are done.  This
+  helps others gauge progress and helps lower the barrier of entry for others to
+  participate.
+- Tracking issues should contain links to relevant Zulip discussions.  Prefer
+  open forums like Zulip for discussions.  When necessary, closed forums like
+  video calls can also be used but care should be taken to document a summary of
+  the discussions.
+- For security sensitive discussions, use the appropriate private Zulip streams.
 
 ## Background
 
