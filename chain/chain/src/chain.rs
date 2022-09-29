@@ -2089,6 +2089,8 @@ impl Chain {
                         new_flat_head = *self.genesis.hash();
                     }
                     let old_flat_head = flat_storage_state.get_flat_head();
+                    // If we have two forks and already postprocessed block from other fork, it can result in new
+                    // proposed flat head behind current flat head. In such case, we don't update flat head.
                     if self.get_block_header(&old_flat_head)?.height()
                         < self.get_block_header(&new_flat_head)?.height()
                     {
