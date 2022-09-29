@@ -7,7 +7,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use near_chunks::client::ClientAdapterForShardsManager;
-use near_chunks::logic::{cares_about_shard_this_or_next_epoch, persist_chunk, decode_encoded_chunk};
+use near_chunks::logic::{
+    cares_about_shard_this_or_next_epoch, decode_encoded_chunk, persist_chunk,
+};
 use near_client_primitives::debug::ChunkProduction;
 use near_primitives::time::Clock;
 use tracing::{debug, error, info, trace, warn};
@@ -1343,13 +1345,13 @@ impl Client {
         merkle_paths: Vec<MerklePath>,
         receipts: Vec<Receipt>,
     ) -> Result<(), Error> {
-        let (shard_chunk, partial_chunk) =
-            decode_encoded_chunk(&encoded_chunk, merkle_paths.clone(), self.me.as_ref(), self.runtime_adapter.as_ref())?;
-        persist_chunk(
-            partial_chunk,
-            Some(shard_chunk),
-            self.chain.mut_store(),
+        let (shard_chunk, partial_chunk) = decode_encoded_chunk(
+            &encoded_chunk,
+            merkle_paths.clone(),
+            self.me.as_ref(),
+            self.runtime_adapter.as_ref(),
         )?;
+        persist_chunk(partial_chunk, Some(shard_chunk), self.chain.mut_store())?;
         self.shards_mgr.distribute_encoded_chunk(encoded_chunk, &merkle_paths, receipts)?;
         Ok(())
     }
