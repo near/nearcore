@@ -76,7 +76,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><a href="index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="architecture/trie.html"><strong aria-hidden="true">2.</strong> Trie</a></li><li class="chapter-item expanded "><a href="architecture/network.html"><strong aria-hidden="true">3.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="practices/index.html"><strong aria-hidden="true">4.</strong> Overview</a></li><li class="chapter-item expanded "><a href="practices/style.html"><strong aria-hidden="true">5.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="practices/testing/index.html"><strong aria-hidden="true">6.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="practices/testing/python_tests.html"><strong aria-hidden="true">6.1.</strong> Python Tests</a></li><li class="chapter-item expanded "><a href="practices/testing/cross_shard_tx_test.html"><strong aria-hidden="true">6.2.</strong> cross_shard_tx Test</a></li></ol></li><li class="chapter-item expanded "><a href="practices/protocol_upgrade.html"><strong aria-hidden="true">7.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="misc/index.html"><strong aria-hidden="true">8.</strong> Misc</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="architecture/trie.html"><strong aria-hidden="true">2.</strong> Trie</a></li><li class="chapter-item expanded "><a href="architecture/network.html"><strong aria-hidden="true">3.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="practices/index.html"><strong aria-hidden="true">4.</strong> Overview</a></li><li class="chapter-item expanded "><a href="practices/style.html"><strong aria-hidden="true">5.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="practices/testing/index.html"><strong aria-hidden="true">6.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="practices/testing/python_tests.html"><strong aria-hidden="true">6.1.</strong> Python Tests</a></li></ol></li><li class="chapter-item expanded "><a href="practices/protocol_upgrade.html"><strong aria-hidden="true">7.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="misc/index.html"><strong aria-hidden="true">8.</strong> Misc</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -1329,7 +1329,8 @@ test is set (in milliseconds).</li>
 </ol>
 <p>For an example of a test that launches multiple nodes, see
 <code>chunks_produced_and_distributed_common</code> in
-<a href="https://github.com/nearprotocol/nearcore/blob/master/chain/client/tests/chunks_management.rs">tests/chunks_management.rs</a>.</p>
+<a href="https://github.com/nearprotocol/nearcore/blob/master/chain/client/tests/chunks_management.rs">tests/chunks_management.rs</a>.
+The <code>setup_mock_all_validators</code> function is the key piece of infrastructure here.</p>
 <h2 id="runtime"><a class="header" href="#runtime">Runtime</a></h2>
 <p>Tests for Runtime are listed in
 <a href="https://github.com/near/nearcore/blob/master/tests/test_cases_runtime.rs">tests/test_cases_runtime.rs</a>.</p>
@@ -1596,91 +1597,6 @@ infrastructure. We have a list of test requests
 <a href="https://github.com/nearprotocol/nearcore/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+test%22+">here</a>,
 but also welcome any other tests that test aspects of the network we haven't
 though about.</p>
-<div style="break-before: page; page-break-before: always;"></div><p><code>cross_shard_tx</code> test is a test that tests many complex features of the server
-and uses <code>KeyValueRuntime</code>.</p>
-<p>We generally do not write many new tests using <code>KeyValueRuntime</code> given the
-limitations of it, and generally one wouldn't interact with it except to debug
-issues with <code>cross_shard_tx</code>, so this section provides basic overview of both
-the particular test and the infrastructure it uses.</p>
-<h2 id="keyvalueruntime"><a class="header" href="#keyvalueruntime">KeyValueRuntime</a></h2>
-<p>KeyValueRuntime is written to be able to test chain without creating the actual
-Runtime. It thus doesn't use the actual storage, and doesn't use the actual
-epoch manager. The storage it uses is a simple key value store, and for the
-epoch manager, it is parametrized with a vector of vectors of validators
-<code>validators: Vec&lt;Vec&lt;ValidatorStake&gt;&gt;</code>, where for epoch <code>i</code> the validator set
-consists of <code>validators[i % validators.len()]</code>.</p>
-<h2 id="setup_mock_all_validators"><a class="header" href="#setup_mock_all_validators">setup_mock_all_validators</a></h2>
-<p><code>setup_mock_all_validators</code> is given a <code>Vec&lt;Vec&lt;str&gt;&gt;</code> and a parallel set of key
-pairs, and creates the <code>KeyValueRuntime</code>, <code>ClientActor</code> and <code>ViewClientActor</code>
-per validator. It then establishes a fake network between them. The last
-argument to <code>setup_mock_all_validators</code> is a handler that is called for each
-messages that is passed between the validators, and returns a pair <code>(resonse, perform_default)</code>. If <code>perform_default</code> is <code>true</code>, the <code>response</code> is ignored,
-and the default handler is executed (that will send message to the recipient(s),
-compute the response from their standpoint, and send it back. If
-<code>perform_default</code> is <code>false</code>, the default handler is not executed, in particular
-the message is dropped and is not delivered to the recipients. The <code>response</code> is
-then sent as a response to the original sender.</p>
-<p><code>setup_mock_all_validators</code> receives a set of booleans and other parameters that
-enable various test modes:</p>
-<h3 id="validator_groups"><a class="header" href="#validator_groups">validator_groups</a></h3>
-<p>This parameter splits the validators in each shard into that many groups, and
-assigns a separate set of shards to each group. E.g. if there are 8 validators
-in a particular epoch, and 4 shards, and 2 validator groups, 4 validators will
-be assigned to two shards, and 4 remaining validators will be assigned to 2
-remaining shards. With 8 validators, 4 shards and 4 validator groups each shard
-will be assigned to two validators.</p>
-<p>The number of shards is the number of validators in the epoch that has the
-smallest number of validators.</p>
-<h3 id="block_prod_time"><a class="header" href="#block_prod_time">block_prod_time</a></h3>
-<p><code>min_block_production_time</code> will be set to this value,
-<code>max_block_production_time</code> to this value times 3.</p>
-<h3 id="drop_chunks"><a class="header" href="#drop_chunks">drop_chunks</a></h3>
-<p>If set to true, some small percentage of chunk-related messages will be dropped</p>
-<h3 id="tamper_with_fg"><a class="header" href="#tamper_with_fg">tamper_with_fg</a></h3>
-<p>If set to false, all the approvals are delivered. Otherwise at some heights no
-approvals will be delivered, at some heights only half, and at some heights all
-will be delivered. It was designed to tamper with the finality gadget when we
-had it, unclear if has much effect today. Must be disabled if doomslug is
-enabled (see below), because doomslug will stall if approvals are not delivered.</p>
-<h3 id="enable_doomslug"><a class="header" href="#enable_doomslug">enable_doomslug</a></h3>
-<p>If false, blocks will be created when at least one approval is present, without
-waiting for 2/3. This allows for more forkfulness. <code>cross_shard_tx</code> has modes
-both with enabled doomslug (to test &quot;production&quot; setting) and with disabled
-doomslug (to test higher forkfullness)</p>
-<h2 id="cross_shard_tx"><a class="header" href="#cross_shard_tx">cross_shard_tx</a></h2>
-<p>The basic flow of the test spins up validators, and starts sending to them
-several (at most 64) cross-shard transactions. i-th transaction sends money from
-validator i/8 to validator i%8. What makes the test good is that due to very low
-block production time, it creates lots of forks, delaying both the transaction
-acceptance, and the receipt delivery.</p>
-<p>It submits txs one at a time, and waits for their completion before sending the
-next. Whenever the transaction completed, it traces &quot;Finished iteration 1&quot; (with
-the ordinal increasing). Given the test takes a while, checking how far below
-the last some message is a good way to early tell that the test has stalled.
-E.g. if the last message is not in the last 15% of the output, it is likely that
-the test will not make further progress, depending on the mode (with validator
-rotation some iterations are way longer than other).</p>
-<p>The test has multiple modes:</p>
-<ul>
-<li>
-<p><code>test_cross_shard_tx</code> -- doesn't drop chunks, disabled doomslug, no validator
-rotation (each epoch has the same set of validators)</p>
-</li>
-<li>
-<p><code>test_cross_shard_tx_doomslug</code> -- same as above, but doomslug is enabled</p>
-</li>
-<li>
-<p><code>test_cross_shard_tx_drop_chunks</code> -- same as the first one but the chunks are
-sometimes dropped</p>
-</li>
-<li>
-<p><code>test_cross_shard_tx_with_validator_rotation_{1, 2}</code> -- same as the first one,
-but with validator rotation. The two versions of the test have slightly
-different block production times, and different number of iterations we expect
-to finish in the allocated time. (the one with lower block production time is
-expected to finish fewer because it has higher forkfulness).</p>
-</li>
-</ul>
 <div style="break-before: page; page-break-before: always;"></div><h2 id="protocol-upgrade"><a class="header" href="#protocol-upgrade">Protocol Upgrade</a></h2>
 <p>This document describes the entire cycle of how a protocol upgrade is done, from
 the initial PR to the final release. It is important for everyone who
