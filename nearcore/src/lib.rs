@@ -309,6 +309,7 @@ pub fn start_with_config_and_synchronization(
             config.genesis.config.clone(),
             client_actor.clone(),
             view_client.clone(),
+            network_actor.clone(),
         ));
     }
 

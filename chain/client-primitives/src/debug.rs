@@ -6,7 +6,9 @@ use std::collections::HashMap;
 use crate::types::StatusError;
 use actix::Message;
 use chrono::DateTime;
-use near_primitives::views::{CatchupStatusView, EpochValidatorInfo, SyncStatusView};
+use near_primitives::views::{
+    CatchupStatusView, EpochValidatorInfo, PeerStoreView, SyncStatusView,
+};
 use near_primitives::{
     block_header::ApprovalInner,
     hash::CryptoHash,
@@ -190,4 +192,14 @@ pub enum DebugStatusResponse {
     BlockStatus(Vec<DebugBlockStatus>),
     // Detailed information about the validator (approvals, block & chunk production etc.)
     ValidatorStatus(ValidatorStatus),
+    PeerStore(PeerStoreView),
+}
+
+// Different debug requests that can be sent by HTML pages, via GET.
+pub enum NetworkDebugStatus {
+    PeerStore,
+}
+
+impl Message for NetworkDebugStatus {
+    type Result = Result<DebugStatusResponse, StatusError>;
 }

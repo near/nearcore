@@ -126,7 +126,7 @@
         function fetchProducers(epoch_id, producers_callback) {
             $.ajax({
                 type: "GET",
-                url: "/debug/api/epoch_info",
+                url: "http://localhost:3030/debug/api/epoch_info",
                 success: data => {
                     data.status_response.EpochInfo.forEach(element => {
                         if (element.epoch_id == epoch_id) {
@@ -155,10 +155,11 @@
         }
 
         $(document).ready(() => {
+            $('.detailed-peer-storage').hide();
             $('span').text("Loading...");
             $.ajax({
                 type: "GET",
-                url: "/debug/api/status",
+                url: "http://localhost:3030/debug/api/status",
                 success: data => {
 
                     fetchProducers(data.sync_info.epoch_id, (block_producers, chunk_producers) => {
@@ -274,6 +275,111 @@
             })
 
         });
+
+        function to_human_time(seconds) {
+            let result = "";
+            if (seconds >= 60) {
+                let minutes = Math.floor(seconds / 60);
+                seconds = seconds % 60;
+                if (minutes > 60) {
+                    let hours = Math.floor(minutes / 60);
+                    minutes = minutes % 60;
+                    if (hours > 24) {
+                        let days = Math.floor(hours / 24);
+                        hours = hours % 24;
+                        result += days + " days ";
+                    }
+                    result += hours + " h ";
+                }
+                result += minutes + " m ";
+            }
+            result += seconds + " s"
+            return result;
+        }
+
+        function sortTable(n) {
+            var table, rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
+            table = $(".detailed-peer-storage")[0];
+            switching = true;
+            // Set the sorting direction to ascending:
+            dir = "asc";
+            /* Make a loop that will continue until
+            no switching has been done: */
+            while (switching) {
+                // Start by saying: no switching is done:
+                switching = false;
+                rows = table.rows;
+                /* Loop through all table rows (except the
+                first, which contains table headers): */
+                for (i = 1; i < (rows.length - 1); i++) {
+                    // Start by saying there should be no switching:
+                    shouldSwitch = false;
+                    /* Get the two elements you want to compare,
+                    one from current row and one from the next: */
+                    x = rows[i].getElementsByTagName("TD")[n];
+                    y = rows[i + 1].getElementsByTagName("TD")[n];
+                    /* Check if the two rows should switch place,
+                    based on the direction, asc or desc: */
+
+                    let val1 = x.innerHTML.toLowerCase();
+                    if (x.hasAttribute("sort_val")) {
+                        val1 = x.attributes.sort_val;
+                    }
+                    let val2 = y.innerHTML.toLowerCase();
+                    if (y.hasAttribute("sort_val")) {
+                        val2 = y.attributes.sort_val;
+                    }
+                    if (dir == "asc") {
+                        if (val1 > val2) {
+                            // If so, mark as a switch and break the loop:
+                            shouldSwitch = true;
+                            break;
+                        }
+                    } else if (dir == "desc") {
+                        if (val1 < val2) {
+                            // If so, mark as a switch and break the loop:
+                            shouldSwitch = true;
+                            break;
+                        }
+                    }
+                }
+                if (shouldSwitch) {
+                    /* If a switch has been marked, make the switch
+                    and mark that a switch has been done: */
+                    rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+                    switching = true;
+                    // Each time a switch is done, increase this count by 1:
+                    switchcount++;
+                } else {
+                    /* If no switching has been done AND the direction is "asc",
+                    set the direction to "desc" and run the while loop again. */
+                    if (switchcount == 0 && dir == "asc") {
+                        dir = "desc";
+                        switching = true;
+                    }
+                }
+            }
+        }
+
+        function show_peer_storage() {
+            $.ajax({
+                type: "GET",
+                url: "http://localhost:3030/debug/api/peer_store",
+                success: data => {
+                    data.status_response.PeerStore.peer_states.forEach(element => {
+                        let row = $("<tr>");
+                        row.append($("<td>").append(element['peer_id']));
+                        let first_seen =
+                            row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['first_seen'])).attr("sort_value", element['first_seen']));
+                        row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_seen'])).attr("sort_value", element['last_seen']));
+                        row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_attempt'])).attr("sort_value", element['last_attempt']));
+                        row.append($("<td>").append(element['status']));
+                        $(".tbody-detailed-peer-storage").append(row);
+                    });
+                    $(".detailed-peer-storage").show();
+                }
+            });
+        }
     </script>
 </head>
 
@@ -347,6 +453,22 @@ Unreachable: <span class="js-unreachable-chunk-producers"></span>
             </tr>
         </thead>
         <tbody class="js-tbody-peers">
+        </tbody>
+    </table>
+    <br>
+    <button onclick="show_peer_storage()">
+        Show detailed peer storage
+    </button>
+    <table class="detailed-peer-storage">
+        <thead>
+            <th onclick="sortTable(0)">Peer id</th>
+            <th onclick="sortTable(1)">First seen</th>
+            <th onclick="sortTable(2)">Last seen</th>
+            <th onclick="sortTable(3)">Last connection attempt</th>
+            <th onclick="sortTable(4)">Status</th>
+        </thead>
+        <tbody class="tbody-detailed-peer-storage">
+
         </tbody>
     </table>
 </body>

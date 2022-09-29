@@ -3227,6 +3227,7 @@ dependencies = [
  "im",
  "itertools",
  "lru",
+ "near-client-primitives",
  "near-crypto",
  "near-network-primitives",
  "near-o11y",

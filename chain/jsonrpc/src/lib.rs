@@ -9,6 +9,8 @@ use actix_web::HttpRequest;
 use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use futures::Future;
 use futures::FutureExt;
+use near_client_primitives::debug::NetworkDebugStatus;
+use near_network::PeerManagerActor;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::time::{sleep, timeout};
@@ -213,6 +215,7 @@ fn process_query_response(
 struct JsonRpcHandler {
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
+    peer_manager_addr: Addr<PeerManagerActor>,
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
     enable_debug_rpc: bool,
@@ -401,6 +404,21 @@ impl JsonRpcHandler {
         E: RpcFrom<actix::MailboxError>,
     {
         self.view_client_addr.send(msg).await.map_err(RpcFrom::rpc_from)?.map_err(RpcFrom::rpc_from)
+    }
+
+    async fn peer_manager_send<M, T, E, F>(&self, msg: M) -> Result<T, E>
+    where
+        PeerManagerActor: actix::Handler<M>,
+        M: actix::Message<Result = Result<T, F>> + Send + 'static,
+        M::Result: Send,
+        E: RpcFrom<F>,
+        E: RpcFrom<actix::MailboxError>,
+    {
+        self.peer_manager_addr
+            .send(msg)
+            .await
+            .map_err(RpcFrom::rpc_from)?
+            .map_err(RpcFrom::rpc_from)
     }
 
     async fn send_tx_async(
@@ -744,6 +762,9 @@ impl JsonRpcHandler {
                 "/debug/api/block_status" => self.client_send(DebugStatus::BlockStatus).await?,
                 "/debug/api/validator_status" => {
                     self.client_send(DebugStatus::ValidatorStatus).await?
+                }
+                "/debug/api/peer_store" => {
+                    self.peer_manager_send(NetworkDebugStatus::PeerStore).await?
                 }
                 _ => return Ok(None),
             };
@@ -1325,6 +1346,7 @@ pub fn start_http(
     genesis_config: GenesisConfig,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
+    peer_manager_addr: Addr<PeerManagerActor>,
 ) -> Vec<(&'static str, actix_web::dev::ServerHandle)> {
     let RpcConfig {
         addr,
@@ -1344,6 +1366,7 @@ pub fn start_http(
             .app_data(web::Data::new(JsonRpcHandler {
                 client_addr: client_addr.clone(),
                 view_client_addr: view_client_addr.clone(),
+                peer_manager_addr: peer_manager_addr.clone(),
                 polling_config,
                 genesis_config: genesis_config.clone(),
                 enable_debug_rpc,

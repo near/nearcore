@@ -49,6 +49,7 @@ assert_matches = "1.3"
 delay-detector = { path = "../../tools/delay-detector" }
 near-o11y = { path = "../../core/o11y" }
 near-crypto = { path = "../../core/crypto" }
+near-client-primitives = {path = "../client-primitives"}
 near-network-primitives = { path = "../network-primitives" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
