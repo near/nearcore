@@ -8,9 +8,9 @@ use actix_web;
 use anyhow::Context;
 use near_chain::{Chain, ChainGenesis};
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
+use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
-use near_network_primitives::time;
 use near_primitives::block::GenesisId;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::reset_memory_usage_max;

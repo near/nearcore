@@ -8,7 +8,7 @@ use chrono::DateTime;
 use near_primitives::time::Utc;
 
 use near_chain_configs::ProtocolConfigView;
-use near_network_primitives::types::{AccountOrPeerIdOrHash, KnownProducer, PeerInfo};
+use near_network::types::{AccountOrPeerIdOrHash, KnownProducer, PeerInfo};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};

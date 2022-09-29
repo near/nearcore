@@ -11,9 +11,9 @@ edition.workspace = true
 deepsize = { workspace = true, optional = true }
 serde.workspace = true
 
-near-network-primitives = { path = "../network-primitives" }
 near-primitives = { path = "../../core/primitives" }
+near-network = { path = "../network" }
 
 [features]
-test_features = ["near-network-primitives/test_features"]
+test_features = ["near-network/test_features"]
 deepsize_feature = ["deepsize", "near-primitives/deepsize_feature"]
