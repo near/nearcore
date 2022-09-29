@@ -23,6 +23,7 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::client::ShardsManagerResponse;
+use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
     StatusError, StatusSyncInfo, SyncStatus,
@@ -574,11 +575,10 @@ impl ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunkRequest(part_request_msg, route_back) => {
-                let _ = self.client.shards_mgr.process_partial_encoded_chunk_request(
-                    part_request_msg,
-                    route_back,
-                    self.client.chain.mut_store(),
-                );
+                let _ = self
+                    .client
+                    .shards_mgr
+                    .process_partial_encoded_chunk_request(part_request_msg, route_back);
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunkResponse(response, time) => {
@@ -1702,11 +1702,12 @@ impl ClientActor {
                 let shards_to_sync =
                     (0..self.client.runtime_adapter.num_shards(&epoch_id).unwrap())
                         .filter(|x| {
-                            self.client.shards_mgr.cares_about_shard_this_or_next_epoch(
+                            cares_about_shard_this_or_next_epoch(
                                 me.as_ref(),
                                 &prev_hash,
                                 *x,
                                 true,
+                                self.client.runtime_adapter.as_ref(),
                             )
                         })
                         .collect();
@@ -1997,9 +1998,15 @@ impl Handler<ShardsManagerResponse> for ClientActor {
             tracing::debug_span!(target: "client", "handle", handler = "ShardsManagerResponse")
                 .entered();
         match msg {
-            ShardsManagerResponse::ChunkCompleted(chunk_header) => {
-                self.client
-                    .on_chunk_completed(&chunk_header, self.get_apply_chunks_done_callback());
+            ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
+                self.client.on_chunk_completed(
+                    partial_chunk,
+                    shard_chunk,
+                    self.get_apply_chunks_done_callback(),
+                );
+            }
+            ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
+                self.client.on_invalid_chunk(encoded_chunk);
             }
         }
     }
