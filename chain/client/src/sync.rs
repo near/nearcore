@@ -623,6 +623,19 @@ impl PendingRequestStatus {
     }
 }
 
+/// Private to public API conversion.
+fn make_account_or_peer_id_or_hash(
+    from: near_network::types::AccountOrPeerIdOrHash,
+) -> near_client_primitives::types::AccountOrPeerIdOrHash {
+    type From = near_network::types::AccountOrPeerIdOrHash;
+    type To = near_client_primitives::types::AccountOrPeerIdOrHash;
+    match from {
+        From::AccountId(a) => To::AccountId(a),
+        From::PeerId(p) => To::PeerId(p),
+        From::Hash(h) => To::Hash(h),
+    }
+}
+
 /// Helper to track state sync.
 pub struct StateSync {
     network_adapter: Arc<dyn PeerManagerAdapter>,
@@ -1114,7 +1127,8 @@ impl StateSync {
                 assert!(new_shard_sync_download.downloads[0].run_me.load(Ordering::SeqCst));
                 new_shard_sync_download.downloads[0].run_me.store(false, Ordering::SeqCst);
                 new_shard_sync_download.downloads[0].state_requests_count += 1;
-                new_shard_sync_download.downloads[0].last_target = Some(target.clone());
+                new_shard_sync_download.downloads[0].last_target =
+                    Some(make_account_or_peer_id_or_hash(target.clone()));
                 let run_me = new_shard_sync_download.downloads[0].run_me.clone();
                 near_performance_metrics::actix::spawn(
                     std::any::type_name::<Self>(),
@@ -1151,7 +1165,7 @@ impl StateSync {
                     self.sent_request_part(target.clone(), part_id as u64, shard_id, sync_hash);
                     download.run_me.store(false, Ordering::SeqCst);
                     download.state_requests_count += 1;
-                    download.last_target = Some(target.clone());
+                    download.last_target = Some(make_account_or_peer_id_or_hash(target.clone()));
                     let run_me = download.run_me.clone();
 
                     near_performance_metrics::actix::spawn(

@@ -775,6 +775,27 @@ impl Handler<Status> for ClientActor {
     }
 }
 
+/// Private to public API conversion.
+fn make_peer_info(from: near_network::types::PeerInfo) -> near_client_primitives::types::PeerInfo {
+    near_client_primitives::types::PeerInfo {
+        id: from.id,
+        addr: from.addr,
+        account_id: from.account_id,
+    }
+}
+
+/// Private to public API conversion.
+fn make_known_producer(
+    from: near_network::types::KnownProducer,
+) -> near_client_primitives::types::KnownProducer {
+    near_client_primitives::types::KnownProducer {
+        peer_id: from.peer_id,
+        account_id: from.account_id,
+        addr: from.addr,
+        next_hops: from.next_hops,
+    }
+}
+
 impl Handler<GetNetworkInfo> for ClientActor {
     type Result = Result<NetworkInfoResponse, String>;
 
@@ -790,13 +811,18 @@ impl Handler<GetNetworkInfo> for ClientActor {
 
         Ok(NetworkInfoResponse {
             connected_peers: (self.network_info.connected_peers.iter())
-                .map(|fpi| fpi.full_peer_info.peer_info.clone())
+                .map(|fpi| make_peer_info(fpi.full_peer_info.peer_info.clone()))
                 .collect(),
             num_connected_peers: self.network_info.num_connected_peers,
             peer_max_count: self.network_info.peer_max_count,
             sent_bytes_per_sec: self.network_info.sent_bytes_per_sec,
             received_bytes_per_sec: self.network_info.received_bytes_per_sec,
-            known_producers: self.network_info.known_producers.clone(),
+            known_producers: self
+                .network_info
+                .known_producers
+                .iter()
+                .map(|p| make_known_producer(p.clone()))
+                .collect(),
         })
     }
 }

@@ -2985,7 +2985,6 @@ dependencies = [
  "near-chain-primitives",
  "near-chunks-primitives",
  "near-crypto",
- "near-network",
  "near-primitives",
  "once_cell",
  "serde",

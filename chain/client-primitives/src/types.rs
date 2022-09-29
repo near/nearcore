@@ -8,10 +8,10 @@ use chrono::DateTime;
 use near_primitives::time::Utc;
 
 use near_chain_configs::ProtocolConfigView;
-use near_network::types::{AccountOrPeerIdOrHash, KnownProducer, PeerInfo};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
+use near_primitives::network::PeerId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
@@ -40,6 +40,13 @@ pub enum Error {
     ChunkProducer(String),
     #[error("Other: {0}")]
     Other(String),
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub enum AccountOrPeerIdOrHash {
+    AccountId(AccountId),
+    PeerId(PeerId),
+    Hash(CryptoHash),
 }
 
 #[derive(Debug, Serialize)]
@@ -549,6 +556,21 @@ impl From<near_chain_primitives::Error> for GetGasPriceError {
             _ => Self::Unreachable { error_message: error.to_string() },
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct PeerInfo {
+    pub id: PeerId,
+    pub addr: Option<std::net::SocketAddr>,
+    pub account_id: Option<AccountId>,
+}
+
+#[derive(Clone, Debug)]
+pub struct KnownProducer {
+    pub account_id: AccountId,
+    pub addr: Option<std::net::SocketAddr>,
+    pub peer_id: PeerId,
+    pub next_hops: Option<Vec<PeerId>>,
 }
 
 #[derive(Debug)]
