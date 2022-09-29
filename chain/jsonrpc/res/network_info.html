@@ -126,7 +126,7 @@
         function fetchProducers(epoch_id, producers_callback) {
             $.ajax({
                 type: "GET",
-                url: "http://localhost:3030/debug/api/epoch_info",
+                url: "/debug/api/epoch_info",
                 success: data => {
                     data.status_response.EpochInfo.forEach(element => {
                         if (element.epoch_id == epoch_id) {
@@ -159,7 +159,7 @@
             $('span').text("Loading...");
             $.ajax({
                 type: "GET",
-                url: "http://localhost:3030/debug/api/status",
+                url: "/debug/api/status",
                 success: data => {
 
                     fetchProducers(data.sync_info.epoch_id, (block_producers, chunk_producers) => {
@@ -364,7 +364,7 @@
         function show_peer_storage() {
             $.ajax({
                 type: "GET",
-                url: "http://localhost:3030/debug/api/peer_store",
+                url: "/debug/api/peer_store",
                 success: data => {
                     $(".detailed-peer-storage-size").text(data.status_response.PeerStore.peer_states.length);
                     data.status_response.PeerStore.peer_states.forEach(element => {
