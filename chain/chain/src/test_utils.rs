@@ -425,6 +425,18 @@ impl EpochManagerAdapter for KeyValueRuntime {
         Ok(self.num_shards)
     }
 
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        _epoch_id: &EpochId,
+    ) -> Result<ShardId, Error> {
+        Ok(account_id_to_shard_id(account_id, self.num_shards))
+    }
+
+    fn shard_id_to_uid(&self, shard_id: ShardId, _epoch_id: &EpochId) -> Result<ShardUId, Error> {
+        Ok(ShardUId { version: 0, shard_id: shard_id as u32 })
+    }
+
     fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {
         Ok(ShardLayout::v0(self.num_shards, 0))
     }
@@ -736,10 +748,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(self.store.store_update())
     }
 
-    fn shard_id_to_uid(&self, shard_id: ShardId, _epoch_id: &EpochId) -> Result<ShardUId, Error> {
-        Ok(ShardUId { version: 0, shard_id: shard_id as u32 })
-    }
-
     fn num_total_parts(&self) -> usize {
         12 + (self.num_shards as usize + 1) % 50
     }
@@ -752,14 +760,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         } else {
             (total_parts - 1) / 3
         }
-    }
-
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        _epoch_id: &EpochId,
-    ) -> Result<ShardId, Error> {
-        Ok(account_id_to_shard_id(account_id, self.num_shards))
     }
 
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
