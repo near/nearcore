@@ -28,13 +28,15 @@ pub(crate) fn extract_gas_counters(
                             let parameter_value =
                                 ext_cost_kind.value(&config.wasm_config.ext_costs);
                             let gas = meta_data.get_ext_cost(ext_cost_kind);
-                            assert_eq!(
-                                0,
-                                gas % parameter_value,
-                                "invalid gas profile for given config"
-                            );
-                            let counter = gas / parameter_value;
-                            *counters.entry(*param).or_default() += counter;
+                            if parameter_value != 0 {
+                                assert_eq!(
+                                    0,
+                                    gas % parameter_value,
+                                    "invalid gas profile for given config"
+                                );
+                                let counter = gas / parameter_value;
+                                *counters.entry(*param).or_default() += counter;
+                            }
                         }
                         Cost::WasmInstruction => {
                             // this is tricky because we have to figure out how much gas has been burnt for function call execution
