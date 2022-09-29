@@ -11,15 +11,15 @@ edition.workspace = true
 cargo-fuzz = true
 
 [dependencies]
-arbitrary = { version = "1", features = ["derive"] }
-libfuzzer-sys = "0.4"
-wasm-smith = "0.10.0"
-wasmprinter = "0.2"
+arbitrary.workspace = true
+libfuzzer-sys.workspace = true
+wasm-smith.workspace = true
+wasmprinter.workspace = true
 
 near-primitives = { path = "../../../core/primitives" }
 near-test-contracts = { path = "../../near-test-contracts" }
 near-vm-errors = { path = "../../near-vm-errors" }
-near-vm-logic = { path = "../../near-vm-logic", default-features = false, features = [] }
+near-vm-logic = { path = "../../near-vm-logic", default-features = false }
 near-vm-runner = { path = ".." }
 
 [[bin]]

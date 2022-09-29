@@ -17,7 +17,7 @@ fn block_hash(height: BlockHeight, ord: usize) -> CryptoHash {
 
 fn get_msg_delivery_time(now: Instant, gst: Instant, delta: Duration) -> Instant {
     std::cmp::max(now, gst)
-        + Duration::from_millis(thread_rng().gen_range(0, delta.as_millis()) as u64)
+        + Duration::from_millis(thread_rng().gen_range(0..delta.as_millis()) as u64)
 }
 
 /// Runs a single iteration of a fuzz test given specific time until global stabilization and
@@ -111,7 +111,7 @@ fn one_iter(
                 }
 
                 // Generally make 20% of the remaining approvals to drop
-                if thread_rng().gen_range(0, 10) < 2 {
+                if thread_rng().gen_range(0..10) < 2 {
                     continue;
                 }
 

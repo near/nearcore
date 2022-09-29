@@ -30,8 +30,8 @@ use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
 use near_client_primitives::types::{
     DownloadStatus, ShardSyncDownload, ShardSyncStatus, StateSplitApplyingStatus, SyncStatus,
 };
+use near_network::types::AccountOrPeerIdOrHash;
 use near_network::types::PeerManagerMessageRequest;
-use near_network_primitives::types::AccountOrPeerIdOrHash;
 use near_primitives::shard_layout::ShardUId;
 
 /// Maximum number of block headers send over the network.
@@ -275,7 +275,8 @@ impl HeaderSync {
                                         PeerManagerMessageRequest::NetworkRequests(
                                             NetworkRequests::BanPeer {
                                                 peer_id: peer.peer_info.id.clone(),
-                                                ban_reason: near_network_primitives::types::ReasonForBan::HeightFraud,
+                                                ban_reason:
+                                                    near_network::types::ReasonForBan::HeightFraud,
                                             },
                                         ),
                                     );
@@ -619,6 +620,19 @@ impl PendingRequestStatus {
     }
     fn expired(&self) -> bool {
         Clock::utc() > self.wait_until
+    }
+}
+
+/// Private to public API conversion.
+fn make_account_or_peer_id_or_hash(
+    from: near_network::types::AccountOrPeerIdOrHash,
+) -> near_client_primitives::types::AccountOrPeerIdOrHash {
+    type From = near_network::types::AccountOrPeerIdOrHash;
+    type To = near_client_primitives::types::AccountOrPeerIdOrHash;
+    match from {
+        From::AccountId(a) => To::AccountId(a),
+        From::PeerId(p) => To::PeerId(p),
+        From::Hash(h) => To::Hash(h),
     }
 }
 
@@ -1113,7 +1127,8 @@ impl StateSync {
                 assert!(new_shard_sync_download.downloads[0].run_me.load(Ordering::SeqCst));
                 new_shard_sync_download.downloads[0].run_me.store(false, Ordering::SeqCst);
                 new_shard_sync_download.downloads[0].state_requests_count += 1;
-                new_shard_sync_download.downloads[0].last_target = Some(target.clone());
+                new_shard_sync_download.downloads[0].last_target =
+                    Some(make_account_or_peer_id_or_hash(target.clone()));
                 let run_me = new_shard_sync_download.downloads[0].run_me.clone();
                 near_performance_metrics::actix::spawn(
                     std::any::type_name::<Self>(),
@@ -1150,7 +1165,7 @@ impl StateSync {
                     self.sent_request_part(target.clone(), part_id as u64, shard_id, sync_hash);
                     download.run_me.store(false, Ordering::SeqCst);
                     download.state_requests_count += 1;
-                    download.last_target = Some(target.clone());
+                    download.last_target = Some(make_account_or_peer_id_or_hash(target.clone()));
                     let run_me = download.run_me.clone();
 
                     near_performance_metrics::actix::spawn(
@@ -1282,7 +1297,7 @@ impl<T: Clone> Iterator for SamplerLimited<T> {
             None
         } else {
             let len = self.limit.len();
-            let ix = thread_rng().gen_range(0, len);
+            let ix = thread_rng().gen_range(0..len);
             self.limit[ix] -= 1;
 
             if self.limit[ix] == 0 {
@@ -1319,7 +1334,7 @@ mod test {
 
     use super::*;
     use crate::test_utils::TestEnv;
-    use near_network_primitives::types::{PartialEdgeInfo, PeerInfo};
+    use near_network::types::{PartialEdgeInfo, PeerInfo};
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -1386,7 +1401,7 @@ mod test {
         let mut sync_status = SyncStatus::NoSync;
         let peer1 = FullPeerInfo {
             peer_info: PeerInfo::random(),
-            chain_info: near_network_primitives::types::PeerChainInfoV2 {
+            chain_info: near_network::types::PeerChainInfoV2 {
                 genesis_id: GenesisId {
                     chain_id: "unittest".to_string(),
                     hash: *chain.genesis().hash(),

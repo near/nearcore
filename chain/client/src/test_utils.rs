@@ -26,11 +26,11 @@ use near_chain::{
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::test_utils::MockPeerManagerAdapter;
+use near_network::types::PartialEdgeInfo;
 use near_network::types::{
     ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkClientResponses,
     NetworkRecipient, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
-use near_network_primitives::types::PartialEdgeInfo;
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
@@ -54,12 +54,12 @@ use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor}
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_client_primitives::types::Error;
 use near_network::types::{
-    NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
-};
-use near_network_primitives::types::{
     AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses,
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo,
     PeerType,
+};
+use near_network::types::{
+    NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
 };
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::network::PeerId;
@@ -392,10 +392,6 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     (client_addr, vca.unwrap())
 }
 
-fn sample_binary(n: u64, k: u64) -> bool {
-    thread_rng().gen_range(0, k) <= n
-}
-
 pub struct BlockStats {
     hash2depth: HashMap<CryptoHash, u64>,
     num_blocks: u64,
@@ -508,7 +504,7 @@ fn send_chunks<T, I, F>(
 {
     for (i, name) in recipients {
         if name == target {
-            if !drop_chunks || !sample_binary(1, 10) {
+            if !drop_chunks || !thread_rng().gen_ratio(1, 5) {
                 connectors[i].0.do_send(create_msg());
             }
         }
@@ -643,9 +639,9 @@ pub fn setup_mock_all_validators(
                             },
                                 received_bytes_per_sec: 0,
                                 sent_bytes_per_sec: 0,
-                                last_time_peer_requested: near_network_primitives::time::Instant::now(),
-                                last_time_received_message: near_network_primitives::time::Instant::now(),
-                                connection_established_time: near_network_primitives::time::Instant::now(),
+                                last_time_peer_requested: near_network::time::Instant::now(),
+                                last_time_received_message: near_network::time::Instant::now(),
+                                connection_established_time: near_network::time::Instant::now(),
                                 peer_type: PeerType::Outbound, })
                             .collect();
                         let peers2 = peers.iter().map(|it| it.full_peer_info.clone()).collect();

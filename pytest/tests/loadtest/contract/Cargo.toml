@@ -12,7 +12,7 @@ members = []
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-near-sdk = "3.1.0"
+near-sdk.workspace = true
 
 [profile.release]
 codegen-units = 1

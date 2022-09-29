@@ -8,48 +8,48 @@ rust-version.workspace = true
 publish = false
 
 [build-dependencies]
-anyhow = "1.0.55"
-protobuf-codegen = "3.0.1"
+anyhow.workspace = true
+protobuf-codegen.workspace = true
 
 [dependencies]
-arc-swap = "1.5"
-im = "15"
-rayon = "1.5"
-smart-default = "0.6"
-protobuf = "3.0.1"
-actix = "0.13.0"
-anyhow = "1.0.55"
-chrono = "0.4.4"
-crossbeam-channel = "0.5"
-parking_lot = "0.12.1"
-borsh = { version = "0.9", features = ["rc"] }
-bytes = "1"
-bytesize = "1.1"
-conqueue = "0.4.0"
-deepsize = { version = "0.2.0", optional = true }
-futures = "0.3"
-futures-util = "0.3"
-itertools = "0.10.3"
-lru = "0.7.2"
-thiserror = "1"
-near-rust-allocator-proxy = { version = "0.4", optional = true }
-once_cell = "1.12.0"
-opentelemetry = { version = "0.17.0", features = ["trace"] }
-rand = "0.7"
-rand_xorshift = "0.2"
-serde = { version = "1", features = ["alloc", "derive", "rc"] }
-strum = { version = "0.24", features = ["derive"] }
-tokio-stream = { version = "0.1.2", features = ["net"] }
-tokio-util = { version = "0.7.1", features = ["codec", "io"] }
-tokio = { version = "1.18", features = ["macros", "net", "rt-multi-thread","macros"] }
-tracing = "0.1.36"
-tracing-opentelemetry = { version = "0.17.0" }
-assert_matches = "1.3"
+actix.workspace = true
+anyhow.workspace = true
+arc-swap.workspace = true
+assert_matches.workspace = true
+borsh.workspace = true
+bytes.workspace = true
+bytesize.workspace = true
+chrono.workspace = true
+conqueue.workspace = true
+crossbeam-channel.workspace = true
+deepsize = { workspace = true, optional = true }
+futures-util.workspace = true
+futures.workspace = true
+im.workspace = true
+itertools.workspace = true
+lru.workspace = true
+near-rust-allocator-proxy = { workspace = true, optional = true }
+once_cell.workspace = true
+opentelemetry.workspace = true
+parking_lot.workspace = true
+protobuf.workspace = true
+rand.workspace = true
+rand_xorshift.workspace = true
+rayon.workspace = true
+serde.workspace = true
+smart-default.workspace = true
+strum.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tokio-util.workspace = true
+tracing-opentelemetry.workspace = true
+tracing.workspace = true
+time.workspace = true
 
 delay-detector = { path = "../../tools/delay-detector" }
 near-o11y = { path = "../../core/o11y" }
 near-crypto = { path = "../../core/crypto" }
-near-network-primitives = { path = "../network-primitives" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
 near-primitives = { path = "../../core/primitives" }
@@ -57,15 +57,14 @@ near-stable-hasher = { path = "../../utils/near-stable-hasher"}
 near-store = { path = "../../core/store" }
 
 [dev-dependencies]
-criterion = { version = "0.3.5", default_features = false, features = ["html_reports", "cargo_bench_support"] }
-tempfile = "3"
-pretty_assertions = "1.2"
+criterion.workspace = true
+pretty_assertions.workspace = true
+tempfile.workspace = true
 
 [features]
 deepsize_feature = [
     "deepsize",
     "near-crypto/deepsize_feature",
-    "near-network-primitives/deepsize_feature",
     "near-primitives/deepsize_feature",
 ]
 delay_detector = ["delay-detector/delay_detector"]
@@ -73,9 +72,7 @@ performance_stats = [
     "near-performance-metrics/performance_stats",
     "near-rust-allocator-proxy",
 ]
-test_features = [
-  "near-network-primitives/test_features",
-]
+test_features = []
 
 shardnet = []
 

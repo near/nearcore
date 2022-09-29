@@ -2,7 +2,10 @@ use crate::broadcast;
 use crate::concurrency::demux;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{PeerMessage, RoutingTableUpdate};
+use crate::network_protocol::{
+    Edge, PartialEdgeInfo, PeerInfo, PeerMessage, RawRoutedMessage, RoutedMessageBody,
+    RoutedMessageV2, RoutingTableUpdate,
+};
 use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
@@ -12,15 +15,11 @@ use crate::routing::routing_table_view::RoutingTableView;
 use crate::store;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
+use crate::time;
+use crate::types::AccountOrPeerIdOrHash;
 use actix::{Actor, Context, Handler};
 use near_crypto::{InMemorySigner, Signature};
-use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
-    RoutedMessageV2,
-};
 use near_primitives::network::PeerId;
-
-use near_network_primitives::time;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tracing::Span;

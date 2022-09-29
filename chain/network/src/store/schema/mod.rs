@@ -1,10 +1,10 @@
+use crate::time;
+use crate::types as primitives;
 /// Schema module defines a type-safe access to the DB.
 /// It is a concise definition of key and value types
 /// of the DB columns. For high level access see store.rs.
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
-use near_network_primitives::time;
-use near_network_primitives::types as primitives;
 use near_primitives::account::id::AccountId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_store::DBCol;
