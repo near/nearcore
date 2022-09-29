@@ -8,10 +8,10 @@ rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
-borsh = "0.9"
-indicatif = "0.15.0"
-clap = { version = "3.1.6", features = ["derive"] }
-tempfile = "3"
+borsh.workspace = true
+clap.workspace = true
+indicatif.workspace = true
+tempfile.workspace = true
 
 nearcore = { path = "../../nearcore" }
 near-chain-configs = { path = "../../core/chain-configs" }

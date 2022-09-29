@@ -51,7 +51,3 @@ pub fn fg(color: Color) -> String {
 pub fn bold() -> &'static str {
     "\x1b[1m"
 }
-
-pub fn highlight(s: &str) -> String {
-    fg(Color::Color256(178)) + &bg(Color::Gray { shade: 3 }) + s + reset()
-}

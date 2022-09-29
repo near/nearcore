@@ -12,6 +12,8 @@
 
 - [Overview](./practices/README.md)
 - [Code Style](./practices/style.md)
+- [Testing](./practices/testing/README.md)
+  - [Python Tests](./practices/testing/python_tests.md)
 - [Protocol Upgrade](./practices/protocol_upgrade.md)
 
 # Misc

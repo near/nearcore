@@ -1269,7 +1269,7 @@ mod tests {
     fn test_refcounts() {
         let mut rng = rand::thread_rng();
         for _test_run in 0..10 {
-            let num_iterations = rng.gen_range(1, 20);
+            let num_iterations = rng.gen_range(1..20);
             let tries = create_tries();
             let mut state_root = Trie::EMPTY_ROOT;
             for _ in 0..num_iterations {

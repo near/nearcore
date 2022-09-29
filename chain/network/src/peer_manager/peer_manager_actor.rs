@@ -1,5 +1,9 @@
 use crate::config;
-use crate::network_protocol::{AccountData, PeerMessage, RoutingTableUpdate, SyncAccountsData};
+use crate::network_protocol::{
+    AccountData, AccountOrPeerIdOrHash, Edge, EdgeState, PartialEdgeInfo, PeerInfo, PeerMessage,
+    Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo,
+    SyncAccountsData,
+};
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_store::PeerStore;
@@ -13,10 +17,12 @@ use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use crate::store;
+use crate::time;
 use crate::types::{
-    ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, NetworkClientMessages, NetworkInfo,
-    NetworkRequests, NetworkResponses, OutboundTcpConnect, PeerManagerMessageRequest,
-    PeerManagerMessageResponse, SetChainInfo,
+    Ban, ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownPeerStatus, KnownProducer,
+    NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
+    NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType, ReasonForBan, SetChainInfo,
 };
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
@@ -92,6 +98,9 @@ const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 /// If we set this horizon too low (for example 2 blocks) - we're risking excluding a lot of peers in case of a short
 /// network issue.
 const UNRELIABLE_PEER_HORIZON: u64 = 60;
+
+/// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
+pub const MAX_NUM_PEERS: usize = 128;
 
 #[derive(Clone, PartialEq, Eq)]
 struct WhitelistNode {

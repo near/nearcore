@@ -5,13 +5,14 @@ use near_primitives::{
     epoch_manager::ShardConfig,
     errors::EpochError,
     hash::CryptoHash,
-    shard_layout::ShardLayout,
+    shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutError},
     sharding::{ChunkHash, ShardChunkHeader},
     types::{
         validator_stake::ValidatorStake, AccountId, ApprovalStake, Balance, BlockHeight,
         EpochHeight, EpochId, NumShards, ShardId,
     },
 };
+use near_store::ShardUId;
 
 use crate::{EpochManager, EpochManagerHandle};
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
@@ -29,6 +30,17 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     /// Get current number of shards.
     fn num_shards(&self, epoch_id: &EpochId) -> Result<ShardId, Error>;
+
+    /// Which shard the account belongs to in the given epoch.
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardId, Error>;
+
+    /// Converts `ShardId` (index of shard in the *current* layout) to
+    /// `ShardUId` (`ShardId` + the version of shard layout itself.)
+    fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error>;
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
 
@@ -49,6 +61,23 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Get next epoch id given hash of previous block.
     fn get_next_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash)
         -> Result<EpochId, Error>;
+
+    /// For each `ShardId` in the current block, returns its parent `ShardId`
+    /// from previous block.
+    ///
+    /// Most of the times parent of the shard is the shard itself, unless a
+    /// resharding happened and some shards were split.
+    fn get_prev_shard_ids(
+        &self,
+        prev_hash: &CryptoHash,
+        shard_ids: Vec<ShardId>,
+    ) -> Result<Vec<ShardId>, Error>;
+
+    /// Get shard layout given hash of previous block.
+    fn get_shard_layout_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<ShardLayout, Error>;
 
     /// Get [`EpochId`] from a block belonging to the epoch.
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, Error>;
@@ -223,6 +252,22 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.num_shards())
     }
 
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardId, Error> {
+        let epoch_manager = self.read();
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
+        Ok(account_id_to_shard_id(account_id, &shard_layout))
+    }
+
+    fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error> {
+        let epoch_manager = self.read();
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
+        Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
+    }
+
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.clone())
@@ -259,6 +304,41 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
     ) -> Result<EpochId, Error> {
         let epoch_manager = self.read();
         epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
+    }
+
+    fn get_prev_shard_ids(
+        &self,
+        prev_hash: &CryptoHash,
+        shard_ids: Vec<ShardId>,
+    ) -> Result<Vec<ShardId>, Error> {
+        if self.is_next_block_epoch_start(prev_hash)? {
+            let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
+            let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(prev_hash)?)?;
+            if prev_shard_layout != shard_layout {
+                return Ok(shard_ids
+                    .into_iter()
+                    .map(|shard_id| {
+                        shard_layout.get_parent_shard_id(shard_id).map(|parent_shard_id|{
+                            assert!(parent_shard_id < prev_shard_layout.num_shards(),
+                                    "invalid shard layout {:?}: parent shard {} does not exist in last shard layout",
+                                    shard_layout,
+                                    parent_shard_id
+                            );
+                            parent_shard_id
+                        })
+                    })
+                    .collect::<Result<_, ShardLayoutError>>()?);
+            }
+        }
+        Ok(shard_ids)
+    }
+
+    fn get_shard_layout_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<ShardLayout, Error> {
+        let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
+        self.get_shard_layout(&epoch_id)
     }
 
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, Error> {

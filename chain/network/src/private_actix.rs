@@ -1,11 +1,11 @@
 /// This file is contains all types used for communication between `Actors` within this crate.
 /// They are not meant to be used outside.
-use crate::network_protocol::{PeerMessage, RoutingTableUpdate};
-use crate::peer_manager::connection;
-use conqueue::QueueSender;
-use near_network_primitives::types::{
-    Ban, Edge, PartialEdgeInfo, PeerInfo, PeerType, ReasonForBan, RoutedMessageBody,
+use crate::network_protocol::{
+    Edge, PartialEdgeInfo, PeerInfo, PeerMessage, RoutedMessageBody, RoutingTableUpdate,
 };
+use crate::peer_manager::connection;
+use crate::types::{Ban, PeerType, ReasonForBan};
+use conqueue::QueueSender;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use std::collections::HashMap;
@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 
 /// Received new peers from another peer.
 #[derive(Debug, Clone)]
-pub struct PeersResponse {
+pub(crate) struct PeersResponse {
     pub(crate) peers: Vec<PeerInfo>,
 }
 
@@ -89,22 +89,16 @@ pub(crate) struct Unregister {
 /// Requesting peers from peer manager to communicate to a peer.
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "PeerRequestResult")]
-pub struct PeersRequest {}
+pub(crate) struct PeersRequest {}
 
 #[derive(Debug, actix::MessageResponse)]
-pub struct PeerRequestResult {
+pub(crate) struct PeerRequestResult {
     pub peers: Vec<PeerInfo>,
 }
 
 #[derive(actix::Message)]
 #[rtype(result = "()")]
 pub(crate) struct StopMsg {}
-
-#[derive(actix::Message, Clone, Debug)]
-#[rtype(result = "()")]
-pub struct StartRoutingTableSync {
-    pub peer_id: PeerId,
-}
 
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "()")]
@@ -123,21 +117,21 @@ impl Debug for ValidateEdgeList {
 /// Those are list of edges received through `NetworkRequests::Sync`.
 #[derive(actix::Message)]
 #[rtype(result = "bool")]
-pub struct ValidateEdgeList {
+pub(crate) struct ValidateEdgeList {
     /// The list of edges is provided by `source_peer_id`, that peer will be banned
     ///if any of these edges are invalid.
-    pub(crate) source_peer_id: PeerId,
+    pub source_peer_id: PeerId,
     /// List of Edges, which will be sent to `EdgeValidatorActor`.
-    pub(crate) edges: Vec<Edge>,
+    pub edges: Vec<Edge>,
     /// A set of edges, which have been verified. This is a cache with all verified edges.
     /// `EdgeValidatorActor`, and is a source of memory leak.
     /// TODO(#5254): Simplify this process.
-    pub(crate) edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
+    pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
     /// A concurrent queue. After edge become validated it will be sent from `EdgeValidatorActor` back to
     /// `PeerManagetActor`, and then send to `RoutingTableActor`. And then `RoutingTableActor`
     /// will add them.
     /// TODO(#5254): Simplify this process.
-    pub(crate) sender: QueueSender<Edge>,
+    pub sender: QueueSender<Edge>,
 }
 
 impl PeerToManagerMsgResp {
