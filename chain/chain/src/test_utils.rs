@@ -128,6 +128,13 @@ struct EpochValidatorSet {
 }
 
 /// Simple key value runtime for tests.
+///
+/// Major differences with production `NightshadeRuntime`:
+///   * Uses in-memory storage
+///   * Doesn't have WASM runtime, so can only process simple transfer
+///     transaction
+///   * Uses hard-coded validator schedule instead of using `EpochManager` and
+///     staking to assign block and chunk producers.
 pub struct KeyValueRuntime {
     store: Store,
     tries: ShardTries,

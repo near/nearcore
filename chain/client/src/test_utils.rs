@@ -511,32 +511,40 @@ fn send_chunks<T, I, F>(
     }
 }
 
-/// Sets up ClientActor and ViewClientActor with mock PeerManager.
+/// Setup multiple clients talking to each other via a mock network.
 ///
 /// # Arguments
-/// * `validators` - a vector or vector of validator names. Each vector is a set of validators for a
-///                 particular epoch. E.g. if `validators` has three elements, then the each epoch
-///                 with id % 3 == 0 will have the first set of validators, with id % 3 == 1 will
-///                 have the second set of validators, and with id % 3 == 2 will have the third
-/// * `key_pairs` - a flattened list of key pairs for the `validators`
-/// * `validator_groups` - how many groups to split validators into. E.g. say there are four shards,
-///                 and four validators in a particular epoch. If `validator_groups == 1`, all vals
-///                 will validate all shards. If `validator_groups == 2`, shards 0 and 1 will have
-///                 two validators validating them, and shards 2 and 3 will have the remaining two.
-///                 If `validator_groups == 4`, each validator will validate a single shard
+///
+/// `vs` - the set of validators and how they are assigned to shards in different epochs.
+///
+/// `key_pairs` - keys for `validators`
+///
 /// `skip_sync_wait`
+///
 /// `block_prod_time` - Minimum block production time, assuming there is enough approvals. The
 ///                 maximum block production time depends on the value of `tamper_with_fg`, and is
 ///                 equal to `block_prod_time` if `tamper_with_fg` is `true`, otherwise it is
 ///                 `block_prod_time * 2`
+///
 /// `drop_chunks` - if set to true, 10% of all the chunk messages / requests will be dropped
+///
 /// `tamper_with_fg` - if set to true, will split the heights into groups of 100. For some groups
 ///                 all the approvals will be dropped (thus completely disabling the finality gadget
 ///                 and introducing severe forkfulness if `block_prod_time` is sufficiently small),
 ///                 for some groups will keep all the approvals (and test the fg invariants), and
 ///                 for some will drop 50% of the approvals.
+///                 This was designed to tamper with the finality gadget when we
+///                 had it, unclear if has much effect today. Must be disabled if doomslug is
+///                 enabled (see below), because doomslug will stall if approvals are not delivered.
+///
 /// `epoch_length` - approximate length of the epoch as measured
 ///                 by the block heights difference of it's last and first block.
+///
+/// `enable_doomslug` - If false, blocks will be created when at least one approval is present, without
+///                   waiting for 2/3. This allows for more forkfulness. `cross_shard_tx` has modes
+///                   both with enabled doomslug (to test "production" setting) and with disabled
+///                   doomslug (to test higher forkfullness)
+///
 /// `network_mock` - the callback that is called for each message sent. The `mock` is called before
 ///                 the default processing. `mock` returns `(response, perform_default)`. If
 ///                 `perform_default` is false, then the message is not processed or broadcasted
@@ -557,10 +565,13 @@ pub fn setup_mock_all_validators(
     check_block_stats: bool,
     peer_manager_mock: Box<
         dyn FnMut(
+            // Peer validators
             &[(Addr<ClientActor>, Addr<ViewClientActor>)],
+            // Validator that sends the message
             AccountId,
+            // The message itself
             &PeerManagerMessageRequest,
-        ) -> (PeerManagerMessageResponse, bool),
+        ) -> (PeerManagerMessageResponse, /* perform default */ bool),
     >,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>, Arc<RwLock<BlockStats>>) {
     let peer_manager_mock = Arc::new(RwLock::new(peer_manager_mock));
