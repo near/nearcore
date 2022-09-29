@@ -34,6 +34,7 @@ nearcore = { path = "../../nearcore" }
 node-runtime = { path = "../../runtime/runtime" }
 
 [dev-dependencies]
+insta.workspace = true
 near-client = { path = "../../chain/client" }
 testlib = { path = "../../test-utils/testlib" }
 

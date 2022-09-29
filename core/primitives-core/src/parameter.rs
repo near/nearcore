@@ -240,7 +240,9 @@ impl Parameter {
             Parameter::WasmRipemd160Base,
             Parameter::WasmRipemd160Block,
             Parameter::WasmEcrecoverBase,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
             Parameter::WasmEd25519VerifyBase,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
             Parameter::WasmEd25519VerifyByte,
             Parameter::WasmLogBase,
             Parameter::WasmLogByte,

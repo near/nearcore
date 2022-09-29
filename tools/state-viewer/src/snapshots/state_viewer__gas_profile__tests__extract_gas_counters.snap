@@ -1,0 +1,9 @@
+---
+source: tools/state-viewer/src/gas_profile.rs
+expression: profile
+---
+wasm_regular_op_cost                                         7000
+wasm_storage_write_base                                       137
+wasm_storage_write_key_byte                                  4629
+wasm_storage_write_value_byte                                2246
+

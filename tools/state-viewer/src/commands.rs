@@ -16,6 +16,7 @@ use near_network::iter_peers_from_store;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
@@ -32,7 +33,6 @@ use near_store::TrieConfig;
 use near_store::{NodeStorage, Store};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
-use node_runtime::near_primitives::runtime::config_store::RuntimeConfigStore;
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -832,14 +832,13 @@ pub(crate) fn gas_profile(
         near_config.genesis.config.genesis_height,
         !near_config.client_config.archive,
     );
-    // let receipt = chain_store.get_receipt(&receipt_id)?.expect("receipt not found");
     let outcomes = chain_store.get_outcomes_by_id(&receipt_id)?;
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(protocol_version);
 
     for outcome in outcomes {
         let profile = crate::gas_profile::extract_gas_counters(
-            outcome.outcome_with_id.outcome,
+            &outcome.outcome_with_id.outcome,
             runtime_config,
         );
         let mut out = std::io::stdout().lock();
