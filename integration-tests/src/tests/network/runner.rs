@@ -7,20 +7,19 @@ use near_chain_configs::ClientConfig;
 use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_network::actix::ActixSystem;
+use near_network::blacklist;
 use near_network::broadcast;
 use near_network::config;
 use near_network::test_utils::{
     expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo,
 };
+use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::types::{
-    OutboundTcpConnect, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    OutboundTcpConnect, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    Ping as NetPing, Pong as NetPong, ROUTED_MESSAGE_TTL,
 };
 use near_network::{Event, PeerManagerActor};
-use near_network_primitives::time;
-use near_network_primitives::types::{
-    Blacklist, BlacklistEntry, PeerInfo, Ping as NetPing, Pong as NetPong, ROUTED_MESSAGE_TTL,
-};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
@@ -528,12 +527,12 @@ impl Runner {
 
         let boot_nodes =
             config.boot_nodes.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
-        let blacklist: Blacklist = config
+        let blacklist: blacklist::Blacklist = config
             .blacklist
             .iter()
             .map(|x| match x {
-                Some(x) => BlacklistEntry::from_addr(self.test_config[*x].addr()),
-                None => BlacklistEntry::from_ip(Ipv4Addr::LOCALHOST.into()),
+                Some(x) => blacklist::Entry::from_addr(self.test_config[*x].addr()),
+                None => blacklist::Entry::from_ip(Ipv4Addr::LOCALHOST.into()),
             })
             .collect();
         let whitelist =

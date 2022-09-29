@@ -1,5 +1,5 @@
 use crate::tests::network::runner::*;
-use near_network_primitives::time;
+use near_network::time;
 use std::cmp::min;
 
 /// Check that a node is able to connect to the network, even if the number
