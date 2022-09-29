@@ -1268,15 +1268,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(Default::default())
     }
 
-    fn get_epoch_sync_data_hash(
-        &self,
-        _prev_epoch_last_block_hash: &CryptoHash,
-        _epoch_id: &EpochId,
-        _next_epoch_id: &EpochId,
-    ) -> Result<CryptoHash, Error> {
-        Ok(CryptoHash::default())
-    }
-
     fn get_epoch_protocol_version(&self, _epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
         Ok(PROTOCOL_VERSION)
     }
