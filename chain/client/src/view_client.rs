@@ -27,10 +27,10 @@ use near_client_primitives::types::{
 };
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
-use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_network::types::{
-    NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
-    StateResponseInfoV1, StateResponseInfoV2,
+    NetworkRequests, NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerAdapter,
+    PeerManagerMessageRequest, ReasonForBan, StateResponseInfo, StateResponseInfoV1,
+    StateResponseInfoV2,
 };
 use near_performance_metrics_macros::{perf, perf_with_debug};
 use near_primitives::block::{Block, BlockHeader};
