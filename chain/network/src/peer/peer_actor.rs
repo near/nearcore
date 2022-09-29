@@ -1083,13 +1083,18 @@ impl actix::Handler<stream::Frame> for PeerActor {
                 PeerStatus::Connecting(ConnectingStatus::Outbound { handshake_spec, .. }),
                 PeerMessage::LastEdge(edge),
             ) => {
-                // Check that the edge provided is:
+                // Check that the edge provided:
                 let ok =
-                    // - for the relevant pair of peers
+                    // - is for the relevant pair of peers
                     edge.key()==&Edge::make_key(self.my_node_info.id.clone(),handshake_spec.peer_id.clone()) &&
-                    // - is not older than what we proposed originally
+                    // - is not younger than what we proposed originally
                     edge.nonce() >= handshake_spec.partial_edge_info.nonce &&
-                    // - is not using the partial edge we just sent
+                    // - is not using the partial edge we just sent: it might happen that
+                    //   we have signed an edge with exactly the same nonce previously, however
+                    //   we need to protect ourselves from a situation when the peer pretends 
+                    //   that the nonce was already used by providing the our new edge as a proof.
+                    //   Signatures are randomized, so the chance that we generated exactly the
+                    //   same signature are very small.
                     edge.signature0()!=&handshake_spec.partial_edge_info.signature &&
                     edge.signature1()!=&handshake_spec.partial_edge_info.signature &&
                     // - is a correctly signed edge
