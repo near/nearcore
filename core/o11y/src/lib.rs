@@ -300,6 +300,7 @@ fn use_color_output(options: &Options) -> bool {
 /// # Example
 ///
 /// ```rust
+/// let filter = near_o11y::EnvFilterBuilder::from_env().finish().unwrap();
 /// let _subscriber = near_o11y::default_subscriber(filter, &Default::default()).global();
 /// ```
 pub fn default_subscriber(
