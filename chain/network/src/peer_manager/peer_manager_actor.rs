@@ -32,13 +32,6 @@ use anyhow::bail;
 use anyhow::Context as _;
 use near_client_primitives::debug::{DebugStatusResponse, NetworkDebugStatus};
 use near_client_primitives::types::StatusError;
-use near_network_primitives::time;
-use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, Ban, Edge, KnownPeerStatus, KnownProducer, NetworkViewClientMessages,
-    NetworkViewClientResponses, PeerInfo, PeerType, Ping, Pong, RawRoutedMessage, ReasonForBan,
-    RoutedMessageBody, StateResponseInfo,
-};
-use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
