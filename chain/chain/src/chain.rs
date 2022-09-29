@@ -2084,7 +2084,7 @@ impl Chain {
                 if let Some(flat_storage_state) =
                     self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
                 {
-                    let mut new_flat_head = *block.header().last_final_block();
+                    let mut new_flat_head = self.final_head()?.last_block_hash;
                     if new_flat_head == CryptoHash::default() {
                         new_flat_head = *self.genesis.hash();
                     }
