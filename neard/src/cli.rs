@@ -123,10 +123,10 @@ pub(super) struct StateViewerCommand {
 struct NeardOpts {
     /// Sets verbose logging for the given target, or for all targets if no
     /// target is given.
-    #[clap(long, name = "target")]
+    #[clap(long, global(true), name = "target")]
     verbose: Option<Option<String>>,
     /// Directory for config and data.
-    #[clap(long, parse(from_os_str), default_value_os = crate::DEFAULT_HOME.as_os_str())]
+    #[clap(long, global(true), parse(from_os_str), default_value_os = crate::DEFAULT_HOME.as_os_str())]
     home: PathBuf,
     /// Skips consistency checks of the 'genesis.json' file upon startup.
     /// Let's you start `neard` slightly faster.

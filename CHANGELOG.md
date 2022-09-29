@@ -1,6 +1,17 @@
 # Changelog
 
-## [unreleased]
+## unreleased
+
+### Protocol Changes
+
+*
+
+### Non-protocol Changes
+
+* `neard` now accepts `--home` and `--verbose` anywhere in the command line: `neard run --home ./near`.
+
+
+## 1.29.0 []
 
 ### Protocol Changes
 
