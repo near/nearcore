@@ -34,6 +34,8 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_store::flat_state::ChainAccessForFlatStorage;
 use near_store::flat_state::FlatStorageState;
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
@@ -286,10 +288,12 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
 
     fn get_flat_storage_state_for_shard(&self, shard_id: ShardId) -> Option<FlatStorageState>;
 
-    fn add_flat_storage_state_for_shard(
+    #[cfg(feature = "protocol_feature_flat_state")]
+    fn create_flat_storage_state_for_shard(
         &self,
         shard_id: ShardId,
-        flat_storage_state: FlatStorageState,
+        latest_block_height: BlockHeight,
+        chain_access: &dyn ChainAccessForFlatStorage,
     );
 
     fn set_flat_storage_state_for_genesis(
@@ -348,18 +352,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
 
     /// Returns `account_id` that suppose to have the `part_id`.
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error>;
-
-    fn get_prev_shard_ids(
-        &self,
-        prev_hash: &CryptoHash,
-        shard_ids: Vec<ShardId>,
-    ) -> Result<Vec<ShardId>, Error>;
-
-    /// Get shard layout given hash of previous block.
-    fn get_shard_layout_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<ShardLayout, Error>;
 
     fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error>;
 

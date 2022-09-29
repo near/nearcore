@@ -61,6 +61,8 @@ use crate::{BlockProcessingArtifact, Provenance};
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::time::Clock;
 use near_primitives::utils::MaybeValidated;
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_store::flat_state::ChainAccessForFlatStorage;
 use near_store::flat_state::FlatStorageState;
 
 pub use self::validator_schedule::ValidatorSchedule;
@@ -454,6 +456,21 @@ impl EpochManagerAdapter for KeyValueRuntime {
         Ok(self.get_epoch_and_valset(*parent_hash)?.2)
     }
 
+    fn get_prev_shard_ids(
+        &self,
+        _prev_hash: &CryptoHash,
+        shard_ids: Vec<ShardId>,
+    ) -> Result<Vec<ShardId>, Error> {
+        Ok(shard_ids)
+    }
+
+    fn get_shard_layout_from_prev_block(
+        &self,
+        _parent_hash: &CryptoHash,
+    ) -> Result<ShardLayout, Error> {
+        Ok(ShardLayout::v0(self.num_shards, 0))
+    }
+
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, Error> {
         let (epoch_id, _, _) = self.get_epoch_and_valset(*block_hash)?;
         Ok(epoch_id)
@@ -694,10 +711,13 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_flat_storage_state_for_shard(&self, _shard_id: ShardId) -> Option<FlatStorageState> {
         None
     }
-    fn add_flat_storage_state_for_shard(
+
+    #[cfg(feature = "protocol_feature_flat_state")]
+    fn create_flat_storage_state_for_shard(
         &self,
         _shard_id: ShardId,
-        _flat_storage_state: FlatStorageState,
+        _latest_block_height: BlockHeight,
+        _chain_access: &dyn ChainAccessForFlatStorage,
     ) {
     }
 
@@ -707,21 +727,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _genesis_epoch_id: &EpochId,
     ) -> Result<StoreUpdate, Error> {
         Ok(self.store.store_update())
-    }
-
-    fn get_prev_shard_ids(
-        &self,
-        _prev_hash: &CryptoHash,
-        shard_ids: Vec<ShardId>,
-    ) -> Result<Vec<ShardId>, Error> {
-        Ok(shard_ids)
-    }
-
-    fn get_shard_layout_from_prev_block(
-        &self,
-        _parent_hash: &CryptoHash,
-    ) -> Result<ShardLayout, Error> {
-        Ok(ShardLayout::v0(self.num_shards, 0))
     }
 
     fn shard_id_to_uid(&self, shard_id: ShardId, _epoch_id: &EpochId) -> Result<ShardUId, Error> {
