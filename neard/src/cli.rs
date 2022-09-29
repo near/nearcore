@@ -431,7 +431,7 @@ impl RunCmd {
             .await;
             actix::System::current().stop();
 
-            // Disable the subscriber.
+            // Disable the subscriber to properly shutdown the tracer.
             near_o11y::reload(Some("error"), None, Some(OpenTelemetryLevel::OFF)).unwrap();
         });
         sys.run().unwrap();
