@@ -5356,6 +5356,7 @@ dependencies = [
  "anyhow",
  "borsh",
  "clap 3.1.18",
+ "insta",
  "near-chain",
  "near-chain-configs",
  "near-client",
