@@ -1,12 +1,11 @@
-/// Contains types that belong to the `network protocol.
-///
-/// WARNING WARNING WARNING
-/// WARNING WARNING WARNING
-/// We need to maintain backwards compatibility, all changes to this file needs to be reviews.
+//! Contains types that belong to the `network protocol.
+//!
+//! WARNING WARNING WARNING
+//! WARNING WARNING WARNING
+//! We need to maintain backwards compatibility, all changes to this file needs to be reviews.
+use crate::network_protocol::edge::{Edge, PartialEdgeInfo};
+use crate::network_protocol::{PeerChainInfoV2, PeerInfo, RoutedMessage};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_network_primitives::types::{
-    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessage,
-};
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
@@ -17,7 +16,6 @@ use near_primitives::types::EpochId;
 use std::fmt;
 use std::fmt::Formatter;
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
 /// Structure representing handshake between peers.
 /// This replaces deprecated handshake `HandshakeV2`.
@@ -80,14 +78,12 @@ impl From<HandshakeAutoDes> for Handshake {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Default, BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub(super) struct RoutingTableUpdate {
     pub edges: Vec<Edge>,
     pub accounts: Vec<AnnounceAccount>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum HandshakeFailureReason {
     ProtocolVersionMismatch { version: u32, oldest_supported_version: u32 },
@@ -110,7 +106,6 @@ impl std::error::Error for HandshakeFailureReason {}
 /// Warning, position of each message type in this enum defines the protocol due to serialization.
 /// DO NOT MOVE, REORDER, DELETE items from the list. Only add new items to the end.
 /// If need to remove old items - replace with `None`.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, strum::AsRefStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]

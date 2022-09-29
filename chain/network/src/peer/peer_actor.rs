@@ -1,8 +1,10 @@
 use crate::accounts_data;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
-use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
-use crate::network_protocol::{Handshake, HandshakeFailureReason, PeerMessage};
+use crate::network_protocol::{
+    Edge, EdgeState, Encoding, ParsePeerMessageError, PartialEdgeInfo, PeerChainInfoV2, PeerInfo,
+    RoutedMessage, RoutedMessageBody, SyncAccountsData,
+};
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
@@ -16,7 +18,13 @@ use crate::private_actix::{
 use crate::routing::edge::verify_nonce;
 use crate::sink::Sink;
 use crate::stats::metrics;
-use crate::types::{NetworkClientMessages, NetworkClientResponses};
+use crate::time;
+use crate::types::{
+    Ban, Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses,
+    NetworkViewClientMessages, NetworkViewClientResponses, PeerIdOrHash, PeerManagerRequest,
+    PeerManagerRequestWithContext, PeerMessage, PeerType, ReasonForBan, StateResponseInfo,
+};
+
 use actix::{
     Actor, ActorContext, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler,
     Running, WrapFuture,
@@ -24,13 +32,6 @@ use actix::{
 use anyhow::Context as _;
 use lru::LruCache;
 use near_crypto::Signature;
-use near_network_primitives::time;
-use near_network_primitives::types::{
-    Ban, EdgeState, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfoV2,
-    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType,
-    ReasonForBan, RoutedMessage, RoutedMessageBody, StateResponseInfo,
-};
-use near_network_primitives::types::{Edge, PartialEdgeInfo};
 use near_performance_metrics_macros::perf;
 use near_primitives::logging;
 use near_primitives::network::PeerId;

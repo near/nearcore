@@ -19,6 +19,7 @@ opentelemetry.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry-semantic-conventions.workspace = true
 prometheus.workspace = true
+serde.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
