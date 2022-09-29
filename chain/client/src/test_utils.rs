@@ -1458,11 +1458,7 @@ impl TestEnv {
         request: PartialEncodedChunkRequestMsg,
     ) -> PartialEncodedChunkResponseMsg {
         let client = &mut self.clients[id];
-        client.shards_mgr.process_partial_encoded_chunk_request(
-            request,
-            CryptoHash::default(),
-            client.chain.mut_store(),
-        );
+        client.shards_mgr.process_partial_encoded_chunk_request(request, CryptoHash::default());
         let response = self.network_adapters[id].pop_most_recent().unwrap();
         if let PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::PartialEncodedChunkResponse { route_back: _, response },
@@ -1480,8 +1476,15 @@ impl TestEnv {
     pub fn process_shards_manager_responses(&mut self, id: usize) {
         while let Some(msg) = self.client_adapters[id].pop() {
             match msg {
-                ShardsManagerResponse::ChunkCompleted(chunk_header) => {
-                    self.clients[id].on_chunk_completed(&chunk_header, Arc::new(|_| {}));
+                ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
+                    self.clients[id].on_chunk_completed(
+                        partial_chunk,
+                        shard_chunk,
+                        Arc::new(|_| {}),
+                    );
+                }
+                ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
+                    self.clients[id].on_invalid_chunk(encoded_chunk);
                 }
             }
         }

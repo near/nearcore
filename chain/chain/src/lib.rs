@@ -11,6 +11,7 @@ pub use types::{Block, BlockHeader, BlockStatus, ChainGenesis, Provenance, Runti
 mod block_processing_utils;
 pub mod blocks_delay_tracker;
 pub mod chain;
+pub mod chunks_store;
 pub mod crypto_hash_timer;
 mod doomslug;
 mod lightclient;
