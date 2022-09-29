@@ -7,6 +7,7 @@ use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::version::ProtocolVersion;
 use near_store::{Mode, Store};
 use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
@@ -70,6 +71,9 @@ pub enum StateViewerSubCommand {
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
+    /// Print the gas profile counters for a function call receipt.
+    #[clap(alias = "gas_profile")]
+    GasProfile(GasProfileCmd),
 }
 
 impl StateViewerSubCommand {
@@ -102,6 +106,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, hot),
             StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, hot),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(hot),
+            StateViewerSubCommand::GasProfile(cmd) => cmd.run(near_config, hot),
         }
     }
 }
@@ -467,5 +472,20 @@ impl ViewTrieCmd {
     pub fn run(self, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
         view_trie(store, hash, self.shard_id, self.shard_version, self.max_depth).unwrap();
+    }
+}
+
+#[derive(Parser)]
+pub struct GasProfileCmd {
+    #[clap(long)]
+    receipt_id: String,
+    #[clap(long)]
+    protocol_version: ProtocolVersion,
+}
+
+impl GasProfileCmd {
+    pub fn run(self, near_config: NearConfig, store: Store) {
+        let hash = CryptoHash::from_str(&self.receipt_id).expect("invalid receipt hash");
+        gas_profile(store, near_config, hash, self.protocol_version).unwrap();
     }
 }

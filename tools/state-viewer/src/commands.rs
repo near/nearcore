@@ -22,6 +22,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
+use near_primitives::version::ProtocolVersion;
 use near_primitives_core::types::Gas;
 use near_store::test_utils::create_test_store;
 use near_store::Trie;
@@ -31,6 +32,7 @@ use near_store::TrieConfig;
 use near_store::{NodeStorage, Store};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
+use node_runtime::near_primitives::runtime::config_store::RuntimeConfigStore;
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -816,5 +818,39 @@ pub(crate) fn view_trie(
     let trie_storage = TrieCachingStorage::new(store, shard_cache, shard_uid, true, None);
     let trie = Trie::new(Box::new(trie_storage), Trie::EMPTY_ROOT, None);
     trie.print_recursive(&mut std::io::stdout().lock(), &hash, max_depth);
+    Ok(())
+}
+
+pub(crate) fn gas_profile(
+    store: Store,
+    near_config: NearConfig,
+    receipt_id: CryptoHash,
+    protocol_version: ProtocolVersion,
+) -> anyhow::Result<()> {
+    let chain_store = ChainStore::new(
+        store,
+        near_config.genesis.config.genesis_height,
+        !near_config.client_config.archive,
+    );
+    // let receipt = chain_store.get_receipt(&receipt_id)?.expect("receipt not found");
+    let outcomes = chain_store.get_outcomes_by_id(&receipt_id)?;
+    let config_store = RuntimeConfigStore::new(None);
+    let runtime_config = config_store.get_config(protocol_version);
+
+    for outcome in outcomes {
+        let profile = crate::gas_profile::extract_gas_counters(
+            outcome.outcome_with_id.outcome,
+            runtime_config,
+        );
+        let mut out = std::io::stdout().lock();
+        match profile {
+            Some(profile) => {
+                writeln!(out, "{profile}")?;
+            }
+            None => {
+                writeln!(out, "No gas profile found")?;
+            }
+        }
+    }
     Ok(())
 }
