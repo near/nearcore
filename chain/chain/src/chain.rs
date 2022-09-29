@@ -2084,13 +2084,14 @@ impl Chain {
                 if let Some(flat_storage_state) =
                     self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
                 {
-                    let mut new_flat_head = self.final_head()?.last_block_hash;
+                    let mut new_flat_head = *block.header().last_final_block();
                     if new_flat_head == CryptoHash::default() {
                         new_flat_head = *self.genesis.hash();
                     }
                     let old_flat_head = flat_storage_state.get_flat_head();
                     // If we have two forks and already postprocessed block from other fork, it can result in new
                     // proposed flat head behind current flat head. In such case, we don't update flat head.
+                    // Note that we can't take final head because the shard may be catching up.
                     if self.get_block_header(&old_flat_head)?.height()
                         < self.get_block_header(&new_flat_head)?.height()
                     {
