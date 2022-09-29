@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use near_chunks::client::ClientAdapterForShardsManager;
-use near_chunks::logic::ChunksLogic;
+use near_chunks::logic::{cares_about_shard_this_or_next_epoch, persist_chunk, decode_encoded_chunk};
 use near_client_primitives::debug::ChunkProduction;
 use near_primitives::time::Clock;
 use tracing::{debug, error, info, trace, warn};
@@ -88,7 +88,7 @@ pub struct Client {
     pub doomslug: Doomslug,
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub shards_mgr: ShardsManager,
-    pub chunks_logic: ChunksLogic,
+    me: Option<AccountId>,
     /// Network adapter.
     network_adapter: Arc<dyn PeerManagerAdapter>,
     /// Signer for block producer (if present).
@@ -176,9 +176,9 @@ impl Client {
             !config.archive,
         )?;
         let me = validator_signer.as_ref().map(|x| x.validator_id().clone());
-        let chunks_logic = ChunksLogic::new(me, runtime_adapter.clone());
         let shards_mgr = ShardsManager::new(
-            chunks_logic.clone(),
+            me.clone(),
+            runtime_adapter.clone(),
             network_adapter.clone(),
             client_adapter.clone(),
             chain.store().new_read_only_chunks_store(),
@@ -239,7 +239,7 @@ impl Client {
             doomslug,
             runtime_adapter,
             shards_mgr,
-            chunks_logic,
+            me,
             network_adapter,
             validator_signer,
             pending_approvals: lru::LruCache::new(num_block_producer_seats),
@@ -277,11 +277,12 @@ impl Client {
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_id as ShardId;
             if block.header().height() == chunk_header.height_included() {
-                if self.chunks_logic.cares_about_shard_this_or_next_epoch(
+                if cares_about_shard_this_or_next_epoch(
                     Some(&me),
                     block.header().prev_hash(),
                     shard_id,
                     true,
+                    self.runtime_adapter.as_ref(),
                 ) {
                     self.shards_mgr.remove_transactions(
                         shard_id,
@@ -300,11 +301,12 @@ impl Client {
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_id as ShardId;
             if block.header().height() == chunk_header.height_included() {
-                if self.chunks_logic.cares_about_shard_this_or_next_epoch(
+                if cares_about_shard_this_or_next_epoch(
                     Some(&me),
                     block.header().prev_hash(),
                     shard_id,
                     false,
+                    self.runtime_adapter.as_ref(),
                 ) {
                     self.shards_mgr.reintroduce_transactions(
                         shard_id,
@@ -999,8 +1001,7 @@ impl Client {
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
         let chunk_header = partial_chunk.cloned_header();
-        self.chunks_logic
-            .persist_chunk(partial_chunk, shard_chunk, self.chain.mut_store())
+        persist_chunk(partial_chunk, shard_chunk, self.chain.mut_store())
             .expect("Could not persist chunk");
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header, Clock::utc());
         // We're marking chunk as accepted.
@@ -1343,8 +1344,8 @@ impl Client {
         receipts: Vec<Receipt>,
     ) -> Result<(), Error> {
         let (shard_chunk, partial_chunk) =
-            self.chunks_logic.decode_encoded_chunk(&encoded_chunk, merkle_paths.clone())?;
-        self.chunks_logic.persist_chunk(
+            decode_encoded_chunk(&encoded_chunk, merkle_paths.clone(), self.me.as_ref(), self.runtime_adapter.as_ref())?;
+        persist_chunk(
             partial_chunk,
             Some(shard_chunk),
             self.chain.mut_store(),
