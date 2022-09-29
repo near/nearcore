@@ -45,6 +45,7 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
         TEST_GENESIS_CONFIG.clone(),
         client_addr,
         view_client_addr.clone(),
+        None,
     );
     (view_client_addr, addr)
 }

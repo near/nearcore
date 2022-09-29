@@ -155,7 +155,7 @@
         }
 
         $(document).ready(() => {
-            $('.detailed-peer-storage').hide();
+            $('.detailed-peer-storage-div').hide();
             $('span').text("Loading...");
             $.ajax({
                 type: "GET",
@@ -366,6 +366,7 @@
                 type: "GET",
                 url: "http://localhost:3030/debug/api/peer_store",
                 success: data => {
+                    $(".detailed-peer-storage-size").text(data.status_response.PeerStore.peer_states.length);
                     data.status_response.PeerStore.peer_states.forEach(element => {
                         let row = $("<tr>");
                         row.append($("<td>").append(element['peer_id']));
@@ -376,7 +377,7 @@
                         row.append($("<td>").append(element['status']));
                         $(".tbody-detailed-peer-storage").append(row);
                     });
-                    $(".detailed-peer-storage").show();
+                    $(".detailed-peer-storage-div").show();
                 }
             });
         }
@@ -459,18 +460,21 @@ Unreachable: <span class="js-unreachable-chunk-producers"></span>
     <button onclick="show_peer_storage()">
         Show detailed peer storage
     </button>
-    <table class="detailed-peer-storage">
-        <thead>
-            <th onclick="sortTable(0)">Peer id</th>
-            <th onclick="sortTable(1)">First seen</th>
-            <th onclick="sortTable(2)">Last seen</th>
-            <th onclick="sortTable(3)">Last connection attempt</th>
-            <th onclick="sortTable(4)">Status</th>
-        </thead>
-        <tbody class="tbody-detailed-peer-storage">
+    <div class="detailed-peer-storage-div">
+        <h2>Peers in storage: <span class="detailed-peer-storage-size"></span></h2>
+        <table class="detailed-peer-storage">
+            <thead>
+                <th onclick="sortTable(0)">Peer id</th>
+                <th onclick="sortTable(1)">First seen</th>
+                <th onclick="sortTable(2)">Last seen</th>
+                <th onclick="sortTable(3)">Last connection attempt</th>
+                <th onclick="sortTable(4)">Status</th>
+            </thead>
+            <tbody class="tbody-detailed-peer-storage">
 
-        </tbody>
-    </table>
+            </tbody>
+        </table>
+    </div>
 </body>
 
 </html>

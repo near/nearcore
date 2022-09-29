@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use actix::Addr;
+use actix::{Addr, MailboxError};
 use actix_cors::Cors;
 use actix_web::http::header;
 use actix_web::HttpRequest;
@@ -215,7 +215,7 @@ fn process_query_response(
 struct JsonRpcHandler {
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
-    peer_manager_addr: Addr<PeerManagerActor>,
+    peer_manager_addr: Option<Addr<PeerManagerActor>>,
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
     enable_debug_rpc: bool,
@@ -414,11 +414,14 @@ impl JsonRpcHandler {
         E: RpcFrom<F>,
         E: RpcFrom<actix::MailboxError>,
     {
-        self.peer_manager_addr
-            .send(msg)
-            .await
-            .map_err(RpcFrom::rpc_from)?
-            .map_err(RpcFrom::rpc_from)
+        match &self.peer_manager_addr {
+            Some(peer_manager_addr) => peer_manager_addr
+                .send(msg)
+                .await
+                .map_err(RpcFrom::rpc_from)?
+                .map_err(RpcFrom::rpc_from),
+            None => Err(RpcFrom::rpc_from(MailboxError::Closed)),
+        }
     }
 
     async fn send_tx_async(
@@ -1346,7 +1349,7 @@ pub fn start_http(
     genesis_config: GenesisConfig,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
-    peer_manager_addr: Addr<PeerManagerActor>,
+    peer_manager_addr: Option<Addr<PeerManagerActor>>,
 ) -> Vec<(&'static str, actix_web::dev::ServerHandle)> {
     let RpcConfig {
         addr,
