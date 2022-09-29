@@ -323,16 +323,6 @@ pub fn default_subscriber(
 ///
 /// The subscriber enables logging, tracing and io tracing.
 /// Subscriber creation needs an async runtime.
-///
-/// # Example
-///
-/// ```rust
-/// let runtime = tokio::runtime::Runtime::new().unwrap();
-/// let filter = near_o11y::EnvFilterBuilder::from_env().finish().unwrap();
-/// let _subscriber = runtime.block_on(async {
-///     near_o11y::default_subscriber(filter, &Default::default()).await.global()
-/// });
-/// ```
 pub async fn default_subscriber_with_opentelemetry(
     env_filter: EnvFilter,
     options: &Options,
