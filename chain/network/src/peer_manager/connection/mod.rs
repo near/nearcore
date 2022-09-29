@@ -229,7 +229,7 @@ impl Drop for OutboundHandshakePermit {
 #[derive(Clone)]
 pub(crate) struct Pool(Arc<ArcMutex<PoolSnapshot>>);
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PoolError {
     #[error("already connected to this peer")]
     AlreadyConnected,

@@ -142,12 +142,8 @@ impl ActorHandler {
         conn.events
             .clone()
             .recv_until(|ev| match ev {
-                Event::PeerManager(PME::PeerActorStarted(addr))
-                | Event::PeerManager(PME::ConnectionClosed(addr))
-                    if addr == local_addr =>
-                {
-                    Some(())
-                }
+                Event::PeerManager(PME::PeerActorStarted(addr)) if addr == local_addr => Some(()),
+                Event::PeerManager(PME::ConnectionClosed(ev)) if ev.addr == local_addr => Some(()),
                 _ => None,
             })
             .await;
@@ -189,12 +185,8 @@ impl ActorHandler {
         conn.events
             .clone()
             .recv_until(|ev| match ev {
-                Event::PeerManager(PME::PeerActorStarted(addr))
-                | Event::PeerManager(PME::ConnectionClosed(addr))
-                    if addr == local_addr =>
-                {
-                    Some(())
-                }
+                Event::PeerManager(PME::PeerActorStarted(addr)) if addr == local_addr => Some(()),
+                Event::PeerManager(PME::ConnectionClosed(ev)) if ev.addr == local_addr => Some(()),
                 _ => None,
             })
             .await;

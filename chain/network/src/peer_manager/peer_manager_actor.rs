@@ -181,7 +181,7 @@ pub enum Event {
     // Reported when a handshake has been started.
     PeerActorStarted(SocketAddr),
     // Reported when the TCP connection has been closed.
-    ConnectionClosed(SocketAddr),
+    ConnectionClosed(crate::peer::peer_actor::ConnectionClosedEvent),
 }
 
 impl Actor for PeerManagerActor {

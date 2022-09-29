@@ -6,7 +6,7 @@ use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerInfo, PeerMessage, RawRoutedMessage, RoutedMessageBody,
     RoutedMessageV2, RoutingTableUpdate,
 };
-use crate::peer::peer_actor::{PeerActor, StreamConfig};
+use crate::peer::peer_actor::{PeerActor, StreamConfig, ClosingReason};
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
@@ -114,10 +114,10 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
     }
 }
 
-pub struct PeerHandle {
-    pub(crate) cfg: Arc<PeerConfig>,
+pub(crate) struct PeerHandle {
+    pub cfg: Arc<PeerConfig>,
     actix: ActixSystem<PeerActor>,
-    pub(crate) events: broadcast::Receiver<Event>,
+    pub events: broadcast::Receiver<Event>,
 }
 
 impl PeerHandle {
@@ -133,17 +133,17 @@ impl PeerHandle {
         self.events
             .recv_until(|ev| match ev {
                 Event::HandshakeDone(edge) => Some(edge),
-                Event::Network(peer_manager_actor::Event::ConnectionClosed(_)) => {
-                    panic!("handshake failed")
+                Event::Network(peer_manager_actor::Event::ConnectionClosed(ev)) => {
+                    panic!("handshake failed: {}",ev.reason)
                 }
                 _ => None,
             })
             .await
     }
-    pub async fn fail_handshake(&mut self) {
+    pub async fn fail_handshake(&mut self) -> ClosingReason {
         self.events
             .recv_until(|ev| match ev {
-                Event::Network(peer_manager_actor::Event::ConnectionClosed(_)) => Some(()),
+                Event::Network(peer_manager_actor::Event::ConnectionClosed(ev)) => Some(ev.reason),
                 // HandshakeDone means that handshake succeeded locally,
                 // but in case this is an inbound connection, it can still
                 // fail on the other side. Therefore we cannot panic on HandshakeDone.
