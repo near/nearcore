@@ -348,7 +348,12 @@ fn convert_account_update_to_operations(
                 status: Some(crate::models::OperationStatusKind::Success),
                 metadata: crate::models::OperationMetadata::from_predecessor(
                     predecessor_id.clone(),
-                ),
+                )
+                .map(|metadata| {
+                    metadata.with_transfer_fee_type(
+                        crate::models::OperationMetadataTransferFeeType::GasPrepayment,
+                    )
+                }),
             });
         } else {
             operations.push(crate::models::Operation {
@@ -369,7 +374,19 @@ fn convert_account_update_to_operations(
                 status: Some(crate::models::OperationStatusKind::Success),
                 metadata: crate::models::OperationMetadata::from_predecessor(
                     predecessor_id.clone(),
-                ),
+                )
+                .map(|metadata| {
+                    if let Some("system") = predecessor_id
+                        .as_ref()
+                        .map(|predecessor_id| predecessor_id.address.as_str())
+                    {
+                        metadata.with_transfer_fee_type(
+                            crate::models::OperationMetadataTransferFeeType::GasRefund,
+                        )
+                    } else {
+                        metadata
+                    }
+                }),
             });
         }
     }
