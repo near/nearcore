@@ -314,7 +314,7 @@ pub fn recursively_publishable(workspace: &Workspace) -> anyhow::Result<()> {
     }
     if !outliers.is_empty() {
         bail!(ComplianceError {
-            msg: "These private packages are depended on by publishable packages".to_string(),
+            msg: "These private crates break publishable crates. Either make these private crates publishable or avoid using them in the publishable crates".to_string(),
             expected: None,
             outliers: outliers
                 .into_iter()
