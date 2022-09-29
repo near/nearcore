@@ -482,7 +482,6 @@ impl fmt::Debug for RoutedMessageBody {
 /// sender of the package should be banned instead.
 /// If target is hash, it is a message that should be routed back using the same path used to route
 /// the request in first place. It is the hash of the request message.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessage {
     /// Peer id which is directed this message.
@@ -591,7 +590,6 @@ pub struct PartialEncodedChunkForwardMsg {
 }
 
 /// Test code that someone become part of our protocol?
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct Ping {
     pub nonce: u64,
