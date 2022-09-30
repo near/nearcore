@@ -1,10 +1,11 @@
 GET BlockMisc "fr1UNhF4ZSXeDuai2G7sGkX" size=32
 GET BlockMisc "E3m8pHmYBNnATaf99sfuZtSRXG" size=36
-GET EpochInfo "4fiLcy6fEtiSYH" size=17508
+GET EpochInfo "4fiLcy6fEtiSYH" size=16400
 GET EpochInfo "11111111111111111111111111111111" size=2266
 GET BlockHeight "PD1eH7fghtT" size=32
 GET Block "2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9" size=7706
 GET EpochInfo "7XciHBpUitLPSu8QBrsWp6sghvVhwXj7nzjm5FxNZbjn" size=28482
+GET ChunkExtra "2U2dQ3wKvcDfVSJnqQ8GsSS11BJZ2Tynpp2a3eEDkxW1aMoyFmDiuCB" size=101
 GET Chunks "4hpzBA6CJtipJqWz9vxW9M24BW6cWh9sQE9sLBXcYRAN" size=521
 GET Block "DwSdhqzB18RJAew3XoMKrjHpHyWJdetAbrKFt2AJgSt8" size=6796
 GET BlockHeader "2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9" size=6293
@@ -21,4 +22,15 @@ apply_transactions shard_id=1
       GET State "3t9dCZX5c6K7z6VyJmzVno3bCQWcVjDS8aKkDEY32rXSWiTqPnEavn" size=171
       GET State "3t9dCZX5c6S742LyU1qityVdvoZKT61FEoPNhxJonSu6GzTwsatxTw" size=50
       GET State "3t9dCZX5c6FJGMi9WRfEMyu7hx3MrT6zLRoFo4y6RHnAQRDett8uMG" size=16
-GET ChunkExtra "2U2dQ3wKvcDfVSJnqQ8GsSS11BJZ2Tynpp2a3eEDkxW1aMoyFmDiuCB" size=101
+GET BlockHeight "PNiKHvVBK9y" size=32
+GET Block "B4epTA1V54DmRbFhFEaLyyzLBQuqq688bHNq3sNRDnTF" size=7771
+GET ChunkExtra "8RtauJyfdSSVxVCuV67T1d9bfmnUbLdw472QCs2hVcNbAdzY3iJ2FAf" size=101
+GET Chunks "C9mtizUsXRLGy9KG7voyLsshWxuJHXPkQdD6wWinModM" size=368
+GET Block "2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9" size=7706
+GET BlockHeader "B4epTA1V54DmRbFhFEaLyyzLBQuqq688bHNq3sNRDnTF" size=6358
+GET IncomingReceipts "8RtauJyfdSSVxVCuV67T1d9bfmnUbLdw472QCs2hVcNbAdzY3iGYFtK" size=364
+GET BlockHeader "2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9" size=6293
+GET BlockInfo "2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9" size=221
+apply_transactions shard_id=1
+  process_state_update 
+    apply num_transactions=0 shard_cache_hit=13

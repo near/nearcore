@@ -66,15 +66,15 @@ cargo build --release -p neard --features=io_trace
 for shard in 0 1 2 3
 do
   target/release/neard \
-    --record-io-trace=75220100.s${shard}.io_trace view-state \
-    apply \
-    --height 75220100 \
-    --shard-id ${shard}
+    --record-io-trace=75220100-75220101.s${shard}.io_trace view-state \
+    apply-range --start-index 75220100 --end-index 752201 \
+    --sequential --shard-id ${shard}
 done
 ```
 
-When running these command, make sure that prefetching is disabled, or else the
-the replaying modes that match requests to receipts will not work properly.
+When running these command, make sure to run with `sequential` and to disable
+prefetching is disabled, or else the the replaying modes that match requests to
+receipts will not work properly.
 
 ```js
 // config.json

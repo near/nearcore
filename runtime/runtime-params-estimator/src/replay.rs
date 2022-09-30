@@ -217,43 +217,49 @@ fn extract_key_values<'a>(
 mod tests {
     use super::{ReplayCmd, ReplayMode};
 
-    // const INPUT_TRACE: &str = include_str!("./replay/test.io_trace");
+    // These inputs are real mainnet traffic for the given block heights.
+    // Each trace contains two chunks if one shard.
+    // In combination, they cover an interesting variety of content.
+    //  Shard 0: Many receipts, but no function calls.
+    //  Shard 1: Empty chunks without txs / receipts.
+    //  Shard 2: Some receipts and txs, but no function calls.
+    //  Shard 3: Many function calls with lots of storage accesses.
     const INPUT_TRACES: &[&str] = &[
-        "75220100.s0.io_trace",
-        "75220100.s1.io_trace",
-        "75220100.s2.io_trace",
-        "75220100.s3.io_trace",
+        "75220100-75220101.s0.io_trace",
+        "75220100-75220101.s1.io_trace",
+        "75220100-75220101.s2.io_trace",
+        "75220100-75220101.s3.io_trace",
     ];
 
-    // #[test]
-    // fn test_cache_stats() {
-    //     check_replay_mode(ReplayMode::CacheStats);
-    // }
+    #[test]
+    fn test_cache_stats() {
+        check_replay_mode(ReplayMode::CacheStats);
+    }
 
     #[test]
     fn test_chunk_cache_stats() {
         check_replay_mode(ReplayMode::ChunkCacheStats);
     }
 
-    // #[test]
-    // fn test_chunk_db_stats() {
-    //     check_replay_mode(ReplayMode::ChunkDbStats);
-    // }
+    #[test]
+    fn test_chunk_db_stats() {
+        check_replay_mode(ReplayMode::ChunkDbStats);
+    }
 
-    // #[test]
-    // fn test_gas_charges() {
-    //     check_replay_mode(ReplayMode::GasCharges);
-    // }
+    #[test]
+    fn test_gas_charges() {
+        check_replay_mode(ReplayMode::GasCharges);
+    }
 
-    // #[test]
-    // fn test_receipt_cache_stats() {
-    //     check_replay_mode(ReplayMode::ReceiptCacheStats);
-    // }
+    #[test]
+    fn test_receipt_cache_stats() {
+        check_replay_mode(ReplayMode::ReceiptCacheStats);
+    }
 
-    // #[test]
-    // fn test_receipt_db_stats() {
-    //     check_replay_mode(ReplayMode::ReceiptDbStats);
-    // }
+    #[test]
+    fn test_receipt_db_stats() {
+        check_replay_mode(ReplayMode::ReceiptDbStats);
+    }
 
     #[track_caller]
     fn check_replay_mode(mode: ReplayMode) {

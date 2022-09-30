@@ -77,12 +77,12 @@ impl Visitor for ChargedVsFree {
         )?;
         writeln!(
             out,
-            "{:.2}% of gets uncharged",
+            "{:>7.2}% of gets uncharged",
             100.0 * self.free_gets as f64 / (self.charged_gets + self.free_gets) as f64
         )?;
         writeln!(
             out,
-            "{:.2}% of gets total size uncharged",
+            "{:>7.2}% of gets total size uncharged",
             100.0 * self.free_gets_size as f64
                 / (self.charged_gets_size + self.free_gets_size) as f64
         )?;

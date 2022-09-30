@@ -1,0 +1,32 @@
+---
+source: runtime/runtime-params-estimator/src/replay.rs
+expression: output
+---
+      process_transaction block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+        GET   34 State  
+
+      process_transaction block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+        GET   29 State  
+
+      process_receipt receiver=ccbca04bf1056af531129685cc7a372eb6df6bc38bc1d050f5eafea8faa979b1 receipt_id=aCqt8Sq8HwJrj6pyeRJmt9PSMJtGBFj38bs9rd1EBuz receipt_id=aCqt8Sq8HwJrj6pyeRJmt9PSMJtGBFj38bs9rd1EBuz block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+        GET   31 State  
+
+      process_transaction block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+        GET   29 State  
+
+      process_transaction block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+        GET   28 State  
+
+      process_transaction block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+        GET   28 State  
+
+      process_receipt receiver=ccbca04bf1056af531129685cc7a372eb6df6bc38bc1d050f5eafea8faa979b1 receipt_id=5xT8ygLFj9Zy5jEqg3ZBoMYQtrFTPBf9xu2ApjaRkY2C receipt_id=5xT8ygLFj9Zy5jEqg3ZBoMYQtrFTPBf9xu2ApjaRkY2C block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+        GET   14 State  
+
+      process_receipt receiver=c_shark.near receipt_id=7g8RkfXrPdQ9uHqNctnNv2BF9H3xJxv2XN68VjnJczo7 receipt_id=7g8RkfXrPdQ9uHqNctnNv2BF9H3xJxv2XN68VjnJczo7 block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+        GET   21 State  
+
+      process_receipt receiver=f55649cf4669028d5335fe2156dbce5e32d723ee7e5504f4a23ed16c7ca28aa7 receipt_id=9BS9JPZifS47LLXyLxe4Xi1o7rhdehhC9yr9fSineZ1j receipt_id=9BS9JPZifS47LLXyLxe4Xi1o7rhdehhC9yr9fSineZ1j block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+        GET   25 State  
+
+

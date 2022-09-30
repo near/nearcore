@@ -1,0 +1,9 @@
+---
+source: runtime/runtime-params-estimator/src/replay.rs
+expression: output
+---
+     473 free gets with total size of     3233441
+     231 charged gets with total size of    55425
+  67.19% of gets uncharged
+  98.31% of gets total size uncharged
+
