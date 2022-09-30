@@ -104,7 +104,7 @@ fn main() -> anyhow::Result<()> {
 
     if let Some(cmd) = cli_args.sub_cmd {
         return match cmd {
-            CliSubCmd::Replay(inner) => inner.run(),
+            CliSubCmd::Replay(inner) => inner.run(&mut std::io::stdout()),
         };
     }
 

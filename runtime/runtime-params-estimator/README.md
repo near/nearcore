@@ -56,3 +56,29 @@ cargo run -p runtime-params-estimator -- replay my_trace.log cache-stats
 ```
 
 For a list of all options, run `cargo run -p runtime-params-estimator -- replay --help`.
+
+### IO trace tests
+
+The test input files `./res/*.io_trace` have been generated based on real mainnet traffic.
+
+```bash
+cargo build --release -p neard --features=io_trace
+for shard in 0 1 2 3
+do
+  target/release/neard \
+    --record-io-trace=75220100.s${shard}.io_trace view-state \
+    apply \
+    --height 75220100 \
+    --shard-id ${shard}
+done
+```
+
+When running these command, make sure that prefetching is disabled, or else the
+the replaying modes that match requests to receipts will not work properly.
+
+```js
+// config.json
+  "store": {
+    "enable_receipt_prefetching": false
+  }
+```

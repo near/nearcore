@@ -23,7 +23,7 @@ pub(crate) struct ReplayCmd {
     account: Option<String>,
 }
 
-#[derive(Clone, clap::Subcommand)]
+#[derive(Clone, Copy, clap::Subcommand)]
 pub(crate) enum ReplayMode {
     /// Print DB accesses and cache statistics for the entire trace.
     CacheStats,
@@ -40,19 +40,18 @@ pub(crate) enum ReplayMode {
 }
 
 impl ReplayCmd {
-    pub(crate) fn run(&self) -> anyhow::Result<()> {
+    pub(crate) fn run(&self, out: &mut dyn Write) -> anyhow::Result<()> {
         let file = File::open(&self.trace)?;
 
         let mut visitor = self.build_visitor();
-        let mut stdout = std::io::stdout().lock();
 
         for line in io::BufReader::new(file).lines() {
             let line = line?;
-            if let Err(e) = visitor.eval_line(&mut stdout, &line) {
+            if let Err(e) = visitor.eval_line(out, &line) {
                 error!("ERROR: {e} for input line: {line}");
             }
         }
-        visitor.flush(&mut stdout)?;
+        visitor.flush(out)?;
 
         Ok(())
     }
@@ -212,4 +211,64 @@ fn extract_key_values<'a>(
         dict.insert(key, value);
     }
     Ok(dict)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ReplayCmd, ReplayMode};
+
+    // const INPUT_TRACE: &str = include_str!("./replay/test.io_trace");
+    const INPUT_TRACES: &[&str] = &[
+        "75220100.s0.io_trace",
+        "75220100.s1.io_trace",
+        "75220100.s2.io_trace",
+        "75220100.s3.io_trace",
+    ];
+
+    // #[test]
+    // fn test_cache_stats() {
+    //     check_replay_mode(ReplayMode::CacheStats);
+    // }
+
+    #[test]
+    fn test_chunk_cache_stats() {
+        check_replay_mode(ReplayMode::ChunkCacheStats);
+    }
+
+    // #[test]
+    // fn test_chunk_db_stats() {
+    //     check_replay_mode(ReplayMode::ChunkDbStats);
+    // }
+
+    // #[test]
+    // fn test_gas_charges() {
+    //     check_replay_mode(ReplayMode::GasCharges);
+    // }
+
+    // #[test]
+    // fn test_receipt_cache_stats() {
+    //     check_replay_mode(ReplayMode::ReceiptCacheStats);
+    // }
+
+    // #[test]
+    // fn test_receipt_db_stats() {
+    //     check_replay_mode(ReplayMode::ReceiptDbStats);
+    // }
+
+    #[track_caller]
+    fn check_replay_mode(mode: ReplayMode) {
+        for trace_name in INPUT_TRACES {
+            let dir = env!("CARGO_MANIFEST_DIR");
+            let trace_path = std::path::Path::new(dir).join("res").join(trace_name);
+            let cmd = ReplayCmd { trace: trace_path, mode, account: None };
+            let mut buffer = Vec::new();
+            cmd.run(&mut buffer).unwrap_or_else(|e| {
+                panic!("command should not fail for input {trace_name}, failure was {e}")
+            });
+            let output = String::from_utf8(buffer).unwrap_or_else(|e| {
+                panic!("invalid output for input {trace_name}, failure was {e}")
+            });
+            insta::assert_snapshot!(*trace_name, output);
+        }
+    }
 }

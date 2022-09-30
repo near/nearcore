@@ -48,6 +48,9 @@ num-traits = "0.2.12"
 libc = "0.2.81"
 wat = "1.0"
 
+[dev-dependencies]
+insta = "1.14"
+
 [features]
 default = ["costs_counting"]
 costs_counting = ["near-vm-logic/costs_counting"]
