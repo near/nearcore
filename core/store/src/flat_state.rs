@@ -738,17 +738,6 @@ impl FlatStorageState {
     ) -> Result<StoreUpdate, FlatStorageError> {
         panic!("not implemented")
     }
-
-    #[cfg(feature = "protocol_feature_flat_state")]
-    pub fn get_flat_head(&self) -> CryptoHash {
-        let guard = self.0.read().expect(POISONED_LOCK_ERR);
-        guard.flat_head
-    }
-
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    pub fn get_flat_head(&self) -> CryptoHash {
-        CryptoHash::default()
-    }
 }
 
 #[cfg(test)]
