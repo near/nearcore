@@ -17,7 +17,7 @@ nearcore = { path = "../../nearcore" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
-near-network-primitives = { path = "../../chain/network-primitives" }
+near-network = { path = "../../chain/network" }
 
 [dev-dependencies]
 tempfile.workspace = true
