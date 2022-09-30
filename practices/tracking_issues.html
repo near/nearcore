@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Overview - Guide to Nearcore Development</title>
+        <title>Tracking issues - Guide to Nearcore Development</title>
         <!-- Custom HTML head -->
         <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
         <meta name="description" content="">
@@ -75,7 +75,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../architecture/trie.html"><strong aria-hidden="true">2.</strong> Trie</a></li><li class="chapter-item expanded "><a href="../architecture/network.html"><strong aria-hidden="true">3.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html" class="active"><strong aria-hidden="true">4.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../practices/style.html"><strong aria-hidden="true">5.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../practices/tracking_issues.html"><strong aria-hidden="true">6.</strong> Tracking issues</a></li><li class="chapter-item expanded "><a href="../practices/testing/index.html"><strong aria-hidden="true">7.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/testing/python_tests.html"><strong aria-hidden="true">7.1.</strong> Python Tests</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/protocol_upgrade.html"><strong aria-hidden="true">8.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html"><strong aria-hidden="true">9.</strong> Misc</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../architecture/trie.html"><strong aria-hidden="true">2.</strong> Trie</a></li><li class="chapter-item expanded "><a href="../architecture/network.html"><strong aria-hidden="true">3.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html"><strong aria-hidden="true">4.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../practices/style.html"><strong aria-hidden="true">5.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../practices/tracking_issues.html" class="active"><strong aria-hidden="true">6.</strong> Tracking issues</a></li><li class="chapter-item expanded "><a href="../practices/testing/index.html"><strong aria-hidden="true">7.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/testing/python_tests.html"><strong aria-hidden="true">7.1.</strong> Python Tests</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/protocol_upgrade.html"><strong aria-hidden="true">8.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html"><strong aria-hidden="true">9.</strong> Misc</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -113,7 +113,7 @@
                         <a href="https://github.com/near/nearcore/tree/master/docs" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/near/nearcore/edit/master/docs/./practices/README.md" title="Suggest an edit" aria-label="Suggest an edit">
+                        <a href="https://github.com/near/nearcore/edit/master/docs/./practices/tracking_issues.md" title="Suggest an edit" aria-label="Suggest an edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
                     </div>
@@ -140,18 +140,65 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="overview"><a class="header" href="#overview">Overview</a></h1>
-<p>This chapter describes various development processes and best practices employed
-at nearcore.</p>
+                        <h1 id="tracking-issues"><a class="header" href="#tracking-issues">Tracking issues</a></h1>
+<p><code>nearcore</code> uses so called &quot;tracking issues&quot; to coordinate larger pieces of work
+(e.g. implementation of new NEPs).  Such issues are tagged with the
+<a href="https://github.com/near/nearcore/issues?q=is%3Aopen+is%3Aissue+label%3AC-tracking-issue"><code>C-tracking-issue</code>
+label</a>.</p>
+<p>The goal of tracking issues is to serve as a coordination point. They can help
+new contributors and other interested parties come up-to-speed with the current
+state of projects.  As such, they should link to things like design docs,
+todo-lists of sub-issues, existing implementation PRs, etc.</p>
+<p>One can further use tracking issues to:</p>
+<ul>
+<li>get a feeling for what's happening in <code>nearcore</code> by looking at the set of
+open tracking issues.</li>
+<li>find larger efforts to contribute to as tracking issues usually contain
+up-for-grabs todo lists.</li>
+<li>follow progress of a specific features by subscribing to the issue on Github.</li>
+</ul>
+<p>If you are leading or participating in a larger effort, please create a tracking
+issue for your work.</p>
+<h2 id="guidelines"><a class="header" href="#guidelines">Guidelines</a></h2>
+<ul>
+<li>Tracking issues should be maintained in the <code>nearcore</code> repository.  If the
+projects are security sensitive, then they should be maintained in the
+<code>nearcore-private</code> repository.</li>
+<li>The issues should be kept up-to-date.  At a minimum, all new context
+should be added as comments, but preferably the original description should be
+edited to reflect the current status.</li>
+<li>The issues should contain links to all the relevant design documents
+which should also be kept up-to-date.</li>
+<li>The issues should link to any relevant NEP if applicable.</li>
+<li>The issues should contain a list of todo tasks which should be kept
+up-to-date as new work items are discovered and other items are done.  This
+helps others gauge progress and helps lower the barrier of entry for others to
+participate.</li>
+<li>The issues should contain links to relevant Zulip discussions.  Prefer
+open forums like Zulip for discussions.  When necessary, closed forums like
+video calls can also be used but care should be taken to document a summary of
+the discussions.</li>
+<li>For security sensitive discussions, use the appropriate private Zulip streams.</li>
+</ul>
+<p><a href="https://github.com/near/nearcore/issues/7670">This issue</a> is a good example of
+how tracking issues should be maintained.</p>
+<h2 id="background"><a class="header" href="#background">Background</a></h2>
+<p>The idea of tracking issues is also used to track project work in the Rust
+language.  See <a href="https://internals.rust-lang.org/t/how-the-rust-issue-tracker-works/3951">this
+post</a>
+for a rough description and
+<a href="https://github.com/rust-lang/rust/issues/101840">these</a>
+<a href="https://github.com/rust-lang/rust/issues/100717">issues</a> for how they are used
+in Rust.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../architecture/network.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../practices/style.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
-                            <a rel="next" href="../practices/style.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next" href="../practices/testing/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
                         <div style="clear: both"></div>
@@ -160,10 +207,10 @@ at nearcore.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../architecture/network.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../practices/style.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
-                    <a rel="next" href="../practices/style.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next" href="../practices/testing/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>

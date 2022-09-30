@@ -76,7 +76,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><a href="index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="architecture/trie.html"><strong aria-hidden="true">2.</strong> Trie</a></li><li class="chapter-item expanded "><a href="architecture/network.html"><strong aria-hidden="true">3.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="practices/index.html"><strong aria-hidden="true">4.</strong> Overview</a></li><li class="chapter-item expanded "><a href="practices/style.html"><strong aria-hidden="true">5.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="practices/testing/index.html"><strong aria-hidden="true">6.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="practices/testing/python_tests.html"><strong aria-hidden="true">6.1.</strong> Python Tests</a></li></ol></li><li class="chapter-item expanded "><a href="practices/protocol_upgrade.html"><strong aria-hidden="true">7.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="misc/index.html"><strong aria-hidden="true">8.</strong> Misc</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="architecture/trie.html"><strong aria-hidden="true">2.</strong> Trie</a></li><li class="chapter-item expanded "><a href="architecture/network.html"><strong aria-hidden="true">3.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="practices/index.html"><strong aria-hidden="true">4.</strong> Overview</a></li><li class="chapter-item expanded "><a href="practices/style.html"><strong aria-hidden="true">5.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="practices/tracking_issues.html"><strong aria-hidden="true">6.</strong> Tracking issues</a></li><li class="chapter-item expanded "><a href="practices/testing/index.html"><strong aria-hidden="true">7.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="practices/testing/python_tests.html"><strong aria-hidden="true">7.1.</strong> Python Tests</a></li></ol></li><li class="chapter-item expanded "><a href="practices/protocol_upgrade.html"><strong aria-hidden="true">8.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="misc/index.html"><strong aria-hidden="true">9.</strong> Misc</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -1254,6 +1254,56 @@ to the label, such as the <code>itoa</code> crate.</p>
 <p><strong>Rationale:</strong> We've encountered issues caused by the runtime costs of
 incrementing metrics before. Avoid runtime costs of incrementing metrics too
 often.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="tracking-issues"><a class="header" href="#tracking-issues">Tracking issues</a></h1>
+<p><code>nearcore</code> uses so called &quot;tracking issues&quot; to coordinate larger pieces of work
+(e.g. implementation of new NEPs).  Such issues are tagged with the
+<a href="https://github.com/near/nearcore/issues?q=is%3Aopen+is%3Aissue+label%3AC-tracking-issue"><code>C-tracking-issue</code>
+label</a>.</p>
+<p>The goal of tracking issues is to serve as a coordination point. They can help
+new contributors and other interested parties come up-to-speed with the current
+state of projects.  As such, they should link to things like design docs,
+todo-lists of sub-issues, existing implementation PRs, etc.</p>
+<p>One can further use tracking issues to:</p>
+<ul>
+<li>get a feeling for what's happening in <code>nearcore</code> by looking at the set of
+open tracking issues.</li>
+<li>find larger efforts to contribute to as tracking issues usually contain
+up-for-grabs todo lists.</li>
+<li>follow progress of a specific features by subscribing to the issue on Github.</li>
+</ul>
+<p>If you are leading or participating in a larger effort, please create a tracking
+issue for your work.</p>
+<h2 id="guidelines"><a class="header" href="#guidelines">Guidelines</a></h2>
+<ul>
+<li>Tracking issues should be maintained in the <code>nearcore</code> repository.  If the
+projects are security sensitive, then they should be maintained in the
+<code>nearcore-private</code> repository.</li>
+<li>The issues should be kept up-to-date.  At a minimum, all new context
+should be added as comments, but preferably the original description should be
+edited to reflect the current status.</li>
+<li>The issues should contain links to all the relevant design documents
+which should also be kept up-to-date.</li>
+<li>The issues should link to any relevant NEP if applicable.</li>
+<li>The issues should contain a list of todo tasks which should be kept
+up-to-date as new work items are discovered and other items are done.  This
+helps others gauge progress and helps lower the barrier of entry for others to
+participate.</li>
+<li>The issues should contain links to relevant Zulip discussions.  Prefer
+open forums like Zulip for discussions.  When necessary, closed forums like
+video calls can also be used but care should be taken to document a summary of
+the discussions.</li>
+<li>For security sensitive discussions, use the appropriate private Zulip streams.</li>
+</ul>
+<p><a href="https://github.com/near/nearcore/issues/7670">This issue</a> is a good example of
+how tracking issues should be maintained.</p>
+<h2 id="background"><a class="header" href="#background">Background</a></h2>
+<p>The idea of tracking issues is also used to track project work in the Rust
+language.  See <a href="https://internals.rust-lang.org/t/how-the-rust-issue-tracker-works/3951">this
+post</a>
+for a rough description and
+<a href="https://github.com/rust-lang/rust/issues/101840">these</a>
+<a href="https://github.com/rust-lang/rust/issues/100717">issues</a> for how they are used
+in Rust.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="general-principles"><a class="header" href="#general-principles">General principles</a></h1>
 <ol>
 <li>Every PR needs to have test coverage in place. Sending the code change and
@@ -1602,7 +1652,7 @@ though about.</p>
 the initial PR to the final release. It is important for everyone who
 contributes to the development of the protocol and its client(s) to understand
 this process.</p>
-<h3 id="background"><a class="header" href="#background">Background</a></h3>
+<h3 id="background-1"><a class="header" href="#background-1">Background</a></h3>
 <p>At NEAR, we use protocol version to mean the version of the blockchain protocol
 and is separate from the version of some specific client (such as nearcore),
 since the protocol version defines the protocol rather than some specific
