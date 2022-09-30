@@ -1414,7 +1414,7 @@ mod test {
         };
         let head = chain.head().unwrap();
         assert!(header_sync
-            .run(&mut sync_status, &mut chain, head.height, &vec![peer1.clone()])
+            .run(&mut sync_status, &mut chain, head.height, &[peer1.clone()])
             .is_ok());
         assert!(sync_status.is_syncing());
         // Check that it queried last block, and then stepped down to genesis block to find common block with the peer.
