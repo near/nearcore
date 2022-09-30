@@ -37,6 +37,7 @@ pub use crate::trie::{
 };
 pub use flat_state::FlatStateDelta;
 
+mod cold_storage;
 mod columns;
 pub mod config;
 pub mod db;

@@ -255,6 +255,29 @@ pub enum DBCol {
     FlatStateMisc,
 }
 
+#[derive(PartialEq, Copy, Clone, Debug, Hash, Eq, strum::EnumIter)]
+pub enum DBKeyType {
+    Empty,
+    Literal,
+    BlockHash,
+    PreviousBlockHash,
+    BlockHeight,
+    BlockOrdinal,
+    ShardId,
+    ShardUId,
+    ChunkHash,
+    EpochId,
+    Nonce,
+    PeerId,
+    AccountId,
+    TrieNodeOrValueHash,
+    TrieKey,
+    ReceiptHash,
+    TransactionHash,
+    ContractCacheKey,
+    PartId,
+}
+
 impl DBCol {
     /// Whether data in this column is effectively immutable.
     ///
@@ -325,6 +348,72 @@ impl DBCol {
                 true
             }
             _ => false,
+        }
+    }
+
+    /// Whether this column should be copied to the cold storage.
+    pub const fn is_cold(&self) -> bool {
+        match self {
+            DBCol::Block => true,
+            _ => false,
+        }
+    }
+
+    /// Vector of DBKeyType s concatenation of which results in key for the column.
+    pub fn key_type(&self) -> Vec<DBKeyType> {
+        match self {
+            DBCol::DbVersion => vec![DBKeyType::Literal],
+            DBCol::BlockMisc => vec![DBKeyType::Literal],
+            DBCol::Block => vec![DBKeyType::BlockHash],
+            DBCol::BlockHeader => vec![DBKeyType::BlockHash],
+            DBCol::BlockHeight => vec![DBKeyType::BlockHeight],
+            DBCol::State => vec![DBKeyType::ShardUId, DBKeyType::TrieNodeOrValueHash],
+            DBCol::ChunkExtra => vec![DBKeyType::BlockHash, DBKeyType::ShardUId],
+            DBCol::TransactionResult => vec![DBKeyType::TransactionHash],
+            DBCol::OutgoingReceipts => vec![DBKeyType::BlockHash, DBKeyType::ShardId],
+            DBCol::IncomingReceipts => vec![DBKeyType::BlockHash, DBKeyType::ShardId],
+            DBCol::Peers => vec![DBKeyType::PeerId],
+            DBCol::EpochInfo => vec![DBKeyType::EpochId],
+            DBCol::BlockInfo => vec![DBKeyType::BlockHash],
+            DBCol::Chunks => vec![DBKeyType::ChunkHash],
+            DBCol::PartialChunks => vec![DBKeyType::ChunkHash],
+            DBCol::BlocksToCatchup => vec![DBKeyType::BlockHash],
+            DBCol::StateDlInfos => vec![DBKeyType::BlockHash],
+            DBCol::ChallengedBlocks => vec![DBKeyType::BlockHash],
+            DBCol::StateHeaders => vec![DBKeyType::ShardId, DBKeyType::BlockHash],
+            DBCol::InvalidChunks => vec![DBKeyType::ChunkHash],
+            DBCol::BlockExtra => vec![DBKeyType::BlockHash],
+            DBCol::BlockPerHeight => vec![DBKeyType::BlockHeight],
+            DBCol::StateParts => vec![DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::PartId],
+            DBCol::EpochStart => vec![DBKeyType::EpochId],
+            DBCol::AccountAnnouncements => vec![DBKeyType::AccountId],
+            DBCol::NextBlockHashes => vec![DBKeyType::PreviousBlockHash],
+            DBCol::EpochLightClientBlocks => vec![DBKeyType::EpochId],
+            DBCol::ReceiptIdToShardId => vec![DBKeyType::ReceiptHash],
+            DBCol::PeerComponent => vec![DBKeyType::PeerId],
+            DBCol::ComponentEdges => vec![DBKeyType::Nonce],
+            DBCol::LastComponentNonce => vec![DBKeyType::Empty],
+            DBCol::Transactions => vec![DBKeyType::TransactionHash],
+            DBCol::StateChanges => vec![DBKeyType::BlockHash, DBKeyType::TrieKey],
+            DBCol::BlockRefCount => vec![DBKeyType::BlockHash],
+            DBCol::TrieChanges => vec![DBKeyType::BlockHash, DBKeyType::ShardId],
+            DBCol::BlockMerkleTree => vec![DBKeyType::BlockHash],
+            DBCol::ChunkHashesByHeight => vec![DBKeyType::BlockHeight],
+            DBCol::BlockOrdinal => vec![DBKeyType::BlockOrdinal],
+            DBCol::OutcomeIds => vec![DBKeyType::BlockHash, DBKeyType::ShardId],
+            DBCol::ProcessedBlockHeights => vec![DBKeyType::BlockHeight],
+            DBCol::Receipts => vec![DBKeyType::ReceiptHash],
+            DBCol::CachedContractCode => vec![DBKeyType::ContractCacheKey],
+            DBCol::EpochValidatorInfo => vec![DBKeyType::EpochId],
+            DBCol::HeaderHashesByHeight => vec![DBKeyType::BlockHeight],
+            DBCol::StateChangesForSplitStates => vec![DBKeyType::BlockHash, DBKeyType::ShardId],
+            #[cfg(feature = "protocol_feature_flat_state")]
+            DBCol::FlatState => vec![DBKeyType::TrieKey],
+            #[cfg(feature = "protocol_feature_flat_state")]
+            DBCol::FlatStateDeltas => vec![DBKeyType::ShardId, DBKeyType::BlockHash],
+            #[cfg(feature = "protocol_feature_flat_state")]
+            DBCol::FlatStateMisc => vec![DBKeyType::ShardId],
+            _ => vec![],
         }
     }
 }

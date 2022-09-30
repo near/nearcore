@@ -1,6 +1,7 @@
 mod benchmarks;
 mod challenges;
 mod chunks_management;
+mod cold_storage;
 mod features;
 mod process_blocks;
 mod runtimes;

@@ -2360,6 +2360,7 @@ dependencies = [
  "serde",
  "serde_json",
  "smart-default",
+ "strum",
  "tempfile",
  "testlib",
  "tokio",
