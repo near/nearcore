@@ -330,7 +330,7 @@ pub(crate) fn print_chain(
                 println!(
                     "{: >3} {} {} | {: >10} | parent: {: >3} {} | {} {}",
                     header.height(),
-                    header.raw_timestamp()
+                    header.raw_timestamp(),
                     format_hash(*header.hash(), show_full_hashes),
                     block_producer,
                     parent_header.height(),
