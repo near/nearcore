@@ -1,0 +1,27 @@
+---
+source: runtime/runtime-params-estimator/src/replay.rs
+expression: output
+---
+apply_transactions shard_id=2 block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+  GET   1 ChunkExtra  94 State  
+  DB GET               95 requests for a total of    17449 B
+  DB SET                0 requests for a total of        0 B
+  STORAGE READ          0 requests for a total of        0 B
+  STORAGE WRITE         0 requests for a total of        0 B
+  TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+  TRIE NODES (host)         162 /  94  (shard-cache/DB)
+  SHARD CACHE       63.28% hit rate
+  CHUNK CACHE not accessed
+
+top-level:
+  GET   2 Block  2 BlockHeader  1 BlockHeight  3 BlockInfo  2 BlockMisc  1 Chunks  4 EpochInfo  1 IncomingReceipts  
+  DB GET               16 requests for a total of   113656 B
+  DB SET                0 requests for a total of        0 B
+  STORAGE READ          0 requests for a total of        0 B
+  STORAGE WRITE         0 requests for a total of        0 B
+  TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+  TRIE NODES (host)           0 /   0  (shard-cache/DB)
+  SHARD CACHE not accessed
+  CHUNK CACHE not accessed
+
+

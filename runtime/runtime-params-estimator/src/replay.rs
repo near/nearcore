@@ -23,7 +23,7 @@ pub(crate) struct ReplayCmd {
     account: Option<String>,
 }
 
-#[derive(Clone, Copy, clap::Subcommand)]
+#[derive(Clone, Copy, clap::Subcommand, Debug)]
 pub(crate) enum ReplayMode {
     /// Print DB accesses and cache statistics for the entire trace.
     CacheStats,
@@ -268,7 +268,7 @@ mod tests {
             let output = String::from_utf8(buffer).unwrap_or_else(|e| {
                 panic!("invalid output for input {trace_name}, failure was {e}")
             });
-            insta::assert_snapshot!(*trace_name, output);
+            insta::assert_snapshot!(format!("{mode:?}-{trace_name}"), output);
         }
     }
 }

@@ -225,11 +225,16 @@ impl Visitor for FoldDbOps {
             }
             writeln!(out)?;
         }
+
+        if let Some(cache_stats) = &mut self.state().cache_stats {
+            cache_stats.eval_generic_label(dict);
+        }
         Ok(())
     }
 
     fn flush(&mut self, out: &mut dyn Write) -> anyhow::Result<()> {
         if self.print_top_level {
+            writeln!(out, "top-level:")?;
             self.pop_state().print(out)?;
         }
         Ok(())
@@ -252,6 +257,7 @@ impl State {
         if let Some(stats) = self.cache_stats {
             stats.print(out, indent)?;
         }
+        writeln!(out)?;
         Ok(())
     }
 }
