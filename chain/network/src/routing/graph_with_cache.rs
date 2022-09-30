@@ -90,7 +90,7 @@ impl GraphWithCache {
 
     /// Removes an edge by key. O(1).
     pub fn remove_edge(&mut self, key: &EdgeKey) {
-        self.remove_edges(&vec![key])
+        self.remove_edges(&[key])
     }
 
     // Removes mutiple edges.
