@@ -1,5 +1,6 @@
 use super::Visitor;
 use std::collections::BTreeMap;
+use std::io::Write;
 
 /// Visitor that tracks which DB operations are charged with gas and which are
 /// for free.
@@ -17,13 +18,14 @@ pub(super) struct ChargedVsFree {
 impl Visitor for ChargedVsFree {
     fn eval_db_op(
         &mut self,
+        out: &mut dyn Write,
         indent: usize,
         op: &str,
         size: Option<u64>,
         _key: &[u8],
         _col: &str,
     ) -> anyhow::Result<()> {
-        self.eval_label(indent, op, &BTreeMap::new())?;
+        self.eval_label(out, indent, op, &BTreeMap::new())?;
         if op != "GET" {
             return Ok(());
         }
@@ -39,6 +41,7 @@ impl Visitor for ChargedVsFree {
 
     fn eval_storage_op(
         &mut self,
+        _out: &mut dyn Write,
         indent: usize,
         _op: &str,
         _dict: &BTreeMap<&str, &str>,
@@ -50,6 +53,7 @@ impl Visitor for ChargedVsFree {
 
     fn eval_label(
         &mut self,
+        _out: &mut dyn Write,
         indent: usize,
         _label: &str,
         _dict: &BTreeMap<&str, &str>,
@@ -60,24 +64,28 @@ impl Visitor for ChargedVsFree {
         Ok(())
     }
 
-    fn flush(&mut self) -> anyhow::Result<()> {
-        println!(
+    fn flush(&mut self, out: &mut dyn Write) -> anyhow::Result<()> {
+        writeln!(
+            out,
             "{:>8} free gets with total size of    {:>8}",
             self.free_gets, self.free_gets_size
-        );
-        println!(
+        )?;
+        writeln!(
+            out,
             "{:>8} charged gets with total size of {:>8}",
             self.charged_gets, self.charged_gets_size
-        );
-        println!(
+        )?;
+        writeln!(
+            out,
             "{:.2}% of gets uncharged",
             100.0 * self.free_gets as f64 / (self.charged_gets + self.free_gets) as f64
-        );
-        println!(
+        )?;
+        writeln!(
+            out,
             "{:.2}% of gets total size uncharged",
             100.0 * self.free_gets_size as f64
                 / (self.charged_gets_size + self.free_gets_size) as f64
-        );
+        )?;
 
         self.free_gets = 0;
         self.free_gets_size = 0;

@@ -1,6 +1,7 @@
 use super::cache_stats::CacheStats;
 use super::Visitor;
 use std::collections::BTreeMap;
+use std::io::Write;
 
 const EMPTY_STATE: &str = "states must never be empty";
 
@@ -120,16 +121,18 @@ impl FoldDbOps {
     }
 
     /// Check if indentation has gone back enough to pop current state.
-    fn check_indent(&mut self, indent: usize) {
+    fn check_indent(&mut self, out: &mut dyn Write, indent: usize) -> anyhow::Result<()> {
         if self.states.len() > 1 && self.state().indent >= indent {
-            self.pop_state().print();
+            self.pop_state().print(out)?;
         }
+        Ok(())
     }
 }
 
 impl Visitor for FoldDbOps {
     fn eval_db_op(
         &mut self,
+        out: &mut dyn Write,
         indent: usize,
         op: &str,
         size: Option<u64>,
@@ -167,12 +170,13 @@ impl Visitor for FoldDbOps {
             cache_stats.eval_db_op(op, size);
         }
 
-        self.check_indent(indent);
+        self.check_indent(out, indent)?;
         Ok(())
     }
 
     fn eval_storage_op(
         &mut self,
+        out: &mut dyn Write,
         indent: usize,
         op: &str,
         dict: &BTreeMap<&str, &str>,
@@ -183,12 +187,13 @@ impl Visitor for FoldDbOps {
         if let Some(cache_stats) = &mut self.state().cache_stats {
             cache_stats.eval_storage_op(op, dict)?;
         }
-        self.check_indent(indent);
+        self.check_indent(out, indent)?;
         Ok(())
     }
 
     fn eval_label(
         &mut self,
+        out: &mut dyn Write,
         indent: usize,
         label: &str,
         dict: &BTreeMap<&str, &str>,
@@ -196,7 +201,7 @@ impl Visitor for FoldDbOps {
         if self.skip(indent) {
             return Ok(());
         }
-        self.check_indent(indent);
+        self.check_indent(out, indent)?;
         if let (Some(receiver), Some(filtered_account)) =
             (dict.get("receiver"), &self.account_filter)
         {
@@ -209,43 +214,44 @@ impl Visitor for FoldDbOps {
             // Section to fold on starts. Push a new state on the stack and
             // print the header for the new section.
             self.push_state(indent);
-            print!("{:indent$}{label}", "");
+            write!(out, "{:indent$}{label}", "")?;
             for key in self.printed_fields.iter() {
                 if let Some(value) = dict.get(key.as_str()) {
-                    print!(" {key}={value}")
+                    write!(out, " {key}={value}")?;
                 }
             }
             if let Some(block) = &self.block_hash {
-                print!(" block={block}");
+                write!(out, " block={block}")?;
             }
-            println!();
+            writeln!(out)?;
         }
         Ok(())
     }
 
-    fn flush(&mut self) -> anyhow::Result<()> {
+    fn flush(&mut self, out: &mut dyn Write) -> anyhow::Result<()> {
         if self.print_top_level {
-            self.pop_state().print();
+            self.pop_state().print(out)?;
         }
         Ok(())
     }
 }
 
 impl State {
-    fn print(self) {
+    fn print(self, out: &mut dyn Write) -> anyhow::Result<()> {
         let indent = self.indent + 2;
         for (op, map) in self.ops_cols.into_iter() {
             if !map.is_empty() {
-                print!("{:indent$}{op}   ", "");
+                write!(out, "{:indent$}{op}   ", "")?;
             }
             for (col, num) in map.into_iter() {
-                print!("{num:8>} {col}  ");
+                write!(out, "{num:8>} {col}  ")?;
             }
-            println!();
+            writeln!(out)?;
         }
 
         if let Some(stats) = self.cache_stats {
-            stats.print(indent);
+            stats.print(out, indent)?;
         }
+        Ok(())
     }
 }

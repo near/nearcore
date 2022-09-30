@@ -1,5 +1,6 @@
 use anyhow::Context;
 use std::collections::BTreeMap;
+use std::io::Write;
 
 #[derive(Default)]
 pub(super) struct CacheStats {
@@ -96,70 +97,81 @@ impl CacheStats {
         Ok(())
     }
 
-    pub(super) fn print(&self, indent: usize) {
-        println!(
+    pub(super) fn print(&self, out: &mut dyn Write, indent: usize) -> anyhow::Result<()> {
+        writeln!(
+            out,
             "{:indent$}DB GET        {:>5} requests for a total of {:>8} B",
             "", self.num_get, self.total_size_get
-        );
-        println!(
+        )?;
+        writeln!(
+            out,
             "{:indent$}DB SET        {:>5} requests for a total of {:>8} B",
             "", self.num_set, self.total_size_set
-        );
-        println!(
+        )?;
+        writeln!(
+            out,
             "{:indent$}STORAGE READ  {:>5} requests for a total of {:>8} B",
             "", self.num_read, self.total_size_read
-        );
-        println!(
+        )?;
+        writeln!(
+            out,
             "{:indent$}STORAGE WRITE {:>5} requests for a total of {:>8} B",
             "", self.num_write, self.total_size_write
-        );
-        println!(
+        )?;
+        writeln!(
+            out,
             "{:indent$}TRIE NODES    {:>4} /{:>4} /{:>4}  (chunk-cache/shard-cache/DB)",
             "", self.num_tn_chunk_cache, self.num_tn_shard_cache, self.num_tn_db
-        );
+        )?;
         Self::print_cache_rate(
+            out,
             indent,
             "SHARD CACHE",
             self.num_tn_shard_cache,
             self.num_tn_shard_cache_miss,
             self.num_tn_shard_cache_too_large,
             "too large nodes",
-        );
+        )?;
         Self::print_cache_rate(
+            out,
             indent,
             "CHUNK CACHE",
             self.num_tn_chunk_cache,
             self.num_tn_shard_cache + self.num_tn_db,
             self.num_tn_shard_cache,
             "shard cache hits",
-        );
+        )?;
+        Ok(())
     }
 
     fn print_cache_rate(
+        out: &mut dyn Write,
         indent: usize,
         cache_name: &str,
         hits: u64,
         misses: u64,
         special_misses: u64,
         special_misses_msg: &str,
-    ) {
+    ) -> anyhow::Result<()> {
         let total = hits + misses;
         if special_misses > 0 {
-            println!(
+            writeln!(out,
                 "{:indent$}{cache_name:<16}   {:>6.2}% hit rate, {:>6.2}% if removing {} {special_misses_msg} from total",
                 "",
                 hits as f64 / total as f64 * 100.0,
                 hits as f64 / (total - special_misses) as f64 * 100.0,
                 special_misses,
-            );
+            )?;
         } else if total > 0 {
-            println!(
+            writeln!(
+                out,
                 "{:indent$}{cache_name:<16} {:>6.2}% hit rate",
                 "",
                 hits as f64 / total as f64 * 100.0,
-            );
+            )?;
         } else {
-            println!("{:indent$}{cache_name} not accessed", "");
+            writeln!(out, "{:indent$}{cache_name} not accessed", "")?;
         }
+        Ok(())
     }
 }

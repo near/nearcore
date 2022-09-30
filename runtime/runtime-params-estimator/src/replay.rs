@@ -1,9 +1,10 @@
 use anyhow::Context;
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use std::str::SplitWhitespace;
+use tracing::log::error;
 
 use self::fold_db_ops::FoldDbOps;
 use self::gas_charges::ChargedVsFree;
@@ -43,14 +44,15 @@ impl ReplayCmd {
         let file = File::open(&self.trace)?;
 
         let mut visitor = self.build_visitor();
+        let mut stdout = std::io::stdout().lock();
 
         for line in io::BufReader::new(file).lines() {
             let line = line?;
-            if let Err(e) = visitor.eval_line(&line) {
-                println!("ERROR: {e} for input line: {line}");
+            if let Err(e) = visitor.eval_line(&mut stdout, &line) {
+                error!("ERROR: {e} for input line: {line}");
             }
         }
-        visitor.flush()?;
+        visitor.flush(&mut stdout)?;
 
         Ok(())
     }
@@ -96,7 +98,7 @@ trait Visitor {
     /// intention is that the default implementation takes over the basic
     /// parsing and visitor implementations defined their behaviour using the
     /// other trait methods.
-    fn eval_line(&mut self, line: &str) -> anyhow::Result<()> {
+    fn eval_line(&mut self, out: &mut dyn Write, line: &str) -> anyhow::Result<()> {
         if let Some(indent) = line.chars().position(|c| !c.is_whitespace()) {
             let mut tokens = line.split_whitespace();
             if let Some(keyword) = tokens.next() {
@@ -110,7 +112,7 @@ trait Visitor {
                         let key = bs58::decode(key_str).into_vec()?;
                         let dict = extract_key_values(tokens)?;
                         let size: Option<u64> = dict.get("size").map(|s| s.parse()).transpose()?;
-                        self.eval_db_op(indent, keyword, size, &key, col)?;
+                        self.eval_db_op(out, indent, keyword, size, &key, col)?;
                     }
                     "storage_read" | "storage_write" | "storage_remove" | "storage_has_key" => {
                         let op = tokens.next();
@@ -119,11 +121,11 @@ trait Visitor {
                         }
 
                         let dict = extract_key_values(tokens)?;
-                        self.eval_storage_op(indent, keyword, &dict)?;
+                        self.eval_storage_op(out, indent, keyword, &dict)?;
                     }
                     other_label => {
                         let dict = extract_key_values(tokens)?;
-                        self.eval_label(indent, other_label, &dict)?;
+                        self.eval_label(out, indent, other_label, &dict)?;
                     }
                 }
             }
@@ -138,17 +140,19 @@ trait Visitor {
     /// cache without any DB operations.
     fn eval_storage_op(
         &mut self,
+        out: &mut dyn Write,
         indent: usize,
         op: &str,
         dict: &BTreeMap<&str, &str>,
     ) -> anyhow::Result<()> {
-        let (_, _, _) = (indent, op, dict);
+        let (_, _, _, _) = (out, indent, op, dict);
         Ok(())
     }
 
     /// Gets called for every DB operation.
     fn eval_db_op(
         &mut self,
+        out: &mut dyn Write,
         indent: usize,
         op: &str,
         size: Option<u64>,
@@ -156,7 +160,7 @@ trait Visitor {
         col: &str,
     ) -> anyhow::Result<()> {
         if col == "State" {
-            self.eval_state_db_op(indent, op, size, key)
+            self.eval_state_db_op(out, indent, op, size, key)
         } else {
             Ok(())
         }
@@ -165,23 +169,25 @@ trait Visitor {
     /// Gets called for every DB operation on the state column.
     fn eval_state_db_op(
         &mut self,
+        out: &mut dyn Write,
         indent: usize,
         op: &str,
         size: Option<u64>,
         key: &[u8],
     ) -> anyhow::Result<()> {
-        let (_, _, _, _) = (indent, op, size, key);
+        let (_, _, _, _, _) = (out, indent, op, size, key);
         Ok(())
     }
 
     /// Opening spans that are not storage or DB operations.
     fn eval_label(
         &mut self,
+        out: &mut dyn Write,
         indent: usize,
         label: &str,
         dict: &BTreeMap<&str, &str>,
     ) -> anyhow::Result<()> {
-        let (_, _, _) = (indent, label, dict);
+        let (_, _, _, _) = (out, indent, label, dict);
         Ok(())
     }
 
@@ -190,7 +196,8 @@ trait Visitor {
     /// This function is called at the end of a replayed trace. Visitor
     /// implementation usually choose to call this more often. For example, once
     /// for each receipt.
-    fn flush(&mut self) -> anyhow::Result<()> {
+    fn flush(&mut self, out: &mut dyn Write) -> anyhow::Result<()> {
+        let _ = out;
         Ok(())
     }
 }
