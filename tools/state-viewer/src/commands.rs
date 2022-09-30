@@ -308,23 +308,29 @@ pub(crate) fn print_chain(
                 let mut chunk_debug_str: Vec<String> = Vec::new();
 
                 for shard_id in 0..header.chunk_mask().len() {
+                    let chunk_producer =
+                        runtime.get_chunk_producer(&epoch_id, header.height(), shard_id as u64);
                     if header.chunk_mask()[shard_id] {
                         let chunk = chain_store
                             .get_chunk(&block.chunks()[shard_id as usize].chunk_hash())
                             .unwrap()
                             .clone();
                         chunk_debug_str.push(format!(
-                            "{}: {} {: >3} Tgas ",
+                            "{}: {} {: >3} Tgas {:?}",
                             shard_id,
                             format_hash(chunk.chunk_hash().0, show_full_hashes),
-                            chunk.cloned_header().gas_used() / (1024 * 1024 * 1024 * 1024)
+                            chunk.cloned_header().gas_used() / (1024 * 1024 * 1024 * 1024),
+                            chunk_producer
                         ));
+                    } else {
+                        chunk_debug_str.push(format!("{}: MISSING {:?}", shard_id, chunk_producer));
                     }
                 }
 
                 println!(
-                    "{: >3} {} | {: >10} | parent: {: >3} {} | {} {}",
+                    "{: >3} {} {} | {: >10} | parent: {: >3} {} | {} {}",
                     header.height(),
+                    header.raw_timestamp()
                     format_hash(*header.hash(), show_full_hashes),
                     block_producer,
                     parent_header.height(),
