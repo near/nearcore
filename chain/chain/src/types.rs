@@ -18,7 +18,7 @@ use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::errors::{EpochError, InvalidTxError};
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -34,6 +34,8 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_store::flat_state::ChainAccessForFlatStorage;
 use near_store::flat_state::FlatStorageState;
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
@@ -286,10 +288,12 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
 
     fn get_flat_storage_state_for_shard(&self, shard_id: ShardId) -> Option<FlatStorageState>;
 
-    fn add_flat_storage_state_for_shard(
+    #[cfg(feature = "protocol_feature_flat_state")]
+    fn create_flat_storage_state_for_shard(
         &self,
         shard_id: ShardId,
-        flat_storage_state: FlatStorageState,
+        latest_block_height: BlockHeight,
+        chain_access: &dyn ChainAccessForFlatStorage,
     );
 
     fn set_flat_storage_state_for_genesis(
@@ -339,29 +343,8 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
 
     fn num_data_parts(&self) -> usize;
 
-    /// Account Id to Shard Id mapping, given current number of shards.
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardId, Error>;
-
     /// Returns `account_id` that suppose to have the `part_id`.
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error>;
-
-    fn get_prev_shard_ids(
-        &self,
-        prev_hash: &CryptoHash,
-        shard_ids: Vec<ShardId>,
-    ) -> Result<Vec<ShardId>, Error>;
-
-    /// Get shard layout given hash of previous block.
-    fn get_shard_layout_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<ShardLayout, Error>;
-
-    fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error>;
 
     /// Returns true if the shard layout will change in the next epoch
     /// Current epoch is the epoch of the block after `parent_hash`
@@ -430,7 +413,23 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         prev_epoch_last_block_hash: &CryptoHash,
         epoch_id: &EpochId,
         next_epoch_id: &EpochId,
-    ) -> Result<CryptoHash, Error>;
+    ) -> Result<CryptoHash, Error> {
+        let (
+            prev_epoch_first_block_info,
+            prev_epoch_prev_last_block_info,
+            prev_epoch_last_block_info,
+            prev_epoch_info,
+            cur_epoch_info,
+            next_epoch_info,
+        ) = self.get_epoch_sync_data(prev_epoch_last_block_hash, epoch_id, next_epoch_id)?;
+        let mut data = prev_epoch_first_block_info.try_to_vec().unwrap();
+        data.extend(prev_epoch_prev_last_block_info.try_to_vec().unwrap());
+        data.extend(prev_epoch_last_block_info.try_to_vec().unwrap());
+        data.extend(prev_epoch_info.try_to_vec().unwrap());
+        data.extend(cur_epoch_info.try_to_vec().unwrap());
+        data.extend(next_epoch_info.try_to_vec().unwrap());
+        Ok(hash(data.as_slice()))
+    }
 
     /// Epoch active protocol version.
     fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error>;

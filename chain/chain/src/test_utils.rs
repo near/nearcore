@@ -61,6 +61,8 @@ use crate::{BlockProcessingArtifact, Provenance};
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::time::Clock;
 use near_primitives::utils::MaybeValidated;
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_store::flat_state::ChainAccessForFlatStorage;
 use near_store::flat_state::FlatStorageState;
 
 pub use self::validator_schedule::ValidatorSchedule;
@@ -126,6 +128,13 @@ struct EpochValidatorSet {
 }
 
 /// Simple key value runtime for tests.
+///
+/// Major differences with production `NightshadeRuntime`:
+///   * Uses in-memory storage
+///   * Doesn't have WASM runtime, so can only process simple transfer
+///     transaction
+///   * Uses hard-coded validator schedule instead of using `EpochManager` and
+///     staking to assign block and chunk producers.
 pub struct KeyValueRuntime {
     store: Store,
     tries: ShardTries,
@@ -416,6 +425,18 @@ impl EpochManagerAdapter for KeyValueRuntime {
         Ok(self.num_shards)
     }
 
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        _epoch_id: &EpochId,
+    ) -> Result<ShardId, Error> {
+        Ok(account_id_to_shard_id(account_id, self.num_shards))
+    }
+
+    fn shard_id_to_uid(&self, shard_id: ShardId, _epoch_id: &EpochId) -> Result<ShardUId, Error> {
+        Ok(ShardUId { version: 0, shard_id: shard_id as u32 })
+    }
+
     fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {
         Ok(ShardLayout::v0(self.num_shards, 0))
     }
@@ -452,6 +473,21 @@ impl EpochManagerAdapter for KeyValueRuntime {
         parent_hash: &CryptoHash,
     ) -> Result<EpochId, Error> {
         Ok(self.get_epoch_and_valset(*parent_hash)?.2)
+    }
+
+    fn get_prev_shard_ids(
+        &self,
+        _prev_hash: &CryptoHash,
+        shard_ids: Vec<ShardId>,
+    ) -> Result<Vec<ShardId>, Error> {
+        Ok(shard_ids)
+    }
+
+    fn get_shard_layout_from_prev_block(
+        &self,
+        _parent_hash: &CryptoHash,
+    ) -> Result<ShardLayout, Error> {
+        Ok(ShardLayout::v0(self.num_shards, 0))
     }
 
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, Error> {
@@ -694,10 +730,13 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_flat_storage_state_for_shard(&self, _shard_id: ShardId) -> Option<FlatStorageState> {
         None
     }
-    fn add_flat_storage_state_for_shard(
+
+    #[cfg(feature = "protocol_feature_flat_state")]
+    fn create_flat_storage_state_for_shard(
         &self,
         _shard_id: ShardId,
-        _flat_storage_state: FlatStorageState,
+        _latest_block_height: BlockHeight,
+        _chain_access: &dyn ChainAccessForFlatStorage,
     ) {
     }
 
@@ -707,25 +746,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _genesis_epoch_id: &EpochId,
     ) -> Result<StoreUpdate, Error> {
         Ok(self.store.store_update())
-    }
-
-    fn get_prev_shard_ids(
-        &self,
-        _prev_hash: &CryptoHash,
-        shard_ids: Vec<ShardId>,
-    ) -> Result<Vec<ShardId>, Error> {
-        Ok(shard_ids)
-    }
-
-    fn get_shard_layout_from_prev_block(
-        &self,
-        _parent_hash: &CryptoHash,
-    ) -> Result<ShardLayout, Error> {
-        Ok(ShardLayout::v0(self.num_shards, 0))
-    }
-
-    fn shard_id_to_uid(&self, shard_id: ShardId, _epoch_id: &EpochId) -> Result<ShardUId, Error> {
-        Ok(ShardUId { version: 0, shard_id: shard_id as u32 })
     }
 
     fn num_total_parts(&self) -> usize {
@@ -740,14 +760,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         } else {
             (total_parts - 1) / 3
         }
-    }
-
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        _epoch_id: &EpochId,
-    ) -> Result<ShardId, Error> {
-        Ok(account_id_to_shard_id(account_id, self.num_shards))
     }
 
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
@@ -1254,15 +1266,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         Error,
     > {
         Ok(Default::default())
-    }
-
-    fn get_epoch_sync_data_hash(
-        &self,
-        _prev_epoch_last_block_hash: &CryptoHash,
-        _epoch_id: &EpochId,
-        _next_epoch_id: &EpochId,
-    ) -> Result<CryptoHash, Error> {
-        Ok(CryptoHash::default())
     }
 
     fn get_epoch_protocol_version(&self, _epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {

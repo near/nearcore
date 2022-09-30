@@ -45,11 +45,11 @@ tokio-stream.workspace = true
 tokio-util.workspace = true
 tracing-opentelemetry.workspace = true
 tracing.workspace = true
+time.workspace = true
 
 delay-detector = { path = "../../tools/delay-detector" }
 near-o11y = { path = "../../core/o11y" }
 near-crypto = { path = "../../core/crypto" }
-near-network-primitives = { path = "../network-primitives" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
 near-primitives = { path = "../../core/primitives" }
@@ -65,7 +65,6 @@ tempfile.workspace = true
 deepsize_feature = [
     "deepsize",
     "near-crypto/deepsize_feature",
-    "near-network-primitives/deepsize_feature",
     "near-primitives/deepsize_feature",
 ]
 delay_detector = ["delay-detector/delay_detector"]
@@ -73,9 +72,7 @@ performance_stats = [
     "near-performance-metrics/performance_stats",
     "near-rust-allocator-proxy",
 ]
-test_features = [
-  "near-network-primitives/test_features",
-]
+test_features = []
 
 shardnet = []
 

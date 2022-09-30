@@ -1,7 +1,7 @@
 use crate::network_protocol::testonly as data;
 use crate::peer_manager;
 use crate::testonly::make_rng;
-use near_network_primitives::time;
+use crate::time;
 use near_o11y::testonly::init_test_logger;
 use std::sync::Arc;
 
