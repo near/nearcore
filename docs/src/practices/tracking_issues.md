@@ -41,6 +41,9 @@ issue for your work.
   the discussions.
 - For security sensitive discussions, use the appropriate private Zulip streams.
 
+[This issue](https://github.com/near/nearcore/issues/7670) is a good example of
+how tracking issues should be maintained.
+
 ## Background
 
 The idea of tracking issues is also used to track project work in the Rust
