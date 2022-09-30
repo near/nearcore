@@ -861,12 +861,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(transactions)
     }
 
-    fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
-        Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
-    }
-
     fn num_total_parts(&self) -> usize {
         let seats = self.genesis_config.num_block_producer_seats;
         if seats > 1 {
@@ -883,16 +877,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         } else {
             (total_parts - 1) / 3
         }
-    }
-
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
-        Ok(account_id_to_shard_id(account_id, &shard_layout))
     }
 
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
@@ -947,30 +931,6 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
         let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount())
-    }
-
-    // TODO #3488 this likely to be updated
-    fn get_epoch_sync_data_hash(
-        &self,
-        prev_epoch_last_block_hash: &CryptoHash,
-        epoch_id: &EpochId,
-        next_epoch_id: &EpochId,
-    ) -> Result<CryptoHash, Error> {
-        let (
-            prev_epoch_first_block_info,
-            prev_epoch_prev_last_block_info,
-            prev_epoch_last_block_info,
-            prev_epoch_info,
-            cur_epoch_info,
-            next_epoch_info,
-        ) = self.get_epoch_sync_data(prev_epoch_last_block_hash, epoch_id, next_epoch_id)?;
-        let mut data = prev_epoch_first_block_info.try_to_vec().unwrap();
-        data.extend(prev_epoch_prev_last_block_info.try_to_vec().unwrap());
-        data.extend(prev_epoch_last_block_info.try_to_vec().unwrap());
-        data.extend(prev_epoch_info.try_to_vec().unwrap());
-        data.extend(cur_epoch_info.try_to_vec().unwrap());
-        data.extend(next_epoch_info.try_to_vec().unwrap());
-        Ok(hash(data.as_slice()))
     }
 
     // TODO #3488 this likely to be updated
@@ -1852,7 +1812,7 @@ mod test {
                 Default::default(),
             );
             let (_store, state_roots) = runtime.genesis_state();
-            let genesis_hash = hash(&vec![0]);
+            let genesis_hash = hash(&[0]);
             runtime
                 .add_validator_proposals(BlockHeaderInfo {
                     prev_hash: CryptoHash::default(),
@@ -1894,7 +1854,7 @@ mod test {
             chunk_mask: Vec<bool>,
             challenges_result: ChallengesResult,
         ) {
-            let new_hash = hash(&vec![(self.head.height + 1) as u8]);
+            let new_hash = hash(&[(self.head.height + 1) as u8]);
             let num_shards = self.runtime.num_shards(&self.head.epoch_id).unwrap();
             assert_eq!(transactions.len() as NumShards, num_shards);
             assert_eq!(chunk_mask.len() as NumShards, num_shards);
@@ -1908,7 +1868,7 @@ mod test {
                     0,
                     &self.head.last_block_hash,
                     &new_hash,
-                    self.last_receipts.get(&i).unwrap_or(&vec![]),
+                    self.last_receipts.get(&i).map_or(&[], |v| v.as_slice()),
                     &transactions[i as usize],
                     ValidatorStakeIter::new(self.last_shard_proposals.get(&i).unwrap_or(&vec![])),
                     self.runtime.genesis_config.min_gas_price,
@@ -2347,7 +2307,7 @@ mod test {
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
         env.step_default(vec![staking_transaction]);
         env.step_default(vec![]);
-        let block_hash = hash(&vec![env.head.height as u8]);
+        let block_hash = hash(&[env.head.height as u8]);
         let state_part = env
             .runtime
             .obtain_state_part(0, &block_hash, &env.state_roots[0], PartId::new(0, 1))

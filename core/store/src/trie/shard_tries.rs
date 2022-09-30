@@ -13,6 +13,7 @@ use near_primitives::types::{
 
 use crate::flat_state::FlatStateFactory;
 use crate::trie::config::TrieConfig;
+use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
 use crate::{metrics, DBCol, DBOp, DBTransaction, PrefetchApi};
@@ -27,7 +28,7 @@ struct ShardTriesInner {
     view_caches: RwLock<HashMap<ShardUId, TrieCache>>,
     flat_state_factory: FlatStateFactory,
     /// Prefetcher state, such as IO threads, per shard.
-    prefetchers: RwLock<HashMap<ShardUId, PrefetchApi>>,
+    prefetchers: RwLock<HashMap<ShardUId, (PrefetchApi, PrefetchingThreadsHandle)>>,
 }
 
 #[derive(Clone)]
@@ -136,6 +137,7 @@ impl ShardTries {
                         &self.0.trie_config,
                     )
                 })
+                .0
                 .clone()
         });
 

@@ -1,9 +1,10 @@
+use crate::network_protocol::Edge;
 use crate::routing;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::store;
+use crate::time;
+use crate::types::PeerIdOrHash;
 use lru::LruCache;
-use near_network_primitives::time;
-use near_network_primitives::types::{Edge, PeerIdOrHash};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
