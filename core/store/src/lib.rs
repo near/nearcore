@@ -25,7 +25,7 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 
 use crate::db::{
-    refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, RocksDB, StoreStatistics,
+    refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics,
     GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;
@@ -49,8 +49,7 @@ mod trie;
 pub mod version;
 
 pub use crate::config::{Mode, StoreConfig};
-pub use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError};
-pub use crate::opener::StoreOpener;
+pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
 
 /// Specifies temperature of a storage.
 ///
@@ -102,7 +101,7 @@ impl NodeStorage {
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
         static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = Self::opener(dir.path(), &CONFIG);
+        let opener = StoreOpener::new(dir.path(), &CONFIG);
         (dir, opener)
     }
 
@@ -152,9 +151,9 @@ impl NodeStorage {
     /// well.  For example, garbage collection only ever touches hot storage but
     /// it should go through [`Store`] interface since data it manipulates
     /// (e.g. blocks) are live in both databases.
-    pub fn get_inner(&self, temp: Temperature) -> Arc<dyn Database> {
+    pub fn get_inner(&self, temp: Temperature) -> &Arc<dyn Database> {
         match temp {
-            Temperature::Hot => self.storage.clone(),
+            Temperature::Hot => &self.storage,
         }
     }
 
