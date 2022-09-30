@@ -1,4 +1,4 @@
-use near_metrics::{
+use near_o11y::metrics::{
     try_create_gauge_vec, try_create_int_gauge, try_create_int_gauge_vec, GaugeVec, IntGauge,
     IntGaugeVec,
 };
@@ -31,12 +31,6 @@ pub(crate) struct RocksDBMetrics {
     int_vec_gauges: HashMap<String, IntGaugeVec>,
     // Contains floating point statistics, such as quantiles of timings.
     gauges: HashMap<String, GaugeVec>,
-}
-
-/// Returns column's name as name in the DBCol enum without '_' prefix for deprecated columns.
-fn col_verbose_name(col: near_store::DBCol) -> &'static str {
-    let name: &str = col.into();
-    name.strip_prefix("_").unwrap_or(name)
 }
 
 impl RocksDBMetrics {
@@ -99,7 +93,6 @@ impl RocksDBMetrics {
                     // Label = column's verbose name.
                     StatsValue::ColumnValue(col, value) => {
                         let key = &stat_name;
-                        let label = col_verbose_name(col);
 
                         // Checking for metric to be present.
                         let gauge = match self.int_vec_gauges.entry(key.to_string()) {
@@ -112,7 +105,7 @@ impl RocksDBMetrics {
                             Entry::Occupied(entry) => entry.into_mut(),
                         };
                         // Writing value for column.
-                        gauge.with_label_values(&[&label]).set(value);
+                        gauge.with_label_values(&[<&str>::from(col)]).set(value);
                     }
                 }
             }

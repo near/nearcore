@@ -12,7 +12,6 @@ fn main() -> anyhow::Result<()> {
         rules::is_unversioned,
         rules::has_publish_spec,
         rules::has_rust_version,
-        rules::has_debuggable_rust_version,
         rules::has_unified_rust_edition,
         rules::author_is_near,
         rules::publishable_has_license,
@@ -20,6 +19,7 @@ fn main() -> anyhow::Result<()> {
         rules::publishable_has_license_file,
         rules::publishable_has_description,
         rules::publishable_has_near_link,
+        rules::recursively_publishable,
     ];
 
     let _unused_rules = [

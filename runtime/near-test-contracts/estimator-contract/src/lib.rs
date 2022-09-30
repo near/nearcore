@@ -54,6 +54,15 @@ extern "C" {
         malleability_flag: u64,
         register_id: u64,
     ) -> u64;
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    fn ed25519_verify(
+        sig_len: u64,
+        sig_ptr: u64,
+        msg_len: u64,
+        msg_ptr: u64,
+        pub_key_len: u64,
+        pub_key_ptr: u64,
+    ) -> u64;
     // #####################
     // # Miscellaneous API #
     // #####################
@@ -464,6 +473,43 @@ pub unsafe fn ecrecover_10k() {
 
     for _ in 0..10_000 {
         ecrecover(32, hash_buffer.as_ptr() as _, 64, sig_buffer.as_ptr() as _, 0, 0, 0);
+    }
+}
+
+// Function to measure `ed25519_verify_base`. Also measures `base`, `write_register_base`, and
+// `write_register_byte`. However `ed25519_verify_base` computation is more expensive than register writing
+// so we are okay overcharging it. // TODO: validate this
+// Compute ecrecover 10k times.
+#[no_mangle]
+#[cfg(feature = "protocol_feature_ed25519_verify")]
+pub unsafe fn ed25519_verify_10k() {
+    let signature: [u8; 64] = [
+        145, 193, 203, 18, 114, 227, 14, 117, 33, 213, 121, 66, 130, 14, 25, 4, 36, 120, 46, 142,
+        226, 215, 7, 66, 122, 112, 97, 30, 249, 135, 61, 165, 221, 249, 252, 23, 105, 40, 56, 70,
+        31, 152, 236, 141, 154, 122, 207, 20, 75, 118, 79, 90, 168, 6, 221, 122, 213, 29, 126, 196,
+        216, 104, 191, 6,
+    ];
+
+    let public_key: [u8; 32] = [
+        32, 122, 6, 120, 146, 130, 30, 37, 215, 112, 241, 251, 160, 196, 124, 17, 255, 75, 129, 62,
+        84, 22, 46, 206, 158, 184, 57, 224, 118, 35, 26, 182,
+    ];
+
+    // 32 bytes message
+    let message: [u8; 32] = [
+        107, 97, 106, 100, 108, 102, 107, 106, 97, 108, 107, 102, 106, 97, 107, 108, 102, 106, 100,
+        107, 108, 97, 100, 106, 102, 107, 108, 106, 97, 100, 115, 107,
+    ];
+
+    for _ in 0..10_000 {
+        ed25519_verify(
+            signature.len() as _,
+            signature.as_ptr() as _,
+            message.len() as _,
+            message.as_ptr() as _,
+            public_key.len() as _,
+            public_key.as_ptr() as _,
+        );
     }
 }
 

@@ -2,7 +2,7 @@ use near_primitives::shard_layout::ShardUId;
 use std::collections::HashMap;
 
 use near_primitives::transaction::SignedTransaction;
-use near_store::{TrieCache, TrieCachingStorage};
+use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_logic::ExtCosts;
 
 use crate::config::{Config, GasMetric};
@@ -42,7 +42,8 @@ impl<'c> EstimatorContext<'c> {
     }
 
     pub(crate) fn testbed(&mut self) -> Testbed<'_> {
-        let inner = RuntimeTestbed::from_state_dump(&self.config.state_dump_path);
+        let inner =
+            RuntimeTestbed::from_state_dump(&self.config.state_dump_path, self.config.in_memory_db);
         Testbed {
             config: self.config,
             inner,
@@ -64,7 +65,7 @@ pub(crate) struct Testbed<'c> {
     transaction_builder: TransactionBuilder,
 }
 
-impl<'c> Testbed<'c> {
+impl Testbed<'_> {
     pub(crate) fn transaction_builder(&mut self) -> &mut TransactionBuilder {
         &mut self.transaction_builder
     }
@@ -77,8 +78,8 @@ impl<'c> Testbed<'c> {
     /// `block_latency` must be specified and the function will panic if it is
     /// wrong. A latency of 0 means everything is done within a single block.
     #[track_caller]
-    pub(crate) fn measure_blocks<'a>(
-        &'a mut self,
+    pub(crate) fn measure_blocks(
+        &mut self,
         blocks: Vec<Vec<SignedTransaction>>,
         block_latency: usize,
     ) -> Vec<(GasCost, HashMap<ExtCosts, u64>)> {
@@ -110,11 +111,7 @@ impl<'c> Testbed<'c> {
         res
     }
 
-    pub(crate) fn process_block<'a>(
-        &'a mut self,
-        block: Vec<SignedTransaction>,
-        block_latency: usize,
-    ) {
+    pub(crate) fn process_block(&mut self, block: Vec<SignedTransaction>, block_latency: usize) {
         let allow_failures = false;
         self.inner.process_block(&block, allow_failures);
         let extra_blocks = self.inner.process_blocks_until_no_receipts(allow_failures);
@@ -123,8 +120,15 @@ impl<'c> Testbed<'c> {
 
     pub(crate) fn trie_caching_storage(&mut self) -> TrieCachingStorage {
         let store = self.inner.store();
-        let caching_storage =
-            TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
+        let is_view = false;
+        let prefetcher = None;
+        let caching_storage = TrieCachingStorage::new(
+            store,
+            TrieCache::new(&TrieConfig::default(), ShardUId::single_shard(), false),
+            ShardUId::single_shard(),
+            is_view,
+            prefetcher,
+        );
         caching_storage
     }
 

@@ -6,7 +6,6 @@ use curve25519_dalek::constants::{
     RISTRETTO_BASEPOINT_POINT as G, RISTRETTO_BASEPOINT_TABLE as GT,
 };
 use curve25519_dalek::traits::{Identity, VartimeMultiscalarMul};
-use rand_core::OsRng;
 use std::borrow::Borrow;
 use std::iter::once;
 use std::ops::{AddAssign, Deref, DerefMut, Sub};
@@ -142,23 +141,6 @@ value_type!(pub, RandomShare, 96, "random share");
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct ValidatedRandomShare(Point);
 value_type!(pub, RandomValue, 32, "random value");
-
-pub fn generate_shares(Params { n, k }: Params, key: &PublicKey) -> (PublicShares, SecretShares) {
-    let mut public = Vec::with_capacity(k * 32 + 64);
-    let mut secret = Vec::with_capacity(n);
-    for _ in 0..k {
-        let s = Scalar::random(&mut OsRng);
-        public.extend_from_slice(&(&s * &GT).pack());
-        secret.push(s);
-    }
-    let mut r = Scalar::random(&mut OsRng);
-    public.extend_from_slice(&(&r * &GT).pack());
-    secret.iter().zip(ChaChaScalars::from_hash(hash!(key, &public))).for_each(|(s, c)| r -= c * s);
-    public.extend_from_slice(&r.pack());
-    secret.extend(expand::<Scalar, _>(secret.iter()).take(n - k));
-    debug_assert!(public.len() == PublicShares::length(Params { n, k }) && secret.len() == n);
-    (PublicShares(public.into_boxed_slice()), SecretShares(secret.into_boxed_slice()))
-}
 
 impl PublicShares {
     pub const fn length(Params { k, .. }: Params) -> usize {
@@ -384,8 +366,30 @@ eq!(RandomRound, |a, b| &a.0 == &b.0);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use rand::rngs::OsRng;
     use rand::seq::index;
-    use rand_core::RngCore;
+    use rand::RngCore;
+
+    fn generate_shares(Params { n, k }: Params, key: &PublicKey) -> (PublicShares, SecretShares) {
+        let mut public = Vec::with_capacity(k * 32 + 64);
+        let mut secret = Vec::with_capacity(n);
+        for _ in 0..k {
+            let s = Scalar::random(&mut OsRng);
+            public.extend_from_slice(&(&s * &GT).pack());
+            secret.push(s);
+        }
+        let mut r = Scalar::random(&mut OsRng);
+        public.extend_from_slice(&(&r * &GT).pack());
+        secret
+            .iter()
+            .zip(ChaChaScalars::from_hash(hash!(key, &public)))
+            .for_each(|(s, c)| r -= c * s);
+        public.extend_from_slice(&r.pack());
+        secret.extend(expand::<Scalar, _>(secret.iter()).take(n - k));
+        debug_assert!(public.len() == PublicShares::length(Params { n, k }) && secret.len() == n);
+        (PublicShares(public.into_boxed_slice()), SecretShares(secret.into_boxed_slice()))
+    }
 
     #[test]
     fn test_u32_max_value_fits_usize() {

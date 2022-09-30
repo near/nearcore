@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::iter::Peekable;
+use std::ops::Bound;
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
@@ -34,7 +35,7 @@ pub struct TrieUpdate {
 
 pub enum TrieUpdateValuePtr<'a> {
     HashAndSize(&'a Trie, u32, CryptoHash),
-    MemoryRef(&'a Vec<u8>),
+    MemoryRef(&'a [u8]),
 }
 
 impl<'a> TrieUpdateValuePtr<'a> {
@@ -47,7 +48,7 @@ impl<'a> TrieUpdateValuePtr<'a> {
 
     pub fn deref_value(&self) -> Result<Vec<u8>, StorageError> {
         match self {
-            TrieUpdateValuePtr::MemoryRef(value) => Ok((*value).clone()),
+            TrieUpdateValuePtr::MemoryRef(value) => Ok(value.to_vec()),
             TrieUpdateValuePtr::HashAndSize(trie, _, hash) => {
                 trie.storage.retrieve_raw_bytes(hash).map(|bytes| bytes.to_vec())
             }
@@ -67,10 +68,10 @@ impl TrieUpdate {
     pub fn get_ref(&self, key: &TrieKey) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
         let key = key.to_vec();
         if let Some(key_value) = self.prospective.get(&key) {
-            return Ok(key_value.value.as_ref().map(TrieUpdateValuePtr::MemoryRef));
+            return Ok(key_value.value.as_deref().map(TrieUpdateValuePtr::MemoryRef));
         } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
             if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
-                return Ok(data.as_ref().map(TrieUpdateValuePtr::MemoryRef));
+                return Ok(data.as_deref().map(TrieUpdateValuePtr::MemoryRef));
             }
         }
 
@@ -140,16 +141,7 @@ impl TrieUpdate {
 
     /// Returns Error if the underlying storage fails
     pub fn iter(&self, key_prefix: &[u8]) -> Result<TrieUpdateIterator<'_>, StorageError> {
-        TrieUpdateIterator::new(self, key_prefix, b"", None)
-    }
-
-    pub fn range(
-        &self,
-        prefix: &[u8],
-        start: &[u8],
-        end: &[u8],
-    ) -> Result<TrieUpdateIterator<'_>, StorageError> {
-        TrieUpdateIterator::new(self, prefix, start, Some(end))
+        TrieUpdateIterator::new(self, key_prefix)
     }
 
     pub fn get_root(&self) -> &StateRoot {
@@ -170,12 +162,12 @@ impl crate::TrieAccess for TrieUpdate {
 }
 
 struct MergeIter<'a> {
-    left: Peekable<Box<dyn Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)> + 'a>>,
-    right: Peekable<Box<dyn Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)> + 'a>>,
+    left: Peekable<Box<dyn Iterator<Item = (&'a [u8], Option<&'a [u8]>)> + 'a>>,
+    right: Peekable<Box<dyn Iterator<Item = (&'a [u8], Option<&'a [u8]>)> + 'a>>,
 }
 
 impl<'a> Iterator for MergeIter<'a> {
-    type Item = (&'a Vec<u8>, &'a Option<Vec<u8>>);
+    type Item = (&'a [u8], Option<&'a [u8]>);
 
     fn next(&mut self) -> Option<Self::Item> {
         let res = match (self.left.peek(), self.right.peek()) {
@@ -199,60 +191,65 @@ impl<'a> Iterator for MergeIter<'a> {
 }
 
 pub struct TrieUpdateIterator<'a> {
-    prefix: Vec<u8>,
-    end_offset: Option<Vec<u8>>,
     trie_iter: Peekable<TrieIterator<'a>>,
     overlay_iter: Peekable<MergeIter<'a>>,
 }
 
+/// Returns an end bound for a range which corresponds to all values with
+/// a given prefix.
+///
+/// In other words, the smallest value larger than the `prefix` which does not
+/// start with the `prefix`.  If no such value exists, returns `None`.
+fn make_prefix_range_end_bound(prefix: &[u8]) -> Option<Vec<u8>> {
+    let ffs = prefix.iter().rev().take_while(|&&byte| byte == u8::MAX).count();
+    let next = &prefix[..(prefix.len() - ffs)];
+    if next.is_empty() {
+        // Prefix consisted of \xff bytes.  There is no key that follows it.
+        None
+    } else {
+        let mut next = next.to_vec();
+        *next.last_mut().unwrap() += 1;
+        Some(next)
+    }
+}
+
 impl<'a> TrieUpdateIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
-    pub fn new(
-        state_update: &'a TrieUpdate,
-        prefix: &[u8],
-        start: &[u8],
-        end: Option<&[u8]>,
-    ) -> Result<Self, StorageError> {
+    pub fn new(state_update: &'a TrieUpdate, prefix: &[u8]) -> Result<Self, StorageError> {
         let mut trie_iter = state_update.trie.iter()?;
-        let mut start_offset = prefix.to_vec();
-        start_offset.extend_from_slice(start);
-        let end_offset = match end {
-            Some(end) => {
-                let mut p = prefix.to_vec();
-                p.extend_from_slice(end);
-                Some(p)
-            }
-            None => None,
+        trie_iter.seek_prefix(prefix)?;
+
+        let end_bound = make_prefix_range_end_bound(prefix);
+        let end_bound = if let Some(end_bound) = &end_bound {
+            Bound::Excluded(end_bound.as_slice())
+        } else {
+            Bound::Unbounded
         };
-        trie_iter.seek(&start_offset)?;
-        let committed_iter = state_update.committed.range(start_offset.clone()..).map(
+        let range = (Bound::Included(prefix), end_bound);
+
+        let committed_iter = state_update.committed.range::<[u8], _>(range).map(
             |(raw_key, changes_with_trie_key)| {
-                (
-                    raw_key,
-                    &changes_with_trie_key
-                        .changes
-                        .last()
-                        .as_ref()
-                        .expect("Committed entry should have at least one change.")
-                        .data,
-                )
+                let key = raw_key.as_slice();
+                let value = changes_with_trie_key
+                    .changes
+                    .last()
+                    .as_ref()
+                    .expect("Committed entry should have at least one change.")
+                    .data
+                    .as_deref();
+                (key, value)
             },
         );
         let prospective_iter = state_update
             .prospective
-            .range(start_offset..)
-            .map(|(raw_key, key_value)| (raw_key, &key_value.value));
+            .range::<[u8], _>(range)
+            .map(|(raw_key, key_value)| (raw_key.as_slice(), key_value.value.as_deref()));
         let overlay_iter = MergeIter {
             left: (Box::new(committed_iter) as Box<dyn Iterator<Item = _>>).peekable(),
             right: (Box::new(prospective_iter) as Box<dyn Iterator<Item = _>>).peekable(),
         }
         .peekable();
-        Ok(TrieUpdateIterator {
-            prefix: prefix.to_vec(),
-            end_offset,
-            trie_iter: trie_iter.peekable(),
-            overlay_iter,
-        })
+        Ok(TrieUpdateIterator { trie_iter: trie_iter.peekable(), overlay_iter })
     }
 }
 
@@ -260,13 +257,7 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
     type Item = Result<Vec<u8>, StorageError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let stop_cond = |key: &Vec<u8>, prefix: &Vec<u8>, end_offset: &Option<Vec<u8>>| {
-            !key.starts_with(prefix)
-                || match end_offset {
-                    Some(end) => key >= end,
-                    None => false,
-                }
-        };
+        #[derive(Eq, PartialEq)]
         enum Ordering {
             Trie,
             Overlay,
@@ -274,67 +265,43 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
         }
         // Usually one iteration, unless need to skip None values in prospective / committed.
         loop {
-            let res = {
-                match (self.trie_iter.peek(), self.overlay_iter.peek()) {
-                    (Some(&Ok((ref left_key, _))), Some(&(ref right_key, _))) => {
-                        match (
-                            stop_cond(left_key, &self.prefix, &self.end_offset),
-                            stop_cond(*right_key, &self.prefix, &self.end_offset),
-                        ) {
-                            (false, false) => {
-                                if left_key < *right_key {
-                                    Ordering::Trie
-                                } else if &left_key == right_key {
-                                    Ordering::Both
-                                } else {
-                                    Ordering::Overlay
-                                }
-                            }
-                            (false, true) => Ordering::Trie,
-                            (true, false) => Ordering::Overlay,
-                            (true, true) => {
-                                return None;
-                            }
-                        }
-                    }
-                    (Some(&Ok((ref left_key, _))), None) => {
-                        if stop_cond(left_key, &self.prefix, &self.end_offset) {
-                            return None;
-                        }
-                        Ordering::Trie
-                    }
-                    (None, Some(&(right_key, _))) => {
-                        if stop_cond(right_key, &self.prefix, &self.end_offset) {
-                            return None;
-                        }
-                        Ordering::Overlay
-                    }
-                    (None, None) => return None,
-                    (Some(&Err(ref e)), _) => return Some(Err(e.clone())),
+            let res = match (self.trie_iter.peek(), self.overlay_iter.peek()) {
+                (Some(Err(err)), _) => {
+                    // TODO(mina86): We’re not advancing the iterator which
+                    // means that it’ll continue to return errors.  On the
+                    // other hand, we don’t want to just advance it because
+                    // we don’t want the iterator to continue returning
+                    // values after an error.
+                    return Some(Err(err.clone()));
                 }
+
+                (Some(Ok((left_key, _))), Some((right_key, _))) => {
+                    match left_key.as_slice().cmp(right_key) {
+                        std::cmp::Ordering::Less => Ordering::Trie,
+                        std::cmp::Ordering::Equal => Ordering::Both,
+                        std::cmp::Ordering::Greater => Ordering::Overlay,
+                    }
+                }
+                (Some(_), None) => Ordering::Trie,
+                (None, Some(_)) => Ordering::Overlay,
+                (None, None) => return None,
             };
 
-            // Check which elements comes first and only advance the corresponding iterator.
-            // If two keys are equal, take the value from `right`.
-            return match res {
-                Ordering::Trie => match self.trie_iter.next() {
-                    Some(Ok((key, _value))) => Some(Ok(key)),
-                    _ => None,
-                },
-                Ordering::Overlay => match self.overlay_iter.next() {
-                    Some((key, Some(_))) => Some(Ok(key.clone())),
-                    Some((_, None)) => continue,
-                    None => None,
-                },
-                Ordering::Both => {
-                    self.trie_iter.next();
-                    match self.overlay_iter.next() {
-                        Some((key, Some(_))) => Some(Ok(key.clone())),
-                        Some((_, None)) => continue,
-                        None => None,
-                    }
+            // Check which element comes first and advance the corresponding
+            // iterator only.  If both keys are equal, check if overlay doesn’t
+            // delete the value.
+            if res == Ordering::Trie {
+                if let Some(Ok((key, _))) = self.trie_iter.next() {
+                    return Some(Ok(key));
                 }
-            };
+            } else {
+                if res == Ordering::Both {
+                    self.trie_iter.next();
+                }
+                if let Some((key, Some(_))) = self.overlay_iter.next() {
+                    return Some(Ok(key.to_vec()));
+                }
+            }
         }
     }
 }
@@ -483,24 +450,18 @@ mod tests {
                 test_key(b"dog3".to_vec()).to_vec()
             ]
         );
+    }
 
-        let values: Result<Vec<Vec<u8>>, _> =
-            trie_update.range(&test_key(b"do".to_vec()).to_vec(), b"g", b"g21").unwrap().collect();
-        assert_eq!(
-            values.unwrap(),
-            vec![test_key(b"dog".to_vec()).to_vec(), test_key(b"dog2".to_vec()).to_vec(),]
-        );
+    #[test]
+    fn test_make_prefix_range_end_bound() {
+        fn test(want: Option<&[u8]>, prefix: &[u8]) {
+            assert_eq!(want, make_prefix_range_end_bound(prefix).as_deref());
+        }
 
-        let values: Result<Vec<Vec<u8>>, _> =
-            trie_update.range(&test_key(b"do".to_vec()).to_vec(), b"", b"xyz").unwrap().collect();
-
-        assert_eq!(
-            values.unwrap(),
-            vec![
-                test_key(b"dog".to_vec()).to_vec(),
-                test_key(b"dog2".to_vec()).to_vec(),
-                test_key(b"dog3".to_vec()).to_vec()
-            ]
-        );
+        test(None, b"");
+        test(None, b"\xff");
+        test(None, b"\xff\xff\xff\xff");
+        test(Some(b"b"), b"a");
+        test(Some(b"b"), b"a\xff\xff\xff");
     }
 }

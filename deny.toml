@@ -26,15 +26,8 @@ skip = [
     # criterion uses clap=2.34.0 which relies on an older textwrap
     { name = "textwrap", version = "=0.11.0" },
 
-    # near-epoch-manager fixed the rand version to ensure protocol stability
-    { name = "rand", version = "=0.6.5" },
-    # rand 0.6.5 uses two versions of rand_core due to weird dependencies mismatch with rand_chacha
-    { name = "rand_core", version = "=0.3.1" },
-    { name = "rand_chacha", version = "=0.1.1" },
-    { name = "autocfg", version = "=0.1.8" },
     # wasmer 0.17 and wasmtime 0.17 use conflicting versions of those
     { name = "wasmparser", version = "=0.51.4" },
-    { name = "rand_core", version = "=0.4.2" },
     # wasmer 0.17 and wasmtime 0.17 uses older versions of some crates
     { name = "generic-array", version = "=0.12.4" },
 
@@ -56,7 +49,6 @@ skip = [
     { name = "parity-wasm", version = "=0.41.0" },
 
     # param estimator uses newer imports, but it's not part of neard
-    { name = "rand_xorshift", version = "=0.2.0" },
     { name = "wasmparser", version = "=0.59.0" },
 
     # wasmer and wasmtime
@@ -64,9 +56,6 @@ skip = [
 
     # chain and param estimator
     { name = "num-rational", version = "=0.3.2" },
-
-    # tracing-subscriber via near-logger-utils and clap via bindgen
-    { name = "ansi_term", version = "=0.12.1" },
 
     # wasmer 0.17.x
     { name = "parking_lot", version = "=0.10.2" },
@@ -108,4 +97,10 @@ skip = [
 
     # prometheus depends on an old version of protobuf
     { name = "protobuf", version = "=2.27.1" },
+
+    # opentelemetry-otlp depends on an old version of tonic which depends on an old version of tokio-util
+    { name = "tokio-util", version = "=0.6.10" },
+
+    # redis we’re using uses ancient sha
+    { name = "sha1", version = "=0.6.1" },
 ]

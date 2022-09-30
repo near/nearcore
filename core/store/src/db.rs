@@ -2,11 +2,14 @@ use std::io;
 
 use crate::DBCol;
 
+mod colddb;
 pub mod refcount;
-mod rocksdb;
+pub(crate) mod rocksdb;
+mod slice;
 mod testdb;
 
 pub use self::rocksdb::RocksDB;
+pub use self::slice::DBSlice;
 pub use self::testdb::TestDB;
 
 pub const VERSION_KEY: &[u8; 7] = b"VERSION";
@@ -87,9 +90,17 @@ pub trait Database: Sync + Send {
     /// will not be decoded or stripped from the value.  Similarly, cells with
     /// non-positive reference count will be returned as existing.
     ///
-    /// You most likely will want to use [`refcount::get_with_rc_logic`] to
+    /// You most likely will want to use [`Self::get_with_rc_stripped`] to
     /// properly handle reference-counted columns.
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>>;
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>>;
+
+    /// Returns value for given `key` forcing a reference count decoding.
+    ///
+    /// **Panics** if the column is not reference counted.
+    fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+        assert!(col.is_rc());
+        Ok(self.get_raw_bytes(col, key)?.and_then(DBSlice::strip_refcount))
+    }
 
     /// Iterate over all items in given column in lexicographical order sorted
     /// by the key.
@@ -128,6 +139,12 @@ pub trait Database: Sync + Send {
     ///
     /// This is a no-op for in-memory databases.
     fn flush(&self) -> io::Result<()>;
+
+    /// Compact database representation.
+    ///
+    /// If the database supports it a form of compaction, calling this function
+    /// is blocking until compaction finishes. Otherwise, this is a no-op.
+    fn compact(&self) -> io::Result<()>;
 
     /// Returns statistics about the database if available.
     fn get_store_statistics(&self) -> Option<StoreStatistics>;

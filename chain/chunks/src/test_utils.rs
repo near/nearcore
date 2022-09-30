@@ -1,9 +1,14 @@
-use std::sync::Arc;
+use std::collections::VecDeque;
+use std::sync::{Arc, RwLock};
 
+use actix::MailboxError;
+use futures::future::BoxFuture;
+use futures::FutureExt;
+use near_network::types::MsgRecipient;
 use near_primitives::time::Clock;
 
 use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
-use near_chain::types::{RuntimeAdapter, Tip};
+use near_chain::types::{EpochManagerAdapter, RuntimeAdapter, Tip};
 use near_chain::{Chain, ChainStore};
 use near_crypto::KeyType;
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -11,7 +16,8 @@ use near_primitives::block::BlockHeader;
 use near_primitives::hash::{self, CryptoHash};
 use near_primitives::merkle;
 use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReedSolomonWrapper, ShardChunkHeader,
+    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV2,
+    ReedSolomonWrapper, ShardChunkHeader,
 };
 use near_primitives::types::NumShards;
 use near_primitives::types::{AccountId, EpochId, ShardId};
@@ -20,6 +26,7 @@ use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
 
+use crate::client::ShardsManagerResponse;
 use crate::{
     Seal, SealsManager, ShardsManager, ACCEPTING_SEAL_PERIOD_MS, PAST_SEAL_HEIGHT_HORIZON,
 };
@@ -132,6 +139,7 @@ impl SealsManagerTestFixture {
 pub struct ChunkTestFixture {
     pub mock_runtime: Arc<KeyValueRuntime>,
     pub mock_network: Arc<MockPeerManagerAdapter>,
+    pub mock_client_adapter: Arc<MockClientAdapterForShardsManager>,
     pub chain_store: ChainStore,
     pub mock_part_ords: Vec<u64>,
     pub mock_chunk_part_owner: AccountId,
@@ -154,6 +162,12 @@ impl ChunkTestFixture {
         Self::new_with_runtime(orphan_chunk, Arc::new(default_runtime()))
     }
 
+    pub fn new_with_all_shards_tracking() -> Self {
+        let mut runtime = default_runtime();
+        runtime.set_tracks_all_shards(true);
+        Self::new_with_runtime(false, Arc::new(runtime))
+    }
+
     // Create a ChunkTestFixture to test chunk only producers
     pub fn new_with_chunk_only_producers() -> Self {
         let store = near_store::test_utils::create_test_store();
@@ -167,6 +181,7 @@ impl ChunkTestFixture {
 
     pub fn new_with_runtime(orphan_chunk: bool, mock_runtime: Arc<KeyValueRuntime>) -> Self {
         let mock_network = Arc::new(MockPeerManagerAdapter::default());
+        let mock_client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
 
         let data_parts = mock_runtime.num_data_parts();
         let parity_parts = mock_runtime.num_total_parts() - data_parts;
@@ -259,12 +274,13 @@ impl ChunkTestFixture {
         ChunkTestFixture {
             mock_runtime,
             mock_network,
+            mock_client_adapter,
             chain_store,
             mock_part_ords,
             mock_chunk_part_owner,
             mock_shard_tracker,
             mock_chunk_header: encoded_chunk.cloned_header(),
-            mock_chunk_parts: encoded_chunk.parts().clone(),
+            mock_chunk_parts: encoded_chunk.parts().to_vec(),
             mock_chain_head: Tip {
                 height: 0,
                 last_block_hash: CryptoHash::default(),
@@ -276,18 +292,18 @@ impl ChunkTestFixture {
         }
     }
 
-    pub fn make_partial_encoded_chunk(&self, part_ords: &[u64]) -> PartialEncodedChunkV2 {
+    pub fn make_partial_encoded_chunk(&self, part_ords: &[u64]) -> PartialEncodedChunk {
         let parts = part_ords
             .iter()
             .copied()
             .flat_map(|ord| self.mock_chunk_parts.iter().find(|part| part.part_ord == ord))
             .cloned()
             .collect();
-        PartialEncodedChunkV2 {
+        PartialEncodedChunk::V2(PartialEncodedChunkV2 {
             header: self.mock_chunk_header.clone(),
             parts,
             receipts: Vec::new(),
-        }
+        })
     }
 }
 
@@ -321,4 +337,29 @@ fn default_runtime() -> KeyValueRuntime {
     // 12 validators, 3 shards, 4 validators per shard
     let vs = make_validators(12, 0, 3);
     KeyValueRuntime::new_with_validators(store.clone(), vs, 5)
+}
+// Mocked `PeerManager` adapter, has a queue of `PeerManagerMessageRequest` messages.
+#[derive(Default)]
+pub struct MockClientAdapterForShardsManager {
+    pub requests: Arc<RwLock<VecDeque<ShardsManagerResponse>>>,
+}
+
+impl MsgRecipient<ShardsManagerResponse> for MockClientAdapterForShardsManager {
+    fn send(&self, msg: ShardsManagerResponse) -> BoxFuture<'static, Result<(), MailboxError>> {
+        self.do_send(msg);
+        futures::future::ok(()).boxed()
+    }
+
+    fn do_send(&self, msg: ShardsManagerResponse) {
+        self.requests.write().unwrap().push_back(msg);
+    }
+}
+
+impl MockClientAdapterForShardsManager {
+    pub fn pop(&self) -> Option<ShardsManagerResponse> {
+        self.requests.write().unwrap().pop_front()
+    }
+    pub fn pop_most_recent(&self) -> Option<ShardsManagerResponse> {
+        self.requests.write().unwrap().pop_back()
+    }
 }

@@ -59,6 +59,9 @@ pub struct EncodedChunksCache {
     /// A map from a block height to chunk hashes at this height for all chunk stored in the cache
     /// This is used to gc chunks that are out of horizon
     height_map: HashMap<BlockHeight, HashSet<ChunkHash>>,
+    /// A map from block height to shard ID to the chunk hash we've received, so we only process
+    /// one chunk per shard per height.
+    height_to_shard_to_chunk: HashMap<BlockHeight, HashMap<ShardId, ChunkHash>>,
     /// A map from a block hash to a set of incomplete chunks (does not have all parts and receipts yet)
     /// whose previous block is the block hash.
     incomplete_chunks: HashMap<CryptoHash, HashSet<ChunkHash>>,
@@ -79,19 +82,26 @@ impl EncodedChunksCacheEntry {
         }
     }
 
+    /// Inserts previously unknown chunks and receipts, returning the part ords that were
+    /// previously unknown.
     pub fn merge_in_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: &PartialEncodedChunkV2,
-    ) {
+    ) -> HashSet<u64> {
+        let mut previously_missing_part_ords = HashSet::new();
         for part_info in partial_encoded_chunk.parts.iter() {
             let part_ord = part_info.part_ord;
-            self.parts.entry(part_ord).or_insert_with(|| part_info.clone());
+            self.parts.entry(part_ord).or_insert_with(|| {
+                previously_missing_part_ords.insert(part_ord);
+                part_info.clone()
+            });
         }
 
         for receipt in partial_encoded_chunk.receipts.iter() {
             let shard_id = receipt.1.to_shard_id;
             self.receipts.entry(shard_id).or_insert_with(|| receipt.clone());
         }
+        previously_missing_part_ords
     }
 }
 
@@ -101,6 +111,7 @@ impl EncodedChunksCache {
             largest_seen_height: 0,
             encoded_chunks: HashMap::new(),
             height_map: HashMap::new(),
+            height_to_shard_to_chunk: HashMap::new(),
             incomplete_chunks: HashMap::new(),
             block_hash_to_chunk_headers: HashMap::new(),
         }
@@ -161,14 +172,9 @@ impl EncodedChunksCache {
         }
     }
 
-    /// Insert if entry does not exist already
-    pub fn try_insert(&mut self, header: &ShardChunkHeader) {
-        self.get_or_insert_from_header(header);
-    }
-
     // Create an empty entry from the header and insert it if there is no entry for the chunk already
     // Return a mutable reference to the entry
-    fn get_or_insert_from_header(
+    pub fn get_or_insert_from_header(
         &mut self,
         chunk_header: &ShardChunkHeader,
     ) -> &mut EncodedChunksCacheEntry {
@@ -178,6 +184,10 @@ impl EncodedChunksCache {
                 .entry(chunk_header.height_created())
                 .or_default()
                 .insert(chunk_hash.clone());
+            self.height_to_shard_to_chunk
+                .entry(chunk_header.height_created())
+                .or_default()
+                .insert(chunk_header.shard_id(), chunk_hash.clone());
             self.incomplete_chunks
                 .entry(chunk_header.prev_block_hash().clone())
                 .or_default()
@@ -198,13 +208,22 @@ impl EncodedChunksCache {
         self.height_within_front_horizon(height) || self.height_within_rear_horizon(height)
     }
 
-    /// add parts and receipts stored in a partial encoded chunk to the corresponding chunk entry
+    pub fn get_chunk_hash_by_height_and_shard(
+        &self,
+        height: BlockHeight,
+        shard_id: ShardId,
+    ) -> Option<&ChunkHash> {
+        self.height_to_shard_to_chunk.get(&height)?.get(&shard_id)
+    }
+
+    /// Add parts and receipts stored in a partial encoded chunk to the corresponding chunk entry,
+    /// returning the set of part ords that were previously unknown.
     pub fn merge_in_partial_encoded_chunk(
         &mut self,
         partial_encoded_chunk: &PartialEncodedChunkV2,
-    ) {
+    ) -> HashSet<u64> {
         let entry = self.get_or_insert_from_header(&partial_encoded_chunk.header);
-        entry.merge_in_partial_encoded_chunk(partial_encoded_chunk);
+        entry.merge_in_partial_encoded_chunk(partial_encoded_chunk)
     }
 
     /// Remove a chunk from the cache if it is outside of horizon
@@ -237,6 +256,7 @@ impl EncodedChunksCache {
                     }
                 }
             }
+            self.height_to_shard_to_chunk.remove(&height);
         }
     }
 
@@ -332,7 +352,7 @@ mod tests {
         let mut cache = EncodedChunksCache::new();
         let header0 = create_chunk_header(1, 0);
         let header1 = create_chunk_header(1, 1);
-        cache.try_insert(&header0);
+        cache.get_or_insert_from_header(&header0);
         cache.merge_in_partial_encoded_chunk(&PartialEncodedChunkV2 {
             header: header1.clone(),
             parts: vec![],

@@ -10,12 +10,12 @@ use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_crypto::{InMemorySigner, KeyType};
-use near_logger_utils::init_integration_logger;
+use near_network::types::PeerInfo;
 use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkResponses, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
 };
-use near_network_primitives::types::PeerInfo;
+use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference};
@@ -369,6 +369,19 @@ fn test_cross_shard_tx_callback(
     }
 }
 
+/// The basic flow of the test spins up validators, and starts sending to them
+/// several (at most 64) cross-shard transactions. i-th transaction sends money from
+/// validator i/8 to validator i%8. What makes the test good is that due to very low
+/// block production time, it creates lots of forks, delaying both the transaction
+/// acceptance, and the receipt delivery.
+///
+/// It submits txs one at a time, and waits for their completion before sending the
+/// next. Whenever the transaction completed, it traces "Finished iteration 1" (with
+/// the ordinal increasing). Given the test takes a while, checking how far below
+/// the last some message is a good way to early tell that the test has stalled.
+/// E.g. if the last message is not in the last 15% of the output, it is likely that
+/// the test will not make further progress, depending on the mode (with validator
+/// rotation some iterations are way longer than other).
 fn test_cross_shard_tx_common(
     num_iters: usize,
     rotate_validators: bool,
@@ -504,18 +517,22 @@ fn test_cross_shard_tx_common(
     });
 }
 
+/// Doesn't drop chunks, disabled doomslug, no validator rotation (each epoch
+/// has the same set of validators).
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_cross_shard_tx() {
     test_cross_shard_tx_common(64, false, false, false, 70, Some(2.3), None);
 }
 
+/// Same as above, but doomslug is enabled.
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_cross_shard_tx_doomslug() {
     test_cross_shard_tx_common(64, false, false, true, 200, None, Some(1.5));
 }
 
+/// Same as the first one but the chunks are sometimes dropped.
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_cross_shard_tx_drop_chunks() {
@@ -534,6 +551,11 @@ fn test_cross_shard_tx_8_iterations_drop_chunks() {
     test_cross_shard_tx_common(8, false, true, false, 200, Some(2.4), None);
 }
 
+/// The next two tests are the same as the first one, but with validator
+/// rotation. The two versions of the test have slightly different block
+/// production times, and different number of iterations we expect to finish in
+/// the allocated time. (the one with lower block production time is expected to
+/// finish fewer because it has higher forkfulness).
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_cross_shard_tx_with_validator_rotation_1() {

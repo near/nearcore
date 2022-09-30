@@ -86,6 +86,9 @@ mod old_validator_selection {
         AccountId, Balance, NumSeats, ValidatorId, ValidatorKickoutReason,
     };
     use near_primitives::version::ProtocolVersion;
+    use rand::seq::SliceRandom;
+    use rand::SeedableRng;
+    use rand_hc::Hc128Rng;
 
     use crate::proposals::find_threshold;
     use crate::types::RngSeed;
@@ -183,13 +186,7 @@ mod old_validator_selection {
             .collect::<Vec<_>>();
 
         assert!(dup_proposals.len() >= num_total_seats as usize, "bug in find_threshold");
-        {
-            use protocol_defining_rand::seq::SliceRandom;
-            use protocol_defining_rand::{rngs::StdRng, SeedableRng};
-            // Shuffle duplicate proposals.
-            let mut rng: StdRng = SeedableRng::from_seed(rng_seed);
-            dup_proposals.shuffle(&mut rng);
-        }
+        shuffle_duplicate_proposals(&mut dup_proposals, rng_seed);
 
         // Block producers are first `num_block_producer_seats` proposals.
         let mut block_producers_settlement =
@@ -269,5 +266,28 @@ mod old_validator_selection {
             next_version,
             rng_seed,
         ))
+    }
+
+    fn shuffle_duplicate_proposals(dup_proposals: &mut Vec<u64>, rng_seed: RngSeed) {
+        let mut rng: Hc128Rng = SeedableRng::from_seed(rng_seed);
+        dup_proposals.shuffle(&mut rng);
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use near_primitives::hash::CryptoHash;
+
+        use crate::proposals::old_validator_selection::shuffle_duplicate_proposals;
+
+        #[test]
+        pub fn proposal_randomness_reproducibility() {
+            // Sanity check that the proposal shuffling implementation does not change.
+            let mut dup_proposals = vec![0, 1, 2, 3, 4, 5, 6];
+            shuffle_duplicate_proposals(
+                &mut dup_proposals,
+                CryptoHash::hash_bytes(&[1, 2, 3, 4, 5]).as_bytes().clone(),
+            );
+            assert_eq!(dup_proposals, vec![3, 1, 0, 4, 5, 6, 2]);
+        }
     }
 }

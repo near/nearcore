@@ -1,17 +1,17 @@
 [package]
 name = "genesis-populate"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.63.0"
-edition = "2021"
+rust-version.workspace = true
+edition.workspace = true
 
 [dependencies]
-borsh = "0.9"
-indicatif = "0.15.0"
-clap = { version = "3.1.6", features = ["derive"] }
-tempfile = "3"
+borsh.workspace = true
+clap.workspace = true
+indicatif.workspace = true
+tempfile.workspace = true
 
 nearcore = { path = "../../nearcore" }
 near-chain-configs = { path = "../../core/chain-configs" }

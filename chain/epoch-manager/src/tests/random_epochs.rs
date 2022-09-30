@@ -58,10 +58,10 @@ fn do_random_test<RngImpl: Rng>(
     ];
     let mut epoch_manager = setup_default_epoch_manager(validators, epoch_length, 1, 3, 0, 90, 60);
     let h = hash_range(num_heights as usize);
-    let skip_height_probability = rng.gen_range(0.0, 1.0) * rng.gen_range(0.0, 1.0);
+    let skip_height_probability = rng.gen_range(0.0..1.0) * rng.gen_range(0.0..1.0);
 
     let heights_to_pick = (0u64..1u64)
-        .chain((1u64..num_heights).filter(|_i| rng.gen_range(0.0, 1.0) >= skip_height_probability))
+        .chain((1u64..num_heights).filter(|_i| rng.gen_range(0.0..1.0) >= skip_height_probability))
         .collect::<Vec<_>>();
 
     let mut slashes_per_block = Vec::new();
@@ -89,9 +89,9 @@ fn do_random_test<RngImpl: Rng>(
 fn random_proposals<RngImpl: Rng>(rng: &mut RngImpl) -> Vec<ValidatorStake> {
     let mut proposals = Vec::new();
     let proposal_chance = 0.2;
-    if rng.gen_range(0.0, 1.0) < proposal_chance {
-        let account_id = AccountId::try_from(format!("test{}", rng.gen_range(1, 6))).unwrap();
-        let stake_amount = rng.gen_range(100, 2000);
+    if rng.gen_range(0.0..1.0) < proposal_chance {
+        let account_id = AccountId::try_from(format!("test{}", rng.gen_range(1..6))).unwrap();
+        let stake_amount = rng.gen_range(100..2000);
         proposals.push(stake(account_id, stake_amount));
     }
     proposals
@@ -100,8 +100,8 @@ fn random_proposals<RngImpl: Rng>(rng: &mut RngImpl) -> Vec<ValidatorStake> {
 fn random_slashes<RngImpl: Rng>(rng: &mut RngImpl) -> Vec<SlashedValidator> {
     let mut slashes = Vec::new();
     let slash_chance = 0.2;
-    if rng.gen_range(0.0, 1.0) < slash_chance {
-        let account_id = AccountId::try_from(format!("test{}", rng.gen_range(1, 6))).unwrap();
+    if rng.gen_range(0.0..1.0) < slash_chance {
+        let account_id = AccountId::try_from(format!("test{}", rng.gen_range(1..6))).unwrap();
         slashes.push(SlashedValidator::new(account_id, true));
     }
     slashes
@@ -166,7 +166,7 @@ fn validate(
     verify_epochs(&epoch_infos);
 }
 
-fn verify_epochs(epoch_infos: &Vec<Arc<EpochInfo>>) {
+fn verify_epochs(epoch_infos: &[Arc<EpochInfo>]) {
     for i in 1..epoch_infos.len() {
         let epoch_info = &epoch_infos[i];
         let prev_epoch_info = &epoch_infos[i - 1];
@@ -224,7 +224,7 @@ fn verify_epochs(epoch_infos: &Vec<Arc<EpochInfo>>) {
     }
 }
 
-fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<Arc<BlockInfo>>) {
+fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &[Arc<BlockInfo>]) {
     let mut proposals = BTreeMap::default();
     for i in 1..block_infos.len() {
         let prev_block_info = &block_infos[i - 1];
@@ -256,8 +256,8 @@ fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<Arc<Bloc
 
 fn verify_slashes(
     epoch_manager: &mut EpochManager,
-    block_infos: &Vec<Arc<BlockInfo>>,
-    slashes_per_block: &Vec<Vec<SlashedValidator>>,
+    block_infos: &[Arc<BlockInfo>],
+    slashes_per_block: &[Vec<SlashedValidator>],
 ) {
     for i in 1..block_infos.len() {
         let prev_slashes_set = block_infos[i - 1].slashed();
@@ -314,7 +314,7 @@ fn verify_slashes(
 fn verify_block_stats(
     epoch_manager: &mut EpochManager,
     heights: Vec<u64>,
-    block_infos: &Vec<Arc<BlockInfo>>,
+    block_infos: &[Arc<BlockInfo>],
     block_hashes: &[CryptoHash],
 ) {
     for i in 1..block_infos.len() {

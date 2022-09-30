@@ -1,32 +1,29 @@
 [package]
 name = "near-rosetta-rpc"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.63.0"
-edition = "2021"
+rust-version.workspace = true
+edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-derive_more = "0.99.9"
-hex = "0.4"
-strum = { version = "0.24", features = ["derive"] }
-
-awc = "3.0.0"
-actix = "0.13.0"
-actix-web = "4.0.1"
-actix-http = "3.0.4"
-actix-cors = "0.6.1"
-futures = "0.3.5"
-tokio = { version = "1.1", features = ["net", "rt-multi-thread"] }
-
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-validator = "0.12"
-
-paperclip = { version = "0.7.0", features = ["actix4"] }
+actix-cors.workspace = true
+actix-http.workspace = true
+actix-web.workspace = true
+actix.workspace = true
+awc.workspace = true
+derive_more.workspace = true
+futures.workspace = true
+hex.workspace = true
+paperclip.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+strum.workspace = true
+tokio.workspace = true
+validator.workspace = true
 
 near-primitives = { path = "../../core/primitives" }
 near-account-id = { path = "../../core/account-id" }
@@ -37,4 +34,4 @@ near-client-primitives = { path = "../client-primitives" }
 near-network = { path = "../network" }
 
 [dev-dependencies]
-insta = "1"
+insta.workspace = true

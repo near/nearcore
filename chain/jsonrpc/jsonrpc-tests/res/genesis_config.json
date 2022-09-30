@@ -1,5 +1,5 @@
 {
-  "protocol_version": 56,
+  "protocol_version": 57,
   "genesis_time": "1970-01-01T00:00:00.000000000Z",
   "chain_id": "sample",
   "genesis_height": 0,
@@ -18,7 +18,7 @@
   "protocol_upgrade_num_epochs": 2,
   "epoch_length": 500,
   "gas_limit": 1000000000000000,
-  "min_gas_price": "1000000000",
+  "min_gas_price": "100000000",
   "max_gas_price": "10000000000000000000000",
   "block_producer_kickout_threshold": 90,
   "chunk_producer_kickout_threshold": 90,
@@ -61,7 +61,6 @@
       "version": 0
     }
   },
-  "simple_nightshade_shard_layout": null,
   "num_chunk_only_producer_seats": 300,
   "minimum_validators_per_shard": 1,
   "max_kickout_stake_perc": 100,

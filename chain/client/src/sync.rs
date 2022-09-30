@@ -28,10 +28,10 @@ use near_primitives::utils::to_timestamp;
 
 use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
 use near_client_primitives::types::{
-    DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus,
+    DownloadStatus, ShardSyncDownload, ShardSyncStatus, StateSplitApplyingStatus, SyncStatus,
 };
+use near_network::types::AccountOrPeerIdOrHash;
 use near_network::types::PeerManagerMessageRequest;
-use near_network_primitives::types::AccountOrPeerIdOrHash;
 use near_primitives::shard_layout::ShardUId;
 
 /// Maximum number of block headers send over the network.
@@ -166,7 +166,7 @@ impl HeaderSync {
         sync_status: &mut SyncStatus,
         chain: &Chain,
         highest_height: BlockHeight,
-        highest_height_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &[FullPeerInfo],
     ) -> Result<(), near_chain::Error> {
         let _span = tracing::debug_span!(target: "sync", "run", sync = "HeaderSync").entered();
         let header_head = chain.header_head()?;
@@ -275,7 +275,8 @@ impl HeaderSync {
                                         PeerManagerMessageRequest::NetworkRequests(
                                             NetworkRequests::BanPeer {
                                                 peer_id: peer.peer_info.id.clone(),
-                                                ban_reason: near_network_primitives::types::ReasonForBan::HeightFraud,
+                                                ban_reason:
+                                                    near_network::types::ReasonForBan::HeightFraud,
                                             },
                                         ),
                                     );
@@ -359,7 +360,7 @@ impl HeaderSync {
 }
 
 /// Check if there is a close enough value to provided height in the locator.
-fn close_enough(locator: &Vec<(u64, CryptoHash)>, height: u64) -> Option<(u64, CryptoHash)> {
+fn close_enough(locator: &[(u64, CryptoHash)], height: u64) -> Option<(u64, CryptoHash)> {
     if locator.len() == 0 {
         return None;
     }
@@ -622,6 +623,19 @@ impl PendingRequestStatus {
     }
 }
 
+/// Private to public API conversion.
+fn make_account_or_peer_id_or_hash(
+    from: near_network::types::AccountOrPeerIdOrHash,
+) -> near_client_primitives::types::AccountOrPeerIdOrHash {
+    type From = near_network::types::AccountOrPeerIdOrHash;
+    type To = near_client_primitives::types::AccountOrPeerIdOrHash;
+    match from {
+        From::AccountId(a) => To::AccountId(a),
+        From::PeerId(p) => To::PeerId(p),
+        From::Hash(h) => To::Hash(h),
+    }
+}
+
 /// Helper to track state sync.
 pub struct StateSync {
     network_adapter: Arc<dyn PeerManagerAdapter>,
@@ -696,7 +710,7 @@ impl StateSync {
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
-        highest_height_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &[FullPeerInfo],
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
@@ -739,9 +753,9 @@ impl StateSync {
                 update_sync_status = true;
                 init_sync_download.clone()
             });
-            let old_status = shard_sync_download.status;
+            let old_status = shard_sync_download.status.clone();
             let mut this_done = false;
-            match shard_sync_download.status {
+            match &shard_sync_download.status {
                 ShardSyncStatus::StateDownloadHeader => {
                     if shard_sync_download.downloads[0].done {
                         let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
@@ -877,18 +891,20 @@ impl StateSync {
                 }
                 ShardSyncStatus::StateSplitScheduling => {
                     debug_assert!(split_states);
+                    let status = Arc::new(StateSplitApplyingStatus::new());
                     chain.build_state_for_split_shards_preprocessing(
                         &sync_hash,
                         shard_id,
                         state_split_scheduler,
+                        status.clone(),
                     )?;
                     debug!(target: "sync", "State sync split scheduled: me {:?}, shard = {}, hash = {}", me, shard_id, sync_hash);
                     *shard_sync_download = ShardSyncDownload {
                         downloads: vec![],
-                        status: ShardSyncStatus::StateSplitApplying,
+                        status: ShardSyncStatus::StateSplitApplying(status),
                     };
                 }
-                ShardSyncStatus::StateSplitApplying => {
+                ShardSyncStatus::StateSplitApplying(_status) => {
                     debug_assert!(split_states);
                     let result = self.split_state_roots.remove(&shard_id);
                     if let Some(state_roots) = result {
@@ -1037,7 +1053,7 @@ impl StateSync {
         chain: &Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         sync_hash: CryptoHash,
-        highest_height_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &[FullPeerInfo],
     ) -> Result<Vec<AccountOrPeerIdOrHash>, Error> {
         // Remove candidates from pending list if request expired due to timeout
         self.last_part_id_requested.retain(|_, request| !request.expired());
@@ -1087,7 +1103,7 @@ impl StateSync {
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         sync_hash: CryptoHash,
         shard_sync_download: ShardSyncDownload,
-        highest_height_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &[FullPeerInfo],
     ) -> Result<ShardSyncDownload, near_chain::Error> {
         let possible_targets = self.possible_targets(
             me,
@@ -1111,7 +1127,8 @@ impl StateSync {
                 assert!(new_shard_sync_download.downloads[0].run_me.load(Ordering::SeqCst));
                 new_shard_sync_download.downloads[0].run_me.store(false, Ordering::SeqCst);
                 new_shard_sync_download.downloads[0].state_requests_count += 1;
-                new_shard_sync_download.downloads[0].last_target = Some(target.clone());
+                new_shard_sync_download.downloads[0].last_target =
+                    Some(make_account_or_peer_id_or_hash(target.clone()));
                 let run_me = new_shard_sync_download.downloads[0].run_me.clone();
                 near_performance_metrics::actix::spawn(
                     std::any::type_name::<Self>(),
@@ -1148,7 +1165,7 @@ impl StateSync {
                     self.sent_request_part(target.clone(), part_id as u64, shard_id, sync_hash);
                     download.run_me.store(false, Ordering::SeqCst);
                     download.state_requests_count += 1;
-                    download.last_target = Some(target.clone());
+                    download.last_target = Some(make_account_or_peer_id_or_hash(target.clone()));
                     let run_me = download.run_me.clone();
 
                     near_performance_metrics::actix::spawn(
@@ -1187,7 +1204,7 @@ impl StateSync {
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
-        highest_height_peers: &Vec<FullPeerInfo>,
+        highest_height_peers: &[FullPeerInfo],
         tracking_shards: Vec<ShardId>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
@@ -1280,7 +1297,7 @@ impl<T: Clone> Iterator for SamplerLimited<T> {
             None
         } else {
             let len = self.limit.len();
-            let ix = thread_rng().gen_range(0, len);
+            let ix = thread_rng().gen_range(0..len);
             self.limit[ix] -= 1;
 
             if self.limit[ix] == 0 {
@@ -1304,21 +1321,22 @@ mod test {
     use std::thread;
 
     use near_chain::test_utils::{
-        process_block_sync, setup, setup_with_validators, ValidatorSchedule,
+        process_block_sync, setup, setup_with_validators, wait_for_all_blocks_in_processing,
+        ValidatorSchedule,
     };
     use near_chain::{BlockProcessingArtifact, ChainGenesis, Provenance};
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
+    use near_o11y::testonly::TracingCapture;
     use near_primitives::block::{Approval, Block, GenesisId};
     use near_primitives::network::PeerId;
+    use near_primitives::utils::MaybeValidated;
 
     use super::*;
     use crate::test_utils::TestEnv;
-    use near_logger_utils::init_test_logger;
-    use near_network_primitives::types::{PartialEdgeInfo, PeerInfo};
+    use near_network::types::{PartialEdgeInfo, PeerInfo};
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
-    use near_primitives::utils::MaybeValidated;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
@@ -1383,7 +1401,7 @@ mod test {
         let mut sync_status = SyncStatus::NoSync;
         let peer1 = FullPeerInfo {
             peer_info: PeerInfo::random(),
-            chain_info: near_network_primitives::types::PeerChainInfoV2 {
+            chain_info: near_network::types::PeerChainInfoV2 {
                 genesis_id: GenesisId {
                     chain_id: "unittest".to_string(),
                     hash: *chain.genesis().hash(),
@@ -1614,7 +1632,7 @@ mod test {
 
     #[test]
     fn test_block_sync() {
-        init_test_logger();
+        let mut capture = TracingCapture::enable();
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
         let mut block_sync = BlockSync::new(network_adapter.clone(), block_fetch_horizon, false);
@@ -1673,12 +1691,21 @@ mod test {
                 .collect(),
         );
 
-        // Receive all blocks. Should not request more.
+        // Receive all blocks. Should not request more. As an extra
+        // complication, pause the processing of one block.
+        env.pause_block_processing(&mut capture, blocks[4 * MAX_BLOCK_REQUESTS - 1].hash());
         for i in 3 * MAX_BLOCK_REQUESTS..5 * MAX_BLOCK_REQUESTS {
             let _ = env.clients[1]
                 .process_block_test(MaybeValidated::from(blocks[i].clone()), Provenance::NONE);
         }
         block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+        let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
+        assert!(requested_block_hashes.is_empty(), "{:?}", requested_block_hashes);
+
+        // Now finish paused processing processing and sanity check that we
+        // still are fully synced.
+        env.resume_block_processing(blocks[4 * MAX_BLOCK_REQUESTS - 1].hash());
+        wait_for_all_blocks_in_processing(&mut env.clients[1].chain);
         let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
         assert!(requested_block_hashes.is_empty(), "{:?}", requested_block_hashes);
     }

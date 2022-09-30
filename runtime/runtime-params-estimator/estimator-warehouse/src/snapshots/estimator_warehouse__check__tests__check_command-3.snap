@@ -10,4 +10,5 @@ expression: report.to_string()
 ```
 LogBase                                         5.00 Ggas ➜        6.00 Ggas (+20.00%)
 ```
-### Gas estimator uncertain changes: 0
+### Gas estimator uncertain estimations: 0
+

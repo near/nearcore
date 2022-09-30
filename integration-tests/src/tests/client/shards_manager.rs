@@ -1,9 +1,9 @@
 use near_chain::{ChainGenesis, ChainStoreAccess};
 use near_chunks::ShardsManager;
 use near_client::test_utils::TestEnv;
-use near_logger_utils::init_test_logger;
+use near_o11y::testonly::init_test_logger;
 
-use near_network_primitives::types::PartialEncodedChunkRequestMsg;
+use near_network::types::PartialEncodedChunkRequestMsg;
 
 /// Checks that various ways of preparing partial encode chunk request give the
 /// same result.
@@ -35,7 +35,7 @@ fn test_prepare_partial_encoded_chunk_response() {
     // will be served from an in-memory cache.
     let request = PartialEncodedChunkRequestMsg {
         chunk_hash: chunk_hash.clone(),
-        part_ords: (0..(env.clients[0].rs.total_shard_count() as u64)).collect(),
+        part_ords: (0..env.clients[0].runtime_adapter.num_total_parts() as u64).collect(),
         tracking_shards: Some(0u64).into_iter().collect(),
     };
     let res = Some(env.get_partial_encoded_chunk_response(0, request.clone()));
@@ -52,11 +52,9 @@ fn test_prepare_partial_encoded_chunk_response() {
     // response from ShardChunk object.
     let chunk = env.clients[0].chain.mut_store().get_chunk(&chunk_hash).unwrap();
     let client = &mut env.clients[0];
-    let res_from_chunk = client.shards_mgr.prepare_partial_encoded_chunk_response_from_chunk(
-        request.clone(),
-        &mut client.rs,
-        &chunk,
-    );
+    let res_from_chunk = client
+        .shards_mgr
+        .prepare_partial_encoded_chunk_response_from_chunk(request.clone(), &chunk);
 
     assert_eq!(res, res_from_partial);
     assert_eq!(res, res_from_chunk);

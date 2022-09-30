@@ -12,7 +12,6 @@ use std::time::{Duration, Instant};
 
 use tracing::{debug, error, info, trace, warn};
 
-use near_chain::types::ValidatorInfoIdentifier;
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
     RuntimeAdapter,
@@ -26,12 +25,12 @@ use near_client_primitives::types::{
     GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
     GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
 };
-use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 #[cfg(feature = "test_features")]
-use near_network_primitives::types::NetworkAdversarialMessage;
-use near_network_primitives::types::{
-    NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
-    StateResponseInfoV1, StateResponseInfoV2,
+use near_network::types::NetworkAdversarialMessage;
+use near_network::types::{
+    NetworkRequests, NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerAdapter,
+    PeerManagerMessageRequest, ReasonForBan, StateResponseInfo, StateResponseInfoV1,
+    StateResponseInfoV2,
 };
 use near_performance_metrics_macros::{perf, perf_with_debug};
 use near_primitives::block::{Block, BlockHeader};
@@ -45,7 +44,7 @@ use near_primitives::syncing::{
 };
 use near_primitives::types::{
     AccountId, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId, ShardId,
-    SyncCheckpoint, TransactionOrReceiptId,
+    SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
@@ -739,7 +738,7 @@ impl Handler<GetStateChangesWithCauseInBlockForTrackedShards> for ViewClientActo
             {
                 Ok(shard_id) => shard_id,
                 Err(err) => {
-                    return Err(GetStateChangesError::IOError { error_message: format!("{}", err) })
+                    return Err(GetStateChangesError::IOError { error_message: err.to_string() })
                 }
             };
 
@@ -928,11 +927,12 @@ impl Handler<GetBlockProof> for ViewClientActor {
     fn handle(&mut self, msg: GetBlockProof, _: &mut Self::Context) -> Self::Result {
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetBlockProof"]).start_timer();
-        self.chain.check_block_final_and_canonical(&msg.block_hash)?;
-        self.chain.check_block_final_and_canonical(&msg.head_block_hash)?;
-        let block_header_lite = self.chain.get_block_header(&msg.block_hash)?.into();
-        let block_proof = self.chain.get_block_proof(&msg.block_hash, &msg.head_block_hash)?;
-        Ok(GetBlockProofResponse { block_header_lite, proof: block_proof })
+        let block_header = self.chain.get_block_header(&msg.block_hash)?;
+        let head_block_header = self.chain.get_block_header(&msg.head_block_hash)?;
+        self.chain.check_blocks_final_and_canonical(&[&block_header, &head_block_header])?;
+        let block_header_lite = block_header.into();
+        let proof = self.chain.get_block_proof(&msg.block_hash, &msg.head_block_hash)?;
+        Ok(GetBlockProofResponse { block_header_lite, proof })
     }
 }
 

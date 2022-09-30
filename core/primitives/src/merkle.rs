@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
-use crate::hash::{hash, CryptoHash};
+use crate::hash::CryptoHash;
 use crate::types::MerkleHash;
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -92,8 +92,7 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
 
 /// Verify merkle path for given item and corresponding path.
 pub fn verify_path<T: BorshSerialize>(root: MerkleHash, path: &MerklePath, item: &T) -> bool {
-    let hash = hash(&item.try_to_vec().expect("Failed to serialize"));
-    verify_hash(root, path, hash)
+    verify_hash(root, path, CryptoHash::hash_borsh(&item))
 }
 
 pub fn verify_hash(root: MerkleHash, path: &MerklePath, item_hash: MerkleHash) -> bool {
@@ -119,8 +118,7 @@ pub fn compute_root_from_path_and_item<T: BorshSerialize>(
     path: &MerklePath,
     item: &T,
 ) -> MerkleHash {
-    let hash = hash(&item.try_to_vec().expect("Failed to serialize"));
-    compute_root_from_path(path, hash)
+    compute_root_from_path(path, CryptoHash::hash_borsh(&item))
 }
 
 /// Merkle tree that only maintains the path for the next leaf, i.e,
@@ -182,7 +180,7 @@ mod tests {
     fn test_with_len(n: u32, rng: &mut StdRng) {
         let mut arr: Vec<u32> = vec![];
         for _ in 0..n {
-            arr.push(rng.gen_range(0, 1000));
+            arr.push(rng.gen_range(0..1000));
         }
         let (root, paths) = merklize(&arr);
         assert_eq!(paths.len() as u32, n);
@@ -195,7 +193,7 @@ mod tests {
     fn test_merkle_path() {
         let mut rng: StdRng = SeedableRng::seed_from_u64(1);
         for _ in 0..10 {
-            let len: u32 = rng.gen_range(1, 100);
+            let len: u32 = rng.gen_range(1..100);
             test_with_len(len, &mut rng);
         }
     }
@@ -239,7 +237,7 @@ mod tests {
         let mut hashes = vec![];
         for i in 0..50 {
             assert_eq!(compute_root(&hashes), tree.root());
-            let cur_hash = hash(&[i]);
+            let cur_hash = CryptoHash::hash_bytes(&[i]);
             hashes.push(cur_hash);
             tree.insert(cur_hash);
         }

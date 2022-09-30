@@ -11,9 +11,7 @@ use crate::transaction::SignedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
 use crate::validator_signer::ValidatorSigner;
-use crate::version::{
-    ProtocolFeature, ProtocolVersion, ProtocolVersionRange, SHARD_CHUNK_HEADER_UPGRADE_VERSION,
-};
+use crate::version::{ProtocolFeature, ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use reed_solomon_erasure::ReconstructShard;
 use std::sync::Arc;
 
@@ -399,17 +397,16 @@ impl ShardChunkHeader {
         }
     }
 
-    pub fn version_range(&self) -> ProtocolVersionRange {
-        let block_header_v3_version = ProtocolFeature::BlockHeaderV3.protocol_version();
+    /// Returns whether the header is valid for given `ProtocolVersion`.
+    pub fn valid_for(&self, version: ProtocolVersion) -> bool {
+        const BLOCK_HEADER_V3_VERSION: ProtocolVersion =
+            ProtocolFeature::BlockHeaderV3.protocol_version();
         match &self {
-            ShardChunkHeader::V1(_) => {
-                ProtocolVersionRange::new(0, Some(SHARD_CHUNK_HEADER_UPGRADE_VERSION))
+            ShardChunkHeader::V1(_) => version < SHARD_CHUNK_HEADER_UPGRADE_VERSION,
+            ShardChunkHeader::V2(_) => {
+                SHARD_CHUNK_HEADER_UPGRADE_VERSION <= version && version < BLOCK_HEADER_V3_VERSION
             }
-            ShardChunkHeader::V2(_) => ProtocolVersionRange::new(
-                SHARD_CHUNK_HEADER_UPGRADE_VERSION,
-                Some(block_header_v3_version),
-            ),
-            ShardChunkHeader::V3(_) => ProtocolVersionRange::new(block_header_v3_version, None),
+            ShardChunkHeader::V3(_) => BLOCK_HEADER_V3_VERSION <= version,
         }
     }
 }
@@ -514,7 +511,7 @@ impl PartialEncodedChunk {
     }
 
     #[inline]
-    pub fn parts(&self) -> &Vec<PartialEncodedChunkPart> {
+    pub fn parts(&self) -> &[PartialEncodedChunkPart] {
         match self {
             Self::V1(chunk) => &chunk.parts,
             Self::V2(chunk) => &chunk.parts,
@@ -522,7 +519,7 @@ impl PartialEncodedChunk {
     }
 
     #[inline]
-    pub fn receipts(&self) -> &Vec<ReceiptProof> {
+    pub fn receipts(&self) -> &[ReceiptProof] {
         match self {
             Self::V1(chunk) => &chunk.receipts,
             Self::V2(chunk) => &chunk.receipts,
@@ -537,16 +534,11 @@ impl PartialEncodedChunk {
         }
     }
 
-    /// Returns the lowest ProtocolVersion where this version of the message is
-    /// accepted, along with the highest (exclusive), if any.
-    pub fn version_range(&self) -> ProtocolVersionRange {
+    /// Returns whether the chenk is valid for given `ProtocolVersion`.
+    pub fn valid_for(&self, version: ProtocolVersion) -> bool {
         match &self {
-            PartialEncodedChunk::V1(_) => {
-                ProtocolVersionRange::new(0, Some(SHARD_CHUNK_HEADER_UPGRADE_VERSION))
-            }
-            PartialEncodedChunk::V2(_) => {
-                ProtocolVersionRange::new(SHARD_CHUNK_HEADER_UPGRADE_VERSION, None)
-            }
+            PartialEncodedChunk::V1(_) => version < SHARD_CHUNK_HEADER_UPGRADE_VERSION,
+            PartialEncodedChunk::V2(_) => SHARD_CHUNK_HEADER_UPGRADE_VERSION <= version,
         }
     }
 
@@ -751,7 +743,7 @@ impl ShardChunk {
     }
 
     #[inline]
-    pub fn receipts(&self) -> &Vec<Receipt> {
+    pub fn receipts(&self) -> &[Receipt] {
         match self {
             Self::V1(chunk) => &chunk.receipts,
             Self::V2(chunk) => &chunk.receipts,
@@ -759,7 +751,7 @@ impl ShardChunk {
     }
 
     #[inline]
-    pub fn transactions(&self) -> &Vec<SignedTransaction> {
+    pub fn transactions(&self) -> &[SignedTransaction] {
         match self {
             Self::V1(chunk) => &chunk.transactions,
             Self::V2(chunk) => &chunk.transactions,

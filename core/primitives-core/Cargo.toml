@@ -1,11 +1,11 @@
 [package]
 name = "near-primitives-core"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = true
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.63.0"
-edition = "2021"
+rust-version.workspace = true
+edition.workspace = true
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/near/nearcore"
 description = """
@@ -13,24 +13,26 @@ This crate provides the core set of primitives used by other nearcore crates inc
 """
 
 [dependencies]
-base64 = "0.13"
-borsh = "0.9"
-bs58 = "0.4"
-derive_more = "0.99.3"
-num-rational = { version = "0.3.1", features = ["serde"]}
-serde = { version = "1", features = ["derive"] }
-serde_repr = { version = "0.1.8" }
-strum = { version = "0.24", features = ["derive"] }
-sha2 = "0.10"
-deepsize = { version = "0.2.0", optional = true }
+base64.workspace = true
+borsh.workspace = true
+bs58.workspace = true
+deepsize = { workspace = true, optional = true }
+derive_more.workspace = true
+num-rational.workspace = true
+serde.workspace = true
+serde_repr.workspace = true
+sha2.workspace = true
+strum.workspace = true
 
 near-account-id = { path = "../account-id" }
 
 [dev-dependencies]
-serde_json = "1"
+serde_json.workspace = true
 
 [features]
 default = []
+protocol_feature_ed25519_verify = []
+
 deepsize_feature = [
   "deepsize",
   "near-account-id/deepsize_feature",

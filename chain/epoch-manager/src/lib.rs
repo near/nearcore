@@ -1,12 +1,7 @@
-use num_rational::Rational64;
-use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
-
+use crate::proposals::proposals_to_epoch_info;
+use crate::types::EpochInfoAggregator;
 use near_cache::SyncLruCache;
-use primitive_types::U256;
-use tracing::{debug, warn};
-
+use near_chain_configs::GenesisConfig;
 use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
@@ -15,27 +10,31 @@ use near_primitives::epoch_manager::{
 };
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId,
-    EpochInfoProvider, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStats,
+    EpochInfoProvider, ShardId, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
+    ValidatorStats,
 };
 use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
 use near_store::{DBCol, Store, StoreUpdate};
+use num_rational::Rational64;
+use primitive_types::U256;
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use tracing::{debug, warn};
 
-use crate::proposals::proposals_to_epoch_info;
+pub use crate::adapter::{EpochManagerAdapter, HasEpochMangerHandle};
 pub use crate::reward_calculator::RewardCalculator;
-use crate::types::EpochInfoAggregator;
+pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::types::RngSeed;
 
-pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
-use near_chain::types::ValidatorInfoIdentifier;
-use near_chain_configs::GenesisConfig;
-use near_primitives::shard_layout::ShardLayout;
-
+mod adapter;
 mod proposals;
 mod reward_calculator;
 mod shard_assignment;
@@ -235,7 +234,6 @@ impl EpochManager {
     /// Note that this function doesn't copy info stored in EpochInfoAggregator, so `block_hash` must be
     /// the last block in an epoch in order for the epoch manager to work properly after this function
     /// is called
-    #[cfg(feature = "mock_node")]
     pub fn copy_epoch_info_as_of_block(
         &mut self,
         block_hash: &CryptoHash,
@@ -955,9 +953,11 @@ impl EpochManager {
         &self,
         epoch_id: &EpochId,
         account_id: &AccountId,
-    ) -> Result<Option<ValidatorStake>, EpochError> {
+    ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
-        Ok(epoch_info.get_validator_by_account(account_id))
+        epoch_info
+            .get_validator_by_account(account_id)
+            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))
     }
 
     /// Returns fisherman for given account id for given epoch.
@@ -965,9 +965,11 @@ impl EpochManager {
         &self,
         epoch_id: &EpochId,
         account_id: &AccountId,
-    ) -> Result<Option<ValidatorStake>, EpochError> {
+    ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
-        Ok(epoch_info.get_fisherman_by_account(account_id))
+        epoch_info
+            .get_fisherman_by_account(account_id)
+            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))
     }
 
     pub fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {

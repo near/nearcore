@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::concurrency::{Ctx, Once, RateLimiter, Scope, WeakMap};
 
-use near_network_primitives::types::{
+use near_network::types::{
     AccountIdOrPeerTrackingShard, NetworkViewClientMessages, NetworkViewClientResponses,
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
 };
@@ -84,7 +84,6 @@ impl Network {
                     sent_bytes_per_sec: 0,
                     received_bytes_per_sec: 0,
                     known_producers: vec![],
-                    peer_counter: 0,
                     tier1_accounts: vec![],
                 }),
                 info_futures: Default::default(),

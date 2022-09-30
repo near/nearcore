@@ -150,6 +150,23 @@
 
         }
 
+        function process_catchup_status(data) {
+            let catchup_status = data.status_response.CatchupStatus;
+            $('.catchup-body').text("");
+            catchup_status.forEach((catchup) => {
+                $('.catchup-body').append(catchup);
+                console.log(catchup);
+                $('.catchup-body').append("Epoch starting at block " + catchup.sync_block_hash + " " + catchup.sync_block_height + "<br>");
+                Object.entries(catchup.shard_sync_status).forEach(([shard_id, shard_status]) => {
+                    $('.catchup-body').append("Shard " + shard_id + " status: " + shard_status + "<br>");
+                });
+                $('.catchup-body').append("Blocks to catchup: <br>");
+                catchup.blocks_to_catchup.forEach(block => {
+                    $('.catchup-body').append("Block " + block.hash + " " + block.height + "<br>");
+                });
+            })
+        }
+
         $(document).ready(() => {
             $('.div-progress').hide();
             $('span').text("Loading...");
@@ -176,7 +193,19 @@
                     alert("Failed: " + textStatus + " :" + errorThrown);
                 },
                 contentType: "application/json; charset=utf-8",
-            })
+            });
+            $.ajax({
+                type: "GET",
+                url: "/debug/api/catchup_status",
+                success: data => {
+                    process_catchup_status(data);
+                },
+                dataType: "json",
+                error: function (errMsg, textStatus, errorThrown) {
+                    alert("Failed: " + textStatus + " :" + errorThrown);
+                },
+                contentType: "application/json; charset=utf-8",
+            });
         });
     </script>
 </head>
@@ -226,6 +255,12 @@
             </tbody>
         </table>
     </div>
+    <h2>
+        <p>Catchup</p>
+    </h2>
+    <h3>
+        <span class="catchup-body"></span>
+    </h3>
 
     Header sync is a fast process, where we fetch 512 'headers' at a time from the network (basically header consists of
     a few hashes).
