@@ -2088,20 +2088,9 @@ impl Chain {
                     if new_flat_head == CryptoHash::default() {
                         new_flat_head = *self.genesis.hash();
                     }
-                    let old_flat_head = flat_storage_state.get_flat_head();
-                    // If we have two forks and already postprocessed block from other fork, it can result in new
-                    // proposed flat head behind current flat head. In such case, we don't update flat head.
-                    // Note that we can't take final head because the shard may be catching up.
-                    if self.get_block_header(&old_flat_head)?.height()
-                        < self.get_block_header(&new_flat_head)?.height()
-                    {
-                        flat_storage_state.update_flat_head(&new_flat_head).unwrap_or_else(|err| {
-                            panic!(
-                                "Cannot update flat head from {:?} to {:?}: {:?}",
-                                old_flat_head, new_flat_head, err
-                            )
-                        });
-                    }
+                    flat_storage_state.update_flat_head(&new_flat_head).unwrap_or_else(|err| {
+                        panic!("Cannot update flat head to {:?}: {:?}", new_flat_head, err)
+                    });
                 } else {
                     // TODO (#7327): some error handling code here. Should probably return an error (or panic?)
                     // here if the flat storage doesn't exist. We don't do that yet because
