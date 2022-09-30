@@ -6,7 +6,7 @@ The target audience of this guide are developers of nearcore itself. If you are
 a user of NEAR (either a contract developer, or validator running a node),
 please refer to the user docs at <https://docs.near.org>.
 
-This guide is build with [mdBook](https://rust-lang.github.io/mdBook/index.html)
+This guide is built with [mdBook](https://rust-lang.github.io/mdBook/index.html)
 from sources in the [nearcore repository](https://github.com/near/nearcore/).
 You can edit it by pressing the "edit" icon in the top right corner, we welcome
 all contributions. The guide is hosted at <https://near.github.io/nearcore/>.
