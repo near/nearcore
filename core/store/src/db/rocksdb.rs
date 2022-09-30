@@ -228,6 +228,10 @@ impl<'a> Iterator for RocksDBIterator<'a> {
 impl<'a> std::iter::FusedIterator for RocksDBIterator<'a> {}
 
 impl RocksDB {
+    /// Returns ranges of keys in a given column family.
+    ///
+    /// In other words, returns the smallest and largest key in the column.  If
+    /// the column is empty, returns `None`.
     fn get_cf_key_range(
         &self,
         cf_handle: &ColumnFamily,
