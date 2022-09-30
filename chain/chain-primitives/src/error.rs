@@ -200,6 +200,9 @@ pub enum Error {
     /// A challenged block is on the chain that was attempted to become the head
     #[error("Challenged block on chain")]
     ChallengedBlockOnChain,
+    /// A challenged block is on the chain that was attempted to become the head
+    #[error("Block cannot be finalized")]
+    CannotBeFinalized,
     /// IO Error.
     #[error("IO Error: {0}")]
     IOErr(#[from] io::Error),
@@ -246,6 +249,7 @@ impl Error {
             | Error::ValidatorError(_)
             | Error::EpochOutOfBounds(_)
             | Error::ChallengedBlockOnChain
+            | Error::CannotBeFinalized
             | Error::StorageError(_)
             | Error::GCError(_)
             | Error::DBNotFoundErr(_) => false,

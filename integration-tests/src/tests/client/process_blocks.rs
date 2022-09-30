@@ -2728,6 +2728,60 @@ fn test_epoch_protocol_version_change() {
     assert_eq!(protocol_version, PROTOCOL_VERSION);
 }
 
+#[test]
+fn test_discard_non_finalizable_block() {
+    let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let chain_genesis = ChainGenesis::new(&genesis);
+    let mut env = TestEnv::builder(chain_genesis)
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .build();
+
+    let first_block = env.clients[0].produce_block(1).unwrap().unwrap();
+    env.process_block(0, first_block.clone(), Provenance::PRODUCED);
+    // Produce, but not process test block on top of block (1).
+    let non_finalizable_block = env.clients[0].produce_block(6).unwrap().unwrap();
+    env.clients[0]
+        .chain
+        .mut_store()
+        .save_latest_known(LatestKnown {
+            height: first_block.header().height(),
+            seen: first_block.header().raw_timestamp(),
+        })
+        .unwrap();
+
+    let second_block = env.clients[0].produce_block(2).unwrap().unwrap();
+    env.process_block(0, second_block.clone(), Provenance::PRODUCED);
+    // Produce, but not process test block on top of block (2).
+    let finalizable_block = env.clients[0].produce_block(7).unwrap().unwrap();
+    env.clients[0]
+        .chain
+        .mut_store()
+        .save_latest_known(LatestKnown {
+            height: second_block.header().height(),
+            seen: second_block.header().raw_timestamp(),
+        })
+        .unwrap();
+
+    // Produce and process two more blocks.
+    for i in 3..5 {
+        env.produce_block(0, i);
+    }
+
+    assert_eq!(env.clients[0].chain.final_head().unwrap().height, 2);
+    // Check that the first test block can't be finalized, because it is produced behind final head.
+    assert_matches!(
+        env.clients[0]
+            .process_block_test(non_finalizable_block.into(), Provenance::NONE)
+            .unwrap_err(),
+        Error::CannotBeFinalized
+    );
+    // Check that the second test block still can be finalized.
+    assert_matches!(
+        env.clients[0].process_block_test(finalizable_block.into(), Provenance::NONE),
+        Ok(_)
+    );
+}
+
 /// Final state should be consistent when a node switches between forks in the following scenario
 ///                      /-----------h+2
 /// h-2 ---- h-1 ------ h
