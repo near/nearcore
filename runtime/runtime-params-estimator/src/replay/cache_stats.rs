@@ -194,7 +194,7 @@ impl CacheStats {
     }
 
     /// Given hit and miss counts, print hit rate for a cache.
-    /// 
+    ///
     /// Provide name, hit count, and miss count for basic data.
     /// Additionally, a number of "special misses" is reported
     /// sep
