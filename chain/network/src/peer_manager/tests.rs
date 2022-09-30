@@ -4,7 +4,9 @@ use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Encoding, PeerAddr, SyncAccountsData};
 use crate::network_protocol::{Ping, RoutedMessageBody, EDGE_MIN_TIMESTAMP_NONCE};
 use crate::peer;
+use crate::peer::peer_actor::{ClosingReason};
 use crate::peer_manager;
+use crate::peer_manager::connection;
 use crate::peer_manager::network_state::LIMIT_PENDING_PEERS;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::{Event, NormalAccountData};
@@ -576,10 +578,8 @@ async fn connection_spam_security_test() {
     }
     // Try to establish additional connections. Should fail.
     for _ in 0..10 {
-        pm.start_inbound(chain.clone(), chain.make_config(rng))
-            .await
-            .fail_handshake(&clock.clock())
-            .await;
+        let conn = pm.start_inbound(chain.clone(), chain.make_config(rng)).await;
+        assert_eq!(ClosingReason::TooManyInbound,conn.manager_fail_handshake(&clock.clock()).await);
     }
     // Terminate the pending connections. Should succeed.
     for c in conns {
@@ -606,5 +606,6 @@ async fn outbound_loop_connection() {
     cfg.node_key = pm.cfg.node_key.clone();
 
     // Starting an outbound loop connection should be stopped without sending the handshake.
-    pm.start_outbound(chain.clone(), cfg).await.fail_handshake(&clock.clock()).await;
+    let conn = pm.start_outbound(chain.clone(), cfg).await;
+    assert_eq!(ClosingReason::OutboundNotAllowed(connection::PoolError::LoopConnection),conn.manager_fail_handshake(&clock.clock()).await);
 }

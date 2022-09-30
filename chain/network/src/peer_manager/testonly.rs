@@ -5,6 +5,7 @@ use crate::network_protocol::{
     Encoding, PeerAddr, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
 };
 use crate::peer;
+use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
@@ -79,10 +80,21 @@ impl RawConnection {
         peer
     }
 
-    pub async fn fail_handshake(self, clock: &time::Clock) {
-        let mut peer =
+    // Try to perform a handshake. PeerManager is expected to reject the handshake.
+    pub async fn manager_fail_handshake(mut self, clock: &time::Clock) -> ClosingReason {
+        let node_id = self.cfg.network.node_id();
+        let addr = self.stream.local_addr().unwrap();
+        let peer =
             peer::testonly::PeerHandle::start_endpoint(clock.clone(), self.cfg, self.stream).await;
-        peer.fail_handshake().await;
+        let reason = self.events
+            .recv_until(|ev| match ev {
+                Event::PeerManager(PME::ConnectionClosed(ev)) if ev.addr==addr => Some(ev.reason),
+                Event::PeerManager(PME::PeerRegistered(info)) if node_id == info.id => panic!("PeerManager accepted the handshake"),
+                _ => None,
+            })
+            .await;
+        drop(peer);
+        reason
     }
 }
 
@@ -147,7 +159,6 @@ impl ActorHandler {
                 _ => None,
             })
             .await;
-        tracing::debug!("PHASE handshake started");
         conn
     }
 
