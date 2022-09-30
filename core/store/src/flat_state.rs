@@ -679,7 +679,8 @@ impl FlatStorageState {
                 return Ok(());
             }
         };
-        // If new head height is not greater than current head height, it is not a child of flat head, so we return Ok.
+        // If new head height is not greater than current head height, new head is not a child of flat head, so we
+        // return Ok.
         if new_head_height <= current_head_height {
             return Ok(());
         }
