@@ -1868,7 +1868,7 @@ mod test {
                     0,
                     &self.head.last_block_hash,
                     &new_hash,
-                    self.last_receipts.get(&i).unwrap_or(&vec![]),
+                    self.last_receipts.get(&i).map_or(&[], |v| v.as_slice()),
                     &transactions[i as usize],
                     ValidatorStakeIter::new(self.last_shard_proposals.get(&i).unwrap_or(&vec![])),
                     self.runtime.genesis_config.min_gas_price,
