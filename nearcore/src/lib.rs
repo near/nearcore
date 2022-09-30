@@ -44,7 +44,9 @@ pub fn get_default_home() -> PathBuf {
 /// Opens node’s storage performing migrations and checks when necessary.
 fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<NodeStorage> {
     let migrator = migrations::Migrator::new(near_config);
-    let opener = NodeStorage::opener(home_dir, &near_config.config.store).with_migrator(&migrator);
+    let opener = NodeStorage::opener(home_dir, &near_config.config.store)
+        .with_migrator(&migrator)
+        .expect_archive(near_config.client_config.archive);
     let res = match opener.open() {
         Ok(storage) => Ok(storage),
         Err(StoreOpenerError::IO(err)) => {
@@ -89,6 +91,9 @@ fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Nod
         Err(StoreOpenerError::DbVersionMismatchOnRead { .. }) => unreachable!(),
         // Cannot happen when migrator is specified.
         Err(StoreOpenerError::DbVersionMismatch { .. }) => unreachable!(),
+        Err(err @ StoreOpenerError::DbKindMismatch { .. }) => {
+            Err(anyhow::anyhow!(err.to_string()))
+        },
         Err(StoreOpenerError::DbVersionTooOld { got, latest_release, .. }) => {
             Err(anyhow::anyhow!(
                 "Database version {got} is created by an old version \
@@ -108,24 +113,6 @@ fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Nod
     };
     let storage =
         res.with_context(|| format!("unable to open database at {}", opener.path().display()))?;
-
-    // Check if the storage is an archive and if it is make sure we are too.
-    // If the store is not marked as archive but we are an archival node that is
-    // fine and we just need to mark the store as archival.
-    let hot = storage.get_store(Temperature::Hot);
-    let store_is_archive: bool =
-        hot.get_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY)?.unwrap_or_default();
-    let client_is_archive = near_config.client_config.archive;
-    anyhow::ensure!(
-        !store_is_archive || client_is_archive,
-        "The node is configured as non-archival but is using database of an archival node."
-    );
-    if !store_is_archive && client_is_archive {
-        let mut update = hot.store_update();
-        update.set_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY, &true)?;
-        update.commit()?;
-    }
-
     Ok(storage)
 }
 

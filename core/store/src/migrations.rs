@@ -7,6 +7,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::AccountId;
 
+use crate::metadata::DbKind;
 use crate::{DBCol, Store, StoreUpdate};
 
 pub struct BatchedStoreUpdate<'a> {
@@ -175,9 +176,30 @@ pub fn migrate_29_to_30(storage: &crate::NodeStorage) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn migrate_31_to_32(storage: &crate::NodeStorage) -> anyhow::Result<()> {
-    let mut update = storage.get_store(crate::Temperature::Hot).store_update();
+/// Migrates the database from version 31 to 32.
+///
+/// This involves adding KIND entry to DbVersion column, removing IS_ARCHIVAL
+/// from BlockMisc column and deleting GCCount column.
+///
+/// Note that if the database has IS_ARCHIVAL key in BlockMisc column and it’s
+/// value is true, that overrides is_node_archival argument.
+pub fn migrate_31_to_32(storage: &crate::NodeStorage, archive: bool) -> anyhow::Result<()> {
+    const IS_ARCHIVE_KEY: &[u8; 10] = b"IS_ARCHIVE";
+
+    let hot = storage.get_store(crate::Temperature::Hot);
+    let mut update = hot.store_update();
+    if let Some(got) = hot.get_ser::<bool>(DBCol::BlockMisc, IS_ARCHIVE_KEY)? {
+        anyhow::ensure!(
+            archive || !got,
+            "Database is an Archive but we’re expecting RPC database; \
+             converting from archive to non-archive is not possible"
+        );
+        update.delete(DBCol::BlockMisc, IS_ARCHIVE_KEY);
+    }
+    let kind = if archive { DbKind::Archive } else { DbKind::RPC };
+    update.set(DBCol::DbVersion, crate::metadata::KIND_KEY, <&str>::from(kind).as_bytes());
     update.delete_all(DBCol::_ChunkPerHeightShard);
+    update.delete_all(DBCol::_GCCount);
     update.commit()?;
     Ok(())
 }

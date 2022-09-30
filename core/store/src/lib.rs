@@ -41,12 +41,12 @@ mod columns;
 pub mod config;
 pub mod db;
 pub mod flat_state;
+pub mod metadata;
 mod metrics;
 pub mod migrations;
 mod opener;
 pub mod test_utils;
 mod trie;
-pub mod version;
 
 pub use crate::config::{Mode, StoreConfig};
 pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};

@@ -9,7 +9,7 @@ use tracing::warn;
 
 use crate::config::Mode;
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue};
-use crate::{metrics, DBCol, StoreConfig, StoreStatistics};
+use crate::{metadata, metrics, DBCol, StoreConfig, StoreStatistics};
 
 mod instance_tracker;
 pub(crate) mod snapshot;
@@ -472,16 +472,14 @@ impl RocksDB {
         instance_tracker::block_until_all_instances_are_dropped();
     }
 
-    /// Returns version of the database state on disk.  Returns `None` if the
-    /// database does not exist.
-    pub(crate) fn get_version(
+    /// Returns metadata of the database or `None` if the db doesn’t exist.
+    pub(crate) fn get_metadata(
         path: &Path,
         config: &StoreConfig,
-    ) -> io::Result<Option<crate::version::DbVersion>> {
+    ) -> io::Result<Option<metadata::DbMetadata>> {
         if !path.join("CURRENT").is_file() {
             return Ok(None);
         }
-
         // Specify only DBCol::DbVersion.  It’s ok to open db in read-only mode
         // without specifying all column families but it’s an error to provide
         // a descriptor for a column family which doesn’t exist.  This allows us
@@ -489,14 +487,7 @@ impl RocksDB {
         // out if there are any necessary migrations to perform.
         let cols = [DBCol::DbVersion];
         let db = Self::open_with_columns(path, config, Mode::ReadOnly, &cols)?;
-        match crate::version::get_db_version(&db)? {
-            Some(db_version) => Ok(Some(db_version)),
-            None => Err(other_error(
-                "missing DbVersion; \
-                 it’s not a neard database or database is corrupted."
-                    .into(),
-            )),
-        }
+        Some(metadata::DbMetadata::read(&db)).transpose()
     }
 
     /// Gets every int property in CF_PROPERTY_NAMES for every column in DBCol.
