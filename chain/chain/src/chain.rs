@@ -1650,11 +1650,7 @@ impl Chain {
     /// soon as possible and allow next block producer to skip invalid blocks.
     pub fn process_challenge(&mut self, challenge: &Challenge) {
         let head = unwrap_or_return!(self.head());
-        match self.verify_challenges(
-            &vec![challenge.clone()],
-            &head.epoch_id,
-            &head.last_block_hash,
-        ) {
+        match self.verify_challenges(&[challenge.clone()], &head.epoch_id, &head.last_block_hash) {
             Ok((_, challenged_blocks)) => {
                 let mut chain_update = self.chain_update();
                 for block_hash in challenged_blocks {
