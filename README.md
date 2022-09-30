@@ -66,7 +66,7 @@ You can join all the active networks:
 * testnet: `nearup run testnet`
 * betanet: `nearup run betanet`
 
-Check the `nearup` repository for [more details](https://github.com/near/nearup) how to run with or without docker.
+Check the `nearup` repository for [more details](https://github.com/near/nearup) on how to run with or without docker.
 
 To learn how to become validator, checkout [documentation](https://docs.near.org/docs/develop/node/validator/staking-and-delegation).
 
