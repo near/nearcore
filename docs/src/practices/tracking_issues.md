@@ -5,7 +5,12 @@
 [`C-tracking-issue`
 label](https://github.com/near/nearcore/issues?q=is%3Aopen+is%3Aissue+label%3AC-tracking-issue).
 
-One can use tracking issues to:
+The goal of tracking issues is to serve as a coordination point. They can help
+new contributors and other interested parties come up-to-speed with the current
+state of projects.  As such, they should link to things like design docs,
+todo-lists of sub-issues, existing implementation PRs, etc.
+
+One can further use tracking issues to:
 - get a feeling for what's happening in `nearcore` by looking at the set of
   open tracking issues.
 - find larger efforts to contribute to as tracking issues usually contain
@@ -20,17 +25,17 @@ issue for your work.
 - Tracking issues should be maintained in the `nearcore` repository.  If the
   projects are security sensitive, then they should be maintained in the
   `nearcore-private` repository.
-- Tracking issues should be kept up-to-date.  At a minimum, all new context
+- The issues should be kept up-to-date.  At a minimum, all new context
   should be added as comments, but preferably the original description should be
   edited to reflect the current status.
-- Tracking issues should contain links to all the relevant design documents
+- The issues should contain links to all the relevant design documents
   which should also be kept up-to-date.
-- Tracking issues should link to any relevant NEP if applicable.
-- Tracking issues should contain a list of todo tasks which should be kept
+- The issues should link to any relevant NEP if applicable.
+- The issues should contain a list of todo tasks which should be kept
   up-to-date as new work items are discovered and other items are done.  This
   helps others gauge progress and helps lower the barrier of entry for others to
   participate.
-- Tracking issues should contain links to relevant Zulip discussions.  Prefer
+- The issues should contain links to relevant Zulip discussions.  Prefer
   open forums like Zulip for discussions.  When necessary, closed forums like
   video calls can also be used but care should be taken to document a summary of
   the discussions.
