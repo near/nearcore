@@ -109,7 +109,7 @@ impl NodeStorage {
     ///
     /// Note that you most likely don’t want to use this method.  If you’re
     /// opening an on-disk storage, you want to use [`Self::opener`] instead
-    /// which takes scare of opening the on-disk database and applying all the
+    /// which takes care of opening the on-disk database and applying all the
     /// necessary configuration.  If you need an in-memory database for testing,
     /// you want either [`crate::test_utils::create_test_node_storage`] or
     /// possibly [`crate::test_utils::create_test_store`] (depending whether you
