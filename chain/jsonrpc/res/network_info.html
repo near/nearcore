@@ -297,83 +297,54 @@
             return result;
         }
 
-        function sortTable(n) {
-            var table, rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
-            table = $(".detailed-peer-storage")[0];
-            switching = true;
-            // Set the sorting direction to ascending:
-            dir = "asc";
-            /* Make a loop that will continue until
-            no switching has been done: */
-            while (switching) {
-                // Start by saying: no switching is done:
-                switching = false;
-                rows = table.rows;
-                /* Loop through all table rows (except the
-                first, which contains table headers): */
-                for (i = 1; i < (rows.length - 1); i++) {
-                    // Start by saying there should be no switching:
-                    shouldSwitch = false;
-                    /* Get the two elements you want to compare,
-                    one from current row and one from the next: */
-                    x = rows[i].getElementsByTagName("TD")[n];
-                    y = rows[i + 1].getElementsByTagName("TD")[n];
-                    /* Check if the two rows should switch place,
-                    based on the direction, asc or desc: */
-
-                    let val1 = x.innerHTML.toLowerCase();
-                    if (x.hasAttribute("sort_val")) {
-                        val1 = x.attributes.sort_val;
-                    }
-                    let val2 = y.innerHTML.toLowerCase();
-                    if (y.hasAttribute("sort_val")) {
-                        val2 = y.attributes.sort_val;
-                    }
-                    if (dir == "asc") {
-                        if (val1 > val2) {
-                            // If so, mark as a switch and break the loop:
-                            shouldSwitch = true;
-                            break;
-                        }
-                    } else if (dir == "desc") {
-                        if (val1 < val2) {
-                            // If so, mark as a switch and break the loop:
-                            shouldSwitch = true;
-                            break;
-                        }
-                    }
-                }
-                if (shouldSwitch) {
-                    /* If a switch has been marked, make the switch
-                    and mark that a switch has been done: */
-                    rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
-                    switching = true;
-                    // Each time a switch is done, increase this count by 1:
-                    switchcount++;
-                } else {
-                    /* If no switching has been done AND the direction is "asc",
-                    set the direction to "desc" and run the while loop again. */
-                    if (switchcount == 0 && dir == "asc") {
-                        dir = "desc";
-                        switching = true;
-                    }
-                }
-            }
-        }
-
         function show_peer_storage() {
             $.ajax({
                 type: "GET",
                 url: "/debug/api/peer_store",
                 success: data => {
                     $(".detailed-peer-storage-size").text(data.status_response.PeerStore.peer_states.length);
+
+                    // Sort peers.
+                    // First display peers that we tried to connect to recently (with higest last_attempt).
+                    // Sort other peers by last_seen (descending).
+                    data.status_response.PeerStore.peer_states.sort(function compareFn(a, b) {
+                        if (a['last_attempt'] == null) {
+                            if (b['last_attempt'] == null) {
+                                // we didn't try to connect to neither one.
+                                if (a['first_seen'] == b['first_seen']) {
+                                    return 0;
+                                }
+                                if (a['first_seen'] > b['first_seen']) {
+                                    return -1;
+                                }
+                                return 1;
+                            }
+                            // We attempted to connect to b - so it should go first.
+                            return 1;
+                        }
+                        if (b['last_attempt'] == null) {
+                            // We attempted to connect to a only - it should go first.
+                            return -1;
+                        }
+                        if (a['last_attempt'] == b['last_attempt']) {
+                            return 0;
+                        }
+                        if (a['last_attempt'] > b['last_attempt']) {
+                            return -1;
+                        }
+                        return 1;
+                    })
                     data.status_response.PeerStore.peer_states.forEach(element => {
                         let row = $("<tr>");
                         row.append($("<td>").append(element['peer_id']));
                         let first_seen =
-                            row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['first_seen'])).attr("sort_value", element['first_seen']));
-                        row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_seen'])).attr("sort_value", element['last_seen']));
-                        row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_attempt'])).attr("sort_value", element['last_attempt']));
+                            row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['first_seen'])));
+                        row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_seen'])));
+                        if (element['last_attempt'] != null) {
+                            row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_attempt'])));
+                        } else {
+                            row.append($("<td>"));
+                        }
                         row.append($("<td>").append(element['status']));
                         $(".tbody-detailed-peer-storage").append(row);
                     });
@@ -464,11 +435,11 @@ Unreachable: <span class="js-unreachable-chunk-producers"></span>
         <h2>Peers in storage: <span class="detailed-peer-storage-size"></span></h2>
         <table class="detailed-peer-storage">
             <thead>
-                <th onclick="sortTable(0)">Peer id</th>
-                <th onclick="sortTable(1)">First seen</th>
-                <th onclick="sortTable(2)">Last seen</th>
-                <th onclick="sortTable(3)">Last connection attempt</th>
-                <th onclick="sortTable(4)">Status</th>
+                <th>Peer id</th>
+                <th>First seen</th>
+                <th>Last seen</th>
+                <th>Last connection attempt</th>
+                <th>Status</th>
             </thead>
             <tbody class="tbody-detailed-peer-storage">
 
