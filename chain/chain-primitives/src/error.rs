@@ -200,7 +200,7 @@ pub enum Error {
     /// A challenged block is on the chain that was attempted to become the head
     #[error("Challenged block on chain")]
     ChallengedBlockOnChain,
-    /// A challenged block is on the chain that was attempted to become the head
+    /// Block cannot be finalized.
     #[error("Block cannot be finalized")]
     CannotBeFinalized,
     /// IO Error.

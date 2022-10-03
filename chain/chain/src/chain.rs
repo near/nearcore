@@ -1323,9 +1323,6 @@ impl Chain {
             if header.challenges_root() != &MerkleHash::default() {
                 return Err(Error::InvalidChallengeRoot);
             }
-
-            // Check if block can be finalized.
-            self.check_if_finalizable(&header)?;
         }
 
         Ok(())
@@ -2359,6 +2356,9 @@ impl Chain {
 
         self.ping_missing_chunks(me, prev_hash, block)?;
         let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
+
+        // Check if block can be finalized.
+        self.check_if_finalizable(block.header())?;
 
         let apply_chunk_work = self.apply_chunks_preprocessing(
             me,
