@@ -653,39 +653,13 @@ impl FlatStorageState {
         Ok(vec![])
     }
 
-    /// Requests updating flat head.
-    /// If new head is not a child of current flat head, does nothing and returns Ok. It can happen when we have a fork:
-    ///
-    ///      (flat head)        /-------> 6
-    /// 1 ->      2     -> 3 -> 4
-    ///                         \---> 5
-    ///
-    /// where for (5) we can call `update_flat_head(3)` and then for (6) we can call `update_flat_head(2)`.
-    /// Otherwise updates the head of the flat storage, including updating the flat state in memory and on disk
-    /// and updating the flat state to reflect the state at the new head.
+    /// Update the head of the flat storage, including updating the flat state in memory and on disk
+    /// and updating the flat state to reflect the state at the new head. If updating to given head is not possible,
+    /// returns an error.
     // TODO (#7327): implement garbage collection of old deltas.
     #[cfg(feature = "protocol_feature_flat_state")]
     pub fn update_flat_head(&self, new_head: &CryptoHash) -> Result<(), FlatStorageError> {
         let mut guard = self.0.write().expect(POISONED_LOCK_ERR);
-        let current_head_height = guard
-            .blocks
-            .get(&guard.flat_head)
-            .ok_or(guard.create_block_not_supported_error(&guard.flat_head))?
-            .height;
-        let new_head_height = match guard.blocks.get(new_head) {
-            Some(block_info) => block_info.height,
-            None => {
-                // If new head is not supported, it is behind the current head, so we can return Ok.
-                return Ok(());
-            }
-        };
-        // If new head height is not greater than current head height, new head is not a child of flat head, so we
-        // return Ok.
-        if new_head_height <= current_head_height {
-            return Ok(());
-        }
-
-        // Otherwise apply flat state change and move flat head.
         let deltas = guard.get_deltas_between_blocks(new_head)?;
         let mut merged_delta = FlatStateDelta::default();
         for delta in deltas.into_iter().rev() {
