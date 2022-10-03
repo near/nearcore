@@ -1126,7 +1126,7 @@ impl Chain {
     /// If this is the case, returns Ok.
     /// If we discovered that it is not the case, returns `Error::CannotBeFinalized`.
     /// If too many parents were checked, returns Ok to avoid long delays.
-    fn check_if_finalizable(&self, header: &BlockHeader) -> Result<(), Error> {
+    pub fn check_if_finalizable(&self, header: &BlockHeader) -> Result<(), Error> {
         let mut header = header.clone();
         let final_head = self.final_head()?;
         for _ in 0..NUM_PARENTS_TO_CHECK_FINALITY {
@@ -2356,9 +2356,6 @@ impl Chain {
 
         self.ping_missing_chunks(me, prev_hash, block)?;
         let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
-
-        // Check if block can be finalized.
-        self.check_if_finalizable(block.header())?;
 
         let apply_chunk_work = self.apply_chunks_preprocessing(
             me,

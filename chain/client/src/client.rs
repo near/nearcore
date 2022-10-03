@@ -815,7 +815,8 @@ impl Client {
             Provenance::PRODUCED | Provenance::SYNC => true,
             Provenance::NONE => false,
         };
-        // drop the block if a) it is not requested, b) we already processed this height, c) it is not building on top of current head
+        // Drop the block if a) it is not requested, b) we already processed this height,
+        // c) it is not building on top of current head
         if !is_requested
             && block.header().prev_hash()
                 != &self
@@ -827,6 +828,9 @@ impl Client {
                 return Ok(());
             }
         }
+
+        // Check if block can be finalized and drop it otherwise.
+        self.chain.check_if_finalizable(block.header())?;
 
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
