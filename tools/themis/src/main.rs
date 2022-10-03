@@ -12,6 +12,7 @@ fn main() -> anyhow::Result<()> {
         rules::is_unversioned,
         rules::has_publish_spec,
         rules::has_rust_version,
+        rules::rust_version_matches_toolchain,
         rules::has_unified_rust_edition,
         rules::author_is_near,
         rules::publishable_has_license,

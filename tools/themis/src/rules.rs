@@ -1,5 +1,6 @@
 use super::types::{ComplianceError, Expected, Outlier, Workspace};
 use super::{style, utils};
+use crate::utils::read_toml;
 use anyhow::bail;
 use std::collections::{BTreeMap, HashMap};
 
@@ -38,6 +39,30 @@ pub fn has_rust_version(workspace: &Workspace) -> anyhow::Result<()> {
                 .to_string(),
             expected: None,
             outliers,
+        });
+    }
+
+    Ok(())
+}
+
+/// Ensure rust-version is the same in Cargo.toml and rust-toolchain.toml
+pub fn rust_version_matches_toolchain(workspace: &Workspace) -> anyhow::Result<()> {
+    fn get<'a>(mut val: &'a toml::Value, indexes: &[&str]) -> anyhow::Result<&'a toml::Value> {
+        for &i in indexes {
+            val = val.get(i).ok_or_else(|| anyhow::format_err!("no `{i}` in {val}"))?;
+        }
+        Ok(val)
+    }
+
+    let toolchain_file = read_toml(&workspace.root.join("rust-toolchain.toml"))?;
+    let toolchain_version = get(&toolchain_file, &["toolchain", "channel"])?;
+    let workspace_version = get(&workspace.raw, &["workspace", "package", "rust-version"])?;
+
+    if toolchain_version != workspace_version {
+        bail!(ComplianceError {
+            msg: format!("rust-version in rust-toolchain.toml and workspace Cargo.toml differ"),
+            expected: None,
+            outliers: Vec::new(),
         });
     }
 
