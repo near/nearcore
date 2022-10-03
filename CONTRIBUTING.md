@@ -3,15 +3,46 @@ welcome contributions from everyone.  Below are various bits of information to
 help you get started.  If you require additional help, please reach out to us on
 our [zulip channel](https://near.zulipchat.com/).
 
-## Getting started
+## Quick Start
 
-- For non-technical contributions, such as e.g. content or events, see [this
-document](https://docs.nearprotocol.com/docs/contribution/contribution-overview).
+nearcore is a fairly standard Rust project, so building is as easy as
 
-- For an overview of the NEAR core architecture, see [this
-playlist](https://www.youtube.com/playlist?list=PL9tzQn_TEuFV4qlts0tVgndnytFs4QSYo).
+```console
+$ cargo build
+```
 
-- If you are looking for relatively simple tasks to familiarise yourself with
+Building nearcore requires a fairly recent Rust compiler (get it
+[here](https://rustup.rs)), as well as `clang` and `cmake` to build RocksDB
+(`sudo apt install cmake clang`).
+
+To run a local NEAR network with one node, use
+
+```console
+$ cargo run -p neard -- init # generates various configs in ~/.near
+$ cargo run -p neard -- run
+```
+
+You can now use your own node's HTTP RPC API (e.g.
+[httpie](https://httpie.io/docs/cli/installation))
+
+```console
+$ http get http://localhost:3030/status
+$ http post http://localhost:3030/ method=query jsonrpc=2.0 id=1 \
+     params:='{"request_type": "view_account", "finality": "final", "account_id": "test.near"}'
+```
+
+The RPC is documented [here](https://docs.near.org/api/rpc/introduction), and
+can be conveniently accessed from the command line [NEAR
+CLI](https://docs.near.org/tools/near-cli) utility.
+
+## Next Steps
+
+To learn more about how nearcore works, skim through our guide to nearcore
+development:
+
+https://near.github.io/nearcore/
+
+If you are looking for relatively simple tasks to familiarise yourself with
 `nearcore`, please check out issues labeled with the `C-good-first-issue` label
 [here](https://github.com/near/nearcore/labels/C-good-first-issue).  If you see
 one that looks interesting and is unassigned or has not been actively worked on
@@ -20,18 +51,17 @@ the team should help you get started.  We do not always keep the issue tracker
 up-to-date, so if you do not find an interesting task to work on, please ask for
 help on our zulip channel.
 
-- If you have an idea for an enhancement to the protocol, please make the
+If you have an idea for an enhancement to the protocol itself, please make a
 proposal by following the [NEAR Enhancement
-Proposal](https://github.com/near/NEPs/blob/master/neps/nep-0001.md).
+Proposal](https://github.com/near/NEPs/blob/master/neps/nep-0001.md) process.
 
-- Otherwise, if you have an idea for an enhancement that does not require a
-change in the proposal, please start by creating a new issue in the tracker.
-Someone should respond within 48 hours.  If the proposal is accepted, then you
-can follow the process below to begin work on it.
+## Getting started
 
-- Finally, if you have noticed an obvious typo or bug that can be fixed with a
-small code change, please feel free to submit a PR directly addressing the issue
-without opening an issue.
+- For non-technical contributions, such as e.g. content or events, see [this
+document](https://docs.nearprotocol.com/docs/contribution/contribution-overview).
+
+- For an overview of the NEAR core architecture, see [this
+playlist](https://www.youtube.com/playlist?list=PL9tzQn_TEuFV4qlts0tVgndnytFs4QSYo).
 
 ## Build Process
 

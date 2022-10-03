@@ -179,10 +179,10 @@ pub fn migrate_29_to_30(storage: &crate::NodeStorage) -> anyhow::Result<()> {
 /// Migrates the database from version 31 to 32.
 ///
 /// This involves adding KIND entry to DbVersion column, removing IS_ARCHIVAL
-/// from BlockMisc column and deleting GCCount column.
+/// from BlockMisc column and deleting ChunkPerHeightShard and GCCount columns.
 ///
-/// Note that if the database has IS_ARCHIVAL key in BlockMisc column and it’s
-/// value is true, that overrides is_node_archival argument.
+/// Returns an error if the database has IS_ARCHIVAL key in BlockMisc column set
+/// to true but the value of is_node_archival argument is false.
 pub fn migrate_31_to_32(storage: &crate::NodeStorage, archive: bool) -> anyhow::Result<()> {
     const IS_ARCHIVE_KEY: &[u8; 10] = b"IS_ARCHIVE";
 
@@ -198,8 +198,10 @@ pub fn migrate_31_to_32(storage: &crate::NodeStorage, archive: bool) -> anyhow::
     }
     let kind = if archive { DbKind::Archive } else { DbKind::RPC };
     update.set(DBCol::DbVersion, crate::metadata::KIND_KEY, <&str>::from(kind).as_bytes());
+
     update.delete_all(DBCol::_ChunkPerHeightShard);
     update.delete_all(DBCol::_GCCount);
+
     update.commit()?;
     Ok(())
 }
