@@ -5,7 +5,7 @@ our [zulip channel](https://near.zulipchat.com/).
 
 ## Quick Start
 
-nearcore is a fairly standard Rust project, so building as easy as
+nearcore is a fairly standard Rust project, so building is as easy as
 
 ```console
 $ cargo build
@@ -22,7 +22,7 @@ $ cargo run -p neard -- init # generates various configs in ~/.near
 $ cargo run -p neard -- run
 ```
 
-You can now use your own node's HTTP RPC API (the example uses
+You can now use your own node's HTTP RPC API (e.g.
 [httpie](https://httpie.io/docs/cli/installation))
 
 ```console
@@ -51,7 +51,7 @@ the team should help you get started.  We do not always keep the issue tracker
 up-to-date, so if you do not find an interesting task to work on, please ask for
 help on our zulip channel.
 
-If you have an idea for an enhancement to the protocol itself, please make the
+If you have an idea for an enhancement to the protocol itself, please make a
 proposal by following the [NEAR Enhancement
 Proposal](https://github.com/near/NEPs/blob/master/neps/nep-0001.md) process.
 
