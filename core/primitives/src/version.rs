@@ -183,7 +183,7 @@ const PROTOCOL_UPGRADE_SCHEDULE: Lazy<HashMap<ProtocolVersion, ProtocolUpgradeVo
         let mut schedule = HashMap::new();
         // Update to latest protocol version on release.
         schedule
-            .insert(54, ProtocolUpgradeVotingSchedule::from_str("2022-06-27 15:00:00").unwrap());
+            .insert(57, ProtocolUpgradeVotingSchedule::from_str("2022-10-05 15:00:00").unwrap());
 
         /*
         // Final shardnet release. Do not include it in testnet or mainnet releases.
