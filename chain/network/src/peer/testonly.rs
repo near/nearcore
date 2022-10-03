@@ -1,4 +1,5 @@
 use crate::broadcast;
+use crate::tcp;
 use crate::concurrency::demux;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
@@ -6,7 +7,7 @@ use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerInfo, PeerMessage, RawRoutedMessage, RoutedMessageBody,
     RoutedMessageV2, RoutingTableUpdate,
 };
-use crate::peer::peer_actor::{PeerActor, StreamConfig, ClosingReason};
+use crate::peer::peer_actor::{PeerActor, ClosingReason};
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
@@ -21,7 +22,6 @@ use actix::{Actor, Context, Handler};
 use near_crypto::{InMemorySigner, Signature};
 use near_primitives::network::PeerId;
 use std::sync::Arc;
-use tokio::net::{TcpListener, TcpStream};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -29,7 +29,6 @@ pub struct PeerConfig {
     pub chain: Arc<data::Chain>,
     pub network: NetworkConfig,
     pub peers: Vec<PeerInfo>,
-    pub start_handshake_with: Option<PeerId>,
     pub force_encoding: Option<crate::network_protocol::Encoding>,
     /// If both start_handshake_with and nonce are set, PeerActor
     /// will use this nonce in the handshake.
@@ -169,7 +168,7 @@ impl PeerHandle {
     pub async fn start_endpoint(
         clock: time::Clock,
         cfg: PeerConfig,
-        stream: TcpStream,
+        stream: tcp::Stream,
     ) -> PeerHandle {
         let cfg = Arc::new(cfg);
         let cfg_ = cfg.clone();
@@ -180,7 +179,7 @@ impl PeerHandle {
             let store = store::Store::from(near_store::db::TestDB::new());
             let routing_table_view = RoutingTableView::new(store, cfg.id());
             // WARNING: this is a hack to make PeerActor use a specific nonce
-            if let (Some(nonce), Some(peer_id)) = (&cfg.nonce, &cfg.start_handshake_with) {
+            if let (Some(nonce), tcp::StreamType::Outbound{peer_id}) = (&cfg.nonce, &stream.type_) {
                 routing_table_view.add_local_edges(&[Edge::new(
                     cfg.id(),
                     peer_id.clone(),
@@ -203,10 +202,6 @@ impl PeerHandle {
             PeerActor::spawn(
                 clock,
                 stream,
-                match &cfg.start_handshake_with {
-                    None => StreamConfig::Inbound,
-                    Some(id) => StreamConfig::Outbound { peer_id: id.clone() },
-                },
                 cfg.force_encoding,
                 network_state,
             )
@@ -214,15 +209,5 @@ impl PeerHandle {
         })
         .await;
         Self { actix, cfg: cfg_, events: recv }
-    }
-
-    pub async fn start_connection() -> (TcpStream, TcpStream) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let connect_future = TcpStream::connect(listener.local_addr().unwrap());
-        let accept_future = listener.accept();
-        let (connect_result, accept_result) = tokio::join!(connect_future, accept_future);
-        let outbound_stream = connect_result.unwrap();
-        let (inbound_stream, _) = accept_result.unwrap();
-        (outbound_stream, inbound_stream)
     }
 }

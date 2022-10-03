@@ -1,5 +1,6 @@
 use crate::concurrency::demux;
 use crate::config;
+use crate::tcp;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Encoding, PeerAddr, SyncAccountsData};
 use crate::network_protocol::{Ping, RoutedMessageBody, EDGE_MIN_TIMESTAMP_NONCE};
@@ -15,13 +16,11 @@ use crate::time;
 use crate::types::{PeerMessage, RoutingTableUpdate};
 use itertools::Itertools;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::network::PeerId;
 use pretty_assertions::assert_eq;
 use rand::seq::SliceRandom as _;
 use rand::Rng as _;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::net::TcpStream;
 
 // After the initial exchange, all subsequent SyncRoutingTable messages are
 // expected to contain only the diff of the known data.
@@ -43,11 +42,10 @@ async fn repeated_data_in_sync_routing_table() {
         network: chain.make_config(rng),
         chain,
         peers: vec![],
-        start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
         force_encoding: Some(Encoding::Proto),
         nonce: None,
     };
-    let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
+    let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
     let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
     let edge = peer.complete_handshake().await;
 
@@ -126,11 +124,10 @@ async fn no_edge_broadcast_after_restart() {
             network: chain.make_config(rng),
             chain: chain.clone(),
             peers: vec![],
-            start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
             force_encoding: Some(Encoding::Proto),
             nonce: None,
         };
-        let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
+        let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
         let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
         let edge = peer.complete_handshake().await;
 
@@ -219,12 +216,11 @@ async fn test_nonces() {
             network: chain.make_config(rng),
             chain: chain.clone(),
             peers: vec![],
-            start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
             force_encoding: Some(Encoding::Proto),
             // Connect with nonce equal to unix timestamp
             nonce: test.0,
         };
-        let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
+        let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
         let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
         if test.1 {
             peer.complete_handshake().await;
@@ -253,11 +249,10 @@ async fn ttl() {
         network: chain.make_config(rng),
         chain,
         peers: vec![],
-        start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
         force_encoding: Some(Encoding::Proto),
         nonce: None,
     };
-    let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
+    let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
     let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
     peer.complete_handshake().await;
     // await for peer manager to compute the routing table.

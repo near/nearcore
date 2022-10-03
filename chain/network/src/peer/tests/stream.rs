@@ -1,5 +1,7 @@
 use crate::actix::ActixSystem;
 use crate::peer::stream;
+use crate::tcp;
+use crate::network_protocol::testonly as data;
 use crate::testonly::make_rng;
 use actix::Actor as _;
 use actix::ActorContext as _;
@@ -47,14 +49,14 @@ struct Handler {
 }
 
 impl Actor {
-    async fn spawn(s: tokio::net::TcpStream) -> Handler {
+    async fn spawn(s: tcp::Stream) -> Handler {
         let (queue_send, queue_recv) = mpsc::unbounded_channel();
         Handler {
             queue_recv,
             system: ActixSystem::spawn(|| {
                 Actor::create(|ctx| {
                     let stream =
-                        stream::FramedStream::spawn(ctx, s.peer_addr().unwrap(), s, Arc::default());
+                        stream::FramedStream::spawn(ctx, s, Arc::default());
                     Self { stream, queue_send }
                 })
             })
@@ -65,15 +67,11 @@ impl Actor {
 
 #[tokio::test]
 async fn send_recv() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let (s1, s2) = tokio::join!(
-        tokio::net::TcpStream::connect(listener.local_addr().unwrap()),
-        listener.accept(),
-    );
-    let a1 = Actor::spawn(s1.unwrap()).await;
-    let mut a2 = Actor::spawn(s2.unwrap().0).await;
-
     let mut rng = make_rng(98324532);
+    let (s1,s2) = tcp::Stream::loopback(data::make_peer_id(&mut rng)).await;
+    let a1 = Actor::spawn(s1).await;
+    let mut a2 = Actor::spawn(s2).await;
+
     for _ in 0..5 {
         let n = rng.gen_range(1..10);
         let msgs: Vec<_> = (0..n)

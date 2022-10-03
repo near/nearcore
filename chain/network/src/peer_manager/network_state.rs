@@ -2,10 +2,9 @@ use crate::accounts_data;
 use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
+    AccountOrPeerIdOrHash, PartialEdgeInfo, PeerIdOrHash, PeerMessage, Ping, Pong,
     RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
 };
-use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::connection;
 use crate::private_actix::PeerToManagerMsg;
 use crate::routing::routing_table_view::RoutingTableView;
@@ -19,8 +18,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
-use tokio::net::TcpStream;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, trace};
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::milliseconds(60_000);
@@ -105,58 +103,6 @@ impl NetworkState {
             self.routing_table_view.get_local_edge(peer1).map_or(1, |edge| edge.next())
         });
         PartialEdgeInfo::new(&self.config.node_id(), peer1, nonce, &self.config.node_key)
-    }
-
-    /// Connects peer with given TcpStream.
-    /// It will fail (and log) if we have too many connections already,
-    /// or if the peer drops the connection in the meantime.
-    fn spawn_peer_actor(
-        self: Arc<Self>,
-        clock: &time::Clock,
-        stream: TcpStream,
-        stream_cfg: StreamConfig,
-    ) {
-        if let Err(err) = PeerActor::spawn(clock.clone(), stream, stream_cfg, None, self.clone()) {
-            tracing::info!(target:"network", ?err, "PeerActor::spawn()");
-        };
-    }
-
-    pub async fn spawn_inbound(self: Arc<Self>, clock: &time::Clock, stream: TcpStream) {
-        self.spawn_peer_actor(clock, stream, StreamConfig::Inbound);
-    }
-
-    pub async fn spawn_outbound(self: Arc<Self>, clock: time::Clock, peer_info: PeerInfo) {
-        let addr = match peer_info.addr {
-            Some(addr) => addr,
-            None => {
-                warn!(target: "network", ?peer_info, "Trying to connect to peer with no public address");
-                return;
-            }
-        };
-        // The `connect` may take several minutes. This happens when the
-        // `SYN` packet for establishing a TCP connection gets silently
-        // dropped, in which case the default TCP timeout is applied. That's
-        // too long for us, so we shorten it to one second.
-        //
-        // Why exactly a second? It was hard-coded in a library we used
-        // before, so we keep it to preserve behavior. Removing the timeout
-        // completely was observed to break stuff for real on the testnet.
-        let stream =
-            match tokio::time::timeout(std::time::Duration::from_secs(1), TcpStream::connect(addr))
-                .await
-            {
-                Ok(Ok(it)) => it,
-                Ok(Err(err)) => {
-                    info!(target: "network", ?addr, ?err, "Error connecting to");
-                    return;
-                }
-                Err(err) => {
-                    info!(target: "network", ?addr, ?err, "Error connecting to");
-                    return;
-                }
-            };
-        debug!(target: "network", ?peer_info, "Connecting");
-        self.spawn_peer_actor(&clock, stream, StreamConfig::Outbound { peer_id: peer_info.id });
     }
 
     // Determine if the given target is referring to us.

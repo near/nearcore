@@ -8,6 +8,7 @@ mod concurrency;
 mod network_protocol;
 mod peer;
 mod peer_manager;
+mod tcp;
 
 pub mod actix;
 pub mod blacklist;

@@ -5,6 +5,7 @@ use crate::network_protocol::{
     Edge, EdgeState, Encoding, ParsePeerMessageError, PartialEdgeInfo, PeerChainInfoV2, PeerInfo,
     RoutedMessage, RoutedMessageBody, SyncAccountsData,
 };
+use crate::tcp;
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
@@ -28,7 +29,6 @@ use actix::{
     Actor, ActorContext, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler,
     Running, WrapFuture,
 };
-use anyhow::Context as _;
 use lru::LruCache;
 use near_crypto::Signature;
 use near_performance_metrics_macros::perf;
@@ -63,8 +63,18 @@ const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::millisec
 
 #[derive(Debug,Clone,PartialEq,Eq)]
 pub struct ConnectionClosedEvent {
-    pub addr: SocketAddr,
+    pub(crate) stream_id: tcp::StreamId,
     pub(crate) reason: ClosingReason,
+}
+
+#[derive(Debug,Clone,PartialEq,Eq)]
+pub struct HandshakeStartedEvent {
+    pub(crate) stream_id: tcp::StreamId,
+}
+
+#[derive(Debug,Clone,PartialEq,Eq)]
+pub struct HandshakeCompletedEvent {
+    pub(crate) stream_id: tcp::StreamId,
 }
 
 #[derive(thiserror::Error,Clone, PartialEq,Eq,Debug)]
@@ -96,6 +106,8 @@ pub(crate) struct PeerActor {
     /// This node's id and address (either listening or socket address).
     my_node_info: PeerInfo,
 
+    /// TEST-ONLY
+    stream_id: crate::tcp::StreamId,
     /// Peer address from connection.
     peer_addr: SocketAddr,
     /// Peer type.
@@ -138,12 +150,6 @@ impl Debug for PeerActor {
     }
 }
 
-#[derive(Debug)]
-pub(crate) enum StreamConfig {
-    Inbound,
-    Outbound { peer_id: PeerId },
-}
-
 #[derive(Clone, Debug)]
 struct HandshakeSpec {
     /// ID of the peer on the other side of the connection.
@@ -155,19 +161,16 @@ struct HandshakeSpec {
 impl PeerActor {
     pub(crate) fn spawn(
         clock: time::Clock,
-        stream: tokio::net::TcpStream,
-        stream_config: StreamConfig,
+        stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<actix::Addr<Self>> {
-        // WARNING: if resolving peer_addr fails, Event::ConnectionClosed
-        // won't be resolved.
-        let peer_addr = stream.peer_addr().context("stream.peer_addr()")?;
-        match Self::spawn_inner(clock,peer_addr,stream,stream_config,force_encoding,network_state.clone()) {
+        let stream_id = stream.id();
+        match Self::spawn_inner(clock,stream,force_encoding,network_state.clone()) {
             Ok(it) => Ok(it),
             Err(reason) => {
                 network_state.config.event_sink.push(Event::ConnectionClosed(ConnectionClosedEvent{
-                    addr: peer_addr.clone(),
+                    stream_id,
                     reason: reason.clone(),
                 }));
                 Err(reason.into())
@@ -177,21 +180,19 @@ impl PeerActor {
 
     fn spawn_inner(
         clock: time::Clock,
-        peer_addr: std::net::SocketAddr,
-        stream: tokio::net::TcpStream,
-        stream_config: StreamConfig,
+        stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
     ) -> Result<actix::Addr<Self>,ClosingReason> {
-        let connecting_status = match &stream_config {
-            StreamConfig::Inbound => ConnectingStatus::Inbound(
+        let connecting_status = match &stream.type_ {
+            crate::tcp::StreamType::Inbound => ConnectingStatus::Inbound(
                 network_state
                     .inbound_handshake_permits
                     .clone()
                     .try_acquire_owned()
                     .map_err(|_|ClosingReason::TooManyInbound)?,
             ),
-            StreamConfig::Outbound { peer_id } => ConnectingStatus::Outbound {
+            crate::tcp::StreamType::Outbound { peer_id } => ConnectingStatus::Outbound {
                 _permit: network_state
                     .tier2
                     .start_outbound(peer_id.clone())
@@ -212,15 +213,19 @@ impl PeerActor {
         // Start PeerActor on separate thread.
         Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| {
             let stats = Arc::new(connection::Stats::default());
-            let framed = stream::FramedStream::spawn(ctx, peer_addr, stream, stats.clone());
+            let stream_id = stream.id();
+            let peer_addr = stream.peer_addr;
+            let stream_type = stream.type_.clone();
+            let framed = stream::FramedStream::spawn(ctx, stream, stats.clone());
             Self {
                 closing_reason: None,
                 clock,
                 my_node_info,
+                stream_id,
                 peer_addr,
-                peer_type: match &stream_config {
-                    StreamConfig::Inbound => PeerType::Inbound,
-                    StreamConfig::Outbound { .. } => PeerType::Outbound,
+                peer_type: match &stream_type {
+                    tcp::StreamType::Inbound => PeerType::Inbound,
+                    tcp::StreamType::Outbound { .. } => PeerType::Outbound,
                 },
                 peer_status: PeerStatus::Connecting(connecting_status),
                 framed,
@@ -229,11 +234,11 @@ impl PeerActor {
                 routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
                 protocol_buffers_supported: false,
                 force_encoding,
-                peer_info: match &stream_config {
-                    StreamConfig::Inbound => None,
-                    StreamConfig::Outbound { peer_id } => Some(PeerInfo {
+                peer_info: match &stream_type {
+                    tcp::StreamType::Inbound => None,
+                    tcp::StreamType::Outbound { peer_id } => Some(PeerInfo {
                         id: peer_id.clone(),
-                        addr: Some(peer_addr.clone()),
+                        addr: Some(peer_addr),
                         account_id: None,
                     }),
                 }
@@ -926,7 +931,9 @@ impl Actor for PeerActor {
         {
             self.send_handshake(handshake_spec.clone());
         }
-        self.network_state.config.event_sink.push(Event::PeerActorStarted(self.peer_addr));
+        self.network_state.config.event_sink.push(Event::HandshakeStarted(HandshakeStartedEvent{
+            stream_id: self.stream_id,
+        }));
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
@@ -965,7 +972,7 @@ impl Actor for PeerActor {
         // It happens a lot in tests.
         if let Some(reason) = self.closing_reason.take() {
             self.network_state.config.event_sink.push(Event::ConnectionClosed(ConnectionClosedEvent{
-                addr: self.peer_addr,
+                stream_id: self.stream_id,
                 reason,
             }));
         }

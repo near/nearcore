@@ -1,5 +1,6 @@
 use crate::peer_manager::connection;
 use crate::stats::metrics;
+use crate::tcp;
 use actix::fut::future::wrap_future;
 use actix::AsyncContext as _;
 use bytesize::{GIB, MIB};
@@ -70,15 +71,14 @@ where
 {
     pub fn spawn(
         ctx: &mut actix::Context<Actor>,
-        peer_addr: SocketAddr,
-        stream: tokio::net::TcpStream,
+        stream: tcp::Stream,
         stats: Arc<connection::Stats>,
     ) -> Self {
-        let (tcp_recv, tcp_send) = tokio::io::split(stream);
+        let (tcp_recv, tcp_send) = tokio::io::split(stream.stream);
         let (queue_send, queue_recv) = tokio::sync::mpsc::unbounded_channel();
         let send_buf_size_metric = Arc::new(metrics::MetricGuard::new(
             &*metrics::PEER_DATA_WRITE_BUFFER_SIZE,
-            vec![peer_addr.to_string()],
+            vec![stream.peer_addr.to_string()],
         ));
         ctx.spawn(wrap_future({
             let addr = ctx.address();
@@ -95,7 +95,7 @@ where
             let stats = stats.clone();
             async move {
                 if let Err(err) =
-                    Self::run_recv_loop(peer_addr, tcp_recv, addr.clone(), stats).await
+                    Self::run_recv_loop(stream.peer_addr, tcp_recv, addr.clone(), stats).await
                 {
                     addr.do_send(Error::Recv(err));
                 }

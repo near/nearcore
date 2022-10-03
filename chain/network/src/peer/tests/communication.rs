@@ -1,4 +1,5 @@
 use crate::network_protocol::testonly as data;
+use crate::tcp;
 use crate::network_protocol::Encoding;
 use crate::network_protocol::{Handshake, HandshakeFailureReason, PeerMessage, RoutedMessageBody};
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
@@ -29,7 +30,6 @@ async fn test_peer_communication(
         network: chain.make_config(&mut rng),
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: inbound_encoding,
-        start_handshake_with: None,
         nonce: None,
     };
     let outbound_cfg = PeerConfig {
@@ -37,11 +37,9 @@ async fn test_peer_communication(
         network: chain.make_config(&mut rng),
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: outbound_encoding,
-        start_handshake_with: Some(inbound_cfg.id()),
         nonce: None,
     };
-
-    let (outbound_stream, inbound_stream) = PeerHandle::start_connection().await;
+    let (outbound_stream, inbound_stream) = tcp::Stream::loopback(inbound_cfg.id()).await;
     let mut inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
     let mut outbound =
         PeerHandle::start_endpoint(clock.clock(), outbound_cfg, outbound_stream).await;
@@ -210,7 +208,6 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         chain: chain.clone(),
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: inbound_encoding,
-        start_handshake_with: None,
         nonce: None,
     };
     let outbound_cfg = PeerConfig {
@@ -218,12 +215,11 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         chain: chain.clone(),
         peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: outbound_encoding,
-        start_handshake_with: None,
         nonce: None,
     };
-    let (outbound_stream, inbound_stream) = PeerHandle::start_connection().await;
+    let (outbound_stream, inbound_stream) = tcp::Stream::loopback(inbound_cfg.id()).await;
     let inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
-    let mut outbound = Stream::new(outbound_encoding, outbound_stream);
+    let mut outbound = Stream::new(outbound_encoding, outbound_stream.stream);
 
     // Send too old PROTOCOL_VERSION, expect ProtocolVersionMismatch
     let mut handshake = Handshake {
