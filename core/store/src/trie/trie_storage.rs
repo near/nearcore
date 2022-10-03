@@ -90,14 +90,21 @@ struct TrieCacheMetrics {
 }
 
 impl TrieCacheInner {
+    /// Assumed number of bytes used to store an entry in the cache.
+    ///
+    /// 100 bytes is an approximation based on lru 0.7.5.
+    pub(crate) const PER_ENTRY_OVERHEAD: u64 = 100;
+
     pub(crate) fn new(
-        cache_capacity: usize,
         deletions_queue_capacity: usize,
         total_size_limit: u64,
         shard_id: ShardId,
         is_view: bool,
     ) -> Self {
-        assert!(cache_capacity > 0 && total_size_limit > 0);
+        assert!(total_size_limit > 0);
+        // upper bound on capacity for allocation purposes only
+        let cache_capacity =
+            (total_size_limit + Self::PER_ENTRY_OVERHEAD - 1) / Self::PER_ENTRY_OVERHEAD;
         // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
         let mut buffer = itoa::Buffer::new();
         let shard_id_str = buffer.format(shard_id);
@@ -116,7 +123,7 @@ impl TrieCacheInner {
                 .with_label_values(&metrics_labels),
         };
         Self {
-            cache: LruCache::new(cache_capacity),
+            cache: LruCache::new(cache_capacity as usize),
             deletions: BoundedQueue::new(deletions_queue_capacity),
             total_size: 0,
             total_size_limit,
@@ -143,7 +150,7 @@ impl TrieCacheInner {
                 Some(key) => match self.cache.pop(&key) {
                     Some(value) => {
                         self.metrics.shard_cache_pop_hits.inc();
-                        self.total_size -= value.len() as u64;
+                        self.remove_value_of_size(value.len());
                         continue;
                     }
                     None => {
@@ -157,15 +164,15 @@ impl TrieCacheInner {
             self.metrics.shard_cache_pop_lru.inc();
             let (_, value) =
                 self.cache.pop_lru().expect("Cannot fail because total size capacity is > 0");
-            self.total_size -= value.len() as u64;
+            self.remove_value_of_size(value.len());
         }
 
         // Add value to the cache.
-        self.total_size += value.len() as u64;
+        self.add_value_of_size(value.len());
         match self.cache.push(key, value) {
             Some((evicted_key, evicted_value)) => {
                 log_assert!(key == evicted_key, "LRU cache with shard_id = {}, is_view = {} can't be full before inserting key {}", self.shard_id, self.is_view, key);
-                self.total_size -= evicted_value.len() as u64;
+                self.remove_value_of_size(evicted_value.len());
             }
             None => {}
         };
@@ -182,7 +189,7 @@ impl TrieCacheInner {
                 Some(key_to_delete) => match self.cache.pop(&key_to_delete) {
                     Some(evicted_value) => {
                         self.metrics.shard_cache_pop_hits.inc();
-                        self.total_size -= evicted_value.len() as u64;
+                        self.remove_value_of_size(evicted_value.len());
                         Some((key_to_delete, evicted_value))
                     }
                     None => {
@@ -198,10 +205,24 @@ impl TrieCacheInner {
         }
     }
 
+    /// Number of currently cached entries.
     pub fn len(&self) -> usize {
         self.cache.len()
     }
 
+    /// Account consumed memory for a new entry in the cache.
+    pub(crate) fn add_value_of_size(&mut self, len: usize) {
+        let memory_consumed = len as u64 + Self::PER_ENTRY_OVERHEAD;
+        self.total_size += memory_consumed;
+    }
+
+    /// Remove consumed memory for an entry in the cache.
+    pub(crate) fn remove_value_of_size(&mut self, len: usize) {
+        let memory_consumed = len as u64 + Self::PER_ENTRY_OVERHEAD;
+        self.total_size -= memory_consumed;
+    }
+
+    /// Approximate memory consumption of LRU cache.
     pub fn current_total_size(&self) -> u64 {
         self.total_size
     }
@@ -213,11 +234,9 @@ pub struct TrieCache(pub(crate) Arc<Mutex<TrieCacheInner>>);
 
 impl TrieCache {
     pub fn new(config: &TrieConfig, shard_uid: ShardUId, is_view: bool) -> Self {
-        let capacity = config.shard_cache_capacity(shard_uid, is_view);
         let total_size_limit = config.shard_cache_total_size_limit(shard_uid, is_view);
         let queue_capacity = config.deletions_queue_capacity();
         Self(Arc::new(Mutex::new(TrieCacheInner::new(
-            capacity as usize,
             queue_capacity,
             total_size_limit,
             shard_uid.shard_id(),
@@ -654,25 +673,27 @@ mod trie_cache_tests {
 
     #[test]
     fn test_size_limit() {
-        let mut cache = TrieCacheInner::new(100, 100, 5, 0, false);
+        let value_size_sum = 5;
+        let memory_overhead = 2 * TrieCacheInner::PER_ENTRY_OVERHEAD;
+        let mut cache = TrieCacheInner::new(100, value_size_sum + memory_overhead, 0, false);
         // Add three values. Before each put, condition on total size should not be triggered.
         put_value(&mut cache, &[1, 1]);
-        assert_eq!(cache.total_size, 2);
+        assert_eq!(cache.current_total_size(), 2 + TrieCacheInner::PER_ENTRY_OVERHEAD);
         put_value(&mut cache, &[1, 1, 1]);
-        assert_eq!(cache.total_size, 5);
+        assert_eq!(cache.current_total_size(), 5 + 2 * TrieCacheInner::PER_ENTRY_OVERHEAD);
         put_value(&mut cache, &[1]);
-        assert_eq!(cache.total_size, 6);
+        assert_eq!(cache.current_total_size(), 6 + 3 * TrieCacheInner::PER_ENTRY_OVERHEAD);
 
-        // Add one of previous values. LRU value should be evicted.
+        // Add one of previous values. 2 LRU values should be evicted.
         put_value(&mut cache, &[1, 1, 1]);
-        assert_eq!(cache.total_size, 4);
+        assert_eq!(cache.current_total_size(), 4 + 2 * TrieCacheInner::PER_ENTRY_OVERHEAD);
         assert_eq!(cache.cache.pop_lru(), Some((hash(&[1]), vec![1].into())));
         assert_eq!(cache.cache.pop_lru(), Some((hash(&[1, 1, 1]), vec![1, 1, 1].into())));
     }
 
     #[test]
     fn test_deletions_queue() {
-        let mut cache = TrieCacheInner::new(100, 2, 100, 0, false);
+        let mut cache = TrieCacheInner::new(2, 1000, 0, false);
         // Add two values to the cache.
         put_value(&mut cache, &[1]);
         put_value(&mut cache, &[1, 1]);
@@ -686,9 +707,12 @@ mod trie_cache_tests {
         assert_eq!(cache.pop(&hash(&[1])), Some((hash(&[1]), vec![1].into())));
     }
 
+    /// test implicit capacity limit imposed by memory limit
     #[test]
     fn test_cache_capacity() {
-        let mut cache = TrieCacheInner::new(2, 100, 100, 0, false);
+        let capacity = 2;
+        let total_size_limit = TrieCacheInner::PER_ENTRY_OVERHEAD * capacity;
+        let mut cache = TrieCacheInner::new(100, total_size_limit, 0, false);
         put_value(&mut cache, &[1]);
         put_value(&mut cache, &[2]);
         put_value(&mut cache, &[3]);
