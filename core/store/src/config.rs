@@ -39,6 +39,7 @@ pub struct StoreConfig {
     pub block_size: bytesize::ByteSize,
 
     /// DEPRECATED: use `trie_cache` instead.
+    /// TODO: Remove in version >=1.31
     pub trie_cache_capacities: Vec<(ShardUId, u64)>,
 
     /// Trie cache configuration per shard for normal (non-view) caches.
@@ -145,7 +146,7 @@ impl Default for StoreConfig {
             // implementing flat storage.
             trie_cache: HashMap::from_iter([(
                 ShardUId { version: 1, shard_id: 3 },
-                TrieCacheConfig { max_entries: Some(45_000_000), max_bytes: None },
+                TrieCacheConfig { max_bytes: None },
             )]),
             view_trie_cache: HashMap::default(),
 
@@ -192,8 +193,9 @@ impl Default for MigrationSnapshot {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TrieCacheConfig {
-    /// Limit the number trie nodes that fit in the cache.
-    pub max_entries: Option<u64>,
-    /// Limit the sum of all value sizes that fit in the cache.
+    /// Limit the memory consumption of the tire cache per shard.
+    ///
+    /// This is an approximate limit that attempts to factor in data structure
+    /// overhead also. It is supposed to be fairly accurate in the limit.
     pub max_bytes: Option<u64>,
 }

@@ -1,6 +1,7 @@
 use crate::StoreConfig;
 use near_primitives::shard_layout::ShardUId;
 use std::collections::HashMap;
+use tracing::log::warn;
 
 /// Default number of cache entries.
 /// It was chosen to fit into RAM well. RAM spend on trie cache should not exceed 50_000 * 4 (number of shards) *
@@ -50,27 +51,32 @@ impl TrieConfig {
     pub fn from_store_config(store_config: &StoreConfig) -> Self {
         let mut trie_config = TrieConfig::default();
 
-        // Deprecated `trie_cache_capacities` is loaded first and overwritten
-        // by `shard_cache_config` right afterwards.
-        trie_config
-            .shard_cache_config
-            .override_max_entries
-            .extend(store_config.trie_cache_capacities.iter().cloned());
+        if !store_config.trie_cache_capacities.is_empty() {
+            warn!(target: "store", "`trie_cache_capacities` is deprecated, use `trie_cache` and `view_trie_cache` instead");
+            trie_config
+                .shard_cache_config
+                .override_max_entries
+                .extend(store_config.trie_cache_capacities.iter().cloned());
+        } else {
+            // old default behavior:
+            // Temporary solution to make contracts with heavy trie access
+            // patterns on shard 3 more stable. Can be removed after
+            // implementing flat storage.
+            //  can also be replaced with limit
+            trie_config
+                .shard_cache_config
+                .override_max_entries
+                .insert(ShardUId { version: 1, shard_id: 3 }, 45_000_000);
+        }
 
         for (shard, shard_config) in &store_config.trie_cache {
             let shard = (*shard).into();
-            if let Some(entries) = shard_config.max_entries {
-                trie_config.shard_cache_config.override_max_entries.insert(shard, entries);
-            }
             if let Some(bytes) = shard_config.max_bytes {
                 trie_config.shard_cache_config.override_max_total_bytes.insert(shard, bytes);
             }
         }
         for (shard, shard_config) in &store_config.view_trie_cache {
             let shard = (*shard).into();
-            if let Some(entries) = shard_config.max_entries {
-                trie_config.view_shard_cache_config.override_max_entries.insert(shard, entries);
-            }
             if let Some(bytes) = shard_config.max_bytes {
                 trie_config.view_shard_cache_config.override_max_total_bytes.insert(shard, bytes);
             }
@@ -81,11 +87,14 @@ impl TrieConfig {
 
     /// Shard cache capacity in number of trie nodes.
     pub fn shard_cache_capacity(&self, shard_uid: ShardUId, is_view: bool) -> u64 {
+        // TODO: compute this based on total size limit
         if is_view { &self.view_shard_cache_config } else { &self.shard_cache_config }
             .capacity(shard_uid)
     }
 
     /// Shard cache capacity in total bytes.
+    ///
+    /// TODO: remove this and compute `shard_cache_capacity` based on total size limit
     pub fn shard_cache_total_size_limit(&self, shard_uid: ShardUId, is_view: bool) -> u64 {
         if is_view { &self.view_shard_cache_config } else { &self.shard_cache_config }
             .total_size_limit(shard_uid)

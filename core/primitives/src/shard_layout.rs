@@ -364,7 +364,7 @@ impl fmt::Display for ShardUId {
 
 impl fmt::Debug for ShardUId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self)
+        fmt::Display::fmt(self, f)
     }
 }
 
@@ -376,10 +376,9 @@ impl str::FromStr for ShardUId {
             .split_once(".")
             .ok_or_else(|| format!("shard version and number must be separated by \".\""))?;
 
-        let version_str = version_str
-            .strip_prefix("v")
-            .ok_or_else(|| format!("shard version must start with \"v\""))?;
         let version = version_str
+            .strip_prefix("v")
+            .ok_or_else(|| format!("shard version must start with \"v\""))?
             .parse::<ShardVersion>()
             .map_err(|e| format!("shard version after \"v\" must be a number, {e}"))?;
 
@@ -434,6 +433,8 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
         A: serde::de::MapAccess<'de>,
     {
         // custom struct deserialization for backwards compatibility
+        // TODO(version >=1.31): consider removing this code after checking
+        // `ShardUId` is nowhere serialized in the old format
         let mut version = None;
         let mut shard_id = None;
 
@@ -445,14 +446,11 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
             }
         }
 
-        if version.is_none() {
-            return Err(serde::de::Error::missing_field("version"));
+        match (version, shard_id) {
+            (None, _) => Err(serde::de::Error::missing_field("version")),
+            (_, None) => Err(serde::de::Error::missing_field("shard_id")),
+            (Some(version), Some(shard_id)) => Ok(ShardUId { version, shard_id }),
         }
-        if shard_id.is_none() {
-            return Err(serde::de::Error::missing_field("shard_id"));
-        }
-
-        Ok(ShardUId { version: version.unwrap(), shard_id: shard_id.unwrap() })
     }
 }
 
