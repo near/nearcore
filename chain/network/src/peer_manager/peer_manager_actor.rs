@@ -1733,7 +1733,7 @@ impl Handler<NetworkDebugStatus> for PeerManagerActor {
     fn handle(&mut self, msg: NetworkDebugStatus, _ctx: &mut Context<Self>) -> Self::Result {
         match msg {
             NetworkDebugStatus::PeerStore => {
-                let peer_states_view = self
+                let mut peer_states_view = self
                     .peer_store
                     .iter()
                     .map(|(peer_id, known_peer_state)| KnownPeerStateView {
@@ -1747,6 +1747,11 @@ impl Handler<NetworkDebugStatus> for PeerManagerActor {
                             .map(|it| it.unix_timestamp()),
                     })
                     .collect::<Vec<_>>();
+
+                peer_states_view.sort_by(|a, b| {
+                    (-a.last_attempt.unwrap_or(0), -a.last_seen)
+                        .cmp(&(-b.last_attempt.unwrap_or(0), -b.last_seen))
+                });
                 Ok(DebugStatusResponse::PeerStore(PeerStoreView { peer_states: peer_states_view }))
             }
         }

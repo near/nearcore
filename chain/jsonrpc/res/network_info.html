@@ -303,37 +303,6 @@
                 url: "/debug/api/peer_store",
                 success: data => {
                     $(".detailed-peer-storage-size").text(data.status_response.PeerStore.peer_states.length);
-
-                    // Sort peers.
-                    // First display peers that we tried to connect to recently (with higest last_attempt).
-                    // Sort other peers by last_seen (descending).
-                    data.status_response.PeerStore.peer_states.sort(function compareFn(a, b) {
-                        if (a['last_attempt'] == null) {
-                            if (b['last_attempt'] == null) {
-                                // we didn't try to connect to neither one.
-                                if (a['first_seen'] == b['first_seen']) {
-                                    return 0;
-                                }
-                                if (a['first_seen'] > b['first_seen']) {
-                                    return -1;
-                                }
-                                return 1;
-                            }
-                            // We attempted to connect to b - so it should go first.
-                            return 1;
-                        }
-                        if (b['last_attempt'] == null) {
-                            // We attempted to connect to a only - it should go first.
-                            return -1;
-                        }
-                        if (a['last_attempt'] == b['last_attempt']) {
-                            return 0;
-                        }
-                        if (a['last_attempt'] > b['last_attempt']) {
-                            return -1;
-                        }
-                        return 1;
-                    })
                     data.status_response.PeerStore.peer_states.forEach(element => {
                         let row = $("<tr>");
                         row.append($("<td>").append(element['peer_id']));
