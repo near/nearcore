@@ -1739,6 +1739,7 @@ impl Handler<NetworkDebugStatus> for PeerManagerActor {
                     .map(|(peer_id, known_peer_state)| KnownPeerStateView {
                         peer_id: peer_id.clone(),
                         status: format!("{:?}", known_peer_state.status),
+                        addr: format!("{:?}", known_peer_state.peer_info.addr),
                         first_seen: known_peer_state.first_seen.unix_timestamp(),
                         last_seen: known_peer_state.last_seen.unix_timestamp(),
                         last_attempt: self

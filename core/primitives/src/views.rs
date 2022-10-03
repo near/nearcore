@@ -258,6 +258,7 @@ impl FromIterator<AccessKeyInfoView> for AccessKeyList {
 pub struct KnownPeerStateView {
     pub peer_id: PeerId,
     pub status: String,
+    pub addr: String,
     pub first_seen: i64,
     pub last_seen: i64,
     pub last_attempt: Option<i64>,

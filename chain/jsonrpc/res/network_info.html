@@ -306,6 +306,8 @@
                     data.status_response.PeerStore.peer_states.forEach(element => {
                         let row = $("<tr>");
                         row.append($("<td>").append(element['peer_id']));
+                        row.append($("<td>").append(element['addr']));
+
                         let first_seen =
                             row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['first_seen'])));
                         row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_seen'])));
@@ -405,6 +407,7 @@ Unreachable: <span class="js-unreachable-chunk-producers"></span>
         <table class="detailed-peer-storage">
             <thead>
                 <th>Peer id</th>
+                <th>Peer address</th>
                 <th>First seen</th>
                 <th>Last seen</th>
                 <th>Last connection attempt</th>
