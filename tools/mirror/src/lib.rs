@@ -116,7 +116,7 @@ impl NonceDiff {
     }
 }
 
-pub struct TxMirror {
+struct TxMirror {
     target_stream: mpsc::Receiver<StreamerMessage>,
     source_view_client: Addr<ViewClientActor>,
     source_client: Addr<ClientActor>,
@@ -130,7 +130,7 @@ pub struct TxMirror {
     next_source_height: Option<BlockHeight>,
 }
 
-fn open_db<P: AsRef<Path>>(home: &P, config: &NearConfig) -> anyhow::Result<DB> {
+fn open_db<P: AsRef<Path>>(home: P, config: &NearConfig) -> anyhow::Result<DB> {
     let db_path =
         near_store::NodeStorage::opener(home.as_ref(), &config.config.store).path().join("mirror");
     let mut options = rocksdb::Options::default();
@@ -334,9 +334,9 @@ async fn block_hash_to_height(
 }
 
 impl TxMirror {
-    pub fn new<P: AsRef<Path>>(
-        source_home: &P,
-        target_home: &P,
+    fn new<P: AsRef<Path>>(
+        source_home: P,
+        target_home: P,
         secret: Option<[u8; crate::secret::SECRET_LEN]>,
     ) -> anyhow::Result<Self> {
         let target_config =
@@ -344,7 +344,8 @@ impl TxMirror {
                 .with_context(|| {
                     format!("Error loading target config from {:?}", target_home.as_ref())
                 })?;
-        let db = open_db(target_home, &target_config).context("failed to open mirror DB")?;
+        let db =
+            open_db(target_home.as_ref(), &target_config).context("failed to open mirror DB")?;
         let source_config =
             nearcore::config::load_config(source_home.as_ref(), GenesisValidationMode::UnsafeFast)
                 .with_context(|| {
@@ -976,7 +977,7 @@ impl TxMirror {
         (msg.block.header.height, msg.block.header.hash)
     }
 
-    pub async fn run(mut self) -> anyhow::Result<()> {
+    async fn run(mut self) -> anyhow::Result<()> {
         let mut tracker =
             crate::chain_tracker::TxTracker::new(self.target_min_block_production_delay);
         self.wait_source_ready().await;
@@ -986,4 +987,13 @@ impl TxMirror {
 
         self.main_loop(tracker, target_height, target_head).await
     }
+}
+
+pub async fn run<P: AsRef<Path>>(
+    source_home: P,
+    target_home: P,
+    secret: Option<[u8; crate::secret::SECRET_LEN]>,
+) -> anyhow::Result<()> {
+    let m = TxMirror::new(source_home, target_home, secret)?;
+    m.run().await
 }

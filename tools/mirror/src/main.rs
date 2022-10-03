@@ -1,6 +1,5 @@
 use anyhow::Context;
 use clap::Parser;
-use mirror::TxMirror;
 use std::cell::Cell;
 use std::path::PathBuf;
 
@@ -59,14 +58,11 @@ impl RunCmd {
         };
 
         let system = new_actix_system(runtime);
-        let res: anyhow::Result<()> = system.block_on(async move {
-            let m = TxMirror::new(&self.source_home, &self.target_home, secret)?;
-            actix::spawn(m.run());
-            Ok(())
-        });
-        res.context("failed to start main loop future")?;
-        system.run()?;
-        Ok(())
+        system
+            .block_on(async move {
+                actix::spawn(mirror::run(self.source_home, self.target_home, secret)).await
+            })
+            .unwrap()
     }
 }
 
