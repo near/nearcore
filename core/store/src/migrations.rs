@@ -198,10 +198,8 @@ pub fn migrate_31_to_32(storage: &crate::NodeStorage, archive: bool) -> anyhow::
     }
     let kind = if archive { DbKind::Archive } else { DbKind::RPC };
     update.set(DBCol::DbVersion, crate::metadata::KIND_KEY, <&str>::from(kind).as_bytes());
-
     update.delete_all(DBCol::_ChunkPerHeightShard);
     update.delete_all(DBCol::_GCCount);
-
     update.commit()?;
     Ok(())
 }
