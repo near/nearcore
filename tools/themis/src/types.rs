@@ -14,6 +14,7 @@ pub struct Package {
 pub struct Workspace {
     pub root: Utf8PathBuf,
     pub members: Vec<Package>,
+    pub raw: toml::Value,
 }
 
 #[derive(Debug)]

@@ -1,11 +1,10 @@
 use std::fs;
 
 use cargo_metadata::{camino::Utf8PathBuf, CargoOpt, MetadataCommand};
-use serde::de::DeserializeOwned;
 
 use super::types::{Package, Workspace};
 
-pub fn parse_toml<T: DeserializeOwned>(path: &Utf8PathBuf) -> anyhow::Result<T> {
+pub fn read_toml(path: &Utf8PathBuf) -> anyhow::Result<toml::Value> {
     Ok(toml::from_slice(&fs::read(path)?)?)
 }
 
@@ -23,12 +22,13 @@ pub fn parse_workspace() -> anyhow::Result<Workspace> {
         .cloned()
         .filter(|package| metadata.workspace_members.contains(&package.id))
         .map(|package| {
-            let raw = parse_toml(&package.manifest_path)?;
+            let raw = read_toml(&package.manifest_path)?;
             Ok(Package { parsed: package, raw })
         })
         .collect::<anyhow::Result<_>>()?;
+    let raw = read_toml(&metadata.workspace_root.join("Cargo.toml"))?;
 
-    Ok(Workspace { root: metadata.workspace_root, members })
+    Ok(Workspace { root: metadata.workspace_root, members, raw })
 }
 
 /// Checks if the crate specified is explicitly publishable
