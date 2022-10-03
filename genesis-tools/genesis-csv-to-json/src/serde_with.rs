@@ -1,6 +1,6 @@
 /// `PeerInfo` as `str`.
 pub mod peer_info_to_str {
-    use near_network_primitives::types::PeerInfo;
+    use near_network::types::PeerInfo;
     use serde::{Deserialize, Deserializer, Serializer};
     use std::str::FromStr;
 
@@ -32,7 +32,7 @@ pub mod pks_as_str {
     use near_crypto::PublicKey;
     use serde::{Deserialize, Deserializer, Serializer};
 
-    pub fn serialize<S>(peer_info: &Vec<PublicKey>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(peer_info: &[PublicKey], serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {

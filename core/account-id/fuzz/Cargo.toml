@@ -2,19 +2,19 @@
 [package]
 name = "near-account-id-fuzz"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.62.1"
-edition = "2021"
+rust-version.workspace = true
+edition.workspace = true
 
 [package.metadata]
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4"
-borsh = "0.9"
-serde_json = "1"
+libfuzzer-sys.workspace = true
+borsh.workspace = true
+serde_json.workspace = true
 
 [dependencies.near-account-id]
 path = ".."

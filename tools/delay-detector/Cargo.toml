@@ -1,0 +1,15 @@
+[package]
+name = "delay-detector"
+version = "0.0.0"
+authors.workspace = true
+publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tracing.workspace = true
+cpu-time.workspace = true
+
+[features]
+delay_detector = []

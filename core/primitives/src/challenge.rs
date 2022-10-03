@@ -3,14 +3,14 @@ use serde::{Deserialize, Serialize};
 
 use near_crypto::Signature;
 
-use crate::hash::{hash, CryptoHash};
+use crate::hash::CryptoHash;
 use crate::merkle::MerklePath;
 use crate::sharding::{EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use crate::types::AccountId;
 use crate::validator_signer::ValidatorSigner;
 
 /// Serialized TrieNodeWithSize
-pub type StateItem = Vec<u8>;
+pub type StateItem = std::sync::Arc<[u8]>;
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
@@ -97,7 +97,7 @@ pub struct Challenge {
 
 impl Challenge {
     pub fn init(&mut self) {
-        self.hash = hash(&self.body.try_to_vec().expect("Failed to serialize"));
+        self.hash = CryptoHash::hash_borsh(&self.body);
     }
 
     pub fn produce(body: ChallengeBody, signer: &dyn ValidatorSigner) -> Self {

@@ -4,11 +4,49 @@
 
 ### Protocol Changes
 
+* Stabilize `account_id_in_function_call_permission` feature: enforcing validity
+  of account ids in function call permission.
+
 ### Non-protocol Changes
 
+* `use_db_migration_snapshot` and `db_migration_snapshot_path` options are now
+  deprecated.  If they are set in `config.json` the node will fail if migration
+  needs to be performed.  Use `store.migration_snapshot` instead to configure
+  the behaviour [#7486](https://github.com/near/nearcore/pull/7486)
 * `network.external_address` field in `config.json` file is
   deprecated.  In fact it has never been used and only served to
   confuse everyone [#7300](https://github.com/near/nearcore/pull/7300)
+* Due to increasing state size, improved shard cache for Trie nodes to
+  put more nodes in memory. Requires 3 GB more RAM
+  [#7429](https://github.com/near/nearcore/pull/7429)
+* Added `near_peer_message_sent_by_type_bytes` and
+  `near_peer_message_sent_by_type_total` Prometheus metrics measuring
+  size and number of messages sent to peers.
+* `near_peer_message_received_total` Prometheus metric is now deprecated.
+  Instead of it aggregate `near_peer_message_received_by_type_total` metric.
+  For example, to get total rate of received messages use
+  `sum(rate(near_peer_message_received_by_type_total{...}[5m]))`.
+* Few changes to `view_state` JSON RPC query:
+  - The requset has now an optional `include_proof` argument.  When set to
+    `true`, response’s `proof` will be populated.
+  - The `proof` within each value in `values` list of a `view_state` response is
+    now deprecated and will be removed in the future.  Client code should ignore
+    the field.
+  - The `proof` field directly within `view_state` response is currently always
+    sent even if proof has not been requested.  In the future the field will be
+    skipped in those cases.  Clients should accept responses with this field
+    missing (unless they set `include_proof`).
+* Backtraces on panics are enabled by default, so you no longer need to set
+  `RUST_BACKTRACE=1` environmental variable. To disable backtraces, set
+  `RUST_BACKTRACE=0`.
+* A `[path, data]` JSON RPC query format has been removed.  It has been
+  deprecated for over two years and not documented anywhere.  Use proper
+  structured queries with `rquest_type` set instead.
+* Enable receipt prefetching by default. This feature makes receipt processing
+  faster by parallelizing IO requests, which has been introduced in
+  [#7590](https://github.com/near/nearcore/pull/7590) and enabled by default
+  with [#7661](https://github.com/near/nearcore/pull/7661).
+  Configurable in `config.json` using `store.enable_receipt_prefetching`.
 
 ## 1.28.0 [2022-07-27]
 

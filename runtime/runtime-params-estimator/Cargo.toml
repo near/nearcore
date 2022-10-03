@@ -1,51 +1,50 @@
 [package]
 name = "runtime-params-estimator"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.62.1"
-edition = "2021"
+rust-version.workspace = true
+edition.workspace = true
 
 [[bin]]
 name = "runtime-params-estimator"
 required-features = ["costs_counting"]
 
 [dependencies]
-indicatif = "0.15.0"
-tempfile = "3"
-rand = "0.7.3"
-rand_xorshift = "0.2"
-serde_json = "1"
-clap = { version = "3.1.6", features = ["derive"] }
-borsh = "0.9"
-num-rational = "0.3"
-anyhow = "1"
-chrono = "0.4"
-bytesize = "1.1"
-tracing = "0.1"
-tracing-span-tree = "0.1"
-tracing-subscriber = { version = "0.3.11", features = ["fmt", "registry"] }
+anyhow.workspace = true
+borsh.workspace = true
+bytesize.workspace = true
+cfg-if.workspace = true
+chrono.workspace = true
+clap.workspace = true
+hex.workspace = true
+indicatif.workspace = true
+libc.workspace = true
+num-rational.workspace = true
+num-traits.workspace = true
+rand.workspace = true
+rand_xorshift.workspace = true
+rocksdb.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tracing-span-tree.workspace = true
+tracing-subscriber.workspace = true
+tracing.workspace = true
+walrus.workspace = true
+wat.workspace = true
 
 genesis-populate = { path = "../../genesis-tools/genesis-populate"}
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
-near-vm-logic = {path = "../../runtime/near-vm-logic"  }
-near-vm-runner = {path = "../../runtime/near-vm-runner" }
-node-runtime = { path = "../../runtime/runtime" }
+near-o11y = { path = "../../core/o11y" }
+near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-test-contracts = { path = "../near-test-contracts" }
-near-primitives = { path = "../../core/primitives" }
-near-o11y = { path = "../../core/o11y" }
-
+near-vm-logic = {path = "../../runtime/near-vm-logic"  }
+near-vm-runner = {path = "../../runtime/near-vm-runner" }
 nearcore = { path = "../../nearcore" }
-rocksdb = { version = "0.18.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib"] }
-walrus = "0.18.0"
-hex = "0.4"
-cfg-if = "1"
-num-traits = "0.2.12"
-libc = "0.2.81"
-wat = "1.0"
+node-runtime = { path = "../../runtime/runtime" }
 
 [features]
 default = ["costs_counting"]
@@ -64,6 +63,14 @@ wasmtime = ["near-vm-runner/force_wasmtime"]
 nightly = [
     "nightly_protocol",
 ]
-nightly_protocol = ["near-primitives/nightly_protocol", "near-test-contracts/nightly"]
+nightly_protocol = [
+  "near-primitives/nightly_protocol",
+  "near-test-contracts/nightly",
+  "protocol_feature_ed25519_verify"
+]
 sandbox = ["node-runtime/sandbox"]
 io_trace = ["near-store/io_trace", "near-o11y/io_trace", "near-vm-logic/io_trace"]
+protocol_feature_ed25519_verify = [
+    "near-vm-logic/protocol_feature_ed25519_verify",
+    "near-vm-runner/protocol_feature_ed25519_verify"
+]

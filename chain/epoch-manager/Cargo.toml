@@ -1,0 +1,39 @@
+[package]
+name = "near-epoch-manager"
+version = "0.0.0"
+authors.workspace = true
+publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version.workspace = true
+edition.workspace = true
+
+
+[dependencies]
+borsh.workspace = true
+chrono = { workspace = true, optional = true }
+num-rational.workspace = true
+primitive-types.workspace = true
+rand.workspace = true
+rand_hc.workspace = true
+serde_json.workspace = true
+smart-default.workspace = true
+tracing.workspace = true
+
+near-crypto = { path = "../../core/crypto" }
+near-primitives = { path = "../../core/primitives" }
+near-store = { path = "../../core/store" }
+near-chain-configs = { path = "../../core/chain-configs" }
+near-chain-primitives = { path = "../chain-primitives" }
+near-cache = { path = "../../utils/near-cache" }
+
+[features]
+expensive_tests = []
+protocol_feature_fix_staking_threshold = ["near-primitives/protocol_feature_fix_staking_threshold"]
+nightly = [
+  "nightly_protocol",
+  "near-primitives/nightly",
+  "protocol_feature_fix_staking_threshold",
+]
+mock_node = []
+nightly_protocol = ["near-primitives/nightly_protocol"]
+no_cache = []

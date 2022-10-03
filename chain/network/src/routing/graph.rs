@@ -1,4 +1,4 @@
-use near_network_primitives::types::MAX_NUM_PEERS;
+use crate::peer_manager::peer_manager_actor::MAX_NUM_PEERS;
 use near_primitives::network::PeerId;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -284,7 +284,7 @@ mod test {
 
         assert!(expected_routing_tables(
             &graph.calculate_distance(),
-            &vec![(node0.clone(), vec![node0.clone()])],
+            &[(node0.clone(), vec![node0.clone()])],
         ));
 
         assert_eq!(1, graph.total_active_edges() as usize);
@@ -302,7 +302,7 @@ mod test {
         graph.add_edge(&nodes[2], &nodes[1]);
         graph.add_edge(&nodes[1], &nodes[2]);
 
-        assert!(expected_routing_tables(&graph.calculate_distance(), &vec![]));
+        assert!(expected_routing_tables(&graph.calculate_distance(), &[]));
 
         assert_eq!(2, graph.total_active_edges() as usize);
         assert_eq!(2, graph.compute_total_active_edges() as usize);
@@ -322,7 +322,7 @@ mod test {
 
         assert!(expected_routing_tables(
             &graph.calculate_distance(),
-            &vec![
+            &[
                 (nodes[0].clone(), vec![nodes[0].clone()]),
                 (nodes[1].clone(), vec![nodes[0].clone()]),
                 (nodes[2].clone(), vec![nodes[0].clone()]),
@@ -347,7 +347,7 @@ mod test {
 
         assert!(expected_routing_tables(
             &graph.calculate_distance(),
-            &vec![
+            &[
                 (nodes[0].clone(), vec![nodes[0].clone()]),
                 (nodes[1].clone(), vec![nodes[1].clone()]),
                 (nodes[2].clone(), vec![nodes[0].clone(), nodes[1].clone()]),

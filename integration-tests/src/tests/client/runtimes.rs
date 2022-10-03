@@ -9,7 +9,7 @@ use near_chunks::ProcessPartialEncodedChunkResult;
 use near_client::test_utils::TestEnv;
 use near_crypto::KeyType;
 use near_network::test_utils::MockPeerManagerAdapter;
-use near_network_primitives::types::PartialEncodedChunkForwardMsg;
+use near_network::types::PartialEncodedChunkForwardMsg;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::hash::hash;
@@ -120,50 +120,49 @@ fn test_process_partial_encoded_chunk_with_missing_block() {
     let client = &mut env.clients[0];
     let chunk_producer = ChunkTestFixture::default();
     let mut mock_chunk = chunk_producer.make_partial_encoded_chunk(&[0]);
-    // change the prev_block to some unknown block
-    match &mut mock_chunk.header {
-        ShardChunkHeader::V1(ref mut header) => {
-            header.inner.prev_block_hash = hash(b"some_prev_block");
-            header.init();
-        }
-        ShardChunkHeader::V2(ref mut header) => {
-            header.inner.prev_block_hash = hash(b"some_prev_block");
-            header.init();
-        }
-        ShardChunkHeader::V3(header) => {
-            match &mut header.inner {
-                ShardChunkHeaderInner::V1(inner) => {
-                    inner.prev_block_hash = hash(b"some_prev_block")
+    match &mut mock_chunk {
+        PartialEncodedChunk::V2(mock_chunk) => {
+            // change the prev_block to some unknown block
+            match &mut mock_chunk.header {
+                ShardChunkHeader::V1(ref mut header) => {
+                    header.inner.prev_block_hash = hash(b"some_prev_block");
+                    header.init();
                 }
-                ShardChunkHeaderInner::V2(inner) => {
-                    inner.prev_block_hash = hash(b"some_prev_block")
+                ShardChunkHeader::V2(ref mut header) => {
+                    header.inner.prev_block_hash = hash(b"some_prev_block");
+                    header.init();
+                }
+                ShardChunkHeader::V3(header) => {
+                    match &mut header.inner {
+                        ShardChunkHeaderInner::V1(inner) => {
+                            inner.prev_block_hash = hash(b"some_prev_block")
+                        }
+                        ShardChunkHeaderInner::V2(inner) => {
+                            inner.prev_block_hash = hash(b"some_prev_block")
+                        }
+                    }
+                    header.init();
                 }
             }
-            header.init();
         }
+        _ => unreachable!(),
     }
 
     let mock_forward = PartialEncodedChunkForwardMsg::from_header_and_parts(
-        &mock_chunk.header,
-        mock_chunk.parts.clone(),
+        &mock_chunk.cloned_header(),
+        mock_chunk.parts().to_vec(),
     );
 
     // process_partial_encoded_chunk should return Ok(NeedBlock) if the chunk is
     // based on a missing block.
-    let result = client.shards_mgr.process_partial_encoded_chunk(
-        MaybeValidated::from(&mock_chunk),
-        None,
-        client.chain.mut_store(),
-        &mut client.rs,
-    );
+    let result = client
+        .shards_mgr
+        .process_partial_encoded_chunk(MaybeValidated::from(mock_chunk.clone()), None);
     assert_matches!(result, Ok(ProcessPartialEncodedChunkResult::NeedBlock));
 
     // Client::process_partial_encoded_chunk should not return an error
     // if the chunk is based on a missing block.
-    let result = client.process_partial_encoded_chunk(
-        MaybeValidated::from(PartialEncodedChunk::V2(mock_chunk)),
-        Arc::new(|_| {}),
-    );
+    let result = client.process_partial_encoded_chunk(mock_chunk);
     match result {
         Ok(()) => {
             let accepted_blocks = client.finish_blocks_in_processing();
@@ -174,7 +173,7 @@ fn test_process_partial_encoded_chunk_with_missing_block() {
 
     // process_partial_encoded_chunk_forward should return UnknownChunk if it is based on a
     // a missing block.
-    let result = client.process_partial_encoded_chunk_forward(mock_forward, Arc::new(|_| {}));
+    let result = client.process_partial_encoded_chunk_forward(mock_forward);
     assert_matches!(
         result.unwrap_err(),
         near_client_primitives::types::Error::Chunk(near_chunks::Error::UnknownChunk)

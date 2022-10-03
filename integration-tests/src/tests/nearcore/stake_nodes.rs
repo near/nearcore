@@ -13,9 +13,9 @@ use near_actix_test_utils::run_actix;
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock, Query, Status, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
-use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
 use near_network::types::NetworkClientMessages;
+use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSeats};
@@ -193,7 +193,7 @@ fn test_validator_kickout() {
                 (TESTING_INIT_STAKE / NEAR_BASE) as u64 + 1,
             );
             let mut rng = rand::thread_rng();
-            let stakes = (0..num_nodes / 2).map(|_| NEAR_BASE + rng.gen_range(1, 100));
+            let stakes = (0..num_nodes / 2).map(|_| NEAR_BASE + rng.gen_range(1..100));
             let stake_transactions = stakes.enumerate().map(|(i, stake)| {
                 let test_node = &test_nodes[i];
                 let signer = Arc::new(InMemorySigner::from_seed(

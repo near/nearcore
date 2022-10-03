@@ -11,7 +11,7 @@ expression: report.to_string()
 LogBase                                         5.00 Ggas ➜        6.00 Ggas (+20.00%)
 LogByte                                         1.01 Ggas ➜        7.00 Ggas (+594.44%)
 ```
-### Gas estimator uncertain changes: 2
+### Gas estimator uncertain estimations: 2
 ```
 UncertainTest                                               HIGH-VARIANCE ➜ None                            
 UncertainTest2                                                       None ➜ BLOCK-MEASUREMENT-OVERHEAD      

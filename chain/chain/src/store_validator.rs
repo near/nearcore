@@ -18,7 +18,7 @@ use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
 use near_primitives::syncing::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, GCCount};
+use near_primitives::types::{AccountId, BlockHeight, EpochId};
 use near_primitives::utils::get_block_shard_id_rev;
 use near_store::db::refcount;
 use near_store::{DBCol, Store, TrieChanges};
@@ -37,12 +37,6 @@ pub struct StoreValidatorCache {
     chunk_tail: BlockHeight,
     block_heights_less_tail: Vec<CryptoHash>,
 
-    /// For each database column, count of how many times that colum was garbage
-    /// collected.  The map is updated by [`validate::gc_col_count`] function
-    /// called from [`StoreValidator::validate_col`] method and final validation
-    /// on it is performed by [`validate::gc_col_count_final`] function.
-    gc_count: enum_map::EnumMap<DBCol, u64>,
-
     tx_refcount: HashMap<CryptoHash, u64>,
     receipt_refcount: HashMap<CryptoHash, u64>,
     block_refcount: HashMap<CryptoHash, u64>,
@@ -57,7 +51,6 @@ impl StoreValidatorCache {
             tail: 0,
             chunk_tail: 0,
             block_heights_less_tail: vec![],
-            gc_count: Default::default(),
             tx_refcount: HashMap::new(),
             receipt_refcount: HashMap::new(),
             block_refcount: HashMap::new(),
@@ -113,20 +106,6 @@ impl StoreValidator {
     }
     pub fn is_failed(&self) -> bool {
         self.tests == 0 || self.errors.len() > 0
-    }
-    pub fn get_gc_counters(&self) -> Vec<(String, u64)> {
-        let mut res = vec![];
-        for col in DBCol::iter() {
-            if col.is_gc() && self.inner.gc_count[col] == 0 {
-                if col.is_gc_optional() {
-                    res.push((format!("{col} (skipping is acceptable)"), self.inner.gc_count[col]))
-                } else {
-                    res.push((col.to_string(), self.inner.gc_count[col]))
-                }
-            }
-        }
-        res.sort();
-        res
     }
     pub fn num_failed(&self) -> u64 {
         self.errors.len() as u64
@@ -301,11 +280,6 @@ impl StoreValidator {
                         self.check(&validate::epoch_validity, &epoch_id, &epoch_info, col);
                     }
                 }
-                DBCol::GCCount => {
-                    let col = DBCol::try_from_slice(key_ref)?;
-                    let count = GCCount::try_from_slice(value_ref)?;
-                    self.check(&validate::gc_col_count, &col, &count, col);
-                }
                 DBCol::Transactions => {
                     let (_value, rc) = refcount::decode_value_with_rc(value_ref);
                     let tx_hash = CryptoHash::try_from(key_ref)?;
@@ -328,8 +302,7 @@ impl StoreValidator {
                 }
                 DBCol::StateParts => {
                     let key = StatePartKey::try_from_slice(key_ref)?;
-                    let part = value_ref.to_vec();
-                    self.check(&validate::state_part_header_exists, &key, &part, col);
+                    self.check(&validate::state_part_header_exists, &key, value_ref, col);
                 }
                 _ => {}
             }
@@ -358,7 +331,7 @@ impl StoreValidator {
             }
             if let Some(timeout) = self.timeout {
                 if self.start_time.elapsed() > Duration::from_millis(timeout) {
-                    warn!(target: "adversary", "Store validator hit timeout at {} ({}/{})", col.variant_name(), col.into_usize(), DBCol::LENGTH);
+                    warn!(target: "adversary", "Store validator hit timeout at {col} ({}/{})", col.into_usize(), DBCol::LENGTH);
                     return;
                 }
             }
@@ -376,10 +349,6 @@ impl StoreValidator {
         if let Err(e) = validate::block_height_cmp_tail_final(self) {
             self.process_error(e, "TAIL", DBCol::BlockMisc)
         }
-        // Check GC counters
-        if let Err(_) = validate::gc_col_count_final(self) {
-            // TODO #2861
-        }
         // Check that all refs are counted
         if let Err(e) = validate::tx_refcount_final(self) {
             self.process_error(e, "TX_REFCOUNT", DBCol::Transactions)
@@ -393,7 +362,7 @@ impl StoreValidator {
         }
     }
 
-    fn check<K: std::fmt::Debug, V>(
+    fn check<K: std::fmt::Debug + ?Sized, V: ?Sized>(
         &mut self,
         f: &dyn Fn(&mut StoreValidator, &K, &V) -> Result<(), StoreValidatorError>,
         key: &K,
@@ -443,7 +412,7 @@ mod tests {
         store_update.set_raw_bytes(
             DBCol::Block,
             chain.get_block_by_height(0).unwrap().hash().as_ref(),
-            &vec![123],
+            &[123],
         );
         store_update.commit().unwrap();
         match sv.validate_col(DBCol::Block) {
@@ -457,7 +426,7 @@ mod tests {
         let (chain, mut sv) = init();
         let mut store_update = chain.store().store().store_update();
         assert!(sv.validate_col(DBCol::TrieChanges).is_ok());
-        store_update.set_ser::<Vec<u8>>(DBCol::TrieChanges, "567".as_ref(), &vec![123]).unwrap();
+        store_update.set_ser::<[u8]>(DBCol::TrieChanges, "567".as_ref(), &[123]).unwrap();
         store_update.commit().unwrap();
         match sv.validate_col(DBCol::TrieChanges) {
             Err(StoreValidatorError::DBCorruption(_)) => {}

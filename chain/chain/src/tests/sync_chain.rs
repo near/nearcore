@@ -1,6 +1,6 @@
 use crate::test_utils::setup;
 use crate::Block;
-use near_logger_utils::init_test_logger;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::merkle::PartialMerkleTree;
 
 #[test]

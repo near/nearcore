@@ -17,13 +17,12 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Serializer;
 use sha2::digest::Digest;
 use smart_default::SmartDefault;
-use tracing::{info, warn};
+use tracing::warn;
 
 use crate::genesis_validate::validate_genesis;
-use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardConfig};
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::version::ProtocolFeature;
 use near_primitives::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
@@ -76,18 +75,6 @@ fn default_use_production_config() -> bool {
 
 fn default_max_kickout_stake_threshold() -> u8 {
     100
-}
-
-fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
-    Some(ShardLayout::v1(
-        vec![],
-        vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
-            .into_iter()
-            .map(|s| s.parse().unwrap())
-            .collect(),
-        Some(vec![vec![0, 1, 2, 3]]),
-        1,
-    ))
 }
 
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
@@ -172,8 +159,6 @@ pub struct GenesisConfig {
     #[serde(default = "default_shard_layout")]
     #[default(ShardLayout::v0_single_shard())]
     pub shard_layout: ShardLayout,
-    #[serde(default = "default_simple_nightshade_shard_layout")]
-    pub simple_nightshade_shard_layout: Option<ShardLayout>,
     #[serde(default = "default_num_chunk_only_producer_seats")]
     #[default(300)]
     pub num_chunk_only_producer_seats: NumSeats,
@@ -186,7 +171,7 @@ pub struct GenesisConfig {
     /// Max stake percentage of the validators we will kick out.
     pub max_kickout_stake_perc: u8,
     /// The lowest ratio s/s_total any block producer can have.
-    /// See https://github.com/near/NEPs/pull/167 for details
+    /// See <https://github.com/near/NEPs/pull/167> for details
     #[serde(default = "default_minimum_stake_ratio")]
     #[default(Rational32::new(160, 1_000_000))]
     pub minimum_stake_ratio: Rational32,
@@ -235,38 +220,8 @@ impl From<&GenesisConfig> for EpochConfig {
 impl From<&GenesisConfig> for AllEpochConfig {
     fn from(genesis_config: &GenesisConfig) -> Self {
         let initial_epoch_config = EpochConfig::from(genesis_config);
-        let shard_config = if let Some(shard_layout) =
-            &genesis_config.simple_nightshade_shard_layout
-        {
-            if genesis_config.protocol_version
-                < ProtocolFeature::SimpleNightshade.protocol_version()
-            {
-                info!(target: "genesis", "setting epoch config simple nightshade");
-                let num_shards = shard_layout.num_shards() as usize;
-                Some(ShardConfig {
-                    num_block_producer_seats_per_shard: vec![
-                        genesis_config.num_block_producer_seats;
-                        num_shards
-                    ],
-                    avg_hidden_validator_seats_per_shard: vec![
-                            genesis_config.avg_hidden_validator_seats_per_shard[0];
-                            num_shards
-                        ],
-                    shard_layout: shard_layout.clone(),
-                })
-            } else {
-                info!(target: "genesis", "no simple nightshade");
-                None
-            }
-        } else {
-            info!(target: "genesis", "no simple nightshade");
-            None
-        };
-        let epoch_config = Self::new(
-            genesis_config.use_production_config(),
-            initial_epoch_config.clone(),
-            shard_config,
-        );
+        let epoch_config =
+            Self::new(genesis_config.use_production_config(), initial_epoch_config.clone());
         epoch_config
     }
 }
@@ -291,13 +246,13 @@ pub struct GenesisRecords(pub Vec<StateRecord>);
 pub struct Genesis {
     #[serde(flatten)]
     pub config: GenesisConfig,
-    pub records: GenesisRecords,
+    records: GenesisRecords,
     /// Genesis object may not contain records.
     /// In this case records can be found in records_file.
     /// The idea is that all records consume too much memory,
     /// so they should be processed in streaming fashion with for_each_record.
     #[serde(skip)]
-    pub records_file: PathBuf,
+    records_file: PathBuf,
 }
 
 impl GenesisConfig {
@@ -571,6 +526,14 @@ impl Genesis {
         stream_records_from_file(reader, callback).map_err(io::Error::from)
     }
 
+    /// Returns number of records in the genesis or path to records file.
+    pub fn records_len(&self) -> Result<usize, &Path> {
+        match self.records.0.len() {
+            0 => Err(&self.records_file),
+            n => Ok(n),
+        }
+    }
+
     /// If records vector is empty processes records stream from records_file.
     /// May panic if records_file is removed or is in wrong format.
     pub fn for_each_record(&self, mut callback: impl FnMut(&StateRecord)) {
@@ -585,6 +548,21 @@ impl Genesis {
                 callback(record);
             }
         }
+    }
+
+    /// Forces loading genesis records into memory.
+    ///
+    /// This is meant for **tests only**.  In production code you should be
+    /// using [`Self::for_each_record`] instead to iterate over records.
+    ///
+    /// If the records are already loaded, simply returns mutable reference to
+    /// them.  Otherwise, reads them from `records_file`, stores them in memory
+    /// and then returns mutable reference to them.
+    pub fn force_read_records(&mut self) -> &mut GenesisRecords {
+        if self.records.as_ref().is_empty() {
+            self.records = GenesisRecords::from_file(&self.records_file);
+        }
+        &mut self.records
     }
 }
 

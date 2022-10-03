@@ -1,15 +1,15 @@
 [package]
 name = "near-actix-test-utils"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.62.1"
-edition = "2021"
+rust-version.workspace = true
+edition.workspace = true
 
 [dependencies]
-actix-rt = "2"
-futures = "0.3"
-once_cell = "1.5.2"
+actix-rt.workspace = true
+futures.workspace = true
+once_cell.workspace = true
 
 near-store = { path = "../../core/store" }

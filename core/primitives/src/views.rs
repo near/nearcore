@@ -3,6 +3,7 @@
 //! These types should only change when we cannot avoid this. Thus, when the counterpart internal
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -193,9 +194,6 @@ impl From<AccessKeyView> for AccessKey {
     }
 }
 
-/// Set of serialized TrieNodes that are encoded in base64. Represent proof of inclusion of some TrieNode in the MerkleTrie.
-pub type TrieProofPath = Vec<String>;
-
 /// Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -204,14 +202,21 @@ pub struct StateItem {
     pub key: Vec<u8>,
     #[serde(with = "base64_format")]
     pub value: Vec<u8>,
-    pub proof: TrieProofPath,
+    /// Deprecated, always empty, eventually will be deleted.
+    // TODO(mina86): This was deprecated in 1.30.  Get rid of the field
+    // altogether at 1.33 or something.
+    #[serde(default)]
+    pub proof: Vec<()>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ViewStateResult {
     pub values: Vec<StateItem>,
-    pub proof: TrieProofPath,
+    // TODO(mina86): Empty proof (i.e. sending proof when include_proof is not
+    // set in the request) was deprecated in 1.30.  Add
+    // `#[serde(skip(Vec::if_empty))` at 1.33 or something.
+    pub proof: Vec<Arc<[u8]>>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -272,6 +277,8 @@ pub enum QueryRequest {
         account_id: AccountId,
         #[serde(rename = "prefix_base64", with = "base64_format")]
         prefix: StoreKey,
+        #[serde(default, skip_serializing_if = "is_false")]
+        include_proof: bool,
     },
     ViewAccessKey {
         account_id: AccountId,
@@ -286,6 +293,10 @@ pub enum QueryRequest {
         #[serde(rename = "args_base64", with = "base64_format")]
         args: FunctionArgs,
     },
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -353,6 +364,57 @@ pub struct NetworkInfoView {
     pub num_connected_peers: usize,
     pub connected_peers: Vec<PeerInfoView>,
     pub known_producers: Vec<KnownProducerView>,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub enum SyncStatusView {
+    /// Initial state. Not enough peers to do anything yet.
+    AwaitingPeers,
+    /// Not syncing / Done syncing.
+    NoSync,
+    /// Syncing using light-client headers to a recent epoch
+    // TODO #3488
+    // Bowen: why do we use epoch ordinal instead of epoch id?
+    EpochSync { epoch_ord: u64 },
+    /// Downloading block headers for fast sync.
+    HeaderSync {
+        start_height: BlockHeight,
+        current_height: BlockHeight,
+        highest_height: BlockHeight,
+    },
+    /// State sync, with different states of state sync for different shards.
+    StateSync(CryptoHash, HashMap<ShardId, ShardSyncDownloadView>),
+    /// Sync state across all shards is done.
+    StateSyncDone,
+    /// Catch up on blocks.
+    BodySync { start_height: BlockHeight, current_height: BlockHeight, highest_height: BlockHeight },
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct ShardSyncDownloadView {
+    pub downloads: Vec<DownloadStatusView>,
+    pub status: String,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct DownloadStatusView {
+    pub error: bool,
+    pub done: bool,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct CatchupStatusView {
+    // This is the first block of the epoch that we are catching up
+    pub sync_block_hash: CryptoHash,
+    pub sync_block_height: BlockHeight,
+    // Status of all shards that need to sync
+    pub shard_sync_status: HashMap<ShardId, String>,
+    // Blocks that we need to catchup, if it is empty, it means catching up is done
+    pub blocks_to_catchup: Vec<BlockStatusView>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -474,6 +536,7 @@ pub enum ChunkProcessingStatus {
 pub struct DetailedDebugStatus {
     pub network_info: NetworkInfoView,
     pub sync_status: String,
+    pub catchup_status: Vec<CatchupStatusView>,
     pub current_head_status: BlockStatusView,
     pub current_header_head_status: BlockStatusView,
     pub block_production_delay_millis: u64,

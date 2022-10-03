@@ -17,9 +17,9 @@
 //! of the provided handlers will be executed asynchronously
 //! (other handlers will be dropped).
 //!
+use crate::time;
 use futures::future::BoxFuture;
 use futures::FutureExt;
-use near_network_primitives::time;
 use std::future::Future;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
@@ -76,9 +76,9 @@ impl RateLimit {
     }
 }
 
-/// A demux handler should be in practice of type [Arg;n] -> [Res;n] for arbitrary n.
-/// We approximate that by a function Vec<Arg> -> Vec<Res>. If the sizes do not match,
-/// demux will panic.
+/// A demux handler should be in practice of type `[Arg; n]` → `[Res; n]` for
+/// arbitrary `n`.  We approximate that by a function `Vec<Arg>` → `Vec<Res>`.
+/// If the sizes do not match, demux will panic.
 type Handler<Arg, Res> = BoxAsyncFn<Vec<Arg>, Vec<Res>>;
 
 struct Call<Arg, Res> {

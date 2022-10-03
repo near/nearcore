@@ -6,7 +6,6 @@ use near_primitives::time::Utc;
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::errors::{EpochError, StorageError};
-use near_primitives::serialize::to_base;
 use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
@@ -147,6 +146,9 @@ pub enum Error {
     /// `next_bps_hash` doens't correspond to the actual next block producers set
     #[error("Invalid Next BP Hash")]
     InvalidNextBPHash,
+    /// The block has a protocol version that's outdated
+    #[error("Invalid protocol version")]
+    InvalidProtocolVersion,
     /// The block doesn't have approvals from 50% of the block producers
     #[error("Not enough approvals")]
     NotEnoughApprovals,
@@ -282,6 +284,7 @@ impl Error {
             | Error::InvalidStateRequest(_)
             | Error::InvalidRandomnessBeaconOutput
             | Error::InvalidBlockMerkleRoot
+            | Error::InvalidProtocolVersion
             | Error::NotAValidator
             | Error::InvalidChallengeRoot => true,
         }
@@ -299,7 +302,8 @@ impl From<EpochError> for Error {
     fn from(error: EpochError) -> Self {
         match error {
             EpochError::EpochOutOfBounds(epoch_id) => Error::EpochOutOfBounds(epoch_id),
-            EpochError::MissingBlock(h) => Error::DBNotFoundErr(to_base(&h)),
+            EpochError::MissingBlock(h) => Error::DBNotFoundErr(format!("epoch block: {h}")),
+            EpochError::NotAValidator(_account_id, _epoch_id) => Error::NotAValidator,
             err => Error::ValidatorError(err.to_string()),
         }
     }

@@ -275,34 +275,53 @@ fn function_call_action(method_name: String) -> Action {
     })
 }
 
+/// Takes a list of measurements of input blocks and returns the cost for a
+/// single work item.
+///
+/// Inputs measurements cover the work to ingest and fully process it. Note that
+/// the processing can span multiple block ticks but the measured work is
+/// defined in a single block.
+///
+/// Each block is assumed to contain `block_size` amount of work
+/// items to be measured. Usually, one such work item is a transaction, or an
+/// action within a transaction.
+///
+/// The output is the cost of a single work item.
 pub(crate) fn aggregate_per_block_measurements(
     block_size: usize,
-    measurements: Vec<(GasCost, HashMap<ExtCosts, u64>)>,
+    block_measurements: Vec<(GasCost, HashMap<ExtCosts, u64>)>,
     overhead: Option<GasCost>,
 ) -> (GasCost, HashMap<ExtCosts, u64>) {
     let mut block_costs = Vec::new();
     let mut total_ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
     let mut total = GasCost::zero();
-    let mut n = 0;
-    for (gas_cost, ext_cost) in measurements {
-        block_costs.push(gas_cost.to_gas() as f64);
-        total += gas_cost;
-        n += block_size as u64;
-        for (c, v) in ext_cost {
+    let num_blocks = block_measurements.len() as u64;
+    for (block_cost, block_ext_cost) in block_measurements {
+        block_costs.push(block_cost.to_gas() as f64);
+        total += block_cost;
+        for (c, v) in block_ext_cost {
             *total_ext_costs.entry(c).or_default() += v;
         }
     }
-    for v in total_ext_costs.values_mut() {
-        *v /= n;
-    }
-    let mut gas_cost = total / n;
+
+    let work_item_ext_cost = {
+        for v in total_ext_costs.values_mut() {
+            let n = num_blocks * block_size as u64;
+            *v /= n;
+        }
+        total_ext_costs
+    };
+
+    let mut avg_block_cost = total / num_blocks;
     if is_high_variance(&block_costs) {
-        gas_cost.set_uncertain("HIGH-VARIANCE");
+        avg_block_cost.set_uncertain("HIGH-VARIANCE");
     }
     if let Some(overhead) = overhead {
-        gas_cost = gas_cost.saturating_sub(&overhead, &NonNegativeTolerance::PER_MILLE);
+        avg_block_cost = avg_block_cost.saturating_sub(&overhead, &NonNegativeTolerance::PER_MILLE);
     }
-    (gas_cost, total_ext_costs)
+    let work_item_gas_cost = avg_block_cost / block_size as u64;
+
+    (work_item_gas_cost, work_item_ext_cost)
 }
 
 pub(crate) fn average_cost(measurements: Vec<GasCost>) -> GasCost {
@@ -367,9 +386,10 @@ pub(crate) fn generate_fn_name(index: usize, len: usize) -> Vec<u8> {
 pub(crate) fn generate_data_only_contract(data_size: usize, config: &VMConfig) -> Vec<u8> {
     // Using pseudo-random stream with fixed seed to create deterministic, incompressable payload.
     let prng: XorShiftRng = rand::SeedableRng::seed_from_u64(0xdeadbeef);
-    let payload = prng.sample_iter(&Alphanumeric).take(data_size).collect::<String>();
+    let payload = prng.sample_iter(&Alphanumeric).take(data_size).collect();
+    let payload = String::from_utf8(payload).unwrap();
     let wat_code = format!(
-        r#"(module 
+        r#"(module
             (memory 1)
             (func (export "main"))
             (data (i32.const 0) "{payload}")

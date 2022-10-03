@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::fmt::{self, Error, Formatter};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum VMError {
     FunctionCallError(FunctionCallError),
     /// Type erased error from `External` trait implementation.
@@ -19,7 +19,7 @@ pub enum VMError {
     CacheError(CacheError),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum FunctionCallError {
     /// Wasm compilation error
     CompilationError(CompilationError),
@@ -67,7 +67,7 @@ pub enum FunctionCallErrorSer {
     ExecutionError(String),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum CacheError {
     ReadError,
     WriteError,
@@ -77,7 +77,16 @@ pub enum CacheError {
 /// A kind of a trap happened during execution of a binary
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshDeserialize,
+    BorshSerialize,
+    Deserialize,
+    Serialize,
+    RpcError,
+    strum::IntoStaticStr,
 )]
 pub enum WasmTrap {
     /// An `unreachable` opcode was executed.
@@ -102,7 +111,16 @@ pub enum WasmTrap {
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshDeserialize,
+    BorshSerialize,
+    Deserialize,
+    Serialize,
+    RpcError,
+    strum::IntoStaticStr,
 )]
 pub enum MethodResolveError {
     MethodEmptyName,
@@ -112,7 +130,16 @@ pub enum MethodResolveError {
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshDeserialize,
+    BorshSerialize,
+    Deserialize,
+    Serialize,
+    RpcError,
+    strum::IntoStaticStr,
 )]
 pub enum CompilationError {
     CodeDoesNotExist { account_id: AccountId },
@@ -156,7 +183,16 @@ pub enum PrepareError {
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshDeserialize,
+    BorshSerialize,
+    Deserialize,
+    Serialize,
+    RpcError,
+    strum::IntoStaticStr,
 )]
 pub enum HostError {
     /// String encoding is bad UTF-16 sequence
@@ -224,6 +260,9 @@ pub enum HostError {
     /// Invalid input to alt_bn128 familiy of functions (e.g., point which isn't
     /// on the curve).
     AltBn128InvalidInput { msg: String },
+    /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
+    /// derived from bytes).
+    Ed25519VerifyInvalidInput { msg: String },
 }
 
 #[derive(Debug, PartialEq)]
@@ -421,6 +460,7 @@ impl std::fmt::Display for HostError {
             Deprecated {method_name}=> write!(f, "Attempted to call deprecated host function {}", method_name),
             AltBn128InvalidInput { msg } => write!(f, "AltBn128 invalid input: {}", msg),
             ECRecoverError { msg } => write!(f, "ECDSA recover error: {}", msg),
+            Ed25519VerifyInvalidInput { msg } => write!(f, "ED25519 signature verification error: {}", msg),
         }
     }
 }

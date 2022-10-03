@@ -1,23 +1,23 @@
 [package]
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 name = "estimator-warehouse"
 version = "0.0.0"
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.62.1"
-edition = "2021"
+rust-version.workspace = true
+edition.workspace = true
 
 [dependencies]
-anyhow = "1.0.56"
-chrono = "0.4.19"
-clap = {version = "3.1.6", features = ["derive"]}
-nix = "0.15.0"
-reqwest = {version = "0.11.0", features = ["blocking"]}
-rusqlite = {version = "0.27.0", features = ["bundled", "chrono", "functions"]}
-serde = {version = "1.0.136", features = ["derive"]}
-serde_json = "1.0.68"
-tempfile = "3.3.0"
-xshell = "0.2.1"
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+nix.workspace = true
+reqwest.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+xshell.workspace = true
 
 [dev-dependencies]
-insta = "1.13.0"
+insta.workspace = true

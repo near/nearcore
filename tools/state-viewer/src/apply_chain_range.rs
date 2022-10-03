@@ -85,7 +85,7 @@ impl ProgressReporter {
 
 fn old_outcomes(
     store: Store,
-    new_outcomes: &Vec<ExecutionOutcomeWithId>,
+    new_outcomes: &[ExecutionOutcomeWithId],
 ) -> Vec<ExecutionOutcomeWithId> {
     new_outcomes
         .iter()
@@ -118,7 +118,7 @@ fn apply_block_from_range(
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     progress_reporter: &ProgressReporter,
     verbose_output: bool,
-    csv_file_mutex: &Arc<Mutex<Option<&mut File>>>,
+    csv_file_mutex: &Mutex<Option<&mut File>>,
     only_contracts: bool,
 ) {
     // normally save_trie_changes depends on whether the node is
@@ -288,8 +288,8 @@ fn apply_block_from_range(
 
     let state_update =
         runtime_adapter.get_tries().new_trie_update(shard_uid, *chunk_extra.state_root());
-    let delayed_indices =
-        get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
+    let delayed_indices: Option<DelayedReceiptIndices> =
+        get(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
 
     match existing_chunk_extra {
         Some(existing_chunk_extra) => {
@@ -360,7 +360,7 @@ pub fn apply_chain_range(
     );
 
     println!("Printing results including outcomes of applying receipts");
-    let csv_file_mutex = Arc::new(Mutex::new(csv_file));
+    let csv_file_mutex = Mutex::new(csv_file);
     maybe_add_to_csv(&csv_file_mutex, "Height,Hash,Author,#Tx,#Receipt,Timestamp,GasUsed,ChunkPresent,#ProcessedDelayedReceipts,#DelayedReceipts,#StateChanges");
 
     let range = start_height..=end_height;

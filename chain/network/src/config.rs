@@ -1,9 +1,13 @@
+use crate::blacklist;
 use crate::concurrency::demux;
 use crate::network_protocol::PeerAddr;
+use crate::network_protocol::PeerInfo;
+use crate::peer_manager::peer_manager_actor::Event;
+use crate::sink::Sink;
+use crate::time;
+use crate::types::ROUTED_MESSAGE_TTL;
 use anyhow::Context;
 use near_crypto::{KeyType, SecretKey};
-use near_network_primitives::time;
-use near_network_primitives::types::{Blacklist, PeerInfo, ROUTED_MESSAGE_TTL};
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -63,7 +67,9 @@ pub struct NetworkConfig {
     pub whitelist_nodes: Vec<PeerInfo>,
     pub handshake_timeout: time::Duration,
     pub reconnect_delay: time::Duration,
-    pub bootstrap_peers_period: time::Duration,
+
+    /// Maximum time between refreshing the peer list.
+    pub monitor_peers_max_period: time::Duration,
     /// Maximum number of active peers. Hard limit.
     pub max_num_peers: u32,
     /// Minimum outbound connections a peer should have to avoid eclipse attacks.
@@ -103,7 +109,7 @@ pub struct NetworkConfig {
     /// Period between pushing network info to client
     pub push_info_period: time::Duration,
     /// Nodes will not accept or try to establish connection to such peers.
-    pub blacklist: Blacklist,
+    pub blacklist: blacklist::Blacklist,
     /// Flag to disable outbound connections. When this flag is active, nodes will not try to
     /// establish connection with other nodes, but will accept incoming connection if other requirements
     /// are satisfied.
@@ -117,15 +123,23 @@ pub struct NetworkConfig {
     pub accounts_data_broadcast_rate_limit: demux::RateLimit,
     /// features
     pub features: Features,
-    // If true - connect only to the bootnodes.
+    /// If true - connect only to the bootnodes.
     pub connect_only_to_boot_nodes: bool,
+
+    // Whether to ignore tombstones some time after startup.
+    //
+    // Ignoring tombstones means:
+    //   * not broadcasting deleted edges
+    //   * ignoring received deleted edges as well
+    pub skip_tombstones: Option<time::Duration>,
+
+    /// TEST-ONLY
+    /// TODO(gprusak): make it pub(crate), once all integration tests
+    /// are merged into near_network.
+    pub event_sink: Sink<Event>,
 }
 
 impl NetworkConfig {
-    // Constructs and validates the config.
-    // TODO(gprusak): make the output immutable, to enforce the invariants
-    // checked during validation: either make it return an Arc, or add an Inner type,
-    // so that NetworkConfig dereferences to Inner.
     pub fn new(
         cfg: crate::config_json::Config,
         node_key: SecretKey,
@@ -182,7 +196,7 @@ impl NetworkConfig {
             },
             handshake_timeout: cfg.handshake_timeout.try_into()?,
             reconnect_delay: cfg.reconnect_delay.try_into()?,
-            bootstrap_peers_period: time::Duration::seconds(60),
+            monitor_peers_max_period: cfg.monitor_peers_max_period.try_into()?,
             max_num_peers: cfg.max_num_peers,
             minimum_outbound_peers: cfg.minimum_outbound_peers,
             ideal_connections_lo: cfg.ideal_connections_lo,
@@ -192,8 +206,8 @@ impl NetworkConfig {
             archival_peer_connections_lower_bound: cfg.archival_peer_connections_lower_bound,
             ban_window: cfg.ban_window.try_into()?,
             max_send_peers: 512,
-            peer_expiration_duration: time::Duration::seconds(7 * 24 * 60 * 60),
-            peer_stats_period: time::Duration::seconds(5),
+            peer_expiration_duration: cfg.peer_expiration_duration.try_into()?,
+            peer_stats_period: cfg.peer_stats_period.try_into()?,
             ttl_account_id_router: cfg.ttl_account_id_router.try_into()?,
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: MAX_ROUTES_TO_STORE,
@@ -211,6 +225,12 @@ impl NetworkConfig {
             features,
             inbound_disabled: cfg.experimental.inbound_disabled,
             connect_only_to_boot_nodes: cfg.experimental.connect_only_to_boot_nodes,
+            skip_tombstones: if cfg.experimental.skip_sending_tombstones_seconds > 0 {
+                Some(time::Duration::seconds(cfg.experimental.skip_sending_tombstones_seconds))
+            } else {
+                None
+            },
+            event_sink: Sink::null(),
         };
         Ok(this)
     }
@@ -243,7 +263,7 @@ impl NetworkConfig {
             whitelist_nodes: vec![],
             handshake_timeout: time::Duration::seconds(60),
             reconnect_delay: time::Duration::seconds(60),
-            bootstrap_peers_period: time::Duration::seconds(100),
+            monitor_peers_max_period: time::Duration::seconds(100),
             max_num_peers: 40,
             minimum_outbound_peers: 5,
             ideal_connections_lo: 30,
@@ -260,13 +280,15 @@ impl NetworkConfig {
             max_routes_to_store: 1,
             highest_peer_horizon: 5,
             push_info_period: time::Duration::milliseconds(100),
-            blacklist: Blacklist::default(),
+            blacklist: blacklist::Blacklist::default(),
             outbound_disabled: false,
             inbound_disabled: false,
             connect_only_to_boot_nodes: false,
             archive: false,
             accounts_data_broadcast_rate_limit: demux::RateLimit { qps: 100., burst: 1000000 },
             features: Features { enable_tier1: true },
+            skip_tombstones: None,
+            event_sink: Sink::null(),
         }
     }
 
@@ -303,7 +325,7 @@ impl NetworkConfig {
         self.accounts_data_broadcast_rate_limit
             .validate()
             .context("accounts_Data_broadcast_rate_limit")?;
-        Ok(VerifiedConfig(self))
+        Ok(VerifiedConfig { node_id: self.node_id(), inner: self })
     }
 }
 
@@ -313,24 +335,35 @@ impl NetworkConfig {
 pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: time::Duration = time::Duration::seconds(60);
 
 #[derive(Clone)]
-pub struct VerifiedConfig(NetworkConfig);
+pub struct VerifiedConfig {
+    inner: NetworkConfig,
+    /// Cached inner.node_id().
+    /// It allows to avoid recomputing the public key every time.
+    node_id: PeerId,
+}
+
+impl VerifiedConfig {
+    pub fn node_id(&self) -> PeerId {
+        self.node_id.clone()
+    }
+}
 
 impl std::ops::Deref for VerifiedConfig {
     type Target = NetworkConfig;
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.inner
     }
 }
 
 #[cfg(test)]
 mod test {
+    use super::UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
     use crate::config;
     use crate::network_protocol;
     use crate::network_protocol::testonly as data;
     use crate::network_protocol::AccountData;
     use crate::testonly::make_rng;
-    use near_network_primitives::time;
-    use near_network_primitives::types::UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
+    use crate::time;
     use near_primitives::validator_signer::ValidatorSigner;
 
     #[test]

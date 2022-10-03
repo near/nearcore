@@ -10,8 +10,8 @@ use near_actix_test_utils::spawn_interruptible;
 use near_client::{GetBlock, GetExecutionOutcome, GetValidatorInfo};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
-use near_logger_utils::init_integration_logger;
 use near_network::test_utils::WaitOrTimeoutActor;
+use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{compute_root_from_path_and_item, verify_path};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -78,17 +78,13 @@ fn outcome_view_to_hashes(outcome: &ExecutionOutcomeView) -> Vec<CryptoHash> {
         ExecutionStatusView::Failure(_) => PartialExecutionStatus::Failure,
         ExecutionStatusView::SuccessReceiptId(id) => PartialExecutionStatus::SuccessReceiptId(*id),
     };
-    let mut result = vec![hash(
-        &(
-            outcome.receipt_ids.clone(),
-            outcome.gas_burnt,
-            outcome.tokens_burnt,
-            outcome.executor_id.clone(),
-            status,
-        )
-            .try_to_vec()
-            .expect("Failed to serialize"),
-    )];
+    let mut result = vec![CryptoHash::hash_borsh(&(
+        outcome.receipt_ids.clone(),
+        outcome.gas_burnt,
+        outcome.tokens_burnt,
+        outcome.executor_id.clone(),
+        status,
+    ))];
     for log in outcome.logs.iter() {
         result.push(hash(log.as_bytes()));
     }
@@ -390,30 +386,30 @@ fn test_tx_not_enough_balance_must_return_error() {
                 let res = view_client.send(GetBlock::latest()).await;
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
-                        let _ = client
-                            .broadcast_tx_commit(to_base64(&bytes))
-                            .map_err(|err| {
-                                assert_eq!(
-                                    err.data.unwrap(),
-                                    serde_json::json!({"TxExecutionError": {
-                                        "InvalidTxError": {
-                                            "NotEnoughBalance": {
-                                                "signer_id": "near.0",
-                                                "balance": "950000000000000000000000000000000", // If something changes in setup just update this value
-                                                "cost": "1100000000000453060601875000000000",
-                                            }
-                                        }
-                                    }})
-                                );
-                                System::current().stop();
-                            })
-                            .map_ok(|_| panic!("Transaction must not succeed"))
-                            .await;
                         break;
                     }
                 }
                 sleep(std::time::Duration::from_millis(500)).await;
             }
+            let _ = client
+                .broadcast_tx_commit(to_base64(&bytes))
+                .map_err(|err| {
+                    assert_eq!(
+                        err.data.unwrap(),
+                        serde_json::json!({"TxExecutionError": {
+                            "InvalidTxError": {
+                                "NotEnoughBalance": {
+                                    "signer_id": "near.0",
+                                    "balance": "950000000000000000000000000000000", // If something changes in setup just update this value
+                                    "cost": "1100000000000045306060187500000000",
+                                }
+                            }
+                        }})
+                    );
+                    System::current().stop();
+                })
+                .map_ok(|_| panic!("Transaction must not succeed"))
+                .await;
         });
     });
 }

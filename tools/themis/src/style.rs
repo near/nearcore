@@ -1,6 +1,6 @@
 /// ANSI Color Codes
 ///
-/// https://en.wikipedia.org/wiki/ANSI_escape_code#8-bit
+/// <https://en.wikipedia.org/wiki/ANSI_escape_code#8-bit>
 #[allow(dead_code)]
 #[derive(Eq, Copy, Debug, Clone, PartialEq)]
 pub enum Color {
@@ -50,8 +50,4 @@ pub fn fg(color: Color) -> String {
 
 pub fn bold() -> &'static str {
     "\x1b[1m"
-}
-
-pub fn highlight(s: &str) -> String {
-    fg(Color::Color256(178)) + &bg(Color::Gray { shade: 3 }) + s + reset()
 }

@@ -1,20 +1,20 @@
 [package]
 name = "runtime-tester"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = false
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.62.1"
-edition = "2021"
+rust-version.workspace = true
+edition.workspace = true
 
 [dependencies]
-byteorder = "1.2"
-cpu-time = "1.0"
-libfuzzer-sys = { version = "0.4"}
-tracing = "0.1.13"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tempfile = "3"
+byteorder.workspace = true
+cpu-time.workspace = true
+libfuzzer-sys.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tracing.workspace = true
 
 near-chain = { path = "../../chain/chain" }
 near-chain-configs = { path = "../../core/chain-configs" }
@@ -24,8 +24,8 @@ near-client-primitives = { path = "../../chain/client-primitives" }
 nearcore = { path = "../../nearcore" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
+near-o11y = { path = "../../core/o11y" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
 
 [dev-dependencies]
-near-logger-utils = { path = "../logger" }
 testlib = { path = "../testlib" }
