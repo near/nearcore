@@ -78,7 +78,7 @@ pub(crate) fn write_empty<P: AsRef<Path>>(secret_file_out: P) -> anyhow::Result<
     Ok(())
 }
 
-pub(crate) fn load<P: AsRef<Path>>(secret_file: P) -> anyhow::Result<Option<[u8; SECRET_LEN]>> {
+pub fn load<P: AsRef<Path>>(secret_file: P) -> anyhow::Result<Option<[u8; SECRET_LEN]>> {
     let s = std::fs::read_to_string(secret_file)?;
     let config: MirrorSecretConfig = serde_json::from_str(&s)?;
     Ok(config.key_map_secret.map(|s| s.0))

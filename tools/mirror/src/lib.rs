@@ -34,7 +34,7 @@ mod chain_tracker;
 pub mod genesis;
 mod key_mapping;
 mod metrics;
-mod secret;
+pub mod secret;
 
 #[derive(strum::EnumIter)]
 enum DBCol {
@@ -337,15 +337,13 @@ impl TxMirror {
     pub fn new<P: AsRef<Path>>(
         source_home: &P,
         target_home: &P,
-        secret_file: &P,
+        secret: Option<[u8; crate::secret::SECRET_LEN]>,
     ) -> anyhow::Result<Self> {
         let target_config =
             nearcore::config::load_config(target_home.as_ref(), GenesisValidationMode::UnsafeFast)
                 .with_context(|| {
                     format!("Error loading target config from {:?}", target_home.as_ref())
                 })?;
-        let secret = crate::secret::load(secret_file)
-            .with_context(|| format!("Failed to load secret from {:?}", secret_file.as_ref()))?;
         let db = open_db(target_home, &target_config).context("failed to open mirror DB")?;
         let source_config =
             nearcore::config::load_config(source_home.as_ref(), GenesisValidationMode::UnsafeFast)
