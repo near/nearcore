@@ -168,9 +168,9 @@ mod nodes_counter_tests {
         // Extension -> Branch -> Branch -> Leaf plus retrieving the value by its hash. In total
         // there will be 9 distinct nodes, because 011 and 100 both add one Leaf and value.
         let trie_items = vec![
-            (create_trie_key(&vec![0, 0, 0]), Some(vec![0])),
-            (create_trie_key(&vec![0, 1, 1]), Some(vec![1])),
-            (create_trie_key(&vec![1, 0, 0]), Some(vec![2])),
+            (create_trie_key(&[0, 0, 0]), Some(vec![0])),
+            (create_trie_key(&[0, 1, 1]), Some(vec![1])),
+            (create_trie_key(&[1, 0, 0]), Some(vec![2])),
         ];
         let trie = create_trie(&trie_items);
         assert_eq!(get_touched_nodes_numbers(trie.clone(), &trie_items), vec![5, 5, 4]);
@@ -186,8 +186,8 @@ mod nodes_counter_tests {
         // Extension([0, 0]) -> Branch -> Leaf([48/49]) -> value.
         // TODO: explain the exact values in path items here
         let trie_items = vec![
-            (create_trie_key(&vec![0, 0]), Some(vec![1])),
-            (create_trie_key(&vec![1, 1]), Some(vec![1])),
+            (create_trie_key(&[0, 0]), Some(vec![1])),
+            (create_trie_key(&[1, 1]), Some(vec![1])),
         ];
         let trie = create_trie(&trie_items);
         assert_eq!(get_touched_nodes_numbers(trie.clone(), &trie_items), vec![4, 4]);

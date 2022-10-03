@@ -1266,7 +1266,7 @@ mod tests {
         let limit_config = VMLimitConfig::test();
         validate_actions(
             &limit_config,
-            &vec![Action::FunctionCall(FunctionCallAction {
+            &[Action::FunctionCall(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
                 gas: 100,
@@ -1283,7 +1283,7 @@ mod tests {
         assert_eq!(
             validate_actions(
                 &limit_config,
-                &vec![
+                &[
                     Action::FunctionCall(FunctionCallAction {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
@@ -1310,7 +1310,7 @@ mod tests {
         assert_eq!(
             validate_actions(
                 &limit_config,
-                &vec![
+                &[
                     Action::FunctionCall(FunctionCallAction {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
@@ -1337,7 +1337,7 @@ mod tests {
         assert_eq!(
             validate_actions(
                 &limit_config,
-                &vec![
+                &[
                     Action::CreateAccount(CreateAccountAction {}),
                     Action::CreateAccount(CreateAccountAction {}),
                 ]
@@ -1357,7 +1357,7 @@ mod tests {
         assert_eq!(
             validate_actions(
                 &limit_config,
-                &vec![
+                &[
                     Action::DeleteAccount(DeleteAccountAction {
                         beneficiary_id: "bob".parse().unwrap()
                     }),
@@ -1376,7 +1376,7 @@ mod tests {
         assert_eq!(
             validate_actions(
                 &limit_config,
-                &vec![
+                &[
                     Action::CreateAccount(CreateAccountAction {}),
                     Action::DeleteAccount(DeleteAccountAction {
                         beneficiary_id: "bob".parse().unwrap()

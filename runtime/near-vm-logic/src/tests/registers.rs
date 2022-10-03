@@ -8,7 +8,7 @@ fn test_one_register() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
 
-    logic.wrapped_internal_write_register(0, &vec![0, 1, 2]).unwrap();
+    logic.wrapped_internal_write_register(0, &[0, 1, 2]).unwrap();
     assert_eq!(logic.register_len(0).unwrap(), 3u64);
     let buffer = [0u8; 3];
     logic.read_register(0, buffer.as_ptr() as u64).unwrap();
