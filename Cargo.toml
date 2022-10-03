@@ -170,6 +170,7 @@ sha2 = "0.10"
 sha3 = "0.10"
 shell-escape = "0.1.5"
 smart-default = "0.6"
+smartstring = "1.0.1"
 strum = { version = "0.24", features = ["derive"] }
 subtle = "2.2"
 syn = { version = "1.0.54", features = ["extra-traits", "full"] }
