@@ -32,18 +32,21 @@ const BORSH_ERR: &str = "Borsh cannot fail";
 
 #[derive(strum::AsRefStr, Debug)]
 pub enum FlatStorageError {
-    /// This means we can't find a path from `flat_head` to the block
-    BlockNotSupported(CryptoHash),
+    /// This means we can't find a path from `flat_head` to the block. Includes `flat_head` hash and block hash,
+    /// respectively.
+    BlockNotSupported((CryptoHash, CryptoHash)),
     StorageInternalError,
 }
 
 impl From<FlatStorageError> for StorageError {
     fn from(err: FlatStorageError) -> Self {
         match err {
-            FlatStorageError::BlockNotSupported(hash) => StorageError::FlatStorageError(format!(
-                "FlatStorage does not support this block {:?}",
-                hash
-            )),
+            FlatStorageError::BlockNotSupported((head_hash, block_hash)) => {
+                StorageError::FlatStorageError(format!(
+                    "FlatStorage with head {:?} does not support this block {:?}",
+                    head_hash, block_hash
+                ))
+            }
             FlatStorageError::StorageInternalError => StorageError::StorageInternalError,
         }
     }
@@ -529,6 +532,11 @@ pub trait ChainAccessForFlatStorage {
 
 #[cfg(feature = "protocol_feature_flat_state")]
 impl FlatStorageStateInner {
+    /// Creates `BlockNotSupported` error for the given block.
+    fn create_block_not_supported_error(&self, block_hash: &CryptoHash) -> FlatStorageError {
+        FlatStorageError::BlockNotSupported((self.flat_head, *block_hash))
+    }
+
     /// Get deltas between blocks `target_block_hash`(inclusive) to flat head(exclusive),
     /// in backwards chain order. Returns an error if there is no path between these two them.
     fn get_deltas_between_blocks(
@@ -543,10 +551,10 @@ impl FlatStorageStateInner {
             let block_info = self
                 .blocks
                 .get(&block_hash)
-                .ok_or(FlatStorageError::BlockNotSupported(*target_block_hash))?;
+                .ok_or(self.create_block_not_supported_error(target_block_hash))?;
 
             if block_info.height < flat_head_info.height {
-                return Err(FlatStorageError::BlockNotSupported(*target_block_hash));
+                return Err(self.create_block_not_supported_error(target_block_hash));
             }
 
             let delta = self
@@ -645,8 +653,9 @@ impl FlatStorageState {
         Ok(vec![])
     }
 
-    // Update the head of the flat storage, including updating the flat state in memory and on disk
-    // and updating the flat state to reflect the state at the new head
+    /// Update the head of the flat storage, including updating the flat state in memory and on disk
+    /// and updating the flat state to reflect the state at the new head. If updating to given head is not possible,
+    /// returns an error.
     // TODO (#7327): implement garbage collection of old deltas.
     #[cfg(feature = "protocol_feature_flat_state")]
     pub fn update_flat_head(&self, new_head: &CryptoHash) -> Result<(), FlatStorageError> {
@@ -685,7 +694,7 @@ impl FlatStorageState {
         let mut guard = self.0.write().expect(POISONED_LOCK_ERR);
         tracing::info!(target:"chain", "blocks {:?} prev_hash {:?}", guard.blocks.keys(), block.prev_hash);
         if !guard.blocks.contains_key(&block.prev_hash) {
-            return Err(FlatStorageError::BlockNotSupported(*block_hash));
+            return Err(guard.create_block_not_supported_error(block_hash));
         }
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
         store_helper::set_delta(&mut store_update, guard.shard_id, block_hash.clone(), &delta)?;
@@ -702,17 +711,6 @@ impl FlatStorageState {
         _block_info: BlockInfo,
     ) -> Result<StoreUpdate, FlatStorageError> {
         panic!("not implemented")
-    }
-
-    #[cfg(feature = "protocol_feature_flat_state")]
-    pub fn get_flat_head(&self) -> CryptoHash {
-        let guard = self.0.read().expect(POISONED_LOCK_ERR);
-        guard.flat_head
-    }
-
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    pub fn get_flat_head(&self) -> CryptoHash {
-        CryptoHash::default()
     }
 }
 
