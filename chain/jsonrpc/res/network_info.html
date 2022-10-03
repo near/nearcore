@@ -298,6 +298,8 @@
         }
 
         function show_peer_storage() {
+            $(".detailed-peer-storage-button").text("Loading...");
+            $(".tbody-detailed-peer-storage").html("");
             $.ajax({
                 type: "GET",
                 url: "/debug/api/peer_store",
@@ -320,6 +322,7 @@
                         $(".tbody-detailed-peer-storage").append(row);
                     });
                     $(".detailed-peer-storage-div").show();
+                    $(".detailed-peer-storage-button").text("Refresh");
                 }
             });
         }
@@ -399,7 +402,7 @@ Unreachable: <span class="js-unreachable-chunk-producers"></span>
         </tbody>
     </table>
     <br>
-    <button onclick="show_peer_storage()">
+    <button onclick="show_peer_storage()" class="detailed-peer-storage-button">
         Show detailed peer storage
     </button>
     <div class="detailed-peer-storage-div">
