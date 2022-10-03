@@ -299,7 +299,9 @@ impl InitCmd {
 
 #[derive(Parser)]
 pub(super) struct RunCmd {
-    /// Keep old blocks in the storage (default false).
+    /// Configure node to run as archival node which prevents deletion of old
+    /// blocks.  This is a persistent setting; once client is started as
+    /// archival node, it cannot be run in non-archival mode.
     #[clap(long)]
     archive: bool,
     /// Set the boot nodes to bootstrap network from.
