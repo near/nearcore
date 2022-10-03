@@ -437,11 +437,11 @@ fn test_sha256() {
     let data = b"tesdsst";
 
     logic.sha256(data.len() as _, data.as_ptr() as _, 0).unwrap();
-    let res = &vec![0u8; 32];
-    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    let mut res = [0u8; 32];
+    logic.read_register(0, (&mut res[..]).as_ptr() as _).expect("OK");
     assert_eq!(
         res,
-        &[
+        [
             18, 176, 115, 156, 45, 100, 241, 132, 180, 134, 77, 42, 105, 111, 199, 127, 118, 112,
             92, 255, 88, 43, 83, 147, 122, 55, 26, 36, 42, 156, 160, 158,
         ]
@@ -469,8 +469,8 @@ fn test_keccak256() {
     let data = b"tesdsst";
 
     logic.keccak256(data.len() as _, data.as_ptr() as _, 0).unwrap();
-    let res = &vec![0u8; 32];
-    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    let mut res = [0u8; 32];
+    logic.read_register(0, (&mut res[..]).as_ptr() as _).expect("OK");
     assert_eq!(
         res.as_slice(),
         &[
@@ -501,17 +501,16 @@ fn test_keccak512() {
     let data = b"tesdsst";
 
     logic.keccak512(data.len() as _, data.as_ptr() as _, 0).unwrap();
-    let res = &vec![0u8; 64];
-    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    let mut res = [0u8; 64];
+    logic.read_register(0, (&mut res[..]).as_ptr() as _).expect("OK");
     assert_eq!(
         res,
-        &[
+        [
             55, 134, 96, 137, 168, 122, 187, 95, 67, 76, 18, 122, 146, 11, 225, 106, 117, 194, 154,
             157, 48, 160, 90, 146, 104, 209, 118, 126, 222, 230, 200, 125, 48, 73, 197, 236, 123,
             173, 192, 197, 90, 153, 167, 121, 100, 88, 209, 240, 137, 86, 239, 41, 87, 128, 219,
             249, 136, 203, 220, 109, 46, 168, 234, 190
         ]
-        .to_vec()
     );
     let len = data.len() as u64;
     assert_costs(map! {
@@ -536,11 +535,11 @@ fn test_ripemd160() {
 
     let data = b"tesdsst";
     logic.ripemd160(data.len() as _, data.as_ptr() as _, 0).unwrap();
-    let res = &vec![0u8; 20];
-    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    let mut res = [0u8; 20];
+    logic.read_register(0, (&mut res[..]).as_ptr() as _).expect("OK");
     assert_eq!(
         res,
-        &[21, 102, 156, 115, 232, 3, 58, 215, 35, 84, 129, 30, 143, 86, 212, 104, 70, 97, 14, 225,]
+        [21, 102, 156, 115, 232, 3, 58, 215, 35, 84, 129, 30, 143, 86, 212, 104, 70, 97, 14, 225,]
     );
     let len = data.len() as u64;
     assert_costs(map! {
@@ -626,11 +625,11 @@ fn test_hash256_register() {
     logic.wrapped_internal_write_register(1, data).unwrap();
 
     logic.sha256(u64::MAX, 1, 0).unwrap();
-    let res = &vec![0u8; 32];
-    logic.read_register(0, res.as_ptr() as _).unwrap();
+    let mut res = [0u8; 32];
+    logic.read_register(0, (&mut res[..]).as_ptr() as _).unwrap();
     assert_eq!(
         res,
-        &[
+        [
             18, 176, 115, 156, 45, 100, 241, 132, 180, 134, 77, 42, 105, 111, 199, 127, 118, 112,
             92, 255, 88, 43, 83, 147, 122, 55, 26, 36, 42, 156, 160, 158,
         ]
