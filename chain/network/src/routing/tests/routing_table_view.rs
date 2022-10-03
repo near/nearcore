@@ -2,8 +2,8 @@ use crate::network_protocol::testonly as data;
 use crate::routing;
 use crate::routing::routing_table_view::*;
 use crate::testonly::make_rng;
-use near_network_primitives::time;
-use near_network_primitives::types::PeerIdOrHash;
+use crate::time;
+use crate::types::PeerIdOrHash;
 use rand::seq::SliceRandom;
 use std::sync::Arc;
 

@@ -33,7 +33,7 @@ use near_network::types::{
 use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
-use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
+use near_network::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
@@ -991,7 +991,7 @@ fn client_sync_headers() {
                     tracked_shards: vec![],
                     archival: false,
                 },
-                partial_edge_info: near_network_primitives::types::PartialEdgeInfo::default(),
+                partial_edge_info: near_network::types::PartialEdgeInfo::default(),
             })],
             num_connected_peers: 1,
             peer_max_count: 1,
@@ -1003,7 +1003,7 @@ fn client_sync_headers() {
                     tracked_shards: vec![],
                     archival: false,
                 },
-                partial_edge_info: near_network_primitives::types::PartialEdgeInfo::default(),
+                partial_edge_info: near_network::types::PartialEdgeInfo::default(),
             }],
             sent_bytes_per_sec: 0,
             received_bytes_per_sec: 0,
@@ -1334,16 +1334,11 @@ fn test_bad_chunk_mask() {
         let (encoded_chunk, merkle_paths, receipts) =
             create_chunk_on_height(&mut clients[chunk_producer], height);
         for client in clients.iter_mut() {
-            let mut chain_store =
-                ChainStore::new(client.chain.store().store().clone(), chain_genesis.height, true);
             client
-                .shards_mgr
-                .distribute_encoded_chunk(
+                .persist_and_distribute_encoded_chunk(
                     encoded_chunk.clone(),
                     merkle_paths.clone(),
                     receipts.clone(),
-                    &mut chain_store,
-                    0,
                 )
                 .unwrap();
         }
@@ -2233,8 +2228,7 @@ fn test_validate_chunk_extra() {
         ChainStore::new(env.clients[0].chain.store().store().clone(), genesis_height, true);
     let chunk_header = encoded_chunk.cloned_header();
     env.clients[0]
-        .shards_mgr
-        .distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, &mut chain_store, 0)
+        .persist_and_distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
     env.clients[0].process_blocks_with_missing_chunks(Arc::new(|_| {}));
@@ -2682,7 +2676,6 @@ fn test_epoch_protocol_version_change() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = PROTOCOL_VERSION - 1;
-    let genesis_height = genesis.config.genesis_height;
     let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(2)
@@ -2702,16 +2695,11 @@ fn test_epoch_protocol_version_change() {
             create_chunk_on_height(&mut env.clients[index], i);
 
         for j in 0..2 {
-            let mut chain_store =
-                ChainStore::new(env.clients[j].chain.store().store().clone(), genesis_height, true);
             env.clients[j]
-                .shards_mgr
-                .distribute_encoded_chunk(
+                .persist_and_distribute_encoded_chunk(
                     encoded_chunk.clone(),
                     merkle_paths.clone(),
                     receipts.clone(),
-                    &mut chain_store,
-                    0,
                 )
                 .unwrap();
         }

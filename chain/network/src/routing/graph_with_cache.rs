@@ -1,7 +1,7 @@
+use crate::network_protocol::{Edge, EdgeState};
 use crate::routing;
 use crate::stats::metrics;
-use near_network_primitives::time;
-use near_network_primitives::types::{Edge, EdgeState};
+use crate::time;
 use near_primitives::network::PeerId;
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
@@ -90,7 +90,7 @@ impl GraphWithCache {
 
     /// Removes an edge by key. O(1).
     pub fn remove_edge(&mut self, key: &EdgeKey) {
-        self.remove_edges(&vec![key])
+        self.remove_edges(&[key])
     }
 
     // Removes mutiple edges.
