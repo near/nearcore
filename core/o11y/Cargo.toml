@@ -11,6 +11,9 @@ repository = "https://github.com/near/nearcore"
 description = "Observability helpers for the near codebase"
 
 [dependencies]
+near-crypto = { path = "../../core/crypto" }
+near-primitives = { path = "../../core/primitives" }
+
 atty.workspace = true
 backtrace.workspace = true
 clap.workspace = true
@@ -31,7 +34,7 @@ tracing-subscriber.workspace = true
 [dev-dependencies]
 bencher.workspace = true
 itoa.workspace = true
-smartstring = "1.0.1"
+smartstring.workspace = true
 
 [features]
 io_trace = []

@@ -264,10 +264,7 @@ fn main() -> Result<()> {
         "nearcore=info,indexer_example=info,tokio_reactor=info,near=info,\
          stats=info,telemetry=info,indexer=info,near-performance-metrics=info",
     );
-    let runtime = tokio::runtime::Runtime::new().unwrap();
-    let _subscriber = runtime.block_on(async {
-        near_o11y::default_subscriber(env_filter, &Default::default()).await.global();
-    });
+    let _subscriber = near_o11y::default_subscriber(env_filter, &Default::default()).global();
     let opts: Opts = Opts::parse();
 
     let home_dir = opts.home_dir.unwrap_or(near_indexer::get_default_home());

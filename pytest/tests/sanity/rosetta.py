@@ -634,7 +634,8 @@ class RosettaTestCase(unittest.TestCase):
                 'metadata': {
                     'predecessor_id': {
                         'address': 'test0'
-                    }
+                    },
+                    'transfer_fee_type': 'GAS_PREPAYMENT'
                 }
             }],
             'related_transactions': [{
@@ -730,7 +731,8 @@ class RosettaTestCase(unittest.TestCase):
                     'metadata': {
                         'predecessor_id': {
                             'address': 'system'
-                        }
+                        },
+                        'transfer_fee_type': 'GAS_REFUND'
                     }
                 }],
                 'transaction_identifier': related.identifier
@@ -866,7 +868,8 @@ class RosettaTestCase(unittest.TestCase):
                     'metadata': {
                         'predecessor_id': {
                             'address': "system"
-                        }
+                        },
+                        'transfer_fee_type': 'GAS_REFUND'
                     }
                 }],
                 'transaction_identifier': receipt_id_2
