@@ -22,7 +22,7 @@ type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum SendError {
-    #[error("IO error")]
+    #[error("IO error: {0}")]
     IO(#[source] io::Error),
     #[error("queue is full, got {got_bytes}B, max capacity is {want_max_bytes}")]
     QueueOverflow { got_bytes: usize, want_max_bytes: usize },
@@ -50,9 +50,9 @@ pub(crate) struct Frame(pub Vec<u8>);
 #[derive(thiserror::Error, Debug, actix::Message)]
 #[rtype(result = "()")]
 pub(crate) enum Error {
-    #[error("send")]
+    #[error("send: {0}")]
     Send(#[source] SendError),
-    #[error("recv")]
+    #[error("recv: {0}")]
     Recv(#[source] RecvError),
 }
 

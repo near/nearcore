@@ -56,11 +56,7 @@ impl PeerConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Event {
-    HandshakeDone(Edge),
     RoutingTable(RoutingTableUpdate),
-    RequestUpdateNonce(PartialEdgeInfo),
-    ResponseUpdateNonce(Edge),
-    PeersResponse(Vec<PeerInfo>),
     Client(fake_client::Event),
     Network(peer_manager_actor::Event),
 }
@@ -80,20 +76,17 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
         let msg_type: &str = (&msg).into();
         println!("{}: PeerManager message {}", self.cfg.id(), msg_type);
         match msg {
-            PeerToManagerMsg::RegisterPeer(msg) => {
-                self.event_sink.push(Event::HandshakeDone(msg.connection.edge.clone()));
+            PeerToManagerMsg::RegisterPeer(..) => {
                 PeerToManagerMsgResp::RegisterPeer(RegisterPeerResponse::Accept)
             }
             PeerToManagerMsg::SyncRoutingTable { routing_table_update, .. } => {
                 self.event_sink.push(Event::RoutingTable(routing_table_update));
                 PeerToManagerMsgResp::Empty
             }
-            PeerToManagerMsg::RequestUpdateNonce(_, edge) => {
-                self.event_sink.push(Event::RequestUpdateNonce(edge));
+            PeerToManagerMsg::RequestUpdateNonce(..) => {
                 PeerToManagerMsgResp::Empty
             }
-            PeerToManagerMsg::ResponseUpdateNonce(edge) => {
-                self.event_sink.push(Event::ResponseUpdateNonce(edge));
+            PeerToManagerMsg::ResponseUpdateNonce(..) => {
                 PeerToManagerMsgResp::Empty
             }
             PeerToManagerMsg::PeersRequest(_) => {
@@ -103,8 +96,7 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
                     peers: self.cfg.peers.clone(),
                 })
             }
-            PeerToManagerMsg::PeersResponse(resp) => {
-                self.event_sink.push(Event::PeersResponse(resp.peers));
+            PeerToManagerMsg::PeersResponse(..) => {
                 PeerToManagerMsgResp::Empty
             }
             PeerToManagerMsg::Unregister(_) => PeerToManagerMsgResp::Empty,
@@ -131,7 +123,7 @@ impl PeerHandle {
     pub async fn complete_handshake(&mut self) -> Edge {
         self.events
             .recv_until(|ev| match ev {
-                Event::HandshakeDone(edge) => Some(edge),
+                Event::Network(peer_manager_actor::Event::HandshakeCompleted(ev)) => Some(ev.edge),
                 Event::Network(peer_manager_actor::Event::ConnectionClosed(ev)) => {
                     panic!("handshake failed: {}",ev.reason)
                 }

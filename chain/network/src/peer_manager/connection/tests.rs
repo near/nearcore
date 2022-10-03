@@ -43,7 +43,7 @@ async fn connection_tie_break() {
     // inbound should be accepted, outbound rejected by PM.
     let inbound = inbound_conn.handshake(&clock.clock()).await;
     assert_eq!(
-        ClosingReason::OutboundNotAllowed(connection::PoolError::AlreadyConnected),
+        ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(connection::PoolError::AlreadyConnected)),
         outbound_conn.manager_fail_handshake(&clock.clock()).await,
     );
     drop(inbound);

@@ -75,7 +75,7 @@ impl RawConnection {
         self.events
             .recv_until(|ev| match ev {
                 Event::PeerManager(PME::HandshakeCompleted(ev)) if ev.stream_id == stream_id => Some(()),
-                _ => None,
+                ev => None,
             })
             .await;
         peer

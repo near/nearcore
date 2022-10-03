@@ -75,6 +75,7 @@ pub struct HandshakeStartedEvent {
 #[derive(Debug,Clone,PartialEq,Eq)]
 pub struct HandshakeCompletedEvent {
     pub(crate) stream_id: tcp::StreamId,
+    pub(crate) edge: Edge,
 }
 
 #[derive(thiserror::Error,Clone, PartialEq,Eq,Debug)]
@@ -889,12 +890,17 @@ impl PeerActor {
                                 requesting_full_sync: true,
                             }));
                         }
+                        act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
+                            stream_id: act.stream_id,
+                            edge: connection.edge.clone(),
+                        }));
                     },
                     Ok(RegisterPeerResponse::Reject(err)) => {
                         info!(target: "network", "{:?}: Connection with {:?} rejected by PeerManager: {:?}", act.my_node_id(),connection.peer_info.id,err);
                         act.stop(ctx,ClosingReason::RejectedByPeerManager(err));
                     }
                     Err(err) => {
+                        // TODO(gprusak): this shouldn't happen at all.
                         info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting: {err:?}", act.my_node_id(), handshake);
                         act.stop(ctx,ClosingReason::HandshakeFailed);
                     }
@@ -993,14 +999,14 @@ impl actix::Handler<stream::Error> for PeerActor {
             stream::Error::Recv(stream::RecvError::IO(err))
             | stream::Error::Send(stream::SendError::IO(err)) => match err.kind() {
                 // Connection has been closed.
-                io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionReset => true,
+                io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionReset | io::ErrorKind::BrokenPipe => true,
                 // It is unexpected in a sense that stream got broken in an unexpected way.
                 // In case you encounter an error that was actually to be expected,
                 // please add it here and document.
                 _ => false,
             },
         };
-        log_assert!(expected,"Closing connection to {}: {err}", self.peer_info);
+        log_assert!(expected,"unexpected closing reason: {err}");
         tracing::info!(target: "network", ?err, "Closing connection to {}", self.peer_info);
         self.stop(ctx,ClosingReason::StreamError);
     }
@@ -1131,16 +1137,15 @@ impl actix::Handler<stream::Frame> for PeerActor {
                 let ok =
                     // - is for the relevant pair of peers
                     edge.key()==&Edge::make_key(self.my_node_info.id.clone(),handshake_spec.peer_id.clone()) &&
-                    // - is not younger than what we proposed originally
+                    // - is not younger than what we proposed originally. This protects us from
+                    //   a situation in which the peer presents us with a very outdated edge e,
+                    //   and then we sign a new edge with nonce e.nonce+1 which is also outdated.
+                    //   It may still happen that an edge with an old nonce gets signed, but only
+                    //   if both nodes not know about the newer edge. We don't defend against that.
+                    //   Also a malicious peer might send the LastEdge with the edge we just
+                    //   signed (pretending that it is old) but we cannot detect that, because the
+                    //   signatures are currently deterministic.
                     edge.nonce() >= handshake_spec.partial_edge_info.nonce &&
-                    // - is not using the partial edge we just sent: it might happen that
-                    //   we have signed an edge with exactly the same nonce previously, however
-                    //   we need to protect ourselves from a situation when the peer pretends 
-                    //   that the nonce was already used by providing the our new edge as a proof.
-                    //   Signatures are randomized, so the chance that we generated exactly the
-                    //   same signature are very small.
-                    edge.signature0()!=&handshake_spec.partial_edge_info.signature &&
-                    edge.signature1()!=&handshake_spec.partial_edge_info.signature &&
                     // - is a correctly signed edge
                     edge.verify();
                 // Disconnect if neighbor sent an invalid edge.
@@ -1186,6 +1191,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
                 self.network_state
                     .peer_manager_addr
                     .do_send(PeerToManagerMsg::PeersResponse(PeersResponse { peers }));
+                self.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
             }
             (PeerStatus::Ready, PeerMessage::RequestUpdateNonce(edge_info)) => self
                 .network_state
@@ -1205,6 +1211,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
                         }
                         _ => {}
                     }
+                    act.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
                     actix::fut::ready(())
                 })
                 .spawn(ctx),
@@ -1220,6 +1227,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
                         }
                         _ => {}
                     }
+                    act.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
                     actix::fut::ready(())
                 })
                 .spawn(ctx),
