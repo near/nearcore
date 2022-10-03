@@ -1752,7 +1752,7 @@ fn test_not_resync_old_blocks() {
         let block = blocks[i as usize - 1].clone();
         assert!(env.clients[0].chain.get_block(block.hash()).is_err());
         let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-        assert_matches!(res, Err(x) if matches!(x, Error::Orphan));
+        assert_matches!(res, Err(Error::CannotBeFinalized));
         assert_eq!(env.clients[0].chain.orphans_len(), 0);
     }
 }
