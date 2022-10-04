@@ -1324,6 +1324,15 @@ pub enum FinalExecutionOutcomeViewEnum {
     FinalExecutionOutcomeWithReceipt(FinalExecutionOutcomeWithReceiptView),
 }
 
+impl FinalExecutionOutcomeViewEnum {
+    pub fn into_outcome(self) -> FinalExecutionOutcomeView {
+        match self {
+            Self::FinalExecutionOutcome(outcome) => outcome,
+            Self::FinalExecutionOutcomeWithReceipt(outcome) => outcome.final_outcome,
+        }
+    }
+}
+
 /// Final execution outcome of the transaction and all of subsequent the receipts.
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -1362,12 +1371,6 @@ pub struct FinalExecutionOutcomeWithReceiptView {
     pub final_outcome: FinalExecutionOutcomeView,
     /// Receipts generated from the transaction
     pub receipts: Vec<ReceiptView>,
-}
-
-impl From<FinalExecutionOutcomeWithReceiptView> for FinalExecutionOutcomeView {
-    fn from(final_outcome_view: FinalExecutionOutcomeWithReceiptView) -> Self {
-        final_outcome_view.final_outcome
-    }
 }
 
 pub mod validator_stake_view {
