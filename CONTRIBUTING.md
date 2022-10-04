@@ -15,6 +15,9 @@ Building nearcore requires a fairly recent Rust compiler (get it
 [here](https://rustup.rs)), as well as `clang` and `cmake` to build RocksDB
 (`sudo apt install cmake clang`).
 
+Sadly at the moment nearcore is only compatible with Linux and MacOS, Windows is
+not supported yet.
+
 To run a local NEAR network with one node, use
 
 ```console
@@ -54,39 +57,6 @@ help on our zulip channel.
 If you have an idea for an enhancement to the protocol itself, please make a
 proposal by following the [NEAR Enhancement
 Proposal](https://github.com/near/NEPs/blob/master/neps/nep-0001.md) process.
-
-## Getting started
-
-- For non-technical contributions, such as e.g. content or events, see [this
-document](https://docs.nearprotocol.com/docs/contribution/contribution-overview).
-
-- For an overview of the NEAR core architecture, see [this
-playlist](https://www.youtube.com/playlist?list=PL9tzQn_TEuFV4qlts0tVgndnytFs4QSYo).
-
-## Build Process
-
-`nearcore` is a reasonably standard Rust project, so `cargo test` most likely will
-just work.  There are couple of specifics though:
-
-* `nearcore` assumes a UNIX-like environment.  Linux is actively supported; Mac
-is generally supported (the newer M1 chipset may not be well supported); and
-Windows is not supported.
-* `nearcore` build process includes generating bindings to RocksDB via
-`bindgen`, which requires `libclang`.  See [`bindgen`
-documentation](https://rust-lang.github.io/rust-bindgen/requirements.html#clang)
-for installation instructions.
-* You can optionally use the system installations of `librocksdb`, `libsnappy`
-and `lz4` in order to speed up the compilation and reduce the build memory
-requirements by setting the `ROCKSDB_LIB_DIR`, `SNAPPY_LIB_DIR` and
-`LZ4_LIB_DIR` environment variables.  These environment variables should point
-at the directory containing the dynamic shared objects (`.so`s or `.dylib`s).
-Please see the
-[wiki](https://wiki.near.org/contribute/contribute-nearcore#use-system-provided-rocksdb)
-for additional instructions on how to use a system-provided rocksdb
-installation.
-
-If your setup does not involve `rustup`, the required version of the rust
-toolchain can be found in the `rust-toolchain` file.
 
 ## Pull Requests
 
