@@ -15,11 +15,11 @@ use near_actix_test_utils::run_actix;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
-use near_network::types::PeerInfo;
 use near_network::types::{
     NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
 };
+use near_network::types::{NetworkClientMessagesWithContext, PeerInfo};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
 use near_primitives::transaction::SignedTransaction;
@@ -70,10 +70,12 @@ fn repro_1183() {
 
                     if let Some(last_block) = last_block.clone() {
                         for (client, _) in connectors1.write().unwrap().iter() {
-                            client.do_send(NetworkClientMessages::Block(
-                                last_block.clone(),
-                                PeerInfo::random().id,
-                                false,
+                            client.do_send(NetworkClientMessagesWithContext::new(
+                                NetworkClientMessages::Block(
+                                    last_block.clone(),
+                                    PeerInfo::random().id,
+                                    false,
+                                ),
                             ))
                         }
                     }
@@ -87,8 +89,10 @@ fn repro_1183() {
                             for (i, name) in validators.iter().enumerate() {
                                 if name == account_id {
                                     connectors1.write().unwrap()[i].0.do_send(
-                                        NetworkClientMessages::PartialEncodedChunk(
-                                            partial_encoded_chunk.clone().into(),
+                                        NetworkClientMessagesWithContext::new(
+                                            NetworkClientMessages::PartialEncodedChunk(
+                                                partial_encoded_chunk.clone().into(),
+                                            ),
                                         ),
                                     );
                                 }
@@ -104,22 +108,24 @@ fn repro_1183() {
                             let (from, to) = (from.parse().unwrap(), to.parse().unwrap());
                             connectors1.write().unwrap()[account_id_to_shard_id(&from, 4) as usize]
                                 .0
-                                .do_send(NetworkClientMessages::Transaction {
-                                    transaction: SignedTransaction::send_money(
-                                        block.header().height() * 16 + nonce_delta,
-                                        from.clone(),
-                                        to,
-                                        &InMemorySigner::from_seed(
+                                .do_send(NetworkClientMessagesWithContext::new(
+                                    NetworkClientMessages::Transaction {
+                                        transaction: SignedTransaction::send_money(
+                                            block.header().height() * 16 + nonce_delta,
                                             from.clone(),
-                                            KeyType::ED25519,
-                                            from.as_ref(),
+                                            to,
+                                            &InMemorySigner::from_seed(
+                                                from.clone(),
+                                                KeyType::ED25519,
+                                                from.as_ref(),
+                                            ),
+                                            1,
+                                            *block.header().prev_hash(),
                                         ),
-                                        1,
-                                        *block.header().prev_hash(),
-                                    ),
-                                    is_forwarded: false,
-                                    check_only: false,
-                                });
+                                        is_forwarded: false,
+                                        check_only: false,
+                                    },
+                                ));
                             nonce_delta += 1
                         }
                     }
@@ -202,10 +208,12 @@ fn test_sync_from_archival_node() {
                             NetworkRequests::Block { block } => {
                                 for (i, (client, _)) in conns.iter().enumerate() {
                                     if i != 3 {
-                                        client.do_send(NetworkClientMessages::Block(
-                                            block.clone(),
-                                            PeerInfo::random().id,
-                                            false,
+                                        client.do_send(NetworkClientMessagesWithContext::new(
+                                            NetworkClientMessages::Block(
+                                                block.clone(),
+                                                PeerInfo::random().id,
+                                                false,
+                                            ),
                                         ))
                                     }
                                 }
@@ -217,9 +225,11 @@ fn test_sync_from_archival_node() {
                             NetworkRequests::Approval { approval_message } => {
                                 for (i, (client, _)) in conns.clone().into_iter().enumerate() {
                                     if i != 3 {
-                                        client.do_send(NetworkClientMessages::BlockApproval(
-                                            approval_message.approval.clone(),
-                                            PeerInfo::random().id,
+                                        client.do_send(NetworkClientMessagesWithContext::new(
+                                            NetworkClientMessages::BlockApproval(
+                                                approval_message.approval.clone(),
+                                                PeerInfo::random().id,
+                                            ),
                                         ))
                                     }
                                 }
@@ -232,10 +242,8 @@ fn test_sync_from_archival_node() {
                             panic!("incorrect rebroadcasting of blocks");
                         }
                         for (_, block) in blocks.write().unwrap().drain() {
-                            conns[3].0.do_send(NetworkClientMessages::Block(
-                                block,
-                                PeerInfo::random().id,
-                                false,
+                            conns[3].0.do_send(NetworkClientMessagesWithContext::new(
+                                NetworkClientMessages::Block(block, PeerInfo::random().id, false),
                             ));
                         }
                         match msg {

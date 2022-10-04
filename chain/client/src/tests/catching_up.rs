@@ -12,7 +12,9 @@ use near_actix_test_utils::run_actix;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
 use near_crypto::{InMemorySigner, KeyType};
-use near_network::types::{AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, PeerInfo};
+use near_network::types::{
+    AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, NetworkClientMessagesWithContext, PeerInfo,
+};
 use near_network::types::{
     NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
 };
@@ -70,11 +72,11 @@ fn send_tx(
     block_hash: CryptoHash,
 ) {
     let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
-    connector.do_send(NetworkClientMessages::Transaction {
+    connector.do_send(NetworkClientMessagesWithContext::new(NetworkClientMessages::Transaction {
         transaction: SignedTransaction::send_money(nonce, from, to, &signer, amount, block_hash),
         is_forwarded: false,
         check_only: false,
-    });
+    }));
 }
 
 enum ReceiptsSyncPhases {
