@@ -16,7 +16,6 @@ use crate::private_actix::{
 };
 use crate::routing::edge::verify_nonce;
 use crate::stats::metrics;
-use crate::tcp;
 use crate::time;
 use crate::types::{
     Ban, Handshake, HandshakeFailureReason, NetworkClientMessages,
@@ -24,7 +23,6 @@ use crate::types::{
     NetworkViewClientResponses, PeerIdOrHash, PeerManagerRequest, PeerManagerRequestWithContext,
     PeerMessage, PeerType, ReasonForBan, StateResponseInfo,
 };
-use near_o11y::log_assert;
 
 use actix::{
     Actor, ActorContext, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler,

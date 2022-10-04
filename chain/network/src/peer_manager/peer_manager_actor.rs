@@ -4,7 +4,6 @@ use crate::network_protocol::{
     Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo,
     SyncAccountsData,
 };
-use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_store::PeerStore;
@@ -18,12 +17,11 @@ use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use crate::store;
-use crate::tcp;
 use crate::time;
 use crate::types::{
     Ban, ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownPeerStatus, KnownProducer,
-    NetworkClientMessages, NetworkClientMessagesWithContext, NetworkInfo, NetworkRequests,
-    NetworkResponses, NetworkViewClientMessages, NetworkViewClientResponses,
+    NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
+    NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
     PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType, ReasonForBan, SetChainInfo,
 };
 use actix::fut::future::wrap_future;
