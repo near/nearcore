@@ -148,7 +148,7 @@ fn build_chain_with_skips_and_forks() {
     let b5 = Block::empty(&b4, &*signer);
     assert!(chain.process_block_test(&None, b1).is_ok());
     assert!(chain.process_block_test(&None, b2).is_ok());
-    assert!(chain.process_block_test(&None, b3).is_ok());
+    assert!(chain.process_block_test(&None, b3.clone()).is_ok());
     assert!(chain.process_block_test(&None, b4).is_ok());
     assert!(chain.process_block_test(&None, b5).is_ok());
     assert!(chain.get_block_header_by_height(1).is_err());
