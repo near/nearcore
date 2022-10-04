@@ -14,7 +14,7 @@ use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock, Query, Status, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
-use near_network::types::NetworkClientMessages;
+use near_network::types::{NetworkClientMessages, NetworkClientMessagesWithContext};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
@@ -123,11 +123,13 @@ fn test_stake_nodes() {
             actix::spawn(
                 test_nodes[0]
                     .client
-                    .send(NetworkClientMessages::Transaction {
-                        transaction: tx,
-                        is_forwarded: false,
-                        check_only: false,
-                    })
+                    .send(NetworkClientMessagesWithContext::new(
+                        NetworkClientMessages::Transaction {
+                            transaction: tx,
+                            is_forwarded: false,
+                            check_only: false,
+                        },
+                    ))
                     .map(drop),
             );
 
@@ -216,11 +218,13 @@ fn test_validator_kickout() {
                 actix::spawn(
                     test_node
                         .client
-                        .send(NetworkClientMessages::Transaction {
-                            transaction: stake_transaction,
-                            is_forwarded: false,
-                            check_only: false,
-                        })
+                        .send(NetworkClientMessagesWithContext::new(
+                            NetworkClientMessages::Transaction {
+                                transaction: stake_transaction,
+                                is_forwarded: false,
+                                check_only: false,
+                            },
+                        ))
                         .map(drop),
                 );
             }
@@ -387,21 +391,25 @@ fn test_validator_join() {
             actix::spawn(
                 test_nodes[1]
                     .client
-                    .send(NetworkClientMessages::Transaction {
-                        transaction: unstake_transaction,
-                        is_forwarded: false,
-                        check_only: false,
-                    })
+                    .send(NetworkClientMessagesWithContext::new(
+                        NetworkClientMessages::Transaction {
+                            transaction: unstake_transaction,
+                            is_forwarded: false,
+                            check_only: false,
+                        },
+                    ))
                     .map(drop),
             );
             actix::spawn(
                 test_nodes[0]
                     .client
-                    .send(NetworkClientMessages::Transaction {
-                        transaction: stake_transaction,
-                        is_forwarded: false,
-                        check_only: false,
-                    })
+                    .send(NetworkClientMessagesWithContext::new(
+                        NetworkClientMessages::Transaction {
+                            transaction: stake_transaction,
+                            is_forwarded: false,
+                            check_only: false,
+                        },
+                    ))
                     .map(drop),
             );
 

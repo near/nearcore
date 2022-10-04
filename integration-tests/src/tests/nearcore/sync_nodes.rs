@@ -13,8 +13,8 @@ use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
-use near_network::types::NetworkClientMessages;
 use near_network::types::PeerInfo;
+use near_network::types::{NetworkClientMessages, NetworkClientMessagesWithContext};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::block::Approval;
 use near_primitives::hash::CryptoHash;
@@ -87,10 +87,8 @@ fn add_blocks(
             None,
         );
         block_merkle_tree.insert(*block.hash());
-        let _ = client.do_send(NetworkClientMessages::Block(
-            block.clone(),
-            PeerInfo::random().id,
-            false,
+        let _ = client.do_send(NetworkClientMessagesWithContext::new(
+            NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, false),
         ));
         blocks.push(block);
         prev = &blocks[blocks.len() - 1];
@@ -272,11 +270,13 @@ fn sync_state_stake_change() {
             );
             actix::spawn(
                 client1
-                    .send(NetworkClientMessages::Transaction {
-                        transaction: unstake_transaction,
-                        is_forwarded: false,
-                        check_only: false,
-                    })
+                    .send(NetworkClientMessagesWithContext::new(
+                        NetworkClientMessages::Transaction {
+                            transaction: unstake_transaction,
+                            is_forwarded: false,
+                            check_only: false,
+                        },
+                    ))
                     .map(drop),
             );
 

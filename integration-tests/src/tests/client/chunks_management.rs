@@ -9,9 +9,9 @@ use near_chunks::{
 };
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, GetBlock, ViewClientActor};
-use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{AccountIdOrPeerTrackingShard, PeerInfo};
 use near_network::types::{NetworkClientMessages, NetworkRequests, NetworkResponses};
+use near_network::types::{NetworkClientMessagesWithContext, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::time::Instant;
@@ -249,21 +249,27 @@ impl Test {
         actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
             let block_hash = res.unwrap().unwrap().header.hash;
             let connectors_ = connectors.write().unwrap();
-            connectors_[0].0.do_send(NetworkClientMessages::Transaction {
-                transaction: SignedTransaction::empty(block_hash),
-                is_forwarded: false,
-                check_only: false,
-            });
-            connectors_[1].0.do_send(NetworkClientMessages::Transaction {
-                transaction: SignedTransaction::empty(block_hash),
-                is_forwarded: false,
-                check_only: false,
-            });
-            connectors_[2].0.do_send(NetworkClientMessages::Transaction {
-                transaction: SignedTransaction::empty(block_hash),
-                is_forwarded: false,
-                check_only: false,
-            });
+            connectors_[0].0.do_send(NetworkClientMessagesWithContext::new(
+                NetworkClientMessages::Transaction {
+                    transaction: SignedTransaction::empty(block_hash),
+                    is_forwarded: false,
+                    check_only: false,
+                },
+            ));
+            connectors_[1].0.do_send(NetworkClientMessagesWithContext::new(
+                NetworkClientMessages::Transaction {
+                    transaction: SignedTransaction::empty(block_hash),
+                    is_forwarded: false,
+                    check_only: false,
+                },
+            ));
+            connectors_[2].0.do_send(NetworkClientMessagesWithContext::new(
+                NetworkClientMessages::Transaction {
+                    transaction: SignedTransaction::empty(block_hash),
+                    is_forwarded: false,
+                    check_only: false,
+                },
+            ));
             future::ready(())
         }));
     }
