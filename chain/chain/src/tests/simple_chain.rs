@@ -152,6 +152,7 @@ fn build_chain_with_skips_and_forks() {
     assert!(chain.process_block_test(&None, b3.clone()).is_ok());
     assert!(chain.process_block_test(&None, b4).is_ok());
     assert!(chain.process_block_test(&None, b5).is_ok());
+    assert!(chain.process_block_test(&None, b6).is_ok());
     assert!(chain.get_block_header_by_height(1).is_err());
     assert_eq!(chain.get_block_header_by_height(5).unwrap().height(), 5);
     assert_eq!(chain.get_block_header_by_height(6).unwrap().height(), 6);
