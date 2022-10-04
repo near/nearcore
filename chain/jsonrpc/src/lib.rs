@@ -1074,9 +1074,9 @@ impl JsonRpcHandler {
         let height = crate::api::parse_params::<u64>(params)?;
         actix::spawn(
             self.client_addr
-                .send(near_network::types::NetworkClientMessages::Adversarial(
+                .send(NetworkClientMessagesWithContext::new(NetworkClientMessages::Adversarial(
                     near_network::types::NetworkAdversarialMessage::AdvSetSyncInfo(height),
-                ))
+                )))
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -1085,9 +1085,9 @@ impl JsonRpcHandler {
     async fn adv_disable_header_sync(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr
-                .send(near_network::types::NetworkClientMessages::Adversarial(
+                .send(NetworkClientMessagesWithContext::new(NetworkClientMessages::Adversarial(
                     near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync,
-                ))
+                )))
                 .map(|_| ()),
         );
         actix::spawn(
@@ -1103,9 +1103,9 @@ impl JsonRpcHandler {
     async fn adv_disable_doomslug(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr
-                .send(NetworkClientMessages::Adversarial(
+                .send(NetworkClientMessagesWithContext::new(NetworkClientMessages::Adversarial(
                     near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug,
-                ))
+                )))
                 .map(|_| ()),
         );
         actix::spawn(
@@ -1122,11 +1122,11 @@ impl JsonRpcHandler {
         let (num_blocks, only_valid) = crate::api::parse_params::<(u64, bool)>(params)?;
         actix::spawn(
             self.client_addr
-                .send(NetworkClientMessages::Adversarial(
+                .send(NetworkClientMessagesWithContext::new(NetworkClientMessages::Adversarial(
                     near_network::types::NetworkAdversarialMessage::AdvProduceBlocks(
                         num_blocks, only_valid,
                     ),
-                ))
+                )))
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -1136,9 +1136,9 @@ impl JsonRpcHandler {
         let (height,) = crate::api::parse_params::<(u64,)>(params)?;
         actix::spawn(
             self.client_addr
-                .send(NetworkClientMessages::Adversarial(
+                .send(NetworkClientMessagesWithContext::new(NetworkClientMessages::Adversarial(
                     near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height),
-                ))
+                )))
                 .map(|_| ()),
         );
         actix::spawn(
@@ -1154,9 +1154,9 @@ impl JsonRpcHandler {
     async fn adv_get_saved_blocks(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         match self
             .client_addr
-            .send(NetworkClientMessages::Adversarial(
+            .send(NetworkClientMessagesWithContext::new(NetworkClientMessages::Adversarial(
                 near_network::types::NetworkAdversarialMessage::AdvGetSavedBlocks,
-            ))
+            )))
             .await
         {
             Ok(result) => match result {
@@ -1170,9 +1170,9 @@ impl JsonRpcHandler {
     async fn adv_check_store(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         match self
             .client_addr
-            .send(NetworkClientMessages::Adversarial(
+            .send(NetworkClientMessagesWithContext::new(NetworkClientMessages::Adversarial(
                 near_network::types::NetworkAdversarialMessage::AdvCheckStorageConsistency,
-            ))
+            )))
             .await
         {
             Ok(result) => match result {
