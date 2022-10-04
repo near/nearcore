@@ -146,16 +146,18 @@ fn build_chain_with_skips_and_forks() {
     let b3 = Block::empty_with_height(&b1, 3, &*signer);
     let b4 = Block::empty_with_height(&b2, 4, &*signer);
     let b5 = Block::empty(&b4, &*signer);
+    let b6 = Block::empty(&b5, &*signer);
     assert!(chain.process_block_test(&None, b1).is_ok());
-    assert!(chain.process_block_test(&None, b2.clone()).is_ok());
-    assert!(chain.process_block_test(&None, b3).is_ok());
+    assert!(chain.process_block_test(&None, b2).is_ok());
+    assert!(chain.process_block_test(&None, b3.clone()).is_ok());
     assert!(chain.process_block_test(&None, b4).is_ok());
     assert!(chain.process_block_test(&None, b5).is_ok());
     assert!(chain.get_block_header_by_height(1).is_err());
     assert_eq!(chain.get_block_header_by_height(5).unwrap().height(), 5);
+    assert_eq!(chain.get_block_header_by_height(6).unwrap().height(), 6);
 
-    let c3 = Block::empty_with_height(&b2, 3, &*signer);
-    assert_matches!(chain.process_block_test(&None, c3), Err(Error::CannotBeFinalized));
+    let c4 = Block::empty_with_height(&b3, 4, &*signer);
+    assert_matches!(chain.process_block_test(&None, c4), Err(Error::CannotBeFinalized));
 }
 
 /// Verifies that the block at height are updated correctly when blocks from different forks are
