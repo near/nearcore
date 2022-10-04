@@ -217,8 +217,8 @@ fn blocks_at_height() {
     assert_eq!(chain.get_block_header_by_height(5).unwrap().hash(), &d_5_hash);
     assert_eq!(chain.get_block_header_by_height(6).unwrap().hash(), &d_6_hash);
 
-    assert_eq!(chain.process_block_test(&None, e_7), Err(Error::CannotBeFinalized));
-    assert_matches!(chain.get_block_header_by_height(7), Err(_));
+    assert_eq!(chain.process_block_test(&None, e_7).unwrap_err(), Error::CannotBeFinalized);
+    assert!(chain.get_block_header_by_height(7).is_err());
 }
 
 #[test]
