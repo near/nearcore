@@ -153,10 +153,13 @@ fn build_chain_with_skips_and_forks() {
     assert!(chain.process_block_test(&None, b5).is_ok());
     assert!(chain.get_block_header_by_height(1).is_err());
     assert_eq!(chain.get_block_header_by_height(5).unwrap().height(), 5);
+
+    let c4 = Block::empty_with_height(&b3, 4, &*signer);
+    assert_matches!(chain.process_block_test(&None, c4), Err(Error::CannotBeFinalized));
 }
 
 /// Verifies that the block at height are updated correctly when blocks from different forks are
-/// processed, especially when certain heights are skipped
+/// processed, especially when certain heights are skipped.
 #[test]
 fn blocks_at_height() {
     init_test_logger();
