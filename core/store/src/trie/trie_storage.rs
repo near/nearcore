@@ -723,12 +723,12 @@ mod trie_cache_tests {
     fn test_small_memory_limit() {
         let total_size_limit = 1;
         let mut cache = TrieCacheInner::new(100, total_size_limit, 0, false);
-        put_value(&mut cache, &[1,2,3]);
-        put_value(&mut cache, &[2,3,4]);
-        put_value(&mut cache, &[3,4,5]);
+        put_value(&mut cache, &[1, 2, 3]);
+        put_value(&mut cache, &[2, 3, 4]);
+        put_value(&mut cache, &[3, 4, 5]);
 
-        assert!(!cache.cache.contains(&hash(&[1,2,3])));
-        assert!(!cache.cache.contains(&hash(&[2,3,4])));
-        assert!(cache.cache.contains(&hash(&[3,4,5])));
+        assert!(!cache.cache.contains(&hash(&[1, 2, 3])));
+        assert!(!cache.cache.contains(&hash(&[2, 3, 4])));
+        assert!(cache.cache.contains(&hash(&[3, 4, 5])));
     }
 }
