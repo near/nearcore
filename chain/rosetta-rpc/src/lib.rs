@@ -18,6 +18,7 @@ use near_client::{ClientActor, ViewClientActor};
 use near_primitives::borsh::BorshDeserialize;
 
 pub use config::RosettaRpcConfig;
+use near_network::types::NetworkClientMessagesWithContext;
 
 mod adapters;
 mod config;
@@ -735,11 +736,13 @@ async fn construction_submit(
 
     let transaction_hash = signed_transaction.as_ref().get_hash();
     let transaction_submittion = client_addr
-        .send(near_network::types::NetworkClientMessages::Transaction {
-            transaction: signed_transaction.into_inner(),
-            is_forwarded: false,
-            check_only: false,
-        })
+        .send(NetworkClientMessagesWithContext::new(
+            near_network::types::NetworkClientMessages::Transaction {
+                transaction: signed_transaction.into_inner(),
+                is_forwarded: false,
+                check_only: false,
+            },
+        ))
         .await?;
     match transaction_submittion {
         near_network::types::NetworkClientResponses::ValidTx

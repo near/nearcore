@@ -25,7 +25,9 @@ pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
-use near_network::types::{NetworkClientMessages, NetworkClientResponses};
+use near_network::types::{
+    NetworkClientMessages, NetworkClientMessagesWithContext, NetworkClientResponses,
+};
 use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
@@ -409,11 +411,13 @@ impl JsonRpcHandler {
     ) -> CryptoHash {
         let tx = request_data.signed_transaction;
         let hash = tx.get_hash().clone();
-        self.client_addr.do_send(NetworkClientMessages::Transaction {
-            transaction: tx,
-            is_forwarded: false,
-            check_only: false, // if we set true here it will not actually send the transaction
-        });
+        self.client_addr.do_send(NetworkClientMessagesWithContext::new(
+            NetworkClientMessages::Transaction {
+                transaction: tx,
+                is_forwarded: false,
+                check_only: false, // if we set true here it will not actually send the transaction
+            },
+        ));
         hash
     }
 
@@ -575,11 +579,11 @@ impl JsonRpcHandler {
         let signer_account_id = tx.transaction.signer_id.clone();
         let response = self
             .client_addr
-            .send(NetworkClientMessages::Transaction {
+            .send(NetworkClientMessagesWithContext::new(NetworkClientMessages::Transaction {
                 transaction: tx,
                 is_forwarded: false,
                 check_only,
-            })
+            }))
             .await
             .map_err(RpcFrom::rpc_from)?;
 

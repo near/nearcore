@@ -25,6 +25,8 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
@@ -519,6 +521,19 @@ pub enum NetworkClientResponses {
     DoesNotTrackShard,
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
+}
+
+#[derive(actix::Message, Debug)]
+#[rtype(result = "NetworkClientResponses")]
+pub struct NetworkClientMessagesWithContext {
+    pub msg: NetworkClientMessages,
+    pub context: opentelemetry::Context,
+}
+
+impl NetworkClientMessagesWithContext {
+    pub fn new(msg: NetworkClientMessages) -> Self {
+        Self { msg, context: Span::current().context() }
+    }
 }
 
 pub trait MsgRecipient<M: actix::Message>: Send + Sync + 'static {

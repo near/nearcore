@@ -7,8 +7,9 @@ use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::GenesisConfig;
 use near_client::sync;
 use near_network::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
+    FullPeerInfo, NetworkClientMessages, NetworkClientMessagesWithContext, NetworkInfo,
+    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    SetChainInfo,
 };
 use near_network::types::{
     PartialEdgeInfo, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
@@ -192,7 +193,7 @@ impl IncomingRequests {
 /// - Simulates block production and sends the most "recent" block to ClientActor
 pub struct MockPeerManagerActor {
     /// Client address for the node that we are testing
-    client_addr: Recipient<NetworkClientMessages>,
+    client_addr: Recipient<NetworkClientMessagesWithContext>,
     /// Access a pre-generated chain history from storage
     chain_history_access: ChainHistoryAccess,
     /// Current network state for the simulated network
@@ -208,7 +209,7 @@ pub struct MockPeerManagerActor {
 
 impl MockPeerManagerActor {
     fn new(
-        client_addr: Recipient<NetworkClientMessages>,
+        client_addr: Recipient<NetworkClientMessagesWithContext>,
         genesis_config: &GenesisConfig,
         mut chain: Chain,
         client_start_height: BlockHeight,
@@ -263,8 +264,9 @@ impl MockPeerManagerActor {
     /// When it is called, it increments peer heights by 1 and sends the block at that height
     /// to ClientActor. In a way, it simulates peers that broadcast new blocks
     fn update_peers(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
-        let _response =
-            self.client_addr.do_send(NetworkClientMessages::NetworkInfo(self.network_info.clone()));
+        let _response = self.client_addr.do_send(NetworkClientMessagesWithContext::new(
+            NetworkClientMessages::NetworkInfo(self.network_info.clone()),
+        ));
         for connected_peer in self.network_info.connected_peers.iter_mut() {
             let peer = &mut connected_peer.full_peer_info;
             let current_height = peer.chain_info.height;
@@ -272,11 +274,10 @@ impl MockPeerManagerActor {
                 if let Ok(block) =
                     self.chain_history_access.retrieve_block_by_height(current_height)
                 {
-                    let _response = self.client_addr.do_send(NetworkClientMessages::Block(
-                        block,
-                        peer.peer_info.id.clone(),
-                        false,
-                    ));
+                    let _response =
+                        self.client_addr.do_send(NetworkClientMessagesWithContext::new(
+                            NetworkClientMessages::Block(block, peer.peer_info.id.clone(), false),
+                        ));
                 }
                 peer.chain_info.height = current_height + 1;
             }
@@ -294,10 +295,12 @@ impl MockPeerManagerActor {
 
     fn send_unrequested_block(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
         if let Some((interval, block)) = &self.incoming_requests.block {
-            let _response = self.client_addr.do_send(NetworkClientMessages::Block(
-                block.clone(),
-                self.network_info.connected_peers[0].full_peer_info.peer_info.id.clone(),
-                false,
+            let _response = self.client_addr.do_send(NetworkClientMessagesWithContext::new(
+                NetworkClientMessages::Block(
+                    block.clone(),
+                    self.network_info.connected_peers[0].full_peer_info.peer_info.id.clone(),
+                    false,
+                ),
             ));
 
             run_later(ctx, *interval, move |act, ctx| {
@@ -308,14 +311,15 @@ impl MockPeerManagerActor {
 
     fn send_chunk_request(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
         if let Some((interval, request)) = &self.incoming_requests.chunk_request {
-            let _response =
-                self.client_addr.do_send(NetworkClientMessages::PartialEncodedChunkRequest(
+            let _response = self.client_addr.do_send(NetworkClientMessagesWithContext::new(
+                NetworkClientMessages::PartialEncodedChunkRequest(
                     request.clone(),
                     // this can just be nonsense since the PeerManager is mocked out anyway. If/when we update the mock node
                     // to exercise the PeerManager code as well, then this won't matter anyway since the mock code won't be
                     // responsible for it.
                     CryptoHash::default(),
-                ));
+                ),
+            ));
 
             run_later(ctx, *interval, move |act, ctx| {
                 act.send_chunk_request(ctx);
@@ -354,9 +358,10 @@ impl Handler<PeerManagerMessageRequest> for MockPeerManagerActor {
                 NetworkRequests::BlockRequest { hash, peer_id } => {
                     run_later(ctx, self.network_delay, move |act, _ctx| {
                         let block = act.chain_history_access.retrieve_block(&hash).unwrap();
-                        let _response = act
-                            .client_addr
-                            .do_send(NetworkClientMessages::Block(block, peer_id, true));
+                        let _response =
+                            act.client_addr.do_send(NetworkClientMessagesWithContext::new(
+                                NetworkClientMessages::Block(block, peer_id, true),
+                            ));
                     });
                 }
                 NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
@@ -365,9 +370,10 @@ impl Handler<PeerManagerMessageRequest> for MockPeerManagerActor {
                             .chain_history_access
                             .retrieve_block_headers(hashes.clone())
                             .unwrap();
-                        let _response = act
-                            .client_addr
-                            .do_send(NetworkClientMessages::BlockHeaders(headers, peer_id));
+                        let _response =
+                            act.client_addr.do_send(NetworkClientMessagesWithContext::new(
+                                NetworkClientMessages::BlockHeaders(headers, peer_id),
+                            ));
                     });
                 }
                 NetworkRequests::PartialEncodedChunkRequest { request, .. } => {
@@ -376,12 +382,13 @@ impl Handler<PeerManagerMessageRequest> for MockPeerManagerActor {
                             .chain_history_access
                             .retrieve_partial_encoded_chunk(&request)
                             .unwrap();
-                        let _response = act.client_addr.do_send(
-                            NetworkClientMessages::PartialEncodedChunkResponse(
-                                response,
-                                Clock::instant(),
-                            ),
-                        );
+                        let _response =
+                            act.client_addr.do_send(NetworkClientMessagesWithContext::new(
+                                NetworkClientMessages::PartialEncodedChunkResponse(
+                                    response,
+                                    Clock::instant(),
+                                ),
+                            ));
                     });
                 }
                 NetworkRequests::PartialEncodedChunkResponse { .. } => {}

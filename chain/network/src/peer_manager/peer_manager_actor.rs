@@ -1,9 +1,5 @@
 use crate::config;
-use crate::network_protocol::{
-    AccountData, AccountOrPeerIdOrHash, Edge, EdgeState, PartialEdgeInfo, PeerInfo, PeerMessage,
-    Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo,
-    SyncAccountsData,
-};
+use crate::network_protocol::{AccountData, PeerMessage, RoutingTableUpdate, SyncAccountsData};
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_store::PeerStore;
@@ -17,12 +13,10 @@ use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use crate::store;
-use crate::time;
 use crate::types::{
-    Ban, ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownPeerStatus, KnownProducer,
-    NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
-    NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType, ReasonForBan, SetChainInfo,
+    ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, NetworkClientMessages,
+    NetworkClientMessagesWithContext, NetworkInfo, NetworkRequests, NetworkResponses,
+    OutboundTcpConnect, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
 };
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
@@ -30,6 +24,13 @@ use actix::{
 };
 use anyhow::bail;
 use anyhow::Context as _;
+use near_network_primitives::time;
+use near_network_primitives::types::{
+    AccountOrPeerIdOrHash, Ban, Edge, KnownPeerStatus, KnownProducer, NetworkViewClientMessages,
+    NetworkViewClientResponses, PeerInfo, PeerType, Ping, Pong, RawRoutedMessage, ReasonForBan,
+    RoutedMessageBody, StateResponseInfo,
+};
+use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -88,9 +89,6 @@ const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 /// If we set this horizon too low (for example 2 blocks) - we're risking excluding a lot of peers in case of a short
 /// network issue.
 const UNRELIABLE_PEER_HORIZON: u64 = 60;
-
-/// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
-pub const MAX_NUM_PEERS: usize = 128;
 
 #[derive(Clone, PartialEq, Eq)]
 struct WhitelistNode {
@@ -262,7 +260,7 @@ impl PeerManagerActor {
         clock: time::Clock,
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
-        client_addr: Recipient<NetworkClientMessages>,
+        client_addr: Recipient<NetworkClientMessagesWithContext>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<actix::Addr<Self>> {
@@ -1084,7 +1082,9 @@ impl PeerManagerActor {
             .with_label_values(&["push_network_info"])
             .start_timer();
 
-        let _ = self.state.client_addr.do_send(NetworkClientMessages::NetworkInfo(network_info));
+        let _ = self.state.client_addr.do_send(NetworkClientMessagesWithContext::new(
+            NetworkClientMessages::NetworkInfo(network_info),
+        ));
 
         near_performance_metrics::actix::run_later(
             ctx,

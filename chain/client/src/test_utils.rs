@@ -28,8 +28,9 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::PartialEdgeInfo;
 use near_network::types::{
-    ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkClientResponses,
-    NetworkRecipient, NetworkRequests, NetworkResponses, PeerManagerAdapter,
+    ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkClientMessagesWithContext,
+    NetworkClientResponses, NetworkRecipient, NetworkRequests, NetworkResponses,
+    PeerManagerAdapter,
 };
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
@@ -500,7 +501,7 @@ fn send_chunks<T, I, F>(
 ) where
     T: Eq,
     I: Iterator<Item = (usize, T)>,
-    F: Fn() -> NetworkClientMessages,
+    F: Fn() -> NetworkClientMessagesWithContext,
 {
     for (i, name) in recipients {
         if name == target {
@@ -666,7 +667,7 @@ pub fn setup_mock_all_validators(
                             known_producers: vec![],
                             tier1_accounts: vec![],
                         };
-                        client_addr.do_send(NetworkClientMessages::NetworkInfo(info));
+                        client_addr.do_send(NetworkClientMessagesWithContext::new(NetworkClientMessages::NetworkInfo(info)));
                     }
 
                     match msg.as_network_requests_ref() {
@@ -678,11 +679,11 @@ pub fn setup_mock_all_validators(
                             }
 
                             for (client, _) in connectors1 {
-                                client.do_send(NetworkClientMessages::Block(
+                                client.do_send(NetworkClientMessagesWithContext::new(NetworkClientMessages::Block(
                                     block.clone(),
                                     PeerInfo::random().id,
                                     false,
-                                ))
+                                )))
                             }
 
                             let mut last_height1 = last_height1.write().unwrap();
@@ -698,9 +699,11 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::PartialEncodedChunkRequest { target, request , ..} => {
                             let create_msg = || {
+                                NetworkClientMessagesWithContext::new(
                                 NetworkClientMessages::PartialEncodedChunkRequest(
                                     request.clone(),
                                     my_address,
+                                )
                                 )
                             };
                             send_chunks(
@@ -713,7 +716,8 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
                             let create_msg = || {
-                                NetworkClientMessages::PartialEncodedChunkResponse(response.clone(), Clock::instant())
+                                NetworkClientMessagesWithContext::new(
+                                NetworkClientMessages::PartialEncodedChunkResponse(response.clone(), Clock::instant()))
                             };
                             send_chunks(
                                 connectors1,
@@ -728,8 +732,10 @@ pub fn setup_mock_all_validators(
                             partial_encoded_chunk,
                         } => {
                             let create_msg = || {
+                                NetworkClientMessagesWithContext::new(
                                 NetworkClientMessages::PartialEncodedChunk(
                                     partial_encoded_chunk.clone().into(),
+                                )
                                 )
                             };
                             send_chunks(
@@ -742,7 +748,9 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                             let create_msg = || {
+                                NetworkClientMessagesWithContext::new(
                                 NetworkClientMessages::PartialEncodedChunkForward(forward.clone())
+                                )
                             };
                             send_chunks(
                                 connectors1,
@@ -765,7 +773,11 @@ pub fn setup_mock_all_validators(
                                                 let response = response.unwrap();
                                                 match response {
                                                     NetworkViewClientResponses::Block(block) => {
-                                                        me.do_send(NetworkClientMessages::Block(*block, peer_id, true));
+                                                        me.do_send(
+                                                            NetworkClientMessagesWithContext::new(
+                                                            NetworkClientMessages::Block(*block, peer_id, true)
+                                                        )
+                                                        );
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -791,7 +803,11 @@ pub fn setup_mock_all_validators(
                                                 let response = response.unwrap();
                                                 match response {
                                                     NetworkViewClientResponses::EpochSyncResponse(response) => {
-                                                        me.do_send(NetworkClientMessages::EpochSyncResponse(peer_id, response));
+                                                        me.do_send(
+                                                            NetworkClientMessagesWithContext::new(
+                                                            NetworkClientMessages::EpochSyncResponse(peer_id, response)
+                                                        )
+                                                        );
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -817,7 +833,11 @@ pub fn setup_mock_all_validators(
                                                 let response = response.unwrap();
                                                 match response {
                                                     NetworkViewClientResponses::EpochSyncFinalizationResponse(response) => {
-                                                        me.do_send(NetworkClientMessages::EpochSyncFinalizationResponse(peer_id, response));
+                                                        me.do_send(
+                                                            NetworkClientMessagesWithContext::new(
+                                                            NetworkClientMessages::EpochSyncFinalizationResponse(peer_id, response)
+                                                        )
+                                                        );
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -845,7 +865,11 @@ pub fn setup_mock_all_validators(
                                                     NetworkViewClientResponses::BlockHeaders(
                                                         headers,
                                                     ) => {
-                                                        me.do_send(NetworkClientMessages::BlockHeaders(headers, peer_id));
+                                                        me.do_send(
+                                                            NetworkClientMessagesWithContext::new(
+                                                            NetworkClientMessages::BlockHeaders(headers, peer_id)
+                                                        )
+                                                        );
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -881,7 +905,11 @@ pub fn setup_mock_all_validators(
                                                     NetworkViewClientResponses::StateResponse(
                                                         response,
                                                     ) => {
-                                                        me.do_send(NetworkClientMessages::StateResponse(*response));
+                                                        me.do_send(
+                                                            NetworkClientMessagesWithContext::new(
+                                                            NetworkClientMessages::StateResponse(*response)
+                                                        )
+                                                        );
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -919,7 +947,11 @@ pub fn setup_mock_all_validators(
                                                     NetworkViewClientResponses::StateResponse(
                                                         response,
                                                     ) => {
-                                                        me.do_send(NetworkClientMessages::StateResponse(*response));
+                                                        me.do_send(
+                                                            NetworkClientMessagesWithContext::new(
+                                                            NetworkClientMessages::StateResponse(*response)
+                                                        )
+                                                        );
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -934,7 +966,9 @@ pub fn setup_mock_all_validators(
                             for (i, address) in addresses.iter().enumerate() {
                                 if route_back == address {
                                     connectors1[i].0.do_send(
+                                        NetworkClientMessagesWithContext::new(
                                         NetworkClientMessages::StateResponse(response.clone()),
+                                    )
                                     );
                                 }
                             }
@@ -976,10 +1010,12 @@ pub fn setup_mock_all_validators(
                                 for (i, name) in validators_clone2.iter().enumerate() {
                                     if name == &approval_message.target {
                                         connectors1[i].0.do_send(
+                                            NetworkClientMessagesWithContext::new(
                                             NetworkClientMessages::BlockApproval(
                                                 approval.clone(),
                                                 my_key_pair.id.clone(),
                                             ),
+                                        )
                                         );
                                     }
                                 }

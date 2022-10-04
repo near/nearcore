@@ -2973,6 +2973,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "tracing-opentelemetry",
 ]
 
 [[package]]

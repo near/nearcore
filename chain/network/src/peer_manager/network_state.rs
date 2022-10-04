@@ -1,19 +1,21 @@
 use crate::accounts_data;
 use crate::concurrency::demux;
 use crate::config;
-use crate::network_protocol::{
-    AccountOrPeerIdOrHash, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
-    RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
-};
+use crate::network_protocol::PeerMessage;
 use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::connection;
 use crate::private_actix::PeerToManagerMsg;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
-use crate::time;
-use crate::types::{ChainInfo, NetworkClientMessages, NetworkViewClientMessages};
+use crate::types::{ChainInfo, NetworkClientMessagesWithContext};
 use actix::Recipient;
 use arc_swap::ArcSwap;
+use near_network_primitives::time;
+use near_network_primitives::types::{
+    AccountOrPeerIdOrHash, PartialEdgeInfo, PeerInfo, Ping, Pong, RawRoutedMessage,
+    RoutedMessageBody, RoutedMessageV2,
+};
+use near_network_primitives::types::{NetworkViewClientMessages, PeerIdOrHash};
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -34,7 +36,7 @@ pub(crate) struct NetworkState {
     pub genesis_id: GenesisId,
     pub send_accounts_data_rl: demux::RateLimit,
     /// Address of the client actor.
-    pub client_addr: Recipient<NetworkClientMessages>,
+    pub client_addr: Recipient<NetworkClientMessagesWithContext>,
     /// Address of the view client actor.
     pub view_client_addr: Recipient<NetworkViewClientMessages>,
     /// Address of the peer manager actor.
@@ -65,7 +67,7 @@ impl NetworkState {
     pub fn new(
         config: Arc<config::VerifiedConfig>,
         genesis_id: GenesisId,
-        client_addr: Recipient<NetworkClientMessages>,
+        client_addr: Recipient<NetworkClientMessagesWithContext>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         peer_manager_addr: Recipient<PeerToManagerMsg>,
         routing_table_view: RoutingTableView,

@@ -1,10 +1,8 @@
 use crate::accounts_data;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
-use crate::network_protocol::{
-    Edge, EdgeState, Encoding, ParsePeerMessageError, PartialEdgeInfo, PeerChainInfoV2, PeerInfo,
-    RoutedMessage, RoutedMessageBody, SyncAccountsData,
-};
+use crate::network_protocol::{Encoding, ParsePeerMessageError, SyncAccountsData};
+use crate::network_protocol::{Handshake, HandshakeFailureReason, PeerMessage};
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
@@ -18,13 +16,9 @@ use crate::private_actix::{
 use crate::routing::edge::verify_nonce;
 use crate::sink::Sink;
 use crate::stats::metrics;
-use crate::time;
 use crate::types::{
-    Ban, Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses,
-    NetworkViewClientMessages, NetworkViewClientResponses, PeerIdOrHash, PeerManagerRequest,
-    PeerManagerRequestWithContext, PeerMessage, PeerType, ReasonForBan, StateResponseInfo,
+    NetworkClientMessages, NetworkClientMessagesWithContext, NetworkClientResponses,
 };
-
 use actix::{
     Actor, ActorContext, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler,
     Running, WrapFuture,
@@ -32,6 +26,13 @@ use actix::{
 use anyhow::Context as _;
 use lru::LruCache;
 use near_crypto::Signature;
+use near_network_primitives::time;
+use near_network_primitives::types::{
+    Ban, EdgeState, NetworkViewClientMessages, NetworkViewClientResponses, PeerChainInfoV2,
+    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerManagerRequestWithContext, PeerType,
+    ReasonForBan, RoutedMessage, RoutedMessageBody, StateResponseInfo,
+};
+use near_network_primitives::types::{Edge, PartialEdgeInfo};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::logging;
@@ -578,6 +579,7 @@ impl PeerActor {
                 return;
             }
         };
+        let network_client_msg = NetworkClientMessagesWithContext::new(network_client_msg);
 
         self.network_state.client_addr
             .send(network_client_msg)
@@ -943,9 +945,16 @@ impl Actor for PeerActor {
     }
 }
 
-impl actix::Handler<stream::Error> for PeerActor {
+impl Handler<stream::Error> for PeerActor {
     type Result = ();
     fn handle(&mut self, err: stream::Error, ctx: &mut Self::Context) {
+        let _span = tracing::debug_span!(
+            target: "network",
+            "handle",
+            handler = "Error",
+            actor = "PeerActor",
+        )
+        .entered();
         let expected = match &err {
             stream::Error::Recv(stream::RecvError::MessageTooLarge { .. }) => {
                 self.ban_peer(ctx, ReasonForBan::Abusive);
@@ -972,11 +981,17 @@ impl actix::Handler<stream::Error> for PeerActor {
     }
 }
 
-impl actix::Handler<stream::Frame> for PeerActor {
+impl Handler<stream::Frame> for PeerActor {
     type Result = ();
     #[perf]
     fn handle(&mut self, stream::Frame(msg): stream::Frame, ctx: &mut Self::Context) {
-        let _span = tracing::trace_span!(target: "network", "handle", handler = "bytes").entered();
+        let _span = tracing::debug_span!(
+            target: "network",
+            "handle",
+            handler = "bytes",
+            actor = "PeerActor",
+        )
+        .entered();
         // TODO(#5155) We should change our code to track size of messages received from Peer
         // as long as it travels to PeerManager, etc.
 
@@ -1297,8 +1312,12 @@ impl Handler<SendMessage> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
-        let span =
-            tracing::trace_span!(target: "network", "handle", handler = "SendMessage").entered();
+        let span = tracing::debug_span!(
+                target: "network",
+                "handle",
+                handler = "SendMessage",
+                actor = "PeerActor")
+        .entered();
         span.set_parent(msg.context);
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
         self.send_message_or_log(&msg.message);
@@ -1314,9 +1333,12 @@ impl Handler<PeerManagerRequestWithContext> for PeerActor {
         msg: PeerManagerRequestWithContext,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        let span =
-            tracing::trace_span!(target: "network", "handle", handler = "PeerManagerRequest")
-                .entered();
+        let span = tracing::debug_span!(
+                target: "network",
+                "handle",
+                handler = "PeerManagerRequest",
+                actor = "PeerActor")
+        .entered();
         span.set_parent(msg.context);
         let msg = msg.msg;
         let _d =
