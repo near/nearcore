@@ -39,6 +39,7 @@ use near_store::{
     LATEST_KNOWN_KEY, TAIL_KEY,
 };
 
+use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeAdapter};
 use near_store::db::StoreStatistics;
@@ -397,6 +398,10 @@ impl ChainStore {
             processed_block_heights: CellLruCache::new(CACHE_SIZE),
             save_trie_changes,
         }
+    }
+
+    pub fn new_read_only_chunks_store(&self) -> ReadOnlyChunksStore {
+        ReadOnlyChunksStore::new(self.store.clone())
     }
 
     pub fn store_update(&mut self) -> ChainStoreUpdate<'_> {

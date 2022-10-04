@@ -1,7 +1,7 @@
 [book]
 language = "en"
 multilingual = false
-src = "src"
+src = "."
 title = "Guide to Nearcore Development"
 
 [build]

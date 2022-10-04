@@ -13,12 +13,6 @@
   deprecated.  If they are set in `config.json` the node will fail if migration
   needs to be performed.  Use `store.migration_snapshot` instead to configure
   the behaviour [#7486](https://github.com/near/nearcore/pull/7486)
-* `network.external_address` field in `config.json` file is
-  deprecated.  In fact it has never been used and only served to
-  confuse everyone [#7300](https://github.com/near/nearcore/pull/7300)
-* Due to increasing state size, improved shard cache for Trie nodes to
-  put more nodes in memory. Requires 3 GB more RAM
-  [#7429](https://github.com/near/nearcore/pull/7429)
 * Added `near_peer_message_sent_by_type_bytes` and
   `near_peer_message_sent_by_type_total` Prometheus metrics measuring
   size and number of messages sent to peers.
@@ -47,6 +41,36 @@
   [#7590](https://github.com/near/nearcore/pull/7590) and enabled by default
   with [#7661](https://github.com/near/nearcore/pull/7661).
   Configurable in `config.json` using `store.enable_receipt_prefetching`.
+
+## 1.29.0 [2022-08-15]
+
+### Protocol Changes
+
+* Stabilized `protocol_feature_chunk_only_producers`. Validators will
+  now be assigned to blocks and chunks separately.
+* The validator uptime kickout threshold has been reduced to 80%
+* Edge nonces between peers can now optionally indicate an expiration
+  time
+
+### Non-protocol Changes
+
+* The logic around forwarding chunks to validators is improved
+* Approvals and partial encoded chunks are now sent multiple times,
+  which should reduce stalls due to lost approvals when the network is
+  under high load
+* We now keep a list of "TIER1" accounts (validators) for whom
+  latency/reliability of messages routed through the network is
+  critical
+* /debug HTTP page has been improved
+* Messages aren't routed through peers that are too far behind
+* Log lines printed every 10 seconds are now less expensive to compute
+* message broadcasts have been improved/optimized
+* `network.external_address` field in config.json file is deprecated. In
+  fact it has never been used and only served to confuse everyone
+  [#7300](https://github.com/near/nearcore/pull/7300)
+* Due to increasing state size, improved shard cache for Trie nodes to
+  put more nodes in memory. Requires 3 GB more RAM
+  [#7429](https://github.com/near/nearcore/pull/7429)
 
 ## 1.28.0 [2022-07-27]
 
