@@ -5,13 +5,14 @@ use near_primitives::{
     epoch_manager::ShardConfig,
     errors::EpochError,
     hash::CryptoHash,
-    shard_layout::{ShardLayout, ShardLayoutError},
+    shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutError},
     sharding::{ChunkHash, ShardChunkHeader},
     types::{
         validator_stake::ValidatorStake, AccountId, ApprovalStake, Balance, BlockHeight,
         EpochHeight, EpochId, NumShards, ShardId,
     },
 };
+use near_store::ShardUId;
 
 use crate::{EpochManager, EpochManagerHandle};
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
@@ -29,6 +30,17 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     /// Get current number of shards.
     fn num_shards(&self, epoch_id: &EpochId) -> Result<ShardId, Error>;
+
+    /// Which shard the account belongs to in the given epoch.
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardId, Error>;
+
+    /// Converts `ShardId` (index of shard in the *current* layout) to
+    /// `ShardUId` (`ShardId` + the version of shard layout itself.)
+    fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error>;
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
 
@@ -238,6 +250,22 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
     fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, Error> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.num_shards())
+    }
+
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardId, Error> {
+        let epoch_manager = self.read();
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
+        Ok(account_id_to_shard_id(account_id, &shard_layout))
+    }
+
+    fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error> {
+        let epoch_manager = self.read();
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
+        Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
     }
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {

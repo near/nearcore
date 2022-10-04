@@ -128,6 +128,13 @@ struct EpochValidatorSet {
 }
 
 /// Simple key value runtime for tests.
+///
+/// Major differences with production `NightshadeRuntime`:
+///   * Uses in-memory storage
+///   * Doesn't have WASM runtime, so can only process simple transfer
+///     transaction
+///   * Uses hard-coded validator schedule instead of using `EpochManager` and
+///     staking to assign block and chunk producers.
 pub struct KeyValueRuntime {
     store: Store,
     tries: ShardTries,
@@ -416,6 +423,18 @@ impl EpochManagerAdapter for KeyValueRuntime {
 
     fn num_shards(&self, _epoch_id: &EpochId) -> Result<ShardId, Error> {
         Ok(self.num_shards)
+    }
+
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        _epoch_id: &EpochId,
+    ) -> Result<ShardId, Error> {
+        Ok(account_id_to_shard_id(account_id, self.num_shards))
+    }
+
+    fn shard_id_to_uid(&self, shard_id: ShardId, _epoch_id: &EpochId) -> Result<ShardUId, Error> {
+        Ok(ShardUId { version: 0, shard_id: shard_id as u32 })
     }
 
     fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {
@@ -729,10 +748,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(self.store.store_update())
     }
 
-    fn shard_id_to_uid(&self, shard_id: ShardId, _epoch_id: &EpochId) -> Result<ShardUId, Error> {
-        Ok(ShardUId { version: 0, shard_id: shard_id as u32 })
-    }
-
     fn num_total_parts(&self) -> usize {
         12 + (self.num_shards as usize + 1) % 50
     }
@@ -745,14 +760,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         } else {
             (total_parts - 1) / 3
         }
-    }
-
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        _epoch_id: &EpochId,
-    ) -> Result<ShardId, Error> {
-        Ok(account_id_to_shard_id(account_id, self.num_shards))
     }
 
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
@@ -1259,15 +1266,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         Error,
     > {
         Ok(Default::default())
-    }
-
-    fn get_epoch_sync_data_hash(
-        &self,
-        _prev_epoch_last_block_hash: &CryptoHash,
-        _epoch_id: &EpochId,
-        _next_epoch_id: &EpochId,
-    ) -> Result<CryptoHash, Error> {
-        Ok(CryptoHash::default())
     }
 
     fn get_epoch_protocol_version(&self, _epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {

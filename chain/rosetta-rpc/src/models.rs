@@ -751,8 +751,18 @@ impl OperationStatusKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum OperationMetadataTransferFeeType {
+    GasPrepayment,
+    GasRefund,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct OperationMetadata {
+    /// Has to be specified for TRANSFER operations which represent gas prepayments or gas refunds
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transfer_fee_type: Option<OperationMetadataTransferFeeType>,
     /// Has to be specified for ADD_KEY, REMOVE_KEY, and STAKE operations
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_key: Option<PublicKey>,
@@ -781,10 +791,18 @@ impl OperationMetadata {
     pub(crate) fn from_predecessor(
         predecessor_id: Option<AccountIdentifier>,
     ) -> Option<OperationMetadata> {
-        return predecessor_id.map(|predecessor_id| crate::models::OperationMetadata {
+        predecessor_id.map(|predecessor_id| crate::models::OperationMetadata {
             predecessor_id: Some(predecessor_id),
             ..Default::default()
-        });
+        })
+    }
+
+    pub(crate) fn with_transfer_fee_type(
+        mut self,
+        transfer_fee_type: OperationMetadataTransferFeeType,
+    ) -> Self {
+        self.transfer_fee_type = Some(transfer_fee_type);
+        self
     }
 }
 
