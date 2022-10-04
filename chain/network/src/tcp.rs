@@ -31,6 +31,27 @@ pub(crate) struct StreamId {
     outbound: std::net::SocketAddr,
 }
 
+#[cfg(test)]
+pub(crate) struct Socket(tokio::net::TcpSocket);
+
+#[cfg(test)]
+impl Socket {
+    pub fn bind_v4() -> Self {
+        let socket = tokio::net::TcpSocket::new_v4().unwrap();
+        socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        Self(socket)
+    }
+
+    pub async fn connect(self, peer_info: &PeerInfo) -> Stream {
+        // TODO(gprusak): this could replace Stream::connect,
+        // however this means that we will have to replicate everything
+        // that tokio::net::TcpStream sets on the socket.
+        // As long as Socket::connect is test-only we may ignore that.
+        let stream = self.0.connect(peer_info.addr.unwrap()).await.unwrap();
+        Stream::new(stream, StreamType::Outbound { peer_id: peer_info.id.clone() }).unwrap()
+    }
+}
+
 impl Stream {
     fn new(stream: tokio::net::TcpStream, type_: StreamType) -> std::io::Result<Self> {
         Ok(Self { peer_addr: stream.peer_addr()?, local_addr: stream.local_addr()?, stream, type_ })

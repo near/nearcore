@@ -142,11 +142,10 @@ impl ActorHandler {
         // 1. reserve a TCP port
         // 2. snapshot event stream
         // 3. establish connection.
-        //let socket = tokio::net::TcpSocket::new_v4().unwrap();
-        //socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
-        let stream = tcp::Stream::connect(&self.peer_info()).await.unwrap();
-        let stream_id = stream.id();
+        let socket = tcp::Socket::bind_v4();
         let events = self.events.from_now();
+        let stream = socket.connect(&self.peer_info()).await;
+        let stream_id = stream.id();
         let conn = RawConnection {
             events,
             stream,
