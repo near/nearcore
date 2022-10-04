@@ -102,9 +102,6 @@ impl TrieCacheInner {
         is_view: bool,
     ) -> Self {
         assert!(total_size_limit > 0);
-        // upper bound on capacity for allocation purposes only
-        let cache_capacity =
-            (total_size_limit + Self::PER_ENTRY_OVERHEAD - 1) / Self::PER_ENTRY_OVERHEAD;
         // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
         let mut buffer = itoa::Buffer::new();
         let shard_id_str = buffer.format(shard_id);
@@ -123,7 +120,7 @@ impl TrieCacheInner {
                 .with_label_values(&metrics_labels),
         };
         Self {
-            cache: LruCache::new(cache_capacity as usize),
+            cache: LruCache::unbounded(),
             deletions: BoundedQueue::new(deletions_queue_capacity),
             total_size: 0,
             total_size_limit,
@@ -720,5 +717,18 @@ mod trie_cache_tests {
         assert!(!cache.cache.contains(&hash(&[1])));
         assert!(cache.cache.contains(&hash(&[2])));
         assert!(cache.cache.contains(&hash(&[3])));
+    }
+
+    #[test]
+    fn test_small_memory_limit() {
+        let total_size_limit = 1;
+        let mut cache = TrieCacheInner::new(100, total_size_limit, 0, false);
+        put_value(&mut cache, &[1,2,3]);
+        put_value(&mut cache, &[2,3,4]);
+        put_value(&mut cache, &[3,4,5]);
+
+        assert!(!cache.cache.contains(&hash(&[1,2,3])));
+        assert!(!cache.cache.contains(&hash(&[2,3,4])));
+        assert!(cache.cache.contains(&hash(&[3,4,5])));
     }
 }
