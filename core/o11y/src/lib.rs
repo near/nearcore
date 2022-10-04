@@ -124,8 +124,10 @@ pub struct Options {
     #[clap(long, arg_enum, default_value = "auto")]
     color: ColorOutput,
 
+    /// Enable logging of spans. For instance, this prints timestamps of entering and exiting a span,
+    /// together with the span duration and used/idle CPU time.
     #[clap(long)]
-    with_span_events: bool,
+    log_span_events: bool,
 
     /// Enable JSON output of IO events, written to a file.
     #[clap(long)]
@@ -355,7 +357,7 @@ pub async fn default_subscriber_with_opentelemetry(
         env_filter,
         writer,
         color_output,
-        options.with_span_events,
+        options.log_span_events,
         subscriber,
     );
     LOG_LAYER_RELOAD_HANDLE
