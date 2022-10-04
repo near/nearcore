@@ -25,17 +25,15 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::client::ShardsManagerResponse;
-use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
     StatusError, StatusSyncInfo, SyncStatus,
 };
-use near_network::types::ReasonForBan;
 use near_network::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
-    PeerManagerAdapter, PeerManagerMessageRequest,
+    NetworkClientMessages, NetworkClientMessagesWithContext, NetworkClientResponses, NetworkInfo,
+    NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_o11y::{OpenTelemetrySpanExt, WithSpanContext};
+use near_network_primitives::types::ReasonForBan;
 use near_performance_metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::block_header::ApprovalType;
@@ -61,6 +59,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, trace, warn};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -257,13 +256,13 @@ impl Actor for ClientActor {
     }
 }
 
-impl Handler<WithSpanContext<NetworkClientMessages>> for ClientActor {
+impl Handler<NetworkClientMessagesWithContext> for ClientActor {
     type Result = NetworkClientResponses;
 
     #[perf]
     fn handle(
         &mut self,
-        msg: WithSpanContext<NetworkClientMessages>,
+        msg: NetworkClientMessagesWithContext,
         ctx: &mut Context<Self>,
     ) -> Self::Result {
         let msg_type: &str = (&msg.msg).into();
@@ -298,22 +297,19 @@ impl ClientActor {
             #[cfg(feature = "test_features")]
             NetworkClientMessages::Adversarial(adversarial_msg) => {
                 return match adversarial_msg {
-                    near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug => {
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvDisableDoomslug => {
                         info!(target: "adversary", "Turning Doomslug off");
                         self.adv.set_disable_doomslug(true);
                         self.client.doomslug.adv_disable();
                         self.client.chain.adv_disable_doomslug();
                         NetworkClientResponses::NoResponse
                     }
-                    near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync => {
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvDisableHeaderSync => {
                         info!(target: "adversary", "Blocking header sync");
                         self.adv.set_disable_header_sync(true);
                         NetworkClientResponses::NoResponse
                     }
-                    near_network::types::NetworkAdversarialMessage::AdvProduceBlocks(
-                        num_blocks,
-                        only_valid,
-                    ) => {
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid) => {
                         info!(target: "adversary", "Producing {} blocks", num_blocks);
                         self.client.adv_produce_blocks = true;
                         self.client.adv_produce_blocks_only_valid = only_valid;
@@ -335,11 +331,8 @@ impl ClientActor {
                                     NetworkRequests::Block { block: block.clone() },
                                 ),
                             );
-                            let _ = self.client.start_process_block(
-                                block.into(),
-                                Provenance::PRODUCED,
-                                self.get_apply_chunks_done_callback(),
-                            );
+                            let _ =
+                                self.client.start_process_block(block.into(), Provenance::PRODUCED, self.get_apply_chunks_done_callback());
                             blocks_produced += 1;
                             if blocks_produced == num_blocks {
                                 break;
@@ -347,7 +340,7 @@ impl ClientActor {
                         }
                         NetworkClientResponses::NoResponse
                     }
-                    near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
                         info!(target: "adversary", "Switching to height {:?}", height);
                         let mut chain_store_update = self.client.chain.mut_store().store_update();
                         chain_store_update.save_largest_target_height(height);
@@ -357,13 +350,13 @@ impl ClientActor {
                         chain_store_update.commit().expect("adv method should not fail");
                         NetworkClientResponses::NoResponse
                     }
-                    near_network::types::NetworkAdversarialMessage::AdvSetSyncInfo(height) => {
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvSetSyncInfo(height) => {
                         info!(target: "adversary", %height, "AdvSetSyncInfo");
                         self.client.adv_sync_height = Some(height);
                         self.client.send_network_chain_info().expect("adv method should not fail");
                         NetworkClientResponses::NoResponse
                     }
-                    near_network::types::NetworkAdversarialMessage::AdvGetSavedBlocks => {
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvGetSavedBlocks => {
                         info!(target: "adversary", "Requested number of saved blocks");
                         let store = self.client.chain.store().store();
                         let mut num_blocks = 0;
@@ -372,7 +365,7 @@ impl ClientActor {
                         }
                         NetworkClientResponses::AdvResult(num_blocks)
                     }
-                    near_network::types::NetworkAdversarialMessage::AdvCheckStorageConsistency => {
+                    near_network_primitives::types::NetworkAdversarialMessage::AdvCheckStorageConsistency => {
                         // timeout is set to 1.5 seconds to give some room as we wait in Nightly for 2 seconds
                         let timeout = 1500;
                         info!(target: "adversary", "Check Storage Consistency, timeout set to {:?} milliseconds", timeout);
@@ -583,15 +576,16 @@ impl ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunkRequest(part_request_msg, route_back) => {
-                let _ = self
-                    .client
-                    .shards_mgr
-                    .process_partial_encoded_chunk_request(part_request_msg, route_back);
+                let _ = self.client.shards_mgr.process_partial_encoded_chunk_request(
+                    part_request_msg,
+                    route_back,
+                    self.client.chain.mut_store(),
+                );
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunkResponse(response, time) => {
                 PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(time.elapsed().as_secs_f64());
-                let _ = self.client.shards_mgr.process_partial_encoded_chunk_response(response);
+                let _ = self.client.process_partial_encoded_chunk_response(response);
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
@@ -599,17 +593,14 @@ impl ClientActor {
                     partial_encoded_chunk.height_created(),
                     partial_encoded_chunk.shard_id(),
                 );
-                let _ = self
-                    .client
-                    .shards_mgr
-                    .process_partial_encoded_chunk(partial_encoded_chunk.into());
+                let _ = self.client.process_partial_encoded_chunk(partial_encoded_chunk);
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunkForward(forward) => {
-                match self.client.shards_mgr.process_partial_encoded_chunk_forward(forward) {
-                    Ok(_) => {}
+                match self.client.process_partial_encoded_chunk_forward(forward) {
+                    Ok(()) => {}
                     // Unknown chunk is normal if we get parts before the header
-                    Err(near_chunks::Error::UnknownChunk) => (),
+                    Err(Error::Chunk(near_chunks::Error::UnknownChunk)) => (),
                     Err(err) => {
                         error!(target: "client", "Error processing forwarded chunk: {}", err)
                     }
@@ -786,27 +777,6 @@ impl Handler<Status> for ClientActor {
     }
 }
 
-/// Private to public API conversion.
-fn make_peer_info(from: near_network::types::PeerInfo) -> near_client_primitives::types::PeerInfo {
-    near_client_primitives::types::PeerInfo {
-        id: from.id,
-        addr: from.addr,
-        account_id: from.account_id,
-    }
-}
-
-/// Private to public API conversion.
-fn make_known_producer(
-    from: near_network::types::KnownProducer,
-) -> near_client_primitives::types::KnownProducer {
-    near_client_primitives::types::KnownProducer {
-        peer_id: from.peer_id,
-        account_id: from.account_id,
-        addr: from.addr,
-        next_hops: from.next_hops,
-    }
-}
-
 impl Handler<GetNetworkInfo> for ClientActor {
     type Result = Result<NetworkInfoResponse, String>;
 
@@ -822,18 +792,13 @@ impl Handler<GetNetworkInfo> for ClientActor {
 
         Ok(NetworkInfoResponse {
             connected_peers: (self.network_info.connected_peers.iter())
-                .map(|fpi| make_peer_info(fpi.full_peer_info.peer_info.clone()))
+                .map(|fpi| fpi.full_peer_info.peer_info.clone())
                 .collect(),
             num_connected_peers: self.network_info.num_connected_peers,
             peer_max_count: self.network_info.peer_max_count,
             sent_bytes_per_sec: self.network_info.sent_bytes_per_sec,
             received_bytes_per_sec: self.network_info.received_bytes_per_sec,
-            known_producers: self
-                .network_info
-                .known_producers
-                .iter()
-                .map(|p| make_known_producer(p.clone()))
-                .collect(),
+            known_producers: self.network_info.known_producers.clone(),
         })
     }
 }
@@ -1713,12 +1678,11 @@ impl ClientActor {
                 let shards_to_sync =
                     (0..self.client.runtime_adapter.num_shards(&epoch_id).unwrap())
                         .filter(|x| {
-                            cares_about_shard_this_or_next_epoch(
+                            self.client.shards_mgr.cares_about_shard_this_or_next_epoch(
                                 me.as_ref(),
                                 &prev_hash,
                                 *x,
                                 true,
-                                self.client.runtime_adapter.as_ref(),
                             )
                         })
                         .collect();
@@ -2009,15 +1973,9 @@ impl Handler<ShardsManagerResponse> for ClientActor {
             tracing::debug_span!(target: "client", "handle", handler = "ShardsManagerResponse")
                 .entered();
         match msg {
-            ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
-                self.client.on_chunk_completed(
-                    partial_chunk,
-                    shard_chunk,
-                    self.get_apply_chunks_done_callback(),
-                );
-            }
-            ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
-                self.client.on_invalid_chunk(encoded_chunk);
+            ShardsManagerResponse::ChunkCompleted(chunk_header) => {
+                self.client
+                    .on_chunk_completed(&chunk_header, self.get_apply_chunks_done_callback());
             }
         }
     }

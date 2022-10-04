@@ -1,10 +1,5 @@
 use crate::config;
-use crate::network_protocol::{
-    AccountData, AccountOrPeerIdOrHash, Edge, EdgeState, PartialEdgeInfo, PeerInfo, PeerMessage,
-    Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo,
-    SyncAccountsData,
-};
-use crate::peer::peer_actor::PeerActor;
+use crate::network_protocol::{AccountData, PeerMessage, RoutingTableUpdate, SyncAccountsData};
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_store::PeerStore;
@@ -18,22 +13,24 @@ use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use crate::store;
-use crate::tcp;
-use crate::time;
 use crate::types::{
-    Ban, ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownPeerStatus, KnownProducer,
-    NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
-    NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerMessageRequest,
-    PeerManagerMessageResponse, PeerType, ReasonForBan, SetChainInfo,
+    ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, NetworkClientMessages,
+    NetworkClientMessagesWithContext, NetworkInfo, NetworkRequests, NetworkResponses,
+    OutboundTcpConnect, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
 };
-use actix::fut::future::wrap_future;
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, WrapFuture,
 };
 use anyhow::bail;
 use anyhow::Context as _;
-use near_o11y::{WithSpanContext, WithSpanContextExt};
+use near_network_primitives::time;
+use near_network_primitives::types::{
+    AccountOrPeerIdOrHash, Ban, Edge, KnownPeerStatus, KnownProducer, NetworkViewClientMessages,
+    NetworkViewClientResponses, PeerInfo, PeerType, Ping, Pong, RawRoutedMessage, ReasonForBan,
+    RoutedMessageBody, StateResponseInfo,
+};
+use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -46,6 +43,7 @@ use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use tokio::net::TcpListener;
 use tracing::{debug, error, info, trace, warn, Instrument};
 
 /// How much time to wait (in milliseconds) after we send update nonce request before disconnecting.
@@ -91,9 +89,6 @@ const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 /// If we set this horizon too low (for example 2 blocks) - we're risking excluding a lot of peers in case of a short
 /// network issue.
 const UNRELIABLE_PEER_HORIZON: u64 = 60;
-
-/// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
-pub const MAX_NUM_PEERS: usize = 128;
 
 #[derive(Clone, PartialEq, Eq)]
 struct WhitelistNode {
@@ -165,6 +160,7 @@ pub enum Event {
     ServerStarted,
     RoutedMessageDropped,
     RoutingTableUpdate(Arc<routing::NextHopTable>),
+    PeerRegistered(PeerInfo),
     Ping(Ping),
     Pong(Pong),
     SetChainInfo,
@@ -181,11 +177,9 @@ pub enum Event {
     // feel free to add support for more.
     MessageProcessed(PeerMessage),
     // Reported when a handshake has been started.
-    HandshakeStarted(crate::peer::peer_actor::HandshakeStartedEvent),
-    // Reported when a handshake has been successfully completed.
-    HandshakeCompleted(crate::peer::peer_actor::HandshakeCompletedEvent),
+    PeerActorStarted(SocketAddr),
     // Reported when the TCP connection has been closed.
-    ConnectionClosed(crate::peer::peer_actor::ConnectionClosedEvent),
+    ConnectionClosed(SocketAddr),
 }
 
 impl Actor for PeerManagerActor {
@@ -197,30 +191,32 @@ impl Actor for PeerManagerActor {
             debug!(target: "network", at = ?server_addr, "starting public server");
             let clock = self.clock.clone();
             let state = self.state.clone();
-            ctx.spawn(wrap_future(async move {
-                let mut listener = match tcp::Listener::bind(server_addr).await {
-                    Ok(it) => it,
-                    Err(e) => {
-                        panic!("failed to start listening on server_addr={server_addr:?} e={e:?}")
-                    }
-                };
-                state.config.event_sink.push(Event::ServerStarted);
-                loop {
-                    if let Ok(stream) = listener.accept().await {
-                        // Always let the new peer to send a handshake message.
-                        // Only then we can decide whether we should accept a connection.
-                        // It is expected to be reasonably cheap: eventually, for TIER2 network
-                        // we would like to exchange set of connected peers even without establishing
-                        // a proper connection.
-                        debug!(target: "network", from = ?stream.peer_addr, "got new connection");
-                        if let Err(err) =
-                            PeerActor::spawn(clock.clone(), stream, None, state.clone())
-                        {
-                            tracing::info!(target:"network", ?err, "PeerActor::spawn()");
+            ctx.spawn(
+                async move {
+                    let listener = match TcpListener::bind(server_addr).await {
+                        Ok(it) => it,
+                        Err(e) => {
+                            panic!(
+                                "failed to start listening on server_addr={:?} e={:?}",
+                                server_addr, e
+                            );
+                        }
+                    };
+                    state.config.event_sink.push(Event::ServerStarted);
+                    loop {
+                        if let Ok((conn, client_addr)) = listener.accept().await {
+                            // Always let the new peer to send a handshake message.
+                            // Only then we can decide whether we should accept a connection.
+                            // It is expected to be reasonably cheap: eventually, for TIER2 network
+                            // we would like to exchange set of connected peers even without establishing
+                            // a proper connection.
+                            debug!(target: "network", from = ?client_addr, "got new connection");
+                            state.clone().spawn_inbound(&clock, conn).await;
                         }
                     }
                 }
-            }));
+                .into_actor(self),
+            );
         }
 
         // Periodically push network information to client.
@@ -264,10 +260,10 @@ impl PeerManagerActor {
         clock: time::Clock,
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
-        client_addr: Recipient<WithSpanContext<NetworkClientMessages>>,
+        client_addr: Recipient<NetworkClientMessagesWithContext>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         genesis_id: GenesisId,
-    ) -> anyhow::Result<Addr<Self>> {
+    ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
         let store = store::Store::from(store);
         let peer_store = PeerStore::new(
@@ -932,19 +928,9 @@ impl PeerManagerActor {
                     interval = default_interval;
                 }
 
-                ctx.spawn(wrap_future({
-                    let state = self.state.clone();
-                    let clock = self.clock.clone();
-                    async move {
-                        if let Err(err) = async {
-                            let stream = tcp::Stream::connect(&peer_info).await.context("tcp::Stream::connect()")?;
-                            PeerActor::spawn(clock,stream,None,state.clone()).context("PeerActor::spawn()")?;
-                            anyhow::Ok(())
-                        }.await {
-                            tracing::info!(target:"network", ?err, "failed to connect to {peer_info}");
-                        }
-                    }
-                }));
+                ctx.notify(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect(
+                    peer_info,
+                )));
             } else {
                 self.state.ask_for_more_peers(&self.clock);
             }
@@ -1096,10 +1082,9 @@ impl PeerManagerActor {
             .with_label_values(&["push_network_info"])
             .start_timer();
 
-        let _ = self
-            .state
-            .client_addr
-            .do_send(NetworkClientMessages::NetworkInfo(network_info).with_span_context());
+        let _ = self.state.client_addr.do_send(NetworkClientMessagesWithContext::new(
+            NetworkClientMessages::NetworkInfo(network_info),
+        ));
 
         near_performance_metrics::actix::run_later(
             ctx,
@@ -1386,6 +1371,7 @@ impl PeerManagerActor {
         if let Err(err) = self.register_peer(msg.connection.clone(), ctx) {
             return RegisterPeerResponse::Reject(RegisterPeerError::PoolError(err));
         }
+        self.config.event_sink.push(Event::PeerRegistered(peer_info.clone()));
         RegisterPeerResponse::Accept
     }
 
@@ -1439,13 +1425,10 @@ impl PeerManagerActor {
                 )
             }
             // TEST-ONLY
-            PeerManagerMessageRequest::OutboundTcpConnect(stream) => {
-                let peer_addr = stream.peer_addr;
-                if let Err(err) =
-                    PeerActor::spawn(self.clock.clone(), stream, None, self.state.clone())
-                {
-                    tracing::info!(target:"network", ?err, ?peer_addr, "spawn_outbound()");
-                }
+            PeerManagerMessageRequest::OutboundTcpConnect(msg) => {
+                ctx.spawn(
+                    self.state.clone().spawn_outbound(self.clock.clone(), msg.0).into_actor(self),
+                );
                 PeerManagerMessageResponse::OutboundTcpConnect
             }
             // TEST-ONLY
