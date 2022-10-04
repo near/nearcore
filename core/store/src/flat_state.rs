@@ -690,10 +690,12 @@ impl FlatStorageState {
             .cloned()
             .collect();
         for hash in hashes_to_remove {
+            // Note that we have to remove delta for new head but we still need to keep block info, e.g. for knowing
+            // height of the head.
+            guard.deltas.remove(&hash);
             if &hash != new_head {
                 guard.blocks.remove(&hash);
             }
-            guard.deltas.remove(&hash);
             store_helper::remove_delta(&mut store_update, guard.shard_id, hash);
         }
 
