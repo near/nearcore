@@ -232,7 +232,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
     };
     let (outbound_stream, inbound_stream) = tcp::Stream::loopback(inbound_cfg.id()).await;
     let inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
-    let mut outbound = Stream::new(outbound_encoding, outbound_stream.stream);
+    let mut outbound = Stream::new(outbound_encoding, outbound_stream);
 
     // Send too old PROTOCOL_VERSION, expect ProtocolVersionMismatch
     let mut handshake = Handshake {
@@ -240,7 +240,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION - 1,
         sender_peer_id: outbound_cfg.id(),
         target_peer_id: inbound.cfg.id(),
-        sender_listen_port: Some(outbound.local_addr.port()),
+        sender_listen_port: None,
         sender_chain_info: outbound_cfg.chain.get_peer_chain_info(),
         partial_edge_info: outbound_cfg.partial_edge_info(&inbound.cfg.id(), 1),
     };
