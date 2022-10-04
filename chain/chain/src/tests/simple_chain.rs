@@ -198,7 +198,7 @@ fn blocks_at_height() {
     chain.process_block_test(&None, c_1).unwrap();
     chain.process_block_test(&None, c_3).unwrap();
     chain.process_block_test(&None, c_4).unwrap();
-    assert_eq!(chain.header_head().unwrap().height, 5);
+    assert_eq!(chain.header_head().unwrap().height, 4);
 
     assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &c_1_hash);
     assert!(chain.get_block_header_by_height(2).is_err());
