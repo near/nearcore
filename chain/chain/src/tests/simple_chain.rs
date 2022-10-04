@@ -136,6 +136,8 @@ fn build_chain_with_orhpans() {
     );
 }
 
+/// Checks that chain successfully processes blocks with skipped blocks and forks, but doesn't process block behind
+/// final head.
 #[test]
 fn build_chain_with_skips_and_forks() {
     init_test_logger();
@@ -158,6 +160,7 @@ fn build_chain_with_skips_and_forks() {
     assert_eq!(chain.get_block_header_by_height(6).unwrap().height(), 6);
 
     let c4 = Block::empty_with_height(&b3, 4, &*signer);
+    assert_eq!(chain.final_head().unwrap().height, 4);
     assert_matches!(chain.process_block_test(&None, c4), Err(Error::CannotBeFinalized));
 }
 
