@@ -66,4 +66,3 @@ impl Stream {
         self.stream.stream.flush().await.unwrap();
     }
 }
-

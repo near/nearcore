@@ -5,25 +5,25 @@ use crate::network_protocol::{
     Edge, EdgeState, Encoding, ParsePeerMessageError, PartialEdgeInfo, PeerChainInfoV2, PeerInfo,
     RoutedMessage, RoutedMessageBody, SyncAccountsData,
 };
-use crate::tcp;
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::private_actix::{
-    PeersResponse, PeerToManagerMsg, PeerToManagerMsgResp,
-    PeersRequest, RegisterPeer, RegisterPeerError, RegisterPeerResponse, SendMessage, Unregister,
+    PeerToManagerMsg, PeerToManagerMsgResp, PeersRequest, PeersResponse, RegisterPeer,
+    RegisterPeerError, RegisterPeerResponse, SendMessage, Unregister,
 };
-use near_o11y::log_assert;
 use crate::routing::edge::verify_nonce;
 use crate::stats::metrics;
+use crate::tcp;
 use crate::time;
 use crate::types::{
     Ban, Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses,
     NetworkViewClientMessages, NetworkViewClientResponses, PeerIdOrHash, PeerManagerRequest,
     PeerManagerRequestWithContext, PeerMessage, PeerType, ReasonForBan, StateResponseInfo,
 };
+use near_o11y::log_assert;
 
 use actix::{
     Actor, ActorContext, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler,
@@ -61,30 +61,30 @@ const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
 const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
 
-#[derive(Debug,Clone,PartialEq,Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectionClosedEvent {
     pub(crate) stream_id: tcp::StreamId,
     pub(crate) reason: ClosingReason,
 }
 
-#[derive(Debug,Clone,PartialEq,Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandshakeStartedEvent {
     pub(crate) stream_id: tcp::StreamId,
 }
 
-#[derive(Debug,Clone,PartialEq,Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandshakeCompletedEvent {
     pub(crate) stream_id: tcp::StreamId,
     pub(crate) edge: Edge,
 }
 
-#[derive(thiserror::Error,Clone, PartialEq,Eq,Debug)]
+#[derive(thiserror::Error, Clone, PartialEq, Eq, Debug)]
 pub(crate) enum ClosingReason {
     #[error("too many inbound connections in connecting state")]
     TooManyInbound,
     #[error("outbound not allowed: {0}")]
     OutboundNotAllowed(connection::PoolError),
-    
+
     #[error("peer banned: {0:?}")]
     Ban(ReasonForBan),
     #[error("handshake failed")]
@@ -135,7 +135,7 @@ pub(crate) struct PeerActor {
     /// Peer status.
     peer_status: PeerStatus,
     closing_reason: Option<ClosingReason>,
-    
+
     /// Peer id and info. Present when Ready,
     /// or (for outbound only) when Connecting.
     // TODO: move it to ConnectingStatus::Outbound.
@@ -167,13 +167,12 @@ impl PeerActor {
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<actix::Addr<Self>> {
         let stream_id = stream.id();
-        match Self::spawn_inner(clock,stream,force_encoding,network_state.clone()) {
+        match Self::spawn_inner(clock, stream, force_encoding, network_state.clone()) {
             Ok(it) => Ok(it),
             Err(reason) => {
-                network_state.config.event_sink.push(Event::ConnectionClosed(ConnectionClosedEvent{
-                    stream_id,
-                    reason: reason.clone(),
-                }));
+                network_state.config.event_sink.push(Event::ConnectionClosed(
+                    ConnectionClosedEvent { stream_id, reason: reason.clone() },
+                ));
                 Err(reason.into())
             }
         }
@@ -184,14 +183,14 @@ impl PeerActor {
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
-    ) -> Result<actix::Addr<Self>,ClosingReason> {
+    ) -> Result<actix::Addr<Self>, ClosingReason> {
         let connecting_status = match &stream.type_ {
             crate::tcp::StreamType::Inbound => ConnectingStatus::Inbound(
                 network_state
                     .inbound_handshake_permits
                     .clone()
                     .try_acquire_owned()
-                    .map_err(|_|ClosingReason::TooManyInbound)?,
+                    .map_err(|_| ClosingReason::TooManyInbound)?,
             ),
             crate::tcp::StreamType::Outbound { peer_id } => ConnectingStatus::Outbound {
                 _permit: network_state
@@ -935,9 +934,10 @@ impl Actor for PeerActor {
         {
             self.send_handshake(handshake_spec.clone());
         }
-        self.network_state.config.event_sink.push(Event::HandshakeStarted(HandshakeStartedEvent{
-            stream_id: self.stream_id,
-        }));
+        self.network_state
+            .config
+            .event_sink
+            .push(Event::HandshakeStarted(HandshakeStartedEvent { stream_id: self.stream_id }));
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
@@ -972,13 +972,12 @@ impl Actor for PeerActor {
     }
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
-        // closing_reason may be None in case the whole actix system is stopped. 
+        // closing_reason may be None in case the whole actix system is stopped.
         // It happens a lot in tests.
         if let Some(reason) = self.closing_reason.take() {
-            self.network_state.config.event_sink.push(Event::ConnectionClosed(ConnectionClosedEvent{
-                stream_id: self.stream_id,
-                reason,
-            }));
+            self.network_state.config.event_sink.push(Event::ConnectionClosed(
+                ConnectionClosedEvent { stream_id: self.stream_id, reason },
+            ));
         }
         actix::Arbiter::current().stop();
     }
@@ -997,7 +996,9 @@ impl actix::Handler<stream::Error> for PeerActor {
             stream::Error::Recv(stream::RecvError::IO(err))
             | stream::Error::Send(stream::SendError::IO(err)) => match err.kind() {
                 // Connection has been closed.
-                io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionReset | io::ErrorKind::BrokenPipe => true,
+                io::ErrorKind::UnexpectedEof
+                | io::ErrorKind::ConnectionReset
+                | io::ErrorKind::BrokenPipe => true,
                 // When stopping tokio runtime, an "IO driver has terminated" is sometimes
                 // returned.
                 io::ErrorKind::Other => true,
@@ -1007,9 +1008,9 @@ impl actix::Handler<stream::Error> for PeerActor {
                 _ => false,
             },
         };
-        log_assert!(expected,"unexpected closing reason: {err}");
+        log_assert!(expected, "unexpected closing reason: {err}");
         tracing::info!(target: "network", ?err, "Closing connection to {}", self.peer_info);
-        self.stop(ctx,ClosingReason::StreamError);
+        self.stop(ctx, ClosingReason::StreamError);
     }
 }
 
