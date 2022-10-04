@@ -10,10 +10,15 @@ use crate::peer_manager::connection;
 use crate::private_actix::PeerToManagerMsg;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
-use crate::time;
-use crate::types::{ChainInfo, NetworkClientMessagesWithContext, NetworkViewClientMessages};
+use crate::types::{ChainInfo, NetworkClientMessagesWithContext};
 use actix::Recipient;
 use arc_swap::ArcSwap;
+use near_network_primitives::time;
+use near_network_primitives::types::{
+    AccountOrPeerIdOrHash, PartialEdgeInfo, PeerInfo, Ping, Pong, RawRoutedMessage,
+    RoutedMessageBody, RoutedMessageV2,
+};
+use near_network_primitives::types::{NetworkViewClientMessages, PeerIdOrHash};
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
