@@ -3398,6 +3398,7 @@ dependencies = [
 name = "near-rpc-error-macro"
 version = "0.0.0"
 dependencies = [
+ "fs2",
  "near-rpc-error-core",
  "serde",
  "serde_json",
