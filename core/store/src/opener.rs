@@ -221,10 +221,8 @@ impl<'a> StoreOpener<'a> {
 
         // Update kind if the database is an RPC but we expect an Archive.
         if self.expected_kind.is_some() && self.expected_kind != metadata.kind {
-            assert_eq!(
-                (Some(DbKind::Archive), Some(DbKind::RPC)),
-                (self.expected_kind, metadata.kind)
-            );
+            assert_eq!(Some(DbKind::Archive), self.expected_kind);
+            assert_eq!(Some(DbKind::RPC), metadata.kind);
             tracing::info!(target: "near", path=%self.path().display(),
                            "Converting database to Archive kind");
             set_store_metadata(
