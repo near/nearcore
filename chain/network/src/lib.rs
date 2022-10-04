@@ -1,7 +1,5 @@
 pub use crate::peer_manager::peer_manager_actor::{Event, PeerManagerActor};
 pub use crate::peer_manager::peer_store::iter_peers_from_store;
-#[cfg(feature = "test_features")]
-pub use crate::stats::metrics::RECEIVED_INFO_ABOUT_ITSELF;
 
 mod accounts_data;
 mod concurrency;
