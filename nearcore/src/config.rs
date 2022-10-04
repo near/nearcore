@@ -298,6 +298,7 @@ pub struct Config {
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
+    #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
     pub log_summary_style: LogSummaryStyle,
     /// Garbage collection configuration.
@@ -327,6 +328,10 @@ pub struct Config {
     /// Deprecated; use `store.migration_snapshot` instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub db_migration_snapshot_path: Option<PathBuf>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl Default for Config {
