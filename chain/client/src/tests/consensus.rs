@@ -9,12 +9,11 @@ use crate::test_utils::setup_mock_all_validators;
 use crate::{ClientActor, ViewClientActor};
 use near_actix_test_utils::run_actix;
 use near_chain::Block;
-use near_network::types::PeerInfo;
 use near_network::types::{
     NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
 };
+use near_network::types::{NetworkClientMessagesWithContext, PeerInfo};
 use near_o11y::testonly::init_integration_logger;
-use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::types::{AccountId, BlockHeight};
 
@@ -156,12 +155,13 @@ fn test_consensus_with_epoch_switches() {
                             if delayed_block.header().height() <= block.header().height() + 2 {
                                 for target_ord in 0..24 {
                                     connectors1.write().unwrap()[target_ord].0.do_send(
-                                        NetworkClientMessages::Block(
-                                            delayed_block.clone(),
-                                            key_pairs[0].clone().id,
-                                            true,
-                                        )
-                                        .with_span_context(),
+                                        NetworkClientMessagesWithContext::new(
+                                            NetworkClientMessages::Block(
+                                                delayed_block.clone(),
+                                                key_pairs[0].clone().id,
+                                                true,
+                                            ),
+                                        ),
                                     );
                                 }
                             } else {
@@ -257,13 +257,12 @@ fn test_consensus_with_epoch_switches() {
                             connectors1.write().unwrap()
                                 [epoch_id * 8 + (destination_ord + delta) % 8]
                                 .0
-                                .do_send(
+                                .do_send(NetworkClientMessagesWithContext::new(
                                     NetworkClientMessages::BlockApproval(
                                         approval,
                                         key_pairs[my_ord].id.clone(),
-                                    )
-                                    .with_span_context(),
-                                );
+                                    ),
+                                ));
                             // Do not send the endorsement for couple block producers in each epoch
                             // This is needed because otherwise the block with enough endorsements
                             // sometimes comes faster than the sufficient number of skips is created,
