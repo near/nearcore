@@ -513,6 +513,8 @@ pub enum NetworkClientResponses {
     Ban { ban_reason: ReasonForBan },
 }
 
+/// Wraps `NetworkClientMessages` attaching an opentelemetry Context to it.
+/// Lets us trace async work across different actix actors.
 #[derive(actix::Message, Debug)]
 #[rtype(result = "NetworkClientResponses")]
 pub struct NetworkClientMessagesWithContext {
@@ -521,6 +523,8 @@ pub struct NetworkClientMessagesWithContext {
 }
 
 impl NetworkClientMessagesWithContext {
+    /// Wraps a `NetworkClientMessages` into a `NetworkClientMessagesWithContext`
+    /// by adding the current context to it.
     pub fn new(msg: NetworkClientMessages) -> Self {
         Self { msg, context: Span::current().context() }
     }

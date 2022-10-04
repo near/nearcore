@@ -20,10 +20,7 @@ use crate::sink::Sink;
 use crate::stats::metrics;
 use crate::time;
 use crate::types::{
-    Ban, Handshake, HandshakeFailureReason, NetworkClientMessages,
-    NetworkClientMessagesWithContext, NetworkClientResponses, NetworkViewClientMessages,
-    NetworkViewClientResponses, PeerIdOrHash, PeerManagerRequest, PeerManagerRequestWithContext,
-    PeerMessage, PeerType, ReasonForBan, StateResponseInfo,
+    NetworkClientMessages, NetworkClientMessagesWithContext, NetworkClientResponses,
 };
 
 use actix::{
