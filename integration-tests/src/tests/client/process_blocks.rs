@@ -1190,7 +1190,7 @@ fn test_invalid_height_too_large() {
 
 /// Check that if block height is 5 epochs behind the head, it is not processed.
 #[test]
-fn test_too_old_block() {
+fn test_invalid_height_too_old() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     for i in 1..4 {
         env.produce_block(0, i);
@@ -1200,7 +1200,7 @@ fn test_too_old_block() {
         env.produce_block(0, i);
     }
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-    assert!(res.is_err());
+    assert_matches!(res.unwrap_err(), Error::InvalidBlockHeight(_));
 }
 
 #[test]
@@ -1753,7 +1753,7 @@ fn test_not_resync_old_blocks() {
         let block = blocks[i as usize - 1].clone();
         assert!(env.clients[0].chain.get_block(block.hash()).is_err());
         let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
-        assert!(res.is_err());
+        assert_matches!(res, Err(x) if matches!(x, Error::Orphan));
         assert_eq!(env.clients[0].chain.orphans_len(), 0);
     }
 }

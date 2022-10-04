@@ -829,9 +829,6 @@ impl Client {
             }
         }
 
-        // Check if block can be finalized and drop it otherwise.
-        self.chain.check_if_finalizable(block.header())?;
-
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
         let result = {

@@ -164,76 +164,61 @@ fn blocks_at_height() {
     let genesis = chain.get_block_by_height(0).unwrap();
     let b_1 = Block::empty_with_height(&genesis, 1, &*signer);
     let b_2 = Block::empty_with_height(&b_1, 2, &*signer);
-    let b_3 = Block::empty_with_height(&b_2, 3, &*signer);
 
     let c_1 = Block::empty_with_height(&genesis, 1, &*signer);
     let c_3 = Block::empty_with_height(&c_1, 3, &*signer);
     let c_4 = Block::empty_with_height(&c_3, 4, &*signer);
-    let c_5 = Block::empty_with_height(&c_4, 5, &*signer);
 
     let d_3 = Block::empty_with_height(&b_2, 3, &*signer);
-    let d_4 = Block::empty_with_height(&d_3, 4, &*signer);
-    let d_6 = Block::empty_with_height(&d_4, 6, &*signer);
+    let d_5 = Block::empty_with_height(&d_3, 5, &*signer);
+    let d_6 = Block::empty_with_height(&d_5, 6, &*signer);
 
     let e_7 = Block::empty_with_height(&b_1, 7, &*signer);
 
     let b_1_hash = *b_1.hash();
     let b_2_hash = *b_2.hash();
-    let b_3_hash = *b_3.hash();
 
     let c_1_hash = *c_1.hash();
     let c_3_hash = *c_3.hash();
     let c_4_hash = *c_4.hash();
-    let c_5_hash = *c_5.hash();
 
     let d_3_hash = *d_3.hash();
-    let d_4_hash = *d_4.hash();
+    let d_5_hash = *d_5.hash();
     let d_6_hash = *d_6.hash();
 
-    let e_7_hash = *e_7.hash();
-
-    assert_ne!(d_3_hash, b_3_hash);
+    assert_ne!(c_3_hash, d_3_hash);
 
     chain.process_block_test(&None, b_1).unwrap();
     chain.process_block_test(&None, b_2).unwrap();
-    chain.process_block_test(&None, b_3).unwrap();
-    assert_eq!(chain.header_head().unwrap().height, 3);
+    assert_eq!(chain.header_head().unwrap().height, 2);
 
     assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &b_1_hash);
     assert_eq!(chain.get_block_header_by_height(2).unwrap().hash(), &b_2_hash);
-    assert_eq!(chain.get_block_header_by_height(3).unwrap().hash(), &b_3_hash);
 
     chain.process_block_test(&None, c_1).unwrap();
     chain.process_block_test(&None, c_3).unwrap();
     chain.process_block_test(&None, c_4).unwrap();
-    chain.process_block_test(&None, c_5).unwrap();
     assert_eq!(chain.header_head().unwrap().height, 5);
 
     assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &c_1_hash);
     assert!(chain.get_block_header_by_height(2).is_err());
     assert_eq!(chain.get_block_header_by_height(3).unwrap().hash(), &c_3_hash);
     assert_eq!(chain.get_block_header_by_height(4).unwrap().hash(), &c_4_hash);
-    assert_eq!(chain.get_block_header_by_height(5).unwrap().hash(), &c_5_hash);
 
     chain.process_block_test(&None, d_3).unwrap();
-    chain.process_block_test(&None, d_4).unwrap();
+    chain.process_block_test(&None, d_5).unwrap();
     chain.process_block_test(&None, d_6).unwrap();
     assert_eq!(chain.header_head().unwrap().height, 6);
 
     assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &b_1_hash);
     assert_eq!(chain.get_block_header_by_height(2).unwrap().hash(), &b_2_hash);
     assert_eq!(chain.get_block_header_by_height(3).unwrap().hash(), &d_3_hash);
-    assert_eq!(chain.get_block_header_by_height(4).unwrap().hash(), &d_4_hash);
-    assert!(chain.get_block_header_by_height(5).is_err());
+    assert!(chain.get_block_header_by_height(4).is_err());
+    assert_eq!(chain.get_block_header_by_height(5).unwrap().hash(), &d_5_hash);
     assert_eq!(chain.get_block_header_by_height(6).unwrap().hash(), &d_6_hash);
 
-    chain.process_block_test(&None, e_7).unwrap();
-
-    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &b_1_hash);
-    for h in 2..=5 {
-        assert!(chain.get_block_header_by_height(h).is_err());
-    }
-    assert_eq!(chain.get_block_header_by_height(7).unwrap().hash(), &e_7_hash);
+    assert_eq!(chain.process_block_test(&None, e_7), Err(Error::CannotBeFinalized));
+    assert_matches!(chain.get_block_header_by_height(7), Err(_));
 }
 
 #[test]
