@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Overview - Guide to Nearcore Development</title>
+        <title>Fast Builds - Guide to Nearcore Development</title>
         <!-- Custom HTML head -->
         <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
         <meta name="description" content="">
@@ -75,7 +75,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../architecture/trie.html"><strong aria-hidden="true">2.</strong> Trie</a></li><li class="chapter-item expanded "><a href="../architecture/network.html"><strong aria-hidden="true">3.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html" class="active"><strong aria-hidden="true">4.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../practices/style.html"><strong aria-hidden="true">5.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../practices/tracking_issues.html"><strong aria-hidden="true">6.</strong> Tracking issues</a></li><li class="chapter-item expanded "><a href="../practices/fast_builds.html"><strong aria-hidden="true">7.</strong> Fast Builds</a></li><li class="chapter-item expanded "><a href="../practices/testing/index.html"><strong aria-hidden="true">8.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/testing/python_tests.html"><strong aria-hidden="true">8.1.</strong> Python Tests</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/protocol_upgrade.html"><strong aria-hidden="true">9.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html"><strong aria-hidden="true">10.</strong> Misc</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../architecture/trie.html"><strong aria-hidden="true">2.</strong> Trie</a></li><li class="chapter-item expanded "><a href="../architecture/network.html"><strong aria-hidden="true">3.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html"><strong aria-hidden="true">4.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../practices/style.html"><strong aria-hidden="true">5.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../practices/tracking_issues.html"><strong aria-hidden="true">6.</strong> Tracking issues</a></li><li class="chapter-item expanded "><a href="../practices/fast_builds.html" class="active"><strong aria-hidden="true">7.</strong> Fast Builds</a></li><li class="chapter-item expanded "><a href="../practices/testing/index.html"><strong aria-hidden="true">8.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/testing/python_tests.html"><strong aria-hidden="true">8.1.</strong> Python Tests</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/protocol_upgrade.html"><strong aria-hidden="true">9.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html"><strong aria-hidden="true">10.</strong> Misc</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -113,7 +113,7 @@
                         <a href="https://github.com/near/nearcore/tree/master/docs" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/near/nearcore/edit/master/docs/./practices/README.md" title="Suggest an edit" aria-label="Suggest an edit">
+                        <a href="https://github.com/near/nearcore/edit/master/docs/./practices/fast_builds.md" title="Suggest an edit" aria-label="Suggest an edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
                     </div>
@@ -140,18 +140,88 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="overview"><a class="header" href="#overview">Overview</a></h1>
-<p>This chapter describes various development processes and best practices employed
-at nearcore.</p>
+                        <h1 id="fast-builds"><a class="header" href="#fast-builds">Fast Builds</a></h1>
+<p>nearcore is implemented in Rust and is a fairly sizable project, so it takes a
+while to build. This chapter collects various tips to make the process faster.</p>
+<p>Optimizing build times is a bit of a black art, so please do benchmarks on your
+machine to verify that the improvement work for you. Changing some configuration
+and making some type, which prevents it from improving build times is an
+extremely common failure mode!</p>
+<p><a href="https://nnethercote.github.io/perf-book/compile-times.html">Rust Perf Book</a>
+contains a section on compilation time as well!</p>
+<h2 id="release-builds-and-link-time-optimization"><a class="header" href="#release-builds-and-link-time-optimization">Release Builds and Link Time Optimization</a></h2>
+<p>Obviously, <code>cargo build --release</code> is slower than <code>cargo build</code>. What's not
+entirely obvious is that <code>cargo build -r</code> is not as slow as it could be: our
+<code>--release</code> profile is somewhat optimized for fast builds, as it doesn't enable
+full LTO.</p>
+<p>When building production binaries, we use <code>lto=true</code> and <code>codegen-units=1</code>
+options, which make the build significantly slower (but the resulting binary
+somewhat faster). Keep this in mind when running benchmarks or parameter
+estimation.</p>
+<h2 id="linker"><a class="header" href="#linker">Linker</a></h2>
+<p>By default, <code>rustc</code> uses system's linker, which might be quite slow. Using <code>lld</code>
+(LLVM linker) or <code>mold</code> (very new, very fast linker) is usually a big win.</p>
+<p>I don't know what's the official source of truth for using alternative linkers,
+I usually refer to <a href="https://github.com/rust-lang/rust/issues/39915#issuecomment-538049306">this
+comment</a>.</p>
+<p>Usually, adding</p>
+<pre><code class="language-toml">[build]
+rustflags = [&quot;-C&quot;, &quot;link-arg=-fuse-ld=lld&quot;]
+</code></pre>
+<p>to <code>~/.cargo/config</code> is the most convenient approach.</p>
+<p>lld itself can be installed with <code>sudo apt install lld</code>.</p>
+<h2 id="prebuilt-rocksdb"><a class="header" href="#prebuilt-rocksdb">Prebuilt RocksDB</a></h2>
+<p>By default, we compile RocksDB (a C++ project) from source, which takes a lot of
+time. A faster alternative is to link to a prebuilt copy of RocksDB. This is a
+huge win, especially if you clean <code>./target</code> directory frequently.</p>
+<p>To use prebuilt RocksDB set <code>ROCKSDB_LIB_DIR</code> environment variable to location
+where <code>librocksdb.a</code> file is installed:</p>
+<pre><code class="language-console">$ export ROCKSDB_LIB_DIR=/usr/lib/x86_64-linux-gnu
+$ cargo build -p neard
+</code></pre>
+<p>Note that the system must provide a recent version of the library which,
+depending on operating system you’re using, may require installing packages from
+testing branches.  For example, on Debian it requires installing
+<code>librocksdb-dev</code> from <code>experimental</code> version:</p>
+<pre><code class="language-bash">echo 'deb http://ftp.debian.org/debian experimental main contrib non-free' |
+    sudo tee -a /etc/apt/sources.list
+sudo apt update
+sudo apt -t experimental install librocksdb-dev
+
+ROCKSDB_LIB_DIR=/usr/lib/x86_64-linux-gnu
+export ROCKSDB_LIB_DIR
+</code></pre>
+<h2 id="global-compilation-cache"><a class="header" href="#global-compilation-cache">Global Compilation Cache</a></h2>
+<p>By default, Rust uses incremental compilation, with intermediate artifacts
+stored in the project-local <code>./target</code> directory.</p>
+<p><a href="https://github.com/mozilla/sccache"><code>sccache</code></a> utility can be used to add a
+global compilation to the mix:</p>
+<pre><code class="language-console">$ cargo install sccache
+$ export RUSTC_WRAPPER=&quot;sccache&quot;
+$ export SCCACHE_CACHE_SIZE=&quot;30G&quot;
+$ cargo build -p neard
+</code></pre>
+<p><code>sccache</code> intercepts calls to <code>rustc</code> and pattern-matches compiler's command
+line to get a cached result.</p>
+<h2 id="ides-are-bad-for-environment"><a class="header" href="#ides-are-bad-for-environment">IDEs Are Bad For Environment</a></h2>
+<p>Generally, the knobs in this section are controlled either via global
+configuration in <code>~/.cargo/config</code> or environmental variables.</p>
+<p>Environmental variables are notoriously easy to lose, especially if you are
+working both from a command line and from a graphical IDE. Double check that you
+are not missing any of our build optimizations, the failure mode here is nasty,
+as the stuff just takes longer to compile without givin any visual indication of
+an error.</p>
+<p><a href="https://direnv.net"><code>direnv</code></a> sometimes can be used to conveniently manage
+project-specific environmentalvariable.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../architecture/network.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../practices/tracking_issues.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
-                            <a rel="next" href="../practices/style.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next" href="../practices/testing/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
                         <div style="clear: both"></div>
@@ -160,10 +230,10 @@ at nearcore.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../architecture/network.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../practices/tracking_issues.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
-                    <a rel="next" href="../practices/style.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next" href="../practices/testing/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>
