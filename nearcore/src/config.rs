@@ -598,13 +598,8 @@ impl NearConfig {
                 network_key_pair.secret_key,
                 validator_signer.clone(),
                 config.archive,
-                match genesis.config.chain_id.as_ref() {
-                    "mainnet" | "testnet" | "betanet" => {
-                        near_network::config::Features { enable_tier1: false }
-                    }
-                    // shardnet and all test setups.
-                    "shardnet" | _ => near_network::config::Features { enable_tier1: true },
-                },
+                // Enable tier1 (currently tier1 discovery only).
+                near_network::config::Features { enable_tier1: true },
             )?,
             telemetry_config: config.telemetry,
             #[cfg(feature = "json_rpc")]
