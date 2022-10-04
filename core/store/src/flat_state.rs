@@ -666,7 +666,6 @@ impl FlatStorageState {
     pub fn update_flat_head(&self, new_head: &CryptoHash) -> Result<(), FlatStorageError> {
         let mut guard = self.0.write().expect(POISONED_LOCK_ERR);
         let deltas = guard.get_deltas_between_blocks(new_head)?;
-        tracing::debug!(target: "client", "blocks: {}, deltas: {}", guard.blocks.len(), guard.deltas.len());
         let mut merged_delta = FlatStateDelta::default();
         for delta in deltas.into_iter().rev() {
             merged_delta.merge(delta.as_ref());
