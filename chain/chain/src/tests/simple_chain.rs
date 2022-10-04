@@ -186,6 +186,8 @@ fn blocks_at_height() {
     let d_5_hash = *d_5.hash();
     let d_6_hash = *d_6.hash();
 
+    let e_7_hash = *e_7.hash();
+
     assert_ne!(c_3_hash, d_3_hash);
 
     chain.process_block_test(&None, b_1).unwrap();
@@ -217,8 +219,13 @@ fn blocks_at_height() {
     assert_eq!(chain.get_block_header_by_height(5).unwrap().hash(), &d_5_hash);
     assert_eq!(chain.get_block_header_by_height(6).unwrap().hash(), &d_6_hash);
 
-    assert_matches!(chain.process_block_test(&None, e_7), Err(Error::CannotBeFinalized));
-    assert!(chain.get_block_header_by_height(7).is_err());
+    chain.process_block_test(&None, e_7).unwrap();
+
+    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &b_1_hash);
+    for h in 2..=5 {
+        assert!(chain.get_block_header_by_height(h).is_err());
+    }
+    assert_eq!(chain.get_block_header_by_height(7).unwrap().hash(), &e_7_hash);
 }
 
 #[test]
