@@ -1,5 +1,4 @@
 use crate::broadcast;
-use crate::tcp;
 use crate::concurrency::demux;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
@@ -7,13 +6,14 @@ use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerInfo, PeerMessage, RawRoutedMessage, RoutedMessageBody,
     RoutedMessageV2, RoutingTableUpdate,
 };
-use crate::peer::peer_actor::{PeerActor, ClosingReason};
+use crate::peer::peer_actor::{ClosingReason, PeerActor};
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::store;
+use crate::tcp;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
@@ -83,12 +83,8 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
                 self.event_sink.push(Event::RoutingTable(routing_table_update));
                 PeerToManagerMsgResp::Empty
             }
-            PeerToManagerMsg::RequestUpdateNonce(..) => {
-                PeerToManagerMsgResp::Empty
-            }
-            PeerToManagerMsg::ResponseUpdateNonce(..) => {
-                PeerToManagerMsgResp::Empty
-            }
+            PeerToManagerMsg::RequestUpdateNonce(..) => PeerToManagerMsgResp::Empty,
+            PeerToManagerMsg::ResponseUpdateNonce(..) => PeerToManagerMsgResp::Empty,
             PeerToManagerMsg::PeersRequest(_) => {
                 // PeerActor would panic if we returned a different response.
                 // This also triggers sending a message to the peer.
@@ -96,9 +92,7 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
                     peers: self.cfg.peers.clone(),
                 })
             }
-            PeerToManagerMsg::PeersResponse(..) => {
-                PeerToManagerMsgResp::Empty
-            }
+            PeerToManagerMsg::PeersResponse(..) => PeerToManagerMsgResp::Empty,
             PeerToManagerMsg::Unregister(_) => PeerToManagerMsgResp::Empty,
             _ => panic!("unsupported message"),
         }
@@ -125,7 +119,7 @@ impl PeerHandle {
             .recv_until(|ev| match ev {
                 Event::Network(peer_manager_actor::Event::HandshakeCompleted(ev)) => Some(ev.edge),
                 Event::Network(peer_manager_actor::Event::ConnectionClosed(ev)) => {
-                    panic!("handshake failed: {}",ev.reason)
+                    panic!("handshake failed: {}", ev.reason)
                 }
                 _ => None,
             })
@@ -171,7 +165,9 @@ impl PeerHandle {
             let store = store::Store::from(near_store::db::TestDB::new());
             let routing_table_view = RoutingTableView::new(store, cfg.id());
             // WARNING: this is a hack to make PeerActor use a specific nonce
-            if let (Some(nonce), tcp::StreamType::Outbound{peer_id}) = (&cfg.nonce, &stream.type_) {
+            if let (Some(nonce), tcp::StreamType::Outbound { peer_id }) =
+                (&cfg.nonce, &stream.type_)
+            {
                 routing_table_view.add_local_edges(&[Edge::new(
                     cfg.id(),
                     peer_id.clone(),
@@ -191,16 +187,9 @@ impl PeerHandle {
                 routing_table_view,
                 demux::RateLimit { qps: 100., burst: 1 },
             ));
-            PeerActor::spawn(
-                clock,
-                stream,
-                cfg.force_encoding,
-                network_state,
-            )
-            .unwrap()
+            PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap()
         })
         .await;
         Self { actix, cfg: cfg_, events: recv }
     }
 }
-

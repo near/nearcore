@@ -3,8 +3,8 @@
 use bytes::BytesMut;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::tcp;
 use crate::network_protocol::{Encoding, PeerMessage};
+use crate::tcp;
 
 pub struct Stream {
     stream: tcp::Stream,
@@ -14,11 +14,7 @@ pub struct Stream {
 
 impl Stream {
     pub fn new(force_encoding: Option<Encoding>, stream: tcp::Stream) -> Self {
-        Self {
-            stream,
-            force_encoding,
-            protocol_buffers_supported: false,
-        }
+        Self { stream, force_encoding, protocol_buffers_supported: false }
     }
 
     fn encoding(&self) -> Option<Encoding> {
@@ -71,52 +67,3 @@ impl Stream {
     }
 }
 
-/*
-// The following is partial reimplementation of the handshake protocol.
-// It is a stub which eventually evolve to be a fully fledged set of interactions
-// suitable for fuzz testing the network protocol.
-
-async fn write_msg(stream: &mut tcp::Stream, msg:&PeerMessage) -> anyhow::Result<()> {
-    let buf = msg.serialize(Encoding::Proto);
-    stream.stream.write_u32_le(buf.size()).await?;
-    stream.stream.write_exact(&buf[..]).await?;
-    Ok(())
-}
-
-async fn read_msg(stream: &mut tcp::Stream) -> anyhow::Result<PeerMessage> {
-    let n = stream.stream.read_u32_le().await?;
-    let mut buf = vec![0; n];
-    stream.stream.read_exact(&mut buf[..]).await?;
-    Ok(PeerMessage::deserialize(Encoding::Proto, buf)?)
-}
-
-pub(crate) async fn handshake(state: &NetworkState, stream: &mut tcp::Stream) -> anyhow::Result<()> {
-    match stream.type_ {
-        tcp::StreamType::Inbound => {
-            let h = match read_msg(stream).await? {
-                PeerMessage::Handshake(h) => h,
-                msg => bail!("unexpected message {msg:?}"),
-            };
-            
-            Handshake {
-                protocol_version: PROTOCOL_VERSION,
-                oldest_supported_version: MIN_SUPPORTED_PROTOCOL_VERSION,
-                sender_peer_id: self.id,
-                target_peer_id: h.sender_peer_id,
-                Sender
-            }
-        }
-        tcp::StreamType::Outbound{peer_id} => {
-            let nonce = 1;
-            Handshake{
-                protocol_version: PROTOCOL_VERSION,
-                oldest_supported_version: MIN_SUPPORTED_PROTOCOL_VERSION,
-                sender_peer_id: self.id,
-                target_peer_id: peer_id,
-                sender_listen_port: None,
-                sender_chain_info: chain.chain_info(),
-                partial_edge_info: PartialEdgeInfo::new(&self.config.node_id(), peer_id, nonce, &self.config.node_key)
-            }
-        }
-    }
-}*/

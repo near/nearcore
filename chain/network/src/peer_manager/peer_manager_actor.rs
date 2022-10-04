@@ -1,6 +1,4 @@
 use crate::config;
-use crate::tcp;
-use actix::fut::future::wrap_future;
 use crate::network_protocol::{
     AccountData, AccountOrPeerIdOrHash, Edge, EdgeState, PartialEdgeInfo, PeerInfo, PeerMessage,
     Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo,
@@ -20,13 +18,15 @@ use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use crate::store;
+use crate::tcp;
 use crate::time;
 use crate::types::{
     Ban, ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownPeerStatus, KnownProducer,
     NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
-    NetworkViewClientMessages, NetworkViewClientResponses, 
-    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType, ReasonForBan, SetChainInfo,
+    NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerMessageRequest,
+    PeerManagerMessageResponse, PeerType, ReasonForBan, SetChainInfo,
 };
+use actix::fut::future::wrap_future;
 use actix::{
     Actor, ActorFutureExt, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, WrapFuture,
@@ -199,7 +199,9 @@ impl Actor for PeerManagerActor {
             ctx.spawn(wrap_future(async move {
                 let mut listener = match tcp::Listener::bind(server_addr).await {
                     Ok(it) => it,
-                    Err(e) => panic!("failed to start listening on server_addr={server_addr:?} e={e:?}"),
+                    Err(e) => {
+                        panic!("failed to start listening on server_addr={server_addr:?} e={e:?}")
+                    }
                 };
                 state.config.event_sink.push(Event::ServerStarted);
                 loop {
@@ -210,7 +212,9 @@ impl Actor for PeerManagerActor {
                         // we would like to exchange set of connected peers even without establishing
                         // a proper connection.
                         debug!(target: "network", from = ?stream.peer_addr, "got new connection");
-                        if let Err(err) = PeerActor::spawn(clock.clone(), stream, None, state.clone()) {
+                        if let Err(err) =
+                            PeerActor::spawn(clock.clone(), stream, None, state.clone())
+                        {
                             tracing::info!(target:"network", ?err, "PeerActor::spawn()");
                         }
                     }
@@ -1433,7 +1437,9 @@ impl PeerManagerActor {
             // TEST-ONLY
             PeerManagerMessageRequest::OutboundTcpConnect(stream) => {
                 let peer_addr = stream.peer_addr;
-                if let Err(err) = PeerActor::spawn(self.clock.clone(), stream, None, self.state.clone()) {
+                if let Err(err) =
+                    PeerActor::spawn(self.clock.clone(), stream, None, self.state.clone())
+                {
                     tracing::info!(target:"network", ?err, ?peer_addr, "spawn_outbound()");
                 }
                 PeerManagerMessageResponse::OutboundTcpConnect

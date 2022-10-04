@@ -8,17 +8,17 @@ use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_network::actix::ActixSystem;
 use near_network::blacklist;
-use near_network::tcp;
 use near_network::broadcast;
 use near_network::config;
+use near_network::tcp;
 use near_network::test_utils::{
     expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo,
 };
 use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::types::{
-    PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    Ping as NetPing, Pong as NetPong, ROUTED_MESSAGE_TTL,
+    PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, Ping as NetPing,
+    Pong as NetPong, ROUTED_MESSAGE_TTL,
 };
 use near_network::{Event, PeerManagerActor};
 use near_o11y::testonly::init_test_logger;

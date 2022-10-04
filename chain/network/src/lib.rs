@@ -18,8 +18,8 @@ pub mod config;
 pub mod config_json;
 pub mod routing;
 
-pub mod test_utils;
 pub mod tcp;
+pub mod test_utils;
 pub mod time;
 pub mod types;
 

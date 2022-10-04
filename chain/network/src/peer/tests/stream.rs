@@ -1,7 +1,7 @@
 use crate::actix::ActixSystem;
+use crate::network_protocol::testonly as data;
 use crate::peer::stream;
 use crate::tcp;
-use crate::network_protocol::testonly as data;
 use crate::testonly::make_rng;
 use actix::Actor as _;
 use actix::ActorContext as _;
@@ -55,8 +55,7 @@ impl Actor {
             queue_recv,
             system: ActixSystem::spawn(|| {
                 Actor::create(|ctx| {
-                    let stream =
-                        stream::FramedStream::spawn(ctx, s, Arc::default());
+                    let stream = stream::FramedStream::spawn(ctx, s, Arc::default());
                     Self { stream, queue_send }
                 })
             })
@@ -68,7 +67,7 @@ impl Actor {
 #[tokio::test]
 async fn send_recv() {
     let mut rng = make_rng(98324532);
-    let (s1,s2) = tcp::Stream::loopback(data::make_peer_id(&mut rng)).await;
+    let (s1, s2) = tcp::Stream::loopback(data::make_peer_id(&mut rng)).await;
     let a1 = Actor::spawn(s1).await;
     let mut a2 = Actor::spawn(s2).await;
 

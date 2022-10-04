@@ -1,10 +1,10 @@
 use crate::network_protocol::testonly as data;
+use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
+use crate::peer_manager::connection;
+use crate::private_actix::RegisterPeerError;
 use crate::testonly::make_rng;
 use crate::time;
-use crate::private_actix::RegisterPeerError;
-use crate::peer_manager::connection;
-use crate::peer::peer_actor::ClosingReason;
 use near_o11y::testonly::init_test_logger;
 use std::sync::Arc;
 
@@ -32,7 +32,9 @@ async fn connection_tie_break() {
     let inbound_conn = pm.start_inbound(chain.clone(), cfgs[2].clone()).await;
     // inbound should be rejected, outbound accepted.
     assert_eq!(
-        ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(connection::PoolError::AlreadyStartedConnecting)),
+        ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(
+            connection::PoolError::AlreadyStartedConnecting
+        )),
         inbound_conn.manager_fail_handshake(&clock.clock()).await,
     );
     outbound_conn.handshake(&clock.clock()).await;
@@ -43,7 +45,9 @@ async fn connection_tie_break() {
     // inbound should be accepted, outbound rejected by PM.
     let inbound = inbound_conn.handshake(&clock.clock()).await;
     assert_eq!(
-        ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(connection::PoolError::AlreadyConnected)),
+        ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(
+            connection::PoolError::AlreadyConnected
+        )),
         outbound_conn.manager_fail_handshake(&clock.clock()).await,
     );
     drop(inbound);
@@ -84,11 +88,13 @@ async fn duplicate_connections() {
     // be completed first though, otherwise we would have a race condition.
     let conn2 = pm.start_inbound(chain.clone(), cfg.clone()).await;
     assert_eq!(
-        ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(connection::PoolError::AlreadyConnected)),
+        ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(
+            connection::PoolError::AlreadyConnected
+        )),
         conn2.manager_fail_handshake(&clock.clock()).await,
     );
     drop(conn1);
-    
+
     // Inbound then outbound.
     let cfg = chain.make_config(rng);
     let conn1 = pm.start_inbound(chain.clone(), cfg.clone()).await;
@@ -106,7 +112,9 @@ async fn duplicate_connections() {
     let conn1 = conn1.handshake(&clock.clock()).await;
     let conn2 = pm.start_inbound(chain.clone(), cfg.clone()).await;
     assert_eq!(
-        ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(connection::PoolError::AlreadyConnected)),
+        ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(
+            connection::PoolError::AlreadyConnected
+        )),
         conn2.manager_fail_handshake(&clock.clock()).await,
     );
     drop(conn1);

@@ -1,9 +1,9 @@
 use crate::network_protocol::testonly as data;
-use crate::tcp;
 use crate::network_protocol::Encoding;
 use crate::network_protocol::{Handshake, HandshakeFailureReason, PeerMessage, RoutedMessageBody};
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor::Event as PME;
+use crate::tcp;
 use crate::testonly::fake_client::Event as CE;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
@@ -100,10 +100,7 @@ async fn test_peer_communication(
     let mut events = inbound.events.from_now();
     let want: Vec<_> = chain.blocks.iter().map(|b| b.hash().clone()).collect();
     outbound.send(PeerMessage::BlockHeadersRequest(want.clone())).await;
-    assert_eq!(
-        Event::Client(CE::BlockHeadersRequest(want)),
-        events.recv_until(filter).await
-    );
+    assert_eq!(Event::Client(CE::BlockHeadersRequest(want)), events.recv_until(filter).await);
 
     // BlockHeaders
     let mut events = inbound.events.from_now();
@@ -232,6 +229,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
     };
     let (outbound_stream, inbound_stream) = tcp::Stream::loopback(inbound_cfg.id()).await;
     let inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
+    let outbound_port = outbound_stream.local_addr.port();
     let mut outbound = Stream::new(outbound_encoding, outbound_stream);
 
     // Send too old PROTOCOL_VERSION, expect ProtocolVersionMismatch
@@ -240,7 +238,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION - 1,
         sender_peer_id: outbound_cfg.id(),
         target_peer_id: inbound.cfg.id(),
-        sender_listen_port: None,
+        sender_listen_port: Some(outbound_port),
         sender_chain_info: outbound_cfg.chain.get_peer_chain_info(),
         partial_edge_info: outbound_cfg.partial_edge_info(&inbound.cfg.id(), 1),
     };

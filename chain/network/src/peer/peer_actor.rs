@@ -755,13 +755,6 @@ impl PeerActor {
             }
         }
 
-        if handshake.sender_peer_id == self.my_node_info.id {
-            metrics::RECEIVED_INFO_ABOUT_ITSELF.inc();
-            debug!(target: "network", "Received info about itself. Disconnecting this peer.");
-            self.stop(ctx, ClosingReason::HandshakeFailed);
-            return;
-        }
-
         // Verify that the received partial edge is valid.
         // WARNING: signature is verified against the 2nd argument.
         if !Edge::partial_verify(
@@ -793,6 +786,11 @@ impl PeerActor {
         );
         debug_assert!(edge.verify());
 
+        // TODO(gprusak): not enabling a port for listening is also a valid setup.
+        // In that case peer_info.addr should be None (same as now), however
+        // we still should do the check against the PeerStore::blacklist.
+        // Currently PeerManager is rejecting connections with peer_info.addr == None
+        // preemptively.
         let peer_info = PeerInfo {
             id: handshake.sender_peer_id.clone(),
             addr: handshake
@@ -1000,6 +998,9 @@ impl actix::Handler<stream::Error> for PeerActor {
             | stream::Error::Send(stream::SendError::IO(err)) => match err.kind() {
                 // Connection has been closed.
                 io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionReset | io::ErrorKind::BrokenPipe => true,
+                // When stopping tokio runtime, an "IO driver has terminated" is sometimes
+                // returned.
+                io::ErrorKind::Other => true,
                 // It is unexpected in a sense that stream got broken in an unexpected way.
                 // In case you encounter an error that was actually to be expected,
                 // please add it here and document.
