@@ -19,9 +19,10 @@ use crate::stats::metrics;
 use crate::store;
 use crate::time;
 use crate::types::{
-    ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, NetworkClientMessages,
-    NetworkClientMessagesWithContext, NetworkInfo, NetworkRequests, NetworkResponses,
-    OutboundTcpConnect, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
+    Ban, ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownPeerStatus, KnownProducer,
+NetworkClientMessages, NetworkClientMessagesWithContext, NetworkInfo, NetworkRequests,
+    NetworkResponses, NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerMessageRequest,
+    PeerManagerMessageResponse, PeerType, ReasonForBan, SetChainInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{
