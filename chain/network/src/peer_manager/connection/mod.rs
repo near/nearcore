@@ -5,12 +5,12 @@ use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerMessage, SignedAccountData,
     SyncAccountsData,
 };
+use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
 use crate::stats::metrics;
 use crate::time;
-use crate::types::FullPeerInfo;
-use crate::types::{PeerManagerRequest, PeerManagerRequestWithContext, PeerType, ReasonForBan};
+use crate::types::{FullPeerInfo, PeerType, ReasonForBan};
 use near_primitives::network::PeerId;
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
@@ -98,20 +98,12 @@ impl Connection {
         }
     }
 
-    pub fn ban(&self, ban_reason: ReasonForBan) {
-        self.addr.do_send(PeerManagerRequestWithContext {
-            msg: PeerManagerRequest::BanPeer(ban_reason),
-            context: Span::current().context(),
-        });
+    pub fn stop(&self, ban_reason: Option<ReasonForBan>) {
+        self.addr.do_send(peer_actor::Stop { ban_reason, context: Span::current().context() });
     }
 
-    pub fn unregister(&self) {
-        self.addr.do_send(PeerManagerRequestWithContext {
-            msg: PeerManagerRequest::UnregisterPeer,
-            context: Span::current().context(),
-        });
-    }
-
+    // TODO(gprusak): embed Stream directly in Connection,
+    // so that we can skip actix queue when sending messages.
     pub fn send_message(&self, msg: Arc<PeerMessage>) {
         let msg_kind = msg.msg_variant().to_string();
         tracing::trace!(target: "network", ?msg_kind, "Send message");

@@ -1,12 +1,12 @@
 use crate::accounts_data;
-use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, PartialEdgeInfo, PeerIdOrHash, PeerMessage, Ping, Pong,
+    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerIdOrHash, PeerMessage, Ping, Pong,
     RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
 };
 use crate::peer_manager::connection;
 use crate::private_actix::PeerToManagerMsg;
+use crate::routing;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use crate::time;
@@ -16,6 +16,7 @@ use arc_swap::ArcSwap;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::types::AccountId;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tracing::{debug, trace};
@@ -25,18 +26,23 @@ const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::milliseconds(60_0
 /// Limit number of pending Peer actors to avoid OOM.
 pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 
+/// Send important messages three times.
+/// We send these messages multiple times to reduce the chance that they are lost
+const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
+
 pub(crate) struct NetworkState {
     /// PeerManager config.
     pub config: Arc<config::VerifiedConfig>,
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
-    pub send_accounts_data_rl: demux::RateLimit,
     /// Address of the client actor.
     pub client_addr: Recipient<NetworkClientMessages>,
     /// Address of the view client actor.
     pub view_client_addr: Recipient<NetworkViewClientMessages>,
     /// Address of the peer manager actor.
     pub peer_manager_addr: Recipient<PeerToManagerMsg>,
+    /// RoutingTableActor, responsible for computing routing table, routing table exchange, etc.
+    pub routing_table_addr: actix::Addr<routing::Actor>,
 
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<ChainInfo>,
@@ -66,10 +72,11 @@ impl NetworkState {
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         peer_manager_addr: Recipient<PeerToManagerMsg>,
+        routing_table_addr: actix::Addr<routing::Actor>,
         routing_table_view: RoutingTableView,
-        send_accounts_data_rl: demux::RateLimit,
     ) -> Self {
         Self {
+            routing_table_addr,
             genesis_id,
             client_addr,
             view_client_addr,
@@ -79,7 +86,6 @@ impl NetworkState {
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             accounts_data: Arc::new(accounts_data::Cache::new()),
             routing_table_view,
-            send_accounts_data_rl,
             config,
             txns_since_last_block: AtomicUsize::new(0),
         }
@@ -142,37 +148,80 @@ impl NetworkState {
         let my_peer_id = self.config.node_id();
 
         // Check if the message is for myself and don't try to send it in that case.
-        if let PeerIdOrHash::PeerId(target) = &msg.msg.target {
+        if let PeerIdOrHash::PeerId(target) = &msg.target {
             if target == &my_peer_id {
                 debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?my_peer_id, ?msg, "Drop signed message to myself");
                 metrics::CONNECTED_TO_MYSELF.inc();
                 return false;
             }
         }
-
         match self.routing_table_view.find_route(&clock, &msg.target) {
             Ok(peer_id) => {
                 // Remember if we expect a response for this message.
-                if msg.msg.author == my_peer_id && msg.expect_response() {
+                if msg.author == my_peer_id && msg.expect_response() {
                     trace!(target: "network", ?msg, "initiate route back");
                     self.routing_table_view.add_route_back(&clock, msg.hash(), my_peer_id);
                 }
-                self.tier2.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)))
+                return self.tier2.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
             Err(find_route_error) => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                metrics::MessageDropped::NoRouteFound.inc(&msg.msg.body);
+                metrics::MessageDropped::NoRouteFound.inc(&msg.body);
 
                 debug!(target: "network",
                       account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
-                      to = ?msg.msg.target,
+                      to = ?msg.target,
                       reason = ?find_route_error,
                       known_peers = ?self.routing_table_view.reachable_peers(),
-                      msg = ?msg.msg.body,
+                      msg = ?msg.body,
                     "Drop signed message"
                 );
-                false
+                return false;
             }
         }
+    }
+
+    /// Send message to specific account.
+    /// Return whether the message is sent or not.
+    pub fn send_message_to_account(
+        &self,
+        clock: &time::Clock,
+        account_id: &AccountId,
+        msg: RoutedMessageBody,
+    ) -> bool {
+        let target = match self.routing_table_view.account_owner(account_id) {
+            Some(peer_id) => peer_id,
+            None => {
+                // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
+                metrics::MessageDropped::UnknownAccount.inc(&msg);
+                debug!(target: "network",
+                       account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
+                       to = ?account_id,
+                       ?msg,"Drop message: unknown account",
+                );
+                trace!(target: "network", known_peers = ?self.routing_table_view.get_accounts_keys(), "Known peers");
+                return false;
+            }
+        };
+
+        let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body: msg };
+        let msg = self.sign_message(clock, msg);
+        if msg.body.is_important() {
+            let mut success = false;
+            for _ in 0..IMPORTANT_MESSAGE_RESENT_COUNT {
+                success |= self.send_message_to_peer(clock, msg.clone());
+            }
+            success
+        } else {
+            self.send_message_to_peer(clock, msg)
+        }
+    }
+
+    pub fn add_verified_edges_to_routing_table(&self, edges: Vec<Edge>) {
+        if edges.is_empty() {
+            return;
+        }
+        self.routing_table_view.add_local_edges(&edges);
+        self.routing_table_addr.do_send(routing::actor::Message::AddVerifiedEdges { edges });
     }
 }
