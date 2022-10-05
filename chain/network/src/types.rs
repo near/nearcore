@@ -115,16 +115,6 @@ impl KnownPeerState {
     }
 }
 
-/// Actor message that holds the TCP stream from an inbound TCP connection
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-pub struct InboundTcpConnect(pub tokio::net::TcpStream);
-
-/// Actor message to request the creation of an outbound TCP connection to a peer.
-#[derive(actix::Message, Clone, Debug)]
-#[rtype(result = "()")]
-pub struct OutboundTcpConnect(pub PeerInfo);
-
 impl KnownPeerStatus {
     pub fn is_banned(&self) -> bool {
         matches!(self, KnownPeerStatus::Banned(_, _))
@@ -178,7 +168,7 @@ pub enum PeerManagerMessageRequest {
     /// Request PeerManager to connect to the given peer.
     /// Used in tests and internally by PeerManager.
     /// TODO: replace it with AsyncContext::spawn/run_later for internal use.
-    OutboundTcpConnect(OutboundTcpConnect),
+    OutboundTcpConnect(crate::tcp::Stream),
     /// TEST-ONLY
     SetAdvOptions(crate::test_utils::SetAdvOptions),
     /// The following types of requests are used to trigger actions in the Peer Manager for testing.
@@ -229,8 +219,8 @@ impl PeerManagerMessageRequest {
 #[derive(actix::MessageResponse, Debug)]
 pub enum PeerManagerMessageResponse {
     NetworkResponses(NetworkResponses),
-    OutboundTcpConnect,
     /// TEST-ONLY
+    OutboundTcpConnect,
     SetAdvOptions,
     FetchRoutingTable(RoutingTableInfo),
     PingTo,
@@ -657,8 +647,6 @@ mod tests {
         assert_size!(RawRoutedMessage);
         assert_size!(RoutedMessage);
         assert_size!(KnownPeerState);
-        assert_size!(InboundTcpConnect);
-        assert_size!(OutboundTcpConnect);
         assert_size!(Ban);
         assert_size!(StateResponseInfoV1);
         assert_size!(PartialEncodedChunkRequestMsg);

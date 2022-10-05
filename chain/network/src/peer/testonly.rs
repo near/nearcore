@@ -6,13 +6,14 @@ use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerInfo, PeerMessage, RawRoutedMessage, RoutedMessageBody,
     RoutedMessageV2, RoutingTableUpdate,
 };
-use crate::peer::peer_actor::{PeerActor, StreamConfig};
+use crate::peer::peer_actor::{ClosingReason, PeerActor};
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::store;
+use crate::tcp;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
@@ -21,7 +22,6 @@ use actix::{Actor, Context, Handler};
 use near_crypto::{InMemorySigner, Signature};
 use near_primitives::network::PeerId;
 use std::sync::Arc;
-use tokio::net::{TcpListener, TcpStream};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -29,7 +29,6 @@ pub struct PeerConfig {
     pub chain: Arc<data::Chain>,
     pub network: NetworkConfig,
     pub peers: Vec<PeerInfo>,
-    pub start_handshake_with: Option<PeerId>,
     pub force_encoding: Option<crate::network_protocol::Encoding>,
     /// If both start_handshake_with and nonce are set, PeerActor
     /// will use this nonce in the handshake.
@@ -57,11 +56,7 @@ impl PeerConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Event {
-    HandshakeDone(Edge),
     RoutingTable(RoutingTableUpdate),
-    RequestUpdateNonce(PartialEdgeInfo),
-    ResponseUpdateNonce(Edge),
-    PeersResponse(Vec<PeerInfo>),
     Client(fake_client::Event),
     Network(peer_manager_actor::Event),
 }
@@ -81,22 +76,15 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
         let msg_type: &str = (&msg).into();
         println!("{}: PeerManager message {}", self.cfg.id(), msg_type);
         match msg {
-            PeerToManagerMsg::RegisterPeer(msg) => {
-                self.event_sink.push(Event::HandshakeDone(msg.connection.edge.clone()));
+            PeerToManagerMsg::RegisterPeer(..) => {
                 PeerToManagerMsgResp::RegisterPeer(RegisterPeerResponse::Accept)
             }
             PeerToManagerMsg::SyncRoutingTable { routing_table_update, .. } => {
                 self.event_sink.push(Event::RoutingTable(routing_table_update));
                 PeerToManagerMsgResp::Empty
             }
-            PeerToManagerMsg::RequestUpdateNonce(_, edge) => {
-                self.event_sink.push(Event::RequestUpdateNonce(edge));
-                PeerToManagerMsgResp::Empty
-            }
-            PeerToManagerMsg::ResponseUpdateNonce(edge) => {
-                self.event_sink.push(Event::ResponseUpdateNonce(edge));
-                PeerToManagerMsgResp::Empty
-            }
+            PeerToManagerMsg::RequestUpdateNonce(..) => PeerToManagerMsgResp::Empty,
+            PeerToManagerMsg::ResponseUpdateNonce(..) => PeerToManagerMsgResp::Empty,
             PeerToManagerMsg::PeersRequest(_) => {
                 // PeerActor would panic if we returned a different response.
                 // This also triggers sending a message to the peer.
@@ -104,20 +92,17 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
                     peers: self.cfg.peers.clone(),
                 })
             }
-            PeerToManagerMsg::PeersResponse(resp) => {
-                self.event_sink.push(Event::PeersResponse(resp.peers));
-                PeerToManagerMsgResp::Empty
-            }
+            PeerToManagerMsg::PeersResponse(..) => PeerToManagerMsgResp::Empty,
             PeerToManagerMsg::Unregister(_) => PeerToManagerMsgResp::Empty,
             _ => panic!("unsupported message"),
         }
     }
 }
 
-pub struct PeerHandle {
-    pub(crate) cfg: Arc<PeerConfig>,
+pub(crate) struct PeerHandle {
+    pub cfg: Arc<PeerConfig>,
     actix: ActixSystem<PeerActor>,
-    pub(crate) events: broadcast::Receiver<Event>,
+    pub events: broadcast::Receiver<Event>,
 }
 
 impl PeerHandle {
@@ -132,18 +117,18 @@ impl PeerHandle {
     pub async fn complete_handshake(&mut self) -> Edge {
         self.events
             .recv_until(|ev| match ev {
-                Event::HandshakeDone(edge) => Some(edge),
-                Event::Network(peer_manager_actor::Event::ConnectionClosed(_)) => {
-                    panic!("handshake failed")
+                Event::Network(peer_manager_actor::Event::HandshakeCompleted(ev)) => Some(ev.edge),
+                Event::Network(peer_manager_actor::Event::ConnectionClosed(ev)) => {
+                    panic!("handshake failed: {}", ev.reason)
                 }
                 _ => None,
             })
             .await
     }
-    pub async fn fail_handshake(&mut self) {
+    pub async fn fail_handshake(&mut self) -> ClosingReason {
         self.events
             .recv_until(|ev| match ev {
-                Event::Network(peer_manager_actor::Event::ConnectionClosed(_)) => Some(()),
+                Event::Network(peer_manager_actor::Event::ConnectionClosed(ev)) => Some(ev.reason),
                 // HandshakeDone means that handshake succeeded locally,
                 // but in case this is an inbound connection, it can still
                 // fail on the other side. Therefore we cannot panic on HandshakeDone.
@@ -169,7 +154,7 @@ impl PeerHandle {
     pub async fn start_endpoint(
         clock: time::Clock,
         cfg: PeerConfig,
-        stream: TcpStream,
+        stream: tcp::Stream,
     ) -> PeerHandle {
         let cfg = Arc::new(cfg);
         let cfg_ = cfg.clone();
@@ -180,7 +165,9 @@ impl PeerHandle {
             let store = store::Store::from(near_store::db::TestDB::new());
             let routing_table_view = RoutingTableView::new(store, cfg.id());
             // WARNING: this is a hack to make PeerActor use a specific nonce
-            if let (Some(nonce), Some(peer_id)) = (&cfg.nonce, &cfg.start_handshake_with) {
+            if let (Some(nonce), tcp::StreamType::Outbound { peer_id }) =
+                (&cfg.nonce, &stream.type_)
+            {
                 routing_table_view.add_local_edges(&[Edge::new(
                     cfg.id(),
                     peer_id.clone(),
@@ -200,29 +187,9 @@ impl PeerHandle {
                 routing_table_view,
                 demux::RateLimit { qps: 100., burst: 1 },
             ));
-            PeerActor::spawn(
-                clock,
-                stream,
-                match &cfg.start_handshake_with {
-                    None => StreamConfig::Inbound,
-                    Some(id) => StreamConfig::Outbound { peer_id: id.clone() },
-                },
-                cfg.force_encoding,
-                network_state,
-            )
-            .unwrap()
+            PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap()
         })
         .await;
         Self { actix, cfg: cfg_, events: recv }
-    }
-
-    pub async fn start_connection() -> (TcpStream, TcpStream) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let connect_future = TcpStream::connect(listener.local_addr().unwrap());
-        let accept_future = listener.accept();
-        let (connect_result, accept_result) = tokio::join!(connect_future, accept_future);
-        let outbound_stream = connect_result.unwrap();
-        let (inbound_stream, _) = accept_result.unwrap();
-        (outbound_stream, inbound_stream)
     }
 }
