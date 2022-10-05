@@ -15,6 +15,7 @@ pub enum RpcValidatorError {
     InternalError { error_message: String },
 }
 
+#[cfg_attr(feature = "arbitrary_feature", derive(arbitrary::Arbitrary))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcValidatorRequest {
     #[serde(flatten)]

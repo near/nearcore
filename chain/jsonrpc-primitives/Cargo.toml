@@ -13,6 +13,7 @@ description = "This crate hosts structures for the NEAR JSON RPC Requests, Respo
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+arbitrary = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -26,4 +27,5 @@ near-client-primitives = { path = "../client-primitives", optional = true }
 [features]
 full = ["debug_types"]
 debug_types = ["near-client-primitives"]
+arbitrary_feature = ["arbitrary"]
 test_features = []

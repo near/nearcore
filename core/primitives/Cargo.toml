@@ -13,6 +13,7 @@ This crate provides the base set of primitives used by other nearcore crates
 """
 
 [dependencies]
+arbitrary = { workspace = true, optional = true }
 borsh.workspace = true
 byteorder.workspace = true
 bytesize.workspace = true
@@ -61,6 +62,10 @@ nightly_protocol = []
 # Shardnet is the experimental network that we deploy for chunk-only producer testing.
 shardnet = ["protocol_feature_reject_blocks_with_outdated_protocol_version"]
 
+arbitrary_feature = [
+    "arbitrary",
+    "near-primitives-core/arbitrary_feature",
+]
 deepsize_feature = [
   "deepsize",
   "near-vm-errors/deepsize_feature",

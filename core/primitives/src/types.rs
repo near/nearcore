@@ -23,6 +23,7 @@ pub use near_primitives_core::types::*;
 pub type StateRoot = CryptoHash;
 
 /// Different types of finality.
+#[cfg_attr(feature = "arbitrary_feature", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum Finality {
@@ -445,6 +446,7 @@ impl StateRootNode {
 /// Epoch identifier -- wrapped hash, to make it easier to distinguish.
 /// EpochId of epoch T is the hash of last block in T-2
 /// EpochId of first two epochs is 0
+#[cfg_attr(feature = "arbitrary_feature", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     Debug,
@@ -783,6 +785,7 @@ pub struct ChunkExtraV1 {
     pub balance_burnt: Balance,
 }
 
+#[cfg_attr(feature = "arbitrary_feature", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -793,6 +796,7 @@ pub enum BlockId {
 
 pub type MaybeBlockId = Option<BlockId>;
 
+#[cfg_attr(feature = "arbitrary_feature", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -801,6 +805,7 @@ pub enum SyncCheckpoint {
     EarliestAvailable,
 }
 
+#[cfg_attr(feature = "arbitrary_feature", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -840,6 +845,7 @@ pub struct BlockChunkValidatorStats {
     pub chunk_stats: ValidatorStats,
 }
 
+#[cfg_attr(feature = "arbitrary_feature", derive(arbitrary::Arbitrary))]
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum EpochReference {

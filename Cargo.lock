@@ -2803,6 +2803,7 @@ dependencies = [
 name = "near-account-id"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "bolero",
  "borsh",
  "deepsize",
@@ -3134,6 +3135,7 @@ dependencies = [
  "awc",
  "libfuzzer-sys",
  "near-jsonrpc",
+ "near-jsonrpc-primitives",
  "near-jsonrpc-tests",
  "near-primitives",
  "once_cell",
@@ -3146,6 +3148,7 @@ dependencies = [
 name = "near-jsonrpc-primitives"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "near-chain-configs",
  "near-client-primitives",
  "near-crypto",
@@ -3310,6 +3313,7 @@ dependencies = [
 name = "near-primitives"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "assert_matches",
  "bencher",
  "borsh",
@@ -3342,6 +3346,7 @@ dependencies = [
 name = "near-primitives-core"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "base64",
  "borsh",
  "bs58",

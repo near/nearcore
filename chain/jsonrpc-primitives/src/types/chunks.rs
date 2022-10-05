@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[cfg_attr(feature = "arbitrary_feature", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ChunkReference {
@@ -13,6 +14,7 @@ pub enum ChunkReference {
     },
 }
 
+#[cfg_attr(feature = "arbitrary_feature", derive(arbitrary::Arbitrary))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcChunkRequest {
     #[serde(flatten)]
