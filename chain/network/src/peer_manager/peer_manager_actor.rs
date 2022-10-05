@@ -22,9 +22,9 @@ use crate::tcp;
 use crate::time;
 use crate::types::{
     Ban, ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownPeerStatus, KnownProducer,
-NetworkClientMessages, NetworkClientMessagesWithContext, NetworkInfo, NetworkRequests,
-    NetworkResponses, NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerMessageRequest,
-    PeerManagerMessageResponse, PeerType, ReasonForBan, SetChainInfo,
+    NetworkClientMessages, NetworkClientMessagesWithContext, NetworkInfo, NetworkRequests,
+    NetworkResponses, NetworkViewClientMessages, NetworkViewClientResponses,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType, ReasonForBan, SetChainInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{
