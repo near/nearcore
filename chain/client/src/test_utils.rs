@@ -34,14 +34,14 @@ use near_network::types::{
     PeerType,
 };
 use near_network::types::{
-    ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkClientMessagesWithContext,
-    NetworkClientResponses, NetworkRecipient, NetworkRequests, NetworkResponses,
-    PeerManagerAdapter,
+    ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkClientResponses,
+    NetworkRecipient, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
 use near_network::types::{
     NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
 };
 use near_o11y::testonly::TracingCapture;
+use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
@@ -502,7 +502,7 @@ fn send_chunks<T, I, F>(
 ) where
     T: Eq,
     I: Iterator<Item = (usize, T)>,
-    F: Fn() -> NetworkClientMessagesWithContext,
+    F: Fn() -> WithSpanContext<NetworkClientMessages>,
 {
     for (i, name) in recipients {
         if name == target {
@@ -668,7 +668,7 @@ pub fn setup_mock_all_validators(
                             known_producers: vec![],
                             tier1_accounts: vec![],
                         };
-                        client_addr.do_send(NetworkClientMessagesWithContext::new(NetworkClientMessages::NetworkInfo(info)));
+                        client_addr.do_send(NetworkClientMessages::NetworkInfo(info).with_span_context());
                     }
 
                     match msg.as_network_requests_ref() {
@@ -680,11 +680,7 @@ pub fn setup_mock_all_validators(
                             }
 
                             for (client, _) in connectors1 {
-                                client.do_send(NetworkClientMessagesWithContext::new(NetworkClientMessages::Block(
-                                    block.clone(),
-                                    PeerInfo::random().id,
-                                    false,
-                                )))
+                                client.do_send(NetworkClientMessages::Block( block.clone(), PeerInfo::random().id, false, ).with_span_context());
                             }
 
                             let mut last_height1 = last_height1.write().unwrap();
@@ -700,7 +696,7 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
                             let create_msg = || {
-                                NetworkClientMessagesWithContext::new(NetworkClientMessages::PartialEncodedChunkRequest(request.clone(), my_address))
+                                NetworkClientMessages::PartialEncodedChunkRequest(request.clone(), my_address).with_span_context()
                             };
                             send_chunks(
                                 connectors1,
@@ -712,7 +708,7 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
                             let create_msg = || {
-                                NetworkClientMessagesWithContext::new(NetworkClientMessages::PartialEncodedChunkResponse(response.clone(), Clock::instant()))
+                                NetworkClientMessages::PartialEncodedChunkResponse(response.clone(), Clock::instant()).with_span_context()
                             };
                             send_chunks(
                                 connectors1,
@@ -727,7 +723,7 @@ pub fn setup_mock_all_validators(
                             partial_encoded_chunk,
                         } => {
                             let create_msg = || {
-                                NetworkClientMessagesWithContext::new(NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk.clone().into()))
+                                NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk.clone().into()).with_span_context()
                             };
                             send_chunks(
                                 connectors1,
@@ -739,7 +735,7 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                             let create_msg = || {
-                                NetworkClientMessagesWithContext::new(NetworkClientMessages::PartialEncodedChunkForward(forward.clone()))
+                                NetworkClientMessages::PartialEncodedChunkForward(forward.clone()).with_span_context()
                             };
                             send_chunks(
                                 connectors1,
@@ -762,7 +758,7 @@ pub fn setup_mock_all_validators(
                                                 let response = response.unwrap();
                                                 match response {
                                                     NetworkViewClientResponses::Block(block) => {
-                                                        me.do_send(NetworkClientMessagesWithContext::new(NetworkClientMessages::Block(*block, peer_id, true)));
+                                                        me.do_send(NetworkClientMessages::Block(*block, peer_id, true).with_span_context());
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -788,7 +784,7 @@ pub fn setup_mock_all_validators(
                                                 let response = response.unwrap();
                                                 match response {
                                                     NetworkViewClientResponses::EpochSyncResponse(response) => {
-                                                        me.do_send(NetworkClientMessagesWithContext::new(NetworkClientMessages::EpochSyncResponse(peer_id, response)));
+                                                        me.do_send(NetworkClientMessages::EpochSyncResponse(peer_id, response).with_span_context());
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -814,7 +810,7 @@ pub fn setup_mock_all_validators(
                                                 let response = response.unwrap();
                                                 match response {
                                                     NetworkViewClientResponses::EpochSyncFinalizationResponse(response) => {
-                                                        me.do_send(NetworkClientMessagesWithContext::new(NetworkClientMessages::EpochSyncFinalizationResponse(peer_id, response)));
+                                                        me.do_send(NetworkClientMessages::EpochSyncFinalizationResponse(peer_id, response).with_span_context());
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -842,7 +838,7 @@ pub fn setup_mock_all_validators(
                                                     NetworkViewClientResponses::BlockHeaders(
                                                         headers,
                                                     ) => {
-                                                        me.do_send(NetworkClientMessagesWithContext::new(NetworkClientMessages::BlockHeaders(headers, peer_id)));
+                                                        me.do_send(NetworkClientMessages::BlockHeaders(headers, peer_id).with_span_context());
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -878,7 +874,7 @@ pub fn setup_mock_all_validators(
                                                     NetworkViewClientResponses::StateResponse(
                                                         response,
                                                     ) => {
-                                                        me.do_send(NetworkClientMessagesWithContext::new(NetworkClientMessages::StateResponse(*response)));
+                                                        me.do_send(NetworkClientMessages::StateResponse(*response).with_span_context());
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -916,7 +912,7 @@ pub fn setup_mock_all_validators(
                                                     NetworkViewClientResponses::StateResponse(
                                                         response,
                                                     ) => {
-                                                        me.do_send(NetworkClientMessagesWithContext::new(NetworkClientMessages::StateResponse(*response)));
+                                                        me.do_send(NetworkClientMessages::StateResponse(*response).with_span_context());
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -930,7 +926,7 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::StateResponse { route_back, response } => {
                             for (i, address) in addresses.iter().enumerate() {
                                 if route_back == address {
-                                    connectors1[i].0.do_send(NetworkClientMessagesWithContext::new(NetworkClientMessages::StateResponse(response.clone())));
+                                    connectors1[i].0.do_send(NetworkClientMessages::StateResponse(response.clone()).with_span_context());
                                 }
                             }
                         }
@@ -970,7 +966,12 @@ pub fn setup_mock_all_validators(
                             if do_propagate {
                                 for (i, name) in validators_clone2.iter().enumerate() {
                                     if name == &approval_message.target {
-                                        connectors1[i].0.do_send(NetworkClientMessagesWithContext::new(NetworkClientMessages::BlockApproval(approval.clone(), my_key_pair.id.clone())));
+                                        connectors1[i].0.do_send(
+                                            NetworkClientMessages::BlockApproval(
+                                                approval.clone(),
+                                                my_key_pair.id.clone(),
+                                            ).with_span_context(),
+                                        );
                                     }
                                 }
                             }
@@ -985,7 +986,9 @@ pub fn setup_mock_all_validators(
                                     largest_endorsed_height1.write().unwrap()[my_ord] =
                                         approval.target_height;
 
-                                    if let Some(prev_height) = hash_to_height1.read().unwrap().get(&parent_hash) {
+                                    if let Some(prev_height) =
+                                        hash_to_height1.read().unwrap().get(&parent_hash)
+                                    {
                                         assert_eq!(prev_height + 1, approval.target_height);
                                     }
                                 }

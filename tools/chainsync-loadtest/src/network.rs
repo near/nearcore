@@ -10,9 +10,10 @@ use near_network::types::{
 use actix::{Actor, Context, Handler};
 use log::info;
 use near_network::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkClientMessagesWithContext, NetworkClientResponses,
-    NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
+    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
+    PeerManagerAdapter, PeerManagerMessageRequest,
 };
+use near_o11y::WithSpanContext;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
@@ -245,7 +246,7 @@ impl Network {
         .await
     }
 
-    fn notify(&self, msg: NetworkClientMessagesWithContext) {
+    fn notify(&self, msg: WithSpanContext<NetworkClientMessages>) {
         let msg = msg.msg;
         self.stats.msgs_recv.fetch_add(1, Ordering::Relaxed);
         match msg {
@@ -316,11 +317,11 @@ impl Handler<NetworkViewClientMessages> for FakeClientActor {
     }
 }
 
-impl Handler<NetworkClientMessagesWithContext> for FakeClientActor {
+impl Handler<WithSpanContext<NetworkClientMessages>> for FakeClientActor {
     type Result = NetworkClientResponses;
     fn handle(
         &mut self,
-        msg: NetworkClientMessagesWithContext,
+        msg: WithSpanContext<NetworkClientMessages>,
         _ctx: &mut Context<Self>,
     ) -> Self::Result {
         self.network.notify(msg);

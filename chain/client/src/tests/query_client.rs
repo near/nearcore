@@ -15,12 +15,13 @@ use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
-    NetworkClientMessages, NetworkClientMessagesWithContext, NetworkClientResponses,
-    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
+    PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
 use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo};
 
 use near_o11y::testonly::init_test_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::time::Utc;
 use near_primitives::transaction::SignedTransaction;
@@ -99,11 +100,10 @@ fn query_status_not_crash() {
 
             actix::spawn(
                 client
-                    .send(NetworkClientMessagesWithContext::new(NetworkClientMessages::Block(
-                        next_block,
-                        PeerInfo::random().id,
-                        false,
-                    )))
+                    .send(
+                        NetworkClientMessages::Block(next_block, PeerInfo::random().id, false)
+                            .with_span_context(),
+                    )
                     .then(move |_| {
                         actix::spawn(
                             client.send(Status { is_health_check: true, detailed: false }).then(
@@ -144,11 +144,14 @@ fn test_execution_outcome_for_chunk() {
             );
             let tx_hash = transaction.get_hash();
             let res = client
-                .send(NetworkClientMessagesWithContext::new(NetworkClientMessages::Transaction {
-                    transaction,
-                    is_forwarded: false,
-                    check_only: false,
-                }))
+                .send(
+                    NetworkClientMessages::Transaction {
+                        transaction,
+                        is_forwarded: false,
+                        check_only: false,
+                    }
+                    .with_span_context(),
+                )
                 .await
                 .unwrap();
             assert!(matches!(res, NetworkClientResponses::ValidTx));

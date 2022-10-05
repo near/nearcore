@@ -10,8 +10,8 @@ use near_chain::{
 use near_chain_configs::GenesisConfig;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_network::types::NetworkClientMessagesWithContext;
-use near_network::types::NetworkRecipient;
+use near_network::types::{NetworkClientMessages, NetworkRecipient};
+use near_o11y::WithSpanContext;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::BlockHeight;
@@ -44,7 +44,7 @@ fn setup_runtime(
 
 fn setup_mock_peer_manager_actor(
     chain: Chain,
-    client_addr: Recipient<NetworkClientMessagesWithContext>,
+    client_addr: Recipient<WithSpanContext<NetworkClientMessages>>,
     genesis_config: &GenesisConfig,
     block_production_delay: Duration,
     client_start_height: BlockHeight,
@@ -312,8 +312,9 @@ mod tests {
     use near_client::GetBlock;
     use near_crypto::{InMemorySigner, KeyType};
     use near_network::test_utils::{open_port, WaitOrTimeoutActor};
-    use near_network::types::{NetworkClientMessages, NetworkClientMessagesWithContext};
+    use near_network::types::NetworkClientMessages;
     use near_o11y::testonly::init_integration_logger;
+    use near_o11y::WithSpanContextExt;
     use near_primitives::hash::CryptoHash;
     use near_primitives::transaction::SignedTransaction;
     use near_store::test_utils::gen_account;
@@ -380,13 +381,14 @@ mod tests {
                                         );
                                         spawn_interruptible(
                                             client1
-                                                .send(NetworkClientMessagesWithContext::new(
+                                                .send(
                                                     NetworkClientMessages::Transaction {
                                                         transaction,
                                                         is_forwarded: false,
                                                         check_only: false,
-                                                    },
-                                                ))
+                                                    }
+                                                    .with_span_context(),
+                                                )
                                                 .then(move |_res| future::ready(())),
                                         );
                                     }),

@@ -32,9 +32,10 @@ use near_client_primitives::types::{
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
-    NetworkClientMessages, NetworkClientMessagesWithContext, NetworkClientResponses, NetworkInfo,
-    NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
+    NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
+    PeerManagerAdapter, PeerManagerMessageRequest,
 };
+use near_o11y::{OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::block_header::ApprovalType;
@@ -60,7 +61,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, trace, warn};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -257,13 +257,13 @@ impl Actor for ClientActor {
     }
 }
 
-impl Handler<NetworkClientMessagesWithContext> for ClientActor {
+impl Handler<WithSpanContext<NetworkClientMessages>> for ClientActor {
     type Result = NetworkClientResponses;
 
     #[perf]
     fn handle(
         &mut self,
-        msg: NetworkClientMessagesWithContext,
+        msg: WithSpanContext<NetworkClientMessages>,
         ctx: &mut Context<Self>,
     ) -> Self::Result {
         let msg_type: &str = (&msg.msg).into();

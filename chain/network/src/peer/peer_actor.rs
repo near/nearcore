@@ -21,12 +21,11 @@ use crate::stats::metrics;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    Ban, Handshake, HandshakeFailureReason, NetworkClientMessages,
-    NetworkClientMessagesWithContext, NetworkClientResponses, NetworkViewClientMessages,
-    NetworkViewClientResponses, PeerIdOrHash, PeerManagerRequest, PeerManagerRequestWithContext,
+    Ban, Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses,
+    NetworkViewClientMessages, NetworkViewClientResponses, PeerIdOrHash, PeerManagerRequest,
     PeerMessage, PeerType, ReasonForBan, StateResponseInfo,
 };
-use near_o11y::log_assert;
+use near_o11y::{log_assert, WithSpanContext, WithSpanContextExt};
 
 use actix::{
     Actor, ActorContext, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler,
@@ -44,6 +43,7 @@ use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
 
+use near_o11y::OpenTelemetrySpanExt;
 use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::io;
@@ -51,7 +51,6 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Maximum number of messages per minute from single peer.
 // TODO(#5453): current limit is way to high due to us sending lots of messages during sync.
@@ -580,8 +579,7 @@ impl PeerActor {
                 error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", msg);
                 return;
             }
-        };
-        let network_client_msg = NetworkClientMessagesWithContext::new(network_client_msg);
+        }.with_span_context();
 
         self.network_state.client_addr
             .send(network_client_msg)
@@ -1309,11 +1307,11 @@ impl Handler<stream::Frame> for PeerActor {
     }
 }
 
-impl Handler<SendMessage> for PeerActor {
+impl Handler<WithSpanContext<SendMessage>> for PeerActor {
     type Result = ();
 
     #[perf]
-    fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
+    fn handle(&mut self, msg: WithSpanContext<SendMessage>, _: &mut Self::Context) {
         let span = tracing::debug_span!(
                 target: "network",
                 "handle",
@@ -1322,17 +1320,17 @@ impl Handler<SendMessage> for PeerActor {
         .entered();
         span.set_parent(msg.context);
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
-        self.send_message_or_log(&msg.message);
+        self.send_message_or_log(&msg.msg.message);
     }
 }
 
-impl Handler<PeerManagerRequestWithContext> for PeerActor {
+impl Handler<WithSpanContext<PeerManagerRequest>> for PeerActor {
     type Result = ();
 
     #[perf]
     fn handle(
         &mut self,
-        msg: PeerManagerRequestWithContext,
+        msg: WithSpanContext<PeerManagerRequest>,
         ctx: &mut Self::Context,
     ) -> Self::Result {
         let span = tracing::debug_span!(

@@ -15,12 +15,13 @@ use near_actix_test_utils::run_actix;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
+use near_network::types::PeerInfo;
 use near_network::types::{
     NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
 };
-use near_network::types::{NetworkClientMessagesWithContext, PeerInfo};
 use near_o11y::testonly::init_test_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::Block;
 use near_primitives::transaction::SignedTransaction;
 
@@ -70,13 +71,14 @@ fn repro_1183() {
 
                     if let Some(last_block) = last_block.clone() {
                         for (client, _) in connectors1.write().unwrap().iter() {
-                            client.do_send(NetworkClientMessagesWithContext::new(
+                            client.do_send(
                                 NetworkClientMessages::Block(
                                     last_block.clone(),
                                     PeerInfo::random().id,
                                     false,
-                                ),
-                            ))
+                                )
+                                .with_span_context(),
+                            )
                         }
                     }
                     for delayed_message in delayed_one_parts.iter() {
@@ -89,11 +91,10 @@ fn repro_1183() {
                             for (i, name) in validators.iter().enumerate() {
                                 if name == account_id {
                                     connectors1.write().unwrap()[i].0.do_send(
-                                        NetworkClientMessagesWithContext::new(
-                                            NetworkClientMessages::PartialEncodedChunk(
-                                                partial_encoded_chunk.clone().into(),
-                                            ),
-                                        ),
+                                        NetworkClientMessages::PartialEncodedChunk(
+                                            partial_encoded_chunk.clone().into(),
+                                        )
+                                        .with_span_context(),
                                     );
                                 }
                             }
@@ -108,7 +109,7 @@ fn repro_1183() {
                             let (from, to) = (from.parse().unwrap(), to.parse().unwrap());
                             connectors1.write().unwrap()[account_id_to_shard_id(&from, 4) as usize]
                                 .0
-                                .do_send(NetworkClientMessagesWithContext::new(
+                                .do_send(
                                     NetworkClientMessages::Transaction {
                                         transaction: SignedTransaction::send_money(
                                             block.header().height() * 16 + nonce_delta,
@@ -124,8 +125,9 @@ fn repro_1183() {
                                         ),
                                         is_forwarded: false,
                                         check_only: false,
-                                    },
-                                ));
+                                    }
+                                    .with_span_context(),
+                                );
                             nonce_delta += 1
                         }
                     }
@@ -208,13 +210,14 @@ fn test_sync_from_archival_node() {
                             NetworkRequests::Block { block } => {
                                 for (i, (client, _)) in conns.iter().enumerate() {
                                     if i != 3 {
-                                        client.do_send(NetworkClientMessagesWithContext::new(
+                                        client.do_send(
                                             NetworkClientMessages::Block(
                                                 block.clone(),
                                                 PeerInfo::random().id,
                                                 false,
-                                            ),
-                                        ))
+                                            )
+                                            .with_span_context(),
+                                        )
                                     }
                                 }
                                 if block.header().height() <= 10 {
@@ -225,12 +228,13 @@ fn test_sync_from_archival_node() {
                             NetworkRequests::Approval { approval_message } => {
                                 for (i, (client, _)) in conns.clone().into_iter().enumerate() {
                                     if i != 3 {
-                                        client.do_send(NetworkClientMessagesWithContext::new(
+                                        client.do_send(
                                             NetworkClientMessages::BlockApproval(
                                                 approval_message.approval.clone(),
                                                 PeerInfo::random().id,
-                                            ),
-                                        ))
+                                            )
+                                            .with_span_context(),
+                                        )
                                     }
                                 }
                                 (NetworkResponses::NoResponse.into(), false)
@@ -242,9 +246,10 @@ fn test_sync_from_archival_node() {
                             panic!("incorrect rebroadcasting of blocks");
                         }
                         for (_, block) in blocks.write().unwrap().drain() {
-                            conns[3].0.do_send(NetworkClientMessagesWithContext::new(
-                                NetworkClientMessages::Block(block, PeerInfo::random().id, false),
-                            ));
+                            conns[3].0.do_send(
+                                NetworkClientMessages::Block(block, PeerInfo::random().id, false)
+                                    .with_span_context(),
+                            );
                         }
                         match msg {
                             NetworkRequests::Block { block } => {
