@@ -276,6 +276,7 @@ pub enum DBKeyType {
     TransactionHash,
     ContractCacheKey,
     PartId,
+    ColumnId,
 }
 
 impl DBCol {
@@ -390,17 +391,22 @@ impl DBCol {
             DBCol::NextBlockHashes => &[DBKeyType::PreviousBlockHash],
             DBCol::EpochLightClientBlocks => &[DBKeyType::EpochId],
             DBCol::ReceiptIdToShardId => &[DBKeyType::ReceiptHash],
+            DBCol::_NextBlockWithNewChunk => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            DBCol::_LastBlockWithNewChunk => &[DBKeyType::ShardId],
             DBCol::PeerComponent => &[DBKeyType::PeerId],
             DBCol::ComponentEdges => &[DBKeyType::Nonce],
             DBCol::LastComponentNonce => &[DBKeyType::Empty],
             DBCol::Transactions => &[DBKeyType::TransactionHash],
+            DBCol::_ChunkPerHeightShard => &[DBKeyType::BlockHeight, DBKeyType::ShardId],
             DBCol::StateChanges => &[DBKeyType::BlockHash, DBKeyType::TrieKey],
             DBCol::BlockRefCount => &[DBKeyType::BlockHash],
             DBCol::TrieChanges => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::BlockMerkleTree => &[DBKeyType::BlockHash],
             DBCol::ChunkHashesByHeight => &[DBKeyType::BlockHeight],
             DBCol::BlockOrdinal => &[DBKeyType::BlockOrdinal],
+            DBCol::_GCCount => &[DBKeyType::ColumnId],
             DBCol::OutcomeIds => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            DBCol::_TransactionRefCount => &[DBKeyType::TransactionHash],
             DBCol::ProcessedBlockHeights => &[DBKeyType::BlockHeight],
             DBCol::Receipts => &[DBKeyType::ReceiptHash],
             DBCol::CachedContractCode => &[DBKeyType::ContractCacheKey],
@@ -413,7 +419,6 @@ impl DBCol {
             DBCol::FlatStateDeltas => &[DBKeyType::ShardId, DBKeyType::BlockHash],
             #[cfg(feature = "protocol_feature_flat_state")]
             DBCol::FlatStateMisc => &[DBKeyType::ShardId],
-            _ => &[],
         }
     }
 }
