@@ -361,7 +361,7 @@ impl DBCol {
     }
 
     /// Vector of DBKeyType s concatenation of which results in key for the column.
-    pub fn key_type(&self) -> &[DBKeyType] {
+    pub fn key_type(&self) -> &'static [DBKeyType] {
         match self {
             DBCol::DbVersion => &[DBKeyType::Literal],
             DBCol::BlockMisc => &[DBKeyType::Literal],
