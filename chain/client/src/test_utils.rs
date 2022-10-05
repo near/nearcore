@@ -638,25 +638,24 @@ pub fn setup_mock_all_validators(
                             .enumerate()
                             .map(|(i, peer_info)| ConnectedPeerInfo {
                                 full_peer_info: FullPeerInfo {
-                                    peer_info: peer_info.clone(),
-                                    chain_info: PeerChainInfoV2 {
-                                        genesis_id: GenesisId {
-                                            chain_id: "unittest".to_string(),
-                                            hash: Default::default(),
-                                        },
-                                        height: last_height2[i],
-                                        tracked_shards: vec![],
-                                        archival: true,
+                                peer_info: peer_info.clone(),
+                                chain_info: PeerChainInfoV2 {
+                                    genesis_id: GenesisId {
+                                        chain_id: "unittest".to_string(),
+                                        hash: Default::default(),
                                     },
-                                    partial_edge_info: PartialEdgeInfo::default(),
+                                    height: last_height2[i],
+                                    tracked_shards: vec![],
+                                    archival: true,
                                 },
+                                partial_edge_info: PartialEdgeInfo::default(),
+                            },
                                 received_bytes_per_sec: 0,
                                 sent_bytes_per_sec: 0,
                                 last_time_peer_requested: near_network::time::Instant::now(),
                                 last_time_received_message: near_network::time::Instant::now(),
                                 connection_established_time: near_network::time::Instant::now(),
-                                peer_type: PeerType::Outbound,
-                            })
+                                peer_type: PeerType::Outbound, })
                             .collect();
                         let peers2 = peers.iter().map(|it| it.full_peer_info.clone()).collect();
                         let info = NetworkInfo {
@@ -986,9 +985,7 @@ pub fn setup_mock_all_validators(
                                     largest_endorsed_height1.write().unwrap()[my_ord] =
                                         approval.target_height;
 
-                                    if let Some(prev_height) =
-                                    hash_to_height1.read().unwrap().get(&parent_hash)
-                                    {
+                                    if let Some(prev_height) = hash_to_height1.read().unwrap().get(&parent_hash) {
                                         assert_eq!(prev_height + 1, approval.target_height);
                                     }
                                 }
