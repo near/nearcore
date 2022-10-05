@@ -66,9 +66,8 @@ pub struct EncodedChunksCache {
     /// whose previous block is the block hash.
     incomplete_chunks: HashMap<CryptoHash, HashSet<ChunkHash>>,
     /// A sized cache mapping a block hash to the chunk headers that are ready
-    /// to be included when producing the next block after the block
-    block_hash_to_chunk_headers:
-        HashMap<CryptoHash, HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)>>,
+    /// to be included when producing the next block after the block.
+    prev_block_to_chunks_ready_for_inclusion: HashMap<CryptoHash, HashSet<ChunkHash>>,
 }
 
 impl EncodedChunksCacheEntry {
@@ -113,7 +112,7 @@ impl EncodedChunksCache {
             height_map: HashMap::new(),
             height_to_shard_to_chunk: HashMap::new(),
             incomplete_chunks: HashMap::new(),
-            block_hash_to_chunk_headers: HashMap::new(),
+            prev_block_to_chunks_ready_for_inclusion: HashMap::new(),
         }
     }
 
@@ -263,54 +262,32 @@ impl EncodedChunksCache {
     /// Remove the chunk header from the `block_hash_to_chunk_headers` map.
     fn remove_chunk_header(&mut self, header: &ShardChunkHeader) {
         let prev_block_hash = header.prev_block_hash();
-        let shard_id = header.shard_id();
         let chunk_hash = header.chunk_hash();
-        if let Some(chunk_headers) = self.block_hash_to_chunk_headers.get_mut(prev_block_hash) {
-            if let Some(chunk_header) = chunk_headers.get(&shard_id) {
-                if chunk_header.0.chunk_hash() == chunk_hash {
-                    chunk_headers.remove(&shard_id);
-                    if chunk_headers.is_empty() {
-                        self.block_hash_to_chunk_headers.remove(prev_block_hash);
-                    }
-                }
+        if let Some(chunk_headers) =
+            self.prev_block_to_chunks_ready_for_inclusion.get_mut(prev_block_hash)
+        {
+            chunk_headers.remove(&chunk_hash);
+            if chunk_headers.is_empty() {
+                self.prev_block_to_chunks_ready_for_inclusion.remove(prev_block_hash);
             }
         }
     }
 
-    /// Insert a chunk header to indicate the chunk header is ready to be included in a block
-    pub fn insert_chunk_header(&mut self, shard_id: ShardId, header: ShardChunkHeader) {
+    /// Inserts the chunk for inclusion in a block; returns true if we haven't already
+    /// called for this chunk, and the chunk and within height horizon.
+    pub fn insert_chunk_for_inclusion(&mut self, header: &ShardChunkHeader) -> bool {
         let height = header.height_created();
         if height >= self.largest_seen_height.saturating_sub(CHUNK_HEADER_HEIGHT_HORIZON)
             && height <= self.largest_seen_height + MAX_HEIGHTS_AHEAD
         {
             let prev_block_hash = header.prev_block_hash().clone();
-            self.block_hash_to_chunk_headers
-                .entry(prev_block_hash.clone())
-                .or_insert(HashMap::new())
-                .insert(shard_id, (header, chrono::Utc::now()));
+            return self
+                .prev_block_to_chunks_ready_for_inclusion
+                .entry(prev_block_hash)
+                .or_default()
+                .insert(header.chunk_hash());
         }
-    }
-
-    /// Returns all chunk headers to be included in the next block after `prev_block_hash`
-    /// Note that this function does NOT remove these chunk headers from the map because
-    /// it is possible that the node can use these chunks to produce another block, if there are no
-    /// new blocks in between.
-    pub fn get_chunk_headers_for_block(
-        &self,
-        prev_block_hash: &CryptoHash,
-    ) -> HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)> {
-        self.block_hash_to_chunk_headers
-            .get(prev_block_hash)
-            .cloned()
-            .unwrap_or_else(|| HashMap::new())
-    }
-
-    /// Returns number of chunks that are ready to be included in the next block
-    pub fn num_chunks_for_block(&mut self, prev_block_hash: &CryptoHash) -> ShardId {
-        self.block_hash_to_chunk_headers
-            .get(prev_block_hash)
-            .map(|x| x.len() as ShardId)
-            .unwrap_or_else(|| 0)
+        false
     }
 }
 
@@ -378,16 +355,13 @@ mod tests {
         let partial_encoded_chunk =
             PartialEncodedChunkV2 { header: header.clone(), parts: vec![], receipts: vec![] };
         cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
-        cache.insert_chunk_header(0, header.clone());
-        assert!(!cache.encoded_chunks.is_empty());
+        assert!(cache.insert_chunk_for_inclusion(&header));
         assert!(!cache.height_map.is_empty());
-        let headers = cache.get_chunk_headers_for_block(&CryptoHash::default());
-        assert_eq!(headers.len(), 1);
-        assert_eq!(headers.get(&0).unwrap().0, header);
+        assert!(!cache.insert_chunk_for_inclusion(&header));
 
         cache.update_largest_seen_height::<ChunkRequestInfo>(2000, &HashMap::default());
         assert!(cache.encoded_chunks.is_empty());
         assert!(cache.height_map.is_empty());
-        assert!(cache.get_chunk_headers_for_block(&CryptoHash::default()).is_empty());
+        assert!(cache.prev_block_to_chunks_ready_for_inclusion.is_empty());
     }
 }
