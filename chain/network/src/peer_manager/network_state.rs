@@ -2,10 +2,9 @@ use crate::accounts_data;
 use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
+    AccountOrPeerIdOrHash, PartialEdgeInfo, PeerIdOrHash, PeerMessage, Ping, Pong,
     RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
 };
-use crate::peer::peer_actor::{PeerActor, StreamConfig};
 use crate::peer_manager::connection;
 use crate::private_actix::PeerToManagerMsg;
 use crate::routing::routing_table_view::RoutingTableView;
