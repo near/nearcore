@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use near_chunks::client::ClientAdapterForShardsManager;
+use near_chunks::client::{ClientAdapterForShardsManager, ShardedTransactionPool};
 use near_chunks::logic::{
     cares_about_shard_this_or_next_epoch, decode_encoded_chunk, persist_chunk,
 };
@@ -27,7 +27,8 @@ use near_chain::{
 use near_chain_configs::ClientConfig;
 use near_chunks::ShardsManager;
 use near_network::types::{
-    FullPeerInfo, NetworkClientResponses, NetworkRequests, PeerManagerAdapter,
+    FullPeerInfo, NetworkClientResponses, NetworkRequests, PartialEncodedChunkForwardMsg,
+    PartialEncodedChunkResponseMsg, PeerManagerAdapter,
 };
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
@@ -51,7 +52,6 @@ use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
-use near_network::types::{PartialEncodedChunkForwardMsg, PartialEncodedChunkResponseMsg};
 use near_o11y::log_assert;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
@@ -91,6 +91,7 @@ pub struct Client {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub shards_mgr: ShardsManager,
     me: Option<AccountId>,
+    pub sharded_tx_pool: ShardedTransactionPool,
     /// Network adapter.
     network_adapter: Arc<dyn PeerManagerAdapter>,
     /// Signer for block producer (if present).
@@ -184,8 +185,8 @@ impl Client {
             network_adapter.clone(),
             client_adapter.clone(),
             chain.store().new_read_only_chunks_store(),
-            rng_seed,
         );
+        let sharded_tx_pool = ShardedTransactionPool::new(rng_seed);
         let sync_status = SyncStatus::AwaitingPeers;
         let genesis_block = chain.genesis_block();
         let epoch_sync = EpochSync::new(
@@ -242,6 +243,7 @@ impl Client {
             runtime_adapter,
             shards_mgr,
             me,
+            sharded_tx_pool,
             network_adapter,
             validator_signer,
             pending_approvals: lru::LruCache::new(num_block_producer_seats),
@@ -286,7 +288,7 @@ impl Client {
                     true,
                     self.runtime_adapter.as_ref(),
                 ) {
-                    self.shards_mgr.remove_transactions(
+                    self.sharded_tx_pool.remove_transactions(
                         shard_id,
                         // By now the chunk must be in store, otherwise the block would have been orphaned
                         self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions(),
@@ -310,7 +312,7 @@ impl Client {
                     false,
                     self.runtime_adapter.as_ref(),
                 ) {
-                    self.shards_mgr.reintroduce_transactions(
+                    self.sharded_tx_pool.reintroduce_transactions(
                         shard_id,
                         // By now the chunk must be in store, otherwise the block would have been orphaned
                         self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions(),
@@ -749,13 +751,13 @@ impl Client {
         chunk_extra: &ChunkExtra,
         prev_block_header: &BlockHeader,
     ) -> Result<Vec<SignedTransaction>, Error> {
-        let Self { chain, shards_mgr, runtime_adapter, .. } = self;
+        let Self { chain, sharded_tx_pool, runtime_adapter, .. } = self;
 
         let next_epoch_id =
             runtime_adapter.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = runtime_adapter.get_epoch_protocol_version(&next_epoch_id)?;
 
-        let transactions = if let Some(mut iter) = shards_mgr.get_pool_iterator(shard_id) {
+        let transactions = if let Some(mut iter) = sharded_tx_pool.get_pool_iterator(shard_id) {
             let transaction_validity_period = chain.transaction_validity_period;
             runtime_adapter.prepare_transactions(
                 prev_block_header.gas_price(),
@@ -785,7 +787,7 @@ impl Client {
         };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
-        shards_mgr.reintroduce_transactions(shard_id, &transactions);
+        sharded_tx_pool.reintroduce_transactions(shard_id, &transactions);
         Ok(transactions)
     }
 
@@ -1123,28 +1125,7 @@ impl Client {
     }
 
     /// Gets called when block got accepted.
-    /// Send updates over network, update tx pool and notify ourselves if it's time to produce next block.
-    /// Blocks are passed in no particular order.
-    pub fn on_block_accepted(
-        &mut self,
-        block_hash: CryptoHash,
-        status: BlockStatus,
-        provenance: Provenance,
-    ) {
-        let _span = tracing::debug_span!(
-            target: "client",
-            "on_block_accepted",
-            ?block_hash,
-            ?status,
-            ?provenance)
-        .entered();
-        self.on_block_accepted_with_optional_chunk_produce(block_hash, status, provenance, false);
-    }
-
-    /// Gets called when block got accepted.
-    /// Only produce chunk if `skip_produce_chunk` is false
-    /// Note that this function should only be directly called from tests, production code
-    /// should always use `on_block_accepted`
+    /// Only produce chunk if `skip_produce_chunk` is false.
     /// `skip_produce_chunk` is set to true to simulate when there are missing chunks in a block
     pub fn on_block_accepted_with_optional_chunk_produce(
         &mut self,
@@ -1739,7 +1720,7 @@ impl Client {
                 // TODO #6713: Transactions don't need to be recorded if the node is not a validator
                 // for the shard.
                 // If I'm not an active validator I should forward tx to next validators.
-                self.shards_mgr.insert_transaction(shard_id, tx.clone());
+                self.sharded_tx_pool.insert_transaction(shard_id, tx.clone());
                 trace!(target: "client", shard_id, "Recorded a transaction.");
 
                 // Active validator:
