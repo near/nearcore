@@ -34,7 +34,7 @@ mod utils;
 const INTERVAL: Duration = Duration::from_millis(500);
 
 /// Blocks #47317863 and #47317864 with restored receipts.
-const PROBLEMATIC_BLOKS: [CryptoHash; 2] = [
+const PROBLEMATIC_BLOCKS: [CryptoHash; 2] = [
     CryptoHash(
         *b"\xcd\xde\x9a\x3f\x5d\xdf\xb4\x2c\xb9\x9b\xf4\x8c\x04\x95\x6f\x5b\
            \xa0\xb7\x29\xe2\xa5\x04\xf8\xbd\x9c\x86\x92\xd6\x16\x8c\xcf\x14",
@@ -45,14 +45,14 @@ const PROBLEMATIC_BLOKS: [CryptoHash; 2] = [
     ),
 ];
 
-/// Tests whether raw hashes in [`PROBLEMATIC_BLOKS`] match expected
+/// Tests whether raw hashes in [`PROBLEMATIC_BLOCKS`] match expected
 /// user-readable hashes.  Ideally we would compute the hashes at compile time
 /// but there’s no const function for base58→bytes conversion so instead we’re
-/// hard-coding the raw base in [`PROBLEMATIC_BLOKS`] and have this test to
+/// hard-coding the raw base in [`PROBLEMATIC_BLOCKS`] and have this test to
 /// confirm the raw values are correct.
 #[test]
 fn test_problematic_blocks_hash() {
-    let got: Vec<String> = PROBLEMATIC_BLOKS.iter().map(std::string::ToString::to_string).collect();
+    let got: Vec<String> = PROBLEMATIC_BLOCKS.iter().map(std::string::ToString::to_string).collect();
     assert_eq!(
         vec![
             "ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK",
@@ -190,7 +190,7 @@ async fn build_streamer_message(
         // so it was decided to artificially include the Receipts into the Chunk of the Block where
         // ExecutionOutcomes appear.
         // ref: https://github.com/near/nearcore/pull/4248
-        if PROBLEMATIC_BLOKS.contains(&block.header.hash)
+        if PROBLEMATIC_BLOCKS.contains(&block.header.hash)
             && &protocol_config_view.chain_id == "mainnet"
         {
             let mut restored_receipts: Vec<views::ReceiptView> = vec![];
