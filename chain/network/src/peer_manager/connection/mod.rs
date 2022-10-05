@@ -1,16 +1,17 @@
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
-use crate::network_protocol::{Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo};
-use crate::network_protocol::{PeerMessage, RoutedMessageBody};
-use crate::network_protocol::{SignedAccountData, SyncAccountsData};
+use crate::network_protocol::{
+    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerMessage, RoutedMessageBody,
+    SignedAccountData, SyncAccountsData,
+};
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
 use crate::stats::metrics;
+use crate::tcp;
 use crate::time;
-use crate::types::FullPeerInfo;
-use crate::types::{PeerType, ReasonForBan};
+use crate::types::{FullPeerInfo, PeerType, ReasonForBan};
 use near_primitives::network::PeerId;
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
@@ -23,29 +24,23 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Tier {
-    T1,
-    T2,
-}
-
-impl Tier {
-    pub fn is_allowed(self, msg: &PeerMessage) -> bool {
+impl tcp::Tier {
+    pub(crate) fn is_allowed(self, msg: &PeerMessage) -> bool {
         match msg {
-            PeerMessage::Tier1Handshake(_) => self == Tier::T1,
-            PeerMessage::Tier2Handshake(_) => self == Tier::T2,
+            PeerMessage::Tier1Handshake(_) => self == tcp::Tier::T1,
+            PeerMessage::Tier2Handshake(_) => self == tcp::Tier::T2,
             PeerMessage::HandshakeFailure(_, _) => true,
             PeerMessage::LastEdge(_) => true,
             PeerMessage::Routed(msg) => self.is_allowed_routed(&msg.body),
-            _ => self == Tier::T2,
+            _ => self == tcp::Tier::T2,
         }
     }
 
-    pub fn is_allowed_routed(self, body: &RoutedMessageBody) -> bool {
+    pub(crate) fn is_allowed_routed(self, body: &RoutedMessageBody) -> bool {
         match body {
             RoutedMessageBody::BlockApproval(..) => true,
             RoutedMessageBody::VersionedPartialEncodedChunk(..) => true,
-            _ => self == Tier::T2,
+            _ => self == tcp::Tier::T2,
         }
     }
 }
@@ -73,7 +68,7 @@ pub(crate) struct Connection {
     // routed messages only, no broadcasts, edge not broadcasted,
     // no routing table sync. We expect ~500 TIER1 connections and that's
     // too many to advertise.
-    pub tier: Tier,
+    pub tier: tcp::Tier,
     // TODO(gprusak): addr should be internal, so that Connection will become an API of the
     // PeerActor.
     pub addr: actix::Addr<PeerActor>,
@@ -253,12 +248,14 @@ impl Drop for OutboundHandshakePermit {
 #[derive(Clone)]
 pub(crate) struct Pool(Arc<ArcMutex<PoolSnapshot>>);
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PoolError {
     #[error("already connected to this peer")]
     AlreadyConnected,
     #[error("already started another outbound connection to this peer")]
     AlreadyStartedConnecting,
+    #[error("loop connections are not allowed")]
+    LoopConnection,
 }
 
 impl Pool {
@@ -277,6 +274,9 @@ impl Pool {
     pub fn insert_ready(&self, peer: Arc<Connection>) -> Result<(), PoolError> {
         self.0.update(move |pool| {
             let id = &peer.peer_info.id;
+            if id == &pool.me {
+                return Err(PoolError::LoopConnection);
+            }
             if pool.ready.contains_key(id) {
                 return Err(PoolError::AlreadyConnected);
             }
@@ -306,6 +306,9 @@ impl Pool {
 
     pub fn start_outbound(&self, peer_id: PeerId) -> Result<OutboundHandshakePermit, PoolError> {
         self.0.update(move |pool| {
+            if peer_id == pool.me {
+                return Err(PoolError::LoopConnection);
+            }
             if pool.ready.contains_key(&peer_id) {
                 return Err(PoolError::AlreadyConnected);
             }

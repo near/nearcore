@@ -369,7 +369,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         0,
         vec![],
         vec![],
-        &vec![],
+        &[],
         last_block.chunks()[0].outgoing_receipts_root(),
         CryptoHash::default(),
         &validator_signer,
@@ -382,14 +382,7 @@ fn test_verify_chunk_invalid_state_challenge() {
 
     // Receive invalid chunk to the validator.
     client
-        .shards_mgr
-        .distribute_encoded_chunk(
-            invalid_chunk.clone(),
-            merkle_paths,
-            vec![],
-            client.chain.mut_store(),
-            0,
-        )
+        .persist_and_distribute_encoded_chunk(invalid_chunk.clone(), merkle_paths, vec![])
         .unwrap();
 
     match &mut invalid_chunk {
@@ -507,14 +500,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     let (chunk, merkle_paths, receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
     let client = &mut env.clients[0];
     assert!(client
-        .shards_mgr
-        .distribute_encoded_chunk(
-            chunk.clone(),
-            merkle_paths.clone(),
-            receipts.clone(),
-            client.chain.mut_store(),
-            0,
-        )
+        .persist_and_distribute_encoded_chunk(chunk.clone(), merkle_paths.clone(), receipts.clone())
         .is_err());
     let result = client.process_block_test(block.clone().into(), Provenance::NONE);
     // We have declined block with invalid chunk.
@@ -536,7 +522,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     let partial_encoded_chunk = chunk.create_partial_encoded_chunk(
         vec![0],
         one_part_receipt_proofs,
-        &vec![merkle_paths[0].clone()],
+        &[merkle_paths[0].clone()],
     );
     assert!(env.clients[1].process_partial_encoded_chunk(partial_encoded_chunk).is_ok());
     env.process_block(1, block, Provenance::NONE);

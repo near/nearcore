@@ -190,10 +190,7 @@ impl<'a> Iterator for MergeIter<'a> {
     }
 }
 
-pub struct TrieUpdateIterator<'a> {
-    trie_iter: Peekable<TrieIterator<'a>>,
-    overlay_iter: Peekable<MergeIter<'a>>,
-}
+pub struct TrieUpdateIterator<'a>(Option<(Peekable<TrieIterator<'a>>, Peekable<MergeIter<'a>>)>);
 
 /// Returns an end bound for a range which corresponds to all values with
 /// a given prefix.
@@ -249,7 +246,7 @@ impl<'a> TrieUpdateIterator<'a> {
             right: (Box::new(prospective_iter) as Box<dyn Iterator<Item = _>>).peekable(),
         }
         .peekable();
-        Ok(TrieUpdateIterator { trie_iter: trie_iter.peekable(), overlay_iter })
+        Ok(TrieUpdateIterator(Some((trie_iter.peekable(), overlay_iter))))
     }
 }
 
@@ -264,15 +261,13 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
             Both,
         }
         // Usually one iteration, unless need to skip None values in prospective / committed.
+        let iterators = self.0.as_mut()?;
         loop {
-            let res = match (self.trie_iter.peek(), self.overlay_iter.peek()) {
-                (Some(Err(err)), _) => {
-                    // TODO(mina86): We’re not advancing the iterator which
-                    // means that it’ll continue to return errors.  On the
-                    // other hand, we don’t want to just advance it because
-                    // we don’t want the iterator to continue returning
-                    // values after an error.
-                    return Some(Err(err.clone()));
+            let res = match (iterators.0.peek(), iterators.1.peek()) {
+                (Some(Err(_)), _) => {
+                    let err = iterators.0.next().unwrap().unwrap_err();
+                    self.0 = None;
+                    return Some(Err(err));
                 }
 
                 (Some(Ok((left_key, _))), Some((right_key, _))) => {
@@ -284,27 +279,33 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
                 }
                 (Some(_), None) => Ordering::Trie,
                 (None, Some(_)) => Ordering::Overlay,
-                (None, None) => return None,
+                (None, None) => {
+                    self.0 = None;
+                    return None;
+                }
             };
 
             // Check which element comes first and advance the corresponding
             // iterator only.  If both keys are equal, check if overlay doesn’t
             // delete the value.
+            let trie_item = if res != Ordering::Overlay { iterators.0.next() } else { None };
             if res == Ordering::Trie {
-                if let Some(Ok((key, _))) = self.trie_iter.next() {
+                if let Some(Ok((key, _))) = trie_item {
                     return Some(Ok(key));
                 }
-            } else {
-                if res == Ordering::Both {
-                    self.trie_iter.next();
-                }
-                if let Some((key, Some(_))) = self.overlay_iter.next() {
-                    return Some(Ok(key.to_vec()));
-                }
+            } else if let Some((overlay_key, Some(_))) = iterators.1.next() {
+                return Some(Ok(if let Some(Ok((trie_key, _))) = trie_item {
+                    debug_assert_eq!(trie_key.as_slice(), overlay_key);
+                    trie_key
+                } else {
+                    overlay_key.to_vec()
+                }));
             }
         }
     }
 }
+
+impl<'a> std::iter::FusedIterator for TrieUpdateIterator<'a> {}
 
 #[cfg(test)]
 mod tests {

@@ -299,6 +299,7 @@ pub struct Config {
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
+    #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
     pub log_summary_style: LogSummaryStyle,
     /// Garbage collection configuration.
@@ -328,6 +329,10 @@ pub struct Config {
     /// Deprecated; use `store.migration_snapshot` instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub db_migration_snapshot_path: Option<PathBuf>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl Default for Config {
@@ -594,17 +599,12 @@ impl NearConfig {
                 network_key_pair.secret_key,
                 validator_signer.clone(),
                 config.archive,
-                match genesis.config.chain_id.as_ref() {
-                    "mainnet" | "testnet" | "betanet" => {
-                        near_network::config::Features { tier1: None }
-                    }
-                    // shardnet and all test setups.
-                    "shardnet" | _ => near_network::config::Features {
-                        tier1: Some(near_network::config::Tier1 {
-                            daemon_tick_interval: time::Duration::seconds(20),
-                            new_connections_per_tick: 5,
-                        }),
-                    },
+                near_network::config::Features {
+                    // Enable tier1.
+                    tier1: Some(near_network::config::Tier1 {
+                        daemon_tick_interval: time::Duration::seconds(20),
+                        new_connections_per_tick: 5,
+                    }),
                 },
             )?,
             telemetry_config: config.telemetry,

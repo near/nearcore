@@ -25,7 +25,7 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 
 use crate::db::{
-    refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, RocksDB, StoreStatistics,
+    refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics,
     GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;
@@ -49,8 +49,7 @@ mod trie;
 pub mod version;
 
 pub use crate::config::{Mode, StoreConfig};
-pub use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError};
-pub use crate::opener::StoreOpener;
+pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
 
 /// Specifies temperature of a storage.
 ///
@@ -102,7 +101,7 @@ impl NodeStorage {
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
         static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = Self::opener(dir.path(), &CONFIG);
+        let opener = StoreOpener::new(dir.path(), &CONFIG);
         (dir, opener)
     }
 
@@ -110,7 +109,7 @@ impl NodeStorage {
     ///
     /// Note that you most likely don’t want to use this method.  If you’re
     /// opening an on-disk storage, you want to use [`Self::opener`] instead
-    /// which takes scare of opening the on-disk database and applying all the
+    /// which takes care of opening the on-disk database and applying all the
     /// necessary configuration.  If you need an in-memory database for testing,
     /// you want either [`crate::test_utils::create_test_node_storage`] or
     /// possibly [`crate::test_utils::create_test_store`] (depending whether you
@@ -152,9 +151,9 @@ impl NodeStorage {
     /// well.  For example, garbage collection only ever touches hot storage but
     /// it should go through [`Store`] interface since data it manipulates
     /// (e.g. blocks) are live in both databases.
-    pub fn get_inner(&self, temp: Temperature) -> Arc<dyn Database> {
+    pub fn get_inner(&self, temp: Temperature) -> &Arc<dyn Database> {
         match temp {
-            Temperature::Hot => self.storage.clone(),
+            Temperature::Hot => &self.storage,
         }
     }
 
@@ -284,10 +283,13 @@ impl Store {
 
 /// Keeps track of current changes to the database and can commit all of them to the database.
 pub struct StoreUpdate {
-    storage: Arc<dyn Database>,
     transaction: DBTransaction,
-    /// Optionally has reference to the trie to clear cache on the commit.
-    shard_tries: Option<ShardTries>,
+    storage: StoreUpdateStorage,
+}
+
+enum StoreUpdateStorage {
+    DB(Arc<dyn Database>),
+    Tries(ShardTries),
 }
 
 impl StoreUpdate {
@@ -296,16 +298,12 @@ impl StoreUpdate {
         None => panic!(),
     };
 
-    pub(crate) fn new(storage: Arc<dyn Database>) -> Self {
-        StoreUpdate { storage, transaction: DBTransaction::new(), shard_tries: None }
+    pub(crate) fn new(db: Arc<dyn Database>) -> Self {
+        StoreUpdate { transaction: DBTransaction::new(), storage: StoreUpdateStorage::DB(db) }
     }
 
     pub fn new_with_tries(tries: ShardTries) -> Self {
-        StoreUpdate {
-            storage: Arc::clone(&tries.get_store().storage),
-            transaction: DBTransaction::new(),
-            shard_tries: Some(tries),
-        }
+        StoreUpdate { transaction: DBTransaction::new(), storage: StoreUpdateStorage::Tries(tries) }
     }
 
     /// Inserts a new value into the database.
@@ -430,39 +428,52 @@ impl StoreUpdate {
         self.transaction.delete_all(column);
     }
 
-    /// Set shard_tries to given object.
+    /// Sets reference to the trie to clear cache on the commit.
     ///
     /// Panics if shard_tries are already set to a different object.
     fn set_shard_tries(&mut self, tries: &ShardTries) {
-        if let Some(our) = &self.shard_tries {
-            assert!(tries.is_same(our));
-        } else {
-            self.shard_tries = Some(tries.clone());
-        }
+        assert!(self.check_compatible_shard_tries(tries));
+        self.storage = StoreUpdateStorage::Tries(tries.clone())
     }
 
     /// Merge another store update into this one.
     ///
-    /// Panics if `self` and `other` both have shard_tries set to different
-    /// objects.
+    /// Panics if `self`’s and `other`’s storage are incompatible.
     pub fn merge(&mut self, other: StoreUpdate) {
-        match (&self.shard_tries, other.shard_tries) {
-            (Some(our), Some(other)) => assert!(our.is_same(&other)),
-            (None, other) => self.shard_tries = other,
-            _ => (),
+        match other.storage {
+            StoreUpdateStorage::Tries(tries) => {
+                assert!(self.check_compatible_shard_tries(&tries));
+                self.storage = StoreUpdateStorage::Tries(tries);
+            }
+            StoreUpdateStorage::DB(other_db) => {
+                let self_db = match &self.storage {
+                    StoreUpdateStorage::Tries(tries) => tries.get_db(),
+                    StoreUpdateStorage::DB(db) => &db,
+                };
+                assert!(same_db(self_db, &other_db));
+            }
         }
         self.transaction.merge(other.transaction)
     }
 
-    pub fn update_cache(&self) -> io::Result<()> {
-        if let Some(tries) = &self.shard_tries {
-            // Note: avoid comparing wide pointers here to work-around
-            // https://github.com/rust-lang/rust/issues/69757
-            let addr = |arc| Arc::as_ptr(arc) as *const u8;
-            assert_eq!(addr(&tries.get_store().storage), addr(&self.storage),);
-            tries.update_cache(&self.transaction)?;
+    /// Verifies that given shard tries are compatible with this object.
+    ///
+    /// The [`ShardTries`] object is compatible if a) this object’s storage is
+    /// a database which is the same as tries’ one or b) this object’s storage
+    /// is the given shard tries.
+    fn check_compatible_shard_tries(&self, tries: &ShardTries) -> bool {
+        match &self.storage {
+            StoreUpdateStorage::DB(db) => same_db(&db, tries.get_db()),
+            StoreUpdateStorage::Tries(our) => our.is_same(tries),
         }
-        Ok(())
+    }
+
+    pub fn update_cache(&self) -> io::Result<()> {
+        if let StoreUpdateStorage::Tries(tries) = &self.storage {
+            tries.update_cache(&self.transaction)
+        } else {
+            Ok(())
+        }
     }
 
     pub fn commit(self) -> io::Result<()> {
@@ -485,7 +496,6 @@ impl StoreUpdate {
             "Transaction overwrites itself: {:?}",
             self
         );
-        self.update_cache()?;
         let _span = tracing::trace_span!(target: "store", "commit").entered();
         for op in &self.transaction.ops {
             match op {
@@ -506,8 +516,22 @@ impl StoreUpdate {
                 }
             }
         }
-        self.storage.write(self.transaction)
+        let storage = match &self.storage {
+            StoreUpdateStorage::Tries(tries) => {
+                tries.update_cache(&self.transaction)?;
+                tries.get_db()
+            }
+            StoreUpdateStorage::DB(db) => &db,
+        };
+        storage.write(self.transaction)
     }
+}
+
+fn same_db(lhs: &Arc<dyn Database>, rhs: &Arc<dyn Database>) -> bool {
+    // Note: avoid comparing wide pointers here to work-around
+    // https://github.com/rust-lang/rust/issues/69757
+    let addr = |arc| Arc::as_ptr(arc) as *const u8;
+    return addr(lhs) == addr(rhs);
 }
 
 impl fmt::Debug for StoreUpdate {

@@ -26,7 +26,6 @@ near-chain-configs = { path = "../../core/chain-configs" }
 
 near-chunks-primitives = { path = "../chunks-primitives" }
 near-crypto = { path = "../../core/crypto" }
-near-network = { path = "../network" }
 near-primitives = { path = "../../core/primitives" }
 
 [features]

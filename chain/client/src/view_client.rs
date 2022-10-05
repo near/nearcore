@@ -27,10 +27,10 @@ use near_client_primitives::types::{
 };
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
-use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_network::types::{
-    NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
-    StateResponseInfoV1, StateResponseInfoV2,
+    NetworkRequests, NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerAdapter,
+    PeerManagerMessageRequest, ReasonForBan, StateResponseInfo, StateResponseInfoV1,
+    StateResponseInfoV2,
 };
 use near_performance_metrics_macros::{perf, perf_with_debug};
 use near_primitives::block::{Block, BlockHeader};
@@ -992,14 +992,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             }
             NetworkViewClientMessages::TxStatus { tx_hash, signer_account_id } => {
                 if let Ok(Some(result)) = self.get_tx_status(tx_hash, signer_account_id, false) {
-                    // TODO: remove this legacy support in #3204
-                    let result = match result {
-                        FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(outcome) => outcome,
-                        FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(
-                            outcome,
-                        ) => outcome.into(),
-                    };
-                    NetworkViewClientResponses::TxStatus(Box::new(result))
+                    NetworkViewClientResponses::TxStatus(Box::new(result.into_outcome()))
                 } else {
                     NetworkViewClientResponses::NoResponse
                 }

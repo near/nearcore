@@ -13,6 +13,7 @@ use near_primitives::types::{
 
 use crate::flat_state::FlatStateFactory;
 use crate::trie::config::TrieConfig;
+use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
 use crate::{metrics, DBCol, DBOp, DBTransaction, PrefetchApi};
@@ -27,7 +28,7 @@ struct ShardTriesInner {
     view_caches: RwLock<HashMap<ShardUId, TrieCache>>,
     flat_state_factory: FlatStateFactory,
     /// Prefetcher state, such as IO threads, per shard.
-    prefetchers: RwLock<HashMap<ShardUId, PrefetchApi>>,
+    prefetchers: RwLock<HashMap<ShardUId, (PrefetchApi, PrefetchingThreadsHandle)>>,
 }
 
 #[derive(Clone)]
@@ -85,7 +86,7 @@ impl ShardTries {
             .collect()
     }
 
-    pub fn is_same(&self, other: &Self) -> bool {
+    pub(crate) fn is_same(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
 
@@ -136,6 +137,7 @@ impl ShardTries {
                         &self.0.trie_config,
                     )
                 })
+                .0
                 .clone()
         });
 
@@ -174,6 +176,10 @@ impl ShardTries {
 
     pub fn get_store(&self) -> Store {
         self.0.store.clone()
+    }
+
+    pub(crate) fn get_db(&self) -> &Arc<dyn crate::Database> {
+        &self.0.store.storage
     }
 
     pub(crate) fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {

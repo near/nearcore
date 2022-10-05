@@ -59,7 +59,7 @@ pub(crate) struct RegisterPeer {
     pub connection: Arc<connection::Connection>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RegisterPeerError {
     Blacklisted,
     Banned,

@@ -321,13 +321,6 @@ pub(crate) static PEER_REACHABLE: Lazy<IntGauge> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static RECEIVED_INFO_ABOUT_ITSELF: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter(
-        "received_info_about_itself",
-        "Number of times a peer tried to connect to itself",
-    )
-    .unwrap()
-});
 static DROPPED_MESSAGE_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_dropped_message_by_type_and_reason_count",

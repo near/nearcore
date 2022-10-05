@@ -1,27 +1,32 @@
 use crate::concurrency::rate;
 use crate::config;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Encoding, SyncAccountsData};
-use crate::network_protocol::{Ping, RoutedMessageBody, EDGE_MIN_TIMESTAMP_NONCE};
+use crate::network_protocol::{
+    Encoding, Handshake, PartialEdgeInfo, Ping, RoutedMessageBody, SyncAccountsData,
+    EDGE_MIN_TIMESTAMP_NONCE,
+};
 use crate::peer;
+use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::LIMIT_PENDING_PEERS;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::{Event, NormalAccountData};
+use crate::private_actix::RegisterPeerError;
+use crate::tcp;
+use crate::testonly::stream::Stream;
 use crate::testonly::{assert_is_superset, make_rng, AsSet as _};
 use crate::time;
 use crate::types::{PeerMessage, RoutingTableUpdate};
 use itertools::Itertools;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
+use near_primitives::version::PROTOCOL_VERSION;
 use pretty_assertions::assert_eq;
 use rand::seq::SliceRandom as _;
 use rand::Rng as _;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::net::TcpStream;
 
 // After the initial exchange, all subsequent SyncRoutingTable messages are
 // expected to contain only the diff of the known data.
@@ -43,11 +48,10 @@ async fn repeated_data_in_sync_routing_table() {
         network: chain.make_config(rng),
         chain,
         peers: vec![],
-        start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
         force_encoding: Some(Encoding::Proto),
         nonce: None,
     };
-    let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2).await.unwrap();
     let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
     let edge = peer.complete_handshake().await;
 
@@ -126,11 +130,10 @@ async fn no_edge_broadcast_after_restart() {
             network: chain.make_config(rng),
             chain: chain.clone(),
             peers: vec![],
-            start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
             force_encoding: Some(Encoding::Proto),
             nonce: None,
         };
-        let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
+        let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2).await.unwrap();
         let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
         let edge = peer.complete_handshake().await;
 
@@ -219,12 +222,11 @@ async fn test_nonces() {
             network: chain.make_config(rng),
             chain: chain.clone(),
             peers: vec![],
-            start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
             force_encoding: Some(Encoding::Proto),
             // Connect with nonce equal to unix timestamp
             nonce: test.0,
         };
-        let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
+        let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2).await.unwrap();
         let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
         if test.1 {
             peer.complete_handshake().await;
@@ -253,11 +255,10 @@ async fn ttl() {
         network: chain.make_config(rng),
         chain,
         peers: vec![],
-        start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
         force_encoding: Some(Encoding::Proto),
         nonce: None,
     };
-    let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2).await.unwrap();
     let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
     peer.complete_handshake().await;
     // await for peer manager to compute the routing table.
@@ -568,10 +569,11 @@ async fn connection_spam_security_test() {
     }
     // Try to establish additional connections. Should fail.
     for _ in 0..10 {
-        pm.start_inbound(chain.clone(), chain.make_config(rng))
-            .await
-            .fail_handshake(&clock.clock())
-            .await;
+        let conn = pm.start_inbound(chain.clone(), chain.make_config(rng)).await;
+        assert_eq!(
+            ClosingReason::TooManyInbound,
+            conn.manager_fail_handshake(&clock.clock()).await
+        );
     }
     // Terminate the pending connections. Should succeed.
     for c in conns {
@@ -647,9 +649,7 @@ async fn tier1_direct_connections() {
                 }
                 events
                     .recv_until(|ev| match ev {
-                        Event::PeerManager(PME::PeerRegistered(_, connection::Tier::T1)) => {
-                            Some(())
-                        }
+                        Event::PeerManager(PME::HandshakeCompleted(_)) => Some(()),
                         _ => None,
                     })
                     .await;
@@ -662,7 +662,7 @@ async fn tier1_direct_connections() {
 }
 
 #[tokio::test]
-async fn loop_connection_should_fail_safely() {
+async fn loop_connection() {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -674,9 +674,55 @@ async fn loop_connection_should_fail_safely() {
         near_store::db::TestDB::new(),
         chain.make_config(rng),
         chain.clone(),
-    ).await;
+    )
+    .await;
     let mut cfg = chain.make_config(rng);
-    cfg.node_key = pm.cfg.node_key.clone(); 
-    pm.start_inbound(chain.clone(), cfg.clone()).await.fail_handshake(&clock.clock()).await;
-    pm.start_outbound(chain.clone(), cfg).await.fail_handshake(&clock.clock()).await;
+    cfg.node_key = pm.cfg.node_key.clone();
+
+    // Starting an outbound loop connection should be stopped without sending the handshake.
+    let conn = pm.start_outbound(chain.clone(), cfg).await;
+    assert_eq!(
+        ClosingReason::OutboundNotAllowed(connection::PoolError::LoopConnection),
+        conn.manager_fail_handshake(&clock.clock()).await
+    );
+
+    // An inbound connection pretending to be a loop should be rejected.
+    let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2).await.unwrap();
+    let stream_id = stream.id();
+    let port = stream.local_addr.port();
+    let mut events = pm.events.from_now();
+    let mut stream = Stream::new(Some(Encoding::Proto), stream);
+    stream
+        .write(&PeerMessage::Tier2Handshake(Handshake {
+            protocol_version: PROTOCOL_VERSION,
+            oldest_supported_version: PROTOCOL_VERSION,
+            sender_peer_id: pm.cfg.node_id(),
+            target_peer_id: pm.cfg.node_id(),
+            sender_listen_port: Some(port),
+            sender_chain_info: chain.get_peer_chain_info(),
+            partial_edge_info: PartialEdgeInfo::new(
+                &pm.cfg.node_id(),
+                &pm.cfg.node_id(),
+                1,
+                &pm.cfg.node_key,
+            ),
+        }))
+        .await;
+    let reason = events
+        .recv_until(|ev| match ev {
+            Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
+                Some(ev.reason)
+            }
+            Event::PeerManager(PME::HandshakeCompleted(ev)) if ev.stream_id == stream_id => {
+                panic!("PeerManager accepted the handshake")
+            }
+            _ => None,
+        })
+        .await;
+    assert_eq!(
+        ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(
+            connection::PoolError::LoopConnection
+        )),
+        reason
+    );
 }

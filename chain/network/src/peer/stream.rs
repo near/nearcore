@@ -1,9 +1,9 @@
 use crate::concurrency::rate;
 use crate::peer_manager::connection;
 use crate::stats::metrics;
+use crate::tcp;
 use crate::time;
 use std::io;
-use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::io::AsyncReadExt as _;
@@ -17,7 +17,7 @@ type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum SendError {
-    #[error("IO error")]
+    #[error("IO error: {0}")]
     IO(#[source] io::Error),
     #[error("queue is full, got {got_bytes}B, max capacity is {want_max_bytes}")]
     QueueOverflow { got_bytes: usize, want_max_bytes: usize },
@@ -47,9 +47,9 @@ pub(crate) struct Frame(pub Vec<u8>);
 #[derive(thiserror::Error, Debug, actix::Message)]
 #[rtype(result = "()")]
 pub(crate) enum Error {
-    #[error("send")]
+    #[error("send: {0}")]
     Send(#[source] SendError),
-    #[error("recv")]
+    #[error("recv: {0}")]
     Recv(#[source] RecvError),
 }
 
@@ -138,15 +138,14 @@ where
 {
     pub fn spawn(
         scope: &Scope<Actor>,
-        peer_addr: SocketAddr,
-        stream: tokio::net::TcpStream,
+        stream: tcp::Stream,
         stats: Arc<connection::Stats>,
     ) -> (Self, FramedReader) {
-        let (tcp_recv, tcp_send) = tokio::io::split(stream);
+        let (tcp_recv, tcp_send) = tokio::io::split(stream.stream);
         let (queue_send, queue_recv) = tokio::sync::mpsc::unbounded_channel();
         let send_buf_size_metric = Arc::new(metrics::MetricGuard::new(
             &*metrics::PEER_DATA_WRITE_BUFFER_SIZE,
-            vec![peer_addr.to_string()],
+            vec![stream.peer_addr.to_string()],
         ));
         scope.arbiter.spawn({
             let scope = scope.clone();
@@ -173,11 +172,11 @@ where
                 read: tokio::io::BufReader::with_capacity(READ_BUFFER_CAPACITY, tcp_recv),
                 msg_size_metric: metrics::MetricGuard::new(
                     &metrics::PEER_MSG_SIZE_BYTES,
-                    vec![peer_addr.to_string()],
+                    vec![stream.peer_addr.to_string()],
                 ),
                 buf_size_metric: metrics::MetricGuard::new(
                     &metrics::PEER_DATA_READ_BUFFER_SIZE,
-                    vec![peer_addr.to_string()],
+                    vec![stream.peer_addr.to_string()],
                 ),
             },
         )

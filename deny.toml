@@ -100,4 +100,7 @@ skip = [
 
     # opentelemetry-otlp depends on an old version of tonic which depends on an old version of tokio-util
     { name = "tokio-util", version = "=0.6.10" },
+
+    # redis we’re using uses ancient sha
+    { name = "sha1", version = "=0.6.1" },
 ]

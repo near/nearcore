@@ -82,6 +82,7 @@ use near_primitives::shard_layout::{
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::FlatStateDelta;
+use near_store::flat_state::FlatStorageError;
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -1650,11 +1651,7 @@ impl Chain {
     /// soon as possible and allow next block producer to skip invalid blocks.
     pub fn process_challenge(&mut self, challenge: &Challenge) {
         let head = unwrap_or_return!(self.head());
-        match self.verify_challenges(
-            &vec![challenge.clone()],
-            &head.epoch_id,
-            &head.last_block_hash,
-        ) {
+        match self.verify_challenges(&[challenge.clone()], &head.epoch_id, &head.last_block_hash) {
             Ok((_, challenged_blocks)) => {
                 let mut chain_update = self.chain_update();
                 for block_hash in challenged_blocks {
@@ -2088,12 +2085,26 @@ impl Chain {
                     if new_flat_head == CryptoHash::default() {
                         new_flat_head = *self.genesis.hash();
                     }
-                    flat_storage_state.update_flat_head(&new_flat_head).unwrap_or_else(|_| {
-                        panic!(
-                            "Cannot update flat head from {:?} to {:?}",
-                            flat_storage_state.get_flat_head(),
-                            new_flat_head
-                        )
+                    // Try to update flat head.
+                    flat_storage_state.update_flat_head(&new_flat_head).unwrap_or_else(|err| {
+                        match &err {
+                            FlatStorageError::BlockNotSupported(_) => {
+                                // It's possible that new head is not a child of current flat head, e.g. when we have a 
+                                // fork:
+                                //
+                                //      (flat head)        /-------> 6
+                                // 1 ->      2     -> 3 -> 4
+                                //                         \---> 5
+                                //
+                                // where during postprocessing (5) we call `update_flat_head(3)` and then for (6) we can
+                                // call `update_flat_head(2)`. In such case, just log an error.
+                                debug!(target: "chain", "Cannot update flat head to {:?}: {:?}", new_flat_head, err);
+                            }
+                            _ => {
+                                // All other errors are unexpected, so we panic.
+                                panic!("Cannot update flat head to {:?}: {:?}", new_flat_head, err);
+                            }
+                        }
                     });
                 } else {
                     // TODO (#7327): some error handling code here. Should probably return an error (or panic?)

@@ -2,19 +2,19 @@ use crate::accounts_data;
 use crate::concurrency::rate;
 use crate::config;
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
+    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerAddr, PeerIdOrHash, PeerInfo, PeerMessage,
+    Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
 };
-use crate::network_protocol::{Edge, PartialEdgeInfo, PeerAddr};
-use crate::peer::peer_actor::{PeerActor, StreamConfig};
+use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::private_actix::PeerToManagerMsg;
 use crate::routing;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
+use crate::tcp;
 use crate::time;
-use crate::types::{ChainInfo, NetworkClientMessages, PeerMessage};
-use crate::types::{NetworkViewClientMessages, PeerIdOrHash};
+use crate::types::{ChainInfo, NetworkClientMessages, NetworkViewClientMessages};
 use actix::Recipient;
 use arc_swap::ArcSwap;
 use near_primitives::block::GenesisId;
@@ -27,8 +27,7 @@ use rand::seq::SliceRandom as _;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
-use tokio::net::TcpStream;
-use tracing::{debug, info, trace};
+use tracing::{debug, trace};
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::milliseconds(60_000);
@@ -179,7 +178,6 @@ impl NetworkState {
             }
         }
         if my_tier1_account_id.is_some() {
-            tracing::debug!(target:"test", "I am a validator!");
             // TIER1 nodes can also connect to TIER1 proxies.
             for peer_id in &ready {
                 for account_id in accounts_by_proxy.get(peer_id).into_iter().flatten() {
@@ -200,7 +198,6 @@ impl NetworkState {
             account_ids.shuffle(&mut rand::thread_rng());
             let mut new_connections = 0;
             for account_id in account_ids {
-                tracing::debug!(target:"test","checking {account_id}");
                 // Do not connect to yourself.
                 if account_id == my_tier1_account_id {
                     continue;
@@ -209,26 +206,35 @@ impl NetworkState {
                     break;
                 }
                 if safe.contains_key(account_id) {
-                    tracing::debug!(target:"test","TIER1 connection already exists");
                     continue;
                 }
                 let proxies: Vec<&PeerAddr> =
                     proxies_by_account.get(account_id).into_iter().flatten().map(|x| *x).collect();
-                tracing::debug!(target: "test","available proxies: {proxies:?}");
                 // It there is an outound connection in progress to a potential proxy, then skip.
                 if proxies.iter().any(|p| tier1.outbound_handshakes.contains(&p.peer_id)) {
-                    tracing::debug!(target:"test","outbound handshake already in progress");
                     continue;
                 }
                 // Start a new connection to one of the proxies of the account A, if
                 // we are not already connected/connecting to any proxy of A.
                 let proxy = proxies.iter().choose(&mut rand::thread_rng());
                 if let Some(proxy) = proxy {
-                    tracing::debug!(target:"test", "starting connection to {:?}",proxy);
                     new_connections += 1;
-                    self.clone()
-                        .spawn_outbound(clock.clone(), (*proxy).clone(), connection::Tier::T1)
-                        .await;
+                    if let Err(err) = async {
+                        let stream = tcp::Stream::connect(
+                            &PeerInfo {
+                                id: proxy.peer_id.clone(),
+                                addr: Some(proxy.addr),
+                                account_id: None,
+                            },
+                            tcp::Tier::T1,
+                        )
+                        .await?;
+                        anyhow::Ok(PeerActor::spawn(clock.clone(), stream, None, self.clone())?)
+                    }
+                    .await
+                    {
+                        tracing::info!(target:"network", ?err, ?proxy, "failed to establish a TIER1 connection");
+                    }
                 }
             }
         }
@@ -281,62 +287,6 @@ impl NetworkState {
         None
     }
 
-    /// Connects peer with given TcpStream.
-    /// It will fail (and log) if we have too many connections already,
-    /// or if the peer drops the connection in the meantime.
-    fn spawn_peer_actor(
-        self: Arc<Self>,
-        clock: &time::Clock,
-        stream: TcpStream,
-        stream_cfg: StreamConfig,
-    ) {
-        if let Err(err) = PeerActor::spawn(clock.clone(), stream, stream_cfg, None, self.clone()) {
-            tracing::info!(target:"network", ?err, "PeerActor::spawn()");
-        };
-    }
-
-    pub async fn spawn_inbound(self: Arc<Self>, clock: &time::Clock, stream: TcpStream) {
-        self.spawn_peer_actor(clock, stream, StreamConfig::Inbound);
-    }
-
-    pub async fn spawn_outbound(
-        self: Arc<Self>,
-        clock: time::Clock,
-        peer: PeerAddr,
-        tier: connection::Tier,
-    ) {
-        // The `connect` may take several minutes. This happens when the
-        // `SYN` packet for establishing a TCP connection gets silently
-        // dropped, in which case the default TCP timeout is applied. That's
-        // too long for us, so we shorten it to one second.
-        //
-        // Why exactly a second? It was hard-coded in a library we used
-        // before, so we keep it to preserve behavior. Removing the timeout
-        // completely was observed to break stuff for real on the testnet.
-        let stream = match tokio::time::timeout(
-            std::time::Duration::from_secs(1),
-            TcpStream::connect(peer.addr),
-        )
-        .await
-        {
-            Ok(Ok(it)) => it,
-            Ok(Err(err)) => {
-                info!(target: "network", addr=?peer.addr, ?err, "Error connecting to");
-                return;
-            }
-            Err(err) => {
-                info!(target: "network", addr=?peer.addr, ?err, "Error connecting to");
-                return;
-            }
-        };
-        debug!(target: "network", ?peer, "Connecting");
-        self.spawn_peer_actor(
-            &clock,
-            stream,
-            StreamConfig::Outbound { peer_id: peer.peer_id, tier },
-        );
-    }
-
     // Determine if the given target is referring to us.
     pub fn message_for_me(&self, target: &PeerIdOrHash) -> bool {
         let my_peer_id = self.config.node_id();
@@ -348,25 +298,13 @@ impl NetworkState {
         }
     }
 
-    pub fn send_ping(
-        &self,
-        clock: &time::Clock,
-        tier: connection::Tier,
-        nonce: u64,
-        target: PeerId,
-    ) {
+    pub fn send_ping(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: PeerId) {
         let body = RoutedMessageBody::Ping(Ping { nonce, source: self.config.node_id() });
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
 
-    pub fn send_pong(
-        &self,
-        clock: &time::Clock,
-        tier: connection::Tier,
-        nonce: u64,
-        target: CryptoHash,
-    ) {
+    pub fn send_pong(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: CryptoHash) {
         let body = RoutedMessageBody::Pong(Pong { nonce, source: self.config.node_id() });
         let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body };
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
@@ -385,7 +323,7 @@ impl NetworkState {
     pub fn send_message_to_peer(
         &self,
         clock: &time::Clock,
-        tier: connection::Tier,
+        tier: tcp::Tier,
         msg: Box<RoutedMessageV2>,
     ) -> bool {
         let my_peer_id = self.config.node_id();
@@ -399,7 +337,7 @@ impl NetworkState {
             }
         }
         match tier {
-            connection::Tier::T1 => {
+            tcp::Tier::T1 => {
                 let peer_id = match &msg.target {
                     PeerIdOrHash::Hash(hash) => {
                         match self.tier1_route_back.lock().remove(clock, hash) {
@@ -411,7 +349,7 @@ impl NetworkState {
                 };
                 return self.tier1.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
-            connection::Tier::T2 => match self.routing_table_view.find_route(&clock, &msg.target) {
+            tcp::Tier::T2 => match self.routing_table_view.find_route(&clock, &msg.target) {
                 Ok(peer_id) => {
                     // Remember if we expect a response for this message.
                     if msg.author == my_peer_id && msg.expect_response() {
@@ -446,7 +384,7 @@ impl NetworkState {
         account_id: &AccountId,
         msg: RoutedMessageBody,
     ) -> bool {
-        if connection::Tier::T1.is_allowed_routed(&msg) {
+        if tcp::Tier::T1.is_allowed_routed(&msg) {
             if let Some((target, conn)) = self.get_tier1_proxy(account_id) {
                 // TODO(gprusak): in case of PartialEncodedChunk, consider stripping everything
                 // but the header. This will bound the message size
@@ -480,11 +418,11 @@ impl NetworkState {
         if msg.body.is_important() {
             let mut success = false;
             for _ in 0..IMPORTANT_MESSAGE_RESENT_COUNT {
-                success |= self.send_message_to_peer(clock, connection::Tier::T2, msg.clone());
+                success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone());
             }
             success
         } else {
-            self.send_message_to_peer(clock, connection::Tier::T2, msg)
+            self.send_message_to_peer(clock, tcp::Tier::T2, msg)
         }
     }
 
