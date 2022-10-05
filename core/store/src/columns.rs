@@ -255,11 +255,19 @@ pub enum DBCol {
     FlatStateMisc,
 }
 
+/// Defines different logical parts of a db key.
+/// To access a column you can use a concatenation of several key types.
+/// This is needed to define DBCol::key_type.
+/// Update this enum and DBCol::key_type accordingly when creating a new column.
+/// Currently only used in cold storage continuous migration.
 #[derive(PartialEq, Copy, Clone, Debug, Hash, Eq, strum::EnumIter)]
 pub enum DBKeyType {
+    // Empty row name. Used in DBCol::LastComponentNonce.
     Empty,
-    Literal,
+    // Set of predetermined strings. Used, for example, in DBCol::BlockMisc
+    StringLiteral,
     BlockHash,
+    // Hash of the previous block. Logically different from BlockHash. Used fro DBCol::NextBlockHashes.
     PreviousBlockHash,
     BlockHeight,
     BlockOrdinal,
@@ -363,8 +371,8 @@ impl DBCol {
     /// Vector of DBKeyType s concatenation of which results in key for the column.
     pub fn key_type(&self) -> &'static [DBKeyType] {
         match self {
-            DBCol::DbVersion => &[DBKeyType::Literal],
-            DBCol::BlockMisc => &[DBKeyType::Literal],
+            DBCol::DbVersion => &[DBKeyType::StringLiteral],
+            DBCol::BlockMisc => &[DBKeyType::StringLiteral],
             DBCol::Block => &[DBKeyType::BlockHash],
             DBCol::BlockHeader => &[DBKeyType::BlockHash],
             DBCol::BlockHeight => &[DBKeyType::BlockHeight],
