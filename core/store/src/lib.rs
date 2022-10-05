@@ -379,7 +379,7 @@ impl StoreUpdate {
     /// Modifies a value in the database.
     ///
     /// Unlike `insert`, `increment_refcount` or `decrement_refcount`, arbitrary
-    /// modifications are allowed, and extra care must be taken to aviod
+    /// modifications are allowed, and extra care must be taken to avoid
     /// consistency anomalies.
     ///
     /// Must not be used for reference-counted columns; use
