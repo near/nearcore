@@ -29,13 +29,13 @@ pub enum StoreValidatorError {
     #[error("DB is corrupted")]
     DBCorruption(#[from] Box<dyn std::error::Error + Send + Sync>),
     #[error("Function {func_name:?}: data is invalid, {reason:?}")]
-    InvalidData { func_name: String, reason: String },
+    InvalidData { func_name: &'static str, reason: String },
     #[error("Function {func_name:?}: data that expected to exist in DB is not found, {reason:?}")]
-    DBNotFound { func_name: String, reason: String },
+    DBNotFound { func_name: &'static str, reason: String },
     #[error("Function {func_name:?}: {reason:?}, expected {expected:?}, found {found:?}")]
-    Discrepancy { func_name: String, reason: String, expected: String, found: String },
+    Discrepancy { func_name: &'static str, reason: String, expected: String, found: String },
     #[error("Function {func_name:?}: validation failed, {error:?}")]
-    ValidationFailed { func_name: String, error: String },
+    ValidationFailed { func_name: &'static str, error: String },
 }
 
 macro_rules! get_parent_function_name {
@@ -45,13 +45,16 @@ macro_rules! get_parent_function_name {
             std::any::type_name::<T>()
         }
         let name = type_name_of(f);
-        (&name[..name.len() - 3].split("::").last().unwrap()).to_string()
+        name.rsplit_once("::").map_or(name, |(_, name)| name)
     }};
 }
 
 macro_rules! err {
     ($($x: expr),*) => (
-        return Err(StoreValidatorError::ValidationFailed { func_name: get_parent_function_name!(), error: format!($($x),*) } )
+        return Err(StoreValidatorError::ValidationFailed {
+            func_name: get_parent_function_name!(),
+            error: format!($($x),*)
+        })
     )
 }
 
@@ -390,7 +393,7 @@ pub(crate) fn block_chunks_exist(
                             .runtime_adapter
                             .shard_id_to_uid(chunk_header.shard_id(), block.header().epoch_id())
                             .map_err(|err| StoreValidatorError::DBNotFound {
-                                func_name: String::from("get_shard_layout"),
+                                func_name: "get_shard_layout",
                                 reason: err.to_string(),
                             })?;
                         let block_shard_uid = get_block_shard_uid(block.hash(), &shard_uid);
@@ -699,7 +702,7 @@ pub(crate) fn outcome_indexed_by_block_hash(
                     .runtime_adapter
                     .shard_id_to_uid(chunk_header.shard_id(), block.header().epoch_id())
                     .map_err(|err| StoreValidatorError::DBNotFound {
-                        func_name: String::from("get_shard_layout"),
+                        func_name: "get_shard_layout",
                         reason: err.to_string(),
                     })?;
                 if let Ok(Some(_)) = sv.store.get_ser::<ChunkExtra>(
