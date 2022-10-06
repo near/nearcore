@@ -785,6 +785,15 @@ impl PeerActor {
             .config
             .event_sink
             .delayed_push(|| Event::MessageProcessed(msg.clone()));
+        
+        match &msg {
+            PeerMessage::Block(block) => {
+                let block_hash = *block.hash();
+                self.tracker.lock().push_received(block_hash);
+                conn.chain_height.fetch_max(block.header().height(), Ordering::Relaxed);
+            }
+            _ => {},
+        }
         if Some(resp) = self.network_state.receive_message(msg) {
             // TODO(gprusak): make sure that for routed messages we drop routeback info correctly.
             self.send_message_or_log(resp);
