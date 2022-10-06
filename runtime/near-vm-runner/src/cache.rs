@@ -372,11 +372,9 @@ pub fn precompile_contract_vm(
     };
     let key = get_contract_cache_key(wasm_code, vm_kind, config);
     // Check if we already cached with such a key.
-    match cache.get(&key).map_err(|_io_error| CacheError::ReadError)? {
-        // If so - do not override.
-        Some(_) => return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache)),
-        None => {}
-    };
+    if cache.has(&key).map_err(|_io_error| CacheError::ReadError)? {
+        return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
+    }
     match vm_kind {
         #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
         VMKind::Wasmer0 => {
