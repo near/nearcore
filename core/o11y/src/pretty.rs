@@ -51,5 +51,5 @@ fn test_key() {
     test("foo", b"foo");
     test("Zm9vIGJhcg==", b"foo bar");
     test("11111111111111111111111111111111", &[0; 32]);
-    test("CuoNgQBWsXnTqup6FY3UXNz6RRufnYyQVxx8HKZLUaRt", CryptoHash::hash_bytes(b"foo").as_bytes());
+    test("3yMApqCuCjXDWPrbjfR5mjCPTHqFG8Pux1TxQrEM35jj", CryptoHash::hash_bytes(b"foo").as_bytes());
 }
