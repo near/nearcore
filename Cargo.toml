@@ -190,7 +190,6 @@ tracing-opentelemetry = "0.17.0"
 tracing-span-tree = "0.1"
 tracing-subscriber = { version = "0.3.15", features = ["env-filter", "fmt", "registry", "std"] }
 validator = "0.12"
-walrus = "0.18.0"
 wasm-encoder = "0.11.0"
 wasm-smith = "0.10"
 wasmparser = "0.78"
