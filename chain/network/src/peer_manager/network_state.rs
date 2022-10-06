@@ -251,7 +251,11 @@ impl NetworkState {
                 Some(id) => id,
                 None => continue,
             };
+            tracing::debug!(target:"test", ?account_id, ?peer_id, "TIER1 peer lookup");
+
+            tracing::debug!(target:"test", "TIER1 connections: {:?}", tier1.ready.keys().collect::<Vec<_>>());
             if let Some(conn) = tier1.ready.get(peer_id) {
+                tracing::debug!(target:"test", ?peer_id, "got the connection!");
                 return Some((peer_id.clone(), conn.clone()));
             }
         }
@@ -270,7 +274,8 @@ impl NetworkState {
         if let Some(res) = self.get_tier1_peer(account_id) {
             return Some(res);
         }
-        // In Case there is no direct connection, use a proxy.
+        // In case there is no direct connection and our node is a TIER1 validator, use a proxy.
+        // TODO(gprusak): add a check that our node is actually a TIER1 validator.
         let tier1 = self.tier1.load();
         let accounts_data = self.accounts_data.load();
         for data in accounts_data.by_account.get(account_id)?.values() {
@@ -338,6 +343,7 @@ impl NetworkState {
         }
         match tier {
             tcp::Tier::T1 => {
+                tracing::debug!(target:"test", "sending msg over TIER1");
                 let peer_id = match &msg.target {
                     PeerIdOrHash::Hash(hash) => {
                         match self.tier1_route_back.lock().remove(clock, hash) {
@@ -385,7 +391,9 @@ impl NetworkState {
         msg: RoutedMessageBody,
     ) -> bool {
         if tcp::Tier::T1.is_allowed_routed(&msg) {
+            tracing::debug!(target:"test", "got TIER1 message to send");
             if let Some((target, conn)) = self.get_tier1_proxy(account_id) {
+                tracing::debug!(target:"test", "found TIER1 proxy");
                 // TODO(gprusak): in case of PartialEncodedChunk, consider stripping everything
                 // but the header. This will bound the message size
                 conn.send_message(Arc::new(PeerMessage::Routed(self.sign_message(

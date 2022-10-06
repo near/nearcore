@@ -231,8 +231,12 @@ impl ChunkSet {
     }
 }
 
+pub fn make_hash<R: Rng>(rng: &mut R) -> CryptoHash {
+    CryptoHash::hash_bytes(&rng.gen::<[u8; 19]>())
+}
+
 pub fn make_epoch_id<R: Rng>(rng: &mut R) -> EpochId {
-    EpochId(CryptoHash::hash_bytes(&rng.gen::<[u8; 19]>()))
+    EpochId(make_hash(rng))
 }
 
 pub struct Chain {

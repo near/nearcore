@@ -179,22 +179,6 @@ pub enum PeerManagerMessageRequest {
     },
 }
 
-/// Messages from PeerManager to Peer
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-pub enum PeerManagerRequest {
-    BanPeer(ReasonForBan),
-    UnregisterPeer,
-}
-
-/// Messages from PeerManager to Peer with a tracing Context.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-pub struct PeerManagerRequestWithContext {
-    pub msg: PeerManagerRequest,
-    pub context: opentelemetry::Context,
-}
-
 impl PeerManagerMessageRequest {
     pub fn as_network_requests(self) -> NetworkRequests {
         if let PeerManagerMessageRequest::NetworkRequests(item) = self {
@@ -437,7 +421,7 @@ impl From<NetworkInfo> for NetworkInfoView {
     }
 }
 
-#[derive(Debug, actix::MessageResponse)]
+#[derive(Debug, actix::MessageResponse, PartialEq, Eq)]
 pub enum NetworkResponses {
     NoResponse,
     PingPongInfo { pings: Vec<Ping>, pongs: Vec<Pong> },
