@@ -441,4 +441,209 @@ impl NetworkState {
         self.routing_table_view.add_local_edges(&edges);
         self.routing_table_addr.do_send(routing::actor::Message::AddVerifiedEdges { edges });
     }
+
+    pub async fn receive_message(&self, clock: &time::Clock, msg: PeerMessage) {
+        Ok(NetworkClientResponses::InvalidTx(err)) => {
+            warn!(target: "network", "Received invalid tx from peer {}: {}", act.peer_info, err);
+            // TODO: count as malicious behavior?
+        }
+
+        match msg {
+            PeerMessage::Routed(msg) => match &msg.body {
+                RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => {
+                    match self.view_client_addr.send(NetworkViewClientMessages::TxStatus {
+                        tx_hash: tx_hash.clone(),
+                        signer_account_id: account_id.clone(),
+                    }).await {
+                        Ok(NetworkViewClientResponses::TxStatus(tx_result)) => Some(self.sign_message(
+                            &clock,
+                            RawRoutedMessage {
+                                target: AccountOrPeerIdOrHash::Hash(msg.hash()),
+                                body: RoutedMessageBody::TxStatusResponse(*tx_result),
+                            },
+                        )),
+                        Ok(resp) => panic!("unexpected ViewClientResponse: {resp:?}"),
+                        Err(err) => {
+                            tracing::error!("mailbox error: {err}");
+                            None
+                        },
+                    }
+                }
+                RoutedMessageBody::TxStatusResponse(tx_result) => {
+                    match self.view_client_addr.send(NetworkViewClientMessages::TxStatusResponse(Box::new(tx_result.clone())).await {
+                        Ok(NetworkViewClientResponses::NoResponse) => None,
+                        Ok(resp) => panic!("unexpected ViewClientResponse: {resp:?}"),
+                        Err(err) => {
+                            tracing::error!("mailbox error: {err}");
+                            None
+                        },
+                    }
+                }
+                RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
+                    match self.view_client_addr.send(NetworkViewClientMessages::StateRequestHeader {
+                        shard_id: *shard_id,
+                        sync_hash: sync_hash.clone(),
+                    }).await {
+                        Ok(NetworkViewClientResponses::StateResponse(resp)) => Some(act.network_state.sign_message(
+                            clock,
+                            RawRoutedMessage {
+                                target: AccountOrPeerIdOrHash::Hash(msg.hash()),
+                                body: RoutedMessageBody::VersionedStateResponse(resp),
+                            },
+                        )),
+                        Ok(resp) => panic!("unexpected ViewClientResponse: {resp:?}"),
+                        Err(err) => {
+                            tracing::error!("mailbox error: {err}");
+                            None
+                        },
+                    }
+                }
+                RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id) => {
+                    match self.view_client_addr.send(NetworkViewClientMessages::StateRequestPart {
+                        shard_id: *shard_id,
+                        sync_hash: sync_hash.clone(),
+                        part_id: *part_id,
+                    }).await {
+                        Ok(NetworkViewClientResponses::StateResponse(resp)) => Some(act.network_state.sign_message(
+                            clock,
+                            RawRoutedMessage {
+                                target: AccountOrPeerIdOrHash::Hash(msg.hash()),
+                                body: RoutedMessageBody::VersionedStateResponse(resp),
+                            },
+                        )),
+                        Ok(resp) => panic!("unexpected ViewClientResponse: {resp:?}"),
+                        Err(err) => {
+                            tracing::error!("mailbox error: {err}");
+                            None
+                        },
+                    }
+                }
+                RoutedMessageBody::VersionedStateResponse(info) => {
+                    match self.client_addr.send(NetworkClientMessages::StateResponse(info.clone()).await {
+                        Ok(NetworkClientResponses::NoResponse) => None,
+                        Ok(NetworkClientResponses::Ban(_) => None, // TODO(gprusak)
+                        Ok(resp) => panic!("unexpected ViewClientResponse: {resp:?}"),
+                        Err(err) => {
+                            tracing::error!("mailbox error: {err}");
+                            None
+                        },
+                    }
+                }
+                RoutedMessageBody::BlockApproval(approval) => {
+                    NetworkClientMessages::BlockApproval(approval.clone(), peer_id)
+                }
+                RoutedMessageBody::ForwardTx(transaction) => {
+                    NetworkClientMessages::Transaction {
+                        transaction: transaction.clone(),
+                        is_forwarded: true,
+                        check_only: false,
+                    }
+                }
+                RoutedMessageBody::PartialEncodedChunkRequest(request) => {
+                    NetworkClientMessages::PartialEncodedChunkRequest(request.clone(), msg.hash())
+                }
+                RoutedMessageBody::PartialEncodedChunkResponse(response) => {
+                    NetworkClientMessages::PartialEncodedChunkResponse(
+                        response.clone(),
+                        clock.now().into(),
+                    )
+                }
+                RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
+                    NetworkClientMessages::PartialEncodedChunk(chunk.clone())
+                }
+                RoutedMessageBody::PartialEncodedChunkForward(forward) => {
+                    NetworkClientMessages::PartialEncodedChunkForward(forward.clone())
+                }
+                RoutedMessageBody::ReceiptOutcomeRequest(_) => {
+                    // Silently ignore for the time being.  We’ve been still
+                    // sending those messages at protocol version 56 so we
+                    // need to wait until 59 before we can remove the
+                    // variant completely.
+                    return;
+                }
+                body => {
+                    tracing::error!(target: "network", "Peer receive_view_client_message received unexpected type: {:?}", body);
+                    return;
+                }
+            },
+            PeerMessage::BlockRequest(hash) => {
+                NetworkViewClientMessages::BlockRequest(hash),
+                Ok(NetworkViewClientResponses::Block(block)) => {
+                    // MOO need protocol version
+                    act.send_message_or_log(&PeerMessage::Block(*block));
+                }
+            }
+            PeerMessage::BlockHeadersRequest(hashes) => {
+                NetworkViewClientMessages::BlockHeadersRequest(hashes)
+                Ok(NetworkViewClientResponses::BlockHeaders(headers)) => {
+                    act.send_message_or_log(&PeerMessage::BlockHeaders(headers));
+                }
+            }
+            PeerMessage::EpochSyncRequest(epoch_id) => {
+                NetworkViewClientMessages::EpochSyncRequest { epoch_id }
+                NetworkViewClientResponses::EpochSyncResponse(response)) => {
+                    act.send_message_or_log(&PeerMessage::EpochSyncResponse(response));
+                }
+            }
+            PeerMessage::EpochSyncFinalizationRequest(epoch_id) => {
+                NetworkViewClientMessages::EpochSyncFinalizationRequest { epoch_id }
+                NetworkViewClientResponses::EpochSyncFinalizationResponse(response)) => {
+                    act.send_message_or_log(&PeerMessage::EpochSyncFinalizationResponse(
+                        response,
+                    ));
+                }
+            }
+            PeerMessage::Block(block) => {
+                let block_hash = *block.hash();
+                self.tracker.lock().push_received(block_hash);
+                conn.chain_height.fetch_max(block.header().height(), Ordering::Relaxed);
+                NetworkClientMessages::Block(
+                    block,
+                    peer_id,
+                    self.tracker.lock().has_request(&block_hash),
+                )
+            }
+            PeerMessage::Transaction(transaction) => NetworkClientMessages::Transaction {
+                transaction,
+                is_forwarded: false,
+                check_only: false,
+            },
+            PeerMessage::BlockHeaders(headers) => {
+                NetworkClientMessages::BlockHeaders(headers, peer_id)
+            }
+            PeerMessage::Challenge(challenge) => NetworkClientMessages::Challenge(challenge),
+            PeerMessage::EpochSyncResponse(response) => {
+                NetworkClientMessages::EpochSyncResponse(peer_id, response)
+            }
+            PeerMessage::EpochSyncFinalizationResponse(response) => {
+                NetworkClientMessages::EpochSyncFinalizationResponse(peer_id, response)
+            }
+            msg => {
+                error!(target: "network", "Peer received unexpected type: {:?}", msg);
+                return;
+            }
+        };
+    }
+
+    /// Process non handshake/peer related messages.
+    fn receive_client_message(
+        &mut self,
+        ctx: &mut Context<PeerActor>,
+        conn: &connection::Connection,
+        msg: PeerMessage,
+    ) {
+        let _span = tracing::trace_span!(target: "network", "receive_client_message").entered();
+        let peer_id = conn.peer_info.id.clone();
+
+                match res {
+                    
+                    Ok(NetworkClientResponses::Ban { ban_reason }) => {
+                        act.stop(ctx, ClosingReason::Ban(ban_reason));
+                    }
+                    }
+                };
+                actix::fut::ready(())
+            })
+        );
+    }
 }
