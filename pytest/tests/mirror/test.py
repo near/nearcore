@@ -26,7 +26,7 @@ import key
 
 TIMEOUT = 240
 NUM_VALIDATORS = 4
-SHARDNET_VALIDATORS = ['foo0', 'foo1', 'foo2']
+TARGET_VALIDATORS = ['foo0', 'foo1', 'foo2']
 
 
 def mkdir_clean(dirname):
@@ -45,7 +45,7 @@ def ordinal_to_port(port, ordinal):
     return f'0.0.0.0:{port + 10 + ordinal}'
 
 
-def init_shardnet_dir(neard, home, ordinal, validator_account=None):
+def init_target_dir(neard, home, ordinal, validator_account=None):
     mkdir_clean(home)
 
     try:
@@ -81,24 +81,24 @@ def init_shardnet_dir(neard, home, ordinal, validator_account=None):
                 }, f)
 
 
-def init_shardnet_dirs(neard):
+def init_target_dirs(neard):
     ordinal = NUM_VALIDATORS + 1
     dirs = []
 
-    for account_id in SHARDNET_VALIDATORS:
-        home = dot_near() / f'shardnet_{account_id}'
+    for account_id in TARGET_VALIDATORS:
+        home = dot_near() / f'test_target_{account_id}'
         dirs.append(str(home))
-        init_shardnet_dir(neard, home, ordinal, validator_account=account_id)
+        init_target_dir(neard, home, ordinal, validator_account=account_id)
         ordinal += 1
 
     observer = dot_near() / 'mirror/target'
-    init_shardnet_dir(neard, observer, ordinal, validator_account=None)
+    init_target_dir(neard, observer, ordinal, validator_account=None)
     shutil.copy(dot_near() / 'test0/output/mirror-secret.json',
                 observer / 'mirror-secret.json')
     return dirs, observer
 
 
-def create_shardnet(config, near_root):
+def create_forked_chain(config, near_root):
     binary_name = config.get('binary_name', 'neard')
     neard = os.path.join(near_root, binary_name)
     try:
@@ -129,19 +129,19 @@ def create_shardnet(config, near_root):
     genesis_filename_out = dot_near() / 'test0/forked/genesis.json'
     records_filename_in = dot_near() / 'test0/output/mirror-records.json'
     records_filename_out = dot_near() / 'test0/forked/records.json'
-    create_genesis_file(SHARDNET_VALIDATORS,
+    create_genesis_file(TARGET_VALIDATORS,
                         genesis_filename_in=genesis_filename_in,
                         genesis_filename_out=genesis_filename_out,
                         records_filename_in=records_filename_in,
                         records_filename_out=records_filename_out,
                         rpc_node_names=[],
-                        chain_id='shardnet',
+                        chain_id='foonet',
                         append=True,
                         epoch_length=20,
                         node_pks=None,
                         increasing_stakes=0.0,
-                        num_seats=len(SHARDNET_VALIDATORS))
-    return init_shardnet_dirs(neard)
+                        num_seats=len(TARGET_VALIDATORS))
+    return init_target_dirs(neard)
 
 
 def init_mirror_dir(home, source_boot_node):
@@ -196,62 +196,122 @@ def start_mirror(near_root, target_home, boot_node):
 def send_add_access_key(node, creator_key, nonce, block_hash):
     k = key.Key.from_random('test0')
     action = transaction.create_full_access_key_action(k.decoded_pk())
-    tx = transaction.sign_and_serialize_transaction(
-        'test0', nonce, [action], base58.b58decode(block_hash.encode('utf8')),
-        'test0', creator_key.decoded_pk(), creator_key.decoded_sk())
+    tx = transaction.sign_and_serialize_transaction('test0', nonce, [action],
+                                                    block_hash, 'test0',
+                                                    creator_key.decoded_pk(),
+                                                    creator_key.decoded_sk())
     node.send_tx(tx)
     return k
 
 
 def create_subaccount(node, signer_key, nonce, block_hash):
-    k = key.Key.from_random('foo.test0')
+    k = key.Key.from_random('foo.' + signer_key.account_id)
     actions = []
     actions.append(transaction.create_create_account_action())
     actions.append(transaction.create_full_access_key_action(k.decoded_pk()))
     actions.append(transaction.create_payment_action(10**24))
+    # add an extra one just to exercise some more corner cases
     actions.append(
         transaction.create_full_access_key_action(
-            key.Key.from_random('foo.test0').decoded_pk()))
+            key.Key.from_random(k.account_id).decoded_pk()))
 
-    tx = transaction.sign_and_serialize_transaction(
-        'foo.test0', nonce, actions,
-        base58.b58decode(block_hash.encode('utf8')), 'test0',
-        signer_key.decoded_pk(), signer_key.decoded_sk())
+    tx = transaction.sign_and_serialize_transaction(k.account_id, nonce,
+                                                    actions, block_hash,
+                                                    signer_key.account_id,
+                                                    signer_key.decoded_pk(),
+                                                    signer_key.decoded_sk())
     node.send_tx(tx)
     return k
+
+
+# a key that we added with an AddKey tx or implicit account transfer.
+# just for nonce handling convenience
+class AddedKey:
+
+    def __init__(self, key):
+        self.nonce = None
+        self.key = key
+
+    def send_if_inited(self, node, transfers, block_hash):
+        if self.nonce is None:
+            self.nonce = node.get_nonce_for_pk(self.key.account_id, self.key.pk)
+
+        if self.nonce is not None:
+            for (receiver_id, amount) in transfers:
+                self.nonce += 1
+                tx = transaction.sign_payment_tx(self.key, receiver_id, amount,
+                                                 self.nonce, block_hash)
+                node.send_tx(tx)
 
 
 class ImplicitAccount:
 
     def __init__(self):
-        self.key = key.Key.implicit_account()
-        self.tx_sent = False
-        self.nonce = None
+        self.key = AddedKey(key.Key.implicit_account())
 
-    def ensure_inited(self, node, sender_key, amount, block_hash, nonce):
-        if self.nonce is not None:
-            return True
-        if not self.tx_sent:
-            tx = transaction.sign_payment_tx(
-                sender_key, self.key.account_id, amount, nonce,
-                base58.b58decode(block_hash.encode('utf8')))
-            node.send_tx(tx)
-            self.tx_sent = True
-            logger.info(
-                f'sent {amount} to initialize implicit account {self.key.account_id}'
-            )
-            return False
-        else:
-            self.nonce = node.get_nonce_for_pk(self.key.account_id, self.key.pk)
-            return self.nonce is not None
+    def account_id(self):
+        return self.key.key.account_id
 
-    def send_money(self, node, block_hash, to, amount):
-        assert self.nonce is not None
-        self.nonce += 1
-        tx = transaction.sign_payment_tx(
-            self.key, to, amount, self.nonce,
-            base58.b58decode(block_hash.encode('utf8')))
+    def transfer(self, node, sender_key, amount, block_hash, nonce):
+        tx = transaction.sign_payment_tx(sender_key, self.account_id(), amount,
+                                         nonce, block_hash)
         node.send_tx(tx)
+        logger.info(
+            f'sent {amount} to initialize implicit account {self.account_id()}')
+
+    def send_if_inited(self, node, transfers, block_hash):
+        self.key.send_if_inited(node, transfers, block_hash)
+
+
+def count_total_txs(node, min_height=0):
+    total = 0
+    h = node.get_latest_block().hash
+    while True:
+        block = node.get_block(h)['result']
+        height = int(block['header']['height'])
+        if height < min_height:
+            return total
+
+        for c in block['chunks']:
+            if int(c['height_included']) == height:
+                chunk = node.get_chunk(c['chunk_hash'])['result']
+                total += len(chunk['transactions'])
+
+        h = block['header']['prev_hash']
+        if h == '11111111111111111111111111111111':
+            return total
+
+
+def check_num_txs(source_node, target_node, start_time, end_source_height):
+    with open(os.path.join(target_node.node_dir, 'genesis.json'), 'r') as f:
+        genesis_height = json.load(f)['genesis_height']
+    with open(os.path.join(target_node.node_dir, 'config.json'), 'r') as f:
+        delay = json.load(f)['consensus']['min_block_production_delay']
+        block_delay = 10**9 * int(delay['secs']) + int(delay['nanos'])
+        block_delay = block_delay / 10**9
+
+    total_source_txs = count_total_txs(source_node, min_height=genesis_height)
+
+    # start_time is the time the mirror binary was started. Give it 20 seconds to
+    # sync and then 50% more than min_block_production_delay for each block between
+    # the start and end points of the source chain. Not ideal to be basing a test on time
+    # like this but there's no real strong guarantee on when the transactions should
+    # make it on chain, so this is some kind of reasonable timeout
+
+    total_time_allowed = 20 + (end_source_height -
+                               genesis_height) * block_delay * 1.5
+    time_elapsed = time.time() - start_time
+    if time_elapsed < total_time_allowed:
+        time_left = total_time_allowed - time_elapsed
+        logger.info(
+            f'waiting for {int(time_left)} seconds to allow transactions to make it to the target chain'
+        )
+        time.sleep(time_left)
+
+    total_target_txs = count_total_txs(target_node)
+    assert total_source_txs == total_target_txs, (total_source_txs,
+                                                  total_target_txs)
+    logger.info(f'all {total_source_txs} transactions mirrored')
 
 
 def main():
@@ -260,16 +320,14 @@ def main():
         config_changes[i] = {"tracked_shards": [0, 1, 2, 3], "archive": True}
 
     config = load_config()
-    near_root, node_dirs = init_cluster(
-        num_nodes=NUM_VALIDATORS,
-        num_observers=1,
-        num_shards=4,
-        config=config,
-        genesis_config_changes=[["min_gas_price", 0],
-                                ["max_inflation_rate", [0, 1]],
-                                ["epoch_length", 10],
-                                ["block_producer_kickout_threshold", 70]],
-        client_config_changes=config_changes)
+    near_root, node_dirs = init_cluster(num_nodes=NUM_VALIDATORS,
+                                        num_observers=1,
+                                        num_shards=4,
+                                        config=config,
+                                        genesis_config_changes=[
+                                            ["epoch_length", 10],
+                                        ],
+                                        client_config_changes=config_changes)
 
     nodes = [spin_up_node(config, near_root, node_dirs[0], 0)]
 
@@ -280,93 +338,102 @@ def main():
             spin_up_node(config, near_root, node_dirs[i], i,
                          boot_node=nodes[0]))
 
+    ctx = utils.TxContext([i for i in range(len(nodes))], nodes)
+
     implicit_account1 = ImplicitAccount()
-    ctx = utils.TxContext([0, 0, 0, 0], nodes)
+    for height, block_hash in utils.poll_blocks(nodes[0], timeout=TIMEOUT):
+        implicit_account1.transfer(nodes[0], nodes[0].signer_key, 10**24,
+                                   base58.b58decode(block_hash.encode('utf8')),
+                                   ctx.next_nonce)
+        ctx.next_nonce += 1
+        break
 
     for height, block_hash in utils.poll_blocks(nodes[0], timeout=TIMEOUT):
+        block_hash_bytes = base58.b58decode(block_hash.encode('utf8'))
+
+        implicit_account1.send_if_inited(nodes[0], [('test2', height),
+                                                    ('test3', height)],
+                                         block_hash_bytes)
         ctx.send_moar_txs(block_hash, 10, use_routing=False)
-        if implicit_account1.ensure_inited(nodes[0], nodes[0].signer_key,
-                                           10**24, block_hash, ctx.next_nonce):
-            implicit_account1.send_money(nodes[0], block_hash, 'test3', 3)
-            if height > 12:
-                ctx.next_nonce += 1
-                break
-        ctx.next_nonce += 1
+
+        if height > 12:
+            break
 
     nodes[0].kill()
-    shardnet_node_dirs, shardnet_observer_dir = create_shardnet(
+    target_node_dirs, target_observer_dir = create_forked_chain(
         config, near_root)
     nodes[0].start(boot_node=nodes[1])
 
     ordinal = NUM_VALIDATORS + 1
-    shardnet_nodes = [
-        spin_up_node(config, near_root, shardnet_node_dirs[0], ordinal)
+    target_nodes = [
+        spin_up_node(config, near_root, target_node_dirs[0], ordinal)
     ]
-    for i in range(1, len(shardnet_node_dirs)):
+    for i in range(1, len(target_node_dirs)):
         ordinal += 1
-        shardnet_nodes.append(
+        target_nodes.append(
             spin_up_node(config,
                          near_root,
-                         shardnet_node_dirs[i],
+                         target_node_dirs[i],
                          ordinal,
-                         boot_node=shardnet_nodes[0]))
+                         boot_node=target_nodes[0]))
 
-    p = start_mirror(near_root, shardnet_observer_dir, shardnet_nodes[0])
-
+    p = start_mirror(near_root, target_observer_dir, target_nodes[0])
+    start_time = time.time()
+    start_source_height = nodes[0].get_latest_block().height
     restarted = False
-    new_key = None
-    new_key_nonce = -1
 
-    subaccount_key = create_subaccount(nodes[0], nodes[0].signer_key,
-                                       ctx.next_nonce, block_hash)
+    subaccount_key = AddedKey(
+        create_subaccount(nodes[0], nodes[0].signer_key, ctx.next_nonce,
+                          block_hash_bytes))
     ctx.next_nonce += 1
-    subaccount_nonce = -1
+
+    new_key = AddedKey(
+        send_add_access_key(nodes[0], nodes[0].signer_key, ctx.next_nonce,
+                            block_hash_bytes))
+    ctx.next_nonce += 1
+
     implicit_account2 = ImplicitAccount()
+    # here we are gonna send a tiny amount (1 yoctoNEAR) to the implicit account and
+    # then wait a bit before properly initializing it. This hits a corner case where the
+    # mirror binary needs to properly look for the second tx's outcome to find the starting
+    # nonce because the first one failed
+    implicit_account2.transfer(nodes[0], nodes[0].signer_key, 1,
+                               block_hash_bytes, ctx.next_nonce)
+    ctx.next_nonce += 1
+    time.sleep(2)
+    implicit_account2.transfer(nodes[0], nodes[0].signer_key, 10**24,
+                               block_hash_bytes, ctx.next_nonce)
+    ctx.next_nonce += 1
 
     for height, block_hash in utils.poll_blocks(nodes[0], timeout=TIMEOUT):
-        ctx.send_moar_txs(block_hash, 10, use_routing=False)
-        implicit_account1.send_money(nodes[0], block_hash, 'test3', 3)
-        implicit_account1.send_money(nodes[0], block_hash, implicit_account2.key.account_id, 3)
-        if implicit_account2.ensure_inited(nodes[0], nodes[0].signer_key,
-                                           10**24, block_hash, ctx.next_nonce):
-            implicit_account2.send_money(nodes[0], block_hash, 'test2', 13)
-            implicit_account2.send_money(nodes[0], block_hash,
-                                         implicit_account1.key.account_id, 14)
-        ctx.next_nonce += 1
-
         code = p.poll()
         if code is not None:
             assert code == 0
             break
 
-        if new_key is not None:
-            if new_key_nonce == -1:
-                nonce = nodes[0].get_nonce_for_pk('test0', new_key.pk)
-                if nonce is not None:
-                    new_key_nonce = nonce
-            else:
-                tx = transaction.sign_payment_tx(
-                    new_key, 'test1', 100, new_key_nonce,
-                    base58.b58decode(block_hash.encode('utf8')))
-                nodes[0].send_tx(tx)
-                new_key_nonce += 1
-        elif height >= 50:
-            new_key = send_add_access_key(nodes[0], nodes[0].signer_key,
-                                          ctx.next_nonce, block_hash)
-            ctx.next_nonce += 1
+        block_hash_bytes = base58.b58decode(block_hash.encode('utf8'))
 
-        if subaccount_nonce == -1:
-            nonce = nodes[0].get_nonce_for_pk('foo.test0', subaccount_key.pk)
-            if nonce is not None:
-                subaccount_nonce = nonce
-        else:
-            tx = transaction.sign_payment_tx(
-                subaccount_key, 'test3', 200, subaccount_nonce,
-                base58.b58decode(block_hash.encode('utf8')))
-            nodes[0].send_tx(tx)
-            subaccount_nonce += 1
+        ctx.send_moar_txs(block_hash, 10, use_routing=False)
 
-        if not restarted and height >= 90:
+        implicit_account1.send_if_inited(
+            nodes[0], [('test2', height), ('test1', height),
+                       (implicit_account2.account_id(), height)],
+            block_hash_bytes)
+        implicit_account2.send_if_inited(
+            nodes[1], [('test2', height), ('test0', height),
+                       (implicit_account1.account_id(), height)],
+            block_hash_bytes)
+        new_key.send_if_inited(nodes[2],
+                               [('test1', height), ('test2', height),
+                                (implicit_account1.account_id(), height),
+                                (implicit_account2.account_id(), height)],
+                               block_hash_bytes)
+        subaccount_key.send_if_inited(
+            nodes[3], [('test3', height),
+                       (implicit_account2.account_id(), height)],
+            block_hash_bytes)
+
+        if not restarted and height - start_source_height >= 50:
             logger.info('stopping mirror process')
             p.terminate()
             p.wait()
@@ -380,12 +447,17 @@ def main():
                 stderr.write(
                     b'<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\n'
                 )
-            p = start_mirror(near_root, shardnet_observer_dir,
-                             shardnet_nodes[0])
+            p = start_mirror(near_root, target_observer_dir, target_nodes[0])
             restarted = True
 
-        if height >= 140:
+        if height - start_source_height >= 100:
             break
+
+    time.sleep(5)
+    # we don't need these anymore
+    for node in nodes[1:]:
+        node.kill()
+    check_num_txs(nodes[0], target_nodes[0], start_time, height)
 
 
 if __name__ == '__main__':
