@@ -3,8 +3,8 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::concurrency::rate;
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Edge, EdgeState, Encoding, ParsePeerMessageError, PartialEdgeInfo,
-    PeerChainInfoV2, PeerInfo, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate,
+    Edge, EdgeState, Encoding, ParsePeerMessageError, PartialEdgeInfo,
+    PeerChainInfoV2, PeerInfo, RoutedMessageBody, RoutingTableUpdate,
     SyncAccountsData,
 };
 use crate::peer::stream;
@@ -22,9 +22,9 @@ use crate::stats::metrics;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    Ban, Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses,
-    NetworkViewClientMessages, NetworkViewClientResponses, PeerIdOrHash, PeerMessage, PeerType,
-    ReasonForBan, StateResponseInfo,
+    Ban, Handshake, HandshakeFailureReason, 
+    PeerIdOrHash, PeerMessage, PeerType,
+    ReasonForBan,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor, ActorContext, ActorFutureExt, AsyncContext, Context, Running};
@@ -777,7 +777,7 @@ impl PeerActor {
         }
     }
 
-    async fn receive_message(&self, msg:PeerMessage) {
+    async fn receive_message(&self, conn: Arc<connection::Connection>, msg:PeerMessage) {
         // This is a fancy way to clone the message iff event_sink is non-null.
         // If you have a better idea on how to achieve that, feel free to improve this.
         let message_processed_event = self
@@ -785,18 +785,18 @@ impl PeerActor {
             .config
             .event_sink
             .delayed_push(|| Event::MessageProcessed(msg.clone()));
-        
         match &msg {
             PeerMessage::Block(block) => {
-                let block_hash = *block.hash();
-                self.tracker.lock().push_received(block_hash);
+                self.tracker.lock().push_received(*block.hash());
                 conn.chain_height.fetch_max(block.header().height(), Ordering::Relaxed);
             }
             _ => {},
         }
-        if Some(resp) = self.network_state.receive_message(msg) {
+        match self.network_state.receive_message(msg).await {
             // TODO(gprusak): make sure that for routed messages we drop routeback info correctly.
-            self.send_message_or_log(resp);
+            Ok(Some(resp)) => self.send_message_or_log(resp),
+            Ok(None) => {}
+            Err(ban_reason) => self.stop(ClosingReason::Ban(ban_reason)),
         }
         message_processed_event();
     }
@@ -994,7 +994,7 @@ impl PeerActor {
                                 .push(Event::MessageProcessed(PeerMessage::Routed(msg)));
                         }
                         _ => {
-                            self.receive_message(ctx, conn, PeerMessage::Routed(msg.clone()));
+                            self.receive_message(ctx, conn, PeerMessage::Routed(msg.clone())).await;
                         }
                     }
                 } else {
@@ -1009,7 +1009,7 @@ impl PeerActor {
                     }
                 }
             }
-            msg => self.receive_message(ctx, conn, msg),
+            msg => self.receive_message(ctx, conn, msg).await,
         }
     }
 }
