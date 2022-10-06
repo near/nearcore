@@ -441,4 +441,50 @@ impl NetworkState {
         self.routing_table_view.add_local_edges(&edges);
         self.routing_table_addr.do_send(routing::actor::Message::AddVerifiedEdges { edges });
     }
+
+    async fn receive_routed_message(&self, clock: &time::Clock, body: RoutedMessageBody) -> Result<Option<RoutedMessageBody>,ReasonForBan> {
+        Ok(match body {
+            RoutedMessageBody::TxStatusRequest(account_id, tx_hash) =>
+                self.client.tx_status_request(account_id,tx_hash).await?.map(RoutedMessageBody::TxStatusResponse),
+            RoutedMessageBody::TxStatusResponse(tx_result) => { self.client.tx_status_response(tx_result).await?; None }
+            RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) =>
+                self.client.state_request_header(shard_id,sync_hash).await?.map(RoutedMessageBody::VersionedStateResponse),
+            RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id) =>
+                self.client.state_request_part(shard_id,sync_hash,part_id).await?.map(RoutedMessageBody::VersionedStateResponse),
+            RoutedMessageBody::VersionedStateResponse(info) => { self.client.state_response(info).await?; None },
+            RoutedMessageBody::BlockApproval(approval) => { self.client.block_approval(approval, peer_id).await?; None },
+            RoutedMessageBody::ForwardTx(transaction) => { self.client.transaction(transaction,/*is_forwarded=*/true,/*check_only=*/false).await?; None },
+            RoutedMessageBody::PartialEncodedChunkRequest(request) => { self.client.partial_encoded_chunk_request(request, msg.hash()).await?; None }
+            RoutedMessageBody::PartialEncodedChunkResponse(response) => { self.client.partial_encoded_chunk_response(response, clock.now()).await?; None }
+            RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => { self.client.partial_encoded_chunk(chunk).await?; None }
+            RoutedMessageBody::PartialEncodedChunkForward(msg) => { self.client.partial_encoded_chunk_forward(msg).await?; None }
+            RoutedMessageBody::ReceiptOutcomeRequest(_) => {
+                // Silently ignore for the time being.  We’ve been still
+                // sending those messages at protocol version 56 so we
+                // need to wait until 59 before we can remove the
+                // variant completely.
+                None
+            }
+            body => {
+                tracing::error!(target: "network", "Peer receive_view_client_message received unexpected type: {:?}", body);
+                None
+            }
+        }
+    }
+
+    pub async fn receive_message(&self, clock: &time::Clock, msg: PeerMessage) -> Result<Option<PeerMessage>,ReasonForBan> {
+        Ok(match msg {
+            PeerMessage::Routed(msg) => self.receive_routed_message(clock, msg.body).await?.map(|body|self.sign_message(
+                &clock,
+                RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(msg.hash()), body },
+            )),
+            PeerMessage::BlockRequest(hash) => self.client.block_request(hash).await?.map(PeerMessage::Block),
+            PeerMessage::BlockHeadersRequest(hashes) => self.client.block_headers_request(hashes).await?.map(PeerMessage::BlockHeaders),
+            PeerMessage::Block(block) => { self.client.block(block).await?; None }
+            PeerMessage::Transaction(transaction) => { self.client.transaction(transaction,/*is_forwarded=*/false, /*check_only=*/false).await?; None }
+            PeerMessage::BlockHeaders(headers) => { self.client.block_headers(headers, peer_id).await?; None }
+            PeerMessage::Challenge(challenge) => NetworkClientMessages::Challenge(challenge),
+            msg => { tracing::error!(target: "network", "Peer received unexpected type: {:?}", msg); None }
+        })
+    }
 }
