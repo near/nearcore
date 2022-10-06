@@ -246,6 +246,7 @@ fn apply_block_from_range(
                 true,
                 is_first_block_with_chunk_of_version,
                 Default::default(),
+                false,
             )
             .unwrap()
     } else {
@@ -272,6 +273,7 @@ fn apply_block_from_range(
                 false,
                 false,
                 Default::default(),
+                false,
             )
             .unwrap()
     };

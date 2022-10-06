@@ -3323,10 +3323,11 @@ mod contract_precompilation_tests {
         let state_root = *chunk_extra.state_root();
 
         let viewer = TrieViewer::default();
+        // TODO (#7327): set use_flat_storage to true when we implement support for state sync for FlatStorage
         let trie = Rc::new(
             env.clients[1]
                 .runtime_adapter
-                .get_trie_for_shard(0, block.header().prev_hash(), state_root)
+                .get_trie_for_shard(0, block.header().prev_hash(), state_root, false)
                 .unwrap(),
         );
         let state_update = TrieUpdate::new(trie);
