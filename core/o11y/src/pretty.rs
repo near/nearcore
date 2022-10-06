@@ -13,6 +13,13 @@ use near_primitives::hash::CryptoHash;
 /// hashes which are 32-byte long.  It’s therefore not useful to use it for any
 /// other types of keys.
 ///
+/// The intended usage for this type is when trying to format binary data whose
+/// structure isn’t known to the caller.  For example, when generating debugging
+/// or tracing data at database layer where everything is just slices of bytes.
+/// At higher levels of abstractions, if the structure of the data is known,
+/// it’s usually better to format data in a way that makes sense for the given
+/// type.
+///
 /// The type can be used as with `tracing::info!` and similar calls.  For
 /// example:
 ///
@@ -20,12 +27,12 @@ use near_primitives::hash::CryptoHash;
 /// tracing::trace!(target: "store",
 ///                 db_op = "insert",
 ///                 col = %col,
-///                 key = %near_o11y::pretty::Key(key),
+///                 key = %near_o11y::pretty::Bytes(key),
 ///                 size = value.len())
 /// ```
-pub struct Key<'a>(pub &'a [u8]);
+pub struct Bytes<'a>(pub &'a [u8]);
 
-impl<'a> std::fmt::Display for Key<'a> {
+impl<'a> std::fmt::Display for Bytes<'a> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.0.len() == 32 {
             write!(fmt, "`{}`", CryptoHash(self.0.try_into().unwrap()))
@@ -41,10 +48,10 @@ impl<'a> std::fmt::Display for Key<'a> {
 }
 
 #[test]
-fn test_key() {
+fn test_bytes() {
     #[track_caller]
     fn test(want: &str, slice: &[u8]) {
-        assert_eq!(want, Key(slice).to_string())
+        assert_eq!(want, Bytes(slice).to_string())
     }
 
     test("''", b"");

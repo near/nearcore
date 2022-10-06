@@ -185,7 +185,7 @@ impl Store {
             target: "store",
             db_op = "get",
             col = %column,
-            key = %pretty::Key(key),
+            key = %pretty::Bytes(key),
             size = value.as_deref().map(<[u8]>::len)
         );
         Ok(value)
@@ -500,16 +500,16 @@ impl StoreUpdate {
         for op in &self.transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %pretty::Key(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %pretty::Bytes(key), size = value.len())
                 }
                 DBOp::Set { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %pretty::Key(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %pretty::Bytes(key), size = value.len())
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %pretty::Key(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %pretty::Bytes(key), size = value.len())
                 }
                 DBOp::Delete { col, key } => {
-                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %pretty::Key(key))
+                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %pretty::Bytes(key))
                 }
                 DBOp::DeleteAll { col } => {
                     tracing::trace!(target: "store", db_op = "delete_all", col = %col)
@@ -539,12 +539,12 @@ impl fmt::Debug for StoreUpdate {
         writeln!(f, "Store Update {{")?;
         for op in self.transaction.ops.iter() {
             match op {
-                DBOp::Insert { col, key, .. } => writeln!(f, "  + {col} {}", pretty::Key(key))?,
-                DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", pretty::Key(key))?,
+                DBOp::Insert { col, key, .. } => writeln!(f, "  + {col} {}", pretty::Bytes(key))?,
+                DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", pretty::Bytes(key))?,
                 DBOp::UpdateRefcount { col, key, .. } => {
-                    writeln!(f, "  ± {col} {}", pretty::Key(key))?
+                    writeln!(f, "  ± {col} {}", pretty::Bytes(key))?
                 }
-                DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", pretty::Key(key))?,
+                DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", pretty::Bytes(key))?,
                 DBOp::DeleteAll { col } => writeln!(f, "  - {col} (all)")?,
             }
         }
