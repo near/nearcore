@@ -6,6 +6,10 @@
 
 * Stabilize `account_id_in_function_call_permission` feature: enforcing validity
   of account ids in function call permission.
+* Enable TIER1 peer discovery. Validator nodes are now exchanging the [public addresses
+  set in config](https://github.com/near/nearcore/blob/301fb493ea4f6d9b75d7dac7f2b52d00a1b2b709/chain/network/src/config_json.rs#L162).
+  The TIER1 connections support (direct connections between validators) based on
+  this discovery mechanism will be added soon.
 
 ### Non-protocol Changes
 
