@@ -9,6 +9,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache};
 use near_vm_logic::VMLimitConfig;
 use node_runtime::{ApplyState, Runtime};
+use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -76,6 +77,7 @@ impl RuntimeTestbed {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
+            latest_block_hashes: VecDeque::default(),
         };
 
         Self {

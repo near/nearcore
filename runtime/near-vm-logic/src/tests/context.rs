@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::VMContext;
 
@@ -19,6 +21,7 @@ pub fn create_context() -> VMContext {
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],
+        latest_block_hashses: VecDeque::new(),
     }
 }
 

@@ -96,6 +96,7 @@ pub(crate) fn execute_function_call(
         random_seed,
         view_config,
         output_data_receivers,
+        latest_block_hashses: apply_state.latest_block_hashes.clone(),
     };
 
     // Enable caching chunk mode for the function call. This allows to charge for nodes touched in a chunk only once for

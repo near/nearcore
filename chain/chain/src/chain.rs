@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
@@ -455,6 +455,8 @@ pub struct Chain {
     /// the next block we'll be processing, keeping them in this field in the
     /// meantime.
     pending_state_patch: Option<SandboxStatePatch>,
+    /// cache of the n latest block hashes
+    pub latest_block_hashes: VecDeque<CryptoHash>,
 }
 
 impl ChainAccess for Chain {
@@ -517,6 +519,7 @@ impl Chain {
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             pending_state_patch: None,
+            latest_block_hashes: VecDeque::default(),
         })
     }
 
@@ -650,6 +653,7 @@ impl Chain {
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             pending_state_patch: None,
+            latest_block_hashes: VecDeque::default(),
         })
     }
 
@@ -726,11 +730,20 @@ impl Chain {
 
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
-        chain_store_update.save_block(block.into_inner());
+        let inner_block = block.into_inner();
+        let block_hash = *inner_block.hash();
+        chain_store_update.save_block(inner_block);
         // We don't need to increase refcount for `prev_hash` at this point
         // because this is the block before State Sync.
 
         chain_store_update.commit()?;
+
+        // ensure that the queue never contains more than 256 elements
+        if self.latest_block_hashes.len() == 256 {
+            self.latest_block_hashes.pop_front();
+        }
+        self.latest_block_hashes.push_back(block_hash);
+
         Ok(())
     }
 

@@ -6,7 +6,7 @@ use near_primitives::{
     version::{ProtocolFeature, PROTOCOL_VERSION},
 };
 use near_vm_logic::{mocks::mock_external::MockedExternal, ProtocolVersion, VMContext};
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::fmt::Write;
 
 pub(crate) fn test_builder() -> TestBuilder {
@@ -27,6 +27,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],
+        latest_block_hashses: VecDeque::new(),
     };
     TestBuilder {
         code: ContractCode::new(Vec::new(), None),

@@ -210,6 +210,7 @@ impl TrieViewer {
             is_new_chunk: false,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
+            latest_block_hashes: view_state.latest_block_hashes,
         };
         let action_receipt = ActionReceipt {
             signer_id: originator_id.clone(),

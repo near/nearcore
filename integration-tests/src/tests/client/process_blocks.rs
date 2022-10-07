@@ -2031,6 +2031,7 @@ fn test_data_reset_before_state_sync() {
     // check that the new account exists
     let head = env.clients[0].chain.head().unwrap();
     let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
+    let latest_block_hashes = env.clients[0].chain.latest_block_hashes.clone();
     let response = env.clients[0]
         .runtime_adapter
         .query(
@@ -2042,6 +2043,7 @@ fn test_data_reset_before_state_sync() {
             &head.last_block_hash,
             head_block.header().epoch_id(),
             &QueryRequest::ViewAccount { account_id: "test_account".parse().unwrap() },
+            &latest_block_hashes,
         )
         .unwrap();
     assert_matches!(response.kind, QueryResponseKind::ViewAccount(_));
@@ -2056,6 +2058,7 @@ fn test_data_reset_before_state_sync() {
         &head.last_block_hash,
         head_block.header().epoch_id(),
         &QueryRequest::ViewAccount { account_id: "test_account".parse().unwrap() },
+        &latest_block_hashes,
     );
     // TODO(#3742): ViewClient still has data in cache by current design.
     assert!(response.is_ok());
@@ -2961,6 +2964,7 @@ fn test_query_final_state() {
                              account_id: AccountId| {
         let final_head = chain.store().final_head().unwrap();
         let last_final_block = chain.get_block(&final_head.last_block_hash).unwrap();
+        let latest_block_hashes = chain.latest_block_hashes.clone();
         let response = runtime_adapter
             .query(
                 ShardUId::single_shard(),
@@ -2971,6 +2975,7 @@ fn test_query_final_state() {
                 last_final_block.hash(),
                 last_final_block.header().epoch_id(),
                 &QueryRequest::ViewAccount { account_id },
+                &latest_block_hashes,
             )
             .unwrap();
         match response.kind {
@@ -4503,6 +4508,7 @@ mod contract_precompilation_tests {
                 .unwrap(),
         );
         let state_update = TrieUpdate::new(trie, state_root);
+        let latest_block_hashes = env.clients[0].chain.latest_block_hashes.clone();
 
         let mut logs = vec![];
         let view_state = ViewApplyState {
@@ -4514,6 +4520,7 @@ mod contract_precompilation_tests {
             block_timestamp: block.header().raw_timestamp(),
             current_protocol_version: PROTOCOL_VERSION,
             cache: Some(caches[1].clone()),
+            latest_block_hashes,
         };
         viewer
             .call_function(

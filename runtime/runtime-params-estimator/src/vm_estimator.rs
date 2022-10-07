@@ -9,6 +9,7 @@ use near_store::StoreCompiledContractCache;
 use near_vm_logic::VMContext;
 use near_vm_runner::internal::VMKind;
 use near_vm_runner::precompile_contract_vm;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use walrus::Result;
 
@@ -35,6 +36,7 @@ pub(crate) fn create_context(input: Vec<u8>) -> VMContext {
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],
+        latest_block_hashses: VecDeque::default(),
     }
 }
 

@@ -3,6 +3,7 @@ use core::fmt;
 use near_primitives::contract::ContractCode;
 use near_vm_logic::VMContext;
 use near_vm_runner::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
+use std::collections::VecDeque;
 
 /// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
 pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
@@ -49,6 +50,7 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],
+        latest_block_hashses: VecDeque::new(),
     }
 }
 

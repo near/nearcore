@@ -6,6 +6,8 @@ pub(crate) mod test_builder;
 mod ts_contract;
 mod wasm_validation;
 
+use std::collections::VecDeque;
+
 use crate::vm_kind::VMKind;
 use near_primitives::version::ProtocolVersion;
 use near_vm_logic::VMContext;
@@ -46,6 +48,7 @@ fn create_context(input: Vec<u8>) -> VMContext {
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],
+        latest_block_hashses: VecDeque::new(),
     }
 }
 

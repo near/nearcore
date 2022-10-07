@@ -5,6 +5,7 @@ use crate::{
     types::{Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId, Gas},
     version::ProtocolVersion,
 };
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -42,4 +43,6 @@ pub struct ApplyState {
     pub migration_data: Arc<MigrationData>,
     /// Flags for migrations indicating whether they can be applied at this block
     pub migration_flags: MigrationFlags,
+    /// Last N block hashes
+    pub latest_block_hashes: VecDeque<CryptoHash>,
 }

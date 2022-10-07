@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, RwLock};
 
 use near_crypto::{PublicKey, Signer};
@@ -152,6 +152,7 @@ impl RuntimeUser {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
+            latest_block_hashes: VecDeque::default(),
         }
     }
 
@@ -256,6 +257,7 @@ impl User for RuntimeUser {
             block_timestamp: apply_state.block_timestamp,
             current_protocol_version: PROTOCOL_VERSION,
             cache: apply_state.cache,
+            latest_block_hashes: apply_state.latest_block_hashes,
         };
         result.result = self
             .trie_viewer

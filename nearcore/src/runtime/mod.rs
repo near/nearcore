@@ -64,7 +64,7 @@ use node_runtime::{
     ValidatorAccountsUpdate,
 };
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -549,6 +549,7 @@ impl NightshadeRuntime {
                 is_first_block_of_version,
                 is_first_block_with_chunk_of_version,
             },
+            latest_block_hashes: VecDeque::new(), // TODO(blas): verify whether this can be empty
         };
 
         let instant = Instant::now();
@@ -1507,6 +1508,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         request: &QueryRequest,
+        latest_block_hashes: &VecDeque<CryptoHash>,
     ) -> Result<QueryResponse, near_chain::near_chain_primitives::error::QueryError> {
         match request {
             QueryRequest::ViewAccount { account_id } => {
@@ -1565,6 +1567,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         &mut logs,
                         &self.epoch_manager,
                         current_protocol_version,
+                        latest_block_hashes,
                     )
                     .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_call_function_error(err, block_height, *block_hash))?;
                 Ok(QueryResponse {
@@ -1946,6 +1949,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
+        latest_block_hashes: &VecDeque<CryptoHash>,
     ) -> Result<Vec<u8>, node_runtime::state_viewer::errors::CallFunctionError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         let view_state = ViewApplyState {
@@ -1957,6 +1961,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             block_timestamp,
             current_protocol_version,
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.tries.get_store() })),
+            latest_block_hashes: latest_block_hashes.clone(), // TODO(blas): maybe Arc
         };
         self.trie_viewer.call_function(
             state_update,

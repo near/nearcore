@@ -1,4 +1,7 @@
+use std::collections::VecDeque;
+
 use crate::types::PublicKey;
+use near_primitives::hash::CryptoHash;
 use near_primitives_core::config::ViewConfig;
 use near_primitives_core::serialize::u64_dec_format;
 use near_primitives_core::types::{
@@ -61,6 +64,8 @@ pub struct VMContext {
     /// How many `DataReceipt`'s should receive this execution result. This should be empty if
     /// this function call is a part of a batch and it is not the last action.
     pub output_data_receivers: Vec<AccountId>,
+    /// List of latest block hashes
+    pub latest_block_hashses: VecDeque<CryptoHash>,
 }
 
 impl VMContext {

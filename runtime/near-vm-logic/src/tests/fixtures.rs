@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use crate::{VMContext, VMLimitConfig};
 use near_primitives_core::config::ViewConfig;
 
@@ -22,5 +24,6 @@ pub fn get_context(input: Vec<u8>, is_view: bool) -> VMContext {
             false => None,
         },
         output_data_receivers: vec![],
+        latest_block_hashses: VecDeque::new(),
     }
 }

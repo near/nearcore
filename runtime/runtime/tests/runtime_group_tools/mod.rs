@@ -14,7 +14,7 @@ use near_store::test_utils::create_tries;
 use near_store::ShardTries;
 use node_runtime::{ApplyState, Runtime};
 use random_config::random_config;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
@@ -97,6 +97,7 @@ impl StandaloneRuntime {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
+            latest_block_hashes: VecDeque::new(),
         };
 
         Self {

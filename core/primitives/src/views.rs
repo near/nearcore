@@ -3,6 +3,7 @@
 //! These types should only change when we cannot avoid this. Thus, when the counterpart internal
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
+use std::collections::VecDeque;
 use std::fmt;
 use std::sync::Arc;
 
@@ -91,6 +92,8 @@ pub struct ViewApplyState {
     pub current_protocol_version: ProtocolVersion,
     /// Cache for compiled contracts.
     pub cache: Option<Arc<dyn CompiledContractCache>>,
+    /// Last N block hashes
+    pub latest_block_hashes: VecDeque<CryptoHash>,
 }
 
 impl From<&Account> for AccountView {

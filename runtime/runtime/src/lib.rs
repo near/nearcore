@@ -1459,6 +1459,8 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::account::AccessKey;
     use near_primitives::contract::ContractCode;
@@ -1588,6 +1590,7 @@ mod tests {
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
+            latest_block_hashes: VecDeque::new(),
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())

@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use crate::runtime_utils::{get_runtime_and_trie, get_test_trie_viewer, TEST_SHARD_UID};
 use near_primitives::{
     account::Account,
@@ -30,6 +32,7 @@ fn test_view_call() {
         block_timestamp: 1,
         current_protocol_version: PROTOCOL_VERSION,
         cache: None,
+        latest_block_hashes: VecDeque::default(),
     };
     let result = viewer.call_function(
         root,
@@ -58,6 +61,7 @@ fn test_view_call_try_changing_storage() {
         block_timestamp: 1,
         current_protocol_version: PROTOCOL_VERSION,
         cache: None,
+        latest_block_hashes: VecDeque::default(),
     };
     let result = viewer.call_function(
         root,
@@ -90,6 +94,7 @@ fn test_view_call_with_args() {
         block_timestamp: 1,
         current_protocol_version: PROTOCOL_VERSION,
         cache: None,
+        latest_block_hashes: VecDeque::default(),
     };
     let view_call_result = viewer.call_function(
         root,
@@ -191,6 +196,7 @@ fn test_log_when_panic() {
         block_timestamp: 1,
         current_protocol_version: PROTOCOL_VERSION,
         cache: None,
+        latest_block_hashes: VecDeque::default(),
     };
     let mut logs = vec![];
     viewer

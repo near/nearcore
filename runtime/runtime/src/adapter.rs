@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use crate::near_primitives::shard_layout::ShardUId;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
@@ -41,6 +43,7 @@ pub trait ViewRuntimeAdapter {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
+        latest_block_hashes: &VecDeque<CryptoHash>,
     ) -> Result<Vec<u8>, crate::state_viewer::errors::CallFunctionError>;
 
     fn view_access_key(
