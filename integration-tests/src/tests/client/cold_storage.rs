@@ -7,8 +7,9 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
-use near_store::test_utils::create_test_store;
-use near_store::{DBCol, Store};
+use near_store::cold_storage::{test_cold_genesis_update, update_cold_db};
+use near_store::db::TestDB;
+use near_store::{DBCol, NodeStorage, Store, Temperature};
 use nearcore::config::GenesisExt;
 use strum::IntoEnumIterator;
 
@@ -37,7 +38,7 @@ fn check_iter(first_store: &Store, second_store: &Store, col: DBCol) {
 fn test_storage_after_commit_of_cold_update() {
     init_test_logger();
 
-    let cold_store = create_test_store();
+    let cold_db = TestDB::new();
 
     let epoch_length = 5;
     let max_height = epoch_length * 4;
@@ -54,11 +55,7 @@ fn test_storage_after_commit_of_cold_update() {
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
-    {
-        let mut cold_update = cold_store.store_update();
-        cold_update.test_genesis_update(&env.clients[0].runtime_adapter.get_store()).unwrap();
-        cold_update.commit().unwrap();
-    }
+    test_cold_genesis_update(&cold_db, &env.clients[0].runtime_adapter.get_store()).unwrap();
 
     for h in 1..max_height {
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -98,10 +95,10 @@ fn test_storage_after_commit_of_cold_update() {
 
         last_hash = block.hash().clone();
 
-        let mut cold_update = cold_store.store_update();
-        cold_update.add_cold_update(&env.clients[0].runtime_adapter.get_store(), &h).unwrap();
-        cold_update.commit().unwrap();
+        update_cold_db(&cold_db, &env.clients[0].runtime_adapter.get_store(), &h).unwrap();
     }
+
+    let cold_store = NodeStorage::new(cold_db).get_store(Temperature::Hot);
 
     for col in DBCol::iter() {
         if col.is_cold() {

@@ -1,10 +1,11 @@
 use crate::columns::DBKeyType;
-use crate::{DBCol, Store, StoreUpdate};
+use crate::{DBCol, DBTransaction, Database, Store};
 
 use borsh::BorshDeserialize;
 use near_primitives::types::BlockHeight;
 use std::collections::HashMap;
 use std::io;
+use std::sync::Arc;
 use strum::IntoEnumIterator;
 
 type StoreKey = Vec<u8>;
@@ -16,54 +17,65 @@ struct StoreWithCache<'a> {
     cache: StoreCache,
 }
 
-impl StoreUpdate {
-    fn copy_from_store(
-        &mut self,
-        store: &mut StoreWithCache,
-        col: DBCol,
-        key: StoreKey,
-    ) -> io::Result<()> {
-        let data = store.get(col, &key)?;
+pub fn update_cold_db(
+    cold_db: &Arc<dyn Database>,
+    hot_store: &Store,
+    height: &BlockHeight,
+) -> io::Result<()> {
+    let _span = tracing::debug_span!(target: "store", "update cold db", height = height);
+
+    let mut store_with_cache = StoreWithCache { store: hot_store, cache: StoreCache::new() };
+
+    let key_type_to_keys = get_keys_from_store(&mut store_with_cache, height)?;
+    for col in DBCol::iter() {
+        if col.is_cold() {
+            copy_from_store(
+                cold_db,
+                &mut store_with_cache,
+                col,
+                combine_keys(&key_type_to_keys, &col.key_type()),
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Gets values for given keys in a column from provided hot_store.
+/// Creates a transaction based on that values with set DBOp s.
+/// Writes that transaction to cold_db.
+fn copy_from_store(
+    cold_db: &Arc<dyn Database>,
+    hot_store: &mut StoreWithCache,
+    col: DBCol,
+    keys: Vec<StoreKey>,
+) -> io::Result<()> {
+    let _span = tracing::debug_span!(target: "store", "create and write transaction to cold db", col = %col);
+
+    let mut transaction = DBTransaction::new();
+    for key in keys {
+        let data = hot_store.get(col, &key)?;
         if let Some(value) = data {
-            if col.is_insert_only() {
-                self.insert(col, &key, &value);
-            } else if col.is_rc() {
-                self.increment_refcount(col, &key, &value);
-            } else {
-                self.set(col, &key, &value);
-            }
+            transaction.set(col, key, value);
         }
-        return Ok(());
     }
+    cold_db.write(transaction)?;
+    return Ok(());
+}
 
-    pub fn add_cold_update(&mut self, store: &Store, height: &BlockHeight) -> io::Result<()> {
-        let _span = tracing::debug_span!(target: "client", "add cold update", height = height);
-
-        let mut store_with_cache = StoreWithCache { store, cache: StoreCache::new() };
-
-        let key_type_to_keys = get_keys_from_store(&mut store_with_cache, height)?;
-        for col in DBCol::iter() {
-            if col.is_cold() {
-                for key in combine_keys(&key_type_to_keys, &col.key_type()) {
-                    self.copy_from_store(&mut store_with_cache, col, key)?;
-                }
-            }
+pub fn test_cold_genesis_update(cold_db: &Arc<dyn Database>, hot_store: &Store) -> io::Result<()> {
+    let mut store_with_cache = StoreWithCache { store: hot_store, cache: StoreCache::new() };
+    for col in DBCol::iter() {
+        if col.is_cold() {
+            copy_from_store(
+                cold_db,
+                &mut store_with_cache,
+                col,
+                hot_store.iter(col).map(|x| x.unwrap().0.to_vec()).collect(),
+            )?;
         }
-
-        Ok(())
     }
-
-    pub fn test_genesis_update(&mut self, store: &Store) -> io::Result<()> {
-        let mut store_with_cache = StoreWithCache { store, cache: StoreCache::new() };
-        for col in DBCol::iter() {
-            if col.is_cold() {
-                for (key, _) in store.iter(col).map(Result::unwrap) {
-                    self.copy_from_store(&mut store_with_cache, col, key.to_vec())?;
-                }
-            }
-        }
-        Ok(())
-    }
+    Ok(())
 }
 
 fn get_keys_from_store(
