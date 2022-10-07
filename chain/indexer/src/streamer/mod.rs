@@ -52,7 +52,8 @@ const PROBLEMATIC_BLOCKS: [CryptoHash; 2] = [
 /// confirm the raw values are correct.
 #[test]
 fn test_problematic_blocks_hash() {
-    let got: Vec<String> = PROBLEMATIC_BLOCKS.iter().map(std::string::ToString::to_string).collect();
+    let got: Vec<String> =
+        PROBLEMATIC_BLOCKS.iter().map(std::string::ToString::to_string).collect();
     assert_eq!(
         vec![
             "ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK",
