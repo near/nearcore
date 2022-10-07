@@ -10,9 +10,7 @@ use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::EpochId;
 use std::fmt;
 use std::fmt::Formatter;
 
@@ -135,10 +133,10 @@ pub(super) enum PeerMessage {
     Disconnect,
     Challenge(Challenge),
     _HandshakeV2,
-    EpochSyncRequest(EpochId),
-    EpochSyncResponse(Box<EpochSyncResponse>),
-    EpochSyncFinalizationRequest(EpochId),
-    EpochSyncFinalizationResponse(Box<EpochSyncFinalizationResponse>),
+    _EpochSyncRequest,
+    _EpochSyncResponse,
+    _EpochSyncFinalizationRequest,
+    _EpochSyncFinalizationResponse,
 
     _RoutingTableSyncV2,
 }

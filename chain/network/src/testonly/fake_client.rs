@@ -8,7 +8,6 @@ use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount,PeerId};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunkPart};
-use near_primitives::syncing::EpochSyncResponse;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::EpochId;
 
@@ -23,9 +22,6 @@ pub enum Event {
     ChunkRequest(ChunkHash),
     Transaction(SignedTransaction),
     Challenge(Challenge),
-    EpochSyncRequest(EpochId),
-    EpochSyncResponse(EpochSyncResponse),
-    EpochSyncFinalizationRequest(EpochId),
     AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 }
 
@@ -51,14 +47,6 @@ impl actix::Handler<NetworkViewClientMessages> for Actor {
             }
             NetworkViewClientMessages::BlockHeadersRequest(req) => {
                 self.event_sink.push(Event::BlockHeadersRequest(req));
-                NetworkViewClientResponses::NoResponse
-            }
-            NetworkViewClientMessages::EpochSyncRequest { epoch_id } => {
-                self.event_sink.push(Event::EpochSyncRequest(epoch_id));
-                NetworkViewClientResponses::NoResponse
-            }
-            NetworkViewClientMessages::EpochSyncFinalizationRequest { epoch_id } => {
-                self.event_sink.push(Event::EpochSyncFinalizationRequest(epoch_id));
                 NetworkViewClientResponses::NoResponse
             }
             NetworkViewClientMessages::AnnounceAccount(aas) => {
@@ -96,9 +84,6 @@ impl actix::Handler<NetworkClientMessages> for Actor {
                 resp = NetworkClientResponses::ValidTx;
             }
             NetworkClientMessages::Challenge(c) => self.event_sink.push(Event::Challenge(c)),
-            NetworkClientMessages::EpochSyncResponse(_, resp) => {
-                self.event_sink.push(Event::EpochSyncResponse(*resp))
-            }
             NetworkClientMessages::NetworkInfo(_) => {}
             msg => {
                 let msg_type: &'static str = msg.into();

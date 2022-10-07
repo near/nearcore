@@ -104,6 +104,9 @@ async fn direct_connections() {
     for from in &pms {
         let from_signer = from.cfg.validator.as_ref().unwrap().signer.clone();
         for to in &pms {
+            if from.cfg.node_id()==to.cfg.node_id() {
+                continue
+            }
             let to_signer = to.cfg.validator.as_ref().unwrap().signer.clone();
             let target = to_signer.validator_id().clone();
             let want = make_block_approval(rng,from_signer.as_ref());

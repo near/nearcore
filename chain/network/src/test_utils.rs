@@ -319,6 +319,7 @@ pub mod test_features {
     use near_primitives::block::GenesisId;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use crate::client;
 
     /// Mock for `ClientActor`
     type ClientMock = Mocker<NetworkClientMessages>;
@@ -360,8 +361,10 @@ pub mod test_features {
             time::Clock::real(),
             store,
             config,
-            client_addr.recipient(),
-            view_client_addr.recipient(),
+            client::Client{
+                client_addr: client_addr.recipient(),
+                view_client_addr: view_client_addr.recipient(),
+            },
             GenesisId::default(),
         )
         .unwrap()

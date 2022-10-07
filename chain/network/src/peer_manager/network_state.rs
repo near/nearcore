@@ -3,12 +3,14 @@ use crate::concurrency::rate;
 use crate::config;
 use crate::client;
 use crate::network_protocol::{
+    RoutingTableUpdate,
     AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerAddr, PeerIdOrHash, PeerInfo, PeerMessage,
     Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
 };
+use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
-use crate::private_actix::PeerToManagerMsg;
+use crate::private_actix::{PeerToManagerMsg,ValidateEdgeList};
 use crate::routing;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::routing::routing_table_view::RoutingTableView;
@@ -16,14 +18,14 @@ use crate::stats::metrics;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    ChainInfo, NetworkClientMessages, NetworkViewClientMessages,
+    ChainInfo, 
     ReasonForBan,
 };
 use actix::Recipient;
 use arc_swap::ArcSwap;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use parking_lot::Mutex;
 use rand::seq::IteratorRandom as _;
@@ -69,6 +71,8 @@ pub(crate) struct NetworkState {
     /// - account id
     /// Full routing table (that currently includes information about all edges in the graph) is now inside Routing Table.
     pub routing_table_view: RoutingTableView,
+    /// Fields used for communicating with EdgeValidatorActor
+    pub routing_table_exchange_helper: EdgeValidatorHelper,
 
     /// Hash of messages that requires routing back to respective previous hop.
     pub tier1_route_back: Mutex<RouteBackCache>,
@@ -85,8 +89,7 @@ impl NetworkState {
         clock: &time::Clock,
         config: Arc<config::VerifiedConfig>,
         genesis_id: GenesisId,
-        client_addr: Recipient<NetworkClientMessages>,
-        view_client_addr: Recipient<NetworkViewClientMessages>,
+        client: client::Client,
         peer_manager_addr: Recipient<PeerToManagerMsg>,
         routing_table_addr: actix::Addr<routing::Actor>,
         routing_table_view: RoutingTableView,
@@ -94,8 +97,7 @@ impl NetworkState {
         Self {
             routing_table_addr,
             genesis_id,
-            client_addr,
-            view_client_addr,
+            client,
             peer_manager_addr,
             chain_info: Default::default(),
             tier2: connection::Pool::new(config.node_id()),
@@ -103,6 +105,7 @@ impl NetworkState {
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             accounts_data: Arc::new(accounts_data::Cache::new()),
             routing_table_view,
+            routing_table_exchange_helper: Default::default(),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
             tier1_recv_limiter: rate::Limiter::new(
                 clock,
@@ -443,7 +446,35 @@ impl NetworkState {
         self.routing_table_addr.do_send(routing::actor::Message::AddVerifiedEdges { edges });
     }
 
-    async fn receive_routed_message(&self, clock: &time::Clock, conn: Arc<connection::Connection>, msg_hash: CryptoHash, body: RoutedMessageBody) -> Result<Option<RoutedMessageBody>,ReasonForBan> {
+    pub fn broadcast_accounts(&self, accounts: Vec<AnnounceAccount>) {
+        let new_accounts = self.routing_table_view.add_accounts(accounts);
+        tracing::debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
+        if new_accounts.len() > 0 {
+            self.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                RoutingTableUpdate::from_accounts(new_accounts),
+            )));
+        }
+    }
+
+    /// Sends list of edges, from peer `peer_id` to check their signatures to `EdgeValidatorActor`.
+    /// Bans peer `peer_id` if an invalid edge is found.
+    /// `PeerManagerActor` periodically runs `broadcast_validated_edges_trigger`, which gets edges
+    /// from `EdgeValidatorActor` concurrent queue and sends edges to be added to `RoutingTableActor`.
+    pub fn validate_edges_and_add_to_routing_table(&self, peer_id: PeerId, edges: Vec<Edge>) {
+        if edges.is_empty() {
+            return;
+        }
+        self.routing_table_addr.do_send(routing::actor::Message::ValidateEdgeList(
+            ValidateEdgeList {
+                source_peer_id: peer_id,
+                edges,
+                edges_info_shared: self.routing_table_exchange_helper.edges_info_shared.clone(),
+                sender: self.routing_table_exchange_helper.edges_to_add_sender.clone(),
+            },
+        ));
+    }
+
+    async fn receive_routed_message(&self, clock: &time::Clock, peer_id: PeerId, msg_hash: CryptoHash, body: RoutedMessageBody) -> Result<Option<RoutedMessageBody>,ReasonForBan> {
         Ok(match body {
             RoutedMessageBody::TxStatusRequest(account_id, tx_hash) =>
                 self.client.tx_status_request(account_id,tx_hash).await?.map(RoutedMessageBody::TxStatusResponse),
@@ -453,7 +484,7 @@ impl NetworkState {
             RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id) =>
                 self.client.state_request_part(shard_id,sync_hash,part_id).await?.map(RoutedMessageBody::VersionedStateResponse),
             RoutedMessageBody::VersionedStateResponse(info) => { self.client.state_response(info).await?; None },
-            RoutedMessageBody::BlockApproval(approval) => { self.client.block_approval(approval, conn.peer_id).await?; None },
+            RoutedMessageBody::BlockApproval(approval) => { self.client.block_approval(approval, peer_id).await?; None },
             RoutedMessageBody::ForwardTx(transaction) => { self.client.transaction(transaction,/*is_forwarded=*/true).await?; None },
             RoutedMessageBody::PartialEncodedChunkRequest(request) => { self.client.partial_encoded_chunk_request(request, msg_hash).await?; None }
             RoutedMessageBody::PartialEncodedChunkResponse(response) => { self.client.partial_encoded_chunk_response(response, clock.now()).await?; None }
@@ -473,18 +504,21 @@ impl NetworkState {
         })
     }
 
-    pub async fn receive_message(&self, clock: &time::Clock, conn: Arc<connection::Connection>, msg: PeerMessage) -> Result<Option<PeerMessage>,ReasonForBan> {
+    pub async fn receive_message(&self, clock: &time::Clock, peer_id: PeerId, msg: PeerMessage, was_requested: bool) -> Result<Option<PeerMessage>,ReasonForBan> {
         Ok(match msg {
-            PeerMessage::Routed(msg) => self.receive_routed_message(clock, conn, msg.hash(), msg.body).await?.map(|body|self.sign_message(
-                &clock,
-                RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(msg.hash()), body },
-            )),
+            PeerMessage::Routed(msg) => {
+                let msg_hash = msg.hash();
+                self.receive_routed_message(clock, peer_id, msg_hash, msg.msg.body).await?.map(|body|PeerMessage::Routed(self.sign_message(
+                    &clock,
+                    RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(msg_hash), body },
+                )))
+            }
             PeerMessage::BlockRequest(hash) => self.client.block_request(hash).await?.map(PeerMessage::Block),
             PeerMessage::BlockHeadersRequest(hashes) => self.client.block_headers_request(hashes).await?.map(PeerMessage::BlockHeaders),
-            PeerMessage::Block(block) => { self.client.block(block).await?; None }
+            PeerMessage::Block(block) => { self.client.block(block, peer_id, was_requested).await?; None }
             PeerMessage::Transaction(transaction) => { self.client.transaction(transaction,/*is_forwarded=*/false).await?; None }
-            PeerMessage::BlockHeaders(headers) => { self.client.block_headers(headers, conn.peer_info.id).await?; None }
-            PeerMessage::Challenge(challenge) => NetworkClientMessages::Challenge(challenge),
+            PeerMessage::BlockHeaders(headers) => { self.client.block_headers(headers, peer_id).await?; None }
+            PeerMessage::Challenge(challenge) => { self.client.challenge(challenge).await?; None }
             msg => { tracing::error!(target: "network", "Peer received unexpected type: {:?}", msg); None }
         })
     }

@@ -6,8 +6,6 @@ use crate::time;
 use crate::types::{HandshakeFailureReason, PeerMessage};
 use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use anyhow::{bail, Context as _};
-use near_primitives::syncing::EpochSyncResponse;
-use near_primitives::types::EpochId;
 
 #[test]
 fn bad_account_data_size() {
@@ -63,7 +61,6 @@ fn serialize_deserialize() -> anyhow::Result<()> {
     let a = data::make_signer(&mut rng);
     let b = data::make_signer(&mut rng);
     let edge = data::make_edge(&a, &b);
-    let epoch_id = EpochId(chain.blocks[1].hash().clone());
 
     let chunk_hash = chain.blocks[3].chunks()[0].chunk_hash();
     let routed_message1 = Box::new(data::make_routed_message(
@@ -103,10 +100,6 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         PeerMessage::Routed(routed_message2),
         PeerMessage::Disconnect,
         PeerMessage::Challenge(data::make_challenge(&mut rng)),
-        PeerMessage::EpochSyncRequest(epoch_id.clone()),
-        PeerMessage::EpochSyncResponse(Box::new(EpochSyncResponse::UpToDate)),
-        PeerMessage::EpochSyncFinalizationRequest(epoch_id),
-        // TODO: EpochSyncFinalizationResponse
     ];
 
     // Check that serialize;deserialize = 1

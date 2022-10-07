@@ -26,6 +26,7 @@ use crate::types::{
     PeerIdOrHash, PeerMessage, PeerType,
     ReasonForBan,
 };
+use near_primitives::types::{EpochId};
 use actix::fut::future::wrap_future;
 use actix::{Actor, ActorContext, ActorFutureExt, AsyncContext, Context, Running};
 use lru::LruCache;
@@ -33,7 +34,7 @@ use near_crypto::Signature;
 use near_o11y::log_assert;
 use near_performance_metrics_macros::perf;
 use near_primitives::logging;
-use near_primitives::network::PeerId;
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
@@ -777,7 +778,7 @@ impl PeerActor {
         }
     }
 
-    async fn receive_message(&self, conn: Arc<connection::Connection>, msg:PeerMessage) {
+    fn receive_message(&self, ctx: &mut actix::Context<Self>, conn: &connection::Connection, msg:PeerMessage) {
         // This is a fancy way to clone the message iff event_sink is non-null.
         // If you have a better idea on how to achieve that, feel free to improve this.
         let message_processed_event = self
@@ -785,20 +786,32 @@ impl PeerActor {
             .config
             .event_sink
             .delayed_push(|| Event::MessageProcessed(msg.clone()));
-        match &msg {
+        let was_requested = match &msg {
             PeerMessage::Block(block) => {
-                self.tracker.lock().push_received(*block.hash());
+                let hash = *block.hash();
                 conn.chain_height.fetch_max(block.header().height(), Ordering::Relaxed);
+                self.tracker.lock().push_received(hash);
+                self.tracker.lock().has_request(&hash)
             }
-            _ => {},
-        }
-        match self.network_state.receive_message(msg).await {
-            // TODO(gprusak): make sure that for routed messages we drop routeback info correctly.
-            Ok(Some(resp)) => self.send_message_or_log(resp),
-            Ok(None) => {}
-            Err(ban_reason) => self.stop(ClosingReason::Ban(ban_reason)),
-        }
-        message_processed_event();
+            _ => false,
+        };
+        let clock = self.clock.clone();
+        let network_state = self.network_state.clone();
+        let peer_id = conn.peer_info.id.clone();
+        ctx.spawn(wrap_future(async move {
+                network_state.receive_message(&clock,peer_id,msg,was_requested).await
+            })
+            .then(|res, act: &mut PeerActor, ctx| {
+                match res {
+                    // TODO(gprusak): make sure that for routed messages we drop routeback info correctly.
+                    Ok(Some(resp)) => act.send_message_or_log(&resp),
+                    Ok(None) => {}
+                    Err(ban_reason) => act.stop(ctx,ClosingReason::Ban(ban_reason)),
+                }
+                message_processed_event();
+                wrap_future(async {})
+            })
+        );
     }
 
     fn handle_msg_ready(
@@ -827,8 +840,7 @@ impl PeerActor {
                         }
                     }
                     actix::fut::ready(())
-                })
-                );
+                }));
             }
             PeerMessage::PeersResponse(peers) => {
                 debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
@@ -879,11 +891,9 @@ impl PeerActor {
                     }),
                 );
             }
-            PeerMessage::SyncRoutingTable(routing_table_update) => {
-                self.network_state.peer_manager_addr.do_send(PeerToManagerMsg::SyncRoutingTable {
-                    peer_id: conn.peer_info.id.clone(),
-                    routing_table_update,
-                });
+            PeerMessage::SyncRoutingTable(rtu) => {
+                self.sync_routing_table(ctx,conn,rtu);
+                self.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
             }
             PeerMessage::SyncAccountsData(msg) => {
                 let peer_id = conn.peer_info.id.clone();
@@ -993,9 +1003,7 @@ impl PeerActor {
                                 .event_sink
                                 .push(Event::MessageProcessed(PeerMessage::Routed(msg)));
                         }
-                        _ => {
-                            self.receive_message(ctx, conn, PeerMessage::Routed(msg.clone())).await;
-                        }
+                        _ => self.receive_message(ctx,conn, PeerMessage::Routed(msg.clone())),
                     }
                 } else {
                     if msg.decrease_ttl() {
@@ -1009,8 +1017,43 @@ impl PeerActor {
                     }
                 }
             }
-            msg => self.receive_message(ctx, conn, msg).await,
+            msg => self.receive_message(ctx, conn, msg),
         }
+    }
+
+    fn sync_routing_table(&mut self, ctx: &mut actix::Context<Self>, conn: &connection::Connection, rtu: RoutingTableUpdate) {
+        // Process edges and add new edges to the routing table. Also broadcast new edges.
+        let edges = rtu.edges;
+        let accounts = rtu.accounts;
+
+        // Filter known accounts before validating them.
+        let old = self
+            .network_state
+            .routing_table_view
+            .get_announces(accounts.iter().map(|a| &a.account_id));
+        let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = accounts
+            .into_iter()
+            .map(|aa| {
+                let id = aa.account_id.clone();
+                (aa, old.get(&id).map(|old| old.epoch_id.clone()))
+            })
+            .collect();
+
+        // Ask client to validate accounts before accepting them.
+        let network_state = self.network_state.clone();
+        self.network_state.validate_edges_and_add_to_routing_table(conn.peer_info.id.clone(), edges);
+        ctx.spawn(
+            wrap_future(async move {
+                network_state.client.announce_account(accounts).await
+            })
+            .then(move |res, act: &mut PeerActor, ctx| {
+                match res {
+                    Err(ban_reason) => act.stop(ctx,ClosingReason::Ban(ban_reason)),
+                    Ok(accounts) => act.network_state.broadcast_accounts(accounts),
+                }
+                wrap_future(async{}) 
+            })
+        );
     }
 }
 

@@ -776,58 +776,6 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::EpochSyncRequest { epoch_id, peer_id } => {
-                            for (i, peer_info) in key_pairs.iter().enumerate() {
-                                let peer_id = peer_id.clone();
-                                if peer_info.id == peer_id {
-                                    let me = connectors1[my_ord].0.clone();
-                                    actix::spawn(
-                                        connectors1[i]
-                                            .1
-                                            .send(NetworkViewClientMessages::EpochSyncRequest{
-                                                epoch_id: epoch_id.clone(),
-                                            })
-                                            .then(move |response| {
-                                                let response = response.unwrap();
-                                                match response {
-                                                    NetworkViewClientResponses::EpochSyncResponse(response) => {
-                                                        me.do_send(NetworkClientMessages::EpochSyncResponse(peer_id, response));
-                                                    }
-                                                    NetworkViewClientResponses::NoResponse => {}
-                                                    _ => assert!(false),
-                                                }
-                                                future::ready(())
-                                            }),
-                                    );
-                                }
-                            }
-                        }
-                        NetworkRequests::EpochSyncFinalizationRequest { epoch_id, peer_id } => {
-                            for (i, peer_info) in key_pairs.iter().enumerate() {
-                                let peer_id = peer_id.clone();
-                                if peer_info.id == peer_id {
-                                    let me = connectors1[my_ord].0.clone();
-                                    actix::spawn(
-                                        connectors1[i]
-                                            .1
-                                            .send(NetworkViewClientMessages::EpochSyncFinalizationRequest{
-                                                epoch_id: epoch_id.clone(),
-                                            })
-                                            .then(move |response| {
-                                                let response = response.unwrap();
-                                                match response {
-                                                    NetworkViewClientResponses::EpochSyncFinalizationResponse(response) => {
-                                                        me.do_send(NetworkClientMessages::EpochSyncFinalizationResponse(peer_id, response));
-                                                    }
-                                                    NetworkViewClientResponses::NoResponse => {}
-                                                    _ => assert!(false),
-                                                }
-                                                future::ready(())
-                                            }),
-                                    );
-                                }
-                            }
-                        }
                         NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                             for (i, peer_info) in key_pairs.iter().enumerate() {
                                 let peer_id = peer_id.clone();

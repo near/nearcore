@@ -1,11 +1,11 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutedMessageBody,
+    RoutingTableUpdate,
 };
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::tcp;
-use crate::testonly::fake_client::Event as CE;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
 use crate::time;
@@ -13,8 +13,6 @@ use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg
 use anyhow::Context as _;
 use assert_matches::assert_matches;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::syncing::EpochSyncResponse;
-use near_primitives::types::EpochId;
 use near_primitives::version::{PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use std::sync::Arc;
 
@@ -22,6 +20,8 @@ async fn test_peer_communication(
     outbound_encoding: Option<Encoding>,
     inbound_encoding: Option<Encoding>,
 ) -> anyhow::Result<()> {
+    tracing::info!("test_peer_communication({outbound_encoding:?},{inbound_encoding:?})");
+
     let mut rng = make_rng(89028037453);
     let mut clock = time::FakeClock::default();
 
@@ -53,14 +53,9 @@ async fn test_peer_communication(
     // As a workaround, in borsh encoding an empty RoutingTableUpdate is sent.
     // Once borsh support is removed, the initial SyncAccountsData should be consumed in
     // complete_handshake.
-    let filter = |ev| match ev {
-        Event::Network(PME::MessageProcessed(PeerMessage::SyncAccountsData(_))) => None,
-        Event::RoutingTable(_) => None,
-        ev => Some(ev),
-    };
-
     let message_processed = |ev| match ev {
-        Event::Network(PME::MessageProcessed(PeerMessage::SyncAccountsData(_))) => None,
+        Event::Network(PME::MessageProcessed(PeerMessage::SyncAccountsData{..})) => None,
+        Event::Network(PME::MessageProcessed(PeerMessage::SyncRoutingTable(rtu))) if rtu == RoutingTableUpdate::default() => None,
         Event::Network(PME::MessageProcessed(msg)) => Some(msg),
         _ => None,
     };
@@ -93,9 +88,9 @@ async fn test_peer_communication(
 
     // BlockRequest
     let mut events = inbound.events.from_now();
-    let want = chain.blocks[5].hash().clone();
-    outbound.send(PeerMessage::BlockRequest(want.clone())).await;
-    assert_eq!(Event::Client(CE::BlockRequest(want)), events.recv_until(filter).await);
+    let want = PeerMessage::BlockRequest(chain.blocks[5].hash().clone());
+    outbound.send(want.clone()).await;
+    assert_eq!(want, events.recv_until(message_processed).await);
 
     // Block
     let mut events = inbound.events.from_now();
@@ -105,9 +100,9 @@ async fn test_peer_communication(
 
     // BlockHeadersRequest
     let mut events = inbound.events.from_now();
-    let want: Vec<_> = chain.blocks.iter().map(|b| b.hash().clone()).collect();
-    outbound.send(PeerMessage::BlockHeadersRequest(want.clone())).await;
-    assert_eq!(Event::Client(CE::BlockHeadersRequest(want)), events.recv_until(filter).await);
+    let want = PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| b.hash().clone()).collect());
+    outbound.send(want.clone()).await;
+    assert_eq!(want, events.recv_until(message_processed).await);
 
     // BlockHeaders
     let mut events = inbound.events.from_now();
@@ -117,13 +112,13 @@ async fn test_peer_communication(
 
     // SyncRoutingTable
     let mut events = inbound.events.from_now();
-    let want = data::make_routing_table(&mut rng);
-    outbound.send(PeerMessage::SyncRoutingTable(want.clone())).await;
-    assert_eq!(Event::RoutingTable(want), events.recv().await);
+    let want = PeerMessage::SyncRoutingTable(data::make_routing_table(&mut rng));
+    outbound.send(want.clone()).await;
+    assert_eq!(want, events.recv_until(message_processed).await);
 
     // PartialEncodedChunkRequest
     let mut events = inbound.events.from_now();
-    let want = Box::new(outbound.routed_message(
+    let want = PeerMessage::Routed(Box::new(outbound.routed_message(
         RoutedMessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
             chunk_hash: chain.blocks[5].chunks()[2].chunk_hash(),
             part_ords: vec![],
@@ -132,8 +127,7 @@ async fn test_peer_communication(
         inbound.cfg.id(),
         1,    // ttl
         None, // TODO(gprusak): this should be clock.now_utc(), once borsh support is dropped.
-    ));
-    let want = PeerMessage::Routed(want);
+    )));
     outbound.send(want.clone()).await;
     assert_eq!(want, events.recv_until(message_processed).await);
 
@@ -167,31 +161,9 @@ async fn test_peer_communication(
     outbound.send(want.clone()).await;
     assert_eq!(want, events.recv_until(message_processed).await);
 
-    // EpochSyncRequest
-    let mut events = inbound.events.from_now();
-    let want = EpochId(chain.blocks[1].hash().clone());
-    outbound.send(PeerMessage::EpochSyncRequest(want.clone())).await;
-    assert_eq!(Event::Client(CE::EpochSyncRequest(want)), events.recv_until(filter).await);
-
-    // EpochSyncResponse
-    let mut events = inbound.events.from_now();
-    let want = PeerMessage::EpochSyncResponse(Box::new(EpochSyncResponse::UpToDate));
-    outbound.send(want.clone()).await;
-    assert_eq!(want, events.recv_until(message_processed).await);
-
-    // EpochSyncFinalizationRequest
-    let mut events = inbound.events.from_now();
-    let want = EpochId(chain.blocks[1].hash().clone());
-    outbound.send(PeerMessage::EpochSyncFinalizationRequest(want.clone())).await;
-    assert_eq!(
-        Event::Client(CE::EpochSyncFinalizationRequest(want)),
-        events.recv_until(filter).await
-    );
-
     // TODO:
     // LastEdge, HandshakeFailure, Disconnect - affect the state of the PeerActor and are
     // observable only under specific conditions.
-    // ExpochSyncFinalizationResponse - unused.
     Ok(())
 }
 

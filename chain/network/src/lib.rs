@@ -9,14 +9,13 @@ mod peer_manager;
 mod private_actix;
 mod stats;
 mod store;
-mod client;
 
 pub mod actix;
+pub mod client;
 pub mod blacklist;
 pub mod config;
 pub mod config_json;
 pub mod routing;
-
 pub mod tcp;
 pub mod test_utils;
 pub mod time;
