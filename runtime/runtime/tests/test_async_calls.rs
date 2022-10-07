@@ -792,7 +792,7 @@ fn test_account_factory() {
                      => [r3, ref1] );
     assert_receipts!(group, "near_1" => r2 @ "near_2",
                      ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}), {
-                        assert_eq!(input_data_ids, &vec![data_id]);
+                        assert_eq!(input_data_ids, &[data_id]);
                      },
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {

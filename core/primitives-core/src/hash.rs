@@ -230,6 +230,29 @@ mod tests {
     }
 
     #[test]
+    fn test_hash_borsh() {
+        fn value<T: BorshSerialize>(want: &str, value: T) {
+            assert_eq!(want, CryptoHash::hash_borsh(&value).to_string());
+        }
+
+        fn slice<T: BorshSerialize>(want: &str, slice: &[T]) {
+            assert_eq!(want, CryptoHash::hash_borsh(&slice).to_string());
+            assert_eq!(want, CryptoHash::hash_borsh_slice(slice).to_string());
+        }
+
+        value("CuoNgQBWsXnTqup6FY3UXNz6RRufnYyQVxx8HKZLUaRt", "foo");
+        value("CuoNgQBWsXnTqup6FY3UXNz6RRufnYyQVxx8HKZLUaRt", "foo".as_bytes());
+        value("CuoNgQBWsXnTqup6FY3UXNz6RRufnYyQVxx8HKZLUaRt", &b"foo"[..]);
+        value("CuoNgQBWsXnTqup6FY3UXNz6RRufnYyQVxx8HKZLUaRt", [3, 0, 0, 0, b'f', b'o', b'o']);
+        slice("CuoNgQBWsXnTqup6FY3UXNz6RRufnYyQVxx8HKZLUaRt", "foo".as_bytes());
+
+        value("3yMApqCuCjXDWPrbjfR5mjCPTHqFG8Pux1TxQrEM35jj", b"foo");
+        value("3yMApqCuCjXDWPrbjfR5mjCPTHqFG8Pux1TxQrEM35jj", [b'f', b'o', b'o']);
+        value("3yMApqCuCjXDWPrbjfR5mjCPTHqFG8Pux1TxQrEM35jj", &[b'f', b'o', b'o']);
+        slice("CuoNgQBWsXnTqup6FY3UXNz6RRufnYyQVxx8HKZLUaRt", &[b'f', b'o', b'o']);
+    }
+
+    #[test]
     fn test_base58_successes() {
         for (encoded, hash) in [
             ("11111111111111111111111111111111", CryptoHash::new()),

@@ -730,7 +730,7 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
 
     node_dirs = [
         line.split()[-1]
-        for line in err.decode('utf8').split('\n')
+        for line in out.decode('utf8').split('\n')
         if '/test' in line
     ]
     assert len(

@@ -552,12 +552,11 @@ mod tests {
 
         assert_eq!(
             get_function_body(&injected_module, 0).unwrap(),
-            &vec![I32Const(2), Call(0), GetGlobal(0), Call(2), End][..]
+            &[I32Const(2), Call(0), GetGlobal(0), Call(2), End][..]
         );
         assert_eq!(
             get_function_body(&injected_module, 1).unwrap(),
-            &vec![GetLocal(0), GetLocal(0), I32Const(10000), I32Mul, Call(0), GrowMemory(0), End,]
-                [..]
+            &[GetLocal(0), GetLocal(0), I32Const(10000), I32Mul, Call(0), GrowMemory(0), End][..]
         );
 
         let binary = serialize(injected_module).expect("serialization failed");
@@ -589,7 +588,7 @@ mod tests {
 
         assert_eq!(
             get_function_body(&injected_module, 0).unwrap(),
-            &vec![I32Const(2), Call(0), GetGlobal(0), GrowMemory(0), End][..]
+            &[I32Const(2), Call(0), GetGlobal(0), GrowMemory(0), End][..]
         );
 
         assert_eq!(injected_module.functions_space(), 2);
@@ -640,7 +639,7 @@ mod tests {
 
         assert_eq!(
             get_function_body(&injected_module, 1).unwrap(),
-            &vec![
+            &[
                 I32Const(3),
                 Call(0),
                 Call(1),
