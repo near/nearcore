@@ -262,12 +262,12 @@ pub enum DBCol {
 /// Currently only used in cold storage continuous migration.
 #[derive(PartialEq, Copy, Clone, Debug, Hash, Eq, strum::EnumIter)]
 pub enum DBKeyType {
-    // Empty row name. Used in DBCol::LastComponentNonce.
+    /// Empty row name. Used in DBCol::LastComponentNonce.
     Empty,
-    // Set of predetermined strings. Used, for example, in DBCol::BlockMisc
+    /// Set of predetermined strings. Used, for example, in DBCol::BlockMisc
     StringLiteral,
     BlockHash,
-    // Hash of the previous block. Logically different from BlockHash. Used fro DBCol::NextBlockHashes.
+    /// Hash of the previous block. Logically different from BlockHash. Used fro DBCol::NextBlockHashes.
     PreviousBlockHash,
     BlockHeight,
     BlockOrdinal,
