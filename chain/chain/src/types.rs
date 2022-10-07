@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -555,6 +555,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         request: &QueryRequest,
+        latest_block_hashes: &VecDeque<CryptoHash>,
     ) -> Result<QueryResponse, near_chain_primitives::error::QueryError>;
 
     /// WARNING: this call may be expensive.

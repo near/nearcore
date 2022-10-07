@@ -1,7 +1,7 @@
 mod validator_schedule;
 
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -1083,6 +1083,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         block_hash: &CryptoHash,
         _epoch_id: &EpochId,
         request: &QueryRequest,
+        _latest_block_hashes: &VecDeque<CryptoHash>,
     ) -> Result<QueryResponse, near_chain_primitives::error::QueryError> {
         match request {
             QueryRequest::ViewAccount { account_id, .. } => Ok(QueryResponse {

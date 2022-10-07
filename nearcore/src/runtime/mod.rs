@@ -64,7 +64,7 @@ use node_runtime::{
     ValidatorAccountsUpdate,
 };
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
@@ -1136,6 +1136,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         request: &QueryRequest,
+        _latest_block_hashes: &VecDeque<CryptoHash>,
     ) -> Result<QueryResponse, near_chain::near_chain_primitives::error::QueryError> {
         match request {
             QueryRequest::ViewAccount { account_id } => {

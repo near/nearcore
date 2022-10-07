@@ -1546,6 +1546,7 @@ impl TestEnv {
         let head = self.clients[0].chain.head().unwrap();
         let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let last_chunk_header = &last_block.chunks()[0];
+        let latest_block_hashes = &self.clients[0].chain.latest_block_hashes;
         let response = self.clients[0]
             .runtime_adapter
             .query(
@@ -1557,6 +1558,7 @@ impl TestEnv {
                 last_block.header().hash(),
                 last_block.header().epoch_id(),
                 &QueryRequest::ViewAccount { account_id },
+                latest_block_hashes,
             )
             .unwrap();
         match response.kind {
@@ -1569,6 +1571,7 @@ impl TestEnv {
         let head = self.clients[0].chain.head().unwrap();
         let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let last_chunk_header = &last_block.chunks()[0];
+        let latest_block_hashes = &self.clients[0].chain.latest_block_hashes;
         let response = self.clients[0]
             .runtime_adapter
             .query(
@@ -1584,6 +1587,7 @@ impl TestEnv {
                     prefix: vec![].into(),
                     include_proof: false,
                 },
+                latest_block_hashes,
             )
             .unwrap();
         match response.kind {

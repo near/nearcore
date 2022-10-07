@@ -307,6 +307,7 @@ impl ViewClientActor {
             header.hash(),
             header.epoch_id(),
             &msg.request,
+            &self.chain.latest_block_hashes,
         ) {
             Ok(query_response) => Ok(query_response),
             Err(query_error) => Err(match query_error {

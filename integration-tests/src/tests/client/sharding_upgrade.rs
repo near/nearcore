@@ -397,6 +397,7 @@ fn check_account(env: &mut TestEnv, account_id: &AccountId, block: &Block) {
     let shard_id = shard_uid.shard_id();
     for (i, me) in env.validators.iter().enumerate() {
         if env.clients[i].runtime_adapter.cares_about_shard(Some(me), prev_hash, shard_id, true) {
+            let latest_block_hashes = &env.clients[i].chain.latest_block_hashes;
             let state_root = *env.clients[i]
                 .chain
                 .get_chunk_extra(block.hash(), &shard_uid)
@@ -413,6 +414,7 @@ fn check_account(env: &mut TestEnv, account_id: &AccountId, block: &Block) {
                     block.hash(),
                     block.header().epoch_id(),
                     &QueryRequest::ViewAccount { account_id: account_id.clone() },
+                    latest_block_hashes,
                 )
                 .unwrap();
 
@@ -429,6 +431,7 @@ fn check_account(env: &mut TestEnv, account_id: &AccountId, block: &Block) {
                         block.hash(),
                         block.header().epoch_id(),
                         &QueryRequest::ViewAccount { account_id: account_id.clone() },
+                        latest_block_hashes,
                     )
                     .unwrap();
             }
