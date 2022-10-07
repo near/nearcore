@@ -308,6 +308,7 @@ impl MockPeerManagerAdapter {
 }
 
 pub mod test_features {
+    use crate::client;
     use crate::config;
     use crate::test_utils::convert_boot_nodes;
     use crate::time;
@@ -319,7 +320,6 @@ pub mod test_features {
     use near_primitives::block::GenesisId;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
-    use crate::client;
 
     /// Mock for `ClientActor`
     type ClientMock = Mocker<NetworkClientMessages>;
@@ -361,7 +361,7 @@ pub mod test_features {
             time::Clock::real(),
             store,
             config,
-            client::Client{
+            client::Client {
                 client_addr: client_addr.recipient(),
                 view_client_addr: view_client_addr.recipient(),
             },

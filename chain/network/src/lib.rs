@@ -11,8 +11,8 @@ mod stats;
 mod store;
 
 pub mod actix;
-pub mod client;
 pub mod blacklist;
+pub mod client;
 pub mod config;
 pub mod config_json;
 pub mod routing;

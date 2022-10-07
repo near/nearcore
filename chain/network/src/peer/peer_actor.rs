@@ -3,9 +3,8 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::concurrency::rate;
 use crate::network_protocol::{
-    Edge, EdgeState, Encoding, ParsePeerMessageError, PartialEdgeInfo,
-    PeerChainInfoV2, PeerInfo, RoutedMessageBody, RoutingTableUpdate,
-    SyncAccountsData,
+    Edge, EdgeState, Encoding, ParsePeerMessageError, PartialEdgeInfo, PeerChainInfoV2, PeerInfo,
+    RoutedMessageBody, RoutingTableUpdate, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::stream::Scope;
@@ -22,11 +21,8 @@ use crate::stats::metrics;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    Ban, Handshake, HandshakeFailureReason, 
-    PeerIdOrHash, PeerMessage, PeerType,
-    ReasonForBan,
+    Ban, Handshake, HandshakeFailureReason, PeerIdOrHash, PeerMessage, PeerType, ReasonForBan,
 };
-use near_primitives::types::{EpochId};
 use actix::fut::future::wrap_future;
 use actix::{Actor, ActorContext, ActorFutureExt, AsyncContext, Context, Running};
 use lru::LruCache;
@@ -35,6 +31,7 @@ use near_o11y::log_assert;
 use near_performance_metrics_macros::perf;
 use near_primitives::logging;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::types::EpochId;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
@@ -430,7 +427,6 @@ impl PeerActor {
         self.peer_info.as_ref().as_ref().map(|peer_info| &peer_info.id)
     }
 
-
     /// Update stats when receiving msg
     fn update_stats_on_receiving_message(&mut self, msg_len: usize) {
         metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg_len as u64);
@@ -778,7 +774,12 @@ impl PeerActor {
         }
     }
 
-    fn receive_message(&self, ctx: &mut actix::Context<Self>, conn: &connection::Connection, msg:PeerMessage) {
+    fn receive_message(
+        &self,
+        ctx: &mut actix::Context<Self>,
+        conn: &connection::Connection,
+        msg: PeerMessage,
+    ) {
         // This is a fancy way to clone the message iff event_sink is non-null.
         // If you have a better idea on how to achieve that, feel free to improve this.
         let message_processed_event = self
@@ -798,19 +799,20 @@ impl PeerActor {
         let clock = self.clock.clone();
         let network_state = self.network_state.clone();
         let peer_id = conn.peer_info.id.clone();
-        ctx.spawn(wrap_future(async move {
-                network_state.receive_message(&clock,peer_id,msg,was_requested).await
+        ctx.spawn(
+            wrap_future(async move {
+                network_state.receive_message(&clock, peer_id, msg, was_requested).await
             })
             .then(|res, act: &mut PeerActor, ctx| {
                 match res {
                     // TODO(gprusak): make sure that for routed messages we drop routeback info correctly.
                     Ok(Some(resp)) => act.send_message_or_log(&resp),
                     Ok(None) => {}
-                    Err(ban_reason) => act.stop(ctx,ClosingReason::Ban(ban_reason)),
+                    Err(ban_reason) => act.stop(ctx, ClosingReason::Ban(ban_reason)),
                 }
                 message_processed_event();
                 wrap_future(async {})
-            })
+            }),
         );
     }
 
@@ -892,7 +894,7 @@ impl PeerActor {
                 );
             }
             PeerMessage::SyncRoutingTable(rtu) => {
-                self.sync_routing_table(ctx,conn,rtu);
+                self.sync_routing_table(ctx, conn, rtu);
                 self.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
             }
             PeerMessage::SyncAccountsData(msg) => {
@@ -1003,7 +1005,7 @@ impl PeerActor {
                                 .event_sink
                                 .push(Event::MessageProcessed(PeerMessage::Routed(msg)));
                         }
-                        _ => self.receive_message(ctx,conn, PeerMessage::Routed(msg.clone())),
+                        _ => self.receive_message(ctx, conn, PeerMessage::Routed(msg.clone())),
                     }
                 } else {
                     if msg.decrease_ttl() {
@@ -1021,7 +1023,12 @@ impl PeerActor {
         }
     }
 
-    fn sync_routing_table(&mut self, ctx: &mut actix::Context<Self>, conn: &connection::Connection, rtu: RoutingTableUpdate) {
+    fn sync_routing_table(
+        &mut self,
+        ctx: &mut actix::Context<Self>,
+        conn: &connection::Connection,
+        rtu: RoutingTableUpdate,
+    ) {
         // Process edges and add new edges to the routing table. Also broadcast new edges.
         let edges = rtu.edges;
         let accounts = rtu.accounts;
@@ -1041,18 +1048,18 @@ impl PeerActor {
 
         // Ask client to validate accounts before accepting them.
         let network_state = self.network_state.clone();
-        self.network_state.validate_edges_and_add_to_routing_table(conn.peer_info.id.clone(), edges);
+        self.network_state
+            .validate_edges_and_add_to_routing_table(conn.peer_info.id.clone(), edges);
         ctx.spawn(
-            wrap_future(async move {
-                network_state.client.announce_account(accounts).await
-            })
-            .then(move |res, act: &mut PeerActor, ctx| {
-                match res {
-                    Err(ban_reason) => act.stop(ctx,ClosingReason::Ban(ban_reason)),
-                    Ok(accounts) => act.network_state.broadcast_accounts(accounts),
-                }
-                wrap_future(async{}) 
-            })
+            wrap_future(async move { network_state.client.announce_account(accounts).await }).then(
+                move |res, act: &mut PeerActor, ctx| {
+                    match res {
+                        Err(ban_reason) => act.stop(ctx, ClosingReason::Ban(ban_reason)),
+                        Ok(accounts) => act.network_state.broadcast_accounts(accounts),
+                    }
+                    wrap_future(async {})
+                },
+            ),
         );
     }
 }

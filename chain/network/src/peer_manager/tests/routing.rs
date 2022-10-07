@@ -7,7 +7,7 @@ use crate::peer_manager::testonly::Event;
 use crate::tcp;
 use crate::testonly::{assert_is_superset, make_rng, AsSet as _};
 use crate::time;
-use crate::types::{PeerMessage};
+use crate::types::PeerMessage;
 use near_o11y::testonly::init_test_logger;
 use pretty_assertions::assert_eq;
 use rand::Rng as _;
@@ -127,7 +127,9 @@ async fn repeated_data_in_sync_routing_table() {
         // internal clock with a fake clock.
         while edges_got != edges_want || accounts_got != accounts_want {
             match peer.events.recv().await {
-                peer::testonly::Event::Network(PME::MessageProcessed(PeerMessage::SyncRoutingTable(got))) => {
+                peer::testonly::Event::Network(PME::MessageProcessed(
+                    PeerMessage::SyncRoutingTable(got),
+                )) => {
                     for a in got.accounts {
                         assert!(!accounts_got.contains(&a), "repeated broadcast: {a:?}");
                         assert!(accounts_want.contains(&a), "unexpected broadcast: {a:?}");
@@ -212,7 +214,9 @@ async fn no_edge_broadcast_after_restart() {
 
         while edges_got != edges_want {
             match peer.events.recv().await {
-                peer::testonly::Event::Network(PME::MessageProcessed(PeerMessage::SyncRoutingTable(got))) => {
+                peer::testonly::Event::Network(PME::MessageProcessed(
+                    PeerMessage::SyncRoutingTable(got),
+                )) => {
                     edges_got.extend(got.edges);
                     assert_is_superset(&edges_want.as_set(), &edges_got.as_set());
                 }

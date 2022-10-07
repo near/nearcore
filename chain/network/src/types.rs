@@ -225,29 +225,15 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkRequests {
     /// Sends block, either when block was just produced or when requested.
-    Block {
-        block: Block,
-    },
+    Block { block: Block },
     /// Sends approval.
-    Approval {
-        approval_message: ApprovalMessage,
-    },
+    Approval { approval_message: ApprovalMessage },
     /// Request block with given hash from given peer.
-    BlockRequest {
-        hash: CryptoHash,
-        peer_id: PeerId,
-    },
+    BlockRequest { hash: CryptoHash, peer_id: PeerId },
     /// Request given block headers.
-    BlockHeadersRequest {
-        hashes: Vec<CryptoHash>,
-        peer_id: PeerId,
-    },
+    BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
     /// Request state header for given shard at given state root.
-    StateRequestHeader {
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        target: AccountOrPeerIdOrHash,
-    },
+    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, target: AccountOrPeerIdOrHash },
     /// Request state part for given shard at given state root.
     StateRequestPart {
         shard_id: ShardId,
@@ -256,15 +242,9 @@ pub enum NetworkRequests {
         target: AccountOrPeerIdOrHash,
     },
     /// Response to state request.
-    StateResponse {
-        route_back: CryptoHash,
-        response: StateResponseInfo,
-    },
+    StateResponse { route_back: CryptoHash, response: StateResponseInfo },
     /// Ban given peer.
-    BanPeer {
-        peer_id: PeerId,
-        ban_reason: ReasonForBan,
-    },
+    BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
     /// Announce account
     AnnounceAccount(AnnounceAccount),
 
@@ -275,20 +255,14 @@ pub enum NetworkRequests {
         create_time: time::Instant,
     },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
-    PartialEncodedChunkResponse {
-        route_back: CryptoHash,
-        response: PartialEncodedChunkResponseMsg,
-    },
+    PartialEncodedChunkResponse { route_back: CryptoHash, response: PartialEncodedChunkResponseMsg },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunkMessage {
         account_id: AccountId,
         partial_encoded_chunk: PartialEncodedChunkWithArcReceipts,
     },
     /// Forwarding a chunk part to a validator tracking the shard
-    PartialEncodedChunkForward {
-        account_id: AccountId,
-        forward: PartialEncodedChunkForwardMsg,
-    },
+    PartialEncodedChunkForward { account_id: AccountId, forward: PartialEncodedChunkForwardMsg },
 
     /// Valid transaction but since we are not validators we send this transaction to current validators.
     ForwardTx(AccountId, SignedTransaction),
@@ -440,7 +414,7 @@ pub enum NetworkClientMessages {
     BlockApproval(Approval, PeerId),
     /// State response.
     StateResponse(StateResponseInfo),
-    
+
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
     /// Response to a request for  chunk parts and/or receipts.

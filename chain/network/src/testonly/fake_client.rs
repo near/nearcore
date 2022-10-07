@@ -3,10 +3,10 @@ use crate::types::{NetworkClientMessages, NetworkClientResponses};
 use crate::types::{NetworkViewClientMessages, NetworkViewClientResponses};
 use actix::Actor as _;
 use near_primitives::block::{Block, BlockHeader};
-use near_primitives::block_header::{Approval};
+use near_primitives::block_header::Approval;
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount,PeerId};
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunkPart};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::EpochId;
@@ -17,7 +17,7 @@ pub enum Event {
     Block(Block),
     BlockHeadersRequest(Vec<CryptoHash>),
     BlockHeaders(Vec<BlockHeader>),
-    BlockApproval(Approval,PeerId),
+    BlockApproval(Approval, PeerId),
     Chunk(Vec<PartialEncodedChunkPart>),
     ChunkRequest(ChunkHash),
     Transaction(SignedTransaction),
@@ -69,7 +69,7 @@ impl actix::Handler<NetworkClientMessages> for Actor {
             NetworkClientMessages::Block(b, _, _) => self.event_sink.push(Event::Block(b)),
             NetworkClientMessages::BlockApproval(approval, peer_id) => {
                 self.event_sink.push(Event::BlockApproval(approval, peer_id))
-            }            
+            }
             NetworkClientMessages::BlockHeaders(bhs, _) => {
                 self.event_sink.push(Event::BlockHeaders(bhs))
             }

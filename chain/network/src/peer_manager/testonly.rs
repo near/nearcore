@@ -1,6 +1,6 @@
 use crate::broadcast;
-use crate::config;
 use crate::client;
+use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Encoding, PeerAddr, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,

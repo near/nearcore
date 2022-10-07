@@ -1,7 +1,6 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutedMessageBody,
-    RoutingTableUpdate,
+    Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutedMessageBody, RoutingTableUpdate,
 };
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor::Event as PME;
@@ -54,8 +53,12 @@ async fn test_peer_communication(
     // Once borsh support is removed, the initial SyncAccountsData should be consumed in
     // complete_handshake.
     let message_processed = |ev| match ev {
-        Event::Network(PME::MessageProcessed(PeerMessage::SyncAccountsData{..})) => None,
-        Event::Network(PME::MessageProcessed(PeerMessage::SyncRoutingTable(rtu))) if rtu == RoutingTableUpdate::default() => None,
+        Event::Network(PME::MessageProcessed(PeerMessage::SyncAccountsData { .. })) => None,
+        Event::Network(PME::MessageProcessed(PeerMessage::SyncRoutingTable(rtu)))
+            if rtu == RoutingTableUpdate::default() =>
+        {
+            None
+        }
         Event::Network(PME::MessageProcessed(msg)) => Some(msg),
         _ => None,
     };
@@ -100,7 +103,8 @@ async fn test_peer_communication(
 
     // BlockHeadersRequest
     let mut events = inbound.events.from_now();
-    let want = PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| b.hash().clone()).collect());
+    let want =
+        PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| b.hash().clone()).collect());
     outbound.send(want.clone()).await;
     assert_eq!(want, events.recv_until(message_processed).await);
 

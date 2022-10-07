@@ -620,7 +620,8 @@ pub fn setup_mock_all_validators(
                 // Note: this `.wait` will block until all `ClientActors` are created.
                 let connectors1 = connectors1.wait();
                 let mut guard = network_mock1.write().unwrap();
-                let (resp, perform_default) = guard.deref_mut()(connectors1.as_slice(), account_id.clone(), &msg);
+                let (resp, perform_default) =
+                    guard.deref_mut()(connectors1.as_slice(), account_id.clone(), &msg);
                 drop(guard);
 
                 if perform_default {
@@ -636,24 +637,25 @@ pub fn setup_mock_all_validators(
                             .enumerate()
                             .map(|(i, peer_info)| ConnectedPeerInfo {
                                 full_peer_info: FullPeerInfo {
-                                peer_info: peer_info.clone(),
-                                chain_info: PeerChainInfoV2 {
-                                    genesis_id: GenesisId {
-                                        chain_id: "unittest".to_string(),
-                                        hash: Default::default(),
+                                    peer_info: peer_info.clone(),
+                                    chain_info: PeerChainInfoV2 {
+                                        genesis_id: GenesisId {
+                                            chain_id: "unittest".to_string(),
+                                            hash: Default::default(),
+                                        },
+                                        height: last_height2[i],
+                                        tracked_shards: vec![],
+                                        archival: true,
                                     },
-                                    height: last_height2[i],
-                                    tracked_shards: vec![],
-                                    archival: true,
+                                    partial_edge_info: PartialEdgeInfo::default(),
                                 },
-                                partial_edge_info: PartialEdgeInfo::default(),
-                            },
                                 received_bytes_per_sec: 0,
                                 sent_bytes_per_sec: 0,
                                 last_time_peer_requested: near_network::time::Instant::now(),
                                 last_time_received_message: near_network::time::Instant::now(),
                                 connection_established_time: near_network::time::Instant::now(),
-                                peer_type: PeerType::Outbound, })
+                                peer_type: PeerType::Outbound,
+                            })
                             .collect();
                         let peers2 = peers.iter().map(|it| it.full_peer_info.clone()).collect();
                         let info = NetworkInfo {
@@ -696,7 +698,7 @@ pub fn setup_mock_all_validators(
                                 .unwrap()
                                 .insert(*block.header().hash(), block.header().height());
                         }
-                        NetworkRequests::PartialEncodedChunkRequest { target, request , ..} => {
+                        NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
                             let create_msg = || {
                                 NetworkClientMessages::PartialEncodedChunkRequest(
                                     request.clone(),
@@ -713,7 +715,10 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
                             let create_msg = || {
-                                NetworkClientMessages::PartialEncodedChunkResponse(response.clone(), Clock::instant())
+                                NetworkClientMessages::PartialEncodedChunkResponse(
+                                    response.clone(),
+                                    Clock::instant(),
+                                )
                             };
                             send_chunks(
                                 connectors1,
@@ -765,7 +770,9 @@ pub fn setup_mock_all_validators(
                                                 let response = response.unwrap();
                                                 match response {
                                                     NetworkViewClientResponses::Block(block) => {
-                                                        me.do_send(NetworkClientMessages::Block(*block, peer_id, true));
+                                                        me.do_send(NetworkClientMessages::Block(
+                                                            *block, peer_id, true,
+                                                        ));
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -793,7 +800,11 @@ pub fn setup_mock_all_validators(
                                                     NetworkViewClientResponses::BlockHeaders(
                                                         headers,
                                                     ) => {
-                                                        me.do_send(NetworkClientMessages::BlockHeaders(headers, peer_id));
+                                                        me.do_send(
+                                                            NetworkClientMessages::BlockHeaders(
+                                                                headers, peer_id,
+                                                            ),
+                                                        );
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -829,7 +840,11 @@ pub fn setup_mock_all_validators(
                                                     NetworkViewClientResponses::StateResponse(
                                                         response,
                                                     ) => {
-                                                        me.do_send(NetworkClientMessages::StateResponse(*response));
+                                                        me.do_send(
+                                                            NetworkClientMessages::StateResponse(
+                                                                *response,
+                                                            ),
+                                                        );
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -867,7 +882,11 @@ pub fn setup_mock_all_validators(
                                                     NetworkViewClientResponses::StateResponse(
                                                         response,
                                                     ) => {
-                                                        me.do_send(NetworkClientMessages::StateResponse(*response));
+                                                        me.do_send(
+                                                            NetworkClientMessages::StateResponse(
+                                                                *response,
+                                                            ),
+                                                        );
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -881,9 +900,9 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::StateResponse { route_back, response } => {
                             for (i, address) in addresses.iter().enumerate() {
                                 if route_back == address {
-                                    connectors1[i].0.do_send(
-                                        NetworkClientMessages::StateResponse(response.clone()),
-                                    );
+                                    connectors1[i].0.do_send(NetworkClientMessages::StateResponse(
+                                        response.clone(),
+                                    ));
                                 }
                             }
                         }
@@ -973,7 +992,8 @@ pub fn setup_mock_all_validators(
                     };
                 }
                 resp
-            }).start();
+            })
+            .start();
             let network_adapter = NetworkRecipient::default();
             network_adapter.set_recipient(pm);
             let (block, client, view_client_addr) = setup(

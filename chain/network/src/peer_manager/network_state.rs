@@ -1,26 +1,22 @@
 use crate::accounts_data;
+use crate::client;
 use crate::concurrency::rate;
 use crate::config;
-use crate::client;
 use crate::network_protocol::{
-    RoutingTableUpdate,
     AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerAddr, PeerIdOrHash, PeerInfo, PeerMessage,
-    Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
+    Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
 };
-use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
-use crate::private_actix::{PeerToManagerMsg,ValidateEdgeList};
+use crate::private_actix::{PeerToManagerMsg, ValidateEdgeList};
 use crate::routing;
+use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use crate::tcp;
 use crate::time;
-use crate::types::{
-    ChainInfo, 
-    ReasonForBan,
-};
+use crate::types::{ChainInfo, ReasonForBan};
 use actix::Recipient;
 use arc_swap::ArcSwap;
 use near_primitives::block::GenesisId;
@@ -49,7 +45,7 @@ pub(crate) struct NetworkState {
     pub config: Arc<config::VerifiedConfig>,
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
-    pub client: client::Client, 
+    pub client: client::Client,
     /// Address of the peer manager actor.
     pub peer_manager_addr: Recipient<PeerToManagerMsg>,
     /// RoutingTableActor, responsible for computing routing table, routing table exchange, etc.
@@ -474,22 +470,61 @@ impl NetworkState {
         ));
     }
 
-    async fn receive_routed_message(&self, clock: &time::Clock, peer_id: PeerId, msg_hash: CryptoHash, body: RoutedMessageBody) -> Result<Option<RoutedMessageBody>,ReasonForBan> {
+    async fn receive_routed_message(
+        &self,
+        clock: &time::Clock,
+        peer_id: PeerId,
+        msg_hash: CryptoHash,
+        body: RoutedMessageBody,
+    ) -> Result<Option<RoutedMessageBody>, ReasonForBan> {
         Ok(match body {
-            RoutedMessageBody::TxStatusRequest(account_id, tx_hash) =>
-                self.client.tx_status_request(account_id,tx_hash).await?.map(RoutedMessageBody::TxStatusResponse),
-            RoutedMessageBody::TxStatusResponse(tx_result) => { self.client.tx_status_response(tx_result).await?; None }
-            RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) =>
-                self.client.state_request_header(shard_id,sync_hash).await?.map(RoutedMessageBody::VersionedStateResponse),
-            RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id) =>
-                self.client.state_request_part(shard_id,sync_hash,part_id).await?.map(RoutedMessageBody::VersionedStateResponse),
-            RoutedMessageBody::VersionedStateResponse(info) => { self.client.state_response(info).await?; None },
-            RoutedMessageBody::BlockApproval(approval) => { self.client.block_approval(approval, peer_id).await?; None },
-            RoutedMessageBody::ForwardTx(transaction) => { self.client.transaction(transaction,/*is_forwarded=*/true).await?; None },
-            RoutedMessageBody::PartialEncodedChunkRequest(request) => { self.client.partial_encoded_chunk_request(request, msg_hash).await?; None }
-            RoutedMessageBody::PartialEncodedChunkResponse(response) => { self.client.partial_encoded_chunk_response(response, clock.now()).await?; None }
-            RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => { self.client.partial_encoded_chunk(chunk).await?; None }
-            RoutedMessageBody::PartialEncodedChunkForward(msg) => { self.client.partial_encoded_chunk_forward(msg).await?; None }
+            RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => self
+                .client
+                .tx_status_request(account_id, tx_hash)
+                .await?
+                .map(RoutedMessageBody::TxStatusResponse),
+            RoutedMessageBody::TxStatusResponse(tx_result) => {
+                self.client.tx_status_response(tx_result).await?;
+                None
+            }
+            RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => self
+                .client
+                .state_request_header(shard_id, sync_hash)
+                .await?
+                .map(RoutedMessageBody::VersionedStateResponse),
+            RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id) => self
+                .client
+                .state_request_part(shard_id, sync_hash, part_id)
+                .await?
+                .map(RoutedMessageBody::VersionedStateResponse),
+            RoutedMessageBody::VersionedStateResponse(info) => {
+                self.client.state_response(info).await?;
+                None
+            }
+            RoutedMessageBody::BlockApproval(approval) => {
+                self.client.block_approval(approval, peer_id).await?;
+                None
+            }
+            RoutedMessageBody::ForwardTx(transaction) => {
+                self.client.transaction(transaction, /*is_forwarded=*/ true).await?;
+                None
+            }
+            RoutedMessageBody::PartialEncodedChunkRequest(request) => {
+                self.client.partial_encoded_chunk_request(request, msg_hash).await?;
+                None
+            }
+            RoutedMessageBody::PartialEncodedChunkResponse(response) => {
+                self.client.partial_encoded_chunk_response(response, clock.now()).await?;
+                None
+            }
+            RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
+                self.client.partial_encoded_chunk(chunk).await?;
+                None
+            }
+            RoutedMessageBody::PartialEncodedChunkForward(msg) => {
+                self.client.partial_encoded_chunk_forward(msg).await?;
+                None
+            }
             RoutedMessageBody::ReceiptOutcomeRequest(_) => {
                 // Silently ignore for the time being.  We’ve been still
                 // sending those messages at protocol version 56 so we
@@ -504,22 +539,54 @@ impl NetworkState {
         })
     }
 
-    pub async fn receive_message(&self, clock: &time::Clock, peer_id: PeerId, msg: PeerMessage, was_requested: bool) -> Result<Option<PeerMessage>,ReasonForBan> {
+    pub async fn receive_message(
+        &self,
+        clock: &time::Clock,
+        peer_id: PeerId,
+        msg: PeerMessage,
+        was_requested: bool,
+    ) -> Result<Option<PeerMessage>, ReasonForBan> {
         Ok(match msg {
             PeerMessage::Routed(msg) => {
                 let msg_hash = msg.hash();
-                self.receive_routed_message(clock, peer_id, msg_hash, msg.msg.body).await?.map(|body|PeerMessage::Routed(self.sign_message(
-                    &clock,
-                    RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(msg_hash), body },
-                )))
+                self.receive_routed_message(clock, peer_id, msg_hash, msg.msg.body).await?.map(
+                    |body| {
+                        PeerMessage::Routed(self.sign_message(
+                            &clock,
+                            RawRoutedMessage {
+                                target: AccountOrPeerIdOrHash::Hash(msg_hash),
+                                body,
+                            },
+                        ))
+                    },
+                )
             }
-            PeerMessage::BlockRequest(hash) => self.client.block_request(hash).await?.map(PeerMessage::Block),
-            PeerMessage::BlockHeadersRequest(hashes) => self.client.block_headers_request(hashes).await?.map(PeerMessage::BlockHeaders),
-            PeerMessage::Block(block) => { self.client.block(block, peer_id, was_requested).await?; None }
-            PeerMessage::Transaction(transaction) => { self.client.transaction(transaction,/*is_forwarded=*/false).await?; None }
-            PeerMessage::BlockHeaders(headers) => { self.client.block_headers(headers, peer_id).await?; None }
-            PeerMessage::Challenge(challenge) => { self.client.challenge(challenge).await?; None }
-            msg => { tracing::error!(target: "network", "Peer received unexpected type: {:?}", msg); None }
+            PeerMessage::BlockRequest(hash) => {
+                self.client.block_request(hash).await?.map(PeerMessage::Block)
+            }
+            PeerMessage::BlockHeadersRequest(hashes) => {
+                self.client.block_headers_request(hashes).await?.map(PeerMessage::BlockHeaders)
+            }
+            PeerMessage::Block(block) => {
+                self.client.block(block, peer_id, was_requested).await?;
+                None
+            }
+            PeerMessage::Transaction(transaction) => {
+                self.client.transaction(transaction, /*is_forwarded=*/ false).await?;
+                None
+            }
+            PeerMessage::BlockHeaders(headers) => {
+                self.client.block_headers(headers, peer_id).await?;
+                None
+            }
+            PeerMessage::Challenge(challenge) => {
+                self.client.challenge(challenge).await?;
+                None
+            }
+            msg => {
+                tracing::error!(target: "network", "Peer received unexpected type: {:?}", msg);
+                None
+            }
         })
     }
 }

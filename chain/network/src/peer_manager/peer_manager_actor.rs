@@ -1,10 +1,10 @@
+use crate::client;
 use crate::config;
 use crate::network_protocol::{
     AccountData, AccountOrPeerIdOrHash, Edge, EdgeState, PartialEdgeInfo, PeerInfo, PeerMessage,
     Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo,
     SyncAccountsData,
 };
-use crate::client;
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
@@ -20,21 +20,21 @@ use crate::store;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownPeerStatus, KnownProducer,
-    NetworkInfo, NetworkRequests, NetworkResponses,
-    PeerManagerMessageRequest,
-    PeerManagerMessageResponse, PeerType, ReasonForBan, SetChainInfo,
+    ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownPeerStatus, KnownProducer, NetworkInfo,
+    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerType, ReasonForBan, SetChainInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{
-    Actor, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler, Running, WrapFuture,
+    Actor, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler, Running,
+    WrapFuture,
 };
 use anyhow::bail;
 use anyhow::Context as _;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
-use near_primitives::network::{PeerId};
-use near_primitives::types::{AccountId};
+use near_primitives::network::PeerId;
+use near_primitives::types::AccountId;
 use parking_lot::RwLock;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
@@ -133,7 +133,7 @@ pub struct PeerManagerActor {
     /// generic threadpool (or multiple pools) in the near-network crate.
     /// It the threadpool setup, inevitably some of the state will be shared.
     network_graph: Arc<RwLock<routing::GraphWithCache>>,
-    
+
     /// Flag that track whether we started attempts to establish outbound connections.
     started_connect_attempts: bool,
     /// Connected peers we have sent new edge update, but we haven't received response so far.
@@ -439,7 +439,9 @@ impl PeerManagerActor {
             .start_timer();
         let start = self.clock.now();
         let mut new_edges = Vec::new();
-        while let Ok(edge) = self.state.routing_table_exchange_helper.edges_to_add_receiver.try_recv() {
+        while let Ok(edge) =
+            self.state.routing_table_exchange_helper.edges_to_add_receiver.try_recv()
+        {
             new_edges.push(edge);
             // TODO: do we really need this limit?
             if self.clock.now() >= start + BROAD_CAST_EDGES_MAX_WORK_ALLOWED {
@@ -1001,9 +1003,7 @@ impl PeerManagerActor {
             .start_timer();
         // TODO(gprusak): just spawn a loop.
         let state = self.state.clone();
-        ctx.spawn(wrap_future(async move {
-            state.client.network_info(network_info).await
-        }));
+        ctx.spawn(wrap_future(async move { state.client.network_info(network_info).await }));
 
         near_performance_metrics::actix::run_later(
             ctx,

@@ -131,9 +131,15 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
             net::PeerMessage::_HandshakeV2 => return Err(Self::Error::DeprecatedHandshakeV2),
             net::PeerMessage::_EpochSyncRequest => return Err(Self::Error::DeprecatedEpochSync),
             net::PeerMessage::_EpochSyncResponse => return Err(Self::Error::DeprecatedEpochSync),
-            net::PeerMessage::_EpochSyncFinalizationRequest => return Err(Self::Error::DeprecatedEpochSync),
-            net::PeerMessage::_EpochSyncFinalizationResponse => return Err(Self::Error::DeprecatedEpochSync),
-            net::PeerMessage::_RoutingTableSyncV2 => return Err(Self::Error::DeprecatedRoutingTableSyncV2),
+            net::PeerMessage::_EpochSyncFinalizationRequest => {
+                return Err(Self::Error::DeprecatedEpochSync)
+            }
+            net::PeerMessage::_EpochSyncFinalizationResponse => {
+                return Err(Self::Error::DeprecatedEpochSync)
+            }
+            net::PeerMessage::_RoutingTableSyncV2 => {
+                return Err(Self::Error::DeprecatedRoutingTableSyncV2)
+            }
         })
     }
 }
