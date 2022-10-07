@@ -164,8 +164,20 @@ fn build_chain_with_skips_and_forks() {
     assert_matches!(chain.process_block_test(&None, c4), Err(Error::CannotBeFinalized));
 }
 
-/// Verifies that the block at height are updated correctly when blocks from different forks are
+/// Verifies that getting block by its height are updated correctly when blocks from different forks are
 /// processed, especially when certain heights are skipped.
+/// Chain looks as follows (variable name + height):
+///
+/// 0 -> b1 (c1) -> b2
+///        |  \      \
+///        |   \      -> d3 -------> d5 -> d6
+///        |    \
+///        |     ------> c3 -> c4
+///        |
+///        ------------------------------------> e7
+///
+/// Note that only block b1 is finalized, so all blocks here can be processed. But getting block by height should
+/// return only blocks from the canonical chain.
 #[test]
 fn blocks_at_height() {
     init_test_logger();
