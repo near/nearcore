@@ -266,6 +266,14 @@ impl TxTracker {
                         target: "mirror", "{} Transactions for {:?} skipped by inclusion of tx with nonce {}: {:?}. These will never make it on chain.",
                         txs.len(), &k, tx.transaction.nonce, &txs
                     );
+                    for t in txs.iter() {
+                        if self.sent_txs.remove(&t.hash).is_none() {
+                            tracing::warn!(
+                                target: "mirror", "tx with hash {} that we thought was skipped is not in the set of sent txs",
+                                &t.hash,
+                            );
+                        }
+                    }
                 }
                 *txs = txs_left;
                 if txs.is_empty() {
