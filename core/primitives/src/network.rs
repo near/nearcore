@@ -8,7 +8,6 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 /// Peer id is the public key.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -52,7 +51,6 @@ impl fmt::Debug for PeerId {
 }
 
 /// Account announcement information
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct AnnounceAccount {
     /// AccountId to be announced.
