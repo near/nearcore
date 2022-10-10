@@ -24,7 +24,7 @@ serde_repr.workspace = true
 sha2.workspace = true
 strum.workspace = true
 
-near-account-id = { path = "../account-id" }
+near-account-id = { path = "../account-id", features = ["arbitrary"] }
 
 [dev-dependencies]
 serde_json.workspace = true

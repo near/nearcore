@@ -61,7 +61,8 @@ pub use errors::{ParseAccountError, ParseErrorKind};
 ///
 /// assert!("ƒelicia.near".parse::<AccountId>().is_err()); // (ƒ is not f)
 /// ```
-#[derive(Eq, Ord, Hash, Clone, Debug, PartialEq, PartialOrd, arbitrary::Arbitrary)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Eq, Ord, Hash, Clone, Debug, PartialEq, PartialOrd)]
 pub struct AccountId(Box<str>);
 
 impl AccountId {
