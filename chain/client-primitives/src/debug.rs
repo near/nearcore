@@ -16,14 +16,12 @@ use near_primitives::{
 };
 use serde::{Deserialize, Serialize};
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TrackedShardsView {
     pub shards_tracked_this_epoch: Vec<bool>,
     pub shards_tracked_next_epoch: Vec<bool>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct EpochInfoView {
     pub epoch_id: CryptoHash,
@@ -36,7 +34,6 @@ pub struct EpochInfoView {
     pub shards_size_and_parts: Vec<(u64, u64, bool)>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DebugChunkStatus {
     pub shard_id: u64,
@@ -47,7 +44,6 @@ pub struct DebugChunkStatus {
     pub processing_time_ms: Option<u64>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DebugBlockStatus {
     pub block_hash: CryptoHash,
@@ -64,7 +60,6 @@ pub struct DebugBlockStatus {
 
 // Information about the approval created by this node.
 // Used for debug purposes only.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Debug, Clone)]
 pub struct ApprovalHistoryEntry {
     // If target_height == base_height + 1  - this is endorsement.
@@ -81,7 +76,6 @@ pub struct ApprovalHistoryEntry {
 
 // Information about chunk produced by this node.
 // For debug purposes only.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Debug, Default, Clone)]
 pub struct ChunkProduction {
     // Time when we produced the chunk.
@@ -92,7 +86,6 @@ pub struct ChunkProduction {
 }
 // Information about the block produced by this node.
 // For debug purposes only.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Debug, Clone, Default)]
 pub struct BlockProduction {
     // Approvals that we received.
@@ -106,7 +99,6 @@ pub struct BlockProduction {
     pub block_included: bool,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Debug, Clone)]
 pub struct ChunkCollection {
     // Chunk producer of the chunk
@@ -121,7 +113,6 @@ pub struct ChunkCollection {
 // Information about things related to block/chunk production
 // at given height.
 // For debug purposes only.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Debug, Default)]
 pub struct ProductionAtHeight {
     // Stores information about block production is we are responsible for producing this block,
@@ -132,7 +123,6 @@ pub struct ProductionAtHeight {
 }
 
 // Infromation about the approvals that we received.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Debug, Default, Clone)]
 pub struct ApprovalAtHeightStatus {
     // Map from validator id to the type of approval that they sent and timestamp.
@@ -141,7 +131,6 @@ pub struct ApprovalAtHeightStatus {
     pub ready_at: Option<DateTime<chrono::Utc>>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Debug)]
 pub struct ValidatorStatus {
     pub validator_name: Option<AccountId>,

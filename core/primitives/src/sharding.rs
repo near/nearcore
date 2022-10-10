@@ -15,7 +15,6 @@ use crate::version::{ProtocolFeature, ProtocolVersion, SHARD_CHUNK_HEADER_UPGRAD
 use reed_solomon_erasure::ReconstructShard;
 use std::sync::Arc;
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -73,7 +72,6 @@ pub use shard_chunk_header_inner::{
     ShardChunkHeaderInner, ShardChunkHeaderInnerV1, ShardChunkHeaderInnerV2,
 };
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 #[borsh_init(init)]
 pub struct ShardChunkHeaderV1 {
@@ -88,7 +86,6 @@ pub struct ShardChunkHeaderV1 {
     pub hash: ChunkHash,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 #[borsh_init(init)]
 pub struct ShardChunkHeaderV2 {
@@ -153,7 +150,6 @@ impl ShardChunkHeaderV2 {
 }
 
 // V2 -> V3: Use versioned ShardChunkHeaderInner structure
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 #[borsh_init(init)]
 pub struct ShardChunkHeaderV3 {
@@ -217,7 +213,6 @@ impl ShardChunkHeaderV3 {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 pub enum ShardChunkHeader {
     V1(ShardChunkHeaderV1),
@@ -411,7 +406,6 @@ impl ShardChunkHeader {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Hash, Eq, PartialEq, Clone, Debug, Default)]
 pub struct ChunkHashHeight(pub ChunkHash, pub BlockHeight);
 
@@ -468,7 +462,6 @@ impl ShardChunkHeaderV1 {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub enum PartialEncodedChunk {
     V1(PartialEncodedChunkV1),
@@ -556,7 +549,6 @@ impl PartialEncodedChunk {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct PartialEncodedChunkV2 {
     pub header: ShardChunkHeader,
@@ -577,7 +569,6 @@ impl From<PartialEncodedChunk> for PartialEncodedChunkV2 {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct PartialEncodedChunkV1 {
     pub header: ShardChunkHeaderV1,
@@ -585,7 +576,6 @@ pub struct PartialEncodedChunkV1 {
     pub receipts: Vec<ReceiptProof>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct PartialEncodedChunkWithArcReceipts {
     pub header: ShardChunkHeader,
@@ -603,7 +593,6 @@ impl From<PartialEncodedChunkWithArcReceipts> for PartialEncodedChunk {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, Deserialize)]
 pub struct ShardProof {
     pub from_shard_id: ShardId,
@@ -611,12 +600,10 @@ pub struct ShardProof {
     pub proof: MerklePath,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, Deserialize)]
 /// For each Merkle proof there is a subset of receipts which may be proven.
 pub struct ReceiptProof(pub Vec<Receipt>, pub ShardProof);
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct PartialEncodedChunkPart {
     pub part_ord: u64,
@@ -624,7 +611,6 @@ pub struct PartialEncodedChunkPart {
     pub merkle_proof: MerklePath,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ShardChunkV1 {
     pub chunk_hash: ChunkHash,
@@ -633,7 +619,6 @@ pub struct ShardChunkV1 {
     pub receipts: Vec<Receipt>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ShardChunkV2 {
     pub chunk_hash: ChunkHash,
@@ -642,7 +627,6 @@ pub struct ShardChunkV2 {
     pub receipts: Vec<Receipt>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub enum ShardChunk {
     V1(ShardChunkV1),
@@ -774,7 +758,6 @@ impl ShardChunk {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Default, BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct EncodedShardChunkBody {
     pub parts: Vec<Option<Box<[u8]>>>,
@@ -814,7 +797,6 @@ pub struct ReceiptList<'a>(pub ShardId, pub &'a [Receipt]);
 #[derive(BorshSerialize, BorshDeserialize)]
 struct TransactionReceipt(Vec<SignedTransaction>, Vec<Receipt>);
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct EncodedShardChunkV1 {
     pub header: ShardChunkHeaderV1,
@@ -841,14 +823,12 @@ impl EncodedShardChunkV1 {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct EncodedShardChunkV2 {
     pub header: ShardChunkHeader,
     pub content: EncodedShardChunkBody,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub enum EncodedShardChunk {
     V1(EncodedShardChunkV1),

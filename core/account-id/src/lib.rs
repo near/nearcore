@@ -61,7 +61,6 @@ pub use errors::{ParseAccountError, ParseErrorKind};
 ///
 /// assert!("ƒelicia.near".parse::<AccountId>().is_err()); // (ƒ is not f)
 /// ```
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Eq, Ord, Hash, Clone, Debug, PartialEq, PartialOrd, arbitrary::Arbitrary)]
 pub struct AccountId(Box<str>);
 
