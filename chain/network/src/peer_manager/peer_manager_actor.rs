@@ -1486,10 +1486,6 @@ impl Handler<SetChainInfo> for PeerManagerActor {
         // synchronously, therefore, assuming actix in-order delivery,
         // there will be no race condition between subsequent SetChainInfo
         // calls.
-        // TODO(gprusak): if we could make handle() async, then we could
-        // just require the caller to await for completion before calling
-        // SetChainInfo again. Alternatively we could have an async mutex
-        // on the handler.
         state.chain_info.store(Arc::new(info.clone()));
 
         // If tier1 is not enabled, we skip set_keys() call.
@@ -1502,68 +1498,16 @@ impl Handler<SetChainInfo> for PeerManagerActor {
         if !state.accounts_data.set_keys(info.tier1_accounts.clone()) {
             return;
         }
-        ctx.spawn(wrap_future(async move {
-            // If the set of keys has changed, and the node is a validator,
-            // we should try to sign data and broadcast it. However, this is
-            // also a trigger for a full sync, so a dedicated broadcast is
-            // not required.
-            //
-            // TODO(gprusak): For dynamic self-IP-discovery, add a STUN daemon which
-            // will add new AccountData and trigger an incremental broadcast.
-            if let Some(vc) = &state.config.validator {
-                let my_account_id = vc.signer.validator_id();
-                let my_public_key = vc.signer.public_key();
-                // TODO(gprusak): STUN servers should be queried periocally by a daemon
-                // so that the my_peers list is always resolved.
-                // Note that currently we will broadcast an empty list.
-                // It won't help us to connect the the validator BUT it
-                // will indicate that a validator is misconfigured, which
-                // is could be useful for debugging. Consider keeping this
-                // behavior for situations when the IPs are not known.
-                let my_peers = match &vc.endpoints {
-                    config::ValidatorEndpoints::TrustedStunServers(_) => vec![],
-                    config::ValidatorEndpoints::PublicAddrs(peer_addrs) => peer_addrs.clone(),
-                };
-                let my_data = state
-                    .accounts_data
-                    .load()
-                    .epochs(&my_account_id, &my_public_key)
-                    .iter()
-                    .map(|epoch_id| {
-                        // This unwrap is safe, because we did signed a sample payload during
-                        // config validation. See config::Config::new().
-                        Arc::new(
-                            AccountData {
-                                peer_id: Some(state.config.node_id()),
-                                epoch_id: epoch_id.clone(),
-                                account_id: my_account_id.clone(),
-                                timestamp: now,
-                                peers: my_peers.clone(),
-                            }
-                            .sign(vc.signer.as_ref())
-                            .unwrap(),
-                        )
-                    })
-                    .collect();
-                // Insert node's own AccountData should never fail.
-                // We ignore the new data, because we trigger a full sync anyway.
-                if let (_, Some(err)) = state.accounts_data.insert(my_data).await {
-                    panic!("inserting node's own AccountData to self.state.accounts_data: {err}");
-                }
-            }
-            // The set of tier1 accounts has changed.
-            // We might miss some data, so we start a full sync with the connected peers.
-            // TODO(gprusak): add a daemon which does a periodic full sync in case some messages
-            // are lost (at a frequency which makes the additional network load negligible).
-            state.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(
-                SyncAccountsData {
-                    incremental: false,
-                    requesting_full_sync: true,
-                    accounts_data: state.accounts_data.load().data.values().cloned().collect(),
-                },
-            )));
-            state.config.event_sink.push(Event::SetChainInfo);
-        }));
+        // The set of tier1 accounts has changed.
+        // We might miss some data, so we start a full sync with the tier2 peers.
+        state.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(
+            SyncAccountsData {
+                incremental: false,
+                requesting_full_sync: true,
+                accounts_data: state.accounts_data.load().data.values().cloned().collect(),
+            },
+        )));
+        state.config.event_sink.push(Event::SetChainInfo);
     }
 }
 

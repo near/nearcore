@@ -135,19 +135,157 @@ impl NetworkState {
         PartialEdgeInfo::new(&self.config.node_id(), peer1, nonce, &self.config.node_key)
     }
 
-    pub async fn tier1_daemon_tick(self: &Arc<Self>, clock: &time::Clock, cfg: &config::Tier1) {
-        let accounts_data = self.accounts_data.load();
-        // Check if our node is currently a TIER1 validator.
-        // If so, it should establish TIER1 connections.
-        let my_tier1_account_id = match &self.config.validator {
-            Some(v)
-                if accounts_data
-                    .contains_account_key(v.signer.validator_id(), &v.signer.public_key()) =>
-            {
-                Some(v.signer.validator_id())
-            }
-            _ => None,
+    // Returns AccountId of this node iff it currently belongs to TIER1.
+    pub fn tier1_account_id(&self, accounts_data: &accounts_data::CacheSnapshot) -> Option<AccountId> {
+        let s = match &self.config.validator {
+            Some(v) => &v.signer,
+            None => return None,
         };
+        if accounts_data.contains_account_key(s.validator_id(), &s.public_key()) { Some(s.validator_id().clone()) } else { None }
+    }
+
+    pub fn my_tier1_proxies(&self, accounts_data: &accounts_data::CacheSnapshot) -> Vec<PeerId> {
+        let cfg = match &self.config.validator {
+            Some(it) => it,
+            None => return vec![],
+        };
+        if !accounts_data.contains_account_key(cfg.signer.validator_id(), &cfg.signer.public_key()) {
+            return vec![];
+        }
+        // TODO   
+    }
+
+    /// Connects to ALL trusted proxies from the config.
+    /// This way other TIER1 nodes can just connect to ANY proxy of this node.
+    pub async fn tier1_connect_to_my_proxies(self: &Arc<Self>, accounts_data: &accounts_data::CacheSnapshot) {
+        let accounts_data = self.accounts_data.load();
+        let tier1 = self.tier1.load();
+        let cfg = match &self.config.validator {
+            Some(it) => it,
+            None => return,
+        };
+        if !accounts_data.contains_account_key(cfg.signer.validator_id(), &cfg.signer.public_key()) {
+            return;
+        }
+        let proxies = match &vc.endpoints {
+            config::ValidatorEndpoints::TrustedStunServers(_) => {
+                // TODO(gprusak): STUN servers should be queried periocally by a daemon
+                // so that the my_peers list is always resolved.
+                // Note that currently we will broadcast an empty list.
+                // It won't help us to connect the the validator BUT it
+                // will indicate that a validator is misconfigured, which
+                // is could be useful for debugging. Consider keeping this
+                // behavior for situations when the IPs are not known.
+                vec![]
+            }
+            config::ValidatorEndpoints::PublicAddrs(peer_addrs) => peer_addrs.clone(),
+        }
+        for proxy in proxies {
+            // Skip the proxies we are already connected/connecting to.
+            if tier1.ready.contains(proxy.peer_id) || tier1.outbound_handshakes.contains(proxy.peer_id) {
+                continue;
+            }
+            if let Err(err) = async { 
+                let stream = tcp::Stream::connect(
+                    &PeerInfo {
+                        id: proxy.peer_id.clone(),
+                        addr: Some(proxy.addr),
+                        account_id: None,
+                    },
+                    tcp::Tier::T1,
+                )
+                .await?;
+                anyhow::Ok(PeerActor::spawn(clock.clone(), stream, None, self.clone())?)
+            }.await {
+                tracing::info!(target:"network", ?err, ?proxy, "failed to establish a TIER1 connection");
+            }
+        }
+    }
+
+    pub async fn tier1_broadcast_my_proxies(self: &Arc<Self>) {
+        let accounts_data = self.accounts_data.load();
+        let cfg = match &self.config.validator {
+            Some(it) => it,
+            None => return,
+        };
+        if !accounts_data.contains_account_key(cfg.signer.validator_id(), &cfg.signer.public_key()) {
+            return;
+        }
+        let tier1 = self.tier1.load();
+        let my_proxies = match cfg {
+            config::ValidatorEndpoints::TrustedStunServers(_) => {
+                match tier1.loop_out {
+                    Some(conn) => vec![PeerAddr{
+                        peer_id: self.config.node_id(),
+                        addr: conn.peer_addr,
+                    }],
+                    None => vec![],
+                }
+            }
+            config::ValidatorEndpoints::PublicAddrs(proxies) => {
+                let mut connected_proxies = vec![];
+                for proxy in proxies {
+                    match tier1.ready.get(proxy.peer_id) {
+                        // Here we compare the address from the config with the 
+                        // address of the connection (which is the IP, to which the
+                        // TCP socket is connected + port indicated by the peer).
+                        //
+                        // TODO(gprusak): It may happen that a single peer will be 
+                        // available under multiple IPs, in which case, we should
+                        // prefer to connect to the IP from the config, however
+                        // that would require having separate inbound and outbound
+                        // pools, so that both endpoints can keep a connection
+                        // to the IP that they prefer.
+                        Some(conn) if conn.peer_info.addr==Some(proxy.addr) => {
+                            connected_proxies.push(proxy);
+                        }
+                        _ => {}
+                    }
+                }
+                connected_proxies
+            }
+        }
+        let now = clock.now();
+        let my_data = self
+            .accounts_data
+            .load()
+            .epochs(&my_account_id, &my_public_key)
+            .iter()
+            .map(|epoch_id| {
+                // This unwrap is safe, because we did signed a sample payload during
+                // config validation. See config::Config::new().
+                Arc::new(
+                    AccountData {
+                        peer_id: Some(state.config.node_id()),
+                        epoch_id: epoch_id.clone(),
+                        account_id: my_account_id.clone(),
+                        timestamp: now,
+                        peers: my_proxies.clone(),
+                    }
+                    .sign(vc.signer.as_ref())
+                    .unwrap(),
+                )
+            })
+            .collect();
+            let (new_data, err) = state.accounts_data.insert(my_data).await;
+            // Inserting node's own AccountData should never fail.
+            if let Some(err) = err {
+                panic!("inserting node's own AccountData to self.state.accounts_data: {err}");
+            }
+            state.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(
+                SyncAccountsData {
+                    incremental: true,
+                    requesting_full_sync: false,
+                    accounts_data: new_data,
+                },
+            )));
+        }
+    }
+
+    pub async fn tier1_connect_to_others_proxies(self: &Arc<Self>, clock: &time::Clock, cfg: &config::Tier1) {
+        let accounts_data = self.accounts_data.load();
+        let my_tier1_account_id = self.tier1_account_id(&accounts_data);
+
         let mut accounts_by_peer = HashMap::<_, Vec<_>>::new();
         let mut accounts_by_proxy = HashMap::<_, Vec<_>>::new();
         let mut proxies_by_account = HashMap::<_, Vec<_>>::new();
@@ -199,7 +337,7 @@ impl NetworkState {
             let mut new_connections = 0;
             for account_id in account_ids {
                 // Do not connect to yourself.
-                if account_id == my_tier1_account_id {
+                if account_id == &my_tier1_account_id {
                     continue;
                 }
                 if new_connections >= cfg.new_connections_per_tick {
