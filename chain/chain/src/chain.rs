@@ -689,11 +689,11 @@ impl Chain {
         let bps = runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
         let protocol_version = runtime_adapter.get_epoch_protocol_version(&prev_epoch_id)?;
         if checked_feature!("stable", BlockHeaderV3, protocol_version) {
-            let validator_stakes: Vec<_> = bps.into_iter().map(|(bp, _)| bp).collect();
-            Ok(CryptoHash::hash_borsh(&validator_stakes))
+            let validator_stakes = bps.into_iter().map(|(bp, _)| bp);
+            Ok(CryptoHash::hash_borsh_iter(validator_stakes))
         } else {
-            let validator_stakes: Vec<_> = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
-            Ok(CryptoHash::hash_borsh(&validator_stakes))
+            let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1());
+            Ok(CryptoHash::hash_borsh_iter(validator_stakes))
         }
     }
 
@@ -2192,7 +2192,8 @@ impl Chain {
         );
 
         // Determine the block status of this block (whether it is a side fork and updates the chain head)
-        // Block status is needed in Client::on_block_accepted to decide to how to update the tx pool.
+        // Block status is needed in Client::on_block_accepted_with_optional_chunk_produce to
+        // decide to how to update the tx pool.
         let block_status = self.determine_status(new_head, prev_head);
         Ok(AcceptedBlock { hash: *block.hash(), status: block_status, provenance })
     }
