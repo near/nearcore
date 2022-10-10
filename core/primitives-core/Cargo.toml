@@ -16,7 +16,6 @@ This crate provides the core set of primitives used by other nearcore crates inc
 base64.workspace = true
 borsh.workspace = true
 bs58.workspace = true
-deepsize = { workspace = true, optional = true }
 derive_more.workspace = true
 num-rational.workspace = true
 serde.workspace = true
@@ -32,8 +31,3 @@ serde_json.workspace = true
 [features]
 default = []
 protocol_feature_ed25519_verify = []
-
-deepsize_feature = [
-  "deepsize",
-  "near-account-id/deepsize_feature",
-]

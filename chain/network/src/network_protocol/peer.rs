@@ -105,7 +105,6 @@ impl FromStr for PeerInfo {
 
 /// Peer chain information.
 /// TODO: Remove in next version
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
 /// Represents `peers` view about chain.
 pub struct PeerChainInfo {

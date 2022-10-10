@@ -368,7 +368,6 @@ pub mod test_features {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct SetAdvOptions {

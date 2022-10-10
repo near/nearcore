@@ -100,7 +100,6 @@ crossbeam = "0.8"
 crossbeam-channel = "0.5"
 csv = "1.1.1"
 curve25519-dalek = "3"
-deepsize = { version = "0.2.0", features = ["chrono"] }
 derive_more = "0.99.9"
 dirs = "3"
 easy-ext = "0.2"
