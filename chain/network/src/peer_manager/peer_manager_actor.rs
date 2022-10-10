@@ -170,7 +170,7 @@ pub enum Event {
     // it is hard to pinpoint all the places when the processing of a message is
     // actually complete. Currently this event is reported only for some message types,
     // feel free to add support for more.
-    MessageProcessed(PeerMessage),
+    MessageProcessed(tcp::Tier, PeerMessage),
     // Reported when a handshake has been started.
     HandshakeStarted(crate::peer::peer_actor::HandshakeStartedEvent),
     // Reported when a handshake has been successfully completed.

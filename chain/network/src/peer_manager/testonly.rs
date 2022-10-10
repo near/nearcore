@@ -53,7 +53,7 @@ pub(crate) struct ActorHandler {
 
 pub fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData> {
     match ev {
-        Event::PeerManager(PME::MessageProcessed(PeerMessage::SyncAccountsData(msg))) => Some(msg),
+        Event::PeerManager(PME::MessageProcessed(tcp::Tier::T2,PeerMessage::SyncAccountsData(msg))) => Some(msg),
         _ => None,
     }
 }
@@ -248,9 +248,10 @@ impl ActorHandler {
         conn
     }
 
-    pub async fn set_chain_info(&mut self, chain_info: ChainInfo) {
+    pub async fn set_chain_info(&self, chain_info: ChainInfo) {
+        let mut events = self.events.from_now();
         self.actix.addr.send(SetChainInfo(chain_info)).await.unwrap();
-        self.events
+        events
             .recv_until(|ev| match ev {
                 Event::PeerManager(PME::SetChainInfo) => Some(()),
                 _ => None,
@@ -259,7 +260,8 @@ impl ActorHandler {
     }
 
     // Awaits until the accounts_data state matches `want`.
-    pub async fn wait_for_accounts_data(&mut self, want: &HashSet<NormalAccountData>) {
+    pub async fn wait_for_accounts_data(&self, want: &HashSet<NormalAccountData>) {
+        let mut events = self.events.from_now();
         loop {
             let info = self.actix.addr.send(GetNetworkInfo).await.unwrap();
             let got: HashSet<_> = info.tier1_accounts.iter().map(|d| d.into()).collect();
@@ -268,8 +270,35 @@ impl ActorHandler {
             }
             // It is important that we wait for the next PeerMessage::SyncAccountsData to get
             // PROCESSED, not just RECEIVED. Otherwise we would get a race condition.
-            self.events.recv_until(unwrap_sync_accounts_data_processed).await;
+            events.recv_until(unwrap_sync_accounts_data_processed).await;
         }
+    }
+
+    pub async fn establish_tier1_connections(&self, clock: &time::Clock) {
+        let mut events = self.events.from_now();
+        let my_account_id = match &self.cfg.validator {
+            Some(v) => v.signer.validator_id().clone(),
+            None => return,
+        };
+        let clock = clock.clone();
+        self.with_state(move |s| async move {
+            // Start the connections.
+            s.tier1_daemon_tick(&clock, s.config.features.tier1.as_ref().unwrap()).await;
+            let ad = s.accounts_data.load();
+            // Wait for all the connections to be established.
+            loop {
+                if ad.keys.keys().all(|(_,account_id)|account_id==&my_account_id || s.get_tier1_proxy(account_id).is_some()) {
+                    break;
+                }
+                events
+                    .recv_until(|ev| match ev {
+                        Event::PeerManager(PME::HandshakeCompleted(ev)) if ev.tier==tcp::Tier::T1 => Some(()),
+                        _ => None,
+                    })
+                    .await;
+            }
+        })
+        .await;
     }
 }
 

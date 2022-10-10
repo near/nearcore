@@ -2,6 +2,7 @@ use crate::concurrency::rate;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::SyncAccountsData;
 use crate::peer;
+use crate::tcp;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::testonly::{make_rng, AsSet as _};
@@ -23,7 +24,7 @@ async fn accounts_data_broadcast() {
     let clock = clock.clock();
     let clock = &clock;
 
-    let mut pm = peer_manager::testonly::start(
+    let pm = peer_manager::testonly::start(
         clock.clone(),
         near_store::db::TestDB::new(),
         chain.make_config(rng),
@@ -32,7 +33,7 @@ async fn accounts_data_broadcast() {
     .await;
 
     let take_sync = |ev| match ev {
-        peer::testonly::Event::Network(PME::MessageProcessed(PeerMessage::SyncAccountsData(
+        peer::testonly::Event::Network(PME::MessageProcessed(tcp::Tier::T2, PeerMessage::SyncAccountsData(
             msg,
         ))) => Some(msg),
         _ => None,

@@ -71,7 +71,7 @@ async fn ttl() {
             let got = peer
                 .events
                 .recv_until(|ev| match ev {
-                    peer::testonly::Event::Network(PME::MessageProcessed(PeerMessage::Routed(
+                    peer::testonly::Event::Network(PME::MessageProcessed(_,PeerMessage::Routed(
                         msg,
                     ))) => Some(msg),
                     _ => None,
@@ -128,6 +128,7 @@ async fn repeated_data_in_sync_routing_table() {
         while edges_got != edges_want || accounts_got != accounts_want {
             match peer.events.recv().await {
                 peer::testonly::Event::Network(PME::MessageProcessed(
+                    tcp::Tier::T2,
                     PeerMessage::SyncRoutingTable(got),
                 )) => {
                     for a in got.accounts {
@@ -215,6 +216,7 @@ async fn no_edge_broadcast_after_restart() {
         while edges_got != edges_want {
             match peer.events.recv().await {
                 peer::testonly::Event::Network(PME::MessageProcessed(
+                    tcp::Tier::T2,
                     PeerMessage::SyncRoutingTable(got),
                 )) => {
                     edges_got.extend(got.edges);

@@ -1467,7 +1467,7 @@ impl Client {
         }
     }
 
-    /// Collects block approvals. Returns false if block approval is invalid.
+    /// Collects block approvals.
     ///
     /// We send the approval to doomslug given the epoch of the current tip iff:
     ///  1. We are the block producer for the target height in the tip's epoch;

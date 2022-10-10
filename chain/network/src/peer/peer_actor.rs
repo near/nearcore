@@ -79,6 +79,7 @@ pub struct HandshakeStartedEvent {
 pub struct HandshakeCompletedEvent {
     pub(crate) stream_id: tcp::StreamId,
     pub(crate) edge: Edge,
+    pub(crate) tier: tcp::Tier,
 }
 
 #[derive(thiserror::Error, Clone, PartialEq, Eq, Debug)]
@@ -664,6 +665,7 @@ impl PeerActor {
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
                             edge: conn.edge.clone(),
+                            tier: conn.tier,
                         }));
                     },
                     Ok(RegisterPeerResponse::Reject(err)) => {
@@ -787,7 +789,7 @@ impl PeerActor {
             .network_state
             .config
             .event_sink
-            .delayed_push(|| Event::MessageProcessed(msg.clone()));
+            .delayed_push(|| Event::MessageProcessed(conn.tier, msg.clone()));
         let was_requested = match &msg {
             PeerMessage::Block(block) => {
                 let hash = *block.hash();
@@ -850,7 +852,7 @@ impl PeerActor {
                 self.network_state
                     .peer_manager_addr
                     .do_send(PeerToManagerMsg::PeersResponse(PeersResponse { peers }));
-                self.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
+                self.network_state.config.event_sink.push(Event::MessageProcessed(tcp::Tier::T2, peer_msg));
             }
             PeerMessage::RequestUpdateNonce(edge_info) => {
                 ctx.spawn(
@@ -870,7 +872,7 @@ impl PeerActor {
                             }
                             _ => {}
                         }
-                        act.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
+                        act.network_state.config.event_sink.push(Event::MessageProcessed(tcp::Tier::T2, peer_msg));
                         actix::fut::ready(())
                     }),
                 );
@@ -889,14 +891,14 @@ impl PeerActor {
                             }
                             _ => {}
                         }
-                        act.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
+                        act.network_state.config.event_sink.push(Event::MessageProcessed(tcp::Tier::T2, peer_msg));
                         actix::fut::ready(())
                     }),
                 );
             }
             PeerMessage::SyncRoutingTable(rtu) => {
                 self.sync_routing_table(ctx, conn, rtu);
-                self.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
+                self.network_state.config.event_sink.push(Event::MessageProcessed(tcp::Tier::T2, peer_msg));
             }
             PeerMessage::SyncAccountsData(msg) => {
                 let peer_id = conn.peer_info.id.clone();
@@ -948,7 +950,7 @@ impl PeerActor {
                         if let Some(ban_reason) = ban_reason {
                             act.stop(ctx, ClosingReason::Ban(ban_reason));
                         }
-                        act.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
+                        act.network_state.config.event_sink.push(Event::MessageProcessed(tcp::Tier::T2, peer_msg));
                     }),
                 );
             }
@@ -997,14 +999,14 @@ impl PeerActor {
                             self.network_state
                                 .config
                                 .event_sink
-                                .push(Event::MessageProcessed(PeerMessage::Routed(msg)));
+                                .push(Event::MessageProcessed(conn.tier, PeerMessage::Routed(msg)));
                         }
                         RoutedMessageBody::Pong(pong) => {
                             self.network_state.config.event_sink.push(Event::Pong(pong.clone()));
                             self.network_state
                                 .config
                                 .event_sink
-                                .push(Event::MessageProcessed(PeerMessage::Routed(msg)));
+                                .push(Event::MessageProcessed(conn.tier, PeerMessage::Routed(msg)));
                         }
                         _ => self.receive_message(ctx, conn, PeerMessage::Routed(msg.clone())),
                     }
