@@ -74,7 +74,6 @@
 * Due to increasing state size, improved shard cache for Trie nodes to
   put more nodes in memory. Requires 3 GB more RAM
   [#7429](https://github.com/near/nearcore/pull/7429)
->>>>>>> 7d9c73cf5 (Revert "json: remove deprecated old style path+data request format" (#7797))
 
 ## 1.28.0 [2022-07-27]
 
