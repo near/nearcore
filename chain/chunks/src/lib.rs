@@ -97,7 +97,6 @@ use tracing::{debug, error, warn};
 
 use near_chain::{byzantine_assert, RuntimeAdapter};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
-use near_pool::{PoolIteratorWrapper, TransactionPool};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{verify_path, MerklePath};
@@ -126,7 +125,6 @@ use near_network::types::{
     AccountIdOrPeerTrackingShard, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
     PartialEncodedChunkResponseMsg,
 };
-use near_primitives::epoch_manager::RngSeed;
 use rand::Rng;
 
 mod chunk_cache;
@@ -475,8 +473,6 @@ pub struct ShardsManager {
     me: Option<AccountId>,
     store: ReadOnlyChunksStore,
 
-    tx_pools: HashMap<ShardId, TransactionPool>,
-
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     peer_manager_adapter: Arc<dyn PeerManagerAdapter>,
     client_adapter: Arc<dyn ClientAdapterForShardsManager>,
@@ -487,9 +483,6 @@ pub struct ShardsManager {
     chunk_forwards_cache: lru::LruCache<ChunkHash, HashMap<u64, PartialEncodedChunkPart>>,
 
     seals_mgr: SealsManager,
-    /// Useful to make tests deterministic and reproducible,
-    /// while keeping the security of randomization of transactions in pool
-    rng_seed: RngSeed,
 }
 
 impl ShardsManager {
@@ -499,13 +492,10 @@ impl ShardsManager {
         network_adapter: Arc<dyn PeerManagerAdapter>,
         client_adapter: Arc<dyn ClientAdapterForShardsManager>,
         store: ReadOnlyChunksStore,
-        rng_seed: RngSeed,
     ) -> Self {
-        TransactionPool::init_metrics();
         Self {
             me: me.clone(),
             store,
-            tx_pools: HashMap::new(),
             runtime_adapter: runtime_adapter.clone(),
             peer_manager_adapter: network_adapter,
             client_adapter,
@@ -522,7 +512,6 @@ impl ShardsManager {
             ),
             chunk_forwards_cache: lru::LruCache::new(CHUNK_FORWARD_CACHE_SIZE),
             seals_mgr: SealsManager::new(me, runtime_adapter),
-            rng_seed,
         }
     }
 
@@ -531,10 +520,6 @@ impl ShardsManager {
             new_height,
             &self.requested_partial_encoded_chunks.requests,
         );
-    }
-
-    pub fn get_pool_iterator(&mut self, shard_id: ShardId) -> Option<PoolIteratorWrapper<'_>> {
-        self.tx_pools.get_mut(&shard_id).map(|pool| pool.pool_iterator())
     }
 
     fn request_partial_encoded_chunk(
@@ -964,42 +949,6 @@ impl ShardsManager {
         prev_block_hash: &CryptoHash,
     ) -> HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)> {
         self.encoded_chunks.get_chunk_headers_for_block(prev_block_hash)
-    }
-
-    /// Returns true if transaction is not in the pool before call
-    pub fn insert_transaction(&mut self, shard_id: ShardId, tx: SignedTransaction) -> bool {
-        self.pool_for_shard(shard_id).insert_transaction(tx)
-    }
-
-    pub fn remove_transactions(&mut self, shard_id: ShardId, transactions: &[SignedTransaction]) {
-        if let Some(pool) = self.tx_pools.get_mut(&shard_id) {
-            pool.remove_transactions(transactions)
-        }
-    }
-
-    /// Computes a deterministic random seed for given `shard_id`.
-    /// This seed is used to randomize the transaction pool.
-    /// For better security we want the seed to different in each shard.
-    /// For testing purposes we want it to be the reproducible and derived from the `self.rng_seed` and `shard_id`
-    fn random_seed(base_seed: &RngSeed, shard_id: ShardId) -> RngSeed {
-        let mut res = *base_seed;
-        res[0] = shard_id as u8;
-        res[1] = (shard_id / 256) as u8;
-        res
-    }
-
-    fn pool_for_shard(&mut self, shard_id: ShardId) -> &mut TransactionPool {
-        self.tx_pools.entry(shard_id).or_insert_with(|| {
-            TransactionPool::new(ShardsManager::random_seed(&self.rng_seed, shard_id))
-        })
-    }
-
-    pub fn reintroduce_transactions(
-        &mut self,
-        shard_id: ShardId,
-        transactions: &[SignedTransaction],
-    ) {
-        self.pool_for_shard(shard_id).reintroduce_transactions(transactions.to_vec());
     }
 
     pub fn receipts_recipient_filter<T>(
@@ -2199,8 +2148,6 @@ mod test {
     use super::*;
     use crate::test_utils::*;
 
-    const TEST_SEED: RngSeed = [3; 32];
-
     /// should not request partial encoded chunk from self
     #[test]
     fn test_request_partial_encoded_chunk_from_self() {
@@ -2214,7 +2161,6 @@ mod test {
             network_adapter.clone(),
             client_adapter,
             ReadOnlyChunksStore::new(store),
-            TEST_SEED,
         );
         let added = Clock::instant();
         shards_manager.requested_partial_encoded_chunks.insert(
@@ -2270,7 +2216,6 @@ mod test {
             network_adapter,
             client_adapter,
             chain_store.new_read_only_chunks_store(),
-            TEST_SEED,
         );
         let signer =
             InMemoryValidatorSigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
@@ -2433,7 +2378,6 @@ mod test {
             fixture.mock_network.clone(),
             fixture.mock_client_adapter.clone(),
             fixture.chain_store.new_read_only_chunks_store(),
-            TEST_SEED,
         );
         // process chunk part 0
         let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&[0]);
@@ -2502,7 +2446,6 @@ mod test {
             fixture.mock_network.clone(),
             fixture.mock_client_adapter.clone(),
             fixture.chain_store.new_read_only_chunks_store(),
-            TEST_SEED,
         );
 
         // part id > num parts
@@ -2530,7 +2473,6 @@ mod test {
             fixture.mock_network.clone(),
             fixture.mock_client_adapter.clone(),
             fixture.chain_store.new_read_only_chunks_store(),
-            TEST_SEED,
         );
         let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&fixture.mock_part_ords);
         let result = shards_manager
@@ -2587,7 +2529,6 @@ mod test {
             fixture.mock_network.clone(),
             fixture.mock_client_adapter.clone(),
             fixture.chain_store.new_read_only_chunks_store(),
-            TEST_SEED,
         );
         let count_num_forward_msgs = |fixture: &ChunkTestFixture| {
             fixture
@@ -2667,7 +2608,6 @@ mod test {
             fixture.mock_network.clone(),
             fixture.mock_client_adapter.clone(),
             fixture.chain_store.new_read_only_chunks_store(),
-            TEST_SEED,
         );
         shards_manager.insert_header_if_not_exists_and_process_cached_chunk_forwards(
             &fixture.mock_chunk_header,
@@ -2751,7 +2691,6 @@ mod test {
             fixture.mock_network.clone(),
             fixture.mock_client_adapter.clone(),
             fixture.chain_store.new_read_only_chunks_store(),
-            TEST_SEED,
         );
         let partial_encoded_chunk = fixture.make_partial_encoded_chunk(&fixture.mock_part_ords);
         let _ = shards_manager
@@ -2833,7 +2772,6 @@ mod test {
             fixture.mock_network.clone(),
             fixture.mock_client_adapter.clone(),
             fixture.chain_store.new_read_only_chunks_store(),
-            TEST_SEED,
         );
         let (most_parts, other_parts) = {
             let mut most_parts = fixture.mock_chunk_parts.clone();
@@ -2902,7 +2840,6 @@ mod test {
             fixture.mock_network.clone(),
             fixture.mock_client_adapter.clone(),
             fixture.chain_store.new_read_only_chunks_store(),
-            TEST_SEED,
         );
         let forward = PartialEncodedChunkForwardMsg::from_header_and_parts(
             &fixture.mock_chunk_header,
@@ -2948,24 +2885,5 @@ mod test {
                 }
             })
             .is_none());
-    }
-
-    #[test]
-    fn test_random_seed_with_shard_id() {
-        let seed0 = ShardsManager::random_seed(&TEST_SEED, 0);
-        let seed10 = ShardsManager::random_seed(&TEST_SEED, 10);
-        let seed256 = ShardsManager::random_seed(&TEST_SEED, 256);
-        let seed1000 = ShardsManager::random_seed(&TEST_SEED, 1000);
-        let seed1000000 = ShardsManager::random_seed(&TEST_SEED, 1_000_000);
-        assert_ne!(seed0, seed10);
-        assert_ne!(seed0, seed256);
-        assert_ne!(seed0, seed1000);
-        assert_ne!(seed0, seed1000000);
-        assert_ne!(seed10, seed256);
-        assert_ne!(seed10, seed1000);
-        assert_ne!(seed10, seed1000000);
-        assert_ne!(seed256, seed1000);
-        assert_ne!(seed256, seed1000000);
-        assert_ne!(seed1000, seed1000000);
     }
 }

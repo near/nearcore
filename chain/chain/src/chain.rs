@@ -2192,7 +2192,8 @@ impl Chain {
         );
 
         // Determine the block status of this block (whether it is a side fork and updates the chain head)
-        // Block status is needed in Client::on_block_accepted to decide to how to update the tx pool.
+        // Block status is needed in Client::on_block_accepted_with_optional_chunk_produce to
+        // decide to how to update the tx pool.
         let block_status = self.determine_status(new_head, prev_head);
         Ok(AcceptedBlock { hash: *block.hash(), status: block_status, provenance })
     }
