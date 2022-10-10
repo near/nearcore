@@ -22,7 +22,6 @@ bytesize.workspace = true
 chrono.workspace = true
 conqueue.workspace = true
 crossbeam-channel.workspace = true
-deepsize = { workspace = true, optional = true }
 futures-util.workspace = true
 futures.workspace = true
 im.workspace = true
@@ -61,11 +60,6 @@ pretty_assertions.workspace = true
 tempfile.workspace = true
 
 [features]
-deepsize_feature = [
-    "deepsize",
-    "near-crypto/deepsize_feature",
-    "near-primitives/deepsize_feature",
-]
 delay_detector = ["delay-detector/delay_detector"]
 performance_stats = [
     "near-performance-metrics/performance_stats",

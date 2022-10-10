@@ -8,7 +8,6 @@ use sha2::Digest;
 
 use crate::logging::pretty_hash;
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, derive_more::AsRef, derive_more::AsMut)]
 #[as_ref(forward)]
 #[as_mut(forward)]

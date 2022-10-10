@@ -14,12 +14,10 @@ description = "This crate contains the Account ID primitive and its validation f
 [features]
 default = ["borsh", "serde"]
 internal_unstable = []
-deepsize_feature = ["deepsize"]
 
 [dependencies]
 borsh = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
-deepsize = { workspace = true, optional = true }
 
 [dev-dependencies]
 bolero.workspace = true
