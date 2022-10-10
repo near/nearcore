@@ -27,8 +27,7 @@ use near_chain::{
 use near_chain_configs::ClientConfig;
 use near_chunks::ShardsManager;
 use near_network::types::{
-    FullPeerInfo, NetworkClientResponses, NetworkRequests, PartialEncodedChunkForwardMsg,
-    PartialEncodedChunkResponseMsg, PeerManagerAdapter,
+    FullPeerInfo, NetworkClientResponses, NetworkRequests, PeerManagerAdapter,
 };
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
@@ -185,6 +184,7 @@ impl Client {
             network_adapter.clone(),
             client_adapter.clone(),
             chain.store().new_read_only_chunks_store(),
+            chain.head().ok(),
         );
         let sharded_tx_pool = ShardedTransactionPool::new(rng_seed);
         let sync_status = SyncStatus::AwaitingPeers;
@@ -929,7 +929,7 @@ impl Client {
             .flat_map(|block| block.missing_chunks.iter())
             .chain(orphans_missing_chunks.iter().flat_map(|block| block.missing_chunks.iter()));
         for chunk in missing_chunks {
-            match self.process_chunk_header_from_block_for_shards_manager(chunk) {
+            match self.shards_mgr.process_chunk_header_from_block(chunk) {
                 Ok(_) => {}
                 Err(err) => {
                     warn!(target: "client", "Failed to process missing chunk from block: {:?}", err)
@@ -946,55 +946,6 @@ impl Client {
                 NetworkRequests::Block { block: block.clone() },
             ));
             self.rebroadcasted_blocks.put(*block.hash(), ());
-        }
-    }
-
-    pub fn process_partial_encoded_chunk(
-        &mut self,
-        partial_chunk: PartialEncodedChunk,
-    ) -> Result<(), Error> {
-        self.shards_mgr.process_partial_encoded_chunk(
-            MaybeValidated::from(partial_chunk),
-            self.chain.head().ok().as_ref(),
-        )?;
-        Ok(())
-    }
-
-    pub fn process_partial_encoded_chunk_response(
-        &mut self,
-        response: PartialEncodedChunkResponseMsg,
-    ) -> Result<(), Error> {
-        let header = self.shards_mgr.get_partial_encoded_chunk_header(&response.chunk_hash)?;
-        let partial_chunk = PartialEncodedChunk::new(header, response.parts, response.receipts);
-        // We already know the header signature is valid because we read it from the
-        // shard manager.
-        self.shards_mgr.process_partial_encoded_chunk(
-            MaybeValidated::from_validated(partial_chunk),
-            self.chain.head().ok().as_ref(),
-        )?;
-        Ok(())
-    }
-
-    pub fn process_partial_encoded_chunk_forward(
-        &mut self,
-        forward: PartialEncodedChunkForwardMsg,
-    ) -> Result<(), Error> {
-        self.shards_mgr
-            .process_partial_encoded_chunk_forward(forward, self.chain.head().ok().as_ref())?;
-        Ok(())
-    }
-
-    /// Try to process chunks in the chunk cache whose previous block hash is `prev_block_hash` and
-    /// who are not marked as complete yet
-    /// This function is needed because chunks in chunk cache will only be marked as complete after
-    /// the previous block is accepted. So we need to check if there are any chunks can be marked as
-    /// complete when a new block is accepted.
-    pub fn check_incomplete_chunks(&mut self, prev_block_hash: &CryptoHash) {
-        for chunk_header in self.shards_mgr.get_incomplete_chunks(prev_block_hash) {
-            debug!(target:"client", "try to process incomplete chunks {:?}, prev_block: {:?}", chunk_header.chunk_hash(), prev_block_hash);
-            if let Err(err) = self.shards_mgr.try_process_chunk_parts_and_receipts(&chunk_header) {
-                error!(target:"client", "unexpected error processing orphan chunk {:?}", err)
-            }
         }
     }
 
@@ -1023,18 +974,6 @@ impl Client {
         if let Err(err) = update.commit() {
             error!(target: "client", "Error saving invalid chunk: {:?}", err);
         }
-    }
-
-    /// Let the ShardsManager know about the chunk header, when encountering that chunk header
-    /// from the block and the chunk is possibly not yet known to the ShardsManager.
-    pub fn process_chunk_header_from_block_for_shards_manager(
-        &mut self,
-        header: &ShardChunkHeader,
-    ) -> Result<(), Error> {
-        if self.shards_mgr.insert_header_if_not_exists_and_process_cached_chunk_forwards(header) {
-            self.shards_mgr.try_process_chunk_parts_and_receipts(header)?;
-        }
-        Ok(())
     }
 
     pub fn sync_block_headers(
@@ -1164,7 +1103,7 @@ impl Client {
         }
 
         if status.is_new_head() {
-            self.shards_mgr.update_largest_seen_height(block.header().height());
+            self.shards_mgr.update_chain_head(Tip::from_header(&block.header()));
             let last_final_block = block.header().last_final_block();
             let last_finalized_height = if last_final_block == &CryptoHash::default() {
                 self.chain.genesis().height()
@@ -1318,7 +1257,7 @@ impl Client {
                 }
             }
         }
-        self.check_incomplete_chunks(block.hash());
+        self.shards_mgr.check_incomplete_chunks(block.hash());
     }
 
     pub fn persist_and_distribute_encoded_chunk(
