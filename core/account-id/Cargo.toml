@@ -14,7 +14,6 @@ description = "This crate contains the Account ID primitive and its validation f
 [features]
 default = ["borsh", "serde"]
 internal_unstable = []
-arbitrary = ["dep:arbitrary"]
 deepsize_feature = ["deepsize"]
 
 [dependencies]
