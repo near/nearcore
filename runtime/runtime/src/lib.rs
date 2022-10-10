@@ -231,7 +231,7 @@ impl Runtime {
             apply_state.gas_price,
             signed_transaction,
             true,
-            Some(apply_state.block_index),
+            Some(apply_state.block_height),
             apply_state.current_protocol_version,
         ) {
             Ok(verification_result) => {
@@ -395,7 +395,7 @@ impl Runtime {
                         actor_id,
                         &receipt.receiver_id,
                         transfer,
-                        apply_state.block_index,
+                        apply_state.block_height,
                         apply_state.current_protocol_version,
                     );
                 }
@@ -1605,7 +1605,7 @@ mod tests {
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
-            block_index: 1,
+            block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
             epoch_id: Default::default(),

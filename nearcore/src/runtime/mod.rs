@@ -480,7 +480,7 @@ impl NightshadeRuntime {
         debug!(target: "runtime", ?epoch_height, ?epoch_id, ?current_protocol_version, ?is_first_block_of_version);
 
         let apply_state = ApplyState {
-            block_index: block_height,
+            block_height,
             prev_block_hash: *prev_block_hash,
             block_hash: *block_hash,
             epoch_id,
