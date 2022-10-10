@@ -459,7 +459,8 @@ impl StateRootNode {
     BorshSerialize,
     BorshDeserialize,
     Serialize,
-    Deserialize, arbitrary::Arbitrary
+    Deserialize,
+    arbitrary::Arbitrary,
 )]
 #[as_ref(forward)]
 pub struct EpochId(pub CryptoHash);
