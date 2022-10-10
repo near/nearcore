@@ -4,8 +4,10 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochInfoV1};
 use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof};
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::AccountId;
+use near_primitives::utils::get_outcome_id_block_hash;
 
 use crate::{DBCol, Store, StoreUpdate};
 
@@ -184,5 +186,66 @@ pub fn migrate_31_to_32(storage: &crate::NodeStorage) -> anyhow::Result<()> {
     update.delete_all(DBCol::_ChunkPerHeightShard);
     update.delete_all(DBCol::_GCCount);
     update.commit()?;
+    Ok(())
+}
+
+fn get_row_count(store: &Store, col_name: &str) -> Option<i64> {
+    let statistics = store.get_store_statistics()?;
+    let col_stats = statistics.data.into_iter().find(|(col, _)| col == col_name)?.1;
+    for stat in col_stats {
+        match stat {
+            crate::db::StatsValue::Count(count) => return Some(count),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Migrates database from version 32 to 33.
+///
+/// This removes the TransactionResult column and moves it to TransactionResultForBlock.
+/// The new column removes the need for high-latency read-modify-write operations when committing
+/// new blocks.
+pub fn migrate_32_to_33(storage: &crate::NodeStorage) -> anyhow::Result<()> {
+    const BATCH_SIZE: usize = 100000;
+    let store = storage.get_store(crate::Temperature::Hot);
+    let mut migrated_overall = 0;
+    let num_rows = get_row_count(&store, "col7");
+    loop {
+        let mut update = store.store_update();
+        let mut rows_migrated = 0;
+        for row in store
+            .iter_prefix_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(DBCol::_TransactionResult, &[])
+        {
+            let (key, outcomes) = row?;
+            update.delete(DBCol::_TransactionResult, &key);
+            for outcome in outcomes {
+                update.set_ser(
+                    DBCol::TransactionResultForBlock,
+                    &get_outcome_id_block_hash(outcome.id(), &outcome.block_hash),
+                    &ExecutionOutcomeWithProof {
+                        proof: outcome.proof,
+                        outcome: outcome.outcome_with_id.outcome,
+                    },
+                )?;
+            }
+
+            rows_migrated += 1;
+            if rows_migrated == BATCH_SIZE {
+                break;
+            }
+        }
+        if rows_migrated == 0 {
+            break;
+        } else {
+            migrated_overall += rows_migrated;
+            update.commit()?;
+        }
+        println!(
+            "Migrated {}/{} TransactionResult rows",
+            migrated_overall,
+            num_rows.map(|rows| format!("{}", rows)).unwrap_or("unknown".to_string())
+        );
+    }
     Ok(())
 }

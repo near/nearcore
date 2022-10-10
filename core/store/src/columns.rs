@@ -47,11 +47,9 @@ pub enum DBCol {
     /// - *Rows*: BlockChunk (block_hash, shard_uid)
     /// - *Content type*: [near_primitives::types::chunk_extra::ChunkExtra]
     ChunkExtra,
-    /// Mapping from transaction outcome id (CryptoHash) to list of outcome ids with proofs.
-    /// Multiple outcomes can arise due to forks.
-    /// - *Rows*: outcome id (CryptoHash)
-    /// - *Content type*: Vec of [near_primitives::transaction::ExecutionOutcomeWithIdAndProof]
-    TransactionResult,
+    /// Deprecated.
+    #[strum(serialize = "TransactionResult")]
+    _TransactionResult,
     /// Mapping from Block + Shard to list of outgoing receipts.
     /// - *Rows*: block + shard
     /// - *Content type*: Vec of [near_primitives::receipt::Receipt]
@@ -237,6 +235,11 @@ pub enum DBCol {
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
     /// - *Column type*: StateChangesForSplitStates
     StateChangesForSplitStates,
+    /// Transaction or receipt outcome, by outcome ID (transaction or receipt hash) and block
+    /// hash. Multiple outcomes may be stored for the same outcome ID in case of forks.
+    /// *Rows*: OutcomeId (CryptoHash) || BlockHash (CryptoHash)
+    /// *Column type*: ExecutionOutcomeWithProof
+    TransactionResultForBlock,
     /// Flat state contents. Used to get `ValueRef` by trie key faster than doing a trie lookup.
     /// - *Rows*: trie key (Vec<u8>)
     /// - *Column type*: ValueRef
