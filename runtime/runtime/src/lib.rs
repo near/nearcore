@@ -1134,7 +1134,7 @@ impl Runtime {
         Ok((gas_used, receipts_to_restore))
     }
 
-    /// Applies new singed transactions and incoming receipts for some chunk/shard on top of
+    /// Applies new signed transactions and incoming receipts for some chunk/shard on top of
     /// given trie and the given state root.
     /// If the validator accounts update is provided, updates validators accounts.
     /// All new signed transactions should be valid and already verified by the chunk producer.
