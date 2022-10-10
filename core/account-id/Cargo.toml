@@ -17,7 +17,7 @@ internal_unstable = []
 deepsize_feature = ["deepsize"]
 
 [dependencies]
-arbitrary = { workspace = true, optional = true }
+arbitrary.workspace = true
 borsh = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 deepsize = { workspace = true, optional = true }

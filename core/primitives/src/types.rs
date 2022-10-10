@@ -23,9 +23,8 @@ pub use near_primitives_core::types::*;
 pub type StateRoot = CryptoHash;
 
 /// Different types of finality.
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, arbitrary::Arbitrary)]
 pub enum Finality {
     #[serde(rename = "optimistic")]
     None,
@@ -446,7 +445,6 @@ impl StateRootNode {
 /// Epoch identifier -- wrapped hash, to make it easier to distinguish.
 /// EpochId of epoch T is the hash of last block in T-2
 /// EpochId of first two epochs is 0
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     Debug,
@@ -461,7 +459,7 @@ impl StateRootNode {
     BorshSerialize,
     BorshDeserialize,
     Serialize,
-    Deserialize,
+    Deserialize, arbitrary::Arbitrary
 )]
 #[as_ref(forward)]
 pub struct EpochId(pub CryptoHash);
@@ -785,9 +783,8 @@ pub struct ChunkExtraV1 {
     pub balance_burnt: Balance,
 }
 
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, arbitrary::Arbitrary)]
 #[serde(untagged)]
 pub enum BlockId {
     Height(BlockHeight),
@@ -796,18 +793,16 @@ pub enum BlockId {
 
 pub type MaybeBlockId = Option<BlockId>;
 
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, arbitrary::Arbitrary)]
 #[serde(rename_all = "snake_case")]
 pub enum SyncCheckpoint {
     Genesis,
     EarliestAvailable,
 }
 
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, arbitrary::Arbitrary)]
 #[serde(rename_all = "snake_case")]
 pub enum BlockReference {
     BlockId(BlockId),
@@ -845,8 +840,7 @@ pub struct BlockChunkValidatorStats {
     pub chunk_stats: ValidatorStats,
 }
 
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, arbitrary::Arbitrary)]
 #[serde(rename_all = "snake_case")]
 pub enum EpochReference {
     EpochId(EpochId),

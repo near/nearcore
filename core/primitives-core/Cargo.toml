@@ -13,7 +13,7 @@ This crate provides the core set of primitives used by other nearcore crates inc
 """
 
 [dependencies]
-arbitrary = { workspace = true, optional = true }
+arbitrary.workspace = true
 base64.workspace = true
 borsh.workspace = true
 bs58.workspace = true
@@ -34,10 +34,6 @@ serde_json.workspace = true
 default = []
 protocol_feature_ed25519_verify = []
 
-arbitrary = [
-  "dep:arbitrary",
-  "near-account-id/arbitrary",
-]
 deepsize_feature = [
   "deepsize",
   "near-account-id/deepsize_feature",
