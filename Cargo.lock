@@ -3232,13 +3232,13 @@ dependencies = [
  "tokio-stream",
  "tokio-util 0.7.2",
  "tracing",
- "tracing-opentelemetry",
 ]
 
 [[package]]
 name = "near-o11y"
 version = "0.0.0"
 dependencies = [
+ "actix",
  "atty",
  "backtrace",
  "bencher",
@@ -3369,6 +3369,7 @@ dependencies = [
  "near-client-primitives",
  "near-crypto",
  "near-network",
+ "near-o11y",
  "near-primitives",
  "paperclip",
  "serde",
