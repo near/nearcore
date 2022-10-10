@@ -2081,6 +2081,7 @@ impl ShardsManager {
 
     pub fn distribute_encoded_chunk(
         &mut self,
+        partial_chunk: PartialEncodedChunk,
         encoded_chunk: EncodedShardChunk,
         merkle_paths: &Vec<MerklePath>,
         outgoing_receipts: Vec<Receipt>,
@@ -2150,6 +2151,7 @@ impl ShardsManager {
         }
 
         // Add it to the set of chunks to be included in the next block
+        self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_chunk.clone().into());
         self.encoded_chunks.insert_chunk_header(shard_id, chunk_header);
 
         Ok(())
