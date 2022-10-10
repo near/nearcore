@@ -12,7 +12,7 @@ use near_primitives::syncing::{
     get_num_state_parts, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
 };
 use near_primitives::transaction::{
-    ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof, SignedTransaction,
+    ExecutionOutcomeWithProof, SignedTransaction,
 };
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId};
@@ -659,7 +659,7 @@ pub(crate) fn outcome_by_outcome_id_exists(
     outcome_ids: &[CryptoHash],
 ) -> Result<(), StoreValidatorError> {
     for outcome_id in outcome_ids {
-        let outcome = unwrap_or_err_db!(
+        let _outcome = unwrap_or_err_db!(
             sv.store.get_ser::<ExecutionOutcomeWithProof>(
                 DBCol::TransactionResultForBlock,
                 &get_outcome_id_block_hash(outcome_id, block_hash)

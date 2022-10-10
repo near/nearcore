@@ -2258,7 +2258,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn gc_outcomes(&mut self, block: &Block) -> Result<(), Error> {
         let block_hash = block.hash();
-        let mut store_update = self.store().store_update();
+        let store_update = self.store().store_update();
         for chunk_header in
             block.chunks().iter().filter(|h| h.height_included() == block.header().height())
         {
