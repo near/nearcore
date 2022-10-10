@@ -21,6 +21,7 @@ use near_network::types::{
 use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo};
 
 use near_o11y::testonly::init_test_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::time::Utc;
 use near_primitives::transaction::SignedTransaction;
@@ -99,7 +100,10 @@ fn query_status_not_crash() {
 
             actix::spawn(
                 client
-                    .send(NetworkClientMessages::Block(next_block, PeerInfo::random().id, false))
+                    .send(
+                        NetworkClientMessages::Block(next_block, PeerInfo::random().id, false)
+                            .with_span_context(),
+                    )
                     .then(move |_| {
                         actix::spawn(
                             client.send(Status { is_health_check: true, detailed: false }).then(
@@ -140,11 +144,14 @@ fn test_execution_outcome_for_chunk() {
             );
             let tx_hash = transaction.get_hash();
             let res = client
-                .send(NetworkClientMessages::Transaction {
-                    transaction,
-                    is_forwarded: false,
-                    check_only: false,
-                })
+                .send(
+                    NetworkClientMessages::Transaction {
+                        transaction,
+                        is_forwarded: false,
+                        check_only: false,
+                    }
+                    .with_span_context(),
+                )
                 .await
                 .unwrap();
             assert!(matches!(res, NetworkClientResponses::ValidTx));

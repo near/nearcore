@@ -14,6 +14,7 @@ use near_network::types::{
     NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
 };
 use near_o11y::testonly::init_integration_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::types::{AccountId, BlockHeight};
 
@@ -159,7 +160,8 @@ fn test_consensus_with_epoch_switches() {
                                             delayed_block.clone(),
                                             key_pairs[0].clone().id,
                                             true,
-                                        ),
+                                        )
+                                        .with_span_context(),
                                     );
                                 }
                             } else {
@@ -255,10 +257,13 @@ fn test_consensus_with_epoch_switches() {
                             connectors1.write().unwrap()
                                 [epoch_id * 8 + (destination_ord + delta) % 8]
                                 .0
-                                .do_send(NetworkClientMessages::BlockApproval(
-                                    approval,
-                                    key_pairs[my_ord].id.clone(),
-                                ));
+                                .do_send(
+                                    NetworkClientMessages::BlockApproval(
+                                        approval,
+                                        key_pairs[my_ord].id.clone(),
+                                    )
+                                    .with_span_context(),
+                                );
                             // Do not send the endorsement for couple block producers in each epoch
                             // This is needed because otherwise the block with enough endorsements
                             // sometimes comes faster than the sufficient number of skips is created,

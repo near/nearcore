@@ -2218,12 +2218,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "id-arena"
-version = "2.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25a2bc672d1148e28034f176e01fffebb08b35768468cc954630da77a1449005"
-
-[[package]]
 name = "ident_case"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3238,13 +3232,13 @@ dependencies = [
  "tokio-stream",
  "tokio-util 0.7.2",
  "tracing",
- "tracing-opentelemetry",
 ]
 
 [[package]]
 name = "near-o11y"
 version = "0.0.0"
 dependencies = [
+ "actix",
  "atty",
  "backtrace",
  "bencher",
@@ -3375,6 +3369,7 @@ dependencies = [
  "near-client-primitives",
  "near-crypto",
  "near-network",
+ "near-o11y",
  "near-primitives",
  "paperclip",
  "serde",
@@ -4830,7 +4825,6 @@ dependencies = [
  "tracing",
  "tracing-span-tree",
  "tracing-subscriber",
- "walrus",
  "wat",
 ]
 
@@ -6116,32 +6110,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "walrus"
-version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d470d0583e65f4cab21a1ff3c1ba3dd23ae49e68f516f0afceaeb001b32af39"
-dependencies = [
- "anyhow",
- "id-arena",
- "leb128",
- "log",
- "walrus-macro",
- "wasmparser 0.59.0",
-]
-
-[[package]]
-name = "walrus-macro"
-version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7c2bb690b44cb1b0fdcc54d4998d21f8bdaf706b93775425e440b174f39ad16"
-dependencies = [
- "heck 0.3.3",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "want"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6431,12 +6399,6 @@ name = "wasmparser"
 version = "0.51.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aeb1956b19469d1c5e63e459d29e7b5aa0f558d9f16fcef09736f8a265e6c10a"
-
-[[package]]
-name = "wasmparser"
-version = "0.59.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a950e6a618f62147fd514ff445b2a0b53120d382751960797f85f058c7eda9b9"
 
 [[package]]
 name = "wasmparser"

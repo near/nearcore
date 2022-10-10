@@ -16,6 +16,7 @@ use near_network::types::{
     PeerManagerMessageResponse,
 };
 use near_o11y::testonly::init_integration_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference};
@@ -109,18 +110,21 @@ fn send_tx(
     actix::spawn(
         connectors.write().unwrap()[connector_ordinal]
             .0
-            .send(NetworkClientMessages::Transaction {
-                transaction: SignedTransaction::send_money(
-                    nonce,
-                    from.clone(),
-                    to.clone(),
-                    &signer,
-                    amount,
-                    block_hash,
-                ),
-                is_forwarded: false,
-                check_only: false,
-            })
+            .send(
+                NetworkClientMessages::Transaction {
+                    transaction: SignedTransaction::send_money(
+                        nonce,
+                        from.clone(),
+                        to.clone(),
+                        &signer,
+                        amount,
+                        block_hash,
+                    ),
+                    is_forwarded: false,
+                    check_only: false,
+                }
+                .with_span_context(),
+            )
             .then(move |x| {
                 match x.unwrap() {
                     NetworkClientResponses::NoResponse | NetworkClientResponses::RequestRouted => {
