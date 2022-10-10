@@ -507,7 +507,7 @@ mod test {
             env.produce_block(0, i + 1);
         }
 
-        let chain = Chain::new(
+        let chain = Chain::new_for_view_client(
             runtimes[0].clone(),
             &chain_genesis,
             env.clients[0].chain.doomslug_threshold_mode,
