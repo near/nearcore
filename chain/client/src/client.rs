@@ -815,7 +815,8 @@ impl Client {
             Provenance::PRODUCED | Provenance::SYNC => true,
             Provenance::NONE => false,
         };
-        // drop the block if a) it is not requested, b) we already processed this height, c) it is not building on top of current head
+        // Drop the block if a) it is not requested, b) we already processed this height,
+        // c) it is not building on top of current head
         if !is_requested
             && block.header().prev_hash()
                 != &self
