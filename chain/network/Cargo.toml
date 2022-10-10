@@ -43,7 +43,6 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tokio-util.workspace = true
-tracing-opentelemetry.workspace = true
 tracing.workspace = true
 time.workspace = true
 

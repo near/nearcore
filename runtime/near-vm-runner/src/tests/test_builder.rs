@@ -16,7 +16,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         signer_account_pk: vec![0, 1, 2],
         predecessor_account_id: "carol".parse().unwrap(),
         input: Vec::new(),
-        block_index: 10,
+        block_height: 10,
         block_timestamp: 42,
         epoch_height: 1,
         account_balance: 2u128,

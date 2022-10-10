@@ -908,10 +908,19 @@ pub enum TransactionOrReceiptId {
     Receipt { receipt_id: CryptoHash, receiver_id: AccountId },
 }
 
+#[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize)]
+pub enum CompiledContract {
+    CompileModuleError(near_vm_errors::CompilationError),
+    Code(Vec<u8>),
+}
+
 /// Cache for compiled modules
 pub trait CompiledContractCache: Send + Sync {
-    fn put(&self, key: &CryptoHash, value: Vec<u8>) -> Result<(), std::io::Error>;
-    fn get(&self, key: &CryptoHash) -> Result<Option<Vec<u8>>, std::io::Error>;
+    fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()>;
+    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>>;
+    fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
+        self.get(key).map(|entry| entry.is_some())
+    }
 }
 
 /// Provides information about current epoch validators.

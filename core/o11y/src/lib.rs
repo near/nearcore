@@ -3,6 +3,7 @@
 pub use {backtrace, tracing, tracing_appender, tracing_subscriber};
 
 use clap::Parser;
+pub use context::*;
 use near_crypto::PublicKey;
 use near_primitives::types::AccountId;
 use once_cell::sync::OnceCell;
@@ -17,12 +18,14 @@ use tracing::level_filters::LevelFilter;
 use tracing::subscriber::DefaultGuard;
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_opentelemetry::OpenTelemetryLayer;
+pub use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::filter::{Filtered, ParseError};
 use tracing_subscriber::layer::{Layered, SubscriberExt};
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::{fmt, reload, EnvFilter, Layer, Registry};
 
 /// Custom tracing subscriber implementation that produces IO traces.
+pub mod context;
 mod io_tracer;
 pub mod metrics;
 pub mod testonly;
@@ -124,6 +127,11 @@ pub struct Options {
     #[clap(long, arg_enum, default_value = "auto")]
     color: ColorOutput,
 
+    /// Enable logging of spans. For instance, this prints timestamps of entering and exiting a span,
+    /// together with the span duration and used/idle CPU time.
+    #[clap(long)]
+    log_span_events: bool,
+
     /// Enable JSON output of IO events, written to a file.
     #[clap(long)]
     record_io_trace: Option<PathBuf>,
@@ -185,19 +193,24 @@ fn add_simple_log_layer<S>(
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
 {
-    let layer = fmt::layer()
-        .with_ansi(ansi)
-        // Synthesizing ENTER and CLOSE events lets us log durations of spans to the log.
-        .with_span_events(fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::CLOSE)
-        .with_filter(filter);
+    let layer = fmt::layer().with_ansi(ansi).with_filter(filter);
 
     subscriber.with(layer)
+}
+
+fn get_fmt_span(with_span_events: bool) -> fmt::format::FmtSpan {
+    if with_span_events {
+        fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::CLOSE
+    } else {
+        fmt::format::FmtSpan::NONE
+    }
 }
 
 fn add_non_blocking_log_layer<S>(
     filter: EnvFilter,
     writer: NonBlocking,
     ansi: bool,
+    with_span_events: bool,
     subscriber: S,
 ) -> (LogLayer<S>, reload::Handle<EnvFilter, S>)
 where
@@ -207,8 +220,7 @@ where
 
     let layer = fmt::layer()
         .with_ansi(ansi)
-        // Synthesizing ENTER and CLOSE events lets us log durations of spans to the log.
-        .with_span_events(fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::CLOSE)
+        .with_span_events(get_fmt_span(with_span_events))
         .with_writer(writer)
         .with_filter(filter);
 
@@ -344,8 +356,13 @@ pub async fn default_subscriber_with_opentelemetry(
     // reset opentelemetry filter when the LogConfig file gets deleted.
     DEFAULT_OTLP_LEVEL.set(options.opentelemetry).unwrap();
 
-    let (subscriber, handle) =
-        add_non_blocking_log_layer(env_filter, writer, color_output, subscriber);
+    let (subscriber, handle) = add_non_blocking_log_layer(
+        env_filter,
+        writer,
+        color_output,
+        options.log_span_events,
+        subscriber,
+    );
     LOG_LAYER_RELOAD_HANDLE
         .set(handle)
         .unwrap_or_else(|_| panic!("Failed to set Log Layer Filter"));

@@ -16,6 +16,7 @@ use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor
 use near_network::types::NetworkClientMessages;
 use near_network::types::PeerInfo;
 use near_o11y::testonly::init_integration_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::Approval;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
@@ -87,11 +88,10 @@ fn add_blocks(
             None,
         );
         block_merkle_tree.insert(*block.hash());
-        let _ = client.do_send(NetworkClientMessages::Block(
-            block.clone(),
-            PeerInfo::random().id,
-            false,
-        ));
+        let _ = client.do_send(
+            NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, false)
+                .with_span_context(),
+        );
         blocks.push(block);
         prev = &blocks[blocks.len() - 1];
     }
@@ -272,11 +272,14 @@ fn sync_state_stake_change() {
             );
             actix::spawn(
                 client1
-                    .send(NetworkClientMessages::Transaction {
-                        transaction: unstake_transaction,
-                        is_forwarded: false,
-                        check_only: false,
-                    })
+                    .send(
+                        NetworkClientMessages::Transaction {
+                            transaction: unstake_transaction,
+                            is_forwarded: false,
+                            check_only: false,
+                        }
+                        .with_span_context(),
+                    )
                     .map(drop),
             );
 
