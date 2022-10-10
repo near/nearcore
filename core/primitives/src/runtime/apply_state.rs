@@ -10,8 +10,7 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub struct ApplyState {
     /// Currently building block height.
-    // TODO #1903 pub block_height: BlockHeight,
-    pub block_index: BlockHeight,
+    pub block_height: BlockHeight,
     /// Prev block hash
     pub prev_block_hash: CryptoHash,
     /// Current block hash

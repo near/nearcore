@@ -83,7 +83,6 @@ imports! {
     signer_account_pk<[register_id: u64] -> []>,
     predecessor_account_id<[register_id: u64] -> []>,
     input<[register_id: u64] -> []>,
-    // TODO #1903 rename to `block_height`
     block_index<[] -> [u64]>,
     block_timestamp<[] -> [u64]>,
     epoch_height<[] -> [u64]>,
