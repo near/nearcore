@@ -560,7 +560,7 @@ fn test_double_sign_slashing1() {
     );
     assert_eq!(
         epoch_info.validator_kickout(),
-        &vec![("test1".parse().unwrap(), ValidatorKickoutReason::Slashed)]
+        &[("test1".parse().unwrap(), ValidatorKickoutReason::Slashed)]
             .into_iter()
             .collect::<HashMap<_, _>>()
     );
@@ -1083,7 +1083,7 @@ fn test_expected_chunks() {
         .unwrap();
     assert_eq!(
         epoch_info.validator_kickout(),
-        &vec![(
+        &[(
             "test1".parse().unwrap(),
             ValidatorKickoutReason::NotEnoughBlocks { produced: 0, expected }
         )]
@@ -1164,7 +1164,7 @@ fn test_expected_chunks_prev_block_not_produced() {
         .unwrap();
     assert_eq!(
         epoch_info.validator_kickout(),
-        &vec![(
+        &[(
             "test1".parse().unwrap(),
             ValidatorKickoutReason::NotEnoughBlocks { produced: 0, expected }
         )]
@@ -1514,7 +1514,7 @@ fn test_chunk_validator_kickout() {
     let last_epoch_info = hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).last();
     assert_eq!(
         last_epoch_info.unwrap().validator_kickout(),
-        &vec![(
+        &[(
             "test1".parse().unwrap(),
             ValidatorKickoutReason::NotEnoughChunks { produced: 0, expected }
         )]

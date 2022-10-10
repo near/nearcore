@@ -212,9 +212,5 @@ fn check_connection_with_new_identity() -> anyhow::Result<()> {
 
     runner.push(Action::Wait(time::Duration::milliseconds(2000)));
 
-    // Check the no node tried to connect to itself in this process.
-    #[cfg(feature = "test_features")]
-    runner.push_action(wait_for(|| near_network::RECEIVED_INFO_ABOUT_ITSELF.get() == 0));
-
     start_test(runner)
 }

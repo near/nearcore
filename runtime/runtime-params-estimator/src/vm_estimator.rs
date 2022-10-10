@@ -10,7 +10,6 @@ use near_store::StoreCompiledContractCache;
 use near_vm_logic::VMContext;
 use near_vm_runner::internal::VMKind;
 use near_vm_runner::precompile_contract_vm;
-use walrus::Result;
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";

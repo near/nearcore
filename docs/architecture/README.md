@@ -5,6 +5,10 @@ is on the implementation of the blockchain protocol, not the protocol itself.
 For reference documentation of the protocol, please refer to
 [nomicon](https://nomicon.io/)
 
+Some parts of our architecture are also covered in this video series:
+
+https://www.youtube.com/playlist?list=PL9tzQn_TEuFV4qlts0tVgndnytFs4QSYo
+
 ## Bird's Eye View
 
 ![](/images/architecture.svg)
