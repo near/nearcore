@@ -2,7 +2,7 @@ use near_primitives::types::MaybeBlockId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[cfg_attr(feature = "arbitrary_feature", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcGasPriceRequest {
     pub block_id: MaybeBlockId,

@@ -7,7 +7,7 @@ use sha2::Digest;
 use crate::borsh::BorshSerialize;
 use crate::logging::pretty_hash;
 
-#[cfg_attr(feature = "arbitrary_feature", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, derive_more::AsRef, derive_more::AsMut)]
 #[as_ref(forward)]

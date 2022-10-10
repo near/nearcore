@@ -34,9 +34,9 @@ serde_json.workspace = true
 default = []
 protocol_feature_ed25519_verify = []
 
-arbitrary_feature = [
-  "arbitrary",
-  "near-account-id/arbitrary_feature",
+arbitrary = [
+  "dep:arbitrary",
+  "near-account-id/arbitrary",
 ]
 deepsize_feature = [
   "deepsize",

@@ -18,7 +18,7 @@ pub enum RpcBlockError {
     InternalError { error_message: String },
 }
 
-#[cfg_attr(feature = "arbitrary_feature", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RpcBlockRequest {
     #[serde(flatten)]
