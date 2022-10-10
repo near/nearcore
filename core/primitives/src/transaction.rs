@@ -163,14 +163,14 @@ impl From<TransferAction> for Action {
     }
 }
 
-/// An action which stakes singer_id tokens and setup's validator public key
+/// An action which stakes signer_id tokens and setup's validator public key
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct StakeAction {
     /// Amount of tokens to stake.
     #[serde(with = "dec_format")]
     pub stake: Balance,
-    /// Validator key which will be used to sign transactions on behalf of singer_id
+    /// Validator key which will be used to sign transactions on behalf of signer_id
     pub public_key: PublicKey,
 }
 

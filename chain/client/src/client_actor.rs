@@ -17,6 +17,8 @@ use near_chain::chain::{
     BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
 };
 use near_chain::test_utils::format_hash;
+#[cfg(feature = "test_features")]
+use near_chain::ChainStoreAccess;
 use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
     ChainGenesis, DoneApplyChunkCallback, Provenance, RuntimeAdapter,
@@ -28,16 +30,14 @@ use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
     StatusError, StatusSyncInfo, SyncStatus,
 };
-
-#[cfg(feature = "test_features")]
-use near_chain::ChainStoreAccess;
 use near_network::types::ReasonForBan;
 use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
 };
+use near_o11y::{OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics;
-use near_performance_metrics_macros::{perf, perf_with_debug};
+use near_performance_metrics_macros::perf;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
@@ -257,17 +257,25 @@ impl Actor for ClientActor {
     }
 }
 
-impl Handler<NetworkClientMessages> for ClientActor {
+impl Handler<WithSpanContext<NetworkClientMessages>> for ClientActor {
     type Result = NetworkClientResponses;
 
-    #[perf_with_debug]
-    fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
-        let _span = tracing::debug_span!(
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<NetworkClientMessages>,
+        ctx: &mut Context<Self>,
+    ) -> Self::Result {
+        let msg_type: &str = (&msg.msg).into();
+        let span = tracing::debug_span!(
             target: "client",
             "handle",
-            handler="NetworkClientMessages",
-            msg=msg.as_ref())
+            handler = "NetworkClientMessages",
+            actor = "ClientActor",
+            msg_type)
         .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
 
         self.check_triggers(ctx);
 

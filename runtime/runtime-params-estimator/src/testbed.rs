@@ -73,7 +73,7 @@ impl RuntimeTestbed {
 
         let apply_state = ApplyState {
             // Put each runtime into a separate shard.
-            block_index: 1,
+            block_height: 1,
             // Epoch length is long enough to avoid corner cases.
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
@@ -124,7 +124,7 @@ impl RuntimeTestbed {
             self.tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard());
         self.root = root;
         store_update.commit().unwrap();
-        self.apply_state.block_index += 1;
+        self.apply_state.block_height += 1;
 
         let mut total_burnt_gas = 0;
         if !allow_failures {

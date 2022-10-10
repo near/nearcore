@@ -3,6 +3,7 @@
 pub use {backtrace, tracing, tracing_appender, tracing_subscriber};
 
 use clap::Parser;
+pub use context::*;
 use near_crypto::PublicKey;
 use near_primitives::types::AccountId;
 use once_cell::sync::OnceCell;
@@ -17,12 +18,14 @@ use tracing::level_filters::LevelFilter;
 use tracing::subscriber::DefaultGuard;
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_opentelemetry::OpenTelemetryLayer;
+pub use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::filter::{Filtered, ParseError};
 use tracing_subscriber::layer::{Layered, SubscriberExt};
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::{fmt, reload, EnvFilter, Layer, Registry};
 
 /// Custom tracing subscriber implementation that produces IO traces.
+pub mod context;
 mod io_tracer;
 pub mod metrics;
 pub mod testonly;
