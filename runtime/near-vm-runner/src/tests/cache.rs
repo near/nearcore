@@ -10,7 +10,7 @@ use assert_matches::assert_matches;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::types::CompiledContractCache;
+use near_primitives::types::{CompiledContract, CompiledContractCache};
 use near_stable_hasher::StableHasher;
 use near_vm_errors::VMError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
@@ -189,14 +189,14 @@ impl FaultingCompiledContractCache {
 }
 
 impl CompiledContractCache for FaultingCompiledContractCache {
-    fn put(&self, key: &CryptoHash, value: Vec<u8>) -> Result<(), io::Error> {
+    fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()> {
         if self.write_fault.swap(false, Ordering::Relaxed) {
             return Err(io::ErrorKind::Other.into());
         }
         self.inner.put(key, value)
     }
 
-    fn get(&self, key: &CryptoHash) -> Result<Option<Vec<u8>>, io::Error> {
+    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
         if self.read_fault.swap(false, Ordering::Relaxed) {
             return Err(io::ErrorKind::Other.into());
         }
