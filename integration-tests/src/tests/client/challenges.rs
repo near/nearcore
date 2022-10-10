@@ -512,7 +512,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout);
     let (_receipts_root, receipts_proofs) = merklize(&receipts_hashes);
     let receipts_by_shard = Chain::group_receipts_by_shard(receipts, &shard_layout);
-    let one_part_receipt_proofs = env.clients[0].shards_mgr.receipts_recipient_filter(
+    let one_part_receipt_proofs = ShardsManager::receipts_recipient_filter(
         0,
         Vec::default(),
         &receipts_by_shard,
@@ -524,7 +524,10 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
         one_part_receipt_proofs,
         &[merkle_paths[0].clone()],
     );
-    assert!(env.clients[1].process_partial_encoded_chunk(partial_encoded_chunk).is_ok());
+    assert!(env.clients[1]
+        .shards_mgr
+        .process_partial_encoded_chunk(partial_encoded_chunk.into())
+        .is_ok());
     env.process_block(1, block, Provenance::NONE);
 
     // At this point we should create a challenge and send it out.
