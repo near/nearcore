@@ -14,6 +14,7 @@ description = "Observability helpers for the near codebase"
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 
+actix.workspace = true
 atty.workspace = true
 backtrace.workspace = true
 clap.workspace = true

@@ -20,10 +20,9 @@ use crate::time;
 use crate::types::AccountOrPeerIdOrHash;
 use actix::{Actor, Context, Handler};
 use near_crypto::{InMemorySigner, Signature};
+use near_o11y::WithSpanContextExt;
 use near_primitives::network::PeerId;
 use std::sync::Arc;
-use tracing::Span;
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub struct PeerConfig {
     pub chain: Arc<data::Chain>,
@@ -109,7 +108,7 @@ impl PeerHandle {
     pub async fn send(&self, message: PeerMessage) {
         self.actix
             .addr
-            .send(SendMessage { message: Arc::new(message), context: Span::current().context() })
+            .send(SendMessage { message: Arc::new(message) }.with_span_context())
             .await
             .unwrap();
     }

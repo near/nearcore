@@ -17,6 +17,7 @@ use near_network::types::{
     NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
 };
 use near_o11y::testonly::init_integration_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::hash::{hash as hash_func, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ChunkHash;
@@ -70,11 +71,16 @@ fn send_tx(
     block_hash: CryptoHash,
 ) {
     let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
-    connector.do_send(NetworkClientMessages::Transaction {
-        transaction: SignedTransaction::send_money(nonce, from, to, &signer, amount, block_hash),
-        is_forwarded: false,
-        check_only: false,
-    });
+    connector.do_send(
+        NetworkClientMessages::Transaction {
+            transaction: SignedTransaction::send_money(
+                nonce, from, to, &signer, amount, block_hash,
+            ),
+            is_forwarded: false,
+            check_only: false,
+        }
+        .with_span_context(),
+    );
 }
 
 enum ReceiptsSyncPhases {
