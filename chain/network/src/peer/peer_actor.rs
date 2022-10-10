@@ -3,6 +3,7 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::concurrency::rate;
 use crate::network_protocol::{
+    PeerIdOrHash, 
     Edge, EdgeState, Encoding, ParsePeerMessageError, PartialEdgeInfo, PeerChainInfoV2, PeerInfo,
     RoutedMessageBody, RoutingTableUpdate, SyncAccountsData,
 };
@@ -21,7 +22,7 @@ use crate::stats::metrics;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    Ban, Handshake, HandshakeFailureReason, PeerIdOrHash, PeerMessage, PeerType, ReasonForBan,
+    Ban, Handshake, HandshakeFailureReason, PeerMessage, PeerType, ReasonForBan,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor, ActorContext, ActorFutureExt, AsyncContext, Context, Running};

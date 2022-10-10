@@ -655,8 +655,8 @@ pub enum AccountOrPeerIdOrHash {
     Hash(CryptoHash),
 }
 
-pub struct RawRoutedMessage {
-    pub target: AccountOrPeerIdOrHash,
+pub(crate) struct RawRoutedMessage {
+    pub target: PeerIdOrHash,
     pub body: RoutedMessageBody,
 }
 
@@ -670,12 +670,11 @@ impl RawRoutedMessage {
         now: Option<time::Utc>,
     ) -> RoutedMessageV2 {
         let author = PeerId::new(node_key.public_key());
-        let target = self.target.peer_id_or_hash().unwrap();
-        let hash = RoutedMessage::build_hash(&target, &author, &self.body);
+        let hash = RoutedMessage::build_hash(&self.target, &author, &self.body);
         let signature = node_key.sign(hash.as_ref());
         RoutedMessageV2 {
             msg: RoutedMessage {
-                target,
+                target: self.target,
                 author,
                 signature,
                 ttl: routed_message_ttl,

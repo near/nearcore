@@ -1,6 +1,7 @@
 use crate::client;
 use crate::config;
 use crate::network_protocol::{
+    PeerIdOrHash,
     AccountData, AccountOrPeerIdOrHash, Edge, EdgeState, PartialEdgeInfo, PeerInfo, PeerMessage,
     Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo,
     SyncAccountsData,
@@ -938,13 +939,20 @@ impl PeerManagerActor {
             AccountOrPeerIdOrHash::AccountId(account_id) => {
                 self.state.send_message_to_account(&self.clock, account_id, msg)
             }
-            peer_or_hash @ AccountOrPeerIdOrHash::PeerId(_)
-            | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) => self.state.send_message_to_peer(
+            AccountOrPeerIdOrHash::PeerId(peer_id) => self.state.send_message_to_peer(
                 &self.clock,
                 tcp::Tier::T2,
                 self.state.sign_message(
                     &self.clock,
-                    RawRoutedMessage { target: peer_or_hash.clone(), body: msg },
+                    RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id.clone()), body: msg },
+                ),
+            ),
+            AccountOrPeerIdOrHash::Hash(hash) => self.state.send_message_to_peer(
+                &self.clock,
+                tcp::Tier::T2,
+                self.state.sign_message(
+                    &self.clock,
+                    RawRoutedMessage { target: PeerIdOrHash::Hash(*hash), body: msg },
                 ),
             ),
         }
@@ -1090,7 +1098,7 @@ impl PeerManagerActor {
                     tcp::Tier::T2,
                     self.state.sign_message(
                         &self.clock,
-                        RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(route_back), body },
+                        RawRoutedMessage { target: PeerIdOrHash::Hash(route_back), body },
                     ),
                 ) {
                     NetworkResponses::NoResponse
@@ -1144,7 +1152,7 @@ impl PeerManagerActor {
                                 self.state.sign_message(
                                     &self.clock,
                                     RawRoutedMessage {
-                                        target: AccountOrPeerIdOrHash::PeerId(
+                                        target: PeerIdOrHash::PeerId(
                                             matching_peer.clone(),
                                         ),
                                         body: RoutedMessageBody::PartialEncodedChunkRequest(
@@ -1176,7 +1184,7 @@ impl PeerManagerActor {
                     self.state.sign_message(
                         &self.clock,
                         RawRoutedMessage {
-                            target: AccountOrPeerIdOrHash::Hash(route_back),
+                            target: PeerIdOrHash::Hash(route_back),
                             body: RoutedMessageBody::PartialEncodedChunkResponse(response),
                         },
                     ),

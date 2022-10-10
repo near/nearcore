@@ -3,7 +3,7 @@ use crate::client;
 use crate::concurrency::rate;
 use crate::config;
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerAddr, PeerIdOrHash, PeerInfo, PeerMessage,
+    Edge, PartialEdgeInfo, PeerAddr, PeerIdOrHash, PeerInfo, PeerMessage,
     Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
 };
 use crate::peer::peer_actor::PeerActor;
@@ -305,13 +305,13 @@ impl NetworkState {
 
     pub fn send_ping(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: PeerId) {
         let body = RoutedMessageBody::Ping(Ping { nonce, source: self.config.node_id() });
-        let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body };
+        let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
 
     pub fn send_pong(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: CryptoHash) {
         let body = RoutedMessageBody::Pong(Pong { nonce, source: self.config.node_id() });
-        let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body };
+        let msg = RawRoutedMessage { target: PeerIdOrHash::Hash(target), body };
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
 
@@ -399,7 +399,7 @@ impl NetworkState {
                 conn.send_message(Arc::new(PeerMessage::Routed(self.sign_message(
                     clock,
                     RawRoutedMessage {
-                        target: AccountOrPeerIdOrHash::PeerId(target),
+                        target: PeerIdOrHash::PeerId(target),
                         body: msg.clone(),
                     },
                 ))));
@@ -421,7 +421,7 @@ impl NetworkState {
             }
         };
 
-        let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body: msg };
+        let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
         let msg = self.sign_message(clock, msg);
         if msg.body.is_important() {
             let mut success = false;
@@ -554,7 +554,7 @@ impl NetworkState {
                         PeerMessage::Routed(self.sign_message(
                             &clock,
                             RawRoutedMessage {
-                                target: AccountOrPeerIdOrHash::Hash(msg_hash),
+                                target: PeerIdOrHash::Hash(msg_hash),
                                 body,
                             },
                         ))

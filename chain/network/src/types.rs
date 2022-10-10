@@ -28,7 +28,7 @@ use std::sync::Arc;
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
     Edge, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, Ping,
+    PartialEncodedChunkResponseMsg, PeerChainInfo, PeerChainInfoV2, PeerInfo, Ping,
     Pong, StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
 };
 
@@ -112,16 +112,6 @@ impl KnownPeerState {
 impl KnownPeerStatus {
     pub fn is_banned(&self) -> bool {
         matches!(self, KnownPeerStatus::Banned(_, _))
-    }
-}
-
-impl AccountOrPeerIdOrHash {
-    pub(crate) fn peer_id_or_hash(&self) -> Option<PeerIdOrHash> {
-        match self {
-            AccountOrPeerIdOrHash::AccountId(_) => None,
-            AccountOrPeerIdOrHash::PeerId(peer_id) => Some(PeerIdOrHash::PeerId(peer_id.clone())),
-            AccountOrPeerIdOrHash::Hash(hash) => Some(PeerIdOrHash::Hash(*hash)),
-        }
     }
 }
 
@@ -556,7 +546,6 @@ mod tests {
     fn test_enum_size() {
         assert_size!(PeerType);
         assert_size!(RoutedMessageBody);
-        assert_size!(PeerIdOrHash);
         assert_size!(KnownPeerStatus);
         assert_size!(ReasonForBan);
     }

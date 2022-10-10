@@ -3,6 +3,7 @@ use crate::client;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
+    PeerIdOrHash,
     Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
 };
 use crate::peer::peer_actor::{ClosingReason, PeerActor};
@@ -17,7 +18,6 @@ use crate::tcp;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
-use crate::types::AccountOrPeerIdOrHash;
 use crate::types::PeerMessage;
 use actix::{Actor, Context, Handler};
 use near_crypto::{InMemorySigner, Signature};
@@ -140,7 +140,7 @@ impl PeerHandle {
         ttl: u8,
         utc: Option<time::Utc>,
     ) -> RoutedMessageV2 {
-        RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id), body }.sign(
+        RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id), body }.sign(
             &self.cfg.network.node_key,
             ttl,
             utc,
