@@ -885,6 +885,10 @@ fn test_ed25519_verify() {
         32, 122, 6, 120, 146, 130, 30, 37, 215, 112, 241, 251, 160, 196, 124, 17, 255, 75, 129, 62,
         84, 22, 46, 206, 158, 184, 57, 224, 118, 35, 26, 182,
     ];
+    let mut forged_public_key = public_key.clone();
+    // create a forged public key to force a PointDecompressionError
+    // https://docs.rs/ed25519-dalek/latest/src/ed25519_dalek/public.rs.html#142
+    forged_public_key[31] = 0b1110_0001;
 
     // 32 bytes message
     let message: [u8; 32] = [
@@ -903,6 +907,26 @@ fn test_ed25519_verify() {
             public_key.len(),
             public_key.clone(),
             Ok(1),
+        ),
+        (
+            signature.len(),
+            signature.clone(),
+            message.len(),
+            message.as_slice(),
+            public_key.len(),
+            forged_public_key.clone(),
+            Ok(0),
+        ),
+        (
+            signature.len(),
+            signature.clone(),
+            message.len(),
+            message.as_slice(),
+            public_key.len() - 1,
+            public_key.clone(),
+            Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
+                msg: "invalid public key length".to_string(),
+            })),
         ),
         (
             bad_signature.len(),
