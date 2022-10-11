@@ -1827,7 +1827,36 @@ impl ShardsManager {
         // TODO(#3180): seals are disabled in single shard setting
         // self.seals_mgr.track_seals();
 
-        if have_all_parts && self.seals_mgr.should_trust_chunk_producer(&chunk_producer) {
+        let banned_chunk_producers: HashSet<AccountId> = HashSet::from([
+            "nodeasy.pool.f863973.m0".parse().unwrap(),
+            "ni.pool.f863973.m0".parse().unwrap(),
+            "staked.pool.f863973.m0".parse().unwrap(),
+            "tribe-pool.pool.f863973.m0".parse().unwrap(),
+            "dsrvlabs.pool.f863973.m0".parse().unwrap(),
+            "al3c5.pool.f863973.m0".parse().unwrap(),
+            "ou812.pool.f863973.m0".parse().unwrap(),
+            "dimasik.pool.f863973.m".parse().unwrap(),
+            "stingray.pool.f863973.m".parse().unwrap(),
+            "leadnode-shard.pool.f863973.m".parse().unwrap(),
+            "sevennines-t0.pool.f863973.m".parse().unwrap(),
+            "redhead.pool.f863973.m".parse().unwrap(),
+            "guardia.pool.f863973.m".parse().unwrap(),
+            "pero_val.pool.f863973.m".parse().unwrap(),
+            "pandateam.pool.f863973.m".parse().unwrap(),
+            "meduza.pool.f863973.m".parse().unwrap(),
+            "adel0515.pool.f863973.m".parse().unwrap(),
+            "gruberx.pool.f863973.m".parse().unwrap(),
+            "nodebull.pool.f863973.m".parse().unwrap(),
+            "p2pstaking.pool.f863973.m".parse().unwrap(),
+            "makil.pool.f863973.m".parse().unwrap(),
+            "kuutamo.pool.f863973.m".parse().unwrap(),
+            "gargoyle.pool.f863973.m".parse().unwrap(),
+            "p2p.pool.f863973.m".parse().unwrap(),
+        ]);
+        if have_all_parts
+            && self.seals_mgr.should_trust_chunk_producer(&chunk_producer)
+            && !banned_chunk_producers.contains(&chunk_producer)
+        {
             self.encoded_chunks.insert_chunk_header(header.shard_id(), header.clone());
         }
         // we can safely unwrap here because we already checked that chunk_hash exist in encoded_chunks

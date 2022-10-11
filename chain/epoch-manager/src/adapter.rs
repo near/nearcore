@@ -331,35 +331,6 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         if block_info.slashed().contains_key(chunk_producer.account_id()) {
             return Ok(false);
         }
-        let banned_chunk_producers: HashSet<AccountId> = HashSet::from([
-            "nodeasy.pool.f863973.m0".parse().unwrap(),
-            "ni.pool.f863973.m0".parse().unwrap(),
-            "staked.pool.f863973.m0".parse().unwrap(),
-            "tribe-pool.pool.f863973.m0".parse().unwrap(),
-            "dsrvlabs.pool.f863973.m0".parse().unwrap(),
-            "al3c5.pool.f863973.m0".parse().unwrap(),
-            "ou812.pool.f863973.m0".parse().unwrap(),
-            "dimasik.pool.f863973.m".parse().unwrap(),
-            "stingray.pool.f863973.m".parse().unwrap(),
-            "leadnode-shard.pool.f863973.m".parse().unwrap(),
-            "sevennines-t0.pool.f863973.m".parse().unwrap(),
-            "redhead.pool.f863973.m".parse().unwrap(),
-            "guardia.pool.f863973.m".parse().unwrap(),
-            "pero_val.pool.f863973.m".parse().unwrap(),
-            "pandateam.pool.f863973.m".parse().unwrap(),
-            "meduza.pool.f863973.m".parse().unwrap(),
-            "adel0515.pool.f863973.m".parse().unwrap(),
-            "gruberx.pool.f863973.m".parse().unwrap(),
-            "nodebull.pool.f863973.m".parse().unwrap(),
-            "p2pstaking.pool.f863973.m".parse().unwrap(),
-            "makil.pool.f863973.m".parse().unwrap(),
-            "kuutamo.pool.f863973.m".parse().unwrap(),
-            "gargoyle.pool.f863973.m".parse().unwrap(),
-            "p2p.pool.f863973.m".parse().unwrap(),
-        ]);
-        if banned_chunk_producers.contains(chunk_producer.account_id()) {
-            return Ok(false);
-        }
         Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
     }
 
