@@ -590,6 +590,17 @@ impl ChainStore {
             .collect()
     }
 
+    pub fn get_outcome_by_id_and_block_hash(
+        &self,
+        id: &CryptoHash,
+        block_hash: &CryptoHash,
+    ) -> Result<Option<ExecutionOutcomeWithProof>, Error> {
+        Ok(self.store.get_ser(
+            DBCol::TransactionResultForBlock,
+            &get_outcome_id_block_hash(id, block_hash),
+        )?)
+    }
+
     /// Returns a vector of Outcome ids for given block and shard id
     pub fn get_outcomes_by_block_hash_and_shard_id(
         &self,
@@ -1147,7 +1158,7 @@ struct ChainStoreCacheUpdate {
     epoch_light_client_blocks: HashMap<CryptoHash, Arc<LightClientBlockView>>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<Receipt>>>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<ReceiptProof>>>,
-    outcomes: HashMap<CryptoHash, Vec<ExecutionOutcomeWithIdAndProof>>,
+    outcomes: HashMap<(CryptoHash, CryptoHash), ExecutionOutcomeWithProof>,
     outcome_ids: HashMap<(CryptoHash, ShardId), Vec<CryptoHash>>,
     invalid_chunks: HashMap<ChunkHash, Arc<EncodedShardChunk>>,
     receipt_id_to_shard_id: HashMap<CryptoHash, ShardId>,
@@ -1803,15 +1814,10 @@ impl<'a> ChainStoreUpdate<'a> {
         let mut outcome_ids = Vec::with_capacity(outcomes.len());
         for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
             outcome_ids.push(outcome_with_id.id);
-            self.chain_store_cache_update
-                .outcomes
-                .entry(outcome_with_id.id)
-                .or_insert_with(Vec::new)
-                .push(ExecutionOutcomeWithIdAndProof {
-                    outcome_with_id,
-                    proof,
-                    block_hash: *block_hash,
-                })
+            self.chain_store_cache_update.outcomes.insert(
+                (outcome_with_id.id, *block_hash),
+                ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof },
+            );
         }
         self.chain_store_cache_update.outcome_ids.insert((*block_hash, shard_id), outcome_ids);
     }
@@ -2503,8 +2509,14 @@ impl<'a> ChainStoreUpdate<'a> {
             let outcome_ids =
                 source_store.get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?;
             for id in outcome_ids.iter() {
-                let existing_outcomes = source_store.get_outcomes_by_id(id)?;
-                chain_store_update.chain_store_cache_update.outcomes.insert(*id, existing_outcomes);
+                if let Some(existing_outcome) =
+                    source_store.get_outcome_by_id_and_block_hash(id, block_hash)?
+                {
+                    chain_store_update
+                        .chain_store_cache_update
+                        .outcomes
+                        .insert((*id, *block_hash), existing_outcome);
+                }
             }
             chain_store_update
                 .chain_store_cache_update
@@ -2695,17 +2707,14 @@ impl<'a> ChainStoreUpdate<'a> {
                 receipt,
             )?;
         }
-        for (outcome_id, outcomes) in self.chain_store_cache_update.outcomes.iter() {
-            for outcome in outcomes {
-                store_update.set_ser(
-                    DBCol::TransactionResultForBlock,
-                    &get_outcome_id_block_hash(outcome_id, &outcome.block_hash),
-                    &ExecutionOutcomeWithProof {
-                        proof: outcome.proof.clone(),
-                        outcome: outcome.outcome_with_id.outcome.clone(),
-                    },
-                )?;
-            }
+        for ((outcome_id, block_hash), outcome_with_proof) in
+            self.chain_store_cache_update.outcomes.iter()
+        {
+            store_update.set_ser(
+                DBCol::TransactionResultForBlock,
+                &get_outcome_id_block_hash(outcome_id, block_hash),
+                &outcome_with_proof,
+            )?;
         }
         for ((block_hash, shard_id), ids) in self.chain_store_cache_update.outcome_ids.iter() {
             store_update.set_ser(
