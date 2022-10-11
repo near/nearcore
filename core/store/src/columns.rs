@@ -281,7 +281,8 @@ impl DBCol {
             | DBCol::BlockInfo
             | DBCol::Chunks
             | DBCol::InvalidChunks
-            | DBCol::PartialChunks => true,
+            | DBCol::PartialChunks
+            | DBCol::TransactionResultForBlock => true,
             _ => false,
         }
     }
