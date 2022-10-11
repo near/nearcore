@@ -63,7 +63,7 @@ pub(crate) struct RegisterPeer {
     pub connection: Arc<connection::Connection>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RegisterPeerError {
     Blacklisted,
     Banned,
@@ -104,7 +104,6 @@ pub(crate) struct StopMsg {}
 #[rtype(result = "()")]
 pub(crate) struct SendMessage {
     pub message: Arc<PeerMessage>,
-    pub context: opentelemetry::Context,
 }
 
 impl Debug for ValidateEdgeList {
