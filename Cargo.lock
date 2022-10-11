@@ -3468,7 +3468,6 @@ name = "near-vm-logic"
 version = "0.0.0"
 dependencies = [
  "borsh",
- "bs58",
  "byteorder",
  "ed25519-dalek",
  "hex",
