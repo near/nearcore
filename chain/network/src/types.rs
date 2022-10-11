@@ -665,7 +665,6 @@ mod tests {
 }
 
 // Don't need Borsh ?
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, borsh::BorshSerialize, borsh::BorshDeserialize, Hash)]
 /// Defines the destination for a network request.
 /// The request should be sent either to the `account_id` as a routed message, or directly to

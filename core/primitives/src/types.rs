@@ -23,7 +23,6 @@ pub use near_primitives_core::types::*;
 pub type StateRoot = CryptoHash;
 
 /// Different types of finality.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum Finality {
     #[serde(rename = "optimistic")]
@@ -59,7 +58,6 @@ pub struct AccountInfo {
 ///
 /// NOTE: Currently, this type is only used in the view_client and RPC to be able to transparently
 /// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize,
 )]
@@ -81,7 +79,6 @@ pub struct StoreValue(Vec<u8>);
 /// NOTE: The main reason for this to exist (except the type-safety) is that the value is
 /// transparently serialized and deserialized as a base64-encoded string when serde is used
 /// (serde_json).
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize,
 )]
@@ -421,7 +418,6 @@ impl StateChanges {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateRootNode {
     /// In Nightshade, data is the serialized TrieNodeWithSize.
@@ -445,7 +441,6 @@ impl StateRootNode {
 /// Epoch identifier -- wrapped hash, to make it easier to distinguish.
 /// EpochId of epoch T is the hash of last block in T-2
 /// EpochId of first two epochs is 0
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     Debug,
     Clone,
@@ -467,7 +462,6 @@ pub struct EpochId(pub CryptoHash);
 /// Stores validator and its stake for two consecutive epochs.
 /// It is necessary because the blocks on the epoch boundary need to contain approvals from both
 /// epochs.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct ApprovalStake {
     /// Account that stakes money.
@@ -489,7 +483,6 @@ pub mod validator_stake {
     pub use super::ValidatorStakeV1;
 
     /// Stores validator and its stake.
-    #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
     #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
     #[serde(tag = "validator_stake_struct_version")]
     pub enum ValidatorStake {
@@ -635,7 +628,6 @@ pub mod validator_stake {
 }
 
 /// Stores validator and its stake.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct ValidatorStakeV1 {
     /// Account that stakes money.
@@ -647,7 +639,6 @@ pub struct ValidatorStakeV1 {
 }
 
 /// Information after block was processed.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
 pub struct BlockExtra {
     pub challenges_result: ChallengesResult,
@@ -783,7 +774,6 @@ pub struct ChunkExtraV1 {
     pub balance_burnt: Balance,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum BlockId {
@@ -793,7 +783,6 @@ pub enum BlockId {
 
 pub type MaybeBlockId = Option<BlockId>;
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SyncCheckpoint {
@@ -801,7 +790,6 @@ pub enum SyncCheckpoint {
     EarliestAvailable,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BlockReference {
@@ -879,7 +867,6 @@ pub enum ValidatorInfoIdentifier {
 }
 
 /// Reasons for removing a validator from the validator set.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ValidatorKickoutReason {
     /// Slashed validators are kicked out.
@@ -908,10 +895,16 @@ pub enum TransactionOrReceiptId {
     Receipt { receipt_id: CryptoHash, receiver_id: AccountId },
 }
 
+#[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize)]
+pub enum CompiledContract {
+    CompileModuleError(near_vm_errors::CompilationError),
+    Code(Vec<u8>),
+}
+
 /// Cache for compiled modules
 pub trait CompiledContractCache: Send + Sync {
-    fn put(&self, key: &CryptoHash, value: Vec<u8>) -> std::io::Result<()>;
-    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<Vec<u8>>>;
+    fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()>;
+    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>>;
     fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
         self.get(key).map(|entry| entry.is_some())
     }
