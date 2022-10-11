@@ -507,6 +507,7 @@ mod test {
             env.produce_block(0, i + 1);
         }
 
+        // Create view client chain to retrieve and check chain data in the test.
         let chain = Chain::new_for_view_client(
             runtimes[0].clone(),
             &chain_genesis,
