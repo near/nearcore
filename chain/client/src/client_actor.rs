@@ -1019,6 +1019,7 @@ impl ClientActor {
 
             if me == next_block_producer_account {
                 let num_chunks = self.client.shards_mgr.num_chunks_for_block(&head.last_block_hash);
+                debug!(target:"client", height, "Trying to produce block with {num_chunks} target height {height} doomslug tip {:?}", self.client.doomslug.get_tip());
                 let have_all_chunks = head.height == 0
                     || num_chunks == self.client.runtime_adapter.num_shards(&epoch_id).unwrap();
 

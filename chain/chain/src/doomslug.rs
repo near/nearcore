@@ -669,6 +669,7 @@ impl Doomslug {
             if let Some(approval_tracker) =
                 approval_trackers_at_height.approval_trackers.get_mut(&hash_or_height)
             {
+                tracing::debug!(target:"client", "has approval tracker");
                 let block_production_readiness =
                     approval_tracker.get_block_production_readiness(now);
                 match block_production_readiness {
