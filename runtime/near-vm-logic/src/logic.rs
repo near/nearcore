@@ -628,13 +628,15 @@ impl<'a> VMLogic<'a> {
 
     /// Returns the current block height.
     ///
+    /// It’s only due to historical reasons, this host function is called
+    /// `block_index` rather than `block_height`.
+    ///
     /// # Cost
     ///
     /// `base`
-    // TODO #1903 rename to `block_height`
     pub fn block_index(&mut self) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
-        Ok(self.context.block_index)
+        Ok(self.context.block_height)
     }
 
     /// Returns the current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).

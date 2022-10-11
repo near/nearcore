@@ -1420,27 +1420,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "deepsize"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cdb987ec36f6bf7bfbea3f928b75590b736fc42af8e54d97592481351b2b96c"
-dependencies = [
- "chrono",
- "deepsize_derive",
-]
-
-[[package]]
-name = "deepsize_derive"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "990101d41f3bc8c1a45641024377ee284ecc338e5ecf3ea0f0e236d897c72796"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "delay-detector"
 version = "0.0.0"
 dependencies = [
@@ -2799,7 +2778,6 @@ version = "0.0.0"
 dependencies = [
  "bolero",
  "borsh",
- "deepsize",
  "serde",
  "serde_json",
 ]
@@ -2997,7 +2975,6 @@ dependencies = [
  "bs58",
  "c2-chacha",
  "curve25519-dalek",
- "deepsize",
  "derive_more",
  "ed25519-dalek",
  "hex-literal",
@@ -3100,7 +3077,6 @@ dependencies = [
 name = "near-jsonrpc-adversarial-primitives"
 version = "0.0.0"
 dependencies = [
- "deepsize",
  "near-network",
  "near-primitives",
  "serde",
@@ -3198,7 +3174,6 @@ dependencies = [
  "conqueue",
  "criterion",
  "crossbeam-channel 0.5.4",
- "deepsize",
  "delay-detector",
  "futures",
  "futures-util",
@@ -3232,13 +3207,13 @@ dependencies = [
  "tokio-stream",
  "tokio-util 0.7.2",
  "tracing",
- "tracing-opentelemetry",
 ]
 
 [[package]]
 name = "near-o11y"
 version = "0.0.0"
 dependencies = [
+ "actix",
  "atty",
  "backtrace",
  "bencher",
@@ -3311,7 +3286,6 @@ dependencies = [
  "bytesize",
  "cfg-if 1.0.0",
  "chrono",
- "deepsize",
  "derive_more",
  "easy-ext",
  "hex",
@@ -3339,7 +3313,6 @@ dependencies = [
  "base64",
  "borsh",
  "bs58",
- "deepsize",
  "derive_more",
  "near-account-id",
  "num-rational",
@@ -3369,6 +3342,7 @@ dependencies = [
  "near-client-primitives",
  "near-crypto",
  "near-network",
+ "near-o11y",
  "near-primitives",
  "paperclip",
  "serde",
@@ -3483,7 +3457,6 @@ name = "near-vm-errors"
 version = "0.0.0"
 dependencies = [
  "borsh",
- "deepsize",
  "near-account-id",
  "near-rpc-error-macro",
  "serde",

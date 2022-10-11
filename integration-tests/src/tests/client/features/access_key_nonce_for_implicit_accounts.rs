@@ -652,6 +652,7 @@ impl ChunkForwardingOptimizationTestData {
                     partial_encoded_chunk.parts.len();
                 self.env
                     .client(&account_id)
+                    .shards_mgr
                     .process_partial_encoded_chunk(
                         PartialEncodedChunk::from(partial_encoded_chunk).into(),
                     )
@@ -674,9 +675,14 @@ impl ChunkForwardingOptimizationTestData {
                     ));
                 }
                 self.num_part_ords_forwarded += forward.parts.len();
-                match self.env.client(&account_id).process_partial_encoded_chunk_forward(forward) {
+                match self
+                    .env
+                    .client(&account_id)
+                    .shards_mgr
+                    .process_partial_encoded_chunk_forward(forward)
+                {
                     Ok(_) => {}
-                    Err(near_client::Error::Chunk(near_chunks::Error::UnknownChunk)) => {
+                    Err(near_chunks::Error::UnknownChunk) => {
                         self.num_forwards_with_missing_chunk_header += 1;
                     }
                     Err(e) => {
