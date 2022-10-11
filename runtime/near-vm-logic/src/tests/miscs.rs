@@ -931,9 +931,7 @@ fn test_ed25519_verify() {
             message.as_slice(),
             public_key.len(),
             public_key.clone(),
-            Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
-                msg: "signature error".to_string(),
-            })),
+            Ok(0),
         ),
         (
             forged_signature.len(),
@@ -942,9 +940,7 @@ fn test_ed25519_verify() {
             message.as_slice(),
             public_key.len(),
             public_key.clone(),
-            Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
-                msg: "invalid message length".to_string(),
-            })),
+            Ok(0),
         ),
         (
             signature.len(),

@@ -1155,25 +1155,20 @@ impl<'a> VMLogic<'a> {
         pub_key_ptr: u64,
     ) -> Result<u64> {
         use ed25519_dalek::{PublicKey, Signature, Verifier, SIGNATURE_LENGTH};
-        const MESSAGE_LENGTH: usize = 32;
 
         self.gas_counter.pay_base(ed25519_verify_base)?;
         let msg = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
-        if msg_len != MESSAGE_LENGTH as u64 || msg.len() != MESSAGE_LENGTH {
-            return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
-                msg: "invalid message length".to_string(),
-            }));
-        }
         let signature_array = self.get_vec_from_memory_or_register(sig_ptr, sig_len)?;
-        if sig_len != SIGNATURE_LENGTH as u64 || signature_array.len() != SIGNATURE_LENGTH {
+        if sig_len != SIGNATURE_LENGTH as u64 {
             return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
                 msg: "invalid signature length".to_string(),
             }));
         }
 
-        let signature = Signature::from_bytes(&signature_array).map_err(|e| {
-            VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput { msg: e.to_string() })
-        })?;
+        let signature = match Signature::from_bytes(&signature_array) {
+            Ok(signature) => signature,
+            Err(_) => return Ok(0),
+        };
         let num_bytes = msg.len();
         self.gas_counter.pay_per(ed25519_verify_byte, num_bytes as _)?;
 
