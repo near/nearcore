@@ -16,7 +16,7 @@ use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
 use near_primitives::syncing::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
-use near_primitives::transaction::{ExecutionOutcomeWithProof};
+use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId};
 use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash_rev};

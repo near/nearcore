@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet};
 use std::io;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use itertools::Itertools;
 use near_cache::CellLruCache;
 use near_primitives::time::Utc;
 
@@ -571,26 +570,24 @@ impl ChainStore {
         &self,
         id: &CryptoHash,
     ) -> Result<Vec<ExecutionOutcomeWithIdAndProof>, Error> {
-        Ok(self
-            .store
+        self.store
             .iter_prefix_ser::<ExecutionOutcomeWithProof>(
                 DBCol::TransactionResultForBlock,
                 id.as_ref(),
             )
             .map(|item| {
-                item.map_err(Error::from).and_then(|(key, outcome_with_proof)| {
-                    let (_, block_hash) = get_outcome_id_block_hash_rev(key.as_ref())?;
-                    Ok(ExecutionOutcomeWithIdAndProof {
-                        proof: outcome_with_proof.proof,
-                        block_hash,
-                        outcome_with_id: ExecutionOutcomeWithId {
-                            id: *id,
-                            outcome: outcome_with_proof.outcome,
-                        },
-                    })
+                let (key, outcome_with_proof) = item?;
+                let (_, block_hash) = get_outcome_id_block_hash_rev(key.as_ref())?;
+                Ok(ExecutionOutcomeWithIdAndProof {
+                    proof: outcome_with_proof.proof,
+                    block_hash,
+                    outcome_with_id: ExecutionOutcomeWithId {
+                        id: *id,
+                        outcome: outcome_with_proof.outcome,
+                    },
                 })
             })
-            .try_collect()?)
+            .collect()
     }
 
     /// Returns a vector of Outcome ids for given block and shard id

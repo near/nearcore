@@ -11,9 +11,7 @@ use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
 use near_primitives::syncing::{
     get_num_state_parts, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
 };
-use near_primitives::transaction::{
-    ExecutionOutcomeWithProof, SignedTransaction,
-};
+use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
