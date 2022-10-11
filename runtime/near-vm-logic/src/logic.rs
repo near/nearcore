@@ -1159,7 +1159,6 @@ impl<'a> VMLogic<'a> {
 
         self.gas_counter.pay_base(ed25519_verify_base)?;
         let msg = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
-        dbg!(&msg);
         if msg_len != MESSAGE_LENGTH as u64 || msg.len() != MESSAGE_LENGTH {
             return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
                 msg: "invalid message length".to_string(),
