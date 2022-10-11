@@ -33,7 +33,7 @@ use actix::{
 };
 use anyhow::bail;
 use anyhow::Context as _;
-use near_o11y::{WithSpanContext, WithSpanContextExt};
+use near_o11y::{OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -265,7 +265,7 @@ impl PeerManagerActor {
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
         client_addr: Recipient<WithSpanContext<NetworkClientMessages>>,
-        view_client_addr: Recipient<NetworkViewClientMessages>,
+        view_client_addr: Recipient<WithSpanContext<NetworkViewClientMessages>>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<Addr<Self>> {
         let config = config.verify().context("config")?;
@@ -1585,7 +1585,7 @@ impl PeerManagerActor {
                 // Ask client to validate accounts before accepting them.
                 let peer_id_clone = peer_id.clone();
                 self.state.view_client_addr
-                    .send(NetworkViewClientMessages::AnnounceAccount(accounts))
+                    .send(NetworkViewClientMessages::AnnounceAccount(accounts).with_span_context())
                     .in_current_span()
                     .into_actor(self)
                     .then(move |response, act, _ctx| {
@@ -1616,9 +1616,20 @@ impl PeerManagerActor {
 /// TODO(gprusak): In prod, NetworkInfo is pushed periodically from PeerManagerActor to ClientActor.
 /// It would be cleaner to replace the push loop in PeerManagerActor with a pull loop
 /// in the ClientActor.
-impl Handler<GetNetworkInfo> for PeerManagerActor {
+impl Handler<WithSpanContext<GetNetworkInfo>> for PeerManagerActor {
     type Result = NetworkInfo;
-    fn handle(&mut self, _: GetNetworkInfo, _ctx: &mut Self::Context) -> NetworkInfo {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetNetworkInfo>,
+        _ctx: &mut Self::Context,
+    ) -> NetworkInfo {
+        let span = tracing::debug_span!(
+                target: "client",
+                "handle",
+                handler = "GetNetworkInfo",
+                actor = "PeerManagerActor")
+        .entered();
+        span.set_parent(msg.context);
         let _timer = metrics::PEER_MANAGER_MESSAGES_TIME
             .with_label_values(&["GetNetworkInfo"])
             .start_timer();
@@ -1628,13 +1639,19 @@ impl Handler<GetNetworkInfo> for PeerManagerActor {
     }
 }
 
-impl Handler<SetChainInfo> for PeerManagerActor {
+impl Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
     type Result = ();
-    fn handle(&mut self, info: SetChainInfo, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: WithSpanContext<SetChainInfo>, _ctx: &mut Self::Context) {
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&["SetChainInfo"]).start_timer();
-        let _span =
-            tracing::trace_span!(target: "network", "handle", handler = "SetChainInfo").entered();
+        let span = tracing::debug_span!(
+                target: "client",
+                "handle",
+                handler = "SetChainInfo",
+                actor = "PeerManagerActor")
+        .entered();
+        span.set_parent(msg.context);
+        let info = msg.msg;
         let now = self.clock.now_utc();
         let SetChainInfo(info) = info;
         let state = self.state.clone();
@@ -1719,9 +1736,21 @@ impl Handler<SetChainInfo> for PeerManagerActor {
     }
 }
 
-impl Handler<PeerToManagerMsg> for PeerManagerActor {
+impl Handler<WithSpanContext<PeerToManagerMsg>> for PeerManagerActor {
     type Result = PeerToManagerMsgResp;
-    fn handle(&mut self, msg: PeerToManagerMsg, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<PeerToManagerMsg>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let span = tracing::debug_span!(
+                target: "client",
+                "handle",
+                handler = "PeerToManagerMsg",
+                actor = "PeerManagerActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         let _span = tracing::trace_span!(target: "network", "handle", handler = "PeerToManagerMsg")
@@ -1730,9 +1759,21 @@ impl Handler<PeerToManagerMsg> for PeerManagerActor {
     }
 }
 
-impl Handler<PeerManagerMessageRequest> for PeerManagerActor {
+impl Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerActor {
     type Result = PeerManagerMessageResponse;
-    fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<PeerManagerMessageRequest>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let span = tracing::debug_span!(
+                target: "client",
+                "handle",
+                handler = "PeerManagerMessageRequest",
+                actor = "PeerManagerActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         let _span = tracing::trace_span!(target: "network", "handle", handler = "PeerManagerMessageRequest").entered();

@@ -8,6 +8,7 @@ use crate::time;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use near_crypto::PublicKey;
+use near_o11y::WithSpanContext;
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
@@ -532,11 +533,14 @@ where
 }
 
 pub trait PeerManagerAdapter:
-    MsgRecipient<PeerManagerMessageRequest> + MsgRecipient<SetChainInfo>
+    MsgRecipient<WithSpanContext<PeerManagerMessageRequest>>
+    + MsgRecipient<WithSpanContext<SetChainInfo>>
 {
 }
-impl<A: MsgRecipient<PeerManagerMessageRequest> + MsgRecipient<SetChainInfo>> PeerManagerAdapter
-    for A
+impl<
+        A: MsgRecipient<WithSpanContext<PeerManagerMessageRequest>>
+            + MsgRecipient<WithSpanContext<SetChainInfo>>,
+    > PeerManagerAdapter for A
 {
 }
 

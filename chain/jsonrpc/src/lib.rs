@@ -37,7 +37,7 @@ mod metrics;
 
 use api::RpcRequest;
 pub use api::{RpcFrom, RpcInto};
-use near_o11y::WithSpanContextExt;
+use near_o11y::{WithSpanContext, WithSpanContextExt};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -384,24 +384,32 @@ impl JsonRpcHandler {
 
     async fn client_send<M, T, E, F>(&self, msg: M) -> Result<T, E>
     where
-        ClientActor: actix::Handler<M>,
+        ClientActor: actix::Handler<WithSpanContext<M>>,
         M: actix::Message<Result = Result<T, F>> + Send + 'static,
         M::Result: Send,
         E: RpcFrom<F>,
         E: RpcFrom<actix::MailboxError>,
     {
-        self.client_addr.send(msg).await.map_err(RpcFrom::rpc_from)?.map_err(RpcFrom::rpc_from)
+        self.client_addr
+            .send(msg.with_span_context())
+            .await
+            .map_err(RpcFrom::rpc_from)?
+            .map_err(RpcFrom::rpc_from)
     }
 
     async fn view_client_send<M, T, E, F>(&self, msg: M) -> Result<T, E>
     where
-        ViewClientActor: actix::Handler<M>,
+        ViewClientActor: actix::Handler<WithSpanContext<M>>,
         M: actix::Message<Result = Result<T, F>> + Send + 'static,
         M::Result: Send,
         E: RpcFrom<F>,
         E: RpcFrom<actix::MailboxError>,
     {
-        self.view_client_addr.send(msg).await.map_err(RpcFrom::rpc_from)?.map_err(RpcFrom::rpc_from)
+        self.view_client_addr
+            .send(msg.with_span_context())
+            .await
+            .map_err(RpcFrom::rpc_from)?
+            .map_err(RpcFrom::rpc_from)
     }
 
     async fn send_tx_async(
@@ -1161,9 +1169,12 @@ impl JsonRpcHandler {
         );
         actix::spawn(
             self.view_client_addr
-                .send(near_network::types::NetworkViewClientMessages::Adversarial(
-                    near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height),
-                ))
+                .send(
+                    near_network::types::NetworkViewClientMessages::Adversarial(
+                        near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height),
+                    )
+                    .with_span_context(),
+                )
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))

@@ -345,16 +345,21 @@ impl Actor for MockPeerManagerActor {
     }
 }
 
-impl Handler<SetChainInfo> for MockPeerManagerActor {
+impl Handler<WithSpanContext<SetChainInfo>> for MockPeerManagerActor {
     type Result = ();
 
-    fn handle(&mut self, _msg: SetChainInfo, _ctx: &mut Self::Context) {}
+    fn handle(&mut self, _msg: WithSpanContext<SetChainInfo>, _ctx: &mut Self::Context) {}
 }
 
-impl Handler<PeerManagerMessageRequest> for MockPeerManagerActor {
+impl Handler<WithSpanContext<PeerManagerMessageRequest>> for MockPeerManagerActor {
     type Result = PeerManagerMessageResponse;
 
-    fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<PeerManagerMessageRequest>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let msg = msg.msg;
         match msg {
             PeerManagerMessageRequest::NetworkRequests(request) => match request {
                 NetworkRequests::BlockRequest { hash, peer_id } => {
@@ -507,7 +512,8 @@ mod test {
             env.produce_block(0, i + 1);
         }
 
-        let chain = Chain::new(
+        // Create view client chain to retrieve and check chain data in the test.
+        let chain = Chain::new_for_view_client(
             runtimes[0].clone(),
             &chain_genesis,
             env.clients[0].chain.doomslug_threshold_mode,
