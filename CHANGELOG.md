@@ -6,6 +6,10 @@
 
 * Stabilize `account_id_in_function_call_permission` feature: enforcing validity
   of account ids in function call permission.
+* Enable TIER1 peer discovery. Validator nodes are now exchanging the [public addresses
+  set in config](https://github.com/near/nearcore/blob/301fb493ea4f6d9b75d7dac7f2b52d00a1b2b709/chain/network/src/config_json.rs#L162).
+  The TIER1 connections support (direct connections between validators) based on
+  this discovery mechanism will be added soon.
 
 ### Non-protocol Changes
 
@@ -33,9 +37,6 @@
 * Backtraces on panics are enabled by default, so you no longer need to set
   `RUST_BACKTRACE=1` environmental variable. To disable backtraces, set
   `RUST_BACKTRACE=0`.
-* A `[path, data]` JSON RPC query format has been removed.  It has been
-  deprecated for over two years and not documented anywhere.  Use proper
-  structured queries with `rquest_type` set instead.
 * Enable receipt prefetching by default. This feature makes receipt processing
   faster by parallelizing IO requests, which has been introduced in
   [#7590](https://github.com/near/nearcore/pull/7590) and enabled by default

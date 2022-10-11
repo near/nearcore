@@ -108,6 +108,9 @@ const MAX_ORPHAN_MISSING_CHUNKS: usize = 5;
 #[cfg(feature = "sandbox")]
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 60 * 60 * 24 * 365 * 10000;
 
+// Number of parent blocks traversed to check if the block can be finalized.
+const NUM_PARENTS_TO_CHECK_FINALITY: usize = 20;
+
 /// Refuse blocks more than this many block intervals in the future (as in bitcoin).
 #[cfg(not(feature = "sandbox"))]
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
@@ -686,11 +689,11 @@ impl Chain {
         let bps = runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
         let protocol_version = runtime_adapter.get_epoch_protocol_version(&prev_epoch_id)?;
         if checked_feature!("stable", BlockHeaderV3, protocol_version) {
-            let validator_stakes: Vec<_> = bps.into_iter().map(|(bp, _)| bp).collect();
-            Ok(CryptoHash::hash_borsh(&validator_stakes))
+            let validator_stakes = bps.into_iter().map(|(bp, _)| bp);
+            Ok(CryptoHash::hash_borsh_iter(validator_stakes))
         } else {
-            let validator_stakes: Vec<_> = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
-            Ok(CryptoHash::hash_borsh(&validator_stakes))
+            let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1());
+            Ok(CryptoHash::hash_borsh_iter(validator_stakes))
         }
     }
 
@@ -1116,6 +1119,38 @@ impl Chain {
             &block_producer,
         )?;
         Ok(header.signature().verify(header.hash().as_ref(), block_producer.public_key()))
+    }
+
+    /// Optimization which checks if block with the given header can be reached from final head, and thus can be
+    /// finalized by this node.
+    /// If this is the case, returns Ok.
+    /// If we discovered that it is not the case, returns `Error::CannotBeFinalized`.
+    /// If too many parents were checked, returns Ok to avoid long delays.
+    fn check_if_finalizable(&self, header: &BlockHeader) -> Result<(), Error> {
+        let mut header = header.clone();
+        let final_head = self.final_head()?;
+        for _ in 0..NUM_PARENTS_TO_CHECK_FINALITY {
+            // If we reached final head, then block can be finalized.
+            if header.hash() == &final_head.last_block_hash {
+                return Ok(());
+            }
+            // If we went behind final head, then block cannot be finalized on top of final head.
+            if header.height() < final_head.height {
+                return Err(Error::CannotBeFinalized);
+            }
+            // Otherwise go to parent block.
+            header = match self.get_previous_header(&header) {
+                Ok(header) => header,
+                Err(_) => {
+                    // We couldn't find previous header. Return Ok because it can be an orphaned block which can be
+                    // connected to canonical chain later.
+                    return Ok(());
+                }
+            }
+        }
+
+        // If we traversed too many blocks, return Ok to avoid long delays.
+        Ok(())
     }
 
     /// Validate header. Returns error if the header is invalid.
@@ -2157,7 +2192,8 @@ impl Chain {
         );
 
         // Determine the block status of this block (whether it is a side fork and updates the chain head)
-        // Block status is needed in Client::on_block_accepted to decide to how to update the tx pool.
+        // Block status is needed in Client::on_block_accepted_with_optional_chunk_produce to
+        // decide to how to update the tx pool.
         let block_status = self.determine_status(new_head, prev_head);
         Ok(AcceptedBlock { hash: *block.hash(), status: block_status, provenance })
     }
@@ -2321,6 +2357,9 @@ impl Chain {
 
         self.ping_missing_chunks(me, prev_hash, block)?;
         let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
+
+        // Check if block can be finalized and drop it otherwise.
+        self.check_if_finalizable(block.header())?;
 
         let apply_chunk_work = self.apply_chunks_preprocessing(
             me,

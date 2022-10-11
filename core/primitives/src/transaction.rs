@@ -18,7 +18,6 @@ use near_primitives_core::profile::ProfileData;
 
 pub type LogEntry = String;
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Transaction {
     /// An account on which behalf transaction is signed
@@ -45,7 +44,6 @@ impl Transaction {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -89,7 +87,6 @@ impl Action {
 }
 
 /// Create account action
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct CreateAccountAction {}
 
@@ -100,7 +97,6 @@ impl From<CreateAccountAction> for Action {
 }
 
 /// Deploy contract action
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct DeployContractAction {
     /// WebAssembly binary
@@ -122,7 +118,6 @@ impl fmt::Debug for DeployContractAction {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct FunctionCallAction {
     pub method_name: String,
@@ -150,7 +145,6 @@ impl fmt::Debug for FunctionCallAction {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct TransferAction {
     #[serde(with = "dec_format")]
@@ -163,14 +157,13 @@ impl From<TransferAction> for Action {
     }
 }
 
-/// An action which stakes singer_id tokens and setup's validator public key
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+/// An action which stakes signer_id tokens and setup's validator public key
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct StakeAction {
     /// Amount of tokens to stake.
     #[serde(with = "dec_format")]
     pub stake: Balance,
-    /// Validator key which will be used to sign transactions on behalf of singer_id
+    /// Validator key which will be used to sign transactions on behalf of signer_id
     pub public_key: PublicKey,
 }
 
@@ -180,7 +173,6 @@ impl From<StakeAction> for Action {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AddKeyAction {
     /// A public key which will be associated with an access_key
@@ -195,7 +187,6 @@ impl From<AddKeyAction> for Action {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteKeyAction {
     /// A public key associated with the access_key to be deleted.
@@ -208,7 +199,6 @@ impl From<DeleteKeyAction> for Action {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteAccountAction {
     pub beneficiary_id: AccountId,
@@ -220,7 +210,6 @@ impl From<DeleteAccountAction> for Action {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Eq, Debug, Clone)]
 #[borsh_init(init)]
 pub struct SignedTransaction {
