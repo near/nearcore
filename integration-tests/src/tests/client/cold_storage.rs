@@ -29,11 +29,11 @@ fn check_iter(first_store: &Store, second_store: &Store, col: DBCol) {
 }
 
 /// Deploying test contract and calling write_random_value 5 times every block for 4 epochs.
+/// Also doing 5 send transactions every block.
 /// 4 epochs, because this test does not cover gc behaviour.
-/// After every block StoreUpdate for cold storage is created and committed to a separate storage.
+/// After every block updating a separate database with data from client's storage.
 /// After 4 epochs we check that everything, that exists in cold columns
-/// of the storage of the second (non-validating) client
-/// also exists in the separate storage to which StoreUpdate s were committed.
+/// of the storage of the client also exists in the database to which we were writing.
 #[test]
 fn test_storage_after_commit_of_cold_update() {
     init_test_logger();
@@ -49,8 +49,7 @@ fn test_storage_after_commit_of_cold_update() {
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
     let mut env = TestEnv::builder(chain_genesis)
-        .clients_count(2)
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 2))
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
@@ -74,7 +73,7 @@ fn test_storage_after_commit_of_cold_update() {
         }
         for i in 0..5 {
             let tx = SignedTransaction::from_actions(
-                h * epoch_length + i,
+                h * 10 + i,
                 "test0".parse().unwrap(),
                 "test0".parse().unwrap(),
                 &signer,
@@ -88,10 +87,20 @@ fn test_storage_after_commit_of_cold_update() {
             );
             env.clients[0].process_tx(tx, false, false);
         }
+        for i in 0..5 {
+            let tx = SignedTransaction::send_money(
+                h * 10 + i,
+                "test0".parse().unwrap(),
+                "test0".parse().unwrap(),
+                &signer,
+                1,
+                last_hash,
+            );
+            env.clients[0].process_tx(tx, false, false);
+        }
 
         let block = env.clients[0].produce_block(h).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
-        env.process_block(1, block.clone(), Provenance::NONE);
 
         last_hash = block.hash().clone();
 
@@ -102,7 +111,7 @@ fn test_storage_after_commit_of_cold_update() {
 
     for col in DBCol::iter() {
         if col.is_cold() {
-            check_iter(&env.clients[1].runtime_adapter.get_store(), &cold_store, col);
+            check_iter(&env.clients[0].runtime_adapter.get_store(), &cold_store, col);
         }
     }
 }
