@@ -1499,6 +1499,7 @@ impl Client {
         check_validator: bool,
         error: near_chain::Error,
     ) {
+        error!(target:"client", "error in process_approval {error}");
         let is_validator =
             |epoch_id, block_hash, account_id, runtime_adapter: &Arc<dyn RuntimeAdapter>| {
                 match runtime_adapter.get_validator_by_account_id(epoch_id, block_hash, account_id)
