@@ -507,7 +507,8 @@ mod test {
             env.produce_block(0, i + 1);
         }
 
-        let chain = Chain::new(
+        // Create view client chain to retrieve and check chain data in the test.
+        let chain = Chain::new_for_view_client(
             runtimes[0].clone(),
             &chain_genesis,
             env.clients[0].chain.doomslug_threshold_mode,
