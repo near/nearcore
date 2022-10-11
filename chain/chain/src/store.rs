@@ -2710,7 +2710,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for ((outcome_id, block_hash), outcome_with_proof) in
             self.chain_store_cache_update.outcomes.iter()
         {
-            store_update.set_ser(
+            store_update.insert_ser(
                 DBCol::TransactionResultForBlock,
                 &get_outcome_id_block_hash(outcome_id, block_hash),
                 &outcome_with_proof,

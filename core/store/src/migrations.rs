@@ -43,17 +43,23 @@ impl<'a> BatchedStoreUpdate<'a> {
         Ok(())
     }
 
-    pub fn set_ser<T: BorshSerialize>(
+    fn set_or_insert_ser<T: BorshSerialize>(
         &mut self,
         col: DBCol,
         key: &[u8],
         value: &T,
+        insert: bool,
     ) -> std::io::Result<()> {
         let value_bytes = value.try_to_vec()?;
         let entry_size = key.as_ref().len() + value_bytes.len() + 8;
         self.batch_size += entry_size;
         self.total_size_written += entry_size as u64;
-        self.store_update.as_mut().unwrap().set(col, key.as_ref(), &value_bytes);
+        let update = self.store_update.as_mut().unwrap();
+        if insert {
+            update.insert(col, key.as_ref(), &value_bytes);
+        } else {
+            update.set(col, key.as_ref(), &value_bytes);
+        }
 
         if self.batch_size > self.batch_size_limit {
             self.commit()?;
@@ -68,6 +74,24 @@ impl<'a> BatchedStoreUpdate<'a> {
         }
 
         Ok(())
+    }
+
+    pub fn set_ser<T: BorshSerialize>(
+        &mut self,
+        col: DBCol,
+        key: &[u8],
+        value: &T,
+    ) -> std::io::Result<()> {
+        self.set_or_insert_ser(col, key, value, false)
+    }
+
+    pub fn insert_ser<T: BorshSerialize>(
+        &mut self,
+        col: DBCol,
+        key: &[u8],
+        value: &T,
+    ) -> std::io::Result<()> {
+        self.set_or_insert_ser(col, key, value, true)
     }
 
     pub fn finish(mut self) -> std::io::Result<()> {
@@ -224,7 +248,7 @@ pub fn migrate_32_to_33(storage: &crate::NodeStorage) -> anyhow::Result<()> {
     {
         let (_, outcomes) = row?;
         for outcome in outcomes {
-            update.set_ser(
+            update.insert_ser(
                 DBCol::TransactionResultForBlock,
                 &get_outcome_id_block_hash(outcome.id(), &outcome.block_hash),
                 &ExecutionOutcomeWithProof {
