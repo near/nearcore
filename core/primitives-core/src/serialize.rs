@@ -2,6 +2,13 @@ pub fn to_base58<T: AsRef<[u8]>>(input: T) -> String {
     bs58::encode(input).into_string()
 }
 
+/// Deprecated.  If you want to decode a CryptoHash, use CryptoHash::from_str.
+/// For anything else, don’t use base58.  This is still here because of
+/// deprecated RPC query format in RpcQueryRequest::parse.
+pub fn from_base58(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    bs58::decode(s).into_vec().map_err(|err| err.into())
+}
+
 pub fn to_base64<T: AsRef<[u8]>>(input: T) -> String {
     base64::encode(&input)
 }
