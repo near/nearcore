@@ -183,6 +183,10 @@ fn default_sync_step_period() -> Duration {
     Duration::from_millis(10)
 }
 
+fn default_sync_height_threshold() -> u64 {
+    1
+}
+
 fn default_view_client_threads() -> usize {
     4
 }
@@ -250,6 +254,8 @@ pub struct Consensus {
     /// Time between running doomslug timer.
     #[serde(default = "default_doomslug_step_period")]
     pub doomslug_step_period: Duration,
+    #[serde(default = "default_sync_height_threshold")]
+    pub sync_height_threshold: u64,
 }
 
 impl Default for Consensus {
@@ -276,6 +282,7 @@ impl Default for Consensus {
             sync_check_period: default_sync_check_period(),
             sync_step_period: default_sync_step_period(),
             doomslug_step_period: default_doomslug_step_period(),
+            sync_height_threshold: default_sync_height_threshold(),
         }
     }
 }
@@ -554,7 +561,7 @@ impl NearConfig {
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: config.consensus.sync_check_period,
                 sync_step_period: config.consensus.sync_step_period,
-                sync_height_threshold: 1,
+                sync_height_threshold: config.consensus.sync_height_threshold,
                 header_sync_initial_timeout: config.consensus.header_sync_initial_timeout,
                 header_sync_progress_timeout: config.consensus.header_sync_progress_timeout,
                 header_sync_stall_ban_timeout: config.consensus.header_sync_stall_ban_timeout,
