@@ -17,11 +17,22 @@ pub struct BatchedStoreUpdate<'a> {
     batch_size: usize,
     store: &'a Store,
     store_update: Option<StoreUpdate>,
+    total_size_written: u64,
+    printed_total_size_written: u64,
 }
+
+const PRINT_PROGRESS_EVERY_BYTES: u64 = bytesize::GIB;
 
 impl<'a> BatchedStoreUpdate<'a> {
     pub fn new(store: &'a Store, batch_size_limit: usize) -> Self {
-        Self { batch_size_limit, batch_size: 0, store, store_update: Some(store.store_update()) }
+        Self {
+            batch_size_limit,
+            batch_size: 0,
+            store,
+            store_update: Some(store.store_update()),
+            total_size_written: 0,
+            printed_total_size_written: 0,
+        }
     }
 
     fn commit(&mut self) -> std::io::Result<()> {
@@ -39,22 +50,21 @@ impl<'a> BatchedStoreUpdate<'a> {
         value: &T,
     ) -> std::io::Result<()> {
         let value_bytes = value.try_to_vec()?;
-        self.batch_size += key.as_ref().len() + value_bytes.len() + 8;
+        let entry_size = key.as_ref().len() + value_bytes.len() + 8;
+        self.batch_size += entry_size;
+        self.total_size_written += entry_size as u64;
         self.store_update.as_mut().unwrap().set(col, key.as_ref(), &value_bytes);
 
         if self.batch_size > self.batch_size_limit {
             self.commit()?;
         }
-
-        Ok(())
-    }
-
-    pub fn delete(&mut self, col: DBCol, key: &[u8]) -> std::io::Result<()> {
-        self.batch_size += key.as_ref().len() + 8;
-        self.store_update.as_mut().unwrap().delete(col, key.as_ref());
-
-        if self.batch_size > self.batch_size_limit {
-            self.commit()?;
+        if self.total_size_written - self.printed_total_size_written > PRINT_PROGRESS_EVERY_BYTES {
+            info!(
+                target: "migrations",
+                "Migrations: {} written",
+                bytesize::to_string(self.total_size_written, true)
+            );
+            self.printed_total_size_written = self.total_size_written;
         }
 
         Ok(())
@@ -201,18 +211,6 @@ pub fn migrate_31_to_32(storage: &crate::NodeStorage) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn get_row_count(store: &Store, col_name: &str) -> Option<i64> {
-    let statistics = store.get_store_statistics()?;
-    let col_stats = statistics.data.into_iter().find(|(col, _)| col == col_name)?.1;
-    for stat in col_stats {
-        match stat {
-            crate::db::StatsValue::Count(count) => return Some(count),
-            _ => {}
-        }
-    }
-    None
-}
-
 /// Migrates database from version 32 to 33.
 ///
 /// This removes the TransactionResult column and moves it to TransactionResultForBlock.
@@ -221,13 +219,10 @@ fn get_row_count(store: &Store, col_name: &str) -> Option<i64> {
 pub fn migrate_32_to_33(storage: &crate::NodeStorage) -> anyhow::Result<()> {
     let store = storage.get_store(crate::Temperature::Hot);
     let mut update = BatchedStoreUpdate::new(&store, 10_000_000);
-    let rows_total = get_row_count(&store, "col7");
-    let mut rows_migrated = 0;
     for row in
         store.iter_prefix_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(DBCol::_TransactionResult, &[])
     {
-        let (key, outcomes) = row?;
-        update.delete(DBCol::_TransactionResult, &key)?;
+        let (_, outcomes) = row?;
         for outcome in outcomes {
             update.set_ser(
                 DBCol::TransactionResultForBlock,
@@ -238,16 +233,9 @@ pub fn migrate_32_to_33(storage: &crate::NodeStorage) -> anyhow::Result<()> {
                 },
             )?;
         }
-
-        rows_migrated += 1;
-        if rows_migrated % 100000 == 0 {
-            info!(
-                target: "migrations",
-                "Migrated {}/{} TransactionResult rows",
-                rows_migrated,
-                rows_total.map(|rows| format!("{}", rows)).unwrap_or("unknown".to_string())
-            );
-        }
     }
+    let mut delete_old_update = store.store_update();
+    delete_old_update.delete_all(DBCol::_TransactionResult);
+    delete_old_update.commit()?;
     Ok(())
 }
