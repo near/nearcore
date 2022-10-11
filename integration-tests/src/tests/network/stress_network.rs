@@ -20,6 +20,7 @@ use near_network::test_utils::{
 use near_network::types::NetworkClientResponses;
 use near_network::types::NetworkViewClientResponses;
 use near_network::PeerManagerActor;
+use near_o11y::WithSpanContextExt;
 
 type ClientMock = Mocker<ClientActor>;
 type ViewClientMock = Mocker<ViewClientActor>;
@@ -90,7 +91,7 @@ fn stress_test() {
             })
             .collect();
 
-        pms[0].do_send(StopSignal::should_panic());
+        pms[0].do_send(StopSignal::should_panic().with_span_context());
 
         // States:
         // 0 -> Check other nodes health.
@@ -110,7 +111,7 @@ fn stress_test() {
                         if !flag.load(Ordering::Relaxed) {
                             let flag1 = flag.clone();
 
-                            actix::spawn(pms[ix].send(GetInfo {}).then(move |info| {
+                            actix::spawn(pms[ix].send(GetInfo {}.with_span_context()).then(move |info| {
                                 if let Ok(info) = info {
                                     if info.num_connected_peers == num_nodes - 2 {
                                         flag1.store(true, Ordering::Relaxed);
@@ -144,7 +145,7 @@ fn stress_test() {
                     let pm0 = pms[0].clone();
 
                     ctx.run_later(Duration::from_millis(10), move |_, _| {
-                        pm0.do_send(StopSignal::should_panic());
+                        pm0.do_send(StopSignal::should_panic().with_span_context());
                     });
 
                     let state1 = state.clone();

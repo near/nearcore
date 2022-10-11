@@ -247,7 +247,7 @@ impl Test {
         *connectors.write().unwrap() = conn;
 
         let view_client = connectors.write().unwrap()[0].1.clone();
-        actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
+        actix::spawn(view_client.send(GetBlock::latest().with_span_context()).then(move |res| {
             let block_hash = res.unwrap().unwrap().header.hash;
             let connectors_ = connectors.write().unwrap();
             connectors_[0].0.do_send(

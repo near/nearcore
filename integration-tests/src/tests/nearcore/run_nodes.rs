@@ -5,6 +5,7 @@ use near_network::test_utils::wait_or_timeout;
 use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards};
 use rand::{thread_rng, Rng};
 use std::ops::ControlFlow;
+use near_o11y::WithSpanContextExt;
 
 fn run_heavy_nodes(
     num_shards: NumShards,
@@ -28,7 +29,7 @@ fn run_heavy_nodes(
         let view_client = clients.last().unwrap().1.clone();
 
         wait_or_timeout(100, 40000, || async {
-            let res = view_client.send(GetBlock::latest()).await;
+            let res = view_client.send(GetBlock::latest().with_span_context()).await;
             match &res {
                 Ok(Ok(b)) if b.header.height > num_blocks => return ControlFlow::Break(()),
                 Err(_) => return ControlFlow::Continue(()),

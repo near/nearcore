@@ -20,6 +20,7 @@ use near_network::test_utils::{
 use near_network::types::NetworkClientResponses;
 use near_network::types::NetworkViewClientResponses;
 use near_network::PeerManagerActor;
+use near_o11y::WithSpanContextExt;
 
 type ClientMock = Mocker<ClientActor>;
 type ViewClientMock = Mocker<ViewClientActor>;
@@ -65,7 +66,7 @@ fn peer_handshake() {
         let pm1 = make_peer_manager("test1", port1, vec![("test2", port2)], 10);
         let _pm2 = make_peer_manager("test2", port2, vec![("test1", port1)], 10);
         wait_or_timeout(100, 2000, || async {
-            let info = pm1.send(GetInfo {}).await.unwrap();
+            let info = pm1.send(GetInfo {}.with_span_context()).await.unwrap();
             if info.num_connected_peers == 1 {
                 return ControlFlow::Break(());
             }
@@ -97,7 +98,7 @@ fn peers_connect_all() {
             Box::new(move |_| {
                 for i in 0..num_peers {
                     let flags1 = flags.clone();
-                    actix::spawn(peers[i].send(GetInfo {}).then(move |res| {
+                    actix::spawn(peers[i].send(GetInfo {}.with_span_context()).then(move |res| {
                         let info = res.unwrap();
                         if info.num_connected_peers > num_peers - 1
                             && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0
@@ -141,13 +142,13 @@ fn peer_recover() {
                     state.store(1, Ordering::Relaxed);
                 } else if state.load(Ordering::Relaxed) == 1 {
                     // Stop node2.
-                    let _ = pm2.do_send(StopSignal::default());
+                    let _ = pm2.do_send(StopSignal::default().with_span_context());
                     state.store(2, Ordering::Relaxed);
                 } else if state.load(Ordering::Relaxed) == 2 {
                     // Wait until node0 removes node2 from active validators.
                     if !flag.load(Ordering::Relaxed) {
                         let flag1 = flag.clone();
-                        actix::spawn(pm0.send(GetInfo {}).then(move |res| {
+                        actix::spawn(pm0.send(GetInfo {}.with_span_context()).then(move |res| {
                             if let Ok(info) = res {
                                 if info.connected_peers.len() == 1 {
                                     flag1.store(true, Ordering::Relaxed);
@@ -170,7 +171,7 @@ fn peer_recover() {
                     state.store(4, Ordering::Relaxed);
                 } else if state.load(Ordering::Relaxed) == 4 {
                     // Wait until node2 is connected with node0
-                    actix::spawn(pm2.send(GetInfo {}).then(|res| {
+                    actix::spawn(pm2.send(GetInfo {}.with_span_context()).then(|res| {
                         if let Ok(info) = res {
                             if info.connected_peers.len() == 1 {
                                 System::current().stop();

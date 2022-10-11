@@ -23,6 +23,7 @@ use near_primitives::types::{
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView};
 use std::time::Duration;
+use near_o11y::WithSpanContextExt;
 
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
@@ -42,7 +43,7 @@ fn test_get_validator_info_rpc() {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let view_client = clients[0].1.clone();
                 spawn_interruptible(async move {
-                    let block_view = view_client.send(GetBlock::latest()).await.unwrap();
+                    let block_view = view_client.send(GetBlock::latest().with_span_context()).await.unwrap();
                     if let Err(err) = block_view {
                         println!("Failed to get the latest block: {:?}", err);
                         return;
@@ -155,13 +156,13 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                                 }),
                             ) {
                                 let view_client2 = view_client1.clone();
-                                let fut = view_client1.send(GetExecutionOutcome { id }).then(
+                                let fut = view_client1.send(GetExecutionOutcome { id }.with_span_context()).then(
                                     move |res| {
                                         let execution_outcome_response = res.unwrap().unwrap();
                                         view_client2
                                             .send(GetBlock(BlockReference::BlockId(BlockId::Hash(
                                                 execution_outcome_response.outcome_proof.block_hash,
-                                            ))))
+                                            ))).with_span_context())
                                             .then(move |res| {
                                                 let res = res.unwrap().unwrap();
                                                 let mut outcome_with_id_to_hash = vec![
@@ -383,7 +384,7 @@ fn test_tx_not_enough_balance_must_return_error() {
 
         spawn_interruptible(async move {
             loop {
-                let res = view_client.send(GetBlock::latest()).await;
+                let res = view_client.send(GetBlock::latest().with_span_context()).await;
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
                         break;
@@ -448,7 +449,7 @@ fn test_send_tx_sync_returns_transaction_hash() {
 
         spawn_interruptible(async move {
             loop {
-                let res = view_client.send(GetBlock::latest()).await;
+                let res = view_client.send(GetBlock::latest().with_span_context()).await;
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
                         let response =
@@ -497,7 +498,7 @@ fn test_send_tx_sync_to_lightclient_must_be_routed() {
 
         spawn_interruptible(async move {
             loop {
-                let res = view_client.send(GetBlock::latest()).await;
+                let res = view_client.send(GetBlock::latest().with_span_context()).await;
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
                         let _ = client
@@ -557,7 +558,7 @@ fn test_check_unknown_tx_must_return_error() {
 
         spawn_interruptible(async move {
             loop {
-                let res = view_client.send(GetBlock::latest()).await;
+                let res = view_client.send(GetBlock::latest().with_span_context()).await;
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
                         let _ = client
@@ -614,7 +615,7 @@ fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
 
         spawn_interruptible(async move {
             loop {
-                let res = view_client.send(GetBlock::latest()).await;
+                let res = view_client.send(GetBlock::latest().with_span_context()).await;
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
                         let _ = client
@@ -654,7 +655,7 @@ fn test_validators_by_epoch_id_current_epoch_not_fails() {
 
         spawn_interruptible(async move {
             let final_block = loop {
-                let res = view_client.send(GetBlock::latest()).await;
+                let res = view_client.send(GetBlock::latest().with_span_context()).await;
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 1 {
                         break block;
@@ -665,7 +666,7 @@ fn test_validators_by_epoch_id_current_epoch_not_fails() {
             let res = view_client
                 .send(GetValidatorInfo {
                     epoch_reference: EpochReference::EpochId(EpochId(final_block.header.epoch_id)),
-                })
+                }.with_span_context())
                 .await;
 
             match res {

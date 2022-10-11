@@ -143,7 +143,7 @@ fn sync_nodes() {
 
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
-                    actix::spawn(view_client2.send(GetBlock::latest()).then(|res| {
+                    actix::spawn(view_client2.send(GetBlock::latest().with_span_context()).then(|res| {
                         match &res {
                             Ok(Ok(b)) if b.header.height == 13 => System::current().stop(),
                             Err(_) => return future::ready(()),
@@ -199,7 +199,7 @@ fn sync_after_sync_nodes() {
                     let client11 = client1.clone();
                     let signer1 = signer.clone();
                     let next_step1 = next_step.clone();
-                    actix::spawn(view_client2.send(GetBlock::latest()).then(move |res| {
+                    actix::spawn(view_client2.send(GetBlock::latest().with_span_context()).then(move |res| {
                         match &res {
                             Ok(Ok(b)) if b.header.height == 13 => {
                                 if !next_step1.load(Ordering::Relaxed) {
@@ -293,7 +293,7 @@ fn sync_state_stake_change() {
                     let near2_copy = near2.clone();
                     let dir2_path_copy = dir2_path.clone();
                     let arbiters_holder2 = arbiters_holder2.clone();
-                    actix::spawn(view_client1.send(GetBlock::latest()).then(move |res| {
+                    actix::spawn(view_client1.send(GetBlock::latest().with_span_context()).then(move |res| {
                         let latest_height =
                             if let Ok(Ok(block)) = res { block.header.height } else { 0 };
                         if !started_copy.load(Ordering::SeqCst) && latest_height > 10 {
@@ -305,7 +305,7 @@ fn sync_state_stake_change() {
 
                             WaitOrTimeoutActor::new(
                                 Box::new(move |_ctx| {
-                                    actix::spawn(view_client2.send(GetBlock::latest()).then(
+                                    actix::spawn(view_client2.send(GetBlock::latest().with_span_context()).then(
                                         move |res| {
                                             if let Ok(Ok(block)) = res {
                                                 if block.header.height > latest_height + 1 {

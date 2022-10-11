@@ -29,6 +29,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 use tracing::debug;
+use near_o11y::WithSpanContextExt;
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
 /// Return height of the next block.
@@ -517,7 +518,7 @@ fn test_processing_chunks_sanity() {
                     env.process_partial_encoded_chunk_request(1, request);
                     num_requests += 1;
                 } else {
-                    env.network_adapters[1].do_send(request);
+                    env.network_adapters[1].do_send(request.with_span_context());
                 }
             }
         }
