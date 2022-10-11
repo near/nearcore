@@ -1549,8 +1549,29 @@ impl Client {
         let parent_hash = match inner {
             ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {
-                match self.chain.get_block_header_by_height(*parent_height) {
-                    Ok(header) => *header.hash(),
+                match self.chain.store().get_all_block_hashes_by_height(*parent_height) {
+                    Ok(hashes) => {
+                        let mut hash = None;
+                        for (_epoch_id, hashes) in hashes.iter() {
+                            for h in hashes {
+                                hash = Some(*h);
+                                break;
+                            }
+                        }
+                        if hash.is_none() {
+                            self.handle_process_approval_error(
+                                approval,
+                                approval_type,
+                                true,
+                                near_chain::Error::Other(format!(
+                                    "Cannot find any block on height {}",
+                                    parent_height
+                                )),
+                            );
+                            return;
+                        }
+                        hash.unwrap()
+                    }
                     Err(e) => {
                         self.handle_process_approval_error(approval, approval_type, true, e);
                         return;
