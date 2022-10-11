@@ -199,10 +199,18 @@ impl PeerActor {
                         .tier1
                         .start_outbound(peer_id.clone())
                         .map_err(ClosingReason::OutboundNotAllowed)?,
-                    tcp::Tier::T2 => network_state
-                        .tier2
-                        .start_outbound(peer_id.clone())
-                        .map_err(ClosingReason::OutboundNotAllowed)?,
+                    tcp::Tier::T2 => {
+                        // A loop connection is not allowed on TIER2
+                        // (it is allowed on TIER1 to verify node's public IP).
+                        // TODO(gprusak): try to make this more consistent.
+                        if peer_id==&network_state.config.node_id() {
+                            return Err(ClosingReason::OutboundNotAllowed(connection::PoolError::UnexpectedLoopConnection));
+                        }
+                        network_state
+                            .tier2
+                            .start_outbound(peer_id.clone())
+                            .map_err(ClosingReason::OutboundNotAllowed)?
+                    }
                 },
                 handshake_spec: HandshakeSpec {
                     partial_edge_info: network_state.propose_edge(peer_id, None),
@@ -443,7 +451,7 @@ impl PeerActor {
         tier: tcp::Tier,
         handshake: Handshake,
     ) {
-        debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
+        //tracing::debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
         let cs = match &self.peer_status {
             PeerStatus::Connecting(it) => it,
             _ => panic!("process_handshake called in non-connecting state"),
@@ -451,7 +459,7 @@ impl PeerActor {
         match cs {
             ConnectingStatus::Outbound { handshake_spec: spec, .. } => {
                 if handshake.protocol_version != spec.protocol_version {
-                    warn!(target: "network", "Protocol version mismatch. Disconnecting peer {}", handshake.sender_peer_id);
+                    tracing::warn!(target: "network", "Protocol version mismatch. Disconnecting peer {}", handshake.sender_peer_id);
                     self.stop(ctx, ClosingReason::HandshakeFailed);
                     return;
                 }

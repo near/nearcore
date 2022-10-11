@@ -135,7 +135,7 @@ async fn accounts_data_gradual_epoch_change() {
 
         // Advance epoch in the given order.
         for id in ids {
-            pms[id].set_chain_info(chain_info.clone()).await;
+            pms[id].set_chain_info(&clock.clock(),chain_info.clone()).await;
         }
 
         // Wait for data to arrive.
@@ -162,7 +162,7 @@ async fn accounts_data_rate_limiting() {
 
     // TODO(gprusak) 10 connections per peer is not much, try to scale up this test 2x (some config
     // tweaking might be required).
-    let n = 4; // layers
+    let n = 3; // layers
     let m = 5; // peer managers per layer
     let mut pms = vec![];
     for _ in 0..n * m {
@@ -204,20 +204,25 @@ async fn accounts_data_rate_limiting() {
     );
 
     // Advance epoch in random order.
+    tracing::debug!(target:"test","set chain info");
     pms.shuffle(rng);
     for pm in &mut pms {
-        pm.set_chain_info(chain_info.clone()).await;
+        pm.set_chain_info(&clock.clock(), chain_info.clone()).await;
+        tracing::debug!(target:"test","set chain info [X]");
     }
+        tracing::debug!(target:"test","set chain info DONE");
 
     // Capture the event streams at the start, so that we can compute
     // the total number of SyncAccountsData messages exchanged in the process.
     let events: Vec<_> = pms.iter().map(|pm| pm.events.clone()).collect();
 
     // Wait for data to arrive.
+    tracing::debug!(target:"test","wait for data");
     let want = vs.iter().map(|v| super::peer_account_data(&e, v)).collect();
     for pm in &mut pms {
         pm.wait_for_accounts_data(&want).await;
     }
+    tracing::debug!(target:"test","wait for data DONE");
 
     // Count the SyncAccountsData messages exchanged.
     let mut msgs = 0;

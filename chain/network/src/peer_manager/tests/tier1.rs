@@ -27,6 +27,7 @@ fn make_block_approval(rng: &mut Rng, signer: &dyn ValidatorSigner) -> Approval 
 }
 
 async fn propagate_accounts_data(
+    clock: &time::Clock,
     rng: &mut Rng,
     chain: &data::Chain,
     validators: &[&peer_manager::testonly::ActorHandler],
@@ -45,7 +46,7 @@ async fn propagate_accounts_data(
     
     // Send it to all peers.
     for pm in all {
-        pm.set_chain_info(chain_info.clone()).await;
+        pm.set_chain_info(clock,chain_info.clone()).await;
     }
     let want = vs.iter().map(|v| super::peer_account_data(&e, v)).collect();
     // Wait for accounts data to propagate.
@@ -125,7 +126,7 @@ async fn direct_connections() {
         pms[i].connect_to(&peer_infos[i + 1]).await;
     }
 
-    propagate_accounts_data(rng,&chain,&pms[..],&pms[..]).await;
+    propagate_accounts_data(&clock.clock(),rng,&chain,&pms[..],&pms[..]).await;
     test_clique(&clock.clock(),rng,&pms[..]).await;
 }
 
@@ -193,7 +194,7 @@ async fn proxy_connections() {
     all.extend(validators.clone());
     all.extend(proxies.clone());
     all.push(&hub);
-    propagate_accounts_data(rng,&chain,&validators[..],&all[..]).await;
+    propagate_accounts_data(&clock.clock(),rng,&chain,&validators[..],&all[..]).await;
     test_clique(&clock.clock(),rng,&validators[..]).await;
 }
 

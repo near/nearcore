@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 impl super::NetworkState {
     // Returns ValidatorConfig of this node iff it belongs to TIER1 according to `accounts_data`.
-    fn tier1_validator_config(&self, accounts_data: &accounts_data::CacheSnapshot) -> Option<&config::ValidatorConfig> {
+    pub fn tier1_validator_config(&self, accounts_data: &accounts_data::CacheSnapshot) -> Option<&config::ValidatorConfig> {
         if self.config.features.tier1.is_none() {
             return None;
         }
@@ -30,7 +30,7 @@ impl super::NetworkState {
 
     /// Connects to ALL trusted proxies from the config.
     /// This way other TIER1 nodes can just connect to ANY proxy of this node.
-    pub async fn tier1_connect_to_my_proxies(self: &Arc<Self>, clock: &time::Clock) {
+    pub async fn tier1_connect_to_proxies(self: &Arc<Self>, clock: &time::Clock) {
         let accounts_data = self.accounts_data.load();
         let tier1 = self.tier1.load();
         let vc = match self.tier1_validator_config(&accounts_data) {
@@ -50,6 +50,7 @@ impl super::NetworkState {
             }
             config::ValidatorEndpoints::PublicAddrs(peer_addrs) => peer_addrs.clone(),
         };
+        tracing::debug!(target:"test","proxies = {proxies:?}");
         for proxy in proxies {
             // Skip the proxies we are already connected/connecting to.
             if tier1.ready.contains_key(&proxy.peer_id) || tier1.outbound_handshakes.contains(&proxy.peer_id) {
@@ -65,6 +66,7 @@ impl super::NetworkState {
                     tcp::Tier::T1,
                 )
                 .await?;
+                tracing::debug!(target:"test","spawning connection to {proxy:?}");
                 anyhow::Ok(PeerActor::spawn(clock.clone(), stream, None, self.clone())?)
             }.await {
                 tracing::info!(target:"network", ?err, ?proxy, "failed to establish a TIER1 connection");
@@ -72,7 +74,7 @@ impl super::NetworkState {
         }
     }
 
-    pub async fn tier1_broadcast_my_proxies(self: &Arc<Self>, clock: &time::Clock) {
+    pub async fn tier1_broadcast_proxies(self: &Arc<Self>, clock: &time::Clock) {
         let accounts_data = self.accounts_data.load();
         let tier1 = self.tier1.load();
         // If not a TIER1 validator, skip.
