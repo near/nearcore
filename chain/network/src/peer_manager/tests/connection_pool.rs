@@ -75,7 +75,7 @@ async fn loop_connection() {
     // Starting an outbound loop connection should be stopped without sending the handshake.
     let conn = pm.start_outbound(chain.clone(), cfg).await;
     assert_eq!(
-        ClosingReason::OutboundNotAllowed(connection::PoolError::LoopConnection),
+        ClosingReason::OutboundNotAllowed(connection::PoolError::UnexpectedLoopConnection),
         conn.manager_fail_handshake(&clock.clock()).await
     );
 
@@ -114,7 +114,7 @@ async fn loop_connection() {
         .await;
     assert_eq!(
         ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(
-            connection::PoolError::LoopConnection
+            connection::PoolError::UnexpectedLoopConnection
         )),
         reason
     );

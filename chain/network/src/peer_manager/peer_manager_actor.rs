@@ -2,7 +2,7 @@ use crate::client;
 use crate::config;
 use crate::network_protocol::{
     PeerIdOrHash,
-    AccountData, AccountOrPeerIdOrHash, Edge, EdgeState, PartialEdgeInfo, PeerInfo, PeerMessage,
+    AccountOrPeerIdOrHash, Edge, EdgeState, PartialEdgeInfo, PeerInfo, PeerMessage,
     Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo,
     SyncAccountsData,
 };
@@ -225,7 +225,7 @@ impl Actor for PeerManagerActor {
                     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                     loop {
                         interval.tick().await;
-                        state.tier1_daemon_tick(&clock, &cfg).await;
+                        state.tier1_connect_to_others(&clock).await;
                     }
                 }
                 .into_actor(self),
@@ -1474,12 +1474,11 @@ impl Handler<GetNetworkInfo> for PeerManagerActor {
 
 impl Handler<SetChainInfo> for PeerManagerActor {
     type Result = ();
-    fn handle(&mut self, info: SetChainInfo, ctx: &mut Self::Context) {
+    fn handle(&mut self, info: SetChainInfo, _ctx: &mut Self::Context) {
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&["SetChainInfo"]).start_timer();
         let _span =
             tracing::trace_span!(target: "network", "handle", handler = "SetChainInfo").entered();
-        let now = self.clock.now_utc();
         let SetChainInfo(info) = info;
         let state = self.state.clone();
         // We set state.chain_info and call accounts_data.set_keys

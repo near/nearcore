@@ -184,7 +184,9 @@ impl Connection {
 
 #[derive(Clone)]
 pub(crate) struct PoolSnapshot {
-    pub me: PeerId,
+    pub me: PeerId, 
+    /// Connections which have completed the handshake and are ready
+    /// for transmitting messages.
     pub ready: im::HashMap<PeerId, Arc<Connection>>,
     /// Set of started outbound connections, which are not ready yet.
     /// We need to keep those to prevent a deadlock when 2 peers try
@@ -216,9 +218,9 @@ pub(crate) struct PoolSnapshot {
     /// b. Peer A executes 1 and then attempts 2.
     /// In this scenario A will fail to obtain a permit, because it has already accepted a
     /// connection from B.
-    ///
-    /// TODO(gprusak): cover it with tests.
     pub outbound_handshakes: im::HashSet<PeerId>,
+    /// Inbound end of the loop connection. The outbound end is added to the `ready` set.
+    pub loop_inbound: Option<Arc<Connection>>,
 }
 
 pub(crate) struct OutboundHandshakePermit(PeerId, Weak<ArcMutex<PoolSnapshot>>);
@@ -255,12 +257,13 @@ pub(crate) enum PoolError {
     #[error("already started another outbound connection to this peer")]
     AlreadyStartedConnecting,
     #[error("loop connections are not allowed")]
-    LoopConnection,
+    UnexpectedLoopConnection,
 }
 
 impl Pool {
     pub fn new(me: PeerId) -> Pool {
         Self(Arc::new(ArcMutex::new(PoolSnapshot {
+            loop_inbound: None,
             me,
             ready: im::HashMap::new(),
             outbound_handshakes: im::HashSet::new(),
@@ -273,42 +276,54 @@ impl Pool {
 
     pub fn insert_ready(&self, peer: Arc<Connection>) -> Result<(), PoolError> {
         self.0.update(move |pool| {
-            let id = &peer.peer_info.id;
-            if id == &pool.me {
-                return Err(PoolError::LoopConnection);
+            let id = peer.peer_info.id.clone();
+            // We support loopback connections for the purpose of 
+            // validating our own external IP. This is the only case
+            // in which we allow 2 connections in a pool to have the same
+            // PeerId. The outbound connection is added to the
+            // `ready` set, the inbound connection is put into dedicated `loop_inbound` field.
+            if id==pool.me && peer.peer_type==PeerType::Inbound {
+                if pool.loop_inbound.is_some() {
+                    return Err(PoolError::AlreadyConnected);
+                }
+                // Detect a situation in which a different node tries to connect
+                // to us with the same PeerId. This can happen iff the node key
+                // has been stolen (or just copied over by mistake).
+                if !pool.ready.contains_key(&id) && !pool.outbound_handshakes.contains(&id) {
+                    return Err(PoolError::UnexpectedLoopConnection);
+                }
+                pool.loop_inbound = Some(peer);
+                return Ok(());
             }
-            if pool.ready.contains_key(id) {
+            if pool.ready.contains_key(&id) {
                 return Err(PoolError::AlreadyConnected);
             }
             match peer.peer_type {
                 PeerType::Inbound => {
-                    if pool.outbound_handshakes.contains(id) && id >= &pool.me {
+                    if pool.outbound_handshakes.contains(&id) && id >= pool.me {
                         return Err(PoolError::AlreadyStartedConnecting);
                     }
                 }
                 PeerType::Outbound => {
-                    // This is a bug, if an outbound permit is not kept
+                    // This is a bug if an outbound permit is not kept
                     // until insert_ready is called.
                     // TODO(gprusak): in fact, we can make insert_ready
                     // consume the outbound permit to additionally ensure
                     // that permit is dropped properly. However we will still
                     // need a runtime check to verify that the permit comes
                     // from the same Pool instance and is for the right PeerId.
-                    if !pool.outbound_handshakes.contains(id) {
+                    if !pool.outbound_handshakes.contains(&id) {
                         panic!("bug detected: OutboundHandshakePermit dropped before calling Pool.insert_ready()")
                     }
                 }
             }
-            pool.ready.insert(id.clone(), peer);
+            pool.ready.insert(id, peer);
             Ok(())
         })
     }
 
     pub fn start_outbound(&self, peer_id: PeerId) -> Result<OutboundHandshakePermit, PoolError> {
         self.0.update(move |pool| {
-            if peer_id == pool.me {
-                return Err(PoolError::LoopConnection);
-            }
             if pool.ready.contains_key(&peer_id) {
                 return Err(PoolError::AlreadyConnected);
             }
@@ -320,6 +335,8 @@ impl Pool {
         })
     }
 
+    // TODO: accept Arc<Connection> as an argument,
+    // so that we can add support for removing loop connections.
     pub fn remove(&self, peer_id: &PeerId) {
         self.0.update(|pool| {
             pool.ready.remove(peer_id);

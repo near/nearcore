@@ -283,7 +283,7 @@ impl ActorHandler {
         let clock = clock.clone();
         self.with_state(move |s| async move {
             // Start the connections.
-            s.tier1_daemon_tick(&clock, s.config.features.tier1.as_ref().unwrap()).await;
+            s.tier1_connect_to_others(&clock).await;
             let ad = s.accounts_data.load();
             // Wait for all the connections to be established.
             loop {
