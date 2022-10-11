@@ -183,7 +183,7 @@ fn default_sync_step_period() -> Duration {
     Duration::from_millis(10)
 }
 
-fn default_sync_height_threshold() -> usize {
+fn default_sync_height_threshold() -> u64 {
     1
 }
 
@@ -255,7 +255,7 @@ pub struct Consensus {
     #[serde(default = "default_doomslug_step_period")]
     pub doomslug_step_period: Duration,
     #[serde(default = "default_sync_height_threshold")]
-    pub sync_height_threshold: usize,
+    pub sync_height_threshold: u64,
 }
 
 impl Default for Consensus {
