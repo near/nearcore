@@ -876,6 +876,11 @@ fn test_ed25519_verify() {
 
     let bad_signature: [u8; 64] = [1; 64];
 
+    let mut forged_signature = signature.clone();
+    // create a forged signature with the `s` scalar not properly reduced
+    // https://docs.rs/ed25519/latest/src/ed25519/lib.rs.html#302
+    forged_signature[63] = 0b1110_0001;
+
     let public_key: [u8; 32] = [
         32, 122, 6, 120, 146, 130, 30, 37, 215, 112, 241, 251, 160, 196, 124, 17, 255, 75, 129, 62,
         84, 22, 46, 206, 158, 184, 57, 224, 118, 35, 26, 182,
@@ -887,59 +892,96 @@ fn test_ed25519_verify() {
         107, 108, 97, 100, 106, 102, 107, 108, 106, 97, 100, 115, 107,
     ];
 
-    let result = logic
-        .ed25519_verify(
-            signature.len() as _,
+    let wrong_message_zero_bytes: [u8; 0] = [];
+
+    let scenarios = [
+        (
+            signature.len(),
+            signature.clone(),
+            message.len(),
+            message.as_slice(),
+            public_key.len(),
+            public_key.clone(),
+            Ok(1),
+        ),
+        (
+            bad_signature.len(),
+            bad_signature.clone(),
+            message.len(),
+            message.as_slice(),
+            public_key.len(),
+            public_key.clone(),
+            Ok(0),
+        ),
+        (
+            signature.len() - 1,
+            signature.clone(),
+            message.len(),
+            message.as_slice(),
+            public_key.len(),
+            public_key.clone(),
+            Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
+                msg: "invalid signature length".to_string(),
+            })),
+        ),
+        (
+            forged_signature.len(),
+            forged_signature.clone(),
+            message.len(),
+            message.as_slice(),
+            public_key.len(),
+            public_key.clone(),
+            Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
+                msg: "signature error".to_string(),
+            })),
+        ),
+        (
+            forged_signature.len(),
+            forged_signature.clone(),
+            0,
+            message.as_slice(),
+            public_key.len(),
+            public_key.clone(),
+            Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
+                msg: "invalid message length".to_string(),
+            })),
+        ),
+        (
+            signature.len(),
+            signature.clone(),
+            message.len(),
+            wrong_message_zero_bytes.as_slice(), // note that here the message len is correct - TODO: ensure that this is the desired behavior
+            public_key.len(),
+            public_key.clone(),
+            Ok(0),
+        ),
+    ];
+
+    for (
+        signature_len,
+        signature,
+        message_len,
+        message,
+        public_key_len,
+        public_key,
+        expected_result,
+    ) in scenarios
+    {
+        let result = logic.ed25519_verify(
+            signature_len as _,
             signature.as_ptr() as _,
-            message.len() as _,
+            message_len as _,
             message.as_ptr() as _,
-            public_key.len() as _,
+            public_key_len as _,
             public_key.as_ptr() as _,
-        )
-        .unwrap();
+        );
 
-    assert_eq!(result, 1);
-
-    assert_costs(map! {
-        ExtCosts::read_memory_byte: 128,
-        ExtCosts::read_memory_base: 3,
-        ExtCosts::ed25519_verify_base: 1,
-        ExtCosts::ed25519_verify_byte: 32,
-    });
-
-    let result = logic
-        .ed25519_verify(
-            bad_signature.len() as _,
-            bad_signature.as_ptr() as _,
-            message.len() as _,
-            message.as_ptr() as _,
-            public_key.len() as _,
-            public_key.as_ptr() as _,
-        )
-        .unwrap();
-
-    assert_eq!(result, 0);
-
-    assert_costs(map! {
-        ExtCosts::read_memory_byte: 128,
-        ExtCosts::read_memory_base: 3,
-        ExtCosts::ed25519_verify_base: 1,
-        ExtCosts::ed25519_verify_byte: 32,
-    });
-
-    let result = logic.ed25519_verify(
-        (signature.len() - 1) as _,
-        signature.as_ptr() as _,
-        message.len() as _,
-        message.as_ptr() as _,
-        public_key.len() as _,
-        public_key.as_ptr() as _,
-    );
-
-    assert_eq!(
-        result,
-        Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
-            msg: "invalid signature length".to_string()
-        }))
-    );
+        assert_eq!(result, expected_result);
+        assert_costs(map! {
+            ExtCosts::read_memory_byte: 128,
+            ExtCosts::read_memory_base: 3,
+            ExtCosts::ed25519_verify_base: 1,
+            ExtCosts::ed25519_verify_byte: 32,
+        });
+    }
 }
