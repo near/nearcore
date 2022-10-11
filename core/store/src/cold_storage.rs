@@ -5,7 +5,6 @@ use borsh::BorshDeserialize;
 use near_primitives::types::BlockHeight;
 use std::collections::HashMap;
 use std::io;
-use std::sync::Arc;
 use strum::IntoEnumIterator;
 
 type StoreKey = Vec<u8>;
@@ -18,7 +17,7 @@ struct StoreWithCache<'a> {
 }
 
 pub fn update_cold_db(
-    cold_db: &Arc<dyn Database>,
+    cold_db: &dyn Database,
     hot_store: &Store,
     height: &BlockHeight,
 ) -> io::Result<()> {
@@ -45,7 +44,7 @@ pub fn update_cold_db(
 /// Creates a transaction based on that values with set DBOp s.
 /// Writes that transaction to cold_db.
 fn copy_from_store(
-    cold_db: &Arc<dyn Database>,
+    cold_db: &dyn Database,
     hot_store: &mut StoreWithCache,
     col: DBCol,
     keys: Vec<StoreKey>,
@@ -63,7 +62,7 @@ fn copy_from_store(
     return Ok(());
 }
 
-pub fn test_cold_genesis_update(cold_db: &Arc<dyn Database>, hot_store: &Store) -> io::Result<()> {
+pub fn test_cold_genesis_update(cold_db: &dyn Database, hot_store: &Store) -> io::Result<()> {
     let mut store_with_cache = StoreWithCache { store: hot_store, cache: StoreCache::new() };
     for col in DBCol::iter() {
         if col.is_cold() {
