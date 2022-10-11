@@ -28,6 +28,7 @@ use tracing_subscriber::{fmt, reload, EnvFilter, Layer, Registry};
 pub mod context;
 mod io_tracer;
 pub mod metrics;
+pub mod pretty;
 pub mod testonly;
 
 /// Produce a tracing-event for target "io_tracer" that will be consumed by the
