@@ -1,5 +1,6 @@
 use crate::near_primitives::version::PROTOCOL_VERSION;
 use crate::{actions::execute_function_call, ext::RuntimeExt};
+use near_chain::ChainStore;
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::{
@@ -167,6 +168,7 @@ impl TrieViewer {
         args: &[u8],
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
+        chain_store: &ChainStore,
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
         let now = Instant::now();
         let root = state_update.get_root().clone();
@@ -235,6 +237,7 @@ impl TrieViewer {
             config,
             true,
             Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view }),
+            chain_store,
         )
         .outcome_error();
         let elapsed = now.elapsed();

@@ -1,7 +1,7 @@
 mod validator_schedule;
 
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -56,7 +56,7 @@ use crate::store::ChainStoreAccess;
 use crate::types::{
     AcceptedBlock, ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ChainGenesis,
 };
-use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
+use crate::{BlockHeader, ChainStore, DoomslugThresholdMode, RuntimeAdapter};
 use crate::{BlockProcessingArtifact, Provenance};
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::time::Clock;
@@ -1083,7 +1083,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         block_hash: &CryptoHash,
         _epoch_id: &EpochId,
         request: &QueryRequest,
-        _latest_block_hashes: &VecDeque<CryptoHash>,
+        _chain_store: &ChainStore,
     ) -> Result<QueryResponse, near_chain_primitives::error::QueryError> {
         match request {
             QueryRequest::ViewAccount { account_id, .. } => Ok(QueryResponse {

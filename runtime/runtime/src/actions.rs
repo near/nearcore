@@ -2,6 +2,7 @@ use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::{metrics, ActionResult, ApplyState};
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_chain::ChainStore;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::checked_feature;
@@ -47,6 +48,7 @@ pub(crate) fn execute_function_call(
     config: &RuntimeConfig,
     is_last_action: bool,
     view_config: Option<ViewConfig>,
+    chain_store: &ChainStore,
 ) -> VMResult {
     let account_id = runtime_ext.account_id();
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
@@ -95,6 +97,7 @@ pub(crate) fn execute_function_call(
         random_seed,
         view_config,
         output_data_receivers,
+        chain_store,
     };
 
     // Enable caching chunk mode for the function call. This allows to charge for nodes touched in a chunk only once for
@@ -137,6 +140,7 @@ pub(crate) fn action_function_call(
     config: &RuntimeConfig,
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
+    chain_store: &ChainStore,
 ) -> Result<(), RuntimeError> {
     if account.amount().checked_add(function_call.deposit).is_none() {
         return Err(StorageError::StorageInconsistentState(
@@ -166,6 +170,7 @@ pub(crate) fn action_function_call(
         config,
         is_last_action,
         None,
+        chain_store,
     )
     .outcome_error();
 

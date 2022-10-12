@@ -6,9 +6,11 @@ use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::{ReceiptMetadata, ValuePtr};
 use byteorder::ByteOrder;
+use near_chain::ChainStoreAccess;
 use near_crypto::Secp256K1Signature;
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
+use near_primitives::types::BlockHeight;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
@@ -32,7 +34,7 @@ pub struct VMLogic<'a> {
     /// receipts creation.
     ext: &'a mut dyn External,
     /// Part of Context API and Economics API that was extracted from the receipt.
-    context: VMContext,
+    context: VMContext<'a>,
     /// Parameters of Wasm and economic parameters.
     config: &'a VMConfig,
     /// Fees for creating (async) actions on runtime.
@@ -105,7 +107,7 @@ macro_rules! memory_set {
 impl<'a> VMLogic<'a> {
     pub fn new_with_protocol_version(
         ext: &'a mut dyn External,
-        context: VMContext,
+        context: VMContext<'a>,
         config: &'a VMConfig,
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
@@ -635,6 +637,33 @@ impl<'a> VMLogic<'a> {
     pub fn block_index(&mut self) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
         Ok(self.context.block_index)
+    }
+
+    /// Gets a block given a height (up to 256)
+    ///
+    /// # Cost
+    ///
+    /// `base`
+    // TODO #1903 rename to `block_height`
+    pub fn get_block_by_hash(&mut self, height_number: BlockHeight) -> Result<u64> {
+        self.gas_counter.pay_base(base)?;
+        let chain_store = self.context.chain_store;
+        let tip = chain_store.header_head().expect("handle this properly");
+        if tip.height == height_number {
+            return Ok(1);
+        }
+        let mut previous_block_hash = tip.prev_block_hash;
+        // iterate up to 255 times more
+        for _ in 0..255 {
+            let block_header =
+                chain_store.get_block_header(&previous_block_hash).expect("handle this properly");
+            if block_header.height() == height_number {
+                return Ok(1);
+            }
+            previous_block_hash = *(block_header.prev_hash());
+        }
+
+        Ok(0)
     }
 
     /// Returns the current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).

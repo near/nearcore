@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -8,7 +8,7 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::time::Utc;
 use num_rational::Rational32;
 
-use crate::metrics;
+use crate::{metrics, ChainStore};
 use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
 use near_client_primitives::types::StateSplitApplyingStatus;
@@ -555,7 +555,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         request: &QueryRequest,
-        latest_block_hashes: &VecDeque<CryptoHash>,
+        chain_store: &ChainStore,
     ) -> Result<QueryResponse, near_chain_primitives::error::QueryError>;
 
     /// WARNING: this call may be expensive.

@@ -298,6 +298,7 @@ impl ViewClientActor {
             })?;
 
         let state_root = chunk_extra.state_root();
+        let chain_store = self.chain.store();
         match self.runtime_adapter.query(
             shard_uid,
             state_root,
@@ -307,7 +308,7 @@ impl ViewClientActor {
             header.hash(),
             header.epoch_id(),
             &msg.request,
-            &self.chain.latest_block_hashes,
+            chain_store,
         ) {
             Ok(query_response) => Ok(query_response),
             Err(query_error) => Err(match query_error {

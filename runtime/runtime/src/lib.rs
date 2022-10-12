@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use near_chain::ChainStore;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use tracing::debug;
 
@@ -299,6 +300,7 @@ impl Runtime {
         action_index: usize,
         actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
+        chain_store: &ChainStore,
     ) -> Result<ActionResult, RuntimeError> {
         // println!("enter apply_action");
         let mut result = ActionResult::default();
@@ -368,6 +370,7 @@ impl Runtime {
                     &apply_state.config,
                     action_index + 1 == actions.len(),
                     epoch_info_provider,
+                    chain_store,
                 )?;
             }
             Action::Transfer(transfer) => {
@@ -457,6 +460,7 @@ impl Runtime {
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
+        chain_store: &ChainStore,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
         let action_receipt = match &receipt.receipt {
             ReceiptEnum::Action(action_receipt) => action_receipt,
@@ -520,6 +524,7 @@ impl Runtime {
                 action_index,
                 &action_receipt.actions,
                 epoch_info_provider,
+                chain_store,
             )?;
             if new_result.result.is_ok() {
                 if let Err(e) = new_result.new_receipts.iter().try_for_each(|receipt| {
@@ -819,6 +824,7 @@ impl Runtime {
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
+        chain_store: &ChainStore,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
@@ -887,6 +893,7 @@ impl Runtime {
                                 validator_proposals,
                                 stats,
                                 epoch_info_provider,
+                                chain_store,
                             )
                             .map(Some);
                     } else {
@@ -941,6 +948,7 @@ impl Runtime {
                             validator_proposals,
                             stats,
                             epoch_info_provider,
+                            chain_store,
                         )
                         .map(Some);
                 } else {
@@ -1152,6 +1160,7 @@ impl Runtime {
         transactions: &[SignedTransaction],
         epoch_info_provider: &dyn EpochInfoProvider,
         state_patch: SandboxStatePatch,
+        chain_store: &ChainStore,
     ) -> Result<ApplyResult, RuntimeError> {
         // state_patch must be empty unless this is sandbox build.  Thanks to
         // conditional compilation this always resolves to true so technically
@@ -1272,6 +1281,7 @@ impl Runtime {
                 &mut validator_proposals,
                 &mut stats,
                 epoch_info_provider,
+                chain_store,
             );
             tracing::debug!(target: "runtime", node_counter = ?state_update.trie().get_trie_nodes_count());
             if let Some(outcome_with_id) = result? {

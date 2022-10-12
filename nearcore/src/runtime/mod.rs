@@ -6,7 +6,7 @@ use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
 use near_chain::types::{ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo};
-use near_chain::{Error, RuntimeAdapter};
+use near_chain::{ChainStore, Error, RuntimeAdapter};
 use near_chain_configs::{
     Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
     MIN_GC_NUM_EPOCHS_TO_KEEP,
@@ -1136,7 +1136,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         request: &QueryRequest,
-        _latest_block_hashes: &VecDeque<CryptoHash>,
+        chain_store: &ChainStore,
     ) -> Result<QueryResponse, near_chain::near_chain_primitives::error::QueryError> {
         match request {
             QueryRequest::ViewAccount { account_id } => {
@@ -1195,6 +1195,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         &mut logs,
                         &self.epoch_manager,
                         current_protocol_version,
+                        chain_store,
                     )
                     .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_call_function_error(err, block_height, *block_hash))?;
                 Ok(QueryResponse {
@@ -1571,6 +1572,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
+        chain_store: &ChainStore,
     ) -> Result<Vec<u8>, node_runtime::state_viewer::errors::CallFunctionError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         let view_state = ViewApplyState {
@@ -1591,6 +1593,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             args,
             logs,
             epoch_info_provider,
+            chain_store,
         )
     }
 

@@ -3,6 +3,7 @@ use crate::tests::helpers::*;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::{map, ExtCosts};
 use hex::FromHex;
+use near_primitives::types::BlockHeight;
 use near_vm_errors::HostError;
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_json::from_slice;
@@ -942,4 +943,13 @@ fn test_ed25519_verify() {
             msg: "invalid signature length".to_string()
         }))
     );
+}
+
+#[test]
+fn test_get_block_by_hash() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let code = "a".repeat(1024).as_bytes().to_vec();
+    logic_builder.config.limit_config.max_contract_size = code.len() as u64;
+    let mut logic = logic_builder.build(get_context(vec![], false));
+    logic.get_block_by_hash(BlockHeight::default());
 }
