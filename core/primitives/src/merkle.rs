@@ -199,8 +199,8 @@ mod tests {
     fn test_incorrect_path() {
         let items = vec![111, 222, 333];
         let (root, paths) = merklize(&items);
-        for (i, item) in items.iter().enumerate() {
-            assert!(!verify_path(root, &paths[(i + 1) % 3], item))
+        for i in 0..items.len() {
+            assert!(!verify_path(root, &paths[(i + 1) % 3], &items[i]))
         }
     }
 
