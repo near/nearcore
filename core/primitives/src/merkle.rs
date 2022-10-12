@@ -19,7 +19,7 @@ pub enum Direction {
 }
 
 pub fn combine_hash(hash1: &MerkleHash, hash2: &MerkleHash) -> MerkleHash {
-    CryptoHash::hash_borsh(&(hash1, hash2))
+    CryptoHash::hash_borsh((hash1, hash2))
 }
 
 /// Merklize an array of items. If the array is empty, returns hash of 0
@@ -89,8 +89,8 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
 }
 
 /// Verify merkle path for given item and corresponding path.
-pub fn verify_path<T: BorshSerialize>(root: MerkleHash, path: &MerklePath, item: &T) -> bool {
-    verify_hash(root, path, CryptoHash::hash_borsh(&item))
+pub fn verify_path<T: BorshSerialize>(root: MerkleHash, path: &MerklePath, item: T) -> bool {
+    verify_hash(root, path, CryptoHash::hash_borsh(item))
 }
 
 pub fn verify_hash(root: MerkleHash, path: &MerklePath, item_hash: MerkleHash) -> bool {
@@ -114,9 +114,9 @@ pub fn compute_root_from_path(path: &MerklePath, item_hash: MerkleHash) -> Merkl
 
 pub fn compute_root_from_path_and_item<T: BorshSerialize>(
     path: &MerklePath,
-    item: &T,
+    item: T,
 ) -> MerkleHash {
-    compute_root_from_path(path, CryptoHash::hash_borsh(&item))
+    compute_root_from_path(path, CryptoHash::hash_borsh(item))
 }
 
 /// Merkle tree that only maintains the path for the next leaf, i.e,
