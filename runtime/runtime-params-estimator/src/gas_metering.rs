@@ -142,16 +142,18 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
 
     // Warmup with gas metering
     for _ in 0..warmup_repeats {
-        let result = runtime.run(
-            contract,
-            "hello",
-            &mut fake_external,
-            fake_context.clone(),
-            &fees,
-            &promise_results,
-            PROTOCOL_VERSION,
-            cache,
-        );
+        let result = runtime
+            .run(
+                contract,
+                "hello",
+                &mut fake_external,
+                fake_context.clone(),
+                &fees,
+                &promise_results,
+                PROTOCOL_VERSION,
+                cache,
+            )
+            .expect("fatal_error");
         if let Some(err) = &result.aborted {
             eprintln!("error: {}", err);
         }
@@ -161,48 +163,54 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     // Run with gas metering.
     let start = GasCost::measure(gas_metric);
     for _ in 0..repeats {
-        let result = runtime.run(
-            contract,
-            "hello",
-            &mut fake_external,
-            fake_context.clone(),
-            &fees,
-            &promise_results,
-            PROTOCOL_VERSION,
-            cache,
-        );
+        let result = runtime
+            .run(
+                contract,
+                "hello",
+                &mut fake_external,
+                fake_context.clone(),
+                &fees,
+                &promise_results,
+                PROTOCOL_VERSION,
+                cache,
+            )
+            .expect("fatal_error");
         assert!(result.aborted.is_none());
     }
     let total_raw_with_gas = start.elapsed();
 
     // Warmup without gas metering
     for _ in 0..warmup_repeats {
-        let result = runtime_free_gas.run(
-            contract,
-            "hello",
-            &mut fake_external,
-            fake_context.clone(),
-            &fees,
-            &promise_results,
-            PROTOCOL_VERSION,
-            cache,
-        );
+        let result = runtime_free_gas
+            .run(
+                contract,
+                "hello",
+                &mut fake_external,
+                fake_context.clone(),
+                &fees,
+                &promise_results,
+                PROTOCOL_VERSION,
+                cache,
+            )
+            .expect("fatal_error");
         assert!(result.aborted.is_none());
     }
 
     // Run without gas metering.
     let start = GasCost::measure(gas_metric);
     for _ in 0..repeats {
-        let result = runtime_free_gas.run(
-            contract,
-            "hello",
-            &mut fake_external,
-            fake_context.clone(),
-            &fees,
-            &promise_results,
-            PROTOCOL_VERSION,
-            cache,
-        );
+        let result = runtime_free_gas
+            .run(
+                contract,
+                "hello",
+                &mut fake_external,
+                fake_context.clone(),
+                &fees,
+                &promise_results,
+                PROTOCOL_VERSION,
+                cache,
+            )
+            .expect("fatal_error");
         assert!(result.aborted.is_none());
     }
     let total_raw_no_gas = start.elapsed();

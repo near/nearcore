@@ -20,8 +20,8 @@ use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
 use near_primitives_core::types::{GasDistribution, GasWeight};
+use near_vm_errors::{FunctionCallError, InconsistentStateError};
 use near_vm_errors::{HostError, VMLogicError};
-use near_vm_errors::{InconsistentStateError, VMError};
 use std::collections::HashMap;
 use std::mem::size_of;
 
@@ -2796,12 +2796,11 @@ impl<'a> VMLogic<'a> {
         method_name: &str,
         current_protocol_version: u32,
         wasm_code_bytes: usize,
-    ) -> std::result::Result<(), VMError> {
+    ) -> std::result::Result<(), near_vm_errors::FunctionCallError> {
         if method_name.is_empty() {
-            let error =
-                VMError::FunctionCallError(near_vm_errors::FunctionCallError::MethodResolveError(
-                    near_vm_errors::MethodResolveError::MethodEmptyName,
-                ));
+            let error = near_vm_errors::FunctionCallError::MethodResolveError(
+                near_vm_errors::MethodResolveError::MethodEmptyName,
+            );
             return Err(error);
         }
         if checked_feature!(
@@ -2810,10 +2809,9 @@ impl<'a> VMLogic<'a> {
             current_protocol_version
         ) {
             if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
-                let error =
-                    VMError::FunctionCallError(near_vm_errors::FunctionCallError::HostError(
-                        near_vm_errors::HostError::GasExceeded,
-                    ));
+                let error = near_vm_errors::FunctionCallError::HostError(
+                    near_vm_errors::HostError::GasExceeded,
+                );
                 return Err(error);
             }
         }
@@ -2825,17 +2823,15 @@ impl<'a> VMLogic<'a> {
         &mut self,
         current_protocol_version: u32,
         wasm_code_bytes: usize,
-    ) -> std::result::Result<(), VMError> {
+    ) -> std::result::Result<(), near_vm_errors::FunctionCallError> {
         if !checked_feature!(
             "protocol_feature_fix_contract_loading_cost",
             FixContractLoadingCost,
             current_protocol_version
         ) {
             if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
-                return Err(VMError::FunctionCallError(
-                    near_vm_errors::FunctionCallError::HostError(
-                        near_vm_errors::HostError::GasExceeded,
-                    ),
+                return Err(near_vm_errors::FunctionCallError::HostError(
+                    near_vm_errors::HostError::GasExceeded,
                 ));
             }
         }
@@ -2854,13 +2850,13 @@ pub struct VMOutcome {
     /// Data collected from making a contract call
     pub profile: ProfileData,
     pub action_receipts: Vec<(AccountId, ReceiptMetadata)>,
-    pub aborted: Option<VMError>,
+    pub aborted: Option<FunctionCallError>,
 }
 
 impl VMOutcome {
     /// Consumes the `VMLogic` object and computes the final outcome with the
     /// given error that stopped execution from finishing successfully.
-    pub fn abort(logic: VMLogic, error: VMError) -> VMOutcome {
+    pub fn abort(logic: VMLogic, error: FunctionCallError) -> VMOutcome {
         let mut outcome = logic.compute_outcome_and_distribute_gas();
         outcome.aborted = Some(error);
         outcome
@@ -2873,7 +2869,7 @@ impl VMOutcome {
     }
 
     /// Creates an outcome with a no-op outcome.
-    pub fn nop_outcome(error: VMError) -> VMOutcome {
+    pub fn nop_outcome(error: FunctionCallError) -> VMOutcome {
         VMOutcome {
             // Note: Balance and storage fields are ignored on a failed outcome.
             balance: 0,
@@ -2894,7 +2890,7 @@ impl VMOutcome {
     /// will return a NOP outcome. This is used for backwards-compatibility only.
     pub fn abort_but_nop_outcome_in_old_protocol(
         logic: VMLogic,
-        error: VMError,
+        error: FunctionCallError,
         current_protocol_version: u32,
     ) -> VMOutcome {
         if checked_feature!(

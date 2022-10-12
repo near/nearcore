@@ -1,4 +1,4 @@
-use near_vm_errors::VMError;
+use near_vm_errors::FunctionCallError;
 use near_vm_logic::MemoryLike;
 use wasmer_runtime::units::{Bytes, Pages};
 use wasmer_runtime::wasm::MemoryDescriptor;
@@ -7,7 +7,10 @@ use wasmer_runtime::Memory;
 pub struct WasmerMemory(Memory);
 
 impl WasmerMemory {
-    pub fn new(initial_memory_pages: u32, max_memory_pages: u32) -> Result<Self, VMError> {
+    pub fn new(
+        initial_memory_pages: u32,
+        max_memory_pages: u32,
+    ) -> Result<Self, FunctionCallError> {
         Ok(WasmerMemory(
             Memory::new(
                 MemoryDescriptor::new(

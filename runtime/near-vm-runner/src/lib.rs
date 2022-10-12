@@ -18,7 +18,6 @@ mod wasmer_runner;
 #[cfg(feature = "wasmtime_vm")]
 mod wasmtime_runner;
 
-pub use near_vm_errors::VMError;
 pub use near_vm_logic::with_ext_cost_counter;
 
 pub use cache::{

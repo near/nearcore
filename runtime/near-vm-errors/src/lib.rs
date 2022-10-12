@@ -7,18 +7,24 @@ use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::fmt::{self, Error, Formatter};
 
-#[derive(Debug, PartialEq, Eq, strum::IntoStaticStr)]
-pub enum VMError {
-    FunctionCallError(FunctionCallError),
-    /// Type erased error from `External` trait implementation.
-    ExternalError(AnyError),
+/// Fatal error occurred during VM operation.
+#[derive(Debug)]
+pub enum VMRunnerError {
     /// An error that is caused by an operation on an inconsistent state.
     /// E.g. an integer overflow by using a value from the given context.
     InconsistentStateError(InconsistentStateError),
     /// Error caused by caching.
     CacheError(CacheError),
+    /// Type erased error from `External` trait implementation.
+    ExternalError(AnyError),
+    /// Non-deterministic error.
+    Nondeterministic(String),
+    WasmUnknownError {
+        debug_message: String,
+    },
 }
 
+/// Permitted errors that cause a function call to fail gracefully.
 #[derive(Debug, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum FunctionCallError {
     /// Wasm compilation error
@@ -31,15 +37,10 @@ pub enum FunctionCallError {
     MethodResolveError(MethodResolveError),
     /// A trap happened during execution of a binary
     WasmTrap(WasmTrap),
-    WasmUnknownError {
-        debug_message: String,
-    },
     HostError(HostError),
     // Unused, can be reused by a future error but must be exactly one error to keep Nondeterministic
     // error borsh serialized at correct index
     _EVMError,
-    /// Non-deterministic error.
-    Nondeterministic(String),
 }
 
 /// Serializable version of `FunctionCallError`. Must never reorder/remove elements, can only
@@ -291,22 +292,21 @@ impl From<InconsistentStateError> for VMLogicError {
     }
 }
 
-impl From<PrepareError> for VMError {
+impl From<PrepareError> for FunctionCallError {
     fn from(err: PrepareError) -> Self {
-        VMError::FunctionCallError(FunctionCallError::CompilationError(
-            CompilationError::PrepareError(err),
-        ))
+        FunctionCallError::CompilationError(CompilationError::PrepareError(err))
     }
 }
 
-impl From<VMLogicError> for VMError {
-    fn from(err: VMLogicError) -> Self {
+impl TryFrom<VMLogicError> for FunctionCallError {
+    type Error = VMRunnerError;
+    fn try_from(err: VMLogicError) -> Result<Self, Self::Error> {
         match err {
-            VMLogicError::HostError(h) => {
-                VMError::FunctionCallError(FunctionCallError::HostError(h))
+            VMLogicError::HostError(h) => Ok(FunctionCallError::HostError(h)),
+            VMLogicError::ExternalError(s) => Err(VMRunnerError::ExternalError(s)),
+            VMLogicError::InconsistentStateError(e) => {
+                Err(VMRunnerError::InconsistentStateError(e))
             }
-            VMLogicError::ExternalError(s) => VMError::ExternalError(s),
-            VMLogicError::InconsistentStateError(e) => VMError::InconsistentStateError(e),
         }
     }
 }
@@ -342,12 +342,6 @@ impl fmt::Display for FunctionCallError {
             FunctionCallError::HostError(e) => e.fmt(f),
             FunctionCallError::LinkError { msg } => write!(f, "{}", msg),
             FunctionCallError::WasmTrap(trap) => write!(f, "WebAssembly trap: {}", trap),
-            FunctionCallError::WasmUnknownError { debug_message } => {
-                write!(f, "Unknown error during Wasm contract execution: {}", debug_message)
-            }
-            FunctionCallError::Nondeterministic(msg) => {
-                write!(f, "Nondeterministic error during contract execution: {}", msg)
-            }
             FunctionCallError::_EVMError => unreachable!(),
         }
     }
@@ -396,13 +390,18 @@ impl fmt::Display for MethodResolveError {
     }
 }
 
-impl fmt::Display for VMError {
+impl fmt::Display for VMRunnerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            VMError::FunctionCallError(err) => fmt::Display::fmt(err, f),
-            VMError::ExternalError(_err) => write!(f, "Serialized ExternalError"),
-            VMError::InconsistentStateError(err) => fmt::Display::fmt(err, f),
-            VMError::CacheError(err) => write!(f, "Cache error: {:?}", err),
+            VMRunnerError::ExternalError(_err) => write!(f, "Serialized ExternalError"),
+            VMRunnerError::InconsistentStateError(err) => fmt::Display::fmt(err, f),
+            VMRunnerError::CacheError(err) => write!(f, "Cache error: {:?}", err),
+            VMRunnerError::WasmUnknownError { debug_message } => {
+                write!(f, "Unknown error during Wasm contract execution: {}", debug_message)
+            }
+            VMRunnerError::Nondeterministic(msg) => {
+                write!(f, "Nondeterministic error during contract execution: {}", msg)
+            }
         }
     }
 }

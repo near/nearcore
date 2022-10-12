@@ -1,14 +1,20 @@
+use crate::vm_kind::VMKind;
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
-use near_vm_errors::VMError;
+use near_vm_errors::{FunctionCallError, VMRunnerError};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMOutcome};
 
-use crate::vm_kind::VMKind;
+/// Returned by VM::run method.
+///
+/// `VMOutcome` is a graceful completion of a VM execution, which may or
+/// may not have failed. `VMRunnerError` contains fatal errors that usually
+/// are panicked on by the caller.
+type VMResult = Result<VMOutcome, VMRunnerError>;
 
 /// Validate and run the specified contract.
 ///
@@ -36,7 +42,7 @@ pub fn run(
     promise_results: &[PromiseResult],
     current_protocol_version: ProtocolVersion,
     cache: Option<&dyn CompiledContractCache>,
-) -> VMOutcome {
+) -> VMResult {
     let vm_kind = VMKind::for_protocol_version(current_protocol_version);
     let span = tracing::debug_span!(
         target: "vm",
@@ -52,7 +58,7 @@ pub fn run(
         panic!("the {:?} runtime has not been enabled at compile time", vm_kind)
     });
 
-    let res = runtime.run(
+    let outcome = runtime.run(
         code,
         method_name,
         ext,
@@ -61,10 +67,10 @@ pub fn run(
         promise_results,
         current_protocol_version,
         cache,
-    );
+    )?;
 
-    span.record("burnt_gas", &res.burnt_gas);
-    res
+    span.record("burnt_gas", &outcome.burnt_gas);
+    Ok(outcome)
 }
 
 pub trait VM {
@@ -92,7 +98,7 @@ pub trait VM {
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
-    ) -> VMOutcome;
+    ) -> VMResult;
 
     /// Precompile a WASM contract to a VM specific format and store the result
     /// into the `cache`.
@@ -105,7 +111,7 @@ pub trait VM {
         code: &[u8],
         code_hash: &CryptoHash,
         cache: &dyn CompiledContractCache,
-    ) -> Option<VMError>;
+    ) -> Option<Result<FunctionCallError, VMRunnerError>>;
 
     /// Verify the `code` contract can be compiled with this `VM`.
     ///

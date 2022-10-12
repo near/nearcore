@@ -24,14 +24,18 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMOutcome {
     let promise_results = vec![];
 
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
-    vm_kind.runtime(config).unwrap().run(
-        code,
-        &method_name,
-        &mut fake_external,
-        context,
-        &fees,
-        &promise_results,
-        PROTOCOL_VERSION,
-        None,
-    )
+    vm_kind
+        .runtime(config)
+        .unwrap()
+        .run(
+            code,
+            &method_name,
+            &mut fake_external,
+            context,
+            &fees,
+            &promise_results,
+            PROTOCOL_VERSION,
+            None,
+        )
+        .unwrap_or_else(|err| panic!("fatal error: {err:?}"))
 }
