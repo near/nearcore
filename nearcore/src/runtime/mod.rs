@@ -1734,6 +1734,7 @@ mod test {
         }
     }
 
+    /// Stores chain data for genesis block to initialize flat storage in test environment.
     struct MockChainForFlatStorage {
         height_to_hashes: HashMap<BlockHeight, CryptoHash>,
         blocks: HashMap<CryptoHash, flat_state::BlockInfo>,
@@ -1750,6 +1751,7 @@ mod test {
     }
 
     impl MockChainForFlatStorage {
+        /// Creates mock chain containing only genesis block data.
         pub fn new(genesis_height: BlockHeight, genesis_hash: CryptoHash) -> Self {
             Self {
                 height_to_hashes: HashMap::from([(genesis_height, genesis_hash)]),
@@ -1769,6 +1771,9 @@ mod test {
         }
     }
 
+    /// Environment to test runtime behaviour separate from Chain.
+    /// Runtime operates in a mock chain where i-th block is attached to (i-1)-th one, has height `i` and hash
+    /// `hash([i])`.
     struct TestEnv {
         pub runtime: NightshadeRuntime,
         pub head: Tip,
@@ -1867,6 +1872,8 @@ mod test {
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&[0]);
 
+            // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
+            // and use a mock chain, so we need to initialize flat storage manually.
             let store_update = runtime
                 .set_flat_storage_state_for_genesis(&genesis_hash, &EpochId::default())
                 .unwrap();
@@ -2350,6 +2357,7 @@ mod test {
         init_test_logger();
     }
 
+    #[cfg(not(feature = "protocol_feature_flat_state"))]
     #[test]
     fn test_state_sync() {
         init_test_logger();
