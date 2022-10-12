@@ -955,10 +955,10 @@ impl ClientActor {
     fn handle_block_production(&mut self) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "client", "handle_block_production").entered();
         // If syncing, don't try to produce blocks.
-        if self.client.sync_status.is_syncing() {
-            debug!(target:"client", "Syncing - block production disabled");
-            return Ok(());
-        }
+        //if self.client.sync_status.is_syncing() {
+        //    debug!(target:"client", "Syncing - block production disabled");
+        //    return Ok(());
+        //}
 
         let _ = self.client.check_and_update_doomslug_tip();
 
