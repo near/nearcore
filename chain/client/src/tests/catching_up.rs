@@ -324,12 +324,15 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                                     actix::spawn(
                                         connectors1.write().unwrap()[i]
                                             .1
-                                            .send(Query::new(
-                                                BlockReference::latest(),
-                                                QueryRequest::ViewAccount {
-                                                    account_id: account_to.clone(),
-                                                },
-                                            ))
+                                            .send(
+                                                Query::new(
+                                                    BlockReference::latest(),
+                                                    QueryRequest::ViewAccount {
+                                                        account_id: account_to.clone(),
+                                                    },
+                                                )
+                                                .with_span_context(),
+                                            )
                                             .then(move |res| {
                                                 let res_inner = res.unwrap();
                                                 if let Ok(query_response) = res_inner {
@@ -523,12 +526,15 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
                                         actix::spawn(
                                             connectors1.write().unwrap()[i]
                                                 .1
-                                                .send(Query::new(
-                                                    BlockReference::latest(),
-                                                    QueryRequest::ViewAccount {
-                                                        account_id: validators[j].clone(),
-                                                    },
-                                                ))
+                                                .send(
+                                                    Query::new(
+                                                        BlockReference::latest(),
+                                                        QueryRequest::ViewAccount {
+                                                            account_id: validators[j].clone(),
+                                                        },
+                                                    )
+                                                    .with_span_context(),
+                                                )
                                                 .then(move |res| {
                                                     let res_inner = res.unwrap();
                                                     if let Ok(query_response) = res_inner {

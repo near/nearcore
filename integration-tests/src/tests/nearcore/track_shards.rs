@@ -30,7 +30,8 @@ fn track_shards() {
         wait_or_timeout(100, 30000, || async {
             let bh = *last_block_hash.read().unwrap();
             if let Some(block_hash) = bh {
-                let res = view_client.send(GetChunk::BlockHash(block_hash, 3).with_span_context()).await;
+                let res =
+                    view_client.send(GetChunk::BlockHash(block_hash, 3).with_span_context()).await;
                 match &res {
                     Ok(Ok(_)) => {
                         return ControlFlow::Break(());

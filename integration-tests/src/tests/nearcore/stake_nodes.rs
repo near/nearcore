@@ -140,7 +140,10 @@ fn test_stake_nodes() {
                     actix::spawn(
                         test_nodes[0]
                             .client
-                            .send(Status { is_health_check: false, detailed: false }.with_span_context())
+                            .send(
+                                Status { is_health_check: false, detailed: false }
+                                    .with_span_context(),
+                            )
                             .then(|res| {
                                 let res = res.unwrap();
                                 if res.is_err() {
@@ -244,7 +247,10 @@ fn test_validator_kickout() {
                     actix::spawn(
                         test_node1
                             .client
-                            .send(Status { is_health_check: false, detailed: false }.with_span_context())
+                            .send(
+                                Status { is_health_check: false, detailed: false }
+                                    .with_span_context(),
+                            )
                             .then(move |res| {
                                 let expected: Vec<_> = (num_nodes / 2..num_nodes)
                                     .map(|i| ValidatorInfo {
@@ -263,14 +269,17 @@ fn test_validator_kickout() {
                                         actix::spawn(
                                             test_node1
                                                 .view_client
-                                                .send(Query::new(
-                                                    BlockReference::latest(),
-                                                    QueryRequest::ViewAccount {
-                                                        account_id: test_nodes[i as usize]
-                                                            .account_id
-                                                            .clone(),
-                                                    },
-                                                ).with_span_context())
+                                                .send(
+                                                    Query::new(
+                                                        BlockReference::latest(),
+                                                        QueryRequest::ViewAccount {
+                                                            account_id: test_nodes[i as usize]
+                                                                .account_id
+                                                                .clone(),
+                                                        },
+                                                    )
+                                                    .with_span_context(),
+                                                )
                                                 .then(move |res| {
                                                     match res.unwrap().unwrap().kind {
                                                         QueryResponseKind::ViewAccount(result) => {
@@ -293,14 +302,17 @@ fn test_validator_kickout() {
                                         actix::spawn(
                                             test_node1
                                                 .view_client
-                                                .send(Query::new(
-                                                    BlockReference::latest(),
-                                                    QueryRequest::ViewAccount {
-                                                        account_id: test_nodes[i as usize]
-                                                            .account_id
-                                                            .clone(),
-                                                    },
-                                                ).with_span_context())
+                                                .send(
+                                                    Query::new(
+                                                        BlockReference::latest(),
+                                                        QueryRequest::ViewAccount {
+                                                            account_id: test_nodes[i as usize]
+                                                                .account_id
+                                                                .clone(),
+                                                        },
+                                                    )
+                                                    .with_span_context(),
+                                                )
                                                 .then(move |res| {
                                                     match res.unwrap().unwrap().kind {
                                                         QueryResponseKind::ViewAccount(result) => {
@@ -429,7 +441,10 @@ fn test_validator_join() {
                     actix::spawn(
                         test_node1
                             .client
-                            .send(Status { is_health_check: false, detailed: false }.with_span_context())
+                            .send(
+                                Status { is_health_check: false, detailed: false }
+                                    .with_span_context(),
+                            )
                             .then(move |res| {
                                 let expected = vec![
                                     ValidatorInfo {
@@ -449,12 +464,17 @@ fn test_validator_join() {
                                     actix::spawn(
                                         test_node1
                                             .view_client
-                                            .send(Query::new(
-                                                BlockReference::latest(),
-                                                QueryRequest::ViewAccount {
-                                                    account_id: test_nodes[1].account_id.clone(),
-                                                },
-                                            ).with_span_context())
+                                            .send(
+                                                Query::new(
+                                                    BlockReference::latest(),
+                                                    QueryRequest::ViewAccount {
+                                                        account_id: test_nodes[1]
+                                                            .account_id
+                                                            .clone(),
+                                                    },
+                                                )
+                                                .with_span_context(),
+                                            )
                                             .then(move |res| match res.unwrap().unwrap().kind {
                                                 QueryResponseKind::ViewAccount(result) => {
                                                     if result.locked == 0 {
@@ -468,12 +488,17 @@ fn test_validator_join() {
                                     actix::spawn(
                                         test_node1
                                             .view_client
-                                            .send(Query::new(
-                                                BlockReference::latest(),
-                                                QueryRequest::ViewAccount {
-                                                    account_id: test_nodes[2].account_id.clone(),
-                                                },
-                                            ).with_span_context())
+                                            .send(
+                                                Query::new(
+                                                    BlockReference::latest(),
+                                                    QueryRequest::ViewAccount {
+                                                        account_id: test_nodes[2]
+                                                            .account_id
+                                                            .clone(),
+                                                    },
+                                                )
+                                                .with_span_context(),
+                                            )
                                             .then(move |res| match res.unwrap().unwrap().kind {
                                                 QueryResponseKind::ViewAccount(result) => {
                                                     if result.locked == TESTING_INIT_STAKE {
@@ -531,21 +556,28 @@ fn test_inflation() {
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
-                    actix::spawn(test_nodes[0].view_client.send(GetBlock::latest().with_span_context()).then(
-                        move |res| {
-                            if let Ok(Ok(block)) = res {
-                                if block.header.height >= 2 && block.header.height <= epoch_length {
-                                    if block.header.total_supply == initial_total_supply {
-                                        done1_copy2.store(true, Ordering::SeqCst);
+                    actix::spawn(
+                        test_nodes[0]
+                            .view_client
+                            .send(GetBlock::latest().with_span_context())
+                            .then(move |res| {
+                                if let Ok(Ok(block)) = res {
+                                    if block.header.height >= 2
+                                        && block.header.height <= epoch_length
+                                    {
+                                        if block.header.total_supply == initial_total_supply {
+                                            done1_copy2.store(true, Ordering::SeqCst);
+                                        }
                                     }
                                 }
-                            }
-                            future::ready(())
-                        },
-                    ));
+                                future::ready(())
+                            }),
+                    );
                     let view_client = test_nodes[0].view_client.clone();
                     actix::spawn(async move {
-                        if let Ok(Ok(block)) = view_client.send(GetBlock::latest().with_span_context()).await {
+                        if let Ok(Ok(block)) =
+                            view_client.send(GetBlock::latest().with_span_context()).await
+                        {
                             if block.header.height > epoch_length
                                 && block.header.height < epoch_length * 2
                             {
@@ -553,14 +585,20 @@ fn test_inflation() {
                                 // +10% of protocol reward = 60% of max inflation are allocated.
                                 let base_reward = {
                                     let genesis_block_view = view_client
-                                        .send(GetBlock(BlockReference::BlockId(BlockId::Height(0))).with_span_context())
+                                        .send(
+                                            GetBlock(BlockReference::BlockId(BlockId::Height(0)))
+                                                .with_span_context(),
+                                        )
                                         .await
                                         .unwrap()
                                         .unwrap();
                                     let epoch_end_block_view = view_client
-                                        .send(GetBlock(BlockReference::BlockId(BlockId::Height(
-                                            epoch_length,
-                                        ))).with_span_context())
+                                        .send(
+                                            GetBlock(BlockReference::BlockId(BlockId::Height(
+                                                epoch_length,
+                                            )))
+                                            .with_span_context(),
+                                        )
                                         .await
                                         .unwrap()
                                         .unwrap();

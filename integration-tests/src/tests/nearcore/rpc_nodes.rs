@@ -12,6 +12,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_network::test_utils::WaitOrTimeoutActor;
 use near_o11y::testonly::init_integration_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{compute_root_from_path_and_item, verify_path};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -23,7 +24,6 @@ use near_primitives::types::{
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView};
 use std::time::Duration;
-use near_o11y::WithSpanContextExt;
 
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
@@ -43,7 +43,8 @@ fn test_get_validator_info_rpc() {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let view_client = clients[0].1.clone();
                 spawn_interruptible(async move {
-                    let block_view = view_client.send(GetBlock::latest().with_span_context()).await.unwrap();
+                    let block_view =
+                        view_client.send(GetBlock::latest().with_span_context()).await.unwrap();
                     if let Err(err) = block_view {
                         println!("Failed to get the latest block: {:?}", err);
                         return;
@@ -156,13 +157,19 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                                 }),
                             ) {
                                 let view_client2 = view_client1.clone();
-                                let fut = view_client1.send(GetExecutionOutcome { id }.with_span_context()).then(
-                                    move |res| {
+                                let fut = view_client1
+                                    .send(GetExecutionOutcome { id }.with_span_context())
+                                    .then(move |res| {
                                         let execution_outcome_response = res.unwrap().unwrap();
                                         view_client2
-                                            .send(GetBlock(BlockReference::BlockId(BlockId::Hash(
-                                                execution_outcome_response.outcome_proof.block_hash,
-                                            ))).with_span_context())
+                                            .send(
+                                                GetBlock(BlockReference::BlockId(BlockId::Hash(
+                                                    execution_outcome_response
+                                                        .outcome_proof
+                                                        .block_hash,
+                                                )))
+                                                .with_span_context(),
+                                            )
                                             .then(move |res| {
                                                 let res = res.unwrap().unwrap();
                                                 let mut outcome_with_id_to_hash = vec![
@@ -189,8 +196,7 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                                                 ));
                                                 future::ready(())
                                             })
-                                    },
-                                );
+                                    });
                                 futures.push(fut);
                             }
                             spawn_interruptible(join_all(futures).then(|_| {
@@ -664,9 +670,14 @@ fn test_validators_by_epoch_id_current_epoch_not_fails() {
             };
 
             let res = view_client
-                .send(GetValidatorInfo {
-                    epoch_reference: EpochReference::EpochId(EpochId(final_block.header.epoch_id)),
-                }.with_span_context())
+                .send(
+                    GetValidatorInfo {
+                        epoch_reference: EpochReference::EpochId(EpochId(
+                            final_block.header.epoch_id,
+                        )),
+                    }
+                    .with_span_context(),
+                )
                 .await;
 
             match res {

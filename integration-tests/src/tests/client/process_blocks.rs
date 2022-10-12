@@ -363,48 +363,50 @@ fn receive_network_block() {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest().with_span_context()).then(move |res| {
-            let (last_block, block_merkle_tree) = res.unwrap().unwrap();
-            let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
-            block_merkle_tree.insert(last_block.header.hash);
-            let signer = InMemoryValidatorSigner::from_seed(
-                "test1".parse().unwrap(),
-                KeyType::ED25519,
-                "test1",
-            );
-            let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
-            let block = Block::produce(
-                PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
-                &last_block.header.clone().into(),
-                last_block.header.height + 1,
-                next_block_ordinal,
-                last_block.chunks.into_iter().map(Into::into).collect(),
-                EpochId::default(),
-                if last_block.header.prev_hash == CryptoHash::default() {
-                    EpochId(last_block.header.hash)
-                } else {
-                    EpochId(last_block.header.next_epoch_id)
-                },
-                None,
-                vec![],
-                Ratio::from_integer(0),
-                0,
-                100,
-                None,
-                vec![],
-                vec![],
-                &signer,
-                last_block.header.next_bp_hash,
-                block_merkle_tree.root(),
-                None,
-            );
-            client.do_send(
-                NetworkClientMessages::Block(block, PeerInfo::random().id, false)
-                    .with_span_context(),
-            );
-            future::ready(())
-        }));
+        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest().with_span_context()).then(
+            move |res| {
+                let (last_block, block_merkle_tree) = res.unwrap().unwrap();
+                let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
+                block_merkle_tree.insert(last_block.header.hash);
+                let signer = InMemoryValidatorSigner::from_seed(
+                    "test1".parse().unwrap(),
+                    KeyType::ED25519,
+                    "test1",
+                );
+                let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
+                let block = Block::produce(
+                    PROTOCOL_VERSION,
+                    PROTOCOL_VERSION,
+                    &last_block.header.clone().into(),
+                    last_block.header.height + 1,
+                    next_block_ordinal,
+                    last_block.chunks.into_iter().map(Into::into).collect(),
+                    EpochId::default(),
+                    if last_block.header.prev_hash == CryptoHash::default() {
+                        EpochId(last_block.header.hash)
+                    } else {
+                        EpochId(last_block.header.next_epoch_id)
+                    },
+                    None,
+                    vec![],
+                    Ratio::from_integer(0),
+                    0,
+                    100,
+                    None,
+                    vec![],
+                    vec![],
+                    &signer,
+                    last_block.header.next_bp_hash,
+                    block_merkle_tree.root(),
+                    None,
+                );
+                client.do_send(
+                    NetworkClientMessages::Block(block, PeerInfo::random().id, false)
+                        .with_span_context(),
+                );
+                future::ready(())
+            },
+        ));
         near_network::test_utils::wait_or_panic(5000);
     });
 }
@@ -444,70 +446,72 @@ fn produce_block_with_approvals() {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest().with_span_context()).then(move |res| {
-            let (last_block, block_merkle_tree) = res.unwrap().unwrap();
-            let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
-            block_merkle_tree.insert(last_block.header.hash);
-            let signer1 = InMemoryValidatorSigner::from_seed(
-                "test2".parse().unwrap(),
-                KeyType::ED25519,
-                "test2",
-            );
-            let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
-            let block = Block::produce(
-                PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
-                &last_block.header.clone().into(),
-                last_block.header.height + 1,
-                next_block_ordinal,
-                last_block.chunks.into_iter().map(Into::into).collect(),
-                EpochId::default(),
-                if last_block.header.prev_hash == CryptoHash::default() {
-                    EpochId(last_block.header.hash)
-                } else {
-                    EpochId(last_block.header.next_epoch_id)
-                },
-                None,
-                vec![],
-                Ratio::from_integer(0),
-                0,
-                100,
-                Some(0),
-                vec![],
-                vec![],
-                &signer1,
-                last_block.header.next_bp_hash,
-                block_merkle_tree.root(),
-                None,
-            );
-            client.do_send(
-                NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, false)
-                    .with_span_context(),
-            );
-
-            for i in 3..11 {
-                let s = AccountId::try_from(if i > 10 {
-                    "test1".to_string()
-                } else {
-                    format!("test{}", i)
-                })
-                .unwrap();
-                let signer =
-                    InMemoryValidatorSigner::from_seed(s.clone(), KeyType::ED25519, s.as_ref());
-                let approval = Approval::new(
-                    *block.hash(),
-                    block.header().height(),
-                    10, // the height at which "test1" is producing
-                    &signer,
+        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest().with_span_context()).then(
+            move |res| {
+                let (last_block, block_merkle_tree) = res.unwrap().unwrap();
+                let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
+                block_merkle_tree.insert(last_block.header.hash);
+                let signer1 = InMemoryValidatorSigner::from_seed(
+                    "test2".parse().unwrap(),
+                    KeyType::ED25519,
+                    "test2",
+                );
+                let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
+                let block = Block::produce(
+                    PROTOCOL_VERSION,
+                    PROTOCOL_VERSION,
+                    &last_block.header.clone().into(),
+                    last_block.header.height + 1,
+                    next_block_ordinal,
+                    last_block.chunks.into_iter().map(Into::into).collect(),
+                    EpochId::default(),
+                    if last_block.header.prev_hash == CryptoHash::default() {
+                        EpochId(last_block.header.hash)
+                    } else {
+                        EpochId(last_block.header.next_epoch_id)
+                    },
+                    None,
+                    vec![],
+                    Ratio::from_integer(0),
+                    0,
+                    100,
+                    Some(0),
+                    vec![],
+                    vec![],
+                    &signer1,
+                    last_block.header.next_bp_hash,
+                    block_merkle_tree.root(),
+                    None,
                 );
                 client.do_send(
-                    NetworkClientMessages::BlockApproval(approval, PeerInfo::random().id)
+                    NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, false)
                         .with_span_context(),
                 );
-            }
 
-            future::ready(())
-        }));
+                for i in 3..11 {
+                    let s = AccountId::try_from(if i > 10 {
+                        "test1".to_string()
+                    } else {
+                        format!("test{}", i)
+                    })
+                    .unwrap();
+                    let signer =
+                        InMemoryValidatorSigner::from_seed(s.clone(), KeyType::ED25519, s.as_ref());
+                    let approval = Approval::new(
+                        *block.hash(),
+                        block.header().height(),
+                        10, // the height at which "test1" is producing
+                        &signer,
+                    );
+                    client.do_send(
+                        NetworkClientMessages::BlockApproval(approval, PeerInfo::random().id)
+                            .with_span_context(),
+                    );
+                }
+
+                future::ready(())
+            },
+        ));
         near_network::test_utils::wait_or_panic(5000);
     });
 }
@@ -654,57 +658,46 @@ fn invalid_blocks_common(is_requested: bool) {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest().with_span_context()).then(move |res| {
-            let (last_block, block_merkle_tree) = res.unwrap().unwrap();
-            let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
-            block_merkle_tree.insert(last_block.header.hash);
-            let signer = InMemoryValidatorSigner::from_seed(
-                "test".parse().unwrap(),
-                KeyType::ED25519,
-                "test",
-            );
-            let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
-            let valid_block = Block::produce(
-                PROTOCOL_VERSION,
-                PROTOCOL_VERSION,
-                &last_block.header.clone().into(),
-                last_block.header.height + 1,
-                next_block_ordinal,
-                last_block.chunks.iter().cloned().map(Into::into).collect(),
-                EpochId::default(),
-                if last_block.header.prev_hash == CryptoHash::default() {
-                    EpochId(last_block.header.hash)
-                } else {
-                    EpochId(last_block.header.next_epoch_id)
-                },
-                None,
-                vec![],
-                Ratio::from_integer(0),
-                0,
-                100,
-                Some(0),
-                vec![],
-                vec![],
-                &signer,
-                last_block.header.next_bp_hash,
-                block_merkle_tree.root(),
-                None,
-            );
-            // Send block with invalid chunk mask
-            let mut block = valid_block.clone();
-            block.mut_header().get_mut().inner_rest.chunk_mask = vec![];
-            block.mut_header().get_mut().init();
-            client.do_send(
-                NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, is_requested)
-                    .with_span_context(),
-            );
-
-            // Send blocks with invalid protocol version
-            #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
-            {
+        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest().with_span_context()).then(
+            move |res| {
+                let (last_block, block_merkle_tree) = res.unwrap().unwrap();
+                let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
+                block_merkle_tree.insert(last_block.header.hash);
+                let signer = InMemoryValidatorSigner::from_seed(
+                    "test".parse().unwrap(),
+                    KeyType::ED25519,
+                    "test",
+                );
+                let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
+                let valid_block = Block::produce(
+                    PROTOCOL_VERSION,
+                    PROTOCOL_VERSION,
+                    &last_block.header.clone().into(),
+                    last_block.header.height + 1,
+                    next_block_ordinal,
+                    last_block.chunks.iter().cloned().map(Into::into).collect(),
+                    EpochId::default(),
+                    if last_block.header.prev_hash == CryptoHash::default() {
+                        EpochId(last_block.header.hash)
+                    } else {
+                        EpochId(last_block.header.next_epoch_id)
+                    },
+                    None,
+                    vec![],
+                    Ratio::from_integer(0),
+                    0,
+                    100,
+                    Some(0),
+                    vec![],
+                    vec![],
+                    &signer,
+                    last_block.header.next_bp_hash,
+                    block_merkle_tree.root(),
+                    None,
+                );
+                // Send block with invalid chunk mask
                 let mut block = valid_block.clone();
-                block.mut_header().get_mut().inner_rest.latest_protocol_version =
-                    PROTOCOL_VERSION - 1;
+                block.mut_header().get_mut().inner_rest.chunk_mask = vec![];
                 block.mut_header().get_mut().init();
                 client.do_send(
                     NetworkClientMessages::Block(
@@ -714,50 +707,75 @@ fn invalid_blocks_common(is_requested: bool) {
                     )
                     .with_span_context(),
                 );
-            }
 
-            // Send block with invalid chunk signature
-            let mut block = valid_block.clone();
-            let mut chunks: Vec<_> = block.chunks().iter().cloned().collect();
-            let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
-            match &mut chunks[0] {
-                ShardChunkHeader::V1(chunk) => {
-                    chunk.signature = some_signature;
+                // Send blocks with invalid protocol version
+                #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
+                {
+                    let mut block = valid_block.clone();
+                    block.mut_header().get_mut().inner_rest.latest_protocol_version =
+                        PROTOCOL_VERSION - 1;
+                    block.mut_header().get_mut().init();
+                    client.do_send(
+                        NetworkClientMessages::Block(
+                            block.clone(),
+                            PeerInfo::random().id,
+                            is_requested,
+                        )
+                        .with_span_context(),
+                    );
                 }
-                ShardChunkHeader::V2(chunk) => {
-                    chunk.signature = some_signature;
-                }
-                ShardChunkHeader::V3(chunk) => {
-                    chunk.signature = some_signature;
-                }
-            };
-            block.set_chunks(chunks);
-            client.do_send(
-                NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, is_requested)
-                    .with_span_context(),
-            );
 
-            // Send proper block.
-            let block2 = valid_block;
-            client.do_send(
-                NetworkClientMessages::Block(block2.clone(), PeerInfo::random().id, is_requested)
-                    .with_span_context(),
-            );
-            if is_requested {
-                let mut block3 = block2;
-                block3.mut_header().get_mut().inner_rest.chunk_headers_root = hash(&[1]);
-                block3.mut_header().get_mut().init();
+                // Send block with invalid chunk signature
+                let mut block = valid_block.clone();
+                let mut chunks: Vec<_> = block.chunks().iter().cloned().collect();
+                let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
+                match &mut chunks[0] {
+                    ShardChunkHeader::V1(chunk) => {
+                        chunk.signature = some_signature;
+                    }
+                    ShardChunkHeader::V2(chunk) => {
+                        chunk.signature = some_signature;
+                    }
+                    ShardChunkHeader::V3(chunk) => {
+                        chunk.signature = some_signature;
+                    }
+                };
+                block.set_chunks(chunks);
                 client.do_send(
                     NetworkClientMessages::Block(
-                        block3.clone(),
+                        block.clone(),
                         PeerInfo::random().id,
                         is_requested,
                     )
                     .with_span_context(),
                 );
-            }
-            future::ready(())
-        }));
+
+                // Send proper block.
+                let block2 = valid_block;
+                client.do_send(
+                    NetworkClientMessages::Block(
+                        block2.clone(),
+                        PeerInfo::random().id,
+                        is_requested,
+                    )
+                    .with_span_context(),
+                );
+                if is_requested {
+                    let mut block3 = block2;
+                    block3.mut_header().get_mut().inner_rest.chunk_headers_root = hash(&[1]);
+                    block3.mut_header().get_mut().init();
+                    client.do_send(
+                        NetworkClientMessages::Block(
+                            block3.clone(),
+                            PeerInfo::random().id,
+                            is_requested,
+                        )
+                        .with_span_context(),
+                    );
+                }
+                future::ready(())
+            },
+        ));
         near_network::test_utils::wait_or_panic(5000);
     });
 }

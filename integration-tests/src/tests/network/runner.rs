@@ -22,6 +22,7 @@ use near_network::types::{
 };
 use near_network::{Event, PeerManagerActor};
 use near_o11y::testonly::init_test_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, ValidatorId};
@@ -34,7 +35,6 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::pin::Pin;
 use std::sync::Arc;
 use tracing::debug;
-use near_o11y::WithSpanContextExt;
 
 pub type ControlFlow = std::ops::ControlFlow<()>;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
@@ -194,7 +194,8 @@ async fn check_account_id(
         expected_known.push(info.runner.test_config[u].account_id.clone());
     }
     let pm = &info.get_node(source)?.actix.addr;
-    let rt = match pm.send(PeerManagerMessageRequest::FetchRoutingTable.with_span_context()).await? {
+    let rt = match pm.send(PeerManagerMessageRequest::FetchRoutingTable.with_span_context()).await?
+    {
         PeerManagerMessageResponse::FetchRoutingTable(rt) => rt,
         _ => bail!("bad response"),
     };
@@ -697,7 +698,8 @@ async fn check_direct_connection_inner(
     let target_peer_id = info.runner.test_config[target_id].peer_id();
     debug!(target: "network",  node_id, ?target_id, "runner.rs: check_direct_connection");
     let pm = &info.get_node(node_id)?.actix.addr;
-    let rt = match pm.send(PeerManagerMessageRequest::FetchRoutingTable.with_span_context()).await? {
+    let rt = match pm.send(PeerManagerMessageRequest::FetchRoutingTable.with_span_context()).await?
+    {
         PeerManagerMessageResponse::FetchRoutingTable(rt) => rt,
         _ => bail!("bad response"),
     };

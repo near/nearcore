@@ -11,6 +11,7 @@ use near_network::types::{
     MsgRecipient, NetworkClientResponses, NetworkRequests, PeerManagerMessageRequest,
 };
 use near_o11y::testonly::init_test_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::account::AccessKey;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -29,7 +30,6 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 use tracing::debug;
-use near_o11y::WithSpanContextExt;
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
 /// Return height of the next block.

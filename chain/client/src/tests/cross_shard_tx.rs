@@ -73,10 +73,13 @@ fn test_keyvalue_runtime_balances() {
             actix::spawn(
                 connectors_[i]
                     .1
-                    .send(Query::new(
-                        BlockReference::latest(),
-                        QueryRequest::ViewAccount { account_id: validators[i].clone() },
-                    ))
+                    .send(
+                        Query::new(
+                            BlockReference::latest(),
+                            QueryRequest::ViewAccount { account_id: validators[i].clone() },
+                        )
+                        .with_span_context(),
+                    )
                     .then(move |res| {
                         let query_response = res.unwrap().unwrap();
                         if let ViewAccount(view_account_result) = query_response.kind {
@@ -195,10 +198,13 @@ fn test_cross_shard_tx_callback(
                 connectors_[account_id_to_shard_id(&account_id, 8) as usize
                     + (*presumable_epoch.read().unwrap() * 8) % 24]
                     .1
-                    .send(Query::new(
-                        BlockReference::latest(),
-                        QueryRequest::ViewAccount { account_id: account_id.clone() },
-                    ))
+                    .send(
+                        Query::new(
+                            BlockReference::latest(),
+                            QueryRequest::ViewAccount { account_id: account_id.clone() },
+                        )
+                        .with_span_context(),
+                    )
                     .then(move |x| {
                         test_cross_shard_tx_callback(
                             x,
@@ -291,10 +297,13 @@ fn test_cross_shard_tx_callback(
                         connectors_[account_id_to_shard_id(&validators[i], 8) as usize
                             + (*presumable_epoch.read().unwrap() * 8) % 24]
                             .1
-                            .send(Query::new(
-                                BlockReference::latest(),
-                                QueryRequest::ViewAccount { account_id: validators[i].clone() },
-                            ))
+                            .send(
+                                Query::new(
+                                    BlockReference::latest(),
+                                    QueryRequest::ViewAccount { account_id: validators[i].clone() },
+                                )
+                                .with_span_context(),
+                            )
                             .then(move |x| {
                                 test_cross_shard_tx_callback(
                                     x,
@@ -343,10 +352,13 @@ fn test_cross_shard_tx_callback(
                 connectors_[account_id_to_shard_id(&account_id, 8) as usize
                     + (*presumable_epoch.read().unwrap() * 8) % 24]
                     .1
-                    .send(Query::new(
-                        BlockReference::latest(),
-                        QueryRequest::ViewAccount { account_id: account_id.clone() },
-                    ))
+                    .send(
+                        Query::new(
+                            BlockReference::latest(),
+                            QueryRequest::ViewAccount { account_id: account_id.clone() },
+                        )
+                        .with_span_context(),
+                    )
                     .then(move |x| {
                         test_cross_shard_tx_callback(
                             x,
@@ -485,10 +497,13 @@ fn test_cross_shard_tx_common(
                 connectors_[account_id_to_shard_id(&validators[i], 8) as usize
                     + *presumable_epoch.read().unwrap() * 8]
                     .1
-                    .send(Query::new(
-                        BlockReference::latest(),
-                        QueryRequest::ViewAccount { account_id: validators[i].clone() },
-                    ))
+                    .send(
+                        Query::new(
+                            BlockReference::latest(),
+                            QueryRequest::ViewAccount { account_id: validators[i].clone() },
+                        )
+                        .with_span_context(),
+                    )
                     .then(move |x| {
                         test_cross_shard_tx_callback(
                             x,
