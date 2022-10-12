@@ -13,6 +13,10 @@ pub fn to_base64<T: AsRef<[u8]>>(input: T) -> String {
     base64::encode(&input)
 }
 
+pub fn base64_display(input: &[u8]) -> base64::display::Base64Display<'_> {
+    base64::display::Base64Display::with_config(input, base64::STANDARD)
+}
+
 pub fn from_base64(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     base64::decode(s).map_err(|err| err.into())
 }

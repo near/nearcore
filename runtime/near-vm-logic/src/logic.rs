@@ -2402,7 +2402,7 @@ impl<'a> VMLogic<'a> {
 
         near_o11y::io_trace!(
             storage_op = "write",
-            key = %near_primitives::serialize::to_base58(&key),
+            key = %near_o11y::pretty::Bytes(&key),
             size = value_len,
             evicted_len = evicted.as_ref().map(Vec::len),
             tn_mem_reads = nodes_delta.mem_reads,
@@ -2493,7 +2493,7 @@ impl<'a> VMLogic<'a> {
 
         near_o11y::io_trace!(
             storage_op = "read",
-            key = %near_primitives::serialize::to_base58(&key),
+            key = %near_o11y::pretty::Bytes(&key),
             size = read.as_ref().map(Vec::len),
             tn_db_reads = nodes_delta.db_reads,
             tn_mem_reads = nodes_delta.mem_reads,
@@ -2553,7 +2553,7 @@ impl<'a> VMLogic<'a> {
 
         near_o11y::io_trace!(
             storage_op = "remove",
-            key = %near_primitives::serialize::to_base58(&key),
+            key = %near_o11y::pretty::Bytes(&key),
             evicted_len = removed.as_ref().map(Vec::len),
             tn_mem_reads = nodes_delta.mem_reads,
             tn_db_reads = nodes_delta.db_reads,
@@ -2609,7 +2609,7 @@ impl<'a> VMLogic<'a> {
 
         near_o11y::io_trace!(
             storage_op = "exists",
-            key = %near_primitives::serialize::to_base58(&key),
+            key = %near_o11y::pretty::Bytes(&key),
             tn_mem_reads = nodes_delta.mem_reads,
             tn_db_reads = nodes_delta.db_reads,
         );
