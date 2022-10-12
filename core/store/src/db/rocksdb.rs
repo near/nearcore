@@ -584,7 +584,7 @@ fn col_name(col: DBCol) -> &'static str {
         DBCol::BlockHeight => "col4",
         DBCol::State => "col5",
         DBCol::ChunkExtra => "col6",
-        DBCol::TransactionResult => "col7",
+        DBCol::_TransactionResult => "col7",
         DBCol::OutgoingReceipts => "col8",
         DBCol::IncomingReceipts => "col9",
         DBCol::Peers => "col10",

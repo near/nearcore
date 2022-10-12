@@ -22,7 +22,8 @@ use near_primitives::syncing::{
     StatePartKey,
 };
 use near_primitives::transaction::{
-    ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
+    ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
+    SignedTransaction,
 };
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -31,7 +32,10 @@ use near_primitives::types::{
     StateChangesExt, StateChangesForSplitStates, StateChangesKinds, StateChangesKindsExt,
     StateChangesRequest,
 };
-use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
+use near_primitives::utils::{
+    get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
+    to_timestamp,
+};
 use near_primitives::views::LightClientBlockView;
 use near_store::{
     DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate, WrappedTrieChanges, CHUNK_TAIL_KEY,
@@ -566,7 +570,35 @@ impl ChainStore {
         &self,
         id: &CryptoHash,
     ) -> Result<Vec<ExecutionOutcomeWithIdAndProof>, Error> {
-        Ok(self.store.get_ser(DBCol::TransactionResult, id.as_ref())?.unwrap_or_else(|| vec![]))
+        self.store
+            .iter_prefix_ser::<ExecutionOutcomeWithProof>(
+                DBCol::TransactionResultForBlock,
+                id.as_ref(),
+            )
+            .map(|item| {
+                let (key, outcome_with_proof) = item?;
+                let (_, block_hash) = get_outcome_id_block_hash_rev(key.as_ref())?;
+                Ok(ExecutionOutcomeWithIdAndProof {
+                    proof: outcome_with_proof.proof,
+                    block_hash,
+                    outcome_with_id: ExecutionOutcomeWithId {
+                        id: *id,
+                        outcome: outcome_with_proof.outcome,
+                    },
+                })
+            })
+            .collect()
+    }
+
+    pub fn get_outcome_by_id_and_block_hash(
+        &self,
+        id: &CryptoHash,
+        block_hash: &CryptoHash,
+    ) -> Result<Option<ExecutionOutcomeWithProof>, Error> {
+        Ok(self.store.get_ser(
+            DBCol::TransactionResultForBlock,
+            &get_outcome_id_block_hash(id, block_hash),
+        )?)
     }
 
     /// Returns a vector of Outcome ids for given block and shard id
@@ -1126,7 +1158,7 @@ struct ChainStoreCacheUpdate {
     epoch_light_client_blocks: HashMap<CryptoHash, Arc<LightClientBlockView>>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<Receipt>>>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<ReceiptProof>>>,
-    outcomes: HashMap<CryptoHash, Vec<ExecutionOutcomeWithIdAndProof>>,
+    outcomes: HashMap<(CryptoHash, CryptoHash), ExecutionOutcomeWithProof>,
     outcome_ids: HashMap<(CryptoHash, ShardId), Vec<CryptoHash>>,
     invalid_chunks: HashMap<ChunkHash, Arc<EncodedShardChunk>>,
     receipt_id_to_shard_id: HashMap<CryptoHash, ShardId>,
@@ -1782,15 +1814,10 @@ impl<'a> ChainStoreUpdate<'a> {
         let mut outcome_ids = Vec::with_capacity(outcomes.len());
         for (outcome_with_id, proof) in outcomes.into_iter().zip(proofs.into_iter()) {
             outcome_ids.push(outcome_with_id.id);
-            self.chain_store_cache_update
-                .outcomes
-                .entry(outcome_with_id.id)
-                .or_insert_with(Vec::new)
-                .push(ExecutionOutcomeWithIdAndProof {
-                    outcome_with_id,
-                    proof,
-                    block_hash: *block_hash,
-                })
+            self.chain_store_cache_update.outcomes.insert(
+                (outcome_with_id.id, *block_hash),
+                ExecutionOutcomeWithProof { outcome: outcome_with_id.outcome, proof },
+            );
         }
         self.chain_store_cache_update.outcome_ids.insert((*block_hash, shard_id), outcome_ids);
     }
@@ -2234,7 +2261,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn gc_outcomes(&mut self, block: &Block) -> Result<(), Error> {
         let block_hash = block.hash();
-        let mut store_update = self.store().store_update();
+        let store_update = self.store().store_update();
         for chunk_header in
             block.chunks().iter().filter(|h| h.height_included() == block.header().height())
         {
@@ -2242,17 +2269,10 @@ impl<'a> ChainStoreUpdate<'a> {
             let outcome_ids =
                 self.chain_store.get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?;
             for outcome_id in outcome_ids {
-                let mut outcomes_with_id = self.chain_store.get_outcomes_by_id(&outcome_id)?;
-                outcomes_with_id.retain(|outcome| &outcome.block_hash != block_hash);
-                if outcomes_with_id.is_empty() {
-                    self.gc_col(DBCol::TransactionResult, outcome_id.as_bytes());
-                } else {
-                    store_update.set_ser(
-                        DBCol::TransactionResult,
-                        outcome_id.as_bytes(),
-                        &outcomes_with_id,
-                    )?;
-                }
+                self.gc_col(
+                    DBCol::TransactionResultForBlock,
+                    &get_outcome_id_block_hash(&outcome_id, block_hash),
+                );
             }
             self.gc_col(DBCol::OutcomeIds, &get_block_shard_id(block_hash, shard_id));
         }
@@ -2347,7 +2367,7 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::BlockPerHeight => {
                 panic!("Must use gc_col_glock_per_height method to gc DBCol::BlockPerHeight");
             }
-            DBCol::TransactionResult => {
+            DBCol::TransactionResultForBlock => {
                 store_update.delete(col, key);
             }
             DBCol::OutcomeIds => {
@@ -2386,6 +2406,7 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::_NextBlockWithNewChunk
             | DBCol::_LastBlockWithNewChunk
             | DBCol::_TransactionRefCount
+            | DBCol::_TransactionResult
             | DBCol::StateChangesForSplitStates
             | DBCol::CachedContractCode => {
                 unreachable!();
@@ -2488,8 +2509,14 @@ impl<'a> ChainStoreUpdate<'a> {
             let outcome_ids =
                 source_store.get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?;
             for id in outcome_ids.iter() {
-                let existing_outcomes = source_store.get_outcomes_by_id(id)?;
-                chain_store_update.chain_store_cache_update.outcomes.insert(*id, existing_outcomes);
+                if let Some(existing_outcome) =
+                    source_store.get_outcome_by_id_and_block_hash(id, block_hash)?
+                {
+                    chain_store_update
+                        .chain_store_cache_update
+                        .outcomes
+                        .insert((*id, *block_hash), existing_outcome);
+                }
             }
             chain_store_update
                 .chain_store_cache_update
@@ -2680,10 +2707,14 @@ impl<'a> ChainStoreUpdate<'a> {
                 receipt,
             )?;
         }
-        for (hash, outcomes) in self.chain_store_cache_update.outcomes.iter() {
-            let mut existing_outcomes = self.chain_store.get_outcomes_by_id(hash)?;
-            existing_outcomes.extend_from_slice(outcomes);
-            store_update.set_ser(DBCol::TransactionResult, hash.as_ref(), &existing_outcomes)?;
+        for ((outcome_id, block_hash), outcome_with_proof) in
+            self.chain_store_cache_update.outcomes.iter()
+        {
+            store_update.insert_ser(
+                DBCol::TransactionResultForBlock,
+                &get_outcome_id_block_hash(outcome_id, block_hash),
+                &outcome_with_proof,
+            )?;
         }
         for ((block_hash, shard_id), ids) in self.chain_store_cache_update.outcome_ids.iter() {
             store_update.set_ser(
