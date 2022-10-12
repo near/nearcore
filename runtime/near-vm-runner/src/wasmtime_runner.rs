@@ -1,6 +1,5 @@
 use crate::errors::IntoVMError;
 use crate::prepare::WASM_FEATURES;
-use crate::runner::VMResult;
 use crate::{imports, prepare};
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
@@ -13,7 +12,7 @@ use near_vm_errors::{
     WasmTrap,
 };
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, MemoryLike, VMContext, VMLogic};
+use near_vm_logic::{External, MemoryLike, VMContext, VMLogic, VMOutcome};
 use std::cell::RefCell;
 use std::ffi::c_void;
 use std::str;
@@ -192,7 +191,7 @@ impl crate::runner::VM for WasmtimeVM {
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
         _cache: Option<&dyn CompiledContractCache>,
-    ) -> VMResult {
+    ) -> VMOutcome {
         let mut config = default_config();
         let engine = get_engine(&mut config);
         let mut store = Store::new(&engine, ());
@@ -219,22 +218,22 @@ impl crate::runner::VM for WasmtimeVM {
             code.code().len(),
         );
         if let Err(e) = result {
-            return VMResult::abort(logic, e);
+            return VMOutcome::abort(logic, e);
         }
 
         let prepared_code = match prepare::prepare_contract(code.code(), &self.config) {
             Ok(code) => code,
-            Err(err) => return VMResult::abort(logic, VMError::from(err)),
+            Err(err) => return VMOutcome::abort(logic, VMError::from(err)),
         };
         let module = match Module::new(&engine, prepared_code) {
             Ok(module) => module,
-            Err(err) => return VMResult::abort(logic, err.into_vm_error()),
+            Err(err) => return VMOutcome::abort(logic, err.into_vm_error()),
         };
         let mut linker = Linker::new(&engine);
 
         let result = logic.after_loading_executable(current_protocol_version, code.code().len());
         if let Err(e) = result {
-            return VMResult::abort(logic, e);
+            return VMOutcome::abort(logic, e);
         }
 
         // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
@@ -249,7 +248,7 @@ impl crate::runner::VM for WasmtimeVM {
                             VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                                 MethodResolveError::MethodInvalidSignature,
                             ));
-                        return VMResult::abort_but_nop_outcome_in_old_protocol(
+                        return VMOutcome::abort_but_nop_outcome_in_old_protocol(
                             logic,
                             err,
                             current_protocol_version,
@@ -260,7 +259,7 @@ impl crate::runner::VM for WasmtimeVM {
                     let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                         MethodResolveError::MethodNotFound,
                     ));
-                    return VMResult::abort_but_nop_outcome_in_old_protocol(
+                    return VMOutcome::abort_but_nop_outcome_in_old_protocol(
                         logic,
                         err,
                         current_protocol_version,
@@ -271,7 +270,7 @@ impl crate::runner::VM for WasmtimeVM {
                 let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                     MethodResolveError::MethodNotFound,
                 ));
-                return VMResult::abort_but_nop_outcome_in_old_protocol(
+                return VMOutcome::abort_but_nop_outcome_in_old_protocol(
                     logic,
                     err,
                     current_protocol_version,
@@ -282,23 +281,23 @@ impl crate::runner::VM for WasmtimeVM {
             Ok(instance) => match instance.get_func(&mut store, method_name) {
                 Some(func) => match func.typed::<(), (), _>(&mut store) {
                     Ok(run) => match run.call(&mut store, ()) {
-                        Ok(_) => VMResult::ok(logic),
-                        Err(err) => VMResult::abort(logic, err.into_vm_error()),
+                        Ok(_) => VMOutcome::ok(logic),
+                        Err(err) => VMOutcome::abort(logic, err.into_vm_error()),
                     },
-                    Err(err) => VMResult::abort(logic, err.into_vm_error()),
+                    Err(err) => VMOutcome::abort(logic, err.into_vm_error()),
                 },
                 None => {
                     let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
                         MethodResolveError::MethodNotFound,
                     ));
-                    return VMResult::abort_but_nop_outcome_in_old_protocol(
+                    return VMOutcome::abort_but_nop_outcome_in_old_protocol(
                         logic,
                         err,
                         current_protocol_version,
                     );
                 }
             },
-            Err(err) => VMResult::abort(logic, err.into_vm_error()),
+            Err(err) => VMOutcome::abort(logic, err.into_vm_error()),
         }
     }
 

@@ -2,7 +2,6 @@ use crate::cache::into_vm_result;
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
 use crate::prepare::WASM_FEATURES;
-use crate::runner::VMResult;
 use crate::{cache, imports};
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
@@ -11,7 +10,7 @@ use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, VMContext, VMLogic, VMLogicError};
+use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
 use wasmer_runtime::{ImportObject, Module};
 
 const WASMER_FEATURES: wasmer_runtime::Features =
@@ -249,7 +248,7 @@ impl crate::runner::VM for Wasmer0VM {
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
-    ) -> VMResult {
+    ) -> VMOutcome {
         if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
             // TODO(#1940): Remove once NaN is standardized by the VM.
             panic!(
@@ -286,7 +285,7 @@ impl crate::runner::VM for Wasmer0VM {
             code.code().len(),
         );
         if let Err(e) = result {
-            return VMResult::abort(logic, e);
+            return VMOutcome::abort(logic, e);
         }
 
         // TODO: consider using get_module() here, once we'll go via deployment path.
@@ -300,19 +299,19 @@ impl crate::runner::VM for Wasmer0VM {
             // version do not have gas costs before reaching this code. (Also
             // see `test_old_fn_loading_behavior_preserved` for a test that
             // verifies future changes do not counteract this assumption.)
-            Err(err) => return VMResult::abort(logic, err),
+            Err(err) => return VMOutcome::abort(logic, err),
         };
 
         let result = logic.after_loading_executable(current_protocol_version, code.code().len());
         if let Err(e) = result {
-            return VMResult::abort(logic, e);
+            return VMOutcome::abort(logic, e);
         }
 
         let import_object =
             imports::wasmer::build(memory_copy, &mut logic, current_protocol_version);
 
         if let Err(e) = check_method(&module, method_name) {
-            return VMResult::abort_but_nop_outcome_in_old_protocol(
+            return VMOutcome::abort_but_nop_outcome_in_old_protocol(
                 logic,
                 e,
                 current_protocol_version,
@@ -320,8 +319,8 @@ impl crate::runner::VM for Wasmer0VM {
         }
 
         match run_method(&module, &import_object, method_name) {
-            Ok(()) => VMResult::ok(logic),
-            Err(err) => VMResult::abort(logic, err),
+            Ok(()) => VMOutcome::ok(logic),
+            Err(err) => VMOutcome::abort(logic, err),
         }
     }
 

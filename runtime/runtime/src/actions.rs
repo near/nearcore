@@ -28,11 +28,11 @@ use near_store::{
     StorageError, TrieUpdate,
 };
 use near_vm_errors::{
-    AnyError, CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMError,
+    CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMError,
 };
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::VMContext;
-use near_vm_runner::{precompile_contract, VMResult};
+use near_vm_logic::{VMContext, VMOutcome};
+use near_vm_runner::precompile_contract;
 
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
@@ -47,21 +47,16 @@ pub(crate) fn execute_function_call(
     config: &RuntimeConfig,
     is_last_action: bool,
     view_config: Option<ViewConfig>,
-) -> VMResult {
+) -> Result<VMOutcome, StorageError> {
     let account_id = runtime_ext.account_id();
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
-    let code = match runtime_ext.get_code(account.code_hash()) {
-        Ok(Some(code)) => code,
-        Ok(None) => {
+    let code = match runtime_ext.get_code(account.code_hash())? {
+        Some(code) => code,
+        None => {
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
                 account_id: account_id.clone(),
             });
-            return VMResult::nop_outcome(VMError::FunctionCallError(error));
-        }
-        Err(e) => {
-            return VMResult::nop_outcome(VMError::ExternalError(AnyError::new(
-                ExternalError::StorageError(e),
-            )));
+            return Ok(VMOutcome::nop_outcome(VMError::FunctionCallError(error)));
         }
     };
     // Output data receipts are ignored if the function call is not the last action in the batch.
@@ -120,7 +115,7 @@ pub(crate) fn execute_function_call(
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
     }
 
-    result
+    Ok(result)
 }
 
 pub(crate) fn action_function_call(
@@ -154,7 +149,7 @@ pub(crate) fn action_function_call(
         epoch_info_provider,
         apply_state.current_protocol_version,
     );
-    let (outcome, err) = execute_function_call(
+    let outcome = execute_function_call(
         apply_state,
         &mut runtime_ext,
         account,
@@ -167,9 +162,9 @@ pub(crate) fn action_function_call(
         is_last_action,
         None,
     )
-    .outcome_error();
+    .map_err(|e| RuntimeError::StorageError(e))?;
 
-    match &err {
+    match &outcome.aborted {
         None => {
             metrics::FUNCTION_CALL_PROCESSED.with_label_values(&["ok"]).inc();
         }
@@ -178,7 +173,7 @@ pub(crate) fn action_function_call(
         }
     }
 
-    let execution_succeeded = match err {
+    let execution_succeeded = match outcome.aborted {
         Some(VMError::FunctionCallError(err)) => {
             metrics::FUNCTION_CALL_PROCESSED_FUNCTION_CALL_ERRORS
                 .with_label_values(&[(&err).into()])

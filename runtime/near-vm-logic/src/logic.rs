@@ -2758,6 +2758,7 @@ impl<'a> VMLogic<'a> {
             logs: self.logs,
             profile,
             action_receipts: self.receipt_manager.action_receipts,
+            aborted: None,
         }
     }
 
@@ -2842,7 +2843,7 @@ impl<'a> VMLogic<'a> {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(PartialEq)]
 pub struct VMOutcome {
     pub balance: Balance,
     pub storage_usage: StorageUsage,
@@ -2853,6 +2854,59 @@ pub struct VMOutcome {
     /// Data collected from making a contract call
     pub profile: ProfileData,
     pub action_receipts: Vec<(AccountId, ReceiptMetadata)>,
+    pub aborted: Option<VMError>,
+}
+
+impl VMOutcome {
+    /// Consumes the `VMLogic` object and computes the final outcome with the
+    /// given error that stopped execution from finishing successfully.
+    pub fn abort(logic: VMLogic, error: VMError) -> VMOutcome {
+        let mut outcome = logic.compute_outcome_and_distribute_gas();
+        outcome.aborted = Some(error);
+        outcome
+    }
+
+    /// Consumes the `VMLogic` object and computes the final outcome for a
+    /// successful execution.
+    pub fn ok(logic: VMLogic) -> VMOutcome {
+        logic.compute_outcome_and_distribute_gas()
+    }
+
+    /// Creates an outcome with a no-op outcome.
+    pub fn nop_outcome(error: VMError) -> VMOutcome {
+        VMOutcome {
+            // Note: Balance and storage fields are ignored on a failed outcome.
+            balance: 0,
+            storage_usage: 0,
+            // Note: Fields below are added or merged when processing the
+            // outcome. With 0 or the empty set, those are no-ops.
+            return_data: ReturnData::None,
+            burnt_gas: 0,
+            used_gas: 0,
+            logs: Vec::new(),
+            profile: ProfileData::default(),
+            action_receipts: Vec::new(),
+            aborted: Some(error),
+        }
+    }
+
+    /// Like `VMResult::abort()` but without feature `FixContractLoadingCost` it
+    /// will return a NOP outcome. This is used for backwards-compatibility only.
+    pub fn abort_but_nop_outcome_in_old_protocol(
+        logic: VMLogic,
+        error: VMError,
+        current_protocol_version: u32,
+    ) -> VMOutcome {
+        if checked_feature!(
+            "protocol_feature_fix_contract_loading_cost",
+            FixContractLoadingCost,
+            current_protocol_version
+        ) {
+            Self::abort(logic, error)
+        } else {
+            Self::nop_outcome(error)
+        }
+    }
 }
 
 impl std::fmt::Debug for VMOutcome {

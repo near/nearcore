@@ -1,7 +1,6 @@
 use crate::cache::into_vm_result;
 use crate::imports::wasmer2::Wasmer2Imports;
 use crate::prepare::WASM_FEATURES;
-use crate::runner::VMResult;
 use crate::{cache, imports};
 use memoffset::offset_of;
 use near_primitives::contract::ContractCode;
@@ -11,7 +10,7 @@ use near_stable_hasher::StableHasher;
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
 use near_vm_logic::gas_counter::FastGasCounter;
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
-use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic};
+use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
 use std::hash::{Hash, Hasher};
 use std::mem::size_of;
 use std::sync::Arc;
@@ -464,7 +463,7 @@ impl crate::runner::VM for Wasmer2VM {
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
-    ) -> VMResult {
+    ) -> VMOutcome {
         let mut memory = Wasmer2Memory::new(
             self.config.limit_config.initial_memory_pages,
             self.config.limit_config.max_memory_pages,
@@ -490,7 +489,7 @@ impl crate::runner::VM for Wasmer2VM {
             code.code().len(),
         );
         if let Err(e) = result {
-            return VMResult::abort(logic, e);
+            return VMOutcome::abort(logic, e);
         }
 
         let artifact =
@@ -498,13 +497,13 @@ impl crate::runner::VM for Wasmer2VM {
         let artifact = match into_vm_result(artifact) {
             Ok(it) => it,
             Err(err) => {
-                return VMResult::abort(logic, err);
+                return VMOutcome::abort(logic, err);
             }
         };
 
         let result = logic.after_loading_executable(current_protocol_version, code.code().len());
         if let Err(e) = result {
-            return VMResult::abort(logic, e);
+            return VMOutcome::abort(logic, e);
         }
         let import = imports::wasmer2::build(
             vmmemory,
@@ -513,15 +512,15 @@ impl crate::runner::VM for Wasmer2VM {
             artifact.engine(),
         );
         if let Err(e) = get_entrypoint_index(&*artifact, method_name) {
-            return VMResult::abort_but_nop_outcome_in_old_protocol(
+            return VMOutcome::abort_but_nop_outcome_in_old_protocol(
                 logic,
                 e,
                 current_protocol_version,
             );
         }
         match self.run_method(&artifact, import, method_name) {
-            Ok(()) => VMResult::ok(logic),
-            Err(err) => VMResult::abort(logic, err),
+            Ok(()) => VMOutcome::ok(logic),
+            Err(err) => VMOutcome::abort(logic, err),
         }
     }
 

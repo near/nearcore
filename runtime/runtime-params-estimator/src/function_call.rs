@@ -87,7 +87,7 @@ fn compute_function_call_cost(
             protocol_version,
             cache,
         );
-        assert!(result.error().is_none());
+        assert!(result.aborted.is_none());
     }
     // Run with gas metering.
     let start = GasCost::measure(gas_metric);
@@ -102,7 +102,7 @@ fn compute_function_call_cost(
             protocol_version,
             cache,
         );
-        assert!(result.error().is_none());
+        assert!(result.aborted.is_none());
     }
     start.elapsed()
 }
