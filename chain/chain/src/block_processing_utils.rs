@@ -10,6 +10,7 @@ use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+use tracing::log::warn;
 
 /// Max number of blocks that can be in the pool at once.
 /// This number will likely never be hit unless there are many forks in the chain.
@@ -93,8 +94,14 @@ impl BlocksInProcessing {
         preprocess_info: BlockPreprocessInfo,
         force_add_even_if_full: bool,
     ) -> Result<(), AddError> {
-        if !force_add_even_if_full {
-            self.add_dry_run(block.hash())?;
+        match (force_add_even_if_full, self.add_dry_run(block.hash())) {
+            (_, Ok(_)) => {}
+            (true, Err(AddError::ExceedingPoolSize)) => {
+                warn!(target: "chain", "Exceeding max number of blocks in processing pool, but force adding the block anyway because we produced it");
+            }
+            (_, Err(err)) => {
+                return Err(err);
+            }
         }
 
         self.preprocessed_blocks.insert(*block.hash(), (block, preprocess_info));
