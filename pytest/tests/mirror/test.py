@@ -208,7 +208,7 @@ def create_subaccount(node, signer_key, nonce, block_hash):
     actions = []
     actions.append(transaction.create_create_account_action())
     actions.append(transaction.create_full_access_key_action(k.decoded_pk()))
-    actions.append(transaction.create_payment_action(int(1e24)))
+    actions.append(transaction.create_payment_action(10**24))
     actions.append(
         transaction.create_full_access_key_action(
             key.Key.from_random('foo.test0').decoded_pk()))
@@ -219,6 +219,39 @@ def create_subaccount(node, signer_key, nonce, block_hash):
         signer_key.decoded_pk(), signer_key.decoded_sk())
     node.send_tx(tx)
     return k
+
+
+class ImplicitAccount:
+
+    def __init__(self):
+        self.key = key.Key.implicit_account()
+        self.tx_sent = False
+        self.nonce = None
+
+    def ensure_inited(self, node, sender_key, amount, block_hash, nonce):
+        if self.nonce is not None:
+            return True
+        if not self.tx_sent:
+            tx = transaction.sign_payment_tx(
+                sender_key, self.key.account_id, amount, nonce,
+                base58.b58decode(block_hash.encode('utf8')))
+            node.send_tx(tx)
+            self.tx_sent = True
+            logger.info(
+                f'sent {amount} to initialize implicit account {self.key.account_id}'
+            )
+            return False
+        else:
+            self.nonce = node.get_nonce_for_pk(self.key.account_id, self.key.pk)
+            return self.nonce is not None
+
+    def send_money(self, node, block_hash, to, amount):
+        assert self.nonce is not None
+        self.nonce += 1
+        tx = transaction.sign_payment_tx(
+            self.key, to, amount, self.nonce,
+            base58.b58decode(block_hash.encode('utf8')))
+        node.send_tx(tx)
 
 
 def main():
@@ -235,8 +268,7 @@ def main():
         genesis_config_changes=[["min_gas_price", 0],
                                 ["max_inflation_rate", [0, 1]],
                                 ["epoch_length", 10],
-                                ["block_producer_kickout_threshold", 70],
-                                ["protocol_version", 29]],
+                                ["block_producer_kickout_threshold", 70]],
         client_config_changes=config_changes)
 
     nodes = [spin_up_node(config, near_root, node_dirs[0], 0)]
@@ -248,12 +280,18 @@ def main():
             spin_up_node(config, near_root, node_dirs[i], i,
                          boot_node=nodes[0]))
 
+    implicit_account1 = ImplicitAccount()
     ctx = utils.TxContext([0, 0, 0, 0], nodes)
 
     for height, block_hash in utils.poll_blocks(nodes[0], timeout=TIMEOUT):
         ctx.send_moar_txs(block_hash, 10, use_routing=False)
-        if height > 12:
-            break
+        if implicit_account1.ensure_inited(nodes[0], nodes[0].signer_key,
+                                           10**24, block_hash, ctx.next_nonce):
+            implicit_account1.send_money(nodes[0], block_hash, 'test3', 3)
+            if height > 12:
+                ctx.next_nonce += 1
+                break
+        ctx.next_nonce += 1
 
     nodes[0].kill()
     shardnet_node_dirs, shardnet_observer_dir = create_shardnet(
@@ -283,9 +321,19 @@ def main():
                                        ctx.next_nonce, block_hash)
     ctx.next_nonce += 1
     subaccount_nonce = -1
+    implicit_account2 = ImplicitAccount()
 
     for height, block_hash in utils.poll_blocks(nodes[0], timeout=TIMEOUT):
         ctx.send_moar_txs(block_hash, 10, use_routing=False)
+        implicit_account1.send_money(nodes[0], block_hash, 'test3', 3)
+        implicit_account1.send_money(nodes[0], block_hash, implicit_account2.key.account_id, 3)
+        if implicit_account2.ensure_inited(nodes[0], nodes[0].signer_key,
+                                           10**24, block_hash, ctx.next_nonce):
+            implicit_account2.send_money(nodes[0], block_hash, 'test2', 13)
+            implicit_account2.send_money(nodes[0], block_hash,
+                                         implicit_account1.key.account_id, 14)
+        ctx.next_nonce += 1
+
         code = p.poll()
         if code is not None:
             assert code == 0

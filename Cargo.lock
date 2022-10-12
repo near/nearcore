@@ -2729,6 +2729,7 @@ dependencies = [
  "bs58",
  "clap 3.1.18",
  "ed25519-dalek",
+ "hex",
  "hkdf",
  "near-chain-configs",
  "near-client",

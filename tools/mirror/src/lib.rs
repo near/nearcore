@@ -4,8 +4,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_configs::GenesisValidationMode;
 use near_client::{ClientActor, ViewClientActor};
 use near_client_primitives::types::{
-    GetBlock, GetChunk, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
-    GetExecutionOutcomeResponse, Query,
+    GetBlock, GetBlockError, GetChunk, GetChunkError, GetExecutionOutcome,
+    GetExecutionOutcomeError, GetExecutionOutcomeResponse, Query, QueryError,
 };
 use near_crypto::{PublicKey, SecretKey};
 use near_indexer::{Indexer, StreamerMessage};
@@ -40,11 +40,10 @@ mod secret;
 enum DBCol {
     Misc,
     // This tracks nonces for Access Keys added by AddKey transactions
-    // (not present in the genesis state).  For a given key, if
-    // there's no entry in the DB, then either the key was present in
-    // the genesis state or it was added by an AddKey transaction and
-    // then removed by a DeleteKey transaction. Otherwise, we map tx
-    // nonces according to the values in this column.
+    // or transfers to implicit accounts (not present in the genesis state).
+    // For a given (account ID, public key), if we're preparing a transaction
+    // and there's no entry in the DB, then the key was present in the genesis
+    // state. Otherwise, we map tx nonces according to the values in this column.
     Nonces,
 }
 
@@ -150,6 +149,7 @@ fn open_db<P: AsRef<Path>>(home: &P, config: &NearConfig) -> anyhow::Result<DB> 
 #[derive(Debug)]
 struct TxAwaitingNonce {
     source_public: PublicKey,
+    source_signer_id: AccountId,
     target_private: SecretKey,
     tx: Transaction,
 }
@@ -165,6 +165,34 @@ struct MappedChunk {
 struct MappedBlock {
     source_height: BlockHeight,
     chunks: Vec<MappedChunk>,
+}
+
+async fn account_exists(
+    view_client: &Addr<ViewClientActor>,
+    account_id: &AccountId,
+    prev_block: &CryptoHash,
+) -> anyhow::Result<bool> {
+    match view_client
+        .send(
+            Query::new(
+                BlockReference::BlockId(BlockId::Hash(prev_block.clone())),
+                QueryRequest::ViewAccount { account_id: account_id.clone() },
+            )
+            .with_span_context(),
+        )
+        .await?
+    {
+        Ok(res) => match res.kind {
+            QueryResponseKind::ViewAccount(_) => Ok(true),
+            other => {
+                panic!("Received unexpected QueryResponse after Querying Account: {:?}", other);
+            }
+        },
+        Err(e) => match &e {
+            QueryError::UnknownAccount { .. } => Ok(false),
+            _ => Err(e.into()),
+        },
+    }
 }
 
 async fn fetch_access_key_nonce(
@@ -193,8 +221,7 @@ async fn fetch_access_key_nonce(
         Ok(res) => match res.kind {
             QueryResponseKind::AccessKey(access_key) => Ok(Some(access_key.nonce)),
             other => {
-                tracing::error!(target: "mirror", "Received unexpected QueryResponse after Querying Access Key: {:?}", other);
-                Ok(None)
+                panic!("Received unexpected QueryResponse after Querying Access Key: {:?}", other);
             }
         },
         Err(_) => Ok(None),
@@ -456,14 +483,17 @@ impl TxMirror {
     // return the same nonce. Otherwise, we need to change the
     // nonce. So check if we already know what the difference in
     // nonces is, and if not, try to fetch that info and store it.
+    // `source_signer_id` and `target_signer_id` are the same unless
+    // it's an implicit account
     async fn map_nonce(
         &self,
-        signer_id: &AccountId,
+        source_signer_id: &AccountId,
+        target_signer_id: &AccountId,
         source_public: &PublicKey,
         target_public: &PublicKey,
         nonce: Nonce,
     ) -> anyhow::Result<Result<Nonce, MapNonceError>> {
-        let mut diff = match self.read_nonce_diff(signer_id, source_public)? {
+        let mut diff = match self.read_nonce_diff(source_signer_id, source_public)? {
             Some(m) => m,
             // If it's not stored in the database, it's an access key that was present in the genesis
             // records, so we don't need to do anything to the nonce.
@@ -475,7 +505,7 @@ impl TxMirror {
 
         let mut rewrite = false;
         if diff.source_start.is_none() {
-            self.update_source_nonce(signer_id, source_public, &mut diff).await?;
+            self.update_source_nonce(source_signer_id, source_public, &mut diff).await?;
             // this should not happen, since if we're mapping a nonce for a valid access key,
             // it better have landed on the source chain by then
             if diff.source_start.is_none() {
@@ -484,14 +514,18 @@ impl TxMirror {
             rewrite = true;
         }
         if diff.target_start.is_none() {
-            diff.target_start =
-                fetch_access_key_nonce(&self.target_view_client, signer_id, target_public, None)
-                    .await?;
+            diff.target_start = fetch_access_key_nonce(
+                &self.target_view_client,
+                target_signer_id,
+                target_public,
+                None,
+            )
+            .await?;
             rewrite |= diff.target_start.is_some();
         }
 
         if rewrite {
-            self.put_nonce_diff(signer_id, source_public, &diff)?;
+            self.put_nonce_diff(source_signer_id, source_public, &diff)?;
         }
         Ok(diff.map(nonce))
     }
@@ -579,7 +613,11 @@ impl TxMirror {
         self.put_nonce_diff(&tx.receiver_id, &public_key, &diff)
     }
 
-    async fn map_actions(&self, tx: &SignedTransactionView) -> anyhow::Result<Vec<Action>> {
+    async fn map_actions(
+        &self,
+        tx: &SignedTransactionView,
+        prev_block: &CryptoHash,
+    ) -> anyhow::Result<Vec<Action>> {
         let mut actions = Vec::new();
 
         for a in tx.actions.iter() {
@@ -605,6 +643,19 @@ impl TxMirror {
 
                     actions.push(Action::DeleteKey(DeleteKeyAction { public_key }));
                 }
+                Action::Transfer(_) => {
+                    if tx.receiver_id.is_implicit()
+                        && !account_exists(&self.source_view_client, &tx.receiver_id, prev_block)
+                            .await
+                            .with_context(|| {
+                                format!("failed checking existence for account {}", &tx.receiver_id)
+                            })?
+                    {
+                        let public_key = crate::key_mapping::implicit_account_key(&tx.receiver_id);
+                        self.store_source_nonce(tx, &public_key).await?;
+                    }
+                    actions.push(action);
+                }
                 // We don't want to mess with the set of validators in the target chain
                 Action::Stake(_) => {}
                 _ => actions.push(action),
@@ -621,6 +672,19 @@ impl TxMirror {
         source_height: BlockHeight,
         ref_hash: CryptoHash,
     ) -> anyhow::Result<Option<MappedBlock>> {
+        let prev_hash = match self
+            .source_view_client
+            .send(
+                GetBlock(BlockReference::BlockId(BlockId::Height(source_height)))
+                    .with_span_context(),
+            )
+            .await
+            .unwrap()
+        {
+            Ok(b) => b.header.prev_hash,
+            Err(GetBlockError::UnknownBlock { .. }) => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
         let mut chunks = Vec::new();
         for shard_id in self.tracked_shards.iter() {
             let mut txs = Vec::new();
@@ -649,7 +713,7 @@ impl TxMirror {
             }
 
             for t in chunk.transactions {
-                let actions = self.map_actions(&t).await?;
+                let actions = self.map_actions(&t, &prev_hash).await?;
                 if actions.is_empty() {
                     // If this is a tx containing only stake actions, skip it.
                     continue;
@@ -657,12 +721,17 @@ impl TxMirror {
                 let mapped_key = crate::key_mapping::map_key(&t.public_key, self.secret.as_ref());
                 let public_key = mapped_key.public_key();
 
-                match self.map_nonce(&t.signer_id, &t.public_key, &public_key, t.nonce).await? {
+                let target_signer_id =
+                    crate::key_mapping::map_account(&t.signer_id, self.secret.as_ref());
+                match self
+                    .map_nonce(&t.signer_id, &target_signer_id, &t.public_key, &public_key, t.nonce)
+                    .await?
+                {
                     Ok(nonce) => {
                         let mut tx = Transaction::new(
-                            t.signer_id.clone(),
+                            target_signer_id,
                             public_key,
-                            t.receiver_id.clone(),
+                            crate::key_mapping::map_account(&t.receiver_id, self.secret.as_ref()),
                             nonce,
                             ref_hash.clone(),
                         );
@@ -682,9 +751,12 @@ impl TxMirror {
                         }
                         MapNonceError::TargetKeyNotOnChain => {
                             let mut tx = Transaction::new(
-                                t.signer_id.clone(),
+                                crate::key_mapping::map_account(&t.signer_id, self.secret.as_ref()),
                                 public_key,
-                                t.receiver_id.clone(),
+                                crate::key_mapping::map_account(
+                                    &t.receiver_id,
+                                    self.secret.as_ref(),
+                                ),
                                 t.nonce,
                                 ref_hash.clone(),
                             );
@@ -694,6 +766,7 @@ impl TxMirror {
                                 TxAwaitingNonce {
                                     tx,
                                     source_public: t.public_key.clone(),
+                                    source_signer_id: t.signer_id.clone(),
                                     target_private: mapped_key,
                                 },
                             );
@@ -796,6 +869,7 @@ impl TxMirror {
                 for (hash, tx) in c.txs_awaiting_nonce.iter() {
                     match self
                         .map_nonce(
+                            &tx.source_signer_id,
                             &tx.tx.signer_id,
                             &tx.source_public,
                             &tx.tx.public_key,
