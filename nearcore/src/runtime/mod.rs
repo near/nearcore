@@ -1872,7 +1872,7 @@ mod test {
                 .unwrap();
             store_update.commit().unwrap();
             let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
-            for shard_id in 0..num_shards {
+            for shard_id in 0..runtime.num_shards(&EpochId::default()) {
                 runtime.create_flat_storage_state_for_shard(shard_id as ShardId, 0, &mock_chain);
             }
 
