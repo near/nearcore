@@ -71,7 +71,7 @@ impl AnnounceAccount {
         peer_id: &PeerId,
         epoch_id: &EpochId,
     ) -> CryptoHash {
-        CryptoHash::hash_borsh(&(account_id, peer_id, epoch_id))
+        CryptoHash::hash_borsh((account_id, peer_id, epoch_id))
     }
 
     pub fn hash(&self) -> CryptoHash {

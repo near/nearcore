@@ -686,7 +686,7 @@ mod tests {
             0,
             100,
             1_000_000_000,
-            CryptoHash::hash_borsh(&genesis_bps),
+            CryptoHash::hash_borsh(genesis_bps),
         );
         let signer =
             InMemoryValidatorSigner::from_seed("other".parse().unwrap(), KeyType::ED25519, "other");
