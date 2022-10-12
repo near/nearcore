@@ -11,9 +11,15 @@ use near_vm_logic::{External, VMContext, VMOutcome};
 
 /// Returned by VM::run method.
 ///
-/// `VMOutcome` is a graceful completion of a VM execution, which may or
-/// may not have failed. `VMRunnerError` contains fatal errors that usually
-/// are panicked on by the caller.
+/// `VMRunnerError` means nearcore is buggy or the data base has been corrupted.
+/// We are unable to produce a deterministic result. The correct action usually
+/// is to crash or maybe ban a peer and/or send a challenge.
+///
+/// A `VMOutcome` is a graceful completion of a VM execution. It can also contain
+/// an error in the `aborted` field. But these are errors that may happen under
+/// normal circumstance. Such as when a smart contract code panics.
+/// Note that errors in `VMOutcome` are part of the state tracked on the
+/// blockchain. All validators must produce the same error deterministically.
 pub(crate) type VMResult = Result<VMOutcome, VMRunnerError>;
 
 /// Validate and run the specified contract.
@@ -111,7 +117,7 @@ pub trait VM {
         code: &[u8],
         code_hash: &CryptoHash,
         cache: &dyn CompiledContractCache,
-    ) -> Option<Result<FunctionCallError, VMRunnerError>>;
+    ) -> Result<Option<FunctionCallError>, VMRunnerError>;
 
     /// Verify the `code` contract can be compiled with this `VM`.
     ///

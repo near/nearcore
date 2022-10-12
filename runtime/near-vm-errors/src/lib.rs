@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::fmt::{self, Error, Formatter};
 
-/// Fatal error occurred during VM operation.
+/// For bugs in the runtime itself, crash and die is the usual response.
+///
+/// See the doc comment on `VMResult` for an explanation what the difference
+/// between this and a `FunctionCallError` is.
 #[derive(Debug)]
 pub enum VMRunnerError {
     /// An error that is caused by an operation on an inconsistent state.
@@ -25,6 +28,12 @@ pub enum VMRunnerError {
 }
 
 /// Permitted errors that cause a function call to fail gracefully.
+///
+/// This error will be included in the merklize state on chain, it must be
+/// deterministically produces on all nodes.
+///
+/// See the doc comment on `VMResult` for an explanation what the difference
+/// between this and a `VMRunnerError` is.
 #[derive(Debug, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum FunctionCallError {
     /// Wasm compilation error
@@ -298,6 +307,14 @@ impl From<PrepareError> for FunctionCallError {
     }
 }
 
+/// Try to convert a general error that happened at the `VMLogic` level to a
+/// `FunctionCallError` that can be included in a `VMOutcome`.
+///
+/// `VMLogicError` have two very different types of errors. Some are just
+/// a result from the guest code doing incorrect things, other are bugs in
+/// nearcore.
+/// The first type can be converted to a `FunctionCallError`, the other becomes
+/// a `VMRunnerError` instead and must be treated differently.
 impl TryFrom<VMLogicError> for FunctionCallError {
     type Error = VMRunnerError;
     fn try_from(err: VMLogicError) -> Result<Self, Self::Error> {

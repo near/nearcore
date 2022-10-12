@@ -73,11 +73,11 @@ fn cache_error(
 #[cfg(target_arch = "x86_64")]
 pub fn into_vm_result<T>(
     res: Result<Result<T, CompilationError>, CacheError>,
-) -> Result<T, Result<FunctionCallError, VMRunnerError>> {
+) -> Result<Result<T, FunctionCallError>, VMRunnerError> {
     match res {
-        Ok(Ok(it)) => Ok(it),
-        Ok(Err(err)) => Err(Ok(FunctionCallError::CompilationError(err))),
-        Err(cache_error) => Err(Err(VMRunnerError::CacheError(cache_error))),
+        Ok(Ok(it)) => Ok(Ok(it)),
+        Ok(Err(err)) => Ok(Err(FunctionCallError::CompilationError(err))),
+        Err(cache_error) => Err(VMRunnerError::CacheError(cache_error)),
     }
 }
 

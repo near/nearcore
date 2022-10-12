@@ -294,8 +294,8 @@ impl crate::runner::VM for WasmtimeVM {
         _code: &[u8],
         _code_hash: &CryptoHash,
         _cache: &dyn CompiledContractCache,
-    ) -> Option<Result<FunctionCallError, VMRunnerError>> {
-        Some(Ok(FunctionCallError::CompilationError(CompilationError::UnsupportedCompiler {
+    ) -> Result<Option<near_vm_errors::FunctionCallError>, VMRunnerError> {
+        Ok(Some(FunctionCallError::CompilationError(CompilationError::UnsupportedCompiler {
             msg: "Precompilation not supported in Wasmtime yet".to_string(),
         })))
     }

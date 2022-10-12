@@ -493,10 +493,10 @@ impl crate::runner::VM for Wasmer2VM {
 
         let artifact =
             cache::wasmer2_cache::compile_module_cached_wasmer2(code, &self.config, cache);
-        let artifact = match into_vm_result(artifact) {
+        let artifact = match into_vm_result(artifact)? {
             Ok(it) => it,
             Err(err) => {
-                return Ok(VMOutcome::abort(logic, err?));
+                return Ok(VMOutcome::abort(logic, err));
             }
         };
 
@@ -528,14 +528,15 @@ impl crate::runner::VM for Wasmer2VM {
         code: &[u8],
         code_hash: &near_primitives::hash::CryptoHash,
         cache: &dyn CompiledContractCache,
-    ) -> Option<Result<FunctionCallError, VMRunnerError>> {
+    ) -> Result<Option<near_vm_errors::FunctionCallError>, VMRunnerError> {
         let result = crate::cache::wasmer2_cache::compile_and_serialize_wasmer2(
             code,
             code_hash,
             &self.config,
             cache,
         );
-        into_vm_result(result).err()
+        let outcome = into_vm_result(result)?;
+        Ok(outcome.err())
     }
 
     fn check_compile(&self, code: &[u8]) -> bool {

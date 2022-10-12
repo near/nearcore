@@ -288,7 +288,7 @@ impl crate::runner::VM for Wasmer0VM {
 
         // TODO: consider using get_module() here, once we'll go via deployment path.
         let module = cache::wasmer0_cache::compile_module_cached_wasmer0(code, &self.config, cache);
-        let module = match into_vm_result(module) {
+        let module = match into_vm_result(module)? {
             Ok(x) => x,
             // Note on backwards-compatibility: This error used to be an error
             // without result, later refactored to NOP outcome. Now this returns
@@ -297,8 +297,7 @@ impl crate::runner::VM for Wasmer0VM {
             // version do not have gas costs before reaching this code. (Also
             // see `test_old_fn_loading_behavior_preserved` for a test that
             // verifies future changes do not counteract this assumption.)
-            Err(Ok(guest_err)) => return Ok(VMOutcome::abort(logic, guest_err)),
-            Err(Err(fatal_err)) => return Err(fatal_err),
+            Err(guest_err) => return Ok(VMOutcome::abort(logic, guest_err)),
         };
 
         let result = logic.after_loading_executable(current_protocol_version, code.code().len());
@@ -328,14 +327,15 @@ impl crate::runner::VM for Wasmer0VM {
         code: &[u8],
         code_hash: &near_primitives::hash::CryptoHash,
         cache: &dyn CompiledContractCache,
-    ) -> Option<Result<FunctionCallError, VMRunnerError>> {
+    ) -> Result<Option<FunctionCallError>, VMRunnerError> {
         let result = crate::cache::wasmer0_cache::compile_and_serialize_wasmer(
             code,
             &self.config,
             code_hash,
             cache,
         );
-        into_vm_result(result).err()
+        let outcome = into_vm_result(result)?;
+        Ok(outcome.err())
     }
 
     fn check_compile(&self, code: &[u8]) -> bool {
