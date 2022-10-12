@@ -5,9 +5,9 @@ use near_primitives::{
     types::Gas,
     version::{ProtocolFeature, PROTOCOL_VERSION},
 };
+use near_vm_errors::FunctionCallError;
 use near_vm_logic::{mocks::mock_external::MockedExternal, ProtocolVersion, VMContext};
 use std::collections::HashSet;
-use std::fmt::Write;
 
 pub(crate) fn test_builder() -> TestBuilder {
     let context = VMContext {
@@ -162,30 +162,47 @@ impl TestBuilder {
                 let promise_results = vec![];
 
                 let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
-                let res = runtime.run(
-                    &self.code,
-                    &self.method,
-                    &mut fake_external,
-                    context,
-                    &fees,
-                    &promise_results,
-                    protocol_version,
-                    None,
-                );
+                let mut outcome = runtime
+                    .run(
+                        &self.code,
+                        &self.method,
+                        &mut fake_external,
+                        context,
+                        &fees,
+                        &promise_results,
+                        protocol_version,
+                        None,
+                    )
+                    .expect("execution failed");
 
-                let mut got = if self.opaque_outcome {
-                    String::new()
-                } else {
-                    format!("{:?}\n", res.outcome())
-                };
-                if let Some(err) = res.error() {
-                    let mut err = err.to_string();
-                    assert!(err.len() < 1000, "errors should be bounded in size to prevent abuse via exhausting the storage space");
-                    if self.opaque_error {
-                        err = "...".to_string();
+                let got: String = match (self.opaque_outcome, self.opaque_error) {
+                    (false, false) => {
+                        // error is contained inside outcome
+                        format!("{:?}\n", outcome)
                     }
-                    writeln!(got, "Err: {err}").unwrap();
-                }
+                    (true, false) => {
+                        if let Some(err) = outcome.aborted {
+                            let err = err.to_string();
+                            assert!(err.len() < 1000, "errors should be bounded in size to prevent abuse via exhausting the storage space");
+                            format!("Err: {err}\n",)
+                        } else {
+                            String::new()
+                        }
+                    }
+                    (false, true) => {
+                        // use a fixed error to make it opaque
+                        outcome.aborted =
+                            Some(FunctionCallError::LinkError { msg: "[censored]".to_owned() });
+                        format!("{outcome:?}\n",)
+                    }
+                    (true, true) => {
+                        if outcome.aborted.is_some() {
+                            format!("Err: ...\n",)
+                        } else {
+                            String::new()
+                        }
+                    }
+                };
 
                 results.push((vm_kind, got));
             }

@@ -2886,7 +2886,7 @@ impl VMOutcome {
         }
     }
 
-    /// Like `VMResult::abort()` but without feature `FixContractLoadingCost` it
+    /// Like `Self::abort()` but without feature `FixContractLoadingCost` it
     /// will return a NOP outcome. This is used for backwards-compatibility only.
     pub fn abort_but_nop_outcome_in_old_protocol(
         logic: VMLogic,
@@ -2916,6 +2916,10 @@ impl std::fmt::Debug for VMOutcome {
             f,
             "VMOutcome: balance {} storage_usage {} return data {} burnt gas {} used gas {}",
             self.balance, self.storage_usage, return_data_str, self.burnt_gas, self.used_gas
-        )
+        )?;
+        if let Some(err) = &self.aborted {
+            write!(f, " failed with {err}")?;
+        }
+        Ok(())
     }
 }

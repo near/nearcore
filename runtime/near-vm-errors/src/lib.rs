@@ -516,21 +516,19 @@ impl<T: Any + Eq + Sized + Send + Sync> AnyEq for T {
 
 #[cfg(test)]
 mod tests {
-    use crate::{CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMError};
+    use crate::{CompilationError, FunctionCallError, MethodResolveError, PrepareError};
 
     #[test]
     fn test_display() {
         // TODO: proper printing
         assert_eq!(
-            VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                MethodResolveError::MethodInvalidSignature
-            ))
-            .to_string(),
+            FunctionCallError::MethodResolveError(MethodResolveError::MethodInvalidSignature)
+                .to_string(),
             "MethodInvalidSignature"
         );
         assert_eq!(
-            VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::PrepareError(PrepareError::StackHeightInstrumentation)
+            FunctionCallError::CompilationError(CompilationError::PrepareError(
+                PrepareError::StackHeightInstrumentation
             ))
             .to_string(),
             "PrepareError: Stack instrumentation failed."

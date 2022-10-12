@@ -14,7 +14,7 @@ use near_vm_logic::{External, VMContext, VMOutcome};
 /// `VMOutcome` is a graceful completion of a VM execution, which may or
 /// may not have failed. `VMRunnerError` contains fatal errors that usually
 /// are panicked on by the caller.
-type VMResult = Result<VMOutcome, VMRunnerError>;
+pub(crate) type VMResult = Result<VMOutcome, VMRunnerError>;
 
 /// Validate and run the specified contract.
 ///
