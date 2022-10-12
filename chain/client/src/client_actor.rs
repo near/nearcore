@@ -333,7 +333,8 @@ impl ClientActor {
                             self.network_adapter.do_send(
                                 PeerManagerMessageRequest::NetworkRequests(
                                     NetworkRequests::Block { block: block.clone() },
-                                ),
+                                )
+                                .with_span_context(),
                             );
                             let _ = self.client.start_process_block(
                                 block.into(),
