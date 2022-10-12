@@ -1277,17 +1277,13 @@ impl PeerManagerActor {
             tcp::Tier::T1 => {
                 if msg.connection.peer_type == PeerType::Inbound {
                     // Allow for inbound TIER1 connections only directly from a TIER1 peers.
-                    
-                    // Verify the signature of owned_account.
-                    let owned_account = match handshake.owned_account {
-                        None => return RegisterPeerResponse::Reject(RegisterPeerError::NotTier1Peer),
+                    let owned_account = match &msg.connection.owned_account {
                         Some(it) => it,
+                        None => return RegisterPeerResponse::Reject(RegisterPeerError::NotTier1Peer),
                     };
-
-                    // (not from TIER1 proxies).
-                    /*if !self.state.accounts_data.load().is_tier1_peer(&peer_info.id) {
+                    if !self.state.accounts_data.load().keys.values().any(|key|key==&owned_account.account_key) {
                         return RegisterPeerResponse::Reject(RegisterPeerError::NotTier1Peer);
-                    }*/
+                    }
                 }
             }
             tcp::Tier::T2 => {

@@ -176,20 +176,20 @@ impl SignedAccountData {
 
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct OwnedAccount {
-    pub(crate) account_id: AccountId,
+    pub(crate) account_key: PublicKey,
     pub(crate) peer_id: PeerId, 
     pub(crate) timestamp: time::Utc,
 }
 
 impl OwnedAccount {
     /// Serializes OwnedAccount to proto and signs it using `signer`.
-    /// Panics if OwnedAccount.account_id doesn't match signer.validator_id(),
+    /// Panics if OwnedAccount.account_key doesn't match signer.public_key(),
     /// as this would likely be a bug.
     pub fn sign(self, signer: &dyn ValidatorSigner) -> SignedOwnedAccount {
         assert_eq!(
-            &self.account_id,
-            signer.validator_id(),
-            "OwnedAccount.account_id doesn't match the signer's account_id"
+            self.account_key,
+            signer.public_key(),
+            "OwnedAccount.account_key doesn't match the signer's account_key"
         );
         let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
         let signature = signer.sign_account_key_payload(&payload);

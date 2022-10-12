@@ -51,6 +51,9 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 // TODO(#5453): current limit is way to high due to us sending lots of messages during sync.
 const MAX_PEER_MSG_PER_MIN: usize = usize::MAX;
 
+/// Maximal allowed UTC clock skew between this node and the peer.
+const MAX_CLOCK_SKEW: time::Duration = time::Duration::minutes(30);
+
 /// Maximum size of network message in encoded format.
 /// We encode length as `u32`, and therefore maximum size can't be larger than `u32::MAX`.
 const NETWORK_MESSAGE_MAX_SIZE_BYTES: usize = 512 * bytesize::MIB as usize;
@@ -103,6 +106,9 @@ pub(crate) enum ClosingReason {
     PeerManager,
     #[error("Received DisconnectMessage from peer")]
     DisconnectMessage,
+    #[error("Peer clock skew exceeded {MAX_CLOCK_SKEW}")]
+    TooLargeClockSkew,
+
 }
 
 pub(crate) struct PeerActor {
@@ -413,7 +419,7 @@ impl PeerActor {
             },
             partial_edge_info: spec.partial_edge_info,
             owned_account: self.network_state.config.validator.as_ref().map(|vc|OwnedAccount {
-                account_id: vc.signer.validator_id().clone(),
+                account_key: vc.signer.public_key().clone(),
                 peer_id: self.network_state.config.node_id(),
                 timestamp: self.clock.now_utc(),
             }.sign(vc.signer.as_ref())),
@@ -542,7 +548,23 @@ impl PeerActor {
                 }
             }
         }
-        
+       
+        // Verify that handshake.owned_account is valid.
+        if let Some(owned_account) = &handshake.owned_account {
+            if let Err(_) = owned_account.payload().verify(&owned_account.account_key) {
+                self.stop(ctx, ClosingReason::Ban(ReasonForBan::InvalidSignature));
+                return;
+            }
+            if owned_account.peer_id != handshake.sender_peer_id {
+                self.stop(ctx, ClosingReason::HandshakeFailed);
+                return;
+            }
+            if (owned_account.timestamp-self.clock.now_utc()).abs() >= MAX_CLOCK_SKEW {
+                self.stop(ctx, ClosingReason::TooLargeClockSkew);
+                return;
+            }
+        }
+
         // Verify that the received partial edge is valid.
         // WARNING: signature is verified against the 2nd argument.
         if !Edge::partial_verify(
@@ -595,6 +617,7 @@ impl PeerActor {
             initial_chain_info: handshake.sender_chain_info.clone(),
             chain_height: AtomicU64::new(handshake.sender_chain_info.height),
             edge,
+            owned_account: handshake.owned_account.clone(),
             peer_type: self.peer_type,
             stats: self.stats.clone(),
             _peer_connections_metric: metrics::PEER_CONNECTIONS.new_point(&metrics::Connection {
@@ -1122,10 +1145,10 @@ impl Actor for PeerActor {
                 if conn.tier == tcp::Tier::T1 {
                     // There is no banning or routing table for TIER1.
                     // Just remove the connection from the network_state.
-                    self.network_state.tier1.remove(&peer_id);
+                    self.network_state.tier1.remove(conn);
                     return Running::Stop;
                 }
-                self.network_state.tier2.remove(&peer_id);
+                self.network_state.tier2.remove(conn);
 
                 // If the last edge we have with this peer represent a connection addition, create the edge
                 // update that represents the connection removal.

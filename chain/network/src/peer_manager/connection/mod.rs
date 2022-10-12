@@ -3,7 +3,7 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerMessage, RoutedMessageBody,
-    SignedAccountData, SyncAccountsData,
+    SignedAccountData, SyncAccountsData, SignedOwnedAccount,
 };
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+use near_crypto::PublicKey;
 
 #[cfg(test)]
 mod tests;
@@ -75,6 +76,7 @@ pub(crate) struct Connection {
 
     pub peer_info: PeerInfo,
     pub edge: Edge,
+    pub owned_account: Option<SignedOwnedAccount>,
     pub initial_chain_info: PeerChainInfoV2,
     pub chain_height: AtomicU64,
 
@@ -188,6 +190,8 @@ pub(crate) struct PoolSnapshot {
     /// Connections which have completed the handshake and are ready
     /// for transmitting messages.
     pub ready: im::HashMap<PeerId, Arc<Connection>>,
+    /// index on `ready` by Connection.owned_account.account_key.
+    pub ready_by_account_key: im::HashMap<PublicKey, Arc<Connection>>,
     /// Set of started outbound connections, which are not ready yet.
     /// We need to keep those to prevent a deadlock when 2 peers try
     /// to connect to each other at the same time.
@@ -266,6 +270,7 @@ impl Pool {
             loop_inbound: None,
             me,
             ready: im::HashMap::new(),
+            ready_by_account_key: im::HashMap::new(),
             outbound_handshakes: im::HashSet::new(),
         })))
     }
@@ -295,9 +300,6 @@ impl Pool {
                 pool.loop_inbound = Some(peer);
                 return Ok(());
             }
-            if pool.ready.contains_key(&id) {
-                return Err(PoolError::AlreadyConnected);
-            }
             match peer.peer_type {
                 PeerType::Inbound => {
                     if pool.outbound_handshakes.contains(&id) && id >= pool.me {
@@ -317,7 +319,15 @@ impl Pool {
                     }
                 }
             }
-            pool.ready.insert(id, peer);
+
+            if pool.ready.insert(id, peer.clone()).is_some() {
+                return Err(PoolError::AlreadyConnected);
+            }
+            if let Some(owned_account) = &peer.owned_account {
+                if pool.ready_by_account_key.insert(owned_account.account_key.clone(), peer.clone()).is_some() {
+                    return Err(PoolError::AlreadyConnected);
+                }
+            }
             Ok(())
         })
     }
@@ -337,9 +347,18 @@ impl Pool {
 
     // TODO: accept Arc<Connection> as an argument,
     // so that we can add support for removing loop connections.
-    pub fn remove(&self, peer_id: &PeerId) {
+    pub fn remove(&self, conn: &Arc<Connection>) {
         self.0.update(|pool| {
-            pool.ready.remove(peer_id);
+            match pool.ready.entry(conn.peer_info.id.clone()) {
+                im::hashmap::Entry::Occupied(e) if Arc::ptr_eq(e.get(),conn) => { e.remove_entry(); }
+                _ => {},
+            }
+            if let Some(owned_account) = &conn.owned_account {
+                match pool.ready_by_account_key.entry(owned_account.account_key.clone()) {
+                    im::hashmap::Entry::Occupied(e) if Arc::ptr_eq(e.get(),conn) => { e.remove_entry(); }
+                    _ => {},
+                }
+            }
         });
     }
 

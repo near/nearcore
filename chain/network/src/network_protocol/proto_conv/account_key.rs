@@ -13,7 +13,7 @@ pub enum ParseAccountDataError {
     #[error("bad payload type")]
     BadPayloadType,
     #[error("peer_id: {0}")]
-    PeerId(ParsePeerIdError),
+    PeerId(ParsePublicKeyError),
     #[error("account_id: {0}")]
     AccountId(ParseAccountError),
     #[error("peers: {0}")]
@@ -103,9 +103,9 @@ pub enum ParseOwnedAccountError {
     #[error("bad payload type")]
     BadPayloadType,
     #[error("peer_id: {0}")]
-    PeerId(ParseRequiredError<ParsePeerIdError>),
-    #[error("account_id: {0}")]
-    AccountId(ParseAccountError),
+    PeerId(ParseRequiredError<ParsePublicKeyError>),
+    #[error("account_key: {0}")]
+    AccountKey(ParseRequiredError<ParsePublicKeyError>),
     #[error("timestamp: {0}")]
     Timestamp(ParseRequiredError<ParseTimestampError>),
 }
@@ -114,8 +114,8 @@ impl From<&OwnedAccount> for proto::AccountKeyPayload {
     fn from(x: &OwnedAccount) -> Self {
         Self {
             payload_type: Some(ProtoPT::OwnedAccount(proto::OwnedAccount {
+                account_key: MF::some((&x.account_key).into()),
                 peer_id: MF::some((&x.peer_id).into()),
-                account_id: x.account_id.to_string(),
                 timestamp: MF::some(utc_to_proto(&x.timestamp)),
                 ..Default::default()
             })),
@@ -132,8 +132,8 @@ impl TryFrom<&proto::AccountKeyPayload> for OwnedAccount {
             _ => return Err(Self::Error::BadPayloadType),
         };
         Ok(Self {
+            account_key: try_from_required(&x.account_key).map_err(Self::Error::AccountKey)?,
             peer_id: try_from_required(&x.peer_id).map_err(Self::Error::PeerId)?,
-            account_id: x.account_id.clone().try_into().map_err(Self::Error::AccountId)?,
             timestamp: map_from_required(&x.timestamp, utc_from_proto)
                 .map_err(Self::Error::Timestamp)?,
         })

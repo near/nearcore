@@ -5,20 +5,20 @@ package network;
 
 import "google/protobuf/timestamp.proto";
 
-// Proof that a given peer owns the account for the given epoch.
+// Proof that a given peer owns the account key.
 // Included in every outbound TIER1 handshake.
-// Should be signed by the public key of the account for the given epoch.
 // Note: sign AccountKeyPayload, rather than OwnedAccount directly.
 message OwnedAccount {
-  // PeerId of the node owning the account_id.
-  PublicKey peer_id = 5; // required 
+  PublicKey account_key = 1; // required
+  // PeerId of the node owning the account_key.
+  PublicKey peer_id = 2; // required 
   // Timestamp indicates the date of signing - we do not assume the
   // nodes' clocks to be synchronized, but for security if the timestamp
   // deviation is too large, the handshake will be rejected.
   // TODO(gprusak): an alternative would be a 3-way handshake with a
   // random challenge to sign, or even better: just use some standard
   // asymetric entryption.
-  google.protobuf.Timestamp timestamp = 4; // required
+  google.protobuf.Timestamp timestamp = 3; // required
 }
 
 
@@ -38,8 +38,6 @@ message AccountKeyPayload {
     AccountData account_data = 2;
     OwnedAccount owned_account = 3;
   }
-  // Required for owned_account, but eventually will be required for all variants.
-  PublicKey account_key = 4;
 }
 
 // Wrapper of borsh-encoded Signature.

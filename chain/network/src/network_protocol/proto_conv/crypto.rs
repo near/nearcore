@@ -3,6 +3,7 @@ use crate::network_protocol::proto;
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_crypto::PublicKey;
 
 //////////////////////////////////////////
 
@@ -25,18 +26,31 @@ impl TryFrom<&proto::CryptoHash> for CryptoHash {
 
 //////////////////////////////////////////
 
-pub type ParsePeerIdError = borsh::maybestd::io::Error;
+pub type ParsePublicKeyError = borsh::maybestd::io::Error;
 
-impl From<&PeerId> for proto::PublicKey {
-    fn from(x: &PeerId) -> Self {
+impl From<&PublicKey> for proto::PublicKey {
+    fn from(x: &PublicKey) -> Self {
         Self { borsh: x.try_to_vec().unwrap(), ..Self::default() }
     }
 }
 
-impl TryFrom<&proto::PublicKey> for PeerId {
-    type Error = ParsePeerIdError;
+impl TryFrom<&proto::PublicKey> for PublicKey {
+    type Error = ParsePublicKeyError;
     fn try_from(p: &proto::PublicKey) -> Result<Self, Self::Error> {
         Self::try_from_slice(&p.borsh)
+    }
+}
+
+impl From<&PeerId> for proto::PublicKey {
+    fn from(x: &PeerId) -> Self {
+        x.public_key().into()
+    }
+}
+
+impl TryFrom<&proto::PublicKey> for PeerId {
+    type Error = ParsePublicKeyError;
+    fn try_from(p :&proto::PublicKey) -> Result<Self,Self::Error> {
+        Ok(PeerId::new(PublicKey::try_from(p)?))
     }
 }
 

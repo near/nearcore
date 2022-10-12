@@ -66,9 +66,9 @@ impl TryFrom<&proto::PeerChainInfo> for PeerChainInfoV2 {
 #[derive(thiserror::Error, Debug)]
 pub enum ParseHandshakeError {
     #[error("sender_peer_id {0}")]
-    SenderPeerId(ParseRequiredError<ParsePeerIdError>),
+    SenderPeerId(ParseRequiredError<ParsePublicKeyError>),
     #[error("target_peer_id {0}")]
-    TargetPeerId(ParseRequiredError<ParsePeerIdError>),
+    TargetPeerId(ParseRequiredError<ParsePublicKeyError>),
     #[error("sender_listen_port {0}")]
     SenderListenPort(std::num::TryFromIntError),
     #[error("sender_chain_info {0}")]
