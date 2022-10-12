@@ -1648,7 +1648,7 @@ mod test {
     use near_primitives::views::{
         AccountView, CurrentEpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
     };
-    use near_store::{NodeStorage, Temperature};
+    use near_store::{flat_state, FlatStateDelta, NodeStorage, Temperature};
 
     use super::*;
 
@@ -1709,10 +1709,63 @@ mod test {
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
+            let flat_state_delta =
+                FlatStateDelta::from_state_changes(&result.trie_changes.state_changes());
             result.trie_changes.insertions_into(&mut store_update);
             result.trie_changes.state_changes_into(&mut store_update);
+
+            match self.get_flat_storage_state_for_shard(shard_id) {
+                Some(flat_storage_state) => {
+                    let block_info = flat_state::BlockInfo {
+                        hash: block_hash.clone(),
+                        height,
+                        prev_hash: prev_block_hash.clone(),
+                    };
+                    let new_store_update = flat_storage_state
+                        .add_block(&block_hash, flat_state_delta, block_info)
+                        .unwrap();
+                    store_update.merge(new_store_update);
+                }
+                None => {}
+            }
             store_update.commit().unwrap();
+
             (result.new_root, result.validator_proposals, result.outgoing_receipts)
+        }
+    }
+
+    struct MockChainForFlatStorage {
+        height_to_hashes: HashMap<BlockHeight, CryptoHash>,
+        blocks: HashMap<CryptoHash, flat_state::BlockInfo>,
+    }
+
+    impl ChainAccessForFlatStorage for MockChainForFlatStorage {
+        fn get_block_info(&self, block_hash: &CryptoHash) -> flat_state::BlockInfo {
+            self.blocks.get(block_hash).unwrap().clone()
+        }
+
+        fn get_block_hashes_at_height(&self, block_height: BlockHeight) -> HashSet<CryptoHash> {
+            HashSet::from([self.get_block_hash(block_height)])
+        }
+    }
+
+    impl MockChainForFlatStorage {
+        pub fn new(genesis_height: BlockHeight, genesis_hash: CryptoHash) -> Self {
+            Self {
+                height_to_hashes: HashMap::from([(genesis_height, genesis_hash)]),
+                blocks: HashMap::from([(
+                    genesis_hash,
+                    flat_state::BlockInfo {
+                        hash: genesis_hash,
+                        height: genesis_height,
+                        prev_hash: CryptoHash::default(),
+                    },
+                )]),
+            }
+        }
+
+        fn get_block_hash(&self, height: BlockHeight) -> CryptoHash {
+            *self.height_to_hashes.get(&height).unwrap()
         }
     }
 
@@ -1813,6 +1866,16 @@ mod test {
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&[0]);
+
+            let store_update = runtime
+                .set_flat_storage_state_for_genesis(&genesis_hash, &EpochId::default())
+                .unwrap();
+            store_update.commit().unwrap();
+            let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
+            for shard_id in 0..num_shards {
+                runtime.create_flat_storage_state_for_shard(shard_id as ShardId, 0, &mock_chain);
+            }
+
             runtime
                 .add_validator_proposals(BlockHeaderInfo {
                     prev_hash: CryptoHash::default(),
@@ -3148,7 +3211,7 @@ mod test {
         let state_root = env.state_roots[0];
         let state = env.runtime.get_trie_for_shard(0, &head_prev_block_hash, state_root).unwrap();
         let view_state =
-            env.runtime.get_trie_for_shard(0, &head_prev_block_hash, state_root).unwrap();
+            env.runtime.get_view_trie_for_shard(0, &head_prev_block_hash, state_root).unwrap();
         let trie_key = TrieKey::Account { account_id: validators[1].clone() };
         let key = trie_key.to_vec();
 
