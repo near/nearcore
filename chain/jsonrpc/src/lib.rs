@@ -998,9 +998,12 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateError,
     > {
         self.client_addr
-            .send(near_client_primitives::types::SandboxMessage::SandboxPatchState(
-                patch_state_request.records,
-            ))
+            .send(
+                near_client_primitives::types::SandboxMessage::SandboxPatchState(
+                    patch_state_request.records,
+                )
+                .with_span_context(),
+            )
             .await
             .map_err(RpcFrom::rpc_from)?;
 
@@ -1008,7 +1011,10 @@ impl JsonRpcHandler {
             loop {
                 let patch_state_finished = self
                     .client_addr
-                    .send(near_client_primitives::types::SandboxMessage::SandboxPatchStateStatus {})
+                    .send(
+                        near_client_primitives::types::SandboxMessage::SandboxPatchStateStatus {}
+                            .with_span_context(),
+                    )
                     .await;
                 if let Ok(
                     near_client_primitives::types::SandboxResponse::SandboxPatchStateFinished(true),
@@ -1035,9 +1041,12 @@ impl JsonRpcHandler {
         use near_client_primitives::types::SandboxResponse;
 
         self.client_addr
-            .send(near_client_primitives::types::SandboxMessage::SandboxFastForward(
-                fast_forward_request.delta_height,
-            ))
+            .send(
+                near_client_primitives::types::SandboxMessage::SandboxFastForward(
+                    fast_forward_request.delta_height,
+                )
+                .with_span_context(),
+            )
             .await
             .map_err(RpcFrom::rpc_from)?;
 
@@ -1048,7 +1057,8 @@ impl JsonRpcHandler {
                 let fast_forward_finished = self
                     .client_addr
                     .send(
-                        near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus {},
+                        near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus {}
+                            .with_span_context(),
                     )
                     .await;
 
@@ -1109,9 +1119,12 @@ impl JsonRpcHandler {
         );
         actix::spawn(
             self.view_client_addr
-                .send(near_network::types::NetworkViewClientMessages::Adversarial(
-                    near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync,
-                ))
+                .send(
+                    near_network::types::NetworkViewClientMessages::Adversarial(
+                        near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync,
+                    )
+                    .with_span_context(),
+                )
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -1130,9 +1143,12 @@ impl JsonRpcHandler {
         );
         actix::spawn(
             self.view_client_addr
-                .send(near_network::types::NetworkViewClientMessages::Adversarial(
-                    near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug,
-                ))
+                .send(
+                    near_network::types::NetworkViewClientMessages::Adversarial(
+                        near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug,
+                    )
+                    .with_span_context(),
+                )
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))

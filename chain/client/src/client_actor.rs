@@ -634,14 +634,15 @@ impl ClientActor {
     }
 }
 #[cfg(feature = "sandbox")]
-impl Handler<near_client_primitives::types::SandboxMessage> for ClientActor {
+impl Handler<WithSpanContext<near_client_primitives::types::SandboxMessage>> for ClientActor {
     type Result = near_client_primitives::types::SandboxResponse;
 
     fn handle(
         &mut self,
-        msg: near_client_primitives::types::SandboxMessage,
+        msg: WithSpanContext<near_client_primitives::types::SandboxMessage>,
         _ctx: &mut Context<Self>,
     ) -> near_client_primitives::types::SandboxResponse {
+        let msg = msg.msg;
         match msg {
             near_client_primitives::types::SandboxMessage::SandboxPatchState(state) => {
                 self.client.chain.patch_state(
