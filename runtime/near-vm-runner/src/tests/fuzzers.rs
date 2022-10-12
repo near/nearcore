@@ -45,7 +45,7 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
         signer_account_pk: vec![0, 1, 2, 3, 4],
         predecessor_account_id: "carol".parse().unwrap(),
         input,
-        block_index: 10,
+        block_height: 10,
         block_timestamp: 42,
         epoch_height: 1,
         account_balance: 2u128,

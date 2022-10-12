@@ -17,7 +17,6 @@ borsh.workspace = true
 bs58.workspace = true
 c2-chacha.workspace = true
 curve25519-dalek.workspace = true
-deepsize = { workspace = true, optional = true }
 derive_more.workspace = true
 ed25519-dalek.workspace = true
 near-account-id = { path = "../account-id" }
@@ -34,9 +33,3 @@ thiserror.workspace = true
 hex-literal = "0.2"
 sha2.workspace = true
 tempfile.workspace = true
-
-[features]
-deepsize_feature = [
-  "deepsize",
-  "near-account-id/deepsize_feature",
-]
