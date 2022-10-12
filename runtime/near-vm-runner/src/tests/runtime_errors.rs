@@ -34,8 +34,7 @@ fn test_infinite_initializer_export_not_found() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 49101213 used gas 49101213
-                Err: MethodNotFound
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 49101213 used gas 49101213 failed with MethodNotFound
             "#]],
         ]);
 }
@@ -68,8 +67,7 @@ fn test_multiple_memories() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44982963 used gas 44982963
-                Err: ...
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44982963 used gas 44982963 failed with [censored]
             "#]],
         ]);
 }
@@ -87,8 +85,7 @@ fn test_export_not_found() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 42815463 used gas 42815463
-                Err: MethodNotFound
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 42815463 used gas 42815463 failed with MethodNotFound
             "#]],
         ]);
 }
@@ -228,8 +225,7 @@ fn test_wrong_signature_contract() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43032213 used gas 43032213
-                Err: MethodInvalidSignature
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43032213 used gas 43032213 failed with MethodInvalidSignature
             "#]],
         ]);
 }
@@ -248,8 +244,7 @@ fn test_export_wrong_type() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 41298213 used gas 41298213
-                Err: MethodNotFound
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 41298213 used gas 41298213 failed with MethodNotFound
             "#]],
         ]);
 }
@@ -406,8 +401,7 @@ fn test_bad_import_1() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50618463 used gas 50618463
-                Err: PrepareError: Error happened during instantiation.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50618463 used gas 50618463 failed with PrepareError: Error happened during instantiation.
             "#]],
         ]);
 }
@@ -426,8 +420,7 @@ fn test_bad_import_2() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50184963 used gas 50184963
-                Err: PrepareError: Error happened during instantiation.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50184963 used gas 50184963 failed with PrepareError: Error happened during instantiation.
             "#]],
         ]);
 }
@@ -676,12 +669,10 @@ mod fix_contract_loading_cost_protocol_upgrade {
             .protocol_features(&[ProtocolFeature::FixContractLoadingCost])
             .expects(&[
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44115963 used gas 44115963
-                    Err: Exceeded the prepaid gas.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44115963 used gas 44115963 failed with Exceeded the prepaid gas.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44115963 used gas 44115963
-                    Err: Exceeded the prepaid gas.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44115963 used gas 44115963 failed with Exceeded the prepaid gas.
                 "#]],
             ]);
     }
@@ -697,12 +688,10 @@ mod fix_contract_loading_cost_protocol_upgrade {
             .protocol_features(&[ProtocolFeature::FixContractLoadingCost])
             .expects(&[
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 45000000 used gas 45000000
-                    Err: Exceeded the prepaid gas.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 45000000 used gas 45000000 failed with Exceeded the prepaid gas.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 45000000 used gas 45000000
-                    Err: Exceeded the prepaid gas.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 45000000 used gas 45000000 failed with Exceeded the prepaid gas.
                 "#]],
             ]);
     }
@@ -723,12 +712,10 @@ mod fix_contract_loading_cost_protocol_upgrade {
             .protocol_features(&[ProtocolFeature::FixContractLoadingCost])
             .expects(&[
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-                    Err: PrepareError: Error happened while deserializing the module.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0 failed with PrepareError: Error happened while deserializing the module.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 39347463 used gas 39347463
-                    Err: PrepareError: Error happened while deserializing the module.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 39347463 used gas 39347463 failed with PrepareError: Error happened while deserializing the module.
                 "#]],
             ]);
 
@@ -737,12 +724,10 @@ mod fix_contract_loading_cost_protocol_upgrade {
             .protocol_features(&[ProtocolFeature::FixContractLoadingCost])
             .expects(&[
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-                    Err: PrepareError: Error happened during instantiation.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0 failed with PrepareError: Error happened during instantiation.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48234213 used gas 48234213
-                    Err: PrepareError: Error happened during instantiation.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48234213 used gas 48234213 failed with PrepareError: Error happened during instantiation.
                 "#]],
             ]);
 
@@ -751,12 +736,10 @@ mod fix_contract_loading_cost_protocol_upgrade {
             .protocol_features(&[ProtocolFeature::FixContractLoadingCost])
             .expects(&[
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-                    Err: PrepareError: Error happened during instantiation.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0 failed with PrepareError: Error happened during instantiation.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47800713 used gas 47800713
-                    Err: PrepareError: Error happened during instantiation.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47800713 used gas 47800713 failed with PrepareError: Error happened during instantiation.
                 "#]],
             ]);
 
@@ -770,12 +753,10 @@ mod fix_contract_loading_cost_protocol_upgrade {
             .protocol_features(&[ProtocolFeature::FixContractLoadingCost])
             .expects(&[
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-                    Err: PrepareError: Too many locals declared in the contract.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0 failed with PrepareError: Too many locals declared in the contract.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 195407463 used gas 195407463
-                    Err: PrepareError: Too many locals declared in the contract.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 195407463 used gas 195407463 failed with PrepareError: Too many locals declared in the contract.
                 "#]],
             ]);
 
@@ -790,12 +771,10 @@ mod fix_contract_loading_cost_protocol_upgrade {
             .protocol_features(&[ProtocolFeature::FixContractLoadingCost])
             .expects(&[
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-                    Err: PrepareError: Too many functions in contract.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0 failed with PrepareError: Too many functions in contract.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 19554433713 used gas 19554433713
-                    Err: PrepareError: Too many functions in contract.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 19554433713 used gas 19554433713 failed with PrepareError: Too many functions in contract.
                 "#]],
             ]);
     }
