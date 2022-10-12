@@ -1331,6 +1331,9 @@ impl Chain {
         debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.height());
 
         check_known(self, header.hash())?.map_err(|e| Error::BlockKnown(e))?;
+        if self.store().is_height_processed(header.height())? {
+            return Err(Error::BlockKnown(BlockKnownError::KnownInHeader));
+        }
         self.validate_header(header, &Provenance::NONE, challenges)?;
         Ok(())
     }
