@@ -23,8 +23,7 @@ fn test_initializer_wrong_signature_contract() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48017463 used gas 48017463
-                Err: PrepareError: Error happened while deserializing the module.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48017463 used gas 48017463 failed with PrepareError: Error happened while deserializing the module.
             "#]],
         ]);
 }
@@ -45,8 +44,7 @@ fn test_function_not_defined_contract() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 39564213 used gas 39564213
-                Err: PrepareError: Error happened while deserializing the module.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 39564213 used gas 39564213 failed with PrepareError: Error happened while deserializing the module.
             "#]],
         ]);
 }
@@ -76,8 +74,7 @@ fn test_function_type_not_defined_contract_1() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44982963 used gas 44982963
-                Err: PrepareError: Error happened while deserializing the module.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44982963 used gas 44982963 failed with PrepareError: Error happened while deserializing the module.
             "#]],
         ]);
 }
@@ -97,8 +94,7 @@ fn test_function_type_not_defined_contract_2() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44982963 used gas 44982963
-                Err: PrepareError: Error happened while deserializing the module.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44982963 used gas 44982963 failed with PrepareError: Error happened while deserializing the module.
             "#]],
         ]);
 }
@@ -117,8 +113,7 @@ fn test_garbage_contract() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 35445963 used gas 35445963
-                Err: PrepareError: Error happened while deserializing the module.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 35445963 used gas 35445963 failed with PrepareError: Error happened while deserializing the module.
             "#]],
         ]);
 }
@@ -138,8 +133,7 @@ fn test_evil_function_index() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44115963 used gas 44115963
-                Err: PrepareError: Error happened while deserializing the module.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44115963 used gas 44115963 failed with PrepareError: Error happened while deserializing the module.
             "#]],
         ]);
 }
@@ -194,8 +188,7 @@ fn test_limit_contract_functions_number() {
         "#]],
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13049332713 used gas 13049332713
-            Err: PrepareError: Too many functions in contract.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13049332713 used gas 13049332713 failed with PrepareError: Too many functions in contract.
         "#]],
     ]);
 
@@ -218,8 +211,7 @@ fn test_limit_contract_functions_number() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 19554433713 used gas 19554433713
-                Err: PrepareError: Too many functions in contract.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 19554433713 used gas 19554433713 failed with PrepareError: Too many functions in contract.
             "#]],
         ]);
 
@@ -242,8 +234,7 @@ fn test_limit_contract_functions_number() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13051283463 used gas 13051283463
-                Err: PrepareError: Too many functions in contract.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13051283463 used gas 13051283463 failed with PrepareError: Too many functions in contract.
             "#]],
         ]);
 }
@@ -269,8 +260,7 @@ fn test_limit_locals() {
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43682463 used gas 43682463
-                Err: PrepareError: Error happened while deserializing the module.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43682463 used gas 43682463 failed with PrepareError: Error happened while deserializing the module.
             "#]],
         ]);
 
@@ -311,8 +301,7 @@ fn test_limit_locals_global() {
         "#]],
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 195407463 used gas 195407463
-            Err: PrepareError: Too many locals declared in the contract.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 195407463 used gas 195407463 failed with PrepareError: Too many locals declared in the contract.
         "#]],
     ]);
 
