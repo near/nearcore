@@ -1747,6 +1747,7 @@ mod test {
     }
 
     /// Stores chain data for genesis block to initialize flat storage in test environment.
+    #[cfg(feature = "protocol_feature_flat_state")]
     struct MockChainForFlatStorage {
         height_to_hashes: HashMap<BlockHeight, CryptoHash>,
         blocks: HashMap<CryptoHash, flat_state::BlockInfo>,
@@ -1763,6 +1764,7 @@ mod test {
         }
     }
 
+    #[cfg(feature = "protocol_feature_flat_state")]
     impl MockChainForFlatStorage {
         /// Creates mock chain containing only genesis block data.
         pub fn new(genesis_height: BlockHeight, genesis_hash: CryptoHash) -> Self {
@@ -1891,9 +1893,9 @@ mod test {
                 .set_flat_storage_state_for_genesis(&genesis_hash, &EpochId::default())
                 .unwrap();
             store_update.commit().unwrap();
-            let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
             #[cfg(feature = "protocol_feature_flat_state")]
             {
+                let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
                 for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {
                     runtime.create_flat_storage_state_for_shard(
                         shard_id as ShardId,
