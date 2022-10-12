@@ -1,4 +1,5 @@
 use crate::chain::{BlockMissingChunks, OrphanMissingChunks};
+use crate::metrics::BLOCK_PROCESSING_POOL_SIZE;
 use crate::near_chain_primitives::error::BlockKnownError::KnownInProcessing;
 use crate::Provenance;
 use near_primitives::block::Block;
@@ -14,7 +15,7 @@ use tracing::log::warn;
 
 /// Max number of blocks that can be in the pool at once.
 /// This number will likely never be hit unless there are many forks in the chain.
-pub(crate) const MAX_PROCESSING_BLOCKS: usize = 5;
+pub(crate) const MAX_PROCESSING_BLOCKS: usize = 50;
 
 /// Contains information from preprocessing a block
 pub(crate) struct BlockPreprocessInfo {
@@ -105,6 +106,7 @@ impl BlocksInProcessing {
         }
 
         self.preprocessed_blocks.insert(*block.hash(), (block, preprocess_info));
+        BLOCK_PROCESSING_POOL_SIZE.set(self.len().try_into().unwrap());
         Ok(())
     }
 
@@ -116,7 +118,9 @@ impl BlocksInProcessing {
         &mut self,
         block_hash: &CryptoHash,
     ) -> Option<(Block, BlockPreprocessInfo)> {
-        self.preprocessed_blocks.remove(block_hash)
+        let result = self.preprocessed_blocks.remove(block_hash);
+        BLOCK_PROCESSING_POOL_SIZE.set(self.len().try_into().unwrap());
+        result
     }
 
     /// This function does NOT add the block, it simply checks if the block can be added

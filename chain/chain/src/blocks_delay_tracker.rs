@@ -61,6 +61,7 @@ pub struct BlockTrackingStats {
     /// Only contains new chunks that belong to this block, if the block doesn't produce a new chunk
     /// for a shard, the corresponding item will be None.
     pub chunks: Vec<Option<ChunkHash>>,
+    pub pool_full: Option<Instant>,
 }
 
 /// Records timestamps of requesting and receiving a chunk. Assumes that each chunk is requested
@@ -165,6 +166,7 @@ impl BlocksDelayTracker {
                 removed_from_missing_chunks_timestamp: None,
                 processed_timestamp: None,
                 chunks,
+                pool_full: None,
             });
             self.blocks_height_map.entry(height).or_insert(vec![]).push(*block_hash);
         }
@@ -183,6 +185,12 @@ impl BlocksDelayTracker {
             block_entry.removed_from_orphan_timestamp = Some(timestamp);
         } else {
             error!(target:"blocks_delay_tracker", "block {:?} was unorphaned but was not marked received", block_hash);
+        }
+    }
+
+    pub fn mark_block_pool_full(&mut self, block_hash: &CryptoHash, timestamp: Instant) {
+        if let Some(block_entry) = self.blocks.get_mut(block_hash) {
+            block_entry.pool_full = Some(timestamp);
         }
     }
 
@@ -350,7 +358,13 @@ impl BlocksDelayTracker {
                 })
                 .collect();
             let now = Clock::instant();
-            let block_status = chain.get_block_status(block_hash);
+            let mut block_status = chain.get_block_status(block_hash);
+            if block_status == BlockProcessingStatus::Unknown {
+                if block_stats.pool_full.is_some() {
+                    block_status = BlockProcessingStatus::PoolWasFull;
+                }
+            }
+
             let in_progress_ms = block_stats
                 .processed_timestamp
                 .unwrap_or(now)

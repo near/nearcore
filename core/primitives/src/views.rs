@@ -489,6 +489,7 @@ pub enum BlockProcessingStatus {
     InProcessing,
     Processed,
     Unknown,
+    PoolWasFull,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]

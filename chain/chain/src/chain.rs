@@ -53,7 +53,8 @@ use near_store::flat_state;
 use near_store::{DBCol, ShardTries, StoreUpdate};
 
 use crate::block_processing_utils::{
-    BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing, DoneApplyChunkCallback,
+    AddError, BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing,
+    DoneApplyChunkCallback,
 };
 use crate::blocks_delay_tracker::BlocksDelayTracker;
 use crate::crypto_hash_timer::CryptoHashTimer;
@@ -2008,7 +2009,11 @@ impl Chain {
         let block_hash = *block.hash();
         let block_height = block.header().height();
         let apply_chunks_done_marker = block_preprocess_info.apply_chunks_done.clone();
-        self.blocks_in_processing.add(block, block_preprocess_info, provenance == Provenance::PRODUCED)?;
+        self.blocks_in_processing.add(
+            block,
+            block_preprocess_info,
+            provenance == Provenance::PRODUCED,
+        )?;
 
         // 2) schedule apply chunks, which will be executed in the rayon thread pool.
         self.schedule_apply_chunks(
@@ -2140,7 +2145,7 @@ impl Chain {
     /// to process the block an the block is valid.
     //  Note that this function does NOT introduce any changes to chain state.
     pub(crate) fn preprocess_block(
-        &self,
+        &mut self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
         provenance: &Provenance,
@@ -2155,7 +2160,19 @@ impl Chain {
         Error,
     > {
         // see if the block is already in processing or if there are too many blocks being processed
-        self.blocks_in_processing.add_dry_run(block.hash())?;
+        match (
+            *provenance == Provenance::PRODUCED,
+            self.blocks_in_processing.add_dry_run(block.hash()),
+        ) {
+            (_, Ok(_)) => {}
+            (true, Err(AddError::ExceedingPoolSize)) => {
+                warn!(target: "chain", "Preprocess: Exceeding max number of blocks in processing pool, but force adding the block anyway because we produced it");
+            }
+            (_, Err(err)) => {
+                self.blocks_delay_tracker.mark_block_pool_full(block.hash(), Clock::instant());
+                return Err(err.into());
+            }
+        }
 
         debug!(target: "chain", num_approvals = block.header().num_approvals(), "Preprocess block");
 

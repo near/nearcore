@@ -70,6 +70,9 @@ pub static BOOT_TIME_SECONDS: Lazy<IntGauge> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static BLOCK_PROCESSING_POOL_SIZE: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_block_processing_pool_size", "Processing pool size").unwrap()
+});
 pub static TAIL_HEIGHT: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_tail_height", "Height of tail").unwrap());
 pub static CHUNK_TAIL_HEIGHT: Lazy<IntGauge> =
