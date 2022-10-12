@@ -46,7 +46,7 @@ fn process_blocks_with_storage_usage_fix(
         let trie = Rc::new(
             env.clients[0]
                 .runtime_adapter
-                .get_trie_for_shard(0, block.header().prev_hash(), root)
+                .get_trie_for_shard(0, block.header().prev_hash(), root, true)
                 .unwrap(),
         );
         let state_update = TrieUpdate::new(trie.clone());

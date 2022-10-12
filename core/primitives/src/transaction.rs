@@ -437,6 +437,12 @@ pub fn verify_transaction_signature(
     public_keys.iter().any(|key| transaction.signature.verify(hash, key))
 }
 
+/// A more compact struct, just for storage.
+#[derive(Clone, BorshSerialize, BorshDeserialize)]
+pub struct ExecutionOutcomeWithProof {
+    pub proof: MerklePath,
+    pub outcome: ExecutionOutcome,
+}
 #[cfg(test)]
 mod tests {
     use borsh::BorshDeserialize;
