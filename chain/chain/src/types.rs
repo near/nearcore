@@ -276,6 +276,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         shard_id: ShardId,
         prev_hash: &CryptoHash,
         state_root: StateRoot,
+        use_flat_storage: bool,
     ) -> Result<Trie, Error>;
 
     /// Returns trie with view cache
@@ -474,6 +475,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
         state_patch: SandboxStatePatch,
+        use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let _span = tracing::debug_span!(
             target: "runtime",
@@ -500,6 +502,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
             is_new_chunk,
             is_first_block_with_chunk_of_version,
             state_patch,
+            use_flat_storage,
         )
     }
 
@@ -522,6 +525,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
         state_patch: SandboxStatePatch,
+        use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 
     fn check_state_transition(
