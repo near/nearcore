@@ -163,7 +163,12 @@ fn test_float_to_int_contract() {
             .skip_wasmtime()
             .expect(expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47667981 used gas 47667981 failed with WebAssembly trap: An arithmetic exception, e.g. divided by zero.
-            "#]t_indirect_call_to_null_contract() {
+            "#]]);
+    }
+}
+
+#[test]
+fn test_indirect_call_to_null_contract() {
     test_builder()
         .wat(
             r#"
