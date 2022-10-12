@@ -1,12 +1,10 @@
-use std::collections::{HashMap, HashSet};
-
-use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 use std::collections::hash_map::Entry::Occupied;
+use std::collections::{HashMap, HashSet};
 use tracing::warn;
 
 // This file implements EncodedChunksCache, which provides three main functionalities:

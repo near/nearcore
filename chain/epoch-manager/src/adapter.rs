@@ -1,3 +1,4 @@
+use crate::{EpochManager, EpochManagerHandle};
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::{
@@ -9,9 +10,6 @@ use near_primitives::{
         validator_stake::ValidatorStake, AccountId, ApprovalStake, BlockHeight, EpochId, ShardId,
     },
 };
-use std::collections::HashSet;
-
-use crate::{EpochManager, EpochManagerHandle};
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 /// A trait that abstracts the interface of the EpochManager.
