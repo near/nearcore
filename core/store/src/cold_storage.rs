@@ -1,4 +1,5 @@
 use crate::columns::DBKeyType;
+use crate::refcount::add_positive_refcount;
 use crate::{DBCol, DBTransaction, Database, Store};
 
 use borsh::BorshDeserialize;
@@ -55,7 +56,17 @@ fn copy_from_store(
     for key in keys {
         let data = hot_store.get(col, &key)?;
         if let Some(value) = data {
-            transaction.set(col, key, value);
+            // Database checks col.is_rc() on read and write
+            // And in every way expects rc columns to be written with rc
+            if col.is_rc() {
+                transaction.update_refcount(
+                    col,
+                    key,
+                    add_positive_refcount(&value, std::num::NonZeroU32::new(1).unwrap()),
+                );
+            } else {
+                transaction.set(col, key, value);
+            }
         }
     }
     cold_db.write(transaction)?;
