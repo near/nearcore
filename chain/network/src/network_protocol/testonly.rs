@@ -354,6 +354,7 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
         sender_listen_port: Some(rng.gen()),
         sender_chain_info: chain.get_peer_chain_info(),
         partial_edge_info: make_partial_edge(rng),
+        owned_account: None,
     }
 }
 

@@ -130,7 +130,7 @@ impl AccountData {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct AccountKeySignedPayload {
     payload: Vec<u8>,
     signature: near_crypto::Signature,
@@ -174,6 +174,53 @@ impl SignedAccountData {
     }
 }
 
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+pub struct OwnedAccount {
+    pub(crate) account_id: AccountId,
+    pub(crate) peer_id: PeerId, 
+    pub(crate) timestamp: time::Utc,
+}
+
+impl OwnedAccount {
+    /// Serializes OwnedAccount to proto and signs it using `signer`.
+    /// Panics if OwnedAccount.account_id doesn't match signer.validator_id(),
+    /// as this would likely be a bug.
+    pub fn sign(self, signer: &dyn ValidatorSigner) -> SignedOwnedAccount {
+        assert_eq!(
+            &self.account_id,
+            signer.validator_id(),
+            "OwnedAccount.account_id doesn't match the signer's account_id"
+        );
+        let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
+        let signature = signer.sign_account_key_payload(&payload);
+        SignedOwnedAccount {
+            owned_account: self,
+            payload: AccountKeySignedPayload { payload, signature },
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+pub struct SignedOwnedAccount {
+    owned_account: OwnedAccount,
+    // Serialized and signed OwnedAccount.
+    payload: AccountKeySignedPayload,
+}
+
+impl std::ops::Deref for SignedOwnedAccount {
+    type Target = OwnedAccount;
+    fn deref(&self) -> &Self::Target {
+        &self.owned_account
+    }
+}
+
+impl SignedOwnedAccount {
+    pub fn payload(&self) -> &AccountKeySignedPayload {
+        &self.payload
+    }
+}
+
+
 #[derive(PartialEq, Eq, Clone, Debug, Default)]
 pub struct RoutingTableUpdate {
     pub edges: Vec<Edge>,
@@ -210,6 +257,8 @@ pub struct Handshake {
     pub(crate) sender_chain_info: PeerChainInfoV2,
     /// Represents new `edge`. Contains only `none` and `Signature` from the sender.
     pub(crate) partial_edge_info: PartialEdgeInfo,
+    /// Account owned by the sender.
+    pub(crate) owned_account: Option<SignedOwnedAccount>,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr)]

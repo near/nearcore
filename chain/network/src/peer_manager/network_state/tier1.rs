@@ -179,14 +179,14 @@ impl super::NetworkState {
         let validator_cfg = self.tier1_validator_config(&accounts_data);
        
         // Construct indices on accounts_data.
-        let mut accounts_by_peer = HashMap::<_, Vec<_>>::new();
+        //let mut accounts_by_peer = HashMap::<_, Vec<_>>::new();
         let mut accounts_by_proxy = HashMap::<_, Vec<_>>::new();
         let mut proxies_by_account = HashMap::<_, Vec<_>>::new();
         for d in accounts_data.data.values() {
             proxies_by_account.entry(&d.account_id).or_default().extend(d.peers.iter());
-            if let Some(peer_id) = &d.peer_id {
+            /*if let Some(peer_id) = &d.peer_id {
                 accounts_by_peer.entry(peer_id).or_default().push(&d.account_id);
-            }
+            }*/
             for p in &d.peers {
                 accounts_by_proxy.entry(&p.peer_id).or_default().push(&d.account_id);
             }
@@ -201,11 +201,11 @@ impl super::NetworkState {
         // Select the oldest TIER1 connection for each account.
         let mut safe = HashMap::<&AccountId, &PeerId>::new();
         // Direct TIER1 connections have priority.
-        for peer_id in &ready {
+        /*for peer_id in &ready {
             for account_id in accounts_by_peer.get(peer_id).into_iter().flatten() {
                 safe.insert(account_id, peer_id);
             }
-        }
+        }*/
         if validator_cfg.is_some() {
             // TIER1 nodes can also connect to TIER1 proxies.
             for peer_id in &ready {
@@ -288,9 +288,9 @@ impl super::NetworkState {
 
     pub fn get_tier1_peer(
         &self,
-        account_id: &AccountId,
+        _account_id: &AccountId,
     ) -> Option<(PeerId, Arc<connection::Connection>)> {
-        let tier1 = self.tier1.load();
+        /*let tier1 = self.tier1.load();
         let accounts_data = self.accounts_data.load();
         for data in accounts_data.by_account.get(account_id)?.values() {
             let peer_id = match &data.peer_id {
@@ -304,7 +304,7 @@ impl super::NetworkState {
                 tracing::debug!(target:"test", ?peer_id, "got the connection!");
                 return Some((peer_id.clone(), conn.clone()));
             }
-        }
+        }*/
         return None;
     }
 

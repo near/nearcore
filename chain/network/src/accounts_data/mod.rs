@@ -30,7 +30,7 @@ use crate::network_protocol::SignedAccountData;
 use crate::types::AccountKeys;
 use near_crypto::PublicKey;
 use near_o11y::log_assert;
-use near_primitives::network::PeerId;
+//use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, EpochId};
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::collections::HashMap;
@@ -145,9 +145,9 @@ impl CacheSnapshot {
 
     /// Finds if peer_id is currently a TIER1 peer, according to the collected account data.
     /// Complexity: O(data.len()).
-    pub fn is_tier1_peer(&self, peer_id: &PeerId) -> bool {
+    /*pub fn is_tier1_peer(&self, peer_id: &PeerId) -> bool {
         self.data.values().filter(|d| d.peer_id.as_ref() == Some(peer_id)).count() > 0
-    }
+    }*/
 
     fn is_new(&self, d: &SignedAccountData) -> bool {
         let id = (d.epoch_id.clone(), d.account_id.clone());

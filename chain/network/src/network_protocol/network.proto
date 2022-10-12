@@ -5,6 +5,23 @@ package network;
 
 import "google/protobuf/timestamp.proto";
 
+// Proof that a given peer owns the account for the given epoch.
+// Included in every outbound TIER1 handshake.
+// Should be signed by the public key of the account for the given epoch.
+// Note: sign AccountKeyPayload, rather than OwnedAccount directly.
+message OwnedAccount {
+  // PeerId of the node owning the account_id.
+  PublicKey peer_id = 5; // required 
+  // Timestamp indicates the date of signing - we do not assume the
+  // nodes' clocks to be synchronized, but for security if the timestamp
+  // deviation is too large, the handshake will be rejected.
+  // TODO(gprusak): an alternative would be a 3-way handshake with a
+  // random challenge to sign, or even better: just use some standard
+  // asymetric entryption.
+  google.protobuf.Timestamp timestamp = 4; // required
+}
+
+
 // A payload that can be signed with account keys.
 // Since account keys are used to sign things in independent contexts,
 // we need this common enum to prevent message replay attacks, like this one:
@@ -19,7 +36,10 @@ message AccountKeyPayload {
   reserved 1;
   oneof payload_type {
     AccountData account_data = 2;
+    OwnedAccount owned_account = 3;
   }
+  // Required for owned_account, but eventually will be required for all variants.
+  PublicKey account_key = 4;
 }
 
 // Wrapper of borsh-encoded Signature.
@@ -149,6 +169,8 @@ message Handshake {
   // TODO(gprusak): for TIER1 authentication is way more important than for TIER2, so this
   // thing should be replaced with sth better.
   PartialEdgeInfo partial_edge_info = 7;
+  // See description of OwnedAccount.
+  AccountKeySignedPayload owned_account = 8; // optional
 }
 
 // Response to Handshake, in case the Handshake was rejected.
@@ -194,9 +216,12 @@ message PeerAddr {
 
 message AccountData {
   // PeerId of the node owning the account_id.
-  // Inbound connections from this peer_id should be accepted by every node.
+  // Used to route the message over TIER1.
+  // TODO(gprusak): it should be possible to add support for routing
+  // messages to an account_id directly (for TIER1), instead of routing
+  // to a specific peer_id. Then this field won't be necessary.
   PublicKey peer_id = 5; // optional, will be required eventually.
-  
+ 
   string account_id = 1; // required
   // Either address of the node handling the account (if it has a public IP),
   // or a list of peers known to be connected to the validator.

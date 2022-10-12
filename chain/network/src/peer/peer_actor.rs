@@ -3,7 +3,7 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::concurrency::rate;
 use crate::network_protocol::{
-    PeerIdOrHash, 
+    PeerIdOrHash, OwnedAccount, 
     Edge, EdgeState, Encoding, ParsePeerMessageError, PartialEdgeInfo, PeerChainInfoV2, PeerInfo,
     RoutedMessageBody, RoutingTableUpdate, SyncAccountsData,
 };
@@ -412,6 +412,11 @@ impl PeerActor {
                 archival: self.network_state.config.archive,
             },
             partial_edge_info: spec.partial_edge_info,
+            owned_account: self.network_state.config.validator.as_ref().map(|vc|OwnedAccount {
+                account_id: vc.signer.validator_id().clone(),
+                peer_id: self.network_state.config.node_id(),
+                timestamp: self.clock.now_utc(),
+            }.sign(vc.signer.as_ref())),
         };
         let msg = match spec.tier {
             tcp::Tier::T1 => PeerMessage::Tier1Handshake(handshake),
@@ -537,7 +542,7 @@ impl PeerActor {
                 }
             }
         }
-
+        
         // Verify that the received partial edge is valid.
         // WARNING: signature is verified against the 2nd argument.
         if !Edge::partial_verify(

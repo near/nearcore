@@ -102,6 +102,7 @@ async fn loop_connection() {
                 1,
                 &pm.cfg.node_key,
             ),
+            owned_account: None,
         }))
         .await;
     let reason = events
