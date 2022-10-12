@@ -84,7 +84,7 @@ pub(crate) fn execute_function_call(
             .expect("Failed to serialize"),
         predecessor_account_id: predecessor_id.clone(),
         input: function_call.args.clone(),
-        block_index: apply_state.block_index,
+        block_height: apply_state.block_height,
         block_timestamp: apply_state.block_timestamp,
         epoch_height: apply_state.epoch_height,
         account_balance: account.amount(),
@@ -617,7 +617,7 @@ pub(crate) fn action_add_key(
     }
     if checked_feature!("stable", AccessKeyNonceRange, apply_state.current_protocol_version) {
         let mut access_key = add_key.access_key.clone();
-        access_key.nonce = (apply_state.block_index - 1)
+        access_key.nonce = (apply_state.block_height - 1)
             * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
         set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
     } else {

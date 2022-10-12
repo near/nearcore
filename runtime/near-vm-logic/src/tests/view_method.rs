@@ -46,5 +46,5 @@ fn test_allowed_view_method() {
     let mut logic_builder = VMLogicBuilder::default();
     let context = get_context(vec![], true);
     let mut logic = logic_builder.build(context.clone());
-    assert_eq!(logic.block_index().unwrap(), context.block_index);
+    assert_eq!(logic.block_index().unwrap(), context.block_height);
 }
