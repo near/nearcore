@@ -607,6 +607,8 @@ mod test {
         validate_genesis(&new_genesis);
     }
 
+    // TODO (#7327): enable test when flat storage will support resharding.
+    #[cfg(not(feature = "protocol_feature_flat_state"))]
     #[test]
     fn test_dump_state_shard_upgrade() {
         let epoch_length = 4;

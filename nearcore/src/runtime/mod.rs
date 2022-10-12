@@ -2357,6 +2357,7 @@ mod test {
         init_test_logger();
     }
 
+    // TODO (#7327): enable test when flat storage will support state sync.
     #[cfg(not(feature = "protocol_feature_flat_state"))]
     #[test]
     fn test_state_sync() {
