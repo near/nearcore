@@ -3054,6 +3054,7 @@ dependencies = [
  "actix",
  "actix-cors",
  "actix-web",
+ "bs58",
  "easy-ext",
  "futures",
  "near-chain-configs",
