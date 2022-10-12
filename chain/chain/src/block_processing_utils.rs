@@ -91,8 +91,11 @@ impl BlocksInProcessing {
         &mut self,
         block: Block,
         preprocess_info: BlockPreprocessInfo,
+        force_add_even_if_full: bool,
     ) -> Result<(), AddError> {
-        self.add_dry_run(block.hash())?;
+        if !force_add_even_if_full {
+            self.add_dry_run(block.hash())?;
+        }
 
         self.preprocessed_blocks.insert(*block.hash(), (block, preprocess_info));
         Ok(())

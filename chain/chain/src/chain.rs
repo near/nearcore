@@ -2008,7 +2008,7 @@ impl Chain {
         let block_hash = *block.hash();
         let block_height = block.header().height();
         let apply_chunks_done_marker = block_preprocess_info.apply_chunks_done.clone();
-        self.blocks_in_processing.add(block, block_preprocess_info)?;
+        self.blocks_in_processing.add(block, block_preprocess_info, provenance == Provenance::PRODUCED)?;
 
         // 2) schedule apply chunks, which will be executed in the rayon thread pool.
         self.schedule_apply_chunks(
