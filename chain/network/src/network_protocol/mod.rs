@@ -534,7 +534,7 @@ impl RoutedMessage {
         source: &PeerId,
         body: &RoutedMessageBody,
     ) -> CryptoHash {
-        CryptoHash::hash_borsh(&RoutedMessageNoSignature { target, author: source, body })
+        CryptoHash::hash_borsh(RoutedMessageNoSignature { target, author: source, body })
     }
 
     pub fn hash(&self) -> CryptoHash {
