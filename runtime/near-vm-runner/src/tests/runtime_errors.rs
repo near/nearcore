@@ -16,7 +16,8 @@ fn test_infinite_initializer() {
         .wat(INFINITE_INITIALIZER_CONTRACT)
         .gas(10u64.pow(10))
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 10000000000 used gas 10000000000 failed with Exceeded the prepaid gas.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 10000000000 used gas 10000000000
+            Err: Exceeded the prepaid gas.
         "#]]);
 }
 
@@ -30,11 +31,13 @@ fn test_infinite_initializer_export_not_found() {
             ProtocolFeature::FixContractLoadingCost,
         ]).expects(&[
             expect![[r#"
-                VMOutcome: balance 0 storage_usage 0 return data None burnt gas 0 used gas 0 failed with MethodNotFound
+                VMOutcome: balance 0 storage_usage 0 return data None burnt gas 0 used gas 0
+                Err: MethodNotFound
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 49101213 used gas 49101213 failed with MethodNotFound
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 49101213 used gas 49101213
+                Err: MethodNotFound
             "#]],
         ]);
 }
@@ -63,11 +66,13 @@ fn test_multiple_memories() {
         ])
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0 failed with [censored]
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+                Err: ...
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44982963 used gas 44982963 failed with [censored]
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44982963 used gas 44982963
+                Err: ...
             "#]],
         ]);
 }
@@ -81,11 +86,13 @@ fn test_export_not_found() {
             ProtocolFeature::FixContractLoadingCost,
         ]).expects(&[
             expect![[r#"
-                VMOutcome: balance 0 storage_usage 0 return data None burnt gas 0 used gas 0 failed with MethodNotFound
+                VMOutcome: balance 0 storage_usage 0 return data None burnt gas 0 used gas 0
+                Err: MethodNotFound
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 42815463 used gas 42815463 failed with MethodNotFound
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 42815463 used gas 42815463
+                Err: MethodNotFound
             "#]],
         ]);
 }
@@ -93,7 +100,8 @@ fn test_export_not_found() {
 #[test]
 fn test_empty_method() {
     test_builder().wat(SIMPLE_CONTRACT).method("").expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0 failed with MethodEmptyName
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+        Err: MethodEmptyName
     "#]]);
 }
 
@@ -103,7 +111,8 @@ fn test_trap_contract() {
         .wat(r#"(module (func (export "main") (unreachable)) )"#)
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43854969 used gas 43854969 failed with WebAssembly trap: An `unreachable` opcode was executed.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43854969 used gas 43854969
+            Err: WebAssembly trap: An `unreachable` opcode was executed.
         "#]]);
 }
 
@@ -119,7 +128,8 @@ fn test_trap_initializer() {
         )
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47322969 used gas 47322969 failed with WebAssembly trap: An `unreachable` opcode was executed.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47322969 used gas 47322969
+            Err: WebAssembly trap: An `unreachable` opcode was executed.
         "#]]);
 }
 
@@ -139,7 +149,8 @@ fn test_div_by_zero_contract() {
         )
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406987 used gas 47406987 failed with WebAssembly trap: An arithmetic exception, e.g. divided by zero.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406987 used gas 47406987
+            Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
         "#]]);
 }
 
@@ -159,7 +170,8 @@ fn test_float_to_int_contract() {
             ))
             .skip_wasmtime()
             .expect(expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47667981 used gas 47667981 failed with WebAssembly trap: An arithmetic exception, e.g. divided by zero.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47667981 used gas 47667981
+                Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
             "#]]);
     }
 }
@@ -182,7 +194,8 @@ fn test_indirect_call_to_null_contract() {
         .opaque_error()
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50919231 used gas 50919231 failed with [censored]
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50919231 used gas 50919231
+            Err: ...
         "#]])
 }
 
@@ -207,7 +220,8 @@ fn test_indirect_call_to_wrong_signature_contract() {
         )
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 55904481 used gas 55904481 failed with WebAssembly trap: Call indirect incorrect signature trap.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 55904481 used gas 55904481
+            Err: WebAssembly trap: Call indirect incorrect signature trap.
         "#]])
 }
 
@@ -221,11 +235,13 @@ fn test_wrong_signature_contract() {
         ])
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 0 storage_usage 0 return data None burnt gas 0 used gas 0 failed with MethodInvalidSignature
+                VMOutcome: balance 0 storage_usage 0 return data None burnt gas 0 used gas 0
+                Err: MethodInvalidSignature
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43032213 used gas 43032213 failed with MethodInvalidSignature
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43032213 used gas 43032213
+                Err: MethodInvalidSignature
             "#]],
         ]);
 }
@@ -240,11 +256,13 @@ fn test_export_wrong_type() {
         ])
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 0 storage_usage 0 return data None burnt gas 0 used gas 0 failed with MethodNotFound
+                VMOutcome: balance 0 storage_usage 0 return data None burnt gas 0 used gas 0
+                Err: MethodNotFound
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 41298213 used gas 41298213 failed with MethodNotFound
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 41298213 used gas 41298213
+                Err: MethodNotFound
             "#]],
         ]);
 }
@@ -260,7 +278,8 @@ fn test_guest_panic() {
 )"#,
         )
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 315775830 used gas 315775830 failed with Smart contract panicked: explicit guest panic
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 315775830 used gas 315775830
+            Err: Smart contract panicked: explicit guest panic
         "#]]);
 }
 
@@ -275,7 +294,8 @@ fn test_panic_re_export() {
 )"#,
         )
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 312352074 used gas 312352074 failed with Smart contract panicked: explicit guest panic
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 312352074 used gas 312352074
+            Err: Smart contract panicked: explicit guest panic
         "#]]);
 }
 
@@ -285,7 +305,8 @@ fn test_stack_overflow() {
         .wat(r#"(module (func $f (export "main") (call $f)))"#)
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13526101017 used gas 13526101017 failed with WebAssembly trap: An `unreachable` opcode was executed.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13526101017 used gas 13526101017
+            Err: WebAssembly trap: An `unreachable` opcode was executed.
         "#]]);
 }
 
@@ -308,10 +329,12 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .skip_wasmtime()
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365 failed with WebAssembly trap: An `unreachable` opcode was executed.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365
+                Err: WebAssembly trap: An `unreachable` opcode was executed.
             "#]],
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365 failed with WebAssembly trap: An `unreachable` opcode was executed.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365
+                Err: WebAssembly trap: An `unreachable` opcode was executed.
             "#]],
         ]);
 
@@ -332,10 +355,12 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .skip_wasmtime()
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365 failed with WebAssembly trap: An `unreachable` opcode was executed.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365
+                Err: WebAssembly trap: An `unreachable` opcode was executed.
             "#]],
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 2745316869 used gas 2745316869 failed with WebAssembly trap: An `unreachable` opcode was executed.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 2745316869 used gas 2745316869
+                Err: WebAssembly trap: An `unreachable` opcode was executed.
             "#]],
         ]);
 }
@@ -358,7 +383,8 @@ fn test_memory_grow() {
         )
         .gas(10u64.pow(10))
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 10000000000 used gas 10000000000 failed with Exceeded the prepaid gas.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 10000000000 used gas 10000000000
+            Err: Exceeded the prepaid gas.
         "#]]);
 }
 
@@ -397,11 +423,13 @@ fn test_bad_import_1() {
         ])
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0 failed with PrepareError: Error happened during instantiation.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+                Err: PrepareError: Error happened during instantiation.
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50618463 used gas 50618463 failed with PrepareError: Error happened during instantiation.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50618463 used gas 50618463
+                Err: PrepareError: Error happened during instantiation.
             "#]],
         ]);
 }
@@ -416,11 +444,13 @@ fn test_bad_import_2() {
         ])
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0 failed with PrepareError: Error happened during instantiation.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+                Err: PrepareError: Error happened during instantiation.
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50184963 used gas 50184963 failed with PrepareError: Error happened during instantiation.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50184963 used gas 50184963
+                Err: PrepareError: Error happened during instantiation.
             "#]],
         ]);
 }
@@ -428,14 +458,16 @@ fn test_bad_import_2() {
 #[test]
 fn test_bad_import_3() {
     test_builder().wasm(&bad_import_global("env")).opaque_error().expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48234213 used gas 48234213 failed with [censored]
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48234213 used gas 48234213
+        Err: ...
     "#]]);
 }
 
 #[test]
 fn test_bad_import_4() {
     test_builder().wasm(&bad_import_func("env")).opaque_error().expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47800713 used gas 47800713 failed with [censored]
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47800713 used gas 47800713
+        Err: ...
     "#]]);
 }
 
@@ -451,7 +483,8 @@ fn test_initializer_no_gas() {
         )
         .gas(0)
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0 failed with Exceeded the prepaid gas.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+            Err: Exceeded the prepaid gas.
         "#]]);
 }
 
@@ -472,7 +505,8 @@ fn test_bad_many_imports() {
         ))
         .opaque_error()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 299447463 used gas 299447463 failed with [censored]
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 299447463 used gas 299447463
+            Err: ...
         "#]])
 }
 
@@ -493,7 +527,8 @@ fn test_external_call_ok() {
 #[test]
 fn test_external_call_error() {
     test_builder().wat(EXTERNAL_CALL_CONTRACT).gas(100).expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100 used gas 100 failed with Exceeded the prepaid gas.
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100 used gas 100
+        Err: Exceeded the prepaid gas.
     "#]]);
 }
 
@@ -532,7 +567,8 @@ fn test_address_overflow() {
 )"#;
 
     test_builder().wat(code).skip_wasmtime().skip_wasmer0().expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48534981 used gas 48534981 failed with WebAssembly trap: Memory out of bounds trap.
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48534981 used gas 48534981
+        Err: WebAssembly trap: Memory out of bounds trap.
     "#]]);
 
     // wasmer0 incorrectly doesn't catch overflow during address calculation
@@ -570,7 +606,8 @@ fn test_nan_sign() {
 
     // wasmer0 doesn't canonicalize NaNs
     test_builder().wat(code).skip_wasmtime().skip_wasmer2().expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54988767 used gas 54988767 failed with WebAssembly trap: An arithmetic exception, e.g. divided by zero.
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54988767 used gas 54988767
+        Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
     "#]]);
 }
 
@@ -578,9 +615,12 @@ fn test_nan_sign() {
 // even load a contract.
 #[test]
 fn test_gas_exceed_loading() {
-    test_builder().wat(SIMPLE_CONTRACT).method("non_empty_non_existing").gas(1).expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 1 used gas 1 failed with Exceeded the prepaid gas.
-    "#]]);
+    test_builder().wat(SIMPLE_CONTRACT).method("non_empty_non_existing").gas(1).expect(expect![[
+        r#"
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 1 used gas 1
+        Err: Exceeded the prepaid gas.
+    "#
+    ]]);
 }
 
 // Call the "gas" host function with unreasonably large values, trying to force
@@ -597,7 +637,8 @@ fn gas_overflow_direct_call() {
 )"#,
         )
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100000000000000 used gas 100000000000000 failed with Exceeded the maximum amount of gas allowed to burn per contract.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100000000000000 used gas 100000000000000
+            Err: Exceeded the maximum amount of gas allowed to burn per contract.
         "#]]);
 }
 
@@ -623,7 +664,8 @@ fn gas_overflow_indirect_call() {
 )"#,
         )
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100000000000000 used gas 100000000000000 failed with Exceeded the maximum amount of gas allowed to burn per contract.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100000000000000 used gas 100000000000000
+            Err: Exceeded the maximum amount of gas allowed to burn per contract.
         "#]]);
 }
 
@@ -669,10 +711,12 @@ mod fix_contract_loading_cost_protocol_upgrade {
             .protocol_features(&[ProtocolFeature::FixContractLoadingCost])
             .expects(&[
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44115963 used gas 44115963 failed with Exceeded the prepaid gas.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44115963 used gas 44115963
+                    Err: Exceeded the prepaid gas.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44115963 used gas 44115963 failed with Exceeded the prepaid gas.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 44115963 used gas 44115963
+                    Err: Exceeded the prepaid gas.
                 "#]],
             ]);
     }
@@ -688,10 +732,12 @@ mod fix_contract_loading_cost_protocol_upgrade {
             .protocol_features(&[ProtocolFeature::FixContractLoadingCost])
             .expects(&[
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 45000000 used gas 45000000 failed with Exceeded the prepaid gas.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 45000000 used gas 45000000
+                    Err: Exceeded the prepaid gas.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 45000000 used gas 45000000 failed with Exceeded the prepaid gas.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 45000000 used gas 45000000
+                    Err: Exceeded the prepaid gas.
                 "#]],
             ]);
     }
@@ -712,10 +758,12 @@ mod fix_contract_loading_cost_protocol_upgrade {
             .protocol_features(&[ProtocolFeature::FixContractLoadingCost])
             .expects(&[
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0 failed with PrepareError: Error happened while deserializing the module.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+                    Err: PrepareError: Error happened while deserializing the module.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 39347463 used gas 39347463 failed with PrepareError: Error happened while deserializing the module.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 39347463 used gas 39347463
+                    Err: PrepareError: Error happened while deserializing the module.
                 "#]],
             ]);
 
@@ -724,10 +772,12 @@ mod fix_contract_loading_cost_protocol_upgrade {
             .protocol_features(&[ProtocolFeature::FixContractLoadingCost])
             .expects(&[
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0 failed with PrepareError: Error happened during instantiation.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+                    Err: PrepareError: Error happened during instantiation.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48234213 used gas 48234213 failed with PrepareError: Error happened during instantiation.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48234213 used gas 48234213
+                    Err: PrepareError: Error happened during instantiation.
                 "#]],
             ]);
 
@@ -736,10 +786,12 @@ mod fix_contract_loading_cost_protocol_upgrade {
             .protocol_features(&[ProtocolFeature::FixContractLoadingCost])
             .expects(&[
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0 failed with PrepareError: Error happened during instantiation.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+                    Err: PrepareError: Error happened during instantiation.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47800713 used gas 47800713 failed with PrepareError: Error happened during instantiation.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47800713 used gas 47800713
+                    Err: PrepareError: Error happened during instantiation.
                 "#]],
             ]);
 
@@ -753,10 +805,12 @@ mod fix_contract_loading_cost_protocol_upgrade {
             .protocol_features(&[ProtocolFeature::FixContractLoadingCost])
             .expects(&[
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0 failed with PrepareError: Too many locals declared in the contract.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+                    Err: PrepareError: Too many locals declared in the contract.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 195407463 used gas 195407463 failed with PrepareError: Too many locals declared in the contract.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 195407463 used gas 195407463
+                    Err: PrepareError: Too many locals declared in the contract.
                 "#]],
             ]);
 
@@ -771,10 +825,12 @@ mod fix_contract_loading_cost_protocol_upgrade {
             .protocol_features(&[ProtocolFeature::FixContractLoadingCost])
             .expects(&[
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0 failed with PrepareError: Too many functions in contract.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+                    Err: PrepareError: Too many functions in contract.
                 "#]],
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 19554433713 used gas 19554433713 failed with PrepareError: Too many functions in contract.
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 19554433713 used gas 19554433713
+                    Err: PrepareError: Too many functions in contract.
                 "#]],
             ]);
     }
