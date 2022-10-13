@@ -1782,11 +1782,18 @@ impl ClientActor {
         let is_syncing = self.client.sync_status.is_syncing();
         let head = unwrap_or_return!(self.client.chain.head());
         let validator_info = if !is_syncing {
+            let block_and_chunk_validators = unwrap_or_return!(self
+                .client
+                .runtime_adapter
+                .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash));
             let chunk_validators = unwrap_or_return!(self
                 .client
                 .runtime_adapter
                 .get_epoch_chunk_producers(&head.epoch_id));
             let num_validators = chunk_validators.len();
+            let num_block_and_chunk_validators = block_and_chunk_validators.len();
+            let num_chunk_only_validators = num_validators - num_block_and_chunk_validators;
+
             let account_id = self.client.validator_signer.as_ref().map(|x| x.validator_id());
             let is_validator = if let Some(account_id) = account_id {
                 match self.client.runtime_adapter.get_validator_by_account_id(
@@ -1800,7 +1807,12 @@ impl ClientActor {
             } else {
                 false
             };
-            Some(ValidatorInfoHelper { is_validator, num_validators })
+            Some(ValidatorInfoHelper {
+                is_validator,
+                num_validators,
+                num_block_and_chunk_validators,
+                num_chunk_only_validators
+            })
         } else {
             None
         };
