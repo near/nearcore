@@ -779,7 +779,8 @@ impl Handler<Status> for ClientActor {
                 epoch_start_height,
             },
             validator_account_id: validator_and_key.as_ref().map(|v| v.0.clone()),
-            node_key: validator_and_key.as_ref().map(|v| v.1.clone()),
+            validator_key: validator_and_key.as_ref().map(|v| v.1.clone()),
+            node_key: self.node_id.public_key().clone(),
             uptime_sec,
             detailed_debug_status,
         })

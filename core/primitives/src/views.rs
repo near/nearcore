@@ -532,8 +532,10 @@ pub struct StatusResponse {
     pub sync_info: StatusSyncInfo,
     /// Validator id of the node
     pub validator_account_id: Option<AccountId>,
+    /// Public key of the validator.
+    pub validator_key: Option<PublicKey>,
     /// Public key of the node.
-    pub node_key: Option<PublicKey>,
+    pub node_key: PublicKey,
     /// Uptime of the node.
     pub uptime_sec: i64,
     /// Information about last blocks, network, epoch and chain & chunk info.
