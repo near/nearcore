@@ -407,7 +407,7 @@ impl ExecutionOutcomeWithId {
     pub fn to_hashes(&self) -> Vec<CryptoHash> {
         let mut result = Vec::with_capacity(2 + self.outcome.logs.len());
         result.push(self.id);
-        result.push(CryptoHash::hash_borsh(&PartialExecutionOutcome::from(&self.outcome)));
+        result.push(CryptoHash::hash_borsh(PartialExecutionOutcome::from(&self.outcome)));
         result.extend(self.outcome.logs.iter().map(|log| hash(log.as_bytes())));
         result
     }
@@ -437,6 +437,12 @@ pub fn verify_transaction_signature(
     public_keys.iter().any(|key| transaction.signature.verify(hash, key))
 }
 
+/// A more compact struct, just for storage.
+#[derive(Clone, BorshSerialize, BorshDeserialize)]
+pub struct ExecutionOutcomeWithProof {
+    pub proof: MerklePath,
+    pub outcome: ExecutionOutcome,
+}
 #[cfg(test)]
 mod tests {
     use borsh::BorshDeserialize;
