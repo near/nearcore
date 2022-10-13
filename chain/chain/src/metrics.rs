@@ -112,7 +112,7 @@ pub static NUM_IGNORED_INVALID_BLOCKS: Lazy<IntGauge> = Lazy::new(|| {
 pub static DUP_HEIHGT_BLOCKS: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_blocks_with_same_heights",
-        "How many blocks at the same heights that we received",
+        "how many blocks at the same height we decided to process",
     )
     .unwrap()
 });
