@@ -32,7 +32,7 @@ use near_network::types::{
     PeerManagerMessageRequest, ReasonForBan, StateResponseInfo, StateResponseInfoV1,
     StateResponseInfoV2,
 };
-use near_o11y::{handler_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_o11y::{OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
@@ -476,18 +476,20 @@ impl Actor for ViewClientActor {
     type Context = SyncContext<Self>;
 }
 
-macro_rules! view_client_handler_span {
-    ($handler:expr, $msg:expr) => {
-        handler_span!("client", "ViewClientActor", $handler, $msg)
-    };
-}
-
 impl Handler<WithSpanContext<Query>> for ViewClientActor {
     type Result = Result<QueryResponse, QueryError>;
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<Query>, _: &mut Self::Context) -> Self::Result {
-        let (_span, msg) = view_client_handler_span!("Query", msg);
+        let span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler = "Query",
+            actor = "ViewClientActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
+
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["Query"]).start_timer();
         self.handle_query(msg)
     }
@@ -499,7 +501,14 @@ impl Handler<WithSpanContext<GetBlock>> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<GetBlock>, _: &mut Self::Context) -> Self::Result {
-        let (_span, msg) = view_client_handler_span!("GetBlock", msg);
+        let span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler = "Query",
+            actor = "ViewClientActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetBlock"]).start_timer();
         let block = match self.get_block_by_reference(&msg.0)? {
@@ -522,7 +531,14 @@ impl Handler<WithSpanContext<GetBlockWithMerkleTree>> for ViewClientActor {
         msg: WithSpanContext<GetBlockWithMerkleTree>,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = view_client_handler_span!("GetBlockWithMerkleTree", msg);
+        let span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler = "GetBlockWithMerkleTree",
+            actor = "ViewClientActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetBlockWithMerkleTree"])
             .start_timer();
@@ -540,7 +556,14 @@ impl Handler<WithSpanContext<GetChunk>> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<GetChunk>, _: &mut Self::Context) -> Self::Result {
-        let (_span, msg) = view_client_handler_span!("GetChunk", msg);
+        let span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler = "GetChunk",
+            actor = "ViewClientActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetChunk"]).start_timer();
         let get_chunk_from_block = |block: Block,
@@ -596,7 +619,14 @@ impl Handler<WithSpanContext<TxStatus>> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<TxStatus>, _: &mut Self::Context) -> Self::Result {
-        let (_span, msg) = view_client_handler_span!("TxStatus", msg);
+        let span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler = "TxStatus",
+            actor = "ViewClientActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatus"]).start_timer();
         self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt)
@@ -612,7 +642,14 @@ impl Handler<WithSpanContext<GetValidatorInfo>> for ViewClientActor {
         msg: WithSpanContext<GetValidatorInfo>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = view_client_handler_span!("GetValidatorInfo", msg);
+        let span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler = "GetValidatorInfo",
+            actor = "ViewClientActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetValidatorInfo"])
             .start_timer();
@@ -664,7 +701,14 @@ impl Handler<WithSpanContext<GetValidatorOrdered>> for ViewClientActor {
         msg: WithSpanContext<GetValidatorOrdered>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = view_client_handler_span!("GetValidatorOrdered", msg);
+        let span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler = "GetValidatorOrdered",
+            actor = "ViewClientActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetValidatorOrdered"])
             .start_timer();
@@ -687,7 +731,14 @@ impl Handler<WithSpanContext<GetStateChangesInBlock>> for ViewClientActor {
         msg: WithSpanContext<GetStateChangesInBlock>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = view_client_handler_span!("GetStateChangesInBlock", msg);
+        let span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler = "GetStateChangesInBlock",
+            actor = "ViewClientActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetStateChangesInBlock"])
             .start_timer();
@@ -711,7 +762,14 @@ impl Handler<WithSpanContext<GetStateChanges>> for ViewClientActor {
         msg: WithSpanContext<GetStateChanges>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = view_client_handler_span!("GetStateChanges", msg);
+        let span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler = "GetStateChanges",
+            actor = "ViewClientActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetStateChanges"]).start_timer();
         Ok(self
@@ -734,7 +792,14 @@ impl Handler<WithSpanContext<GetStateChangesWithCauseInBlock>> for ViewClientAct
         msg: WithSpanContext<GetStateChangesWithCauseInBlock>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = view_client_handler_span!("GetStateChangesWithCauseInBlock", msg);
+        let span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler = "GetStateChangesWithCauseInBlock",
+            actor = "ViewClientActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetStateChangesWithCauseInBlock"])
             .start_timer();
@@ -759,8 +824,14 @@ impl Handler<WithSpanContext<GetStateChangesWithCauseInBlockForTrackedShards>> f
         msg: WithSpanContext<GetStateChangesWithCauseInBlockForTrackedShards>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) =
-            view_client_handler_span!("GetStateChangesWithCauseInBlockForTrackedShards", msg);
+        let span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler = "GetStateChangesWithCauseInBlockForTrackedShards",
+            actor = "ViewClientActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetStateChangesWithCauseInBlockForTrackedShards"])
             .start_timer();
@@ -807,7 +878,14 @@ impl Handler<WithSpanContext<GetNextLightClientBlock>> for ViewClientActor {
         msg: WithSpanContext<GetNextLightClientBlock>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = view_client_handler_span!("GetNextLightClientBlock", msg);
+        let span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler = "GetNextLightClientBlock",
+            actor = "ViewClientActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetNextLightClientBlock"])
             .start_timer();
@@ -854,7 +932,14 @@ impl Handler<WithSpanContext<GetExecutionOutcome>> for ViewClientActor {
         msg: WithSpanContext<GetExecutionOutcome>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = view_client_handler_span!("GetExecutionOutcome", msg);
+        let span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler = "GetExecutionOutcome",
+            actor = "ViewClientActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetExecutionOutcome"])
             .start_timer();
@@ -945,7 +1030,14 @@ impl Handler<WithSpanContext<GetExecutionOutcomesForBlock>> for ViewClientActor 
         msg: WithSpanContext<GetExecutionOutcomesForBlock>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = view_client_handler_span!("GetExecutionOutcomesForBlock", msg);
+        let span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler = "GetExecutionOutcomesForBlock",
+            actor = "ViewClientActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetExecutionOutcomesForBlock"])
             .start_timer();
@@ -964,7 +1056,14 @@ impl Handler<WithSpanContext<GetReceipt>> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<GetReceipt>, _: &mut Self::Context) -> Self::Result {
-        let (_span, msg) = view_client_handler_span!("GetReceipt", msg);
+        let span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler = "GetReceipt",
+            actor = "ViewClientActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetReceipt"]).start_timer();
         Ok(self
@@ -984,7 +1083,14 @@ impl Handler<WithSpanContext<GetBlockProof>> for ViewClientActor {
         msg: WithSpanContext<GetBlockProof>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = view_client_handler_span!("GetBlockProof", msg);
+        let span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler = "GetBlockProof",
+            actor = "ViewClientActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetBlockProof"]).start_timer();
         let block_header = self.chain.get_block_header(&msg.block_hash)?;
@@ -1005,7 +1111,14 @@ impl Handler<WithSpanContext<GetProtocolConfig>> for ViewClientActor {
         msg: WithSpanContext<GetProtocolConfig>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = view_client_handler_span!("GetProtocolConfig", msg);
+        let span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler = "GetProtocolConfig",
+            actor = "ViewClientActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetProtocolConfig"])
             .start_timer();
@@ -1029,7 +1142,14 @@ impl Handler<WithSpanContext<NetworkViewClientMessages>> for ViewClientActor {
         msg: WithSpanContext<NetworkViewClientMessages>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = view_client_handler_span!("NetworkViewClientMessages", msg);
+        let span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler = "NetworkViewClientMessages",
+            actor = "ViewClientActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&[(&msg).into()]).start_timer();
         match msg {
@@ -1281,7 +1401,14 @@ impl Handler<WithSpanContext<GetGasPrice>> for ViewClientActor {
         msg: WithSpanContext<GetGasPrice>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = view_client_handler_span!("GetGasPrice", msg);
+        let span = tracing::debug_span!(
+            target: "client",
+            "handle",
+            handler = "GetGasPrice",
+            actor = "ViewClientActor")
+        .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetGasPrice"]).start_timer();
         let header = self.maybe_block_id_to_block_header(msg.block_id);

@@ -298,14 +298,17 @@ fn test_long_gap_between_blocks() {
                       -> (PeerManagerMessageResponse, bool) {
                     match msg.as_network_requests_ref() {
                         NetworkRequests::Approval { approval_message } => {
-                            let request = GetBlock::latest().with_span_context();
-                            actix::spawn(conns[1].1.send(request).then(move |res| {
-                                let res = res.unwrap().unwrap();
-                                if res.header.height > target_height {
-                                    System::current().stop();
-                                }
-                                futures::future::ready(())
-                            }));
+                            actix::spawn(
+                                conns[1].1.send(GetBlock::latest().with_span_context()).then(
+                                    move |res| {
+                                        let res = res.unwrap().unwrap();
+                                        if res.header.height > target_height {
+                                            System::current().stop();
+                                        }
+                                        futures::future::ready(())
+                                    },
+                                ),
+                            );
                             if approval_message.approval.target_height < target_height {
                                 (NetworkResponses::NoResponse.into(), false)
                             } else {
