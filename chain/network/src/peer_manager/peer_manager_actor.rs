@@ -265,7 +265,7 @@ impl PeerManagerActor {
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
         client_addr: Recipient<WithSpanContext<NetworkClientMessages>>,
-        view_client_addr: Recipient<NetworkViewClientMessages>,
+        view_client_addr: Recipient<WithSpanContext<NetworkViewClientMessages>>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<Addr<Self>> {
         let config = config.verify().context("config")?;
@@ -1585,7 +1585,7 @@ impl PeerManagerActor {
                 // Ask client to validate accounts before accepting them.
                 let peer_id_clone = peer_id.clone();
                 self.state.view_client_addr
-                    .send(NetworkViewClientMessages::AnnounceAccount(accounts))
+                    .send(NetworkViewClientMessages::AnnounceAccount(accounts).with_span_context())
                     .in_current_span()
                     .into_actor(self)
                     .then(move |response, act, _ctx| {

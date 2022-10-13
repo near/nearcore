@@ -35,7 +35,7 @@ pub(crate) struct NetworkState {
     /// Address of the client actor.
     pub client_addr: Recipient<WithSpanContext<NetworkClientMessages>>,
     /// Address of the view client actor.
-    pub view_client_addr: Recipient<NetworkViewClientMessages>,
+    pub view_client_addr: Recipient<WithSpanContext<NetworkViewClientMessages>>,
     /// Address of the peer manager actor.
     pub peer_manager_addr: Recipient<PeerToManagerMsg>,
 
@@ -65,7 +65,7 @@ impl NetworkState {
         config: Arc<config::VerifiedConfig>,
         genesis_id: GenesisId,
         client_addr: Recipient<WithSpanContext<NetworkClientMessages>>,
-        view_client_addr: Recipient<NetworkViewClientMessages>,
+        view_client_addr: Recipient<WithSpanContext<NetworkViewClientMessages>>,
         peer_manager_addr: Recipient<PeerToManagerMsg>,
         routing_table_view: RoutingTableView,
         send_accounts_data_rl: demux::RateLimit,

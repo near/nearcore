@@ -57,7 +57,7 @@ async fn check_network_identifier(
     }
 
     let status = client_addr
-        .send(near_client::Status { is_health_check: false, detailed: false })
+        .send(near_client::Status { is_health_check: false, detailed: false }.with_span_context())
         .await?
         .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     if status.chain_id != identifier.network {
@@ -80,7 +80,7 @@ async fn network_list(
     _body: Json<models::MetadataRequest>,
 ) -> Result<Json<models::NetworkListResponse>, models::Error> {
     let status = client_addr
-        .send(near_client::Status { is_health_check: false, detailed: false })
+        .send(near_client::Status { is_health_check: false, detailed: false }.with_span_context())
         .await?
         .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     Ok(Json(models::NetworkListResponse {
@@ -108,12 +108,13 @@ async fn network_status(
     let status = check_network_identifier(&client_addr, network_identifier).await?;
 
     let (network_info, earliest_block) = tokio::try_join!(
-        client_addr.send(near_client::GetNetworkInfo {}),
-        view_client_addr.send(near_client::GetBlock(
-            near_primitives::types::BlockReference::SyncCheckpoint(
+        client_addr.send(near_client::GetNetworkInfo {}.with_span_context()),
+        view_client_addr.send(
+            near_client::GetBlock(near_primitives::types::BlockReference::SyncCheckpoint(
                 near_primitives::types::SyncCheckpoint::EarliestAvailable
-            ),
-        )),
+            ),)
+            .with_span_context()
+        ),
     )?;
     let network_info = network_info.map_err(errors::ErrorKind::InternalError)?;
     let genesis_block_identifier = genesis.block_id.clone();
@@ -221,9 +222,12 @@ async fn block_details(
         block_identifier.clone()
     } else {
         let parent_block = view_client_addr
-            .send(near_client::GetBlock(
-                near_primitives::types::BlockId::Hash(block.header.prev_hash).into(),
-            ))
+            .send(
+                near_client::GetBlock(
+                    near_primitives::types::BlockId::Hash(block.header.prev_hash).into(),
+                )
+                .with_span_context(),
+            )
             .await?
             .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
         (&parent_block).into()

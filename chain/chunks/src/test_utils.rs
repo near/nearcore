@@ -13,6 +13,7 @@ use near_chain::types::{EpochManagerAdapter, RuntimeAdapter, Tip};
 use near_chain::{Chain, ChainStore};
 use near_crypto::KeyType;
 use near_network::test_utils::MockPeerManagerAdapter;
+use near_o11y::WithSpanContext;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::{self, CryptoHash};
 use near_primitives::merkle::{self, MerklePath};
@@ -356,14 +357,17 @@ pub struct MockClientAdapterForShardsManager {
     pub requests: Arc<RwLock<VecDeque<ShardsManagerResponse>>>,
 }
 
-impl MsgRecipient<ShardsManagerResponse> for MockClientAdapterForShardsManager {
-    fn send(&self, msg: ShardsManagerResponse) -> BoxFuture<'static, Result<(), MailboxError>> {
+impl MsgRecipient<WithSpanContext<ShardsManagerResponse>> for MockClientAdapterForShardsManager {
+    fn send(
+        &self,
+        msg: WithSpanContext<ShardsManagerResponse>,
+    ) -> BoxFuture<'static, Result<(), MailboxError>> {
         self.do_send(msg);
         futures::future::ok(()).boxed()
     }
 
-    fn do_send(&self, msg: ShardsManagerResponse) {
-        self.requests.write().unwrap().push_back(msg);
+    fn do_send(&self, msg: WithSpanContext<ShardsManagerResponse>) {
+        self.requests.write().unwrap().push_back(msg.msg);
     }
 }
 

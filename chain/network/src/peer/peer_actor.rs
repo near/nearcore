@@ -435,7 +435,7 @@ impl PeerActor {
 
         self.network_state
             .view_client_addr
-            .send(view_client_message)
+            .send(view_client_message.with_span_context())
             .into_actor(self)
             .then(move |res, act, _ctx| {
                 // Ban peer if client thinks received data is bad.
