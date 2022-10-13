@@ -288,9 +288,9 @@ impl super::NetworkState {
 
     pub fn get_tier1_peer(
         &self,
-        _account_id: &AccountId,
+        account_id: &AccountId,
     ) -> Option<(PeerId, Arc<connection::Connection>)> {
-        /*let tier1 = self.tier1.load();
+        let tier1 = self.tier1.load();
         let accounts_data = self.accounts_data.load();
         for data in accounts_data.by_account.get(account_id)?.values() {
             let peer_id = match &data.peer_id {
@@ -304,7 +304,7 @@ impl super::NetworkState {
                 tracing::debug!(target:"test", ?peer_id, "got the connection!");
                 return Some((peer_id.clone(), conn.clone()));
             }
-        }*/
+        }
         return None;
     }
 
