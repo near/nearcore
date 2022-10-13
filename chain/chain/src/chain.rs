@@ -411,7 +411,7 @@ pub fn check_known(
         return Ok(Err(BlockKnownError::KnownInMissingChunks));
     }
     if chain.invalid_blocks.contains(block_hash) {
-        metrics::NUM_IGNORED_BLOCKS_IN_ERROR.inc();
+        metrics::NUM_IGNORED_INVALID_BLOCKS.inc();
         return Ok(Err(BlockKnownError::KnownInErrored));
     }
     check_known_store(chain, block_hash)

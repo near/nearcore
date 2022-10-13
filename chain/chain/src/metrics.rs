@@ -99,16 +99,13 @@ pub static BLOCK_MISSING_CHUNKS_DELAY: Lazy<Histogram> = Lazy::new(|| {
     .unwrap()
 });
 pub static INVALID_BLOCKS: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
-        "near_invalid_blocks",
-        "How many blocks that we tried to process that have been deemed invalid already",
-    )
-    .unwrap()
+    try_create_int_gauge("near_invalid_blocks", "How many blocks that we processed and are invalid")
+        .unwrap()
 });
-pub static NUM_IGNORED_BLOCKS_IN_ERROR: Lazy<IntGauge> = Lazy::new(|| {
+pub static NUM_IGNORED_INVALID_BLOCKS: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_num_ignored_blocks_in_error",
-        "How many blocks that we ignored because this block was processed but failed",
+        "How many blocks that we ignored because this block was already processed and it is invalid",
     )
     .unwrap()
 });
