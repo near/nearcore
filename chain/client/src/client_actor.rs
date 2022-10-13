@@ -1807,11 +1807,7 @@ impl ClientActor {
             } else {
                 false
             };
-            Some(ValidatorInfoHelper {
-                is_validator,
-                num_validators,
-                num_chunk_only_validators
-            })
+            Some(ValidatorInfoHelper { is_validator, num_validators, num_chunk_only_validators })
         } else {
             None
         };
