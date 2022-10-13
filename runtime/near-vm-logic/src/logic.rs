@@ -1159,14 +1159,9 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(ed25519_verify_base)?;
         let msg = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
         let signature_array = self.get_vec_from_memory_or_register(sig_ptr, sig_len)?;
-        if sig_len != SIGNATURE_LENGTH as u64 {
+        if signature_array.len() != SIGNATURE_LENGTH {
             return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
                 msg: "invalid signature length".to_string(),
-            }));
-        }
-        if pub_key_len != PUBLIC_KEY_LENGTH as u64 {
-            return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
-                msg: "invalid public key length".to_string(),
             }));
         }
 
@@ -1178,6 +1173,11 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(ed25519_verify_byte, num_bytes as _)?;
 
         let pub_key_array = self.get_vec_from_memory_or_register(pub_key_ptr, pub_key_len)?;
+        if pub_key_array.len() != PUBLIC_KEY_LENGTH {
+            return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
+                msg: "invalid public key length".to_string(),
+            }));
+        }
         let pub_key = match PublicKey::from_bytes(&pub_key_array) {
             Ok(pub_key) => pub_key,
             Err(_) => return Ok(0),

@@ -1004,4 +1004,60 @@ fn test_ed25519_verify() {
             ExtCosts::ed25519_verify_byte: 32,
         });
     }
+
+    // tests for data beingn read from registers
+    logic.wrapped_internal_write_register(1, &signature).unwrap();
+    let result = logic.ed25519_verify(
+        u64::MAX,
+        1 as _,
+        message.len() as _,
+        message.as_ptr() as _,
+        public_key.len() as _,
+        public_key.as_ptr() as _,
+    );
+    assert_eq!(Ok(1), result);
+
+    logic.wrapped_internal_write_register(1, &bad_signature).unwrap();
+    let result = logic.ed25519_verify(
+        u64::MAX,
+        1 as _,
+        message.len() as _,
+        message.as_ptr() as _,
+        public_key.len() as _,
+        public_key.as_ptr() as _,
+    );
+    assert_eq!(Ok(0), result);
+
+    logic.wrapped_internal_write_register(1, &forged_signature).unwrap();
+    let result = logic.ed25519_verify(
+        u64::MAX,
+        1 as _,
+        message.len() as _,
+        message.as_ptr() as _,
+        public_key.len() as _,
+        public_key.as_ptr() as _,
+    );
+    assert_eq!(Ok(0), result);
+
+    logic.wrapped_internal_write_register(1, &message).unwrap();
+    let result = logic.ed25519_verify(
+        signature.len() as _,
+        signature.as_ptr() as _,
+        u64::MAX,
+        1,
+        public_key.len() as _,
+        public_key.as_ptr() as _,
+    );
+    assert_eq!(Ok(1), result);
+
+    logic.wrapped_internal_write_register(1, &public_key).unwrap();
+    let result = logic.ed25519_verify(
+        signature.len() as _,
+        signature.as_ptr() as _,
+        message.len() as _,
+        message.as_ptr() as _,
+        u64::MAX,
+        1,
+    );
+    assert_eq!(Ok(1), result);
 }
