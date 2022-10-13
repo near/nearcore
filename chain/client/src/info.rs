@@ -33,7 +33,6 @@ pub struct ValidatorInfoHelper {
     pub num_chunk_only_validators: isize,
 }
 
-
 /// A helper that prints information about current chain and reports to telemetry.
 pub struct InfoHelper {
     /// Nearcore agent (executable) version
