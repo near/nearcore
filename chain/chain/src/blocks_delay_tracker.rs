@@ -404,6 +404,9 @@ impl Chain {
         if self.store().block_exists(block_hash).unwrap_or_default() {
             return BlockProcessingStatus::Processed;
         }
+        if self.error_blocks.contains(block_hash) {
+            return BlockProcessingStatus::Errored;
+        }
         return BlockProcessingStatus::Unknown;
     }
 
