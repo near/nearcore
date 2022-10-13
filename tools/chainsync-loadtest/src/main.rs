@@ -43,6 +43,7 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
         near_store::db::TestDB::new(),
         config.network_config,
         network.clone(),
+        network.clone(),
         GenesisId {
             chain_id: config.client_config.chain_id.clone(),
             hash: genesis_hash(&config.client_config.chain_id),

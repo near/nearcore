@@ -1,13 +1,10 @@
-use crate::network_protocol::{
-    PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
-    StateResponseInfo,
-};
+use crate::network_protocol::StateResponseInfo;
+use crate::shards_manager::ShardsManagerAdapterForNetwork;
 use crate::types::{NetworkInfo, ReasonForBan};
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
@@ -43,22 +40,6 @@ pub trait Client: Send + Sync + 'static {
     async fn block_approval(&self, approval: Approval, peer_id: PeerId);
 
     async fn transaction(&self, transaction: SignedTransaction, is_forwarded: bool);
-
-    async fn partial_encoded_chunk_request(
-        &self,
-        req: PartialEncodedChunkRequestMsg,
-        msg_hash: CryptoHash,
-    );
-
-    async fn partial_encoded_chunk_response(
-        &self,
-        resp: PartialEncodedChunkResponseMsg,
-        timestamp: time::Instant,
-    );
-
-    async fn partial_encoded_chunk(&self, chunk: PartialEncodedChunk);
-
-    async fn partial_encoded_chunk_forward(&self, msg: PartialEncodedChunkForwardMsg);
 
     async fn block_request(&self, hash: CryptoHash) -> Option<Box<Block>>;
 
@@ -119,24 +100,6 @@ impl Client for Noop {
 
     async fn transaction(&self, _transaction: SignedTransaction, _is_forwarded: bool) {}
 
-    async fn partial_encoded_chunk_request(
-        &self,
-        _req: PartialEncodedChunkRequestMsg,
-        _msg_hash: CryptoHash,
-    ) {
-    }
-
-    async fn partial_encoded_chunk_response(
-        &self,
-        _resp: PartialEncodedChunkResponseMsg,
-        _timestamp: time::Instant,
-    ) {
-    }
-
-    async fn partial_encoded_chunk(&self, _chunk: PartialEncodedChunk) {}
-
-    async fn partial_encoded_chunk_forward(&self, _msg: PartialEncodedChunkForwardMsg) {}
-
     async fn block_request(&self, _hash: CryptoHash) -> Option<Box<Block>> {
         None
     }
@@ -164,5 +127,33 @@ impl Client for Noop {
         _accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
     ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
         Ok(vec![])
+    }
+}
+
+impl ShardsManagerAdapterForNetwork for Noop {
+    fn process_partial_encoded_chunk(
+        &self,
+        _partial_encoded_chunk: near_primitives::sharding::PartialEncodedChunk,
+    ) {
+    }
+
+    fn process_partial_encoded_chunk_forward(
+        &self,
+        _partial_encoded_chunk_forward: crate::types::PartialEncodedChunkForwardMsg,
+    ) {
+    }
+
+    fn process_partial_encoded_chunk_response(
+        &self,
+        _partial_encoded_chunk_response: crate::types::PartialEncodedChunkResponseMsg,
+        _received_time: std::time::Instant,
+    ) {
+    }
+
+    fn process_partial_encoded_chunk_request(
+        &self,
+        _partial_encoded_chunk_request: crate::types::PartialEncodedChunkRequestMsg,
+        _route_back: CryptoHash,
+    ) {
     }
 }

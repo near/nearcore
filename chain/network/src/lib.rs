@@ -28,4 +28,5 @@ pub(crate) mod testonly;
 
 // TODO(gprusak): these should be testonly, once all network integration tests are moved to near_network.
 pub mod broadcast;
+pub mod shards_manager;
 pub mod sink;

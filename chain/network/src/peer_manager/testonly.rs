@@ -487,7 +487,7 @@ pub(crate) async fn start(
             let genesis_id = chain.genesis_id.clone();
             let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
             cfg.event_sink = send.sink().compose(Event::PeerManager);
-            PeerManagerActor::spawn(clock, store, cfg, fc, genesis_id).unwrap()
+            PeerManagerActor::spawn(clock, store, cfg, fc.clone(), fc, genesis_id).unwrap()
         }
     })
     .await;

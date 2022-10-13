@@ -533,10 +533,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
         one_part_receipt_proofs,
         &[merkle_paths[0].clone()],
     );
-    assert!(env.clients[1]
-        .shards_mgr
-        .process_partial_encoded_chunk(partial_encoded_chunk.into())
-        .is_ok());
+    env.shards_manager_adapters[1].process_partial_encoded_chunk(partial_encoded_chunk);
     env.process_block(1, block, Provenance::NONE);
 
     // At this point we should create a challenge and send it out.
