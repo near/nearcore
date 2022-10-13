@@ -1,6 +1,6 @@
 use crate::chain::{BlockMissingChunks, OrphanMissingChunks};
 use crate::near_chain_primitives::error::BlockKnownError::KnownInProcessing;
-use crate::Provenance;
+use crate::{metrics, Provenance};
 use near_primitives::block::Block;
 use near_primitives::challenge::{ChallengeBody, ChallengesResult};
 use near_primitives::hash::CryptoHash;
@@ -116,6 +116,8 @@ impl BlocksInProcessing {
         // is likely never hit, unless there are many forks in the chain.
         // In this case, we will simply drop the block.
         if self.preprocessed_blocks.len() >= MAX_PROCESSING_BLOCKS {
+            tracing::info!(target:"chain", "Dropping block {block_hash} because we are already processing {} blocks", self.preprocessed_blocks.len());
+            metrics::BLOCKS_DROPPED_BECAUSE_POOL_IS_FULL.inc();
             Err(AddError::ExceedingPoolSize)
         } else if self.preprocessed_blocks.contains_key(block_hash) {
             Err(AddError::BlockAlreadyInPool)

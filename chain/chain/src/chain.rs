@@ -1627,8 +1627,12 @@ impl Chain {
         // incoming blocks that are not requested on heights which we already processed.
         // If there is a new incoming block that we didn't request and we already have height
         // processed 'marked as true' - then we'll not even attempt to process it
-        if let Err(e) = self.save_block_height_processed(block_height) {
-            warn!(target: "chain", "Failed to save processed height {}: {}", block_height, e);
+        // We only add this if we didn't drop the block on purpose, which could happen if we are already
+        // processing too many blocks
+        if !matches!(res, Err(Error::TooManyProcessingBlocks)) {
+            if let Err(e) = self.save_block_height_processed(block_height) {
+                warn!(target: "chain", "Failed to save processed height {}: {}", block_height, e);
+            }
         }
 
         res
@@ -4192,6 +4196,11 @@ impl Chain {
     #[inline]
     pub fn is_orphan(&self, hash: &CryptoHash) -> bool {
         self.orphans.contains(hash)
+    }
+
+    #[inline]
+    pub fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error> {
+        self.store.is_height_processed(height)
     }
 
     /// Check if hash is for a known chunk orphan.
