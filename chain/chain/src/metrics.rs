@@ -98,3 +98,10 @@ pub static BLOCK_MISSING_CHUNKS_DELAY: Lazy<Histogram> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static BLOCKS_DROPPED_BECAUSE_POOL_IS_FULL: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_blocks_dropped_because_pool_is_full",
+        "Number of blocks dropped because ",
+    )
+    .unwrap()
+});
