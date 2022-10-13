@@ -18,7 +18,7 @@ use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::errors::{EpochError, InvalidTxError};
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -276,6 +276,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         shard_id: ShardId,
         prev_hash: &CryptoHash,
         state_root: StateRoot,
+        use_flat_storage: bool,
     ) -> Result<Trie, Error>;
 
     /// Returns trie with view cache
@@ -343,17 +344,8 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
 
     fn num_data_parts(&self) -> usize;
 
-    /// Account Id to Shard Id mapping, given current number of shards.
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardId, Error>;
-
     /// Returns `account_id` that suppose to have the `part_id`.
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error>;
-
-    fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error>;
 
     /// Returns true if the shard layout will change in the next epoch
     /// Current epoch is the epoch of the block after `parent_hash`
@@ -422,7 +414,23 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         prev_epoch_last_block_hash: &CryptoHash,
         epoch_id: &EpochId,
         next_epoch_id: &EpochId,
-    ) -> Result<CryptoHash, Error>;
+    ) -> Result<CryptoHash, Error> {
+        let (
+            prev_epoch_first_block_info,
+            prev_epoch_prev_last_block_info,
+            prev_epoch_last_block_info,
+            prev_epoch_info,
+            cur_epoch_info,
+            next_epoch_info,
+        ) = self.get_epoch_sync_data(prev_epoch_last_block_hash, epoch_id, next_epoch_id)?;
+        let mut data = prev_epoch_first_block_info.try_to_vec().unwrap();
+        data.extend(prev_epoch_prev_last_block_info.try_to_vec().unwrap());
+        data.extend(prev_epoch_last_block_info.try_to_vec().unwrap());
+        data.extend(prev_epoch_info.try_to_vec().unwrap());
+        data.extend(cur_epoch_info.try_to_vec().unwrap());
+        data.extend(next_epoch_info.try_to_vec().unwrap());
+        Ok(hash(data.as_slice()))
+    }
 
     /// Epoch active protocol version.
     fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error>;
@@ -467,6 +475,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
         state_patch: SandboxStatePatch,
+        use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let _span = tracing::debug_span!(
             target: "runtime",
@@ -493,6 +502,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
             is_new_chunk,
             is_first_block_with_chunk_of_version,
             state_patch,
+            use_flat_storage,
         )
     }
 
@@ -515,6 +525,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
         state_patch: SandboxStatePatch,
+        use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 
     fn check_state_transition(
@@ -675,7 +686,7 @@ mod tests {
             0,
             100,
             1_000_000_000,
-            CryptoHash::hash_borsh(&genesis_bps),
+            CryptoHash::hash_borsh(genesis_bps),
         );
         let signer =
             InMemoryValidatorSigner::from_seed("other".parse().unwrap(), KeyType::ED25519, "other");

@@ -628,13 +628,15 @@ impl<'a> VMLogic<'a> {
 
     /// Returns the current block height.
     ///
+    /// It’s only due to historical reasons, this host function is called
+    /// `block_index` rather than `block_height`.
+    ///
     /// # Cost
     ///
     /// `base`
-    // TODO #1903 rename to `block_height`
     pub fn block_index(&mut self) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
-        Ok(self.context.block_index)
+        Ok(self.context.block_height)
     }
 
     /// Returns the current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
@@ -2400,7 +2402,7 @@ impl<'a> VMLogic<'a> {
 
         near_o11y::io_trace!(
             storage_op = "write",
-            key = %near_primitives::serialize::to_base58(&key),
+            key = %near_o11y::pretty::Bytes(&key),
             size = value_len,
             evicted_len = evicted.as_ref().map(Vec::len),
             tn_mem_reads = nodes_delta.mem_reads,
@@ -2491,7 +2493,7 @@ impl<'a> VMLogic<'a> {
 
         near_o11y::io_trace!(
             storage_op = "read",
-            key = %near_primitives::serialize::to_base58(&key),
+            key = %near_o11y::pretty::Bytes(&key),
             size = read.as_ref().map(Vec::len),
             tn_db_reads = nodes_delta.db_reads,
             tn_mem_reads = nodes_delta.mem_reads,
@@ -2551,7 +2553,7 @@ impl<'a> VMLogic<'a> {
 
         near_o11y::io_trace!(
             storage_op = "remove",
-            key = %near_primitives::serialize::to_base58(&key),
+            key = %near_o11y::pretty::Bytes(&key),
             evicted_len = removed.as_ref().map(Vec::len),
             tn_mem_reads = nodes_delta.mem_reads,
             tn_db_reads = nodes_delta.db_reads,
@@ -2607,7 +2609,7 @@ impl<'a> VMLogic<'a> {
 
         near_o11y::io_trace!(
             storage_op = "exists",
-            key = %near_primitives::serialize::to_base58(&key),
+            key = %near_o11y::pretty::Bytes(&key),
             tn_mem_reads = nodes_delta.mem_reads,
             tn_db_reads = nodes_delta.db_reads,
         );

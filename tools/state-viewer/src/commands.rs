@@ -49,7 +49,7 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
     println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime
-            .get_trie_for_shard(shard_id as u64, header.prev_hash(), state_root.clone())
+            .get_trie_for_shard(shard_id as u64, header.prev_hash(), state_root.clone(), false)
             .unwrap();
         for item in trie.iter().unwrap() {
             let (key, value) = item.unwrap();
@@ -226,7 +226,7 @@ pub(crate) fn dump_account_storage(
         load_trie_stop_at_height(store, home_dir, &near_config, block_height);
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime
-            .get_trie_for_shard(shard_id as u64, header.prev_hash(), state_root.clone())
+            .get_trie_for_shard(shard_id as u64, header.prev_hash(), state_root.clone(), false)
             .unwrap();
         let key = TrieKey::ContractData {
             account_id: account_id.parse().unwrap(),
@@ -308,23 +308,31 @@ pub(crate) fn print_chain(
                 let mut chunk_debug_str: Vec<String> = Vec::new();
 
                 for shard_id in 0..header.chunk_mask().len() {
+                    let chunk_producer = runtime
+                        .get_chunk_producer(&epoch_id, header.height(), shard_id as u64)
+                        .unwrap();
                     if header.chunk_mask()[shard_id] {
                         let chunk = chain_store
                             .get_chunk(&block.chunks()[shard_id as usize].chunk_hash())
                             .unwrap()
                             .clone();
                         chunk_debug_str.push(format!(
-                            "{}: {} {: >3} Tgas ",
+                            "{}: {} {: >3} Tgas {: >10}",
                             shard_id,
                             format_hash(chunk.chunk_hash().0, show_full_hashes),
-                            chunk.cloned_header().gas_used() / (1024 * 1024 * 1024 * 1024)
+                            chunk.cloned_header().gas_used() / (1_000_000_000_000),
+                            chunk_producer
                         ));
+                    } else {
+                        chunk_debug_str
+                            .push(format!("{}: MISSING {: >10}", shard_id, chunk_producer));
                     }
                 }
 
                 println!(
-                    "{: >3} {} | {: >10} | parent: {: >3} {} | {} {}",
+                    "{: >3} {} {} | {: >10} | parent: {: >3} {} | {} {}",
                     header.height(),
+                    header.raw_timestamp(),
                     format_hash(*header.hash(), show_full_hashes),
                     block_producer,
                     parent_header.height(),
@@ -440,6 +448,7 @@ pub(crate) fn apply_block(
                 true,
                 is_first_block_with_chunk_of_version,
                 Default::default(),
+                false,
             )
             .unwrap()
     } else {
@@ -464,6 +473,7 @@ pub(crate) fn apply_block(
                 false,
                 false,
                 Default::default(),
+                false,
             )
             .unwrap()
     };

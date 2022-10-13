@@ -159,7 +159,7 @@ impl TestShardUpgradeEnv {
                 )
                 .unwrap();
             if should_catchup {
-                run_catchup(&mut env.clients[j], &vec![]).unwrap();
+                run_catchup(&mut env.clients[j], &[]).unwrap();
             }
             while wait_for_all_blocks_in_processing(&mut env.clients[j].chain) {
                 let (_, errors) =
@@ -167,7 +167,7 @@ impl TestShardUpgradeEnv {
                 assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
             }
             if should_catchup {
-                run_catchup(&mut env.clients[j], &vec![]).unwrap();
+                run_catchup(&mut env.clients[j], &[]).unwrap();
             }
         }
 
@@ -182,6 +182,9 @@ impl TestShardUpgradeEnv {
         );
 
         env.process_partial_encoded_chunks();
+        for j in 0..self.num_clients {
+            env.process_shards_manager_responses_and_finish_processing_blocks(j);
+        }
 
         // after state split, check chunk extra exists and the states are correct
         for account_id in self.initial_accounts.iter() {
