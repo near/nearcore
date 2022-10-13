@@ -199,17 +199,26 @@ fn run_method(
     module: &Module,
     import: &ImportObject,
     method_name: &str,
-) -> Result<(), Result<FunctionCallError, VMRunnerError>> {
+) -> Result<Result<(), FunctionCallError>, VMRunnerError> {
     let _span = tracing::debug_span!(target: "vm", "run_method").entered();
 
     let instance = {
         let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
-        module.instantiate(import).map_err(|err| err.into_vm_error())?
+        match module.instantiate(import) {
+            Ok(instance) => instance,
+            Err(err) => {
+                let guest_aborted = err.into_vm_error()?;
+                return Ok(Err(guest_aborted));
+            }
+        }
     };
 
     {
         let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
-        instance.call(method_name, &[]).map_err(|err| err.into_vm_error())?;
+        if let Err(err) = instance.call(method_name, &[]) {
+            let guest_aborted = err.into_vm_error()?;
+            return Ok(Err(guest_aborted));
+        }
     }
 
     {
@@ -217,7 +226,7 @@ fn run_method(
         drop(instance)
     }
 
-    Ok(())
+    Ok(Ok(()))
 }
 
 pub(crate) fn wasmer0_vm_hash() -> u64 {
@@ -315,9 +324,9 @@ impl crate::runner::VM for Wasmer0VM {
             ));
         }
 
-        match run_method(&module, &import_object, method_name) {
+        match run_method(&module, &import_object, method_name)? {
             Ok(()) => Ok(VMOutcome::ok(logic)),
-            Err(err) => Ok(VMOutcome::abort(logic, err?)),
+            Err(err) => Ok(VMOutcome::abort(logic, err)),
         }
     }
 

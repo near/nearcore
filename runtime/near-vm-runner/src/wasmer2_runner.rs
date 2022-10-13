@@ -293,7 +293,7 @@ impl Wasmer2VM {
         artifact: &VMArtifact,
         mut import: Wasmer2Imports<'_, '_, '_>,
         method_name: &str,
-    ) -> Result<(), Result<FunctionCallError, VMRunnerError>> {
+    ) -> Result<Result<(), FunctionCallError>, VMRunnerError> {
         let _span = tracing::debug_span!(target: "vm", "run_method").entered();
 
         // FastGasCounter in Nearcore and Wasmer must match in layout.
@@ -311,7 +311,10 @@ impl Wasmer2VM {
             offset_of!(wasmer_types::FastGasCounter, opcode_cost)
         );
         let gas = import.vmlogic.gas_counter_pointer() as *mut wasmer_types::FastGasCounter;
-        let entrypoint = get_entrypoint_index(&*artifact, method_name).map_err(|e| Ok(e))?;
+        let entrypoint = match get_entrypoint_index(&*artifact, method_name) {
+            Ok(index) => index,
+            Err(abort) => return Ok(Err(abort)),
+        };
         unsafe {
             let instance = {
                 let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
@@ -321,37 +324,44 @@ impl Wasmer2VM {
                 // we can be sure that `VMLogic` remains live and valid at any time.
                 // SAFETY: we ensure that the tables are valid during the lifetime of this instance
                 // by retaining an instance to `UniversalEngine` which holds the allocations.
-                let handle = Arc::clone(artifact)
-                    .instantiate(
-                        &self,
-                        &mut import,
-                        Box::new(()),
-                        // SAFETY: We have verified that the `FastGasCounter` layout matches the
-                        // expected layout. `gas` remains dereferenceable throughout this function
-                        // by the virtue of it being contained within `import` which lives for the
-                        // entirety of this function.
-                        InstanceConfig::default()
-                            .with_counter(gas)
-                            .with_stack_limit(self.config.limit_config.wasmer2_stack_limit),
-                    )
-                    .map_err(|err| {
+                let maybe_handle = Arc::clone(artifact).instantiate(
+                    &self,
+                    &mut import,
+                    Box::new(()),
+                    // SAFETY: We have verified that the `FastGasCounter` layout matches the
+                    // expected layout. `gas` remains dereferenceable throughout this function
+                    // by the virtue of it being contained within `import` which lives for the
+                    // entirety of this function.
+                    InstanceConfig::default()
+                        .with_counter(gas)
+                        .with_stack_limit(self.config.limit_config.wasmer2_stack_limit),
+                );
+                let handle = match maybe_handle {
+                    Ok(handle) => handle,
+                    Err(err) => {
                         use wasmer_engine::InstantiationError::*;
-                        match err {
-                            Start(err) => translate_runtime_error(err.clone(), import.vmlogic),
-                            Link(e) => Ok(FunctionCallError::LinkError { msg: e.to_string() }),
+                        let abort = match err {
+                            Start(err) => translate_runtime_error(err.clone(), import.vmlogic)?,
+                            Link(e) => FunctionCallError::LinkError { msg: e.to_string() },
                             CpuFeature(e) => panic!(
                                 "host doesn't support the CPU features needed to run contracts: {}",
                                 e
                             ),
-                        }
-                    })?;
+                        };
+                        return Ok(Err(abort));
+                    }
+                };
                 // SAFETY: being called immediately after instantiation.
-                handle.finish_instantiation().map_err(|err| {
-                    translate_runtime_error(
-                        wasmer_engine::RuntimeError::from_trap(err),
-                        import.vmlogic,
-                    )
-                })?;
+                match handle.finish_instantiation() {
+                    Ok(handle) => handle,
+                    Err(trap) => {
+                        let abort = translate_runtime_error(
+                            wasmer_engine::RuntimeError::from_trap(trap),
+                            import.vmlogic,
+                        )?;
+                        return Ok(Err(abort));
+                    }
+                };
                 handle
             };
             if let Some(function) = instance.function_by_index(entrypoint) {
@@ -368,19 +378,19 @@ impl Wasmer2VM {
                     // SAFETY: we double-checked the signature, and all of the remaining arguments
                     // come from an exported function definition which must be valid since it comes
                     // from wasmer itself.
-                    instance
-                        .invoke_function(
-                            function.vmctx,
-                            trampoline,
-                            function.address,
-                            [].as_mut_ptr() as *mut _,
-                        )
-                        .map_err(|e| {
-                            translate_runtime_error(
-                                wasmer_engine::RuntimeError::from_trap(e),
-                                import.vmlogic,
-                            )
-                        })?;
+                    let res = instance.invoke_function(
+                        function.vmctx,
+                        trampoline,
+                        function.address,
+                        [].as_mut_ptr() as *mut _,
+                    );
+                    if let Err(trap) = res {
+                        let abort = translate_runtime_error(
+                            wasmer_engine::RuntimeError::from_trap(trap),
+                            import.vmlogic,
+                        )?;
+                        return Ok(Err(abort));
+                    }
                 } else {
                     panic!("signature should've already been checked by `get_entrypoint_index`")
                 }
@@ -395,7 +405,7 @@ impl Wasmer2VM {
             }
         }
 
-        Ok(())
+        Ok(Ok(()))
     }
 }
 
@@ -517,9 +527,9 @@ impl crate::runner::VM for Wasmer2VM {
                 current_protocol_version,
             ));
         }
-        match self.run_method(&artifact, import, method_name) {
+        match self.run_method(&artifact, import, method_name)? {
             Ok(()) => Ok(VMOutcome::ok(logic)),
-            Err(err) => Ok(VMOutcome::abort(logic, err?)),
+            Err(err) => Ok(VMOutcome::abort(logic, err)),
         }
     }
 
