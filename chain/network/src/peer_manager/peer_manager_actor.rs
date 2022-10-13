@@ -33,6 +33,7 @@ use actix::{
 };
 use anyhow::bail;
 use anyhow::Context as _;
+use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -261,7 +262,7 @@ impl PeerManagerActor {
         clock: time::Clock,
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
-        client_addr: Recipient<NetworkClientMessages>,
+        client_addr: Recipient<WithSpanContext<NetworkClientMessages>>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<actix::Addr<Self>> {
@@ -1010,7 +1011,10 @@ impl PeerManagerActor {
             .with_label_values(&["push_network_info"])
             .start_timer();
 
-        let _ = self.state.client_addr.do_send(NetworkClientMessages::NetworkInfo(network_info));
+        let _ = self
+            .state
+            .client_addr
+            .do_send(NetworkClientMessages::NetworkInfo(network_info).with_span_context());
 
         near_performance_metrics::actix::run_later(
             ctx,

@@ -98,7 +98,6 @@ pub(crate) struct StopMsg {}
 #[rtype(result = "()")]
 pub(crate) struct SendMessage {
     pub message: Arc<PeerMessage>,
-    pub context: opentelemetry::Context,
 }
 
 impl Debug for ValidateEdgeList {

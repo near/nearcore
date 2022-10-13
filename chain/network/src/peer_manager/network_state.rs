@@ -13,6 +13,7 @@ use crate::time;
 use crate::types::{ChainInfo, NetworkClientMessages, NetworkViewClientMessages};
 use actix::Recipient;
 use arc_swap::ArcSwap;
+use near_o11y::WithSpanContext;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -34,7 +35,7 @@ pub(crate) struct NetworkState {
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     /// Address of the client actor.
-    pub client_addr: Recipient<NetworkClientMessages>,
+    pub client_addr: Recipient<WithSpanContext<NetworkClientMessages>>,
     /// Address of the view client actor.
     pub view_client_addr: Recipient<NetworkViewClientMessages>,
     /// Address of the peer manager actor.
@@ -67,7 +68,7 @@ impl NetworkState {
     pub fn new(
         config: Arc<config::VerifiedConfig>,
         genesis_id: GenesisId,
-        client_addr: Recipient<NetworkClientMessages>,
+        client_addr: Recipient<WithSpanContext<NetworkClientMessages>>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         peer_manager_addr: Recipient<PeerToManagerMsg>,
         routing_table_addr: actix::Addr<routing::Actor>,

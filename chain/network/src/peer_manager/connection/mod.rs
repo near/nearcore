@@ -11,14 +11,13 @@ use crate::private_actix::SendMessage;
 use crate::stats::metrics;
 use crate::time;
 use crate::types::{FullPeerInfo, PeerType, ReasonForBan};
+use near_o11y::WithSpanContextExt;
 use near_primitives::network::PeerId;
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
-use tracing::Span;
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 #[cfg(test)]
 mod tests;
@@ -99,7 +98,7 @@ impl Connection {
     }
 
     pub fn stop(&self, ban_reason: Option<ReasonForBan>) {
-        self.addr.do_send(peer_actor::Stop { ban_reason, context: Span::current().context() });
+        self.addr.do_send(peer_actor::Stop { ban_reason }.with_span_context());
     }
 
     // TODO(gprusak): embed Stream directly in Connection,
@@ -107,7 +106,7 @@ impl Connection {
     pub fn send_message(&self, msg: Arc<PeerMessage>) {
         let msg_kind = msg.msg_variant().to_string();
         tracing::trace!(target: "network", ?msg_kind, "Send message");
-        self.addr.do_send(SendMessage { message: msg, context: Span::current().context() });
+        self.addr.do_send(SendMessage { message: msg }.with_span_context());
     }
 
     pub fn send_accounts_data(

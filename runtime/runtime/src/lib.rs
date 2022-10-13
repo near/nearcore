@@ -231,7 +231,7 @@ impl Runtime {
             apply_state.gas_price,
             signed_transaction,
             true,
-            Some(apply_state.block_index),
+            Some(apply_state.block_height),
             apply_state.current_protocol_version,
         ) {
             Ok(verification_result) => {
@@ -395,7 +395,7 @@ impl Runtime {
                         actor_id,
                         &receipt.receiver_id,
                         transfer,
-                        apply_state.block_index,
+                        apply_state.block_height,
                         apply_state.current_protocol_version,
                     );
                 }
@@ -1134,7 +1134,7 @@ impl Runtime {
         Ok((gas_used, receipts_to_restore))
     }
 
-    /// Applies new singed transactions and incoming receipts for some chunk/shard on top of
+    /// Applies new signed transactions and incoming receipts for some chunk/shard on top of
     /// given trie and the given state root.
     /// If the validator accounts update is provided, updates validators accounts.
     /// All new signed transactions should be valid and already verified by the chunk producer.
@@ -1605,7 +1605,7 @@ mod tests {
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
-            block_index: 1,
+            block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
             epoch_id: Default::default(),

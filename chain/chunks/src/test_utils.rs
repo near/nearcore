@@ -5,6 +5,7 @@ use actix::MailboxError;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use near_network::types::MsgRecipient;
+use near_primitives::receipt::Receipt;
 use near_primitives::time::Clock;
 
 use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
@@ -14,10 +15,10 @@ use near_crypto::KeyType;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::{self, CryptoHash};
-use near_primitives::merkle;
+use near_primitives::merkle::{self, MerklePath};
 use near_primitives::sharding::{
-    ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV2,
-    ReedSolomonWrapper, ShardChunkHeader,
+    ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
+    PartialEncodedChunkV2, ReedSolomonWrapper, ShardChunkHeader,
 };
 use near_primitives::types::NumShards;
 use near_primitives::types::{AccountId, EpochId, ShardId};
@@ -141,7 +142,11 @@ pub struct ChunkTestFixture {
     pub mock_network: Arc<MockPeerManagerAdapter>,
     pub mock_client_adapter: Arc<MockClientAdapterForShardsManager>,
     pub chain_store: ChainStore,
+    pub all_part_ords: Vec<u64>,
     pub mock_part_ords: Vec<u64>,
+    pub mock_merkle_paths: Vec<MerklePath>,
+    pub mock_outgoing_receipts: Vec<Receipt>,
+    pub mock_encoded_chunk: EncodedShardChunk,
     pub mock_chunk_part_owner: AccountId,
     pub mock_shard_tracker: AccountId,
     pub mock_chunk_header: ShardChunkHeader,
@@ -238,7 +243,7 @@ impl ChunkTestFixture {
         let shard_layout = mock_runtime.get_shard_layout(&EpochId::default()).unwrap();
         let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout);
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
-        let (mock_chunk, mock_merkles) = ShardsManager::create_encoded_shard_chunk(
+        let (mock_chunk, mock_merkle_paths) = ShardsManager::create_encoded_shard_chunk(
             mock_parent_hash,
             Default::default(),
             Default::default(),
@@ -267,8 +272,11 @@ impl ChunkTestFixture {
                 mock_runtime.get_part_owner(&mock_epoch_id, *p).unwrap() == mock_chunk_part_owner
             })
             .collect();
-        let encoded_chunk =
-            mock_chunk.create_partial_encoded_chunk(all_part_ords, Vec::new(), &mock_merkles);
+        let encoded_chunk = mock_chunk.create_partial_encoded_chunk(
+            all_part_ords.clone(),
+            Vec::new(),
+            &mock_merkle_paths,
+        );
         let chain_store = ChainStore::new(mock_runtime.get_store(), 0, true);
 
         ChunkTestFixture {
@@ -276,7 +284,11 @@ impl ChunkTestFixture {
             mock_network,
             mock_client_adapter,
             chain_store,
+            all_part_ords,
             mock_part_ords,
+            mock_encoded_chunk: mock_chunk,
+            mock_merkle_paths,
+            mock_outgoing_receipts: receipts,
             mock_chunk_part_owner,
             mock_shard_tracker,
             mock_chunk_header: encoded_chunk.cloned_header(),

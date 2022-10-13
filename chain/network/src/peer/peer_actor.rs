@@ -27,7 +27,8 @@ use actix::fut::future::wrap_future;
 use actix::{Actor, ActorContext, ActorFutureExt, AsyncContext, Context, Handler, Running};
 use lru::LruCache;
 use near_crypto::Signature;
-use near_o11y::log_assert;
+use near_o11y::OpenTelemetrySpanExt;
+use near_o11y::{log_assert, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::logging;
 use near_primitives::network::PeerId;
@@ -35,7 +36,6 @@ use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
-
 use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::io;
@@ -43,7 +43,6 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// Maximum number of messages per minute from single peer.
 // TODO(#5453): current limit is way to high due to us sending lots of messages during sync.
@@ -616,7 +615,7 @@ impl PeerActor {
                 error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", msg);
                 return;
             }
-        };
+        }.with_span_context();
 
         ctx.spawn(wrap_future(self.network_state.client_addr.send(network_client_msg))
             .then(move |res, act: &mut PeerActor, ctx| {
@@ -1376,16 +1375,20 @@ impl actix::Handler<stream::Frame> for PeerActor {
     }
 }
 
-impl Handler<SendMessage> for PeerActor {
+impl Handler<WithSpanContext<SendMessage>> for PeerActor {
     type Result = ();
 
     #[perf]
-    fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
-        let span =
-            tracing::trace_span!(target: "network", "handle", handler = "SendMessage").entered();
+    fn handle(&mut self, msg: WithSpanContext<SendMessage>, _: &mut Self::Context) {
+        let span = tracing::debug_span!(
+                target: "network",
+                "handle",
+                handler = "SendMessage",
+                actor = "PeerActor")
+        .entered();
         span.set_parent(msg.context);
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
-        self.send_message_or_log(&msg.message);
+        self.send_message_or_log(&msg.msg.message);
     }
 }
 
@@ -1394,19 +1397,20 @@ impl Handler<SendMessage> for PeerActor {
 #[rtype(result = "()")]
 pub(crate) struct Stop {
     pub ban_reason: Option<ReasonForBan>,
-    pub context: opentelemetry::Context,
 }
 
-impl actix::Handler<Stop> for PeerActor {
+impl actix::Handler<WithSpanContext<Stop>> for PeerActor {
     type Result = ();
 
     #[perf]
-    fn handle(&mut self, msg: Stop, ctx: &mut Self::Context) -> Self::Result {
-        let span = tracing::trace_span!(target: "network", "handle", handler = "Stop").entered();
+    fn handle(&mut self, msg: WithSpanContext<Stop>, ctx: &mut Self::Context) -> Self::Result {
+        let span =
+            tracing::trace_span!(target: "network", "handle", handler = "Stop", actor="PeerActor")
+                .entered();
         span.set_parent(msg.context);
         self.stop(
             ctx,
-            match msg.ban_reason {
+            match msg.msg.ban_reason {
                 Some(reason) => ClosingReason::Ban(reason),
                 None => ClosingReason::PeerManager,
             },
