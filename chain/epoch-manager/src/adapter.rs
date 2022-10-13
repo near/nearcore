@@ -9,8 +9,9 @@ use near_primitives::{
     sharding::{ChunkHash, ShardChunkHeader},
     types::{
         validator_stake::ValidatorStake, AccountId, ApprovalStake, Balance, BlockHeight,
-        EpochHeight, EpochId, NumShards, ShardId,
+        EpochHeight, EpochId, NumShards, ShardId, ValidatorInfoIdentifier,
     },
+    views::EpochValidatorInfo,
 };
 use near_store::ShardUId;
 
@@ -129,6 +130,15 @@ pub trait EpochManagerAdapter: Send + Sync {
         last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
     ) -> Result<(ValidatorStake, bool), Error>;
+
+    /// WARNING: this call may be expensive.
+    ///
+    /// This function is intended for diagnostic use in logging & rpc, don't use
+    /// it for "production" code.
+    fn get_validator_info(
+        &self,
+        epoch_id: ValidatorInfoIdentifier,
+    ) -> Result<EpochValidatorInfo, Error>;
 
     fn verify_block_vrf(
         &self,
@@ -414,6 +424,16 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         let fisherman = epoch_manager.get_fisherman_by_account_id(epoch_id, account_id)?;
         let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
         Ok((fisherman, block_info.slashed().contains_key(account_id)))
+    }
+
+    /// WARNING: this function calls EpochManager::get_epoch_info_aggregator_upto_last
+    /// underneath which can be very expensive.
+    fn get_validator_info(
+        &self,
+        epoch_id: ValidatorInfoIdentifier,
+    ) -> Result<EpochValidatorInfo, Error> {
+        let epoch_manager = self.read();
+        epoch_manager.get_validator_info(epoch_id).map_err(|e| e.into())
     }
 
     fn verify_block_vrf(
