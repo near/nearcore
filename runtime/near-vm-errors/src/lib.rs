@@ -29,11 +29,12 @@ pub enum VMRunnerError {
 
 /// Permitted errors that cause a function call to fail gracefully.
 ///
-/// This error will be included in the merklize state on chain, it must be
-/// deterministically produces on all nodes.
+/// Occurrence of such errors will be included in the merklize state on chain
+/// using a single bit to signal failure vs Success.
 ///
 /// See the doc comment on `VMResult` for an explanation what the difference
-/// between this and a `VMRunnerError` is.
+/// between this and a `VMRunnerError` is. And see `PartialExecutionStatus`
+/// for what gets stored on chain.
 #[derive(Debug, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum FunctionCallError {
     /// Wasm compilation error
