@@ -1,8 +1,8 @@
 use crate::accounts_data;
 use crate::config;
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Edge, PartialEdgeInfo, PeerIdOrHash, PeerMessage, Ping, Pong,
-    RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
+    AccountOrPeerIdOrHash, Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerMessage, Ping, Pong,
+    RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
 };
 use crate::peer_manager::connection;
 use crate::private_actix::PeerToManagerMsg;
@@ -21,8 +21,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tracing::{debug, trace};
 
-/// How often to request peers from active peers.
-const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::milliseconds(60_000);
 /// Limit number of pending Peer actors to avoid OOM.
 pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 
@@ -92,13 +90,10 @@ impl NetworkState {
     }
 
     /// Query connected peers for more peers.
-    pub fn ask_for_more_peers(&self, clock: &time::Clock) {
-        let now = clock.now();
+    pub fn ask_for_more_peers(&self) {
         let msg = Arc::new(PeerMessage::PeersRequest);
         for peer in self.tier2.load().ready.values() {
-            if now > peer.last_time_peer_requested.load() + REQUEST_PEERS_INTERVAL {
-                peer.send_message(msg.clone());
-            }
+            peer.send_message(msg.clone());
         }
     }
 
@@ -111,7 +106,26 @@ impl NetworkState {
         PartialEdgeInfo::new(&self.config.node_id(), peer1, nonce, &self.config.node_key)
     }
 
-    // Determine if the given target is referring to us.
+    /// Removes the connection from the state.
+    // TODO(gprusak): move PeerManagerActor::unregister logic here as well.
+    pub fn unregister(&self, conn: &Arc<connection::Connection>) {
+        let peer_id = conn.peer_info.id.clone();
+        self.tier2.remove(&peer_id);
+
+        // If the last edge we have with this peer represent a connection addition, create the edge
+        // update that represents the connection removal.
+        if let Some(edge) = self.routing_table_view.get_local_edge(&peer_id) {
+            if edge.edge_type() == EdgeState::Active {
+                let edge_update = edge.remove_edge(self.config.node_id(), &self.config.node_key);
+                self.add_verified_edges_to_routing_table(vec![edge_update.clone()]);
+                self.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                    RoutingTableUpdate::from_edges(vec![edge_update]),
+                )));
+            }
+        }
+    }
+
+    /// Determine if the given target is referring to us.
     pub fn message_for_me(&self, target: &PeerIdOrHash) -> bool {
         let my_peer_id = self.config.node_id();
         match target {

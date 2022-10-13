@@ -128,7 +128,7 @@ pub struct PeerManagerActor {
     /// Peer information for this node.
     my_peer_id: PeerId,
     /// Peer store that provides read/write access to peers.
-    peer_store: PeerStore,
+    pub(crate) peer_store: PeerStore,
     /// A graph of the whole NEAR network, shared between routing::Actor
     /// and PeerManagerActor. PeerManagerActor should have read-only access to the graph.
     /// TODO: this is an intermediate step towards replacing actix runtime with a
@@ -889,7 +889,7 @@ impl PeerManagerActor {
                     }
                 }));
             } else {
-                self.state.ask_for_more_peers(&self.clock);
+                self.state.ask_for_more_peers();
             }
         }
 
@@ -965,7 +965,10 @@ impl PeerManagerActor {
                     full_peer_info: cp.full_peer_info(),
                     received_bytes_per_sec: cp.stats.received_bytes_per_sec.load(Ordering::Relaxed),
                     sent_bytes_per_sec: cp.stats.sent_bytes_per_sec.load(Ordering::Relaxed),
-                    last_time_peer_requested: cp.last_time_peer_requested.load(),
+                    last_time_peer_requested: cp
+                        .last_time_peer_requested
+                        .load()
+                        .unwrap_or(self.clock.now()),
                     last_time_received_message: cp.last_time_received_message.load(),
                     connection_established_time: cp.connection_established_time,
                     peer_type: cp.peer_type,

@@ -3,8 +3,7 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
     AccountOrPeerIdOrHash, Edge, EdgeState, Encoding, ParsePeerMessageError, PartialEdgeInfo,
-    PeerChainInfoV2, PeerInfo, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate,
-    SyncAccountsData,
+    PeerChainInfoV2, PeerInfo, RawRoutedMessage, RoutedMessageBody, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -49,6 +48,8 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 /// Maximum number of messages per minute from single peer.
 // TODO(#5453): current limit is way to high due to us sending lots of messages during sync.
 const MAX_PEER_MSG_PER_MIN: usize = usize::MAX;
+/// How often to request peers from active peers.
+const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::seconds(60);
 
 /// Maximum number of transaction messages we will accept between block messages.
 /// The purpose of this constant is to ensure we do not spend too much time deserializing and
@@ -256,7 +257,7 @@ impl PeerActor {
         }
         match self.peer_status {
             PeerStatus::Connecting { .. } => None,
-            _ => Some(Encoding::Borsh),
+            PeerStatus::Ready { .. } => Some(Encoding::Borsh),
         }
     }
 
@@ -277,8 +278,14 @@ impl PeerActor {
     }
 
     fn send_message(&self, msg: &PeerMessage) {
+        // Rate limit PeersRequest messages.
+        // TODO(gprusak): upgrade it to a more general rate limiting.
         if let (PeerStatus::Ready(conn), PeerMessage::PeersRequest) = (&self.peer_status, msg) {
-            conn.last_time_peer_requested.store(self.clock.now());
+            let now = self.clock.now();
+            match conn.last_time_peer_requested.load() {
+                Some(last) if now < last + REQUEST_PEERS_INTERVAL => return,
+                _ => conn.last_time_peer_requested.store(Some(now)),
+            }
         }
         if let Some(enc) = self.encoding() {
             return self.send_message_with_encoding(msg, enc);
@@ -438,6 +445,8 @@ impl PeerActor {
                         let msg = act.network_state.sign_message(
                             &act.clock,
                             RawRoutedMessage {
+                                // TODO(gprusak): Rename AccountIrPeerIdOrHash to
+                                // RoutedMessageTarget for better readability.
                                 target: AccountOrPeerIdOrHash::Hash(msg_hash.unwrap()),
                                 body: RoutedMessageBody::TxStatusResponse(*tx_result),
                             },
@@ -789,7 +798,7 @@ impl PeerActor {
                 type_: self.peer_type,
                 encoding: self.encoding(),
             }),
-            last_time_peer_requested: AtomicCell::new(now),
+            last_time_peer_requested: AtomicCell::new(None),
             last_time_received_message: AtomicCell::new(now),
             connection_established_time: now,
             send_accounts_data_demux: demux::Demux::new(
@@ -836,6 +845,10 @@ impl PeerActor {
             })
         });
 
+        // Here we stop processing any PeerActor events until PeerManager
+        // decides whether to accept the connection or not: ctx.wait makes
+        // the actor event loop poll on the future until it completes before
+        // processing any other events.
         ctx.wait(wrap_future(self.network_state.peer_manager_addr
                 .send(PeerToManagerMsg::RegisterPeer(RegisterPeer {
                     connection: conn.clone(),
@@ -944,12 +957,6 @@ impl PeerActor {
                     // - is a correctly signed edge
                     edge.verify();
                 // Disconnect if neighbor sent an invalid edge.
-                if !ok {
-                    info!(target: "network", "{:?}: Peer {:?} sent invalid edge. Disconnect.", self.my_node_id(), self.peer_addr);
-                    self.stop(ctx, ClosingReason::HandshakeFailed);
-                    return;
-                }
-                // Disconnect if neighbor proposed an invalid edge.
                 if !ok {
                     info!(target: "network", "{:?}: Peer {:?} sent invalid edge. Disconnect.", self.my_node_id(), self.peer_addr);
                     self.stop(ctx, ClosingReason::HandshakeFailed);
@@ -1210,41 +1217,27 @@ impl Actor for PeerActor {
         metrics::PEER_CONNECTIONS_TOTAL.dec();
         debug!(target: "network", "{:?}: [status = {:?}] Peer {} disconnected.", self.my_node_info.id, self.peer_status, self.peer_info);
         match &self.peer_status {
+            // If PeerActor is in Connecting state, then
+            // it was not registered in the NewtorkState,
+            // so there is nothing to be done.
             PeerStatus::Connecting(..) => {}
+            // Clean up the Connection from the NetworkState.
             PeerStatus::Ready(conn) => {
-                let peer_id = conn.peer_info.id.clone();
-                self.network_state.tier2.remove(&peer_id);
-
-                // If the last edge we have with this peer represent a connection addition, create the edge
-                // update that represents the connection removal.
-                if let Some(edge) = self.network_state.routing_table_view.get_local_edge(&peer_id) {
-                    if edge.edge_type() == EdgeState::Active {
-                        let edge_update = edge.remove_edge(
-                            self.my_node_id().clone(),
-                            &self.network_state.config.node_key,
-                        );
-                        self.network_state
-                            .add_verified_edges_to_routing_table(vec![edge_update.clone()]);
-                        self.network_state.tier2.broadcast_message(Arc::new(
-                            PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(vec![
-                                edge_update,
-                            ])),
-                        ));
-                    }
-                }
+                self.network_state.unregister(conn);
                 // Save the fact that we are disconnecting to the PeerStore.
                 match &self.closing_reason {
                     Some(ClosingReason::Ban(ban_reason)) => {
                         warn!(target: "network", "Banning peer {} for {:?}", self.peer_info, ban_reason);
                         self.network_state.peer_manager_addr.do_send(PeerToManagerMsg::Ban(Ban {
-                            peer_id,
+                            peer_id: conn.peer_info.id.clone(),
                             ban_reason: *ban_reason,
                         }));
                     }
-                    _ => self
-                        .network_state
-                        .peer_manager_addr
-                        .do_send(PeerToManagerMsg::Unregister(Unregister { peer_id })),
+                    _ => {
+                        self.network_state.peer_manager_addr.do_send(PeerToManagerMsg::Unregister(
+                            Unregister { peer_id: conn.peer_info.id.clone() },
+                        ))
+                    }
                 }
             }
         }

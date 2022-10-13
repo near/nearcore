@@ -227,6 +227,9 @@ impl actix::Actor for Actor {
     fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
         Running::Stop
     }
+    fn stopped(&mut self, _ctx: &mut Self::Context) {
+        actix::Arbiter::current().stop();
+    }
 }
 
 impl actix::Handler<StopMsg> for Actor {

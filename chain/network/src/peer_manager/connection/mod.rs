@@ -57,7 +57,7 @@ pub(crate) struct Connection {
     pub connection_established_time: time::Instant,
 
     /// Last time requested peers.
-    pub last_time_peer_requested: AtomicCell<time::Instant>,
+    pub last_time_peer_requested: AtomicCell<Option<time::Instant>>,
     /// Last time we received a message from this peer.
     pub last_time_received_message: AtomicCell<time::Instant>,
     /// Connection stats
