@@ -29,8 +29,8 @@ const TERAGAS: f64 = 1_000_000_000_000_f64;
 
 pub struct ValidatorInfoHelper {
     pub is_validator: bool,
-    pub num_validators: usize,
-    pub num_chunk_only_validators: usize,
+    pub num_validators: isize,
+    pub num_chunk_only_validators: isize,
 }
 
 

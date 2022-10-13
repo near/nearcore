@@ -1790,8 +1790,9 @@ impl ClientActor {
                 .client
                 .runtime_adapter
                 .get_epoch_chunk_producers(&head.epoch_id));
-            let num_validators = chunk_validators.len();
-            let num_chunk_only_validators = num_validators - block_and_chunk_validators.len();
+            let num_validators = chunk_validators.len() as isize;
+            let num_block_and_chunk = block_and_chunk_validators.len() as isize;
+            let num_chunk_only_validators = num_validators - num_block_and_chunk;
 
             let account_id = self.client.validator_signer.as_ref().map(|x| x.validator_id());
             let is_validator = if let Some(account_id) = account_id {
