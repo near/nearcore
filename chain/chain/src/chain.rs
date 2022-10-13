@@ -410,7 +410,7 @@ pub fn check_known(
     if chain.blocks_with_missing_chunks.contains(block_hash) {
         return Ok(Err(BlockKnownError::KnownInMissingChunks));
     }
-    if chain.error_blocks.contains(block_hash) {
+    if chain.invalid_blocks.contains(block_hash) {
         metrics::NUM_IGNORED_BLOCKS_IN_ERROR.inc();
         return Ok(Err(BlockKnownError::KnownInErrored));
     }
@@ -427,7 +427,7 @@ pub struct Chain {
     orphans: OrphanBlockPool,
     pub blocks_with_missing_chunks: MissingChunksPool<Orphan>,
     // blocks we processed but had errors
-    pub error_blocks: LruCache<CryptoHash, bool>,
+    pub invalid_blocks: LruCache<CryptoHash, bool>,
     genesis: Block,
     pub transaction_validity_period: NumBlocks,
     pub epoch_length: BlockHeightDelta,
@@ -517,7 +517,7 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
-            error_blocks: LruCache::new(ERROR_BLOCKS_SIZE),
+            invalid_blocks: LruCache::new(ERROR_BLOCKS_SIZE),
             blocks_delay_tracker: BlocksDelayTracker::default(),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
@@ -699,7 +699,7 @@ impl Chain {
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
-            error_blocks: LruCache::new(ERROR_BLOCKS_SIZE),
+            invalid_blocks: LruCache::new(ERROR_BLOCKS_SIZE),
             doomslug_threshold_mode,
             blocks_delay_tracker: BlocksDelayTracker::default(),
             apply_chunks_sender: sc,
@@ -1672,9 +1672,11 @@ impl Chain {
             ) {
                 Err(e) => {
                     warn!(target:"client", "Error in processing block {block_hash} {e}");
+                    if e.is_bad_data() {
+                        metrics::INVALID_BLOCKS.inc();
+                        self.invalid_blocks.put(block_hash, false);
+                    }
                     errors.insert(block_hash, e);
-                    metrics::ERRORED_BLOCKS.inc();
-                    self.error_blocks.put(block_hash, false);
                 }
                 Ok(accepted_block) => {
                     accepted_blocks.push(accepted_block);

@@ -488,7 +488,7 @@ pub enum BlockProcessingStatus {
     WaitingForChunks,
     InProcessing,
     Processed,
-    Errored,
+    InvalidBlock,
     Unknown,
 }
 
