@@ -5,9 +5,8 @@ use near_primitives::{
     types::Gas,
     version::{ProtocolFeature, PROTOCOL_VERSION},
 };
-use near_vm_errors::FunctionCallError;
-use near_vm_logic::{mocks::mock_external::MockedExternal, ProtocolVersion, VMContext};
-use std::collections::HashSet;
+use near_vm_logic::{mocks::mock_external::MockedExternal, ProtocolVersion, VMContext, VMOutcome};
+use std::{collections::HashSet, fmt::Write};
 
 pub(crate) fn test_builder() -> TestBuilder {
     let context = VMContext {
@@ -162,7 +161,7 @@ impl TestBuilder {
                 let promise_results = vec![];
 
                 let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
-                let mut outcome = runtime
+                let outcome = runtime
                     .run(
                         &self.code,
                         &self.method,
@@ -175,32 +174,20 @@ impl TestBuilder {
                     )
                     .expect("execution failed");
 
-                let got: String = match (self.opaque_outcome, self.opaque_error) {
-                    (false, false) => {
-                        // error is contained inside outcome
-                        format!("{:?}\n", outcome)
-                    }
-                    (true, false) => {
-                        if let Some(err) = outcome.aborted {
-                            let err = err.to_string();
-                            assert!(err.len() < 1000, "errors should be bounded in size to prevent abuse via exhausting the storage space");
-                            format!("Err: {err}\n",)
-                        } else {
-                            String::new()
-                        }
-                    }
-                    (false, true) => {
-                        // use a fixed error to make it opaque
-                        outcome.aborted =
-                            Some(FunctionCallError::LinkError { msg: "[censored]".to_owned() });
-                        format!("{outcome:?}\n",)
-                    }
-                    (true, true) => {
-                        if outcome.aborted.is_some() {
-                            format!("Err: ...\n",)
-                        } else {
-                            String::new()
-                        }
+                let mut got = String::new();
+
+                if !self.opaque_outcome {
+                    fmt_outcome_without_abort(&outcome, &mut got).unwrap();
+                    writeln!(&mut got).unwrap();
+                }
+
+                if let Some(err) = outcome.aborted {
+                    let err_str = err.to_string();
+                    assert!(err_str.len() < 1000, "errors should be bounded in size to prevent abuse via exhausting the storage space");
+                    if self.opaque_error {
+                        writeln!(&mut got, "Err: ...").unwrap();
+                    } else {
+                        writeln!(&mut got, "Err: {err_str}").unwrap();
                     }
                 };
 
@@ -220,4 +207,25 @@ impl TestBuilder {
             }
         }
     }
+}
+
+fn fmt_outcome_without_abort(
+    outcome: &VMOutcome,
+    out: &mut dyn std::fmt::Write,
+) -> std::fmt::Result {
+    let return_data_str = match &outcome.return_data {
+        near_vm_logic::ReturnData::None => "None".to_string(),
+        near_vm_logic::ReturnData::ReceiptIndex(_) => "Receipt".to_string(),
+        near_vm_logic::ReturnData::Value(v) => format!("Value [{} bytes]", v.len()),
+    };
+    write!(
+        out,
+        "VMOutcome: balance {} storage_usage {} return data {} burnt gas {} used gas {}",
+        outcome.balance,
+        outcome.storage_usage,
+        return_data_str,
+        outcome.burnt_gas,
+        outcome.used_gas
+    )?;
+    Ok(())
 }
