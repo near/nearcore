@@ -98,3 +98,24 @@ pub static BLOCK_MISSING_CHUNKS_DELAY: Lazy<Histogram> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static ERRORED_BLOCKS: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_blocks_in_error",
+        "How many blocks that we tried to process that failed",
+    )
+    .unwrap()
+});
+pub static NUM_IGNORED_BLOCKS_IN_ERROR: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_num_ignored_blocks_in_error",
+        "How many blocks that we ignored because this block was processed but failed",
+    )
+    .unwrap()
+});
+pub static DUP_HEIHGT_BLOCKS: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_blocks_with_same_heights",
+        "How many blocks at the same heights that we received",
+    )
+    .unwrap()
+});

@@ -344,4 +344,6 @@ pub enum BlockKnownError {
     KnownInStore,
     #[error("already known in blocks in processing")]
     KnownInProcessing,
+    #[error("already known in blocks that are processed but errored")]
+    KnownInErrored,
 }

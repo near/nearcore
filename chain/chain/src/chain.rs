@@ -75,6 +75,7 @@ use crate::{metrics, DoomslugThresholdMode};
 use actix::Message;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use delay_detector::DelayDetector;
+use lru::LruCache;
 use near_client_primitives::types::StateSplitApplyingStatus;
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
@@ -103,6 +104,8 @@ pub const NUM_ORPHAN_ANCESTORS_CHECK: u64 = 3;
 // this number only adds another restriction when there are multiple forks.
 // It should almost never be hit
 const MAX_ORPHAN_MISSING_CHUNKS: usize = 5;
+
+const ERROR_BLOCKS_SIZE: usize = 10000;
 
 /// 10000 years in seconds. Big constant for sandbox to allow time traveling.
 #[cfg(feature = "sandbox")]
@@ -407,6 +410,10 @@ pub fn check_known(
     if chain.blocks_with_missing_chunks.contains(block_hash) {
         return Ok(Err(BlockKnownError::KnownInMissingChunks));
     }
+    if chain.error_blocks.contains(block_hash) {
+        metrics::NUM_IGNORED_BLOCKS_IN_ERROR.inc();
+        return Ok(Err(BlockKnownError::KnownInErrored));
+    }
     check_known_store(chain, block_hash)
 }
 
@@ -419,6 +426,8 @@ pub struct Chain {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     orphans: OrphanBlockPool,
     pub blocks_with_missing_chunks: MissingChunksPool<Orphan>,
+    // blocks we processed but had errors
+    pub error_blocks: LruCache<CryptoHash, bool>,
     genesis: Block,
     pub transaction_validity_period: NumBlocks,
     pub epoch_length: BlockHeightDelta,
@@ -508,6 +517,7 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
+            error_blocks: LruCache::new(ERROR_BLOCKS_SIZE),
             blocks_delay_tracker: BlocksDelayTracker::default(),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
@@ -689,6 +699,7 @@ impl Chain {
             transaction_validity_period: chain_genesis.transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
+            error_blocks: LruCache::new(ERROR_BLOCKS_SIZE),
             doomslug_threshold_mode,
             blocks_delay_tracker: BlocksDelayTracker::default(),
             apply_chunks_sender: sc,
@@ -1331,6 +1342,10 @@ impl Chain {
         debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.height());
 
         check_known(self, header.hash())?.map_err(|e| Error::BlockKnown(e))?;
+        if self.store().is_height_processed(header.height())? {
+            warn!(target:"chain", "{:?} block at height {} has been processed before", header.hash(), header.height());
+            metrics::DUP_HEIHGT_BLOCKS.inc();
+        }
         self.validate_header(header, &Provenance::NONE, challenges)?;
         Ok(())
     }
@@ -1656,7 +1671,10 @@ impl Chain {
                 apply_chunks_done_callback.clone(),
             ) {
                 Err(e) => {
+                    warn!(target:"client", "Error in processing block {block_hash} {e}");
                     errors.insert(block_hash, e);
+                    metrics::ERRORED_BLOCKS.inc();
+                    self.error_blocks.put(block_hash, false);
                 }
                 Ok(accepted_block) => {
                     accepted_blocks.push(accepted_block);
