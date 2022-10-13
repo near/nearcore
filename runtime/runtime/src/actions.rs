@@ -118,7 +118,7 @@ pub(crate) fn execute_function_call(
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
     }
 
-    // There are many specific errors but all of them are essentially unrecoverable.
+    // There are many specific errors that the runtime can encounter.
     // Some can be translated to the more general `RuntimeError`, which allows to pass
     // the error up to the caller. For all other cases, panicking here is better
     // than leaking the exact details further up.
