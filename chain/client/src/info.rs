@@ -20,9 +20,6 @@ use near_primitives::views::{
 use near_store::db::StoreStatistics;
 use near_telemetry::{telemetry, TelemetryActor};
 use std::cmp::min;
-use std::fmt::Display;
-use std::fmt::Formatter;
-use std::fmt::Result;
 use std::fmt::Write;
 use std::sync::Arc;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
@@ -30,21 +27,10 @@ use tracing::info;
 
 const TERAGAS: f64 = 1_000_000_000_000_f64;
 
-/// necessary to properly display Option<usize> type (or Option<T> more broadly)
-struct DisplayOption<T>(pub Option<T>);
-impl<T: Display> Display for DisplayOption<T> {
-    fn fmt(&self, f: &mut Formatter) -> Result {
-        match self.0 {
-            Some(ref v) => write!(f, "{}", v),
-            None => write!(f, "None"),
-        }
-    }
-}
-
 pub struct ValidatorInfoHelper {
     pub is_validator: bool,
     pub num_validators: usize,
-    pub num_chunk_only_validators: Option<usize>,
+    pub num_chunk_only_validators: usize,
 }
 
 /// A helper that prints information about current chain and reports to telemetry.
@@ -163,7 +149,7 @@ impl InfoHelper {
                 if info.is_validator { "Validator | " } else { "" },
                 info.num_validators,
                 s(info.num_validators),
-                DisplayOption(info.num_chunk_only_validators),
+                info.num_chunk_only_validators,
             )
         });
 
