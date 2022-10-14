@@ -1,8 +1,8 @@
 use crate::accounts_data;
 use crate::config;
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerMessage, Ping, Pong,
-    RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
+    Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage,
+    RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
 };
 use crate::peer_manager::connection;
 use crate::private_actix::PeerToManagerMsg;
@@ -139,13 +139,13 @@ impl NetworkState {
 
     pub fn send_ping(&self, clock: &time::Clock, nonce: u64, target: PeerId) {
         let body = RoutedMessageBody::Ping(Ping { nonce, source: self.config.node_id() });
-        let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body };
+        let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(clock, self.sign_message(clock, msg));
     }
 
     pub fn send_pong(&self, clock: &time::Clock, nonce: u64, target: CryptoHash) {
         let body = RoutedMessageBody::Pong(Pong { nonce, source: self.config.node_id() });
-        let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(target), body };
+        let msg = RawRoutedMessage { target: PeerIdOrHash::Hash(target), body };
         self.send_message_to_peer(clock, self.sign_message(clock, msg));
     }
 
@@ -219,7 +219,7 @@ impl NetworkState {
             }
         };
 
-        let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target), body: msg };
+        let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
         let msg = self.sign_message(clock, msg);
         if msg.body.is_important() {
             let mut success = false;
