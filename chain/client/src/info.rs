@@ -156,7 +156,7 @@ impl InfoHelper {
         let network_info_log = Some(format!(
             " {} peer{} ⬇ {} ⬆ {}",
             network_info.num_connected_peers,
-            s(network_info.num_connected_peers),
+            s(network_info.num_connected_peers as isize),
             PrettyNumber::bytes_per_sec(network_info.received_bytes_per_sec),
             PrettyNumber::bytes_per_sec(network_info.sent_bytes_per_sec)
         ));
