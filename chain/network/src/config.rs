@@ -2,6 +2,7 @@ use crate::blacklist;
 use crate::concurrency::rate;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::PeerInfo;
+use crate::peer_manager::peer_store;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::sink::Sink;
 use crate::time;
@@ -84,7 +85,7 @@ pub struct NetworkConfig {
     pub node_key: SecretKey,
     pub validator: Option<ValidatorConfig>,
 
-    pub boot_nodes: Vec<PeerInfo>,
+    pub peer_store: peer_store::Config,
     pub whitelist_nodes: Vec<PeerInfo>,
     pub handshake_timeout: time::Duration,
     pub reconnect_delay: time::Duration,
@@ -107,10 +108,6 @@ pub struct NetworkConfig {
     /// Lower bound of the number of connections to archival peers to keep
     /// if we are an archival node.
     pub archival_peer_connections_lower_bound: u32,
-    /// Duration of the ban for misbehaving peers.
-    pub ban_window: time::Duration,
-    /// Remove expired peers.
-    pub peer_expiration_duration: time::Duration,
     /// Maximum number of peer addresses we should ever send on PeersRequest.
     pub max_send_peers: u32,
     /// Duration for checking on stats from the peers.
@@ -129,8 +126,6 @@ pub struct NetworkConfig {
     pub highest_peer_horizon: u64,
     /// Period between pushing network info to client
     pub push_info_period: time::Duration,
-    /// Nodes will not accept or try to establish connection to such peers.
-    pub blacklist: blacklist::Blacklist,
     /// Flag to disable outbound connections. When this flag is active, nodes will not try to
     /// establish connection with other nodes, but will accept incoming connection if other requirements
     /// are satisfied.
@@ -144,8 +139,6 @@ pub struct NetworkConfig {
     pub accounts_data_broadcast_rate_limit: rate::Limit,
     /// features
     pub features: Features,
-    /// If true - connect only to the bootnodes.
-    pub connect_only_to_boot_nodes: bool,
 
     // Whether to ignore tombstones some time after startup.
     //
@@ -191,14 +184,25 @@ impl NetworkConfig {
                 "" => None,
                 addr => Some(addr.parse().context("Failed to parse SocketAddr")?),
             },
-            boot_nodes: if cfg.boot_nodes.is_empty() {
-                vec![]
-            } else {
-                cfg.boot_nodes
-                    .split(',')
-                    .map(|chunk| chunk.parse())
+            peer_store: peer_store::Config {
+                boot_nodes: if cfg.boot_nodes.is_empty() {
+                    vec![]
+                } else {
+                    cfg.boot_nodes
+                        .split(',')
+                        .map(|chunk| chunk.parse())
+                        .collect::<Result<_, _>>()
+                        .context("boot_nodes")?
+                },
+                blacklist: cfg
+                    .blacklist
+                    .iter()
+                    .map(|e| e.parse())
                     .collect::<Result<_, _>>()
-                    .context("boot_nodes")?
+                    .context("failed to parse blacklist")?,
+                connect_only_to_boot_nodes: cfg.experimental.connect_only_to_boot_nodes,
+                ban_window: cfg.ban_window.try_into()?,
+                peer_expiration_duration: cfg.peer_expiration_duration.try_into()?,
             },
             whitelist_nodes: if cfg.whitelist_nodes.is_empty() {
                 vec![]
@@ -225,27 +229,18 @@ impl NetworkConfig {
             peer_recent_time_window: cfg.peer_recent_time_window.try_into()?,
             safe_set_size: cfg.safe_set_size,
             archival_peer_connections_lower_bound: cfg.archival_peer_connections_lower_bound,
-            ban_window: cfg.ban_window.try_into()?,
             max_send_peers: 512,
-            peer_expiration_duration: cfg.peer_expiration_duration.try_into()?,
             peer_stats_period: cfg.peer_stats_period.try_into()?,
             ttl_account_id_router: cfg.ttl_account_id_router.try_into()?,
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: MAX_ROUTES_TO_STORE,
             highest_peer_horizon: HIGHEST_PEER_HORIZON,
-            push_info_period: time::Duration::milliseconds(100),
-            blacklist: cfg
-                .blacklist
-                .iter()
-                .map(|e| e.parse())
-                .collect::<Result<_, _>>()
-                .context("failed to parse blacklist")?,
+            push_info_period: time::Duration::milliseconds(100), 
             outbound_disabled: false,
             archive,
             accounts_data_broadcast_rate_limit: rate::Limit { qps: 0.1, burst: 1 },
             features,
             inbound_disabled: cfg.experimental.inbound_disabled,
-            connect_only_to_boot_nodes: cfg.experimental.connect_only_to_boot_nodes,
             skip_tombstones: if cfg.experimental.skip_sending_tombstones_seconds > 0 {
                 Some(time::Duration::seconds(cfg.experimental.skip_sending_tombstones_seconds))
             } else {
@@ -280,7 +275,13 @@ impl NetworkConfig {
             node_addr: Some(node_addr),
             node_key,
             validator: Some(validator),
-            boot_nodes: vec![],
+            peer_store: peer_store::Config{
+                boot_nodes: vec![],
+                blacklist: blacklist::Blacklist::default(),
+                ban_window: time::Duration::seconds(1),
+                peer_expiration_duration: time::Duration::seconds(60 * 60),
+                connect_only_to_boot_nodes: false,
+            },
             whitelist_nodes: vec![],
             handshake_timeout: time::Duration::seconds(60),
             reconnect_delay: time::Duration::seconds(60),
@@ -292,8 +293,6 @@ impl NetworkConfig {
             peer_recent_time_window: time::Duration::seconds(600),
             safe_set_size: 20,
             archival_peer_connections_lower_bound: 10,
-            ban_window: time::Duration::seconds(1),
-            peer_expiration_duration: time::Duration::seconds(60 * 60),
             max_send_peers: 512,
             peer_stats_period: time::Duration::seconds(5),
             ttl_account_id_router: time::Duration::seconds(60 * 60),
@@ -301,10 +300,8 @@ impl NetworkConfig {
             max_routes_to_store: 1,
             highest_peer_horizon: 5,
             push_info_period: time::Duration::milliseconds(100),
-            blacklist: blacklist::Blacklist::default(),
             outbound_disabled: false,
             inbound_disabled: false,
-            connect_only_to_boot_nodes: false,
             archive: false,
             accounts_data_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
             features: Features {

@@ -6,6 +6,7 @@ use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage,
     RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
 };
+use crate::peer_manager::peer_store;
 use crate::peer_manager::connection;
 use crate::private_actix::{PeerToManagerMsg, ValidateEdgeList};
 use crate::routing;
@@ -55,6 +56,8 @@ pub(crate) struct NetworkState {
     pub tier1: connection::Pool,
     /// Semaphore limiting inflight inbound handshakes.
     pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
+    /// Peer store that provides read/write access to peers.
+    pub peer_store: peer_store::PeerStore,
 
     /// View of the Routing table. It keeps:
     /// - routing information - how to route messages
@@ -78,6 +81,7 @@ pub(crate) struct NetworkState {
 impl NetworkState {
     pub fn new(
         clock: &time::Clock,
+        peer_store: peer_store::PeerStore,
         config: Arc<config::VerifiedConfig>,
         genesis_id: GenesisId,
         client: client::Client,
@@ -94,6 +98,7 @@ impl NetworkState {
             tier2: connection::Pool::new(config.node_id()),
             tier1: connection::Pool::new(config.node_id()),
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
+            peer_store,
             accounts_data: Arc::new(accounts_data::Cache::new()),
             routing_table_view,
             routing_table_exchange_helper: Default::default(),

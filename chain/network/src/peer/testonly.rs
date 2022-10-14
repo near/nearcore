@@ -7,6 +7,7 @@ use crate::network_protocol::{
     RoutedMessageV2,
 };
 use crate::peer::peer_actor::{ClosingReason, PeerActor};
+use crate::peer_manager::peer_store;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
@@ -179,6 +180,11 @@ impl PeerHandle {
                 routing::Actor::spawn(clock.clone(), store.clone(), network_graph.clone());
             let network_state = Arc::new(NetworkState::new(
                 &clock,
+                peer_store::PeerStore::new(
+                    &clock,
+                    network_cfg.peer_store.clone(),
+                    store.clone(),
+                ).unwrap(),
                 Arc::new(network_cfg.verify().unwrap()),
                 cfg.chain.genesis_id.clone(),
                 client::Client {

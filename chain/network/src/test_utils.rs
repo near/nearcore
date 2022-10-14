@@ -333,7 +333,7 @@ pub mod test_features {
         boot_nodes: Vec<(&str, u16)>,
         peer_max_count: u32,
     ) -> actix::Addr<PeerManagerActor> {
-        config.boot_nodes = convert_boot_nodes(boot_nodes);
+        config.peer_store.boot_nodes = convert_boot_nodes(boot_nodes);
         config.max_num_peers = peer_max_count;
         let counter = Arc::new(AtomicUsize::new(0));
         let counter1 = counter.clone();

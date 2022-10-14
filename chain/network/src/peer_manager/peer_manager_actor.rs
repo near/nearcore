@@ -7,8 +7,8 @@ use crate::network_protocol::{
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
+use crate::peer_manager::peer_store;
 use crate::peer_manager::network_state::NetworkState;
-use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
     PeerRequestResult, PeerToManagerMsg, PeerToManagerMsgResp, PeersRequest, PeersResponse,
     RegisterPeer, RegisterPeerError, RegisterPeerResponse, StopMsg,
@@ -20,7 +20,7 @@ use crate::store;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownPeerStatus, KnownProducer, NetworkInfo,
+    ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownProducer, NetworkInfo,
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
     PeerType, ReasonForBan, SetChainInfo,
 };
@@ -123,8 +123,6 @@ pub struct PeerManagerActor {
     max_num_peers: u32,
     /// Peer information for this node.
     my_peer_id: PeerId,
-    /// Peer store that provides read/write access to peers.
-    pub(crate) peer_store: PeerStore,
     /// A graph of the whole NEAR network, shared between routing::Actor
     /// and PeerManagerActor. PeerManagerActor should have read-only access to the graph.
     /// TODO: this is an intermediate step towards replacing actix runtime with a
@@ -276,20 +274,18 @@ impl PeerManagerActor {
     ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
         let store = store::Store::from(store);
-        let peer_store = PeerStore::new(
+        let peer_store = peer_store::PeerStore::new(
             &clock,
+            config.peer_store.clone(),
             store.clone(),
-            &config.boot_nodes,
-            config.blacklist.clone(),
-            config.connect_only_to_boot_nodes,
         )
         .map_err(|e| anyhow::Error::msg(e.to_string()))?;
         tracing::debug!(target: "network",
                len = peer_store.len(),
-               boot_nodes = config.boot_nodes.len(),
+               boot_nodes = config.peer_store.boot_nodes.len(),
                banned = peer_store.count_banned(),
                "Found known peers");
-        tracing::debug!(target: "network", blacklist = ?config.blacklist, "Blacklist");
+        tracing::debug!(target: "network", blacklist = ?config.peer_store.blacklist, "Blacklist");
 
         let my_peer_id = config.node_id();
         let network_graph = Arc::new(RwLock::new(routing::GraphWithCache::new(my_peer_id.clone())));
@@ -307,13 +303,13 @@ impl PeerManagerActor {
             my_peer_id: my_peer_id.clone(),
             config: config.clone(),
             max_num_peers: config.max_num_peers,
-            peer_store,
             network_graph,
             started_connect_attempts: false,
             local_peer_pending_update_nonce_request: HashMap::new(),
             whitelist_nodes,
             state: Arc::new(NetworkState::new(
                 &clock,
+                peer_store,
                 config.clone(),
                 genesis_id,
                 client,
@@ -545,7 +541,7 @@ impl PeerManagerActor {
             tcp::Tier::T2 => {
                 self.state.tier2.insert_ready(connection.clone())?;
                 // Best effort write to DB.
-                if let Err(err) = self.peer_store.peer_connected(&self.clock, peer_info) {
+                if let Err(err) = self.state.peer_store.peer_connected(&self.clock, peer_info) {
                     tracing::error!(target: "network", ?err, "Failed to save peer data");
                 }
                 self.state.add_verified_edges_to_routing_table(vec![connection.edge.clone()]);
@@ -602,7 +598,7 @@ impl PeerManagerActor {
             peer.stop(Some(ban_reason));
         } else {
             tracing::warn!(target: "network", ?ban_reason, ?peer_id, "Try to ban a disconnected peer for");
-            if let Err(err) = self.peer_store.peer_ban(&self.clock, peer_id, ban_reason) {
+            if let Err(err) = self.state.peer_store.peer_ban(&self.clock, peer_id, ban_reason) {
                 tracing::error!(target: "network", ?err, "Failed to save peer data");
             };
         };
@@ -864,26 +860,12 @@ impl PeerManagerActor {
         let _span = tracing::trace_span!(target: "network", "monitor_peers_trigger").entered();
         let _timer =
             metrics::PEER_MANAGER_TRIGGER_TIME.with_label_values(&["monitor_peers"]).start_timer();
-        let mut to_unban = vec![];
-        for (peer_id, peer_state) in self.peer_store.iter() {
-            if let KnownPeerStatus::Banned(_, last_banned) = peer_state.status {
-                let interval = self.clock.now_utc() - last_banned;
-                if interval > self.config.ban_window {
-                    tracing::info!(target: "network", unbanned = ?peer_id, after = ?interval, "Monitor peers:");
-                    to_unban.push(peer_id.clone());
-                }
-            }
-        }
-
-        for peer_id in to_unban {
-            if let Err(err) = self.peer_store.peer_unban(&peer_id) {
-                tracing::error!(target: "network", ?err, "Failed to unban a peer");
-            }
-        }
+       
+        self.state.peer_store.unban(&self.clock);
 
         if self.is_outbound_bootstrap_needed() {
             let tier2 = self.state.tier2.load();
-            if let Some(peer_info) = self.peer_store.unconnected_peer(|peer_state| {
+            if let Some(peer_info) = self.state.peer_store.unconnected_peer(|peer_state| {
                 // Ignore connecting to ourself
                 self.my_peer_id == peer_state.peer_info.id
                     || self.config.node_addr == peer_state.peer_info.addr
@@ -917,7 +899,7 @@ impl PeerManagerActor {
         // If there are too many active connections try to remove some connections
         self.maybe_stop_active_connection();
 
-        if let Err(err) = self.peer_store.remove_expired(&self.clock, &self.config) {
+        if let Err(err) = self.state.peer_store.remove_expired(&self.clock) {
             tracing::error!(target: "network", ?err, "Failed to remove expired peers");
         };
 
@@ -1272,12 +1254,12 @@ impl PeerManagerActor {
 
         let peer_info = &msg.connection.peer_info;
         // Check if this is a blacklisted peer.
-        if peer_info.addr.as_ref().map_or(true, |addr| self.peer_store.is_blacklisted(addr)) {
+        if peer_info.addr.as_ref().map_or(true, |addr| self.state.peer_store.is_blacklisted(addr)) {
             tracing::debug!(target: "network", peer_info = ?peer_info, "Dropping connection from blacklisted peer or unknown address");
             return RegisterPeerResponse::Reject(RegisterPeerError::Blacklisted);
         }
 
-        if self.peer_store.is_banned(&peer_info.id) {
+        if self.state.peer_store.is_banned(&peer_info.id) {
             tracing::debug!(target: "network", id = ?peer_info.id, "Dropping connection from banned peer");
             return RegisterPeerResponse::Reject(RegisterPeerError::Banned);
         }
@@ -1331,13 +1313,13 @@ impl PeerManagerActor {
     fn handle_msg_peers_request(&self, _msg: PeersRequest) -> PeerRequestResult {
         let _d = delay_detector::DelayDetector::new(|| "peers request".into());
         PeerRequestResult {
-            peers: self.peer_store.healthy_peers(self.config.max_send_peers as usize),
+            peers: self.state.peer_store.healthy_peers(self.config.max_send_peers as usize),
         }
     }
 
     fn handle_msg_peers_response(&mut self, msg: PeersResponse) {
         let _d = delay_detector::DelayDetector::new(|| "peers response".into());
-        if let Err(err) = self.peer_store.add_indirect_peers(
+        if let Err(err) = self.state.peer_store.add_indirect_peers(
             &self.clock,
             msg.peers.into_iter().filter(|peer_info| peer_info.id != self.my_peer_id),
         ) {
@@ -1402,13 +1384,13 @@ impl PeerManagerActor {
                 PeerToManagerMsgResp::Empty
             }
             PeerToManagerMsg::UpdatePeerInfo(peer_info) => {
-                if let Err(err) = self.peer_store.add_direct_peer(&self.clock, peer_info) {
+                if let Err(err) = self.state.peer_store.add_direct_peer(&self.clock, peer_info) {
                     tracing::error!(target: "network", ?err, "Fail to update peer store");
                 }
                 PeerToManagerMsgResp::Empty
             }
             PeerToManagerMsg::Unregister(msg) => {
-                if let Err(err) = self.peer_store.peer_disconnected(&self.clock, &msg.peer_id) {
+                if let Err(err) = self.state.peer_store.peer_disconnected(&self.clock, &msg.peer_id) {
                     tracing::error!(target: "network", ?err, "Failed to save peer data");
                 }
                 PeerToManagerMsgResp::Empty

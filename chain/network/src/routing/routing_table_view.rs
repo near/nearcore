@@ -10,7 +10,6 @@ use near_primitives::types::AccountId;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::warn;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const LAST_ROUTED_CACHE_SIZE: usize = 10_000;
@@ -71,7 +70,7 @@ impl Inner {
         }
         match self.store.get_account_announcement(&account_id) {
             Err(e) => {
-                warn!(target: "network", "Error loading announce account from store: {:?}", e);
+                tracing::warn!(target: "network", "Error loading announce account from store: {:?}", e);
                 None
             }
             Ok(None) => None,
@@ -165,7 +164,7 @@ impl RoutingTableView {
             inner.account_peers.put(aa.account_id.clone(), aa.clone());
             // Add account to store. Best effort
             if let Err(e) = inner.store.set_account_announcement(&aa.account_id, &aa) {
-                warn!(target: "network", "Error saving announce account to store: {:?}", e);
+                tracing::warn!(target: "network", "Error saving announce account to store: {:?}", e);
             }
             res.push(aa);
         }
