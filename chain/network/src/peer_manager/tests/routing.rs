@@ -163,7 +163,6 @@ async fn repeated_data_in_sync_routing_table() {
 // After each handshake a full sync of routing table is performed with the peer.
 // After a restart, all the edges reside in storage. The node shouldn't broadcast
 // edges which it learned about before the restart.
-// This test takes ~6s because of delays enforced in the PeerManager.
 #[tokio::test]
 async fn no_edge_broadcast_after_restart() {
     init_test_logger();
@@ -193,8 +192,17 @@ async fn no_edge_broadcast_after_restart() {
             nonce: None,
         };
         let stream = tcp::Stream::connect(&pm.peer_info(), tcp::Tier::T2).await.unwrap();
+        tracing::debug!(target:"dupa","1");
         let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
         let edge = peer.complete_handshake().await;
+        tracing::debug!(target:"dupa","2");
+
+        // Receive the initial full sync.
+        let got = peer.events.recv_until(|ev|match ev {
+            peer::testonly::Event::Network(PME::MessageProcessed(tcp::Tier::T2,PeerMessage::SyncRoutingTable(got))) => Some(got),
+            _ => None,
+        }).await;
+        assert_is_superset(&total_edges.as_set(),&got.edges.as_set());
 
         // Create a bunch of fresh unreachable edges, then send all the edges created so far.
         let fresh_edges = vec![
@@ -208,13 +216,13 @@ async fn no_edge_broadcast_after_restart() {
             accounts: vec![],
         }))
         .await;
+        tracing::debug!(target:"dupa","3");
 
         // Expect just the fresh edges (and the pm <-> peer edge) to be broadcasted back.
-        let mut edges_want = fresh_edges.clone();
-        edges_want.push(edge);
+        let edges_want = fresh_edges.clone();
         let mut edges_got = vec![];
 
-        while edges_got != edges_want {
+        while edges_got.as_set() != edges_want.as_set() {
             match peer.events.recv().await {
                 peer::testonly::Event::Network(PME::MessageProcessed(
                     tcp::Tier::T2,
@@ -227,5 +235,6 @@ async fn no_edge_broadcast_after_restart() {
                 _ => {}
             }
         }
+        tracing::debug!(target:"dupa","complete!");
     }
 }
