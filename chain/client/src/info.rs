@@ -29,8 +29,8 @@ const TERAGAS: f64 = 1_000_000_000_000_f64;
 
 pub struct ValidatorInfoHelper {
     pub is_validator: bool,
-    pub num_validators: isize,
-    pub num_chunk_only_validators: isize,
+    pub num_validators: usize,
+    pub num_chunk_only_validators: Option<usize>,
 }
 
 /// A helper that prints information about current chain and reports to telemetry.
@@ -149,14 +149,14 @@ impl InfoHelper {
                 if info.is_validator { "Validator | " } else { "" },
                 info.num_validators,
                 s(info.num_validators),
-                info.num_chunk_only_validators,
+                format!("{:?}", info.num_chunk_only_validators),
             )
         });
 
         let network_info_log = Some(format!(
             " {} peer{} ⬇ {} ⬆ {}",
             network_info.num_connected_peers,
-            s(network_info.num_connected_peers as isize),
+            s(network_info.num_connected_peers),
             PrettyNumber::bytes_per_sec(network_info.received_bytes_per_sec),
             PrettyNumber::bytes_per_sec(network_info.sent_bytes_per_sec)
         ));
