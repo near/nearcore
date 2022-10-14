@@ -24,7 +24,7 @@ use near_primitives::views::{
 use near_primitives_core::types::{Nonce, ShardId};
 use nearcore::config::NearConfig;
 use rocksdb::DB;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
 use std::time::{Duration, Instant};
 use strum::IntoEnumIterator;
@@ -155,9 +155,36 @@ struct TxAwaitingNonce {
 }
 
 #[derive(Debug)]
+enum TargetChainTx {
+    Ready(SignedTransaction),
+    AwaitingNonce(TxAwaitingNonce),
+}
+
+impl TargetChainTx {
+    // For an AwaitingNonce(_), set the nonce and sign the transaction, changing self into Ready(_).
+    // must not be called if self is Ready(_)
+    fn set_nonce(&mut self, nonce: Nonce) {
+        match self {
+            Self::AwaitingNonce(t) => {
+                t.tx.nonce = nonce;
+                let tx = SignedTransaction::new(
+                    t.target_private.sign(&t.tx.get_hash_and_size().0.as_ref()),
+                    t.tx.clone(),
+                );
+                tracing::debug!(
+                    target: "mirror", "prepared a transaction for ({:?}, {:?}) that was previously waiting for the access key to appear on chain",
+                    &tx.transaction.signer_id, &tx.transaction.public_key
+                );
+                *self = Self::Ready(tx);
+            }
+            Self::Ready(_) => unreachable!(),
+        }
+    }
+}
+
+#[derive(Debug)]
 struct MappedChunk {
-    txs: Vec<SignedTransaction>,
-    txs_awaiting_nonce: HashMap<CryptoHash, TxAwaitingNonce>,
+    txs: Vec<TargetChainTx>,
     shard_id: ShardId,
 }
 
@@ -404,44 +431,54 @@ impl TxMirror {
         let mut sent = vec![];
         for chunk in block.chunks.iter() {
             for tx in chunk.txs.iter() {
-                match self
-                    .target_client
-                    .send(
-                        NetworkClientMessages::Transaction {
-                            transaction: tx.clone(),
-                            is_forwarded: false,
-                            check_only: false,
+                match tx {
+                    TargetChainTx::Ready(tx) => {
+                        match self
+                            .target_client
+                            .send(
+                                NetworkClientMessages::Transaction {
+                                    transaction: tx.clone(),
+                                    is_forwarded: false,
+                                    check_only: false,
+                                }
+                                .with_span_context(),
+                            )
+                            .await?
+                        {
+                            NetworkClientResponses::RequestRouted => {
+                                tracing::debug!(
+                                    target: "mirror", "sent source #{} shard {} tx {}",
+                                    block.source_height, chunk.shard_id, tx.get_hash()
+                                );
+                                crate::metrics::TRANSACTIONS_SENT.with_label_values(&["ok"]).inc();
+                                sent.push(tx.clone());
+                            }
+                            NetworkClientResponses::InvalidTx(e) => {
+                                // TODO: here if we're getting an error because the tx was already included, it is possible
+                                // that some other instance of this code ran and made progress already. For now we can assume
+                                // only once instance of this code will run, but this is the place to detect if that's not the case.
+                                tracing::error!(
+                                    target: "mirror", "Tried to send an invalid tx from source #{} shard {}: {:?}",
+                                    block.source_height, chunk.shard_id, e
+                                );
+                                crate::metrics::TRANSACTIONS_SENT
+                                    .with_label_values(&["invalid"])
+                                    .inc();
+                            }
+                            r => {
+                                tracing::error!(
+                                    target: "mirror", "Unexpected response sending tx from source #{} shard {}: {:?}. The transaction was not sent",
+                                    block.source_height, chunk.shard_id, r
+                                );
+                                crate::metrics::TRANSACTIONS_SENT
+                                    .with_label_values(&["internal_error"])
+                                    .inc();
+                            }
                         }
-                        .with_span_context(),
-                    )
-                    .await?
-                {
-                    NetworkClientResponses::RequestRouted => {
-                        tracing::debug!(
-                            target: "mirror", "sent source #{} shard {} tx {}",
-                            block.source_height, chunk.shard_id, tx.get_hash()
-                        );
-                        crate::metrics::TRANSACTIONS_SENT.with_label_values(&["ok"]).inc();
-                        sent.push(tx.clone());
                     }
-                    NetworkClientResponses::InvalidTx(e) => {
-                        // TODO: here if we're getting an error because the tx was already included, it is possible
-                        // that some other instance of this code ran and made progress already. For now we can assume
-                        // only once instance of this code will run, but this is the place to detect if that's not the case.
-                        tracing::error!(
-                            target: "mirror", "Tried to send an invalid tx from source #{} shard {}: {:?}",
-                            block.source_height, chunk.shard_id, e
-                        );
-                        crate::metrics::TRANSACTIONS_SENT.with_label_values(&["invalid"]).inc();
-                    }
-                    r => {
-                        tracing::error!(
-                            target: "mirror", "Unexpected response sending tx from source #{} shard {}: {:?}. The transaction was not sent",
-                            block.source_height, chunk.shard_id, r
-                        );
-                        crate::metrics::TRANSACTIONS_SENT
-                            .with_label_values(&["internal_error"])
-                            .inc();
+                    TargetChainTx::AwaitingNonce(tx) => {
+                        // TODO: here we should just save this transaction for later and send it when it's known
+                        tracing::warn!(target: "mirror", "skipped sending transaction with signer {} because valid target chain nonce not known", &tx.source_signer_id)
                     }
                 }
             }
@@ -502,15 +539,29 @@ impl TxMirror {
             return Ok(diff.map(nonce));
         }
 
+        self.update_nonces(
+            source_signer_id,
+            target_signer_id,
+            source_public,
+            target_public,
+            &mut diff,
+        )
+        .await?;
+        Ok(diff.map(nonce))
+    }
+
+    async fn update_nonces(
+        &self,
+        source_signer_id: &AccountId,
+        target_signer_id: &AccountId,
+        source_public: &PublicKey,
+        target_public: &PublicKey,
+        diff: &mut NonceDiff,
+    ) -> anyhow::Result<()> {
         let mut rewrite = false;
         if diff.source_start.is_none() {
-            self.update_source_nonce(source_signer_id, source_public, &mut diff).await?;
-            // this should not happen, since if we're mapping a nonce for a valid access key,
-            // it better have landed on the source chain by then
-            if diff.source_start.is_none() {
-                return Ok(Err(MapNonceError::SourceKeyNotOnChain));
-            }
-            rewrite = true;
+            self.update_source_nonce(source_signer_id, source_public, diff).await?;
+            rewrite |= diff.source_start.is_some();
         }
         if diff.target_start.is_none() {
             diff.target_start = fetch_access_key_nonce(
@@ -524,9 +575,9 @@ impl TxMirror {
         }
 
         if rewrite {
-            self.put_nonce_diff(source_signer_id, source_public, &diff)?;
+            self.put_nonce_diff(source_signer_id, source_public, diff)?;
         }
-        Ok(diff.map(nonce))
+        Ok(())
     }
 
     async fn update_source_nonce(
@@ -687,7 +738,6 @@ impl TxMirror {
         let mut chunks = Vec::new();
         for shard_id in self.tracked_shards.iter() {
             let mut txs = Vec::new();
-            let mut txs_awaiting_nonce = HashMap::new();
 
             let chunk = match self
                 .source_view_client
@@ -711,6 +761,7 @@ impl TxMirror {
                 continue;
             }
 
+            let mut num_not_ready = 0;
             for t in chunk.transactions {
                 let actions = self.map_actions(&t, &prev_hash).await?;
                 if actions.is_empty() {
@@ -739,7 +790,7 @@ impl TxMirror {
                             mapped_key.sign(&tx.get_hash_and_size().0.as_ref()),
                             tx,
                         );
-                        txs.push(tx);
+                        txs.push(TargetChainTx::Ready(tx));
                     }
                     Err(e) => match e {
                         MapNonceError::AddOverflow(..)
@@ -760,32 +811,30 @@ impl TxMirror {
                                 ref_hash.clone(),
                             );
                             tx.actions = actions;
-                            txs_awaiting_nonce.insert(
-                                t.hash,
-                                TxAwaitingNonce {
-                                    tx,
-                                    source_public: t.public_key.clone(),
-                                    source_signer_id: t.signer_id.clone(),
-                                    target_private: mapped_key,
-                                },
-                            );
+                            txs.push(TargetChainTx::AwaitingNonce(TxAwaitingNonce {
+                                tx,
+                                source_public: t.public_key.clone(),
+                                source_signer_id: t.signer_id.clone(),
+                                target_private: mapped_key,
+                            }));
+                            num_not_ready += 1;
                         }
                     },
                 };
             }
-            if txs_awaiting_nonce.is_empty() {
+            if num_not_ready == 0 {
                 tracing::debug!(
                     target: "mirror", "prepared {} transacations for source chain #{} shard {}",
                     txs.len(), source_height, shard_id
                 );
             } else {
                 tracing::debug!(
-                    target: "mirror", "prepared {} transacations for source chain #{} shard {} and still waiting \
-                    for the corresponding access keys to make it on chain to prepare {} more transactions",
-                    txs.len(), source_height, shard_id, txs_awaiting_nonce.len()
+                    target: "mirror", "prepared {} transacations for source chain #{} shard {} {} of which are \
+                    still waiting for the corresponding access keys to make it on chain",
+                    txs.len(), source_height, shard_id, num_not_ready,
                 );
             }
-            chunks.push(MappedChunk { txs, txs_awaiting_nonce, shard_id: *shard_id });
+            chunks.push(MappedChunk { txs, shard_id: *shard_id });
         }
         Ok(Some(MappedBlock { source_height, chunks }))
     }
@@ -856,50 +905,49 @@ impl TxMirror {
         &self,
         tracker: &mut crate::chain_tracker::TxTracker,
     ) -> anyhow::Result<()> {
-        if tracker.num_txs_awaiting_nonce() == 0 {
-            return Ok(());
-        }
-
         let next_batch_time = tracker.next_batch_time();
         let mut txs_ready = Vec::new();
+        let mut keys_mapped = HashSet::new();
 
-        for (i, b) in tracker.queued_blocks_iter().enumerate() {
-            for (shard_id, c) in b.chunks.iter().enumerate() {
-                for (hash, tx) in c.txs_awaiting_nonce.iter() {
-                    match self
-                        .map_nonce(
-                            &tx.source_signer_id,
-                            &tx.tx.signer_id,
-                            &tx.source_public,
-                            &tx.tx.public_key,
-                            tx.tx.nonce,
-                        )
-                        .await?
-                    {
-                        Ok(nonce) => {
-                            txs_ready.push((i, shard_id, *hash, nonce));
-                        }
-                        Err(e) => match &e {
-                            MapNonceError::AddOverflow(..)
-                            | MapNonceError::SubOverflow(..)
-                            | MapNonceError::SourceKeyNotOnChain => {
-                                tracing::error!(
-                                    target: "mirror", "error mapping nonce for ({:?}, {:?}): {:?}",
-                                    &tx.tx.signer_id, &tx.tx.public_key, e
-                                );
-                            }
-                            // still not ready
-                            MapNonceError::TargetKeyNotOnChain => {}
-                        },
-                    };
-                }
+        for (source_signer_id, source_public_key) in tracker.pending_access_keys_iter() {
+            let mut diff = self.read_nonce_diff(source_signer_id, source_public_key)?.unwrap();
+            let target_signer_id =
+                crate::key_mapping::map_account(source_signer_id, self.secret.as_ref());
+            let target_public_key =
+                crate::key_mapping::map_key(source_public_key, self.secret.as_ref()).public_key();
+            self.update_nonces(
+                &source_signer_id,
+                &target_signer_id,
+                &source_public_key,
+                &target_public_key,
+                &mut diff,
+            )
+            .await?;
+            if diff.known() {
+                keys_mapped.insert((source_signer_id.clone(), source_public_key.clone()));
             }
+        }
+        for (tx_ref, tx) in tracker.tx_awaiting_nonce_iter() {
+            if keys_mapped.contains(&(tx.source_signer_id.clone(), tx.source_public.clone())) {
+                let nonce = self
+                    .map_nonce(
+                        &tx.source_signer_id,
+                        &tx.tx.signer_id,
+                        &tx.source_public,
+                        &tx.tx.public_key,
+                        tx.tx.nonce,
+                    )
+                    .await?
+                    .unwrap();
+                txs_ready.push((tx_ref.clone(), nonce));
+            }
+
             if Instant::now() > next_batch_time - Duration::from_millis(20) {
                 break;
             }
         }
-        for (i, shard_id, hash, nonce) in txs_ready.iter() {
-            tracker.set_tx_nonce(*i, *shard_id, hash, *nonce);
+        for (tx_ref, nonce) in txs_ready {
+            tracker.set_tx_nonce(&tx_ref, nonce);
         }
         Ok(())
     }

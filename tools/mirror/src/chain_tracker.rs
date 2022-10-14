@@ -5,9 +5,9 @@ use near_indexer_primitives::IndexerTransactionWithOutcome;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight};
-use near_primitives_core::types::Nonce;
+use near_primitives_core::types::{Nonce, ShardId};
 use std::cmp::Ordering;
-use std::collections::hash_map::Entry;
+use std::collections::hash_map;
 use std::collections::HashMap;
 use std::collections::{BTreeSet, VecDeque};
 use std::pin::Pin;
@@ -37,6 +37,72 @@ impl Ord for TxId {
     }
 }
 
+// we want a reference to transactions in .queued_blocks that need to have nonces
+// set later. To avoid having the struct be self referential we keep this struct
+// with enough info to look it up later.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TxRef {
+    height: BlockHeight,
+    shard_id: ShardId,
+    tx_idx: usize,
+}
+
+struct TxAwaitingNonceCursor<'a> {
+    txs: &'a [TxRef],
+    idx: usize,
+}
+
+impl<'a> TxAwaitingNonceCursor<'a> {
+    fn new(txs: &'a [TxRef]) -> Self {
+        Self { txs, idx: 0 }
+    }
+}
+
+pub(crate) struct TxAwaitingNonceIter<'a> {
+    queued_blocks: &'a VecDeque<MappedBlock>,
+    iter: hash_map::Iter<'a, BlockHeight, Vec<TxRef>>,
+    cursor: Option<TxAwaitingNonceCursor<'a>>,
+}
+
+impl<'a> TxAwaitingNonceIter<'a> {
+    fn new(
+        queued_blocks: &'a VecDeque<MappedBlock>,
+        txs_awaiting_nonce: &'a HashMap<BlockHeight, Vec<TxRef>>,
+    ) -> Self {
+        let mut iter = txs_awaiting_nonce.iter();
+        let cursor = iter.next().map(|(_height, txs)| TxAwaitingNonceCursor::new(txs));
+        Self { queued_blocks, iter, cursor }
+    }
+}
+
+impl<'a> Iterator for TxAwaitingNonceIter<'a> {
+    type Item = (&'a TxRef, &'a crate::TxAwaitingNonce);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match &mut self.cursor {
+            Some(c) => {
+                let tx_ref = &c.txs[c.idx];
+                c.idx += 1;
+                if c.idx == c.txs.len() {
+                    self.cursor =
+                        self.iter.next().map(|(_height, txs)| TxAwaitingNonceCursor::new(txs));
+                }
+                let block_idx = self
+                    .queued_blocks
+                    .binary_search_by(|b| b.source_height.cmp(&tx_ref.height))
+                    .unwrap();
+                let block = &self.queued_blocks[block_idx];
+                let chunk = block.chunks.iter().find(|c| c.shard_id == tx_ref.shard_id).unwrap();
+                match &chunk.txs[tx_ref.tx_idx] {
+                    crate::TargetChainTx::AwaitingNonce(tx) => Some((tx_ref, tx)),
+                    crate::TargetChainTx::Ready(_) => unreachable!(),
+                }
+            }
+            None => None,
+        }
+    }
+}
+
 // Keeps the queue of upcoming transactions and provides them in regular intervals via next_batch()
 // Also keeps track of txs we've sent so far and looks for them on chain, for metrics/logging purposes.
 #[derive(Default)]
@@ -44,7 +110,8 @@ pub(crate) struct TxTracker {
     sent_txs: HashMap<CryptoHash, TxSendInfo>,
     txs_by_signer: HashMap<(AccountId, PublicKey), BTreeSet<TxId>>,
     queued_blocks: VecDeque<MappedBlock>,
-    num_txs_awaiting_nonce: usize,
+    txs_awaiting_nonce: HashMap<BlockHeight, Vec<TxRef>>,
+    pending_access_keys: HashMap<(AccountId, PublicKey), usize>,
     height_queued: Option<BlockHeight>,
     send_time: Option<Pin<Box<tokio::time::Sleep>>>,
     // Config value in the target chain, used to judge how long to wait before sending a new batch of txs
@@ -62,50 +129,91 @@ impl TxTracker {
         self.height_queued
     }
 
-    pub(crate) fn num_txs_awaiting_nonce(&self) -> usize {
-        self.num_txs_awaiting_nonce
-    }
-
     pub(crate) fn num_blocks_queued(&self) -> usize {
         self.queued_blocks.len()
     }
 
-    pub(crate) fn queued_blocks_iter<'a>(
+    pub(crate) fn pending_access_keys_iter<'a>(
         &'a self,
-    ) -> std::collections::vec_deque::Iter<'a, MappedBlock> {
-        self.queued_blocks.iter()
+    ) -> impl Iterator<Item = &'a (AccountId, PublicKey)> {
+        self.pending_access_keys.iter().map(|(x, _)| x)
     }
 
-    // We now know of a valid nonce for the transaction with hash tx_hash that is
-    // in the txs_awaiting_nonce set for the given block/chunk. Set the nonce and add
-    // the tx to the set to be sent later.
-    // panics if any of block_idx, shard_id, tx_hash is invalid
-    pub(crate) fn set_tx_nonce(
+    pub(crate) fn tx_awaiting_nonce_iter<'a>(&'a self) -> TxAwaitingNonceIter<'a> {
+        TxAwaitingNonceIter::new(&self.queued_blocks, &self.txs_awaiting_nonce)
+    }
+
+    fn pending_access_keys_deref(
         &mut self,
-        block_idx: usize,
-        shard_id: usize,
-        tx_hash: &CryptoHash,
-        nonce: Nonce,
+        source_signer_id: AccountId,
+        source_public_key: PublicKey,
     ) {
-        let chunk = &mut self.queued_blocks[block_idx].chunks[shard_id];
-        let mut t = chunk.txs_awaiting_nonce.remove(tx_hash).unwrap();
-        self.num_txs_awaiting_nonce -= 1;
-        t.tx.nonce = nonce;
-        let tx = SignedTransaction::new(
-            t.target_private.sign(&t.tx.get_hash_and_size().0.as_ref()),
-            t.tx,
-        );
-        tracing::debug!(
-            target: "mirror", "prepared a transaction for ({:?}, {:?}) that was previously waiting for the access key to appear on chain",
-            &tx.transaction.signer_id, &tx.transaction.public_key
-        );
-        chunk.txs.push(tx);
+        match self.pending_access_keys.entry((source_signer_id, source_public_key)) {
+            hash_map::Entry::Occupied(mut e) => {
+                let ref_count = e.get_mut();
+                if *ref_count == 1 {
+                    e.remove();
+                } else {
+                    *ref_count -= 1;
+                }
+            }
+            hash_map::Entry::Vacant(_) => unreachable!(),
+        }
+    }
+
+    // We now know of a valid nonce for the transaction referenced by tx_ref.
+    // Set the nonce and mark the tx as ready to be sent later.
+    pub(crate) fn set_tx_nonce(&mut self, tx_ref: &TxRef, nonce: Nonce) {
+        let block_idx =
+            self.queued_blocks.binary_search_by(|b| b.source_height.cmp(&tx_ref.height)).unwrap();
+        let block = &mut self.queued_blocks[block_idx];
+        let chunk = block.chunks.iter_mut().find(|c| c.shard_id == tx_ref.shard_id).unwrap();
+        let tx = &mut chunk.txs[tx_ref.tx_idx];
+
+        match self.txs_awaiting_nonce.entry(tx_ref.height) {
+            hash_map::Entry::Occupied(mut e) => {
+                let txs = e.get_mut();
+                if txs.len() == 1 {
+                    assert!(&txs[0] == tx_ref);
+                    e.remove();
+                } else {
+                    let idx = txs.iter().position(|t| t == tx_ref).unwrap();
+                    txs.swap_remove(idx);
+                }
+            }
+            hash_map::Entry::Vacant(_) => unreachable!(),
+        }
+        let (source_signer_id, source_public_key) = match &tx {
+            crate::TargetChainTx::AwaitingNonce(tx) => {
+                (tx.source_signer_id.clone(), tx.source_public.clone())
+            }
+            crate::TargetChainTx::Ready(_) => unreachable!(),
+        };
+
+        tx.set_nonce(nonce);
+        self.pending_access_keys_deref(source_signer_id, source_public_key);
     }
 
     pub(crate) fn queue_block(&mut self, block: MappedBlock) {
         self.height_queued = Some(block.source_height);
+        let mut txs_awaiting_nonce = Vec::new();
         for c in block.chunks.iter() {
-            self.num_txs_awaiting_nonce += c.txs_awaiting_nonce.len();
+            for (tx_idx, tx) in c.txs.iter().enumerate() {
+                if let crate::TargetChainTx::AwaitingNonce(tx) = tx {
+                    txs_awaiting_nonce.push(TxRef {
+                        height: block.source_height,
+                        shard_id: c.shard_id,
+                        tx_idx,
+                    });
+                    *self
+                        .pending_access_keys
+                        .entry((tx.source_signer_id.clone(), tx.source_public.clone()))
+                        .or_default() += 1;
+                }
+            }
+        }
+        if !txs_awaiting_nonce.is_empty() {
+            self.txs_awaiting_nonce.insert(block.source_height, txs_awaiting_nonce);
         }
         self.queued_blocks.push_back(block);
     }
@@ -123,8 +231,17 @@ impl TxTracker {
         }
         let block = self.queued_blocks.pop_front();
         if let Some(block) = &block {
-            for c in block.chunks.iter() {
-                self.num_txs_awaiting_nonce -= c.txs_awaiting_nonce.len();
+            self.txs_awaiting_nonce.remove(&block.source_height);
+            for chunk in block.chunks.iter() {
+                for tx in chunk.txs.iter() {
+                    match &tx {
+                        crate::TargetChainTx::AwaitingNonce(tx) => self.pending_access_keys_deref(
+                            tx.source_signer_id.clone(),
+                            tx.source_public.clone(),
+                        ),
+                        crate::TargetChainTx::Ready(_) => {}
+                    }
+                }
             }
         }
         block
@@ -133,7 +250,7 @@ impl TxTracker {
     fn remove_tx(&mut self, tx: &IndexerTransactionWithOutcome) {
         let k = (tx.transaction.signer_id.clone(), tx.transaction.public_key.clone());
         match self.txs_by_signer.entry(k.clone()) {
-            Entry::Occupied(mut e) => {
+            hash_map::Entry::Occupied(mut e) => {
                 let txs = e.get_mut();
                 if !txs.remove(&TxId { hash: tx.transaction.hash, nonce: tx.transaction.nonce }) {
                     tracing::warn!(target: "mirror", "tried to remove nonexistent tx {} from txs_by_signer", tx.transaction.hash);
@@ -155,7 +272,7 @@ impl TxTracker {
                     self.txs_by_signer.remove(&k);
                 }
             }
-            Entry::Vacant(_) => {
+            hash_map::Entry::Vacant(_) => {
                 tracing::warn!(
                     target: "mirror", "recently removed tx {}, but ({:?}, {:?}) not in txs_by_signer",
                     tx.transaction.hash, tx.transaction.signer_id, tx.transaction.public_key
