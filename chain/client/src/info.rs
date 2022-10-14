@@ -36,7 +36,7 @@ impl<T: Display> Display for DisplayOption<T> {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self.0 {
             Some(ref v) => write!(f, "{}", v),
-            None => write!(f, "None")
+            None => write!(f, "None"),
         }
     }
 }
