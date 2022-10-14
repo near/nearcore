@@ -17,11 +17,9 @@
   deprecated.  If they are set in `config.json` the node will fail if migration
   needs to be performed.  Use `store.migration_snapshot` instead to configure
   the behaviour [#7486](https://github.com/near/nearcore/pull/7486)
-* Confusingly, `node_key` field in `/status` response used to contain
-  *validator* key.  It now contains node key.  Validator key is now in a new
-  `validator_key` field.  If you were reading validator key you need to read the
-  new field.  If you used `node_key` for id to list in public address or boot
-  nodes list, you may continue to do so.
+* `/status` response has now two more fields: `node_public_key` and
+  `validator_public_key`.  The `node_key` field is now deprecated and should not
+  be used since it confusingly holds validator key.
 * Added `near_peer_message_sent_by_type_bytes` and
   `near_peer_message_sent_by_type_total` Prometheus metrics measuring
   size and number of messages sent to peers.

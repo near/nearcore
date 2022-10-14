@@ -533,9 +533,11 @@ pub struct StatusResponse {
     /// Validator id of the node
     pub validator_account_id: Option<AccountId>,
     /// Public key of the validator.
-    pub validator_key: Option<PublicKey>,
+    pub validator_public_key: Option<PublicKey>,
     /// Public key of the node.
-    pub node_key: PublicKey,
+    pub node_public_key: PublicKey,
+    /// Deprecated; same as `validator_public_key` which you should use instead.
+    pub node_key: Option<PublicKey>,
     /// Uptime of the node.
     pub uptime_sec: i64,
     /// Information about last blocks, network, epoch and chain & chunk info.
