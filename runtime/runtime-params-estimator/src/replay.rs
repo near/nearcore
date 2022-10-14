@@ -89,13 +89,18 @@ impl ReplayCmd {
     }
 }
 
+/// Interface for processing an IO trace line-by-line.
+///
+/// The visitor default methods take over the basic parsing of the IO trace.
+/// Specific implementations can extract the data of interest and process it
+/// further as necessary, without duplicating the parsing code.
 trait Visitor {
     /// The root entry point of the visitors.
     ///
     /// This function takes a raw input line as input without any preprocessing.
     /// A visitor may choose to overwrite this function for full control but the
     /// intention is that the default implementation takes over the basic
-    /// parsing and visitor implementations defined their behaviour using the
+    /// parsing and visitor implementations define their behaviour using the
     /// other trait methods.
     fn eval_line(&mut self, out: &mut dyn Write, line: &str) -> anyhow::Result<()> {
         if let Some(indent) = line.chars().position(|c| !c.is_whitespace()) {
@@ -218,7 +223,7 @@ mod tests {
     use super::{ReplayCmd, ReplayMode};
 
     // These inputs are real mainnet traffic for the given block heights.
-    // Each trace contains two chunks if one shard.
+    // Each trace contains two chunks in one shard.
     // In combination, they cover an interesting variety of content.
     //  Shard 0: Many receipts, but no function calls.
     //  Shard 1: Empty chunks without txs / receipts.

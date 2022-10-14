@@ -3,8 +3,8 @@ source: runtime/runtime-params-estimator/src/replay.rs
 expression: output
 ---
 apply_transactions shard_id=2 block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
-  GET   95 State  
-  DB GET               95 requests for a total of    17394 B
+  GET   94 State  
+  DB GET               94 requests for a total of    17348 B
   DB SET                0 requests for a total of        0 B
   STORAGE READ          0 requests for a total of        0 B
   STORAGE WRITE         0 requests for a total of        0 B
@@ -14,8 +14,8 @@ apply_transactions shard_id=2 block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
   CHUNK CACHE not accessed
 
 apply_transactions shard_id=2 block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
-  GET   145 State  
-  DB GET              145 requests for a total of    25296 B
+  GET   144 State  
+  DB GET              144 requests for a total of    25250 B
   DB SET                0 requests for a total of        0 B
   STORAGE READ          0 requests for a total of        0 B
   STORAGE WRITE         0 requests for a total of        0 B
@@ -25,8 +25,8 @@ apply_transactions shard_id=2 block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
   CHUNK CACHE not accessed
 
 top-level:
-  GET   4 Block  4 BlockHeader  2 BlockHeight  4 BlockInfo  2 BlockMisc  2 ChunkExtra  2 Chunks  4 EpochInfo  2 IncomingReceipts  2 State  
-  DB GET               28 requests for a total of   144614 B
+  GET   4 Block  4 BlockHeader  2 BlockHeight  4 BlockInfo  2 BlockMisc  2 ChunkExtra  2 Chunks  4 EpochInfo  2 IncomingReceipts  4 State  
+  DB GET               30 requests for a total of   144706 B
   DB SET                0 requests for a total of        0 B
   STORAGE READ          0 requests for a total of        0 B
   STORAGE WRITE         0 requests for a total of        0 B

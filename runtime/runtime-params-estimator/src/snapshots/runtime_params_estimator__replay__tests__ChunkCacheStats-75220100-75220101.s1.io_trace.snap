@@ -3,8 +3,8 @@ source: runtime/runtime-params-estimator/src/replay.rs
 expression: output
 ---
 apply_transactions shard_id=1 block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
-  GET   1 BlockHeight  4 State  
-  DB GET                5 requests for a total of      315 B
+  GET   4 State  
+  DB GET                4 requests for a total of      283 B
   DB SET                0 requests for a total of        0 B
   STORAGE READ          0 requests for a total of        0 B
   STORAGE WRITE         0 requests for a total of        0 B

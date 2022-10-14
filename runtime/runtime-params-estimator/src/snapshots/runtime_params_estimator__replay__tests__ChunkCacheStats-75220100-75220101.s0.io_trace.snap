@@ -3,8 +3,8 @@ source: runtime/runtime-params-estimator/src/replay.rs
 expression: output
 ---
 apply_transactions shard_id=0 block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
-  GET   288 State  
-  DB GET              288 requests for a total of  1668290 B
+  GET   287 State  
+  DB GET              287 requests for a total of  1668244 B
   DB SET                0 requests for a total of        0 B
   STORAGE READ          9 requests for a total of      800 B
   STORAGE WRITE        10 requests for a total of      881 B
@@ -14,8 +14,8 @@ apply_transactions shard_id=0 block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
   CHUNK CACHE         80.81% hit rate,  81.30% if removing 3 too large nodes from total
 
 apply_transactions shard_id=0 block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
-  GET   346 State  
-  DB GET              346 requests for a total of  1142014 B
+  GET   345 State  
+  DB GET              345 requests for a total of  1141968 B
   DB SET                0 requests for a total of        0 B
   STORAGE READ          9 requests for a total of      945 B
   STORAGE WRITE        11 requests for a total of      792 B
@@ -25,8 +25,8 @@ apply_transactions shard_id=0 block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
   CHUNK CACHE         78.52% hit rate,  78.88% if removing 2 too large nodes from total
 
 top-level:
-  GET   4 Block  4 BlockHeader  2 BlockHeight  4 BlockInfo  2 BlockMisc  2 ChunkExtra  2 Chunks  4 EpochInfo  2 IncomingReceipts  2 State  
-  DB GET               28 requests for a total of   149719 B
+  GET   4 Block  4 BlockHeader  2 BlockHeight  4 BlockInfo  2 BlockMisc  2 ChunkExtra  2 Chunks  4 EpochInfo  2 IncomingReceipts  4 State  
+  DB GET               30 requests for a total of   149811 B
   DB SET                0 requests for a total of        0 B
   STORAGE READ          0 requests for a total of        0 B
   STORAGE WRITE         0 requests for a total of        0 B

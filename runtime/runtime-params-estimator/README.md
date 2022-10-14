@@ -67,7 +67,7 @@ for shard in 0 1 2 3
 do
   target/release/neard \
     --record-io-trace=75220100-75220101.s${shard}.io_trace view-state \
-    apply-range --start-index 75220100 --end-index 752201 \
+    apply-range --start-index 75220100 --end-index 75220101 \
     --sequential --shard-id ${shard}
 done
 ```
