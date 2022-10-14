@@ -340,6 +340,7 @@ impl ActorHandler {
             // It is important that we wait for the next PeerMessage::SyncAccountsData to get
             // PROCESSED, not just RECEIVED. Otherwise we would get a race condition.
             events.recv_until(unwrap_sync_accounts_data_processed).await;
+            tracing::debug!(target:"dupa","sync_accounts_data_processed"); 
         }
     }
 
