@@ -3611,7 +3611,7 @@ dependencies = [
 
 [[package]]
 name = "nearcore"
-version = "1.30.0-rc.2"
+version = "1.30.0-rc.4"
 dependencies = [
  "actix",
  "actix-rt",
@@ -3673,7 +3673,7 @@ dependencies = [
 
 [[package]]
 name = "neard"
-version = "1.30.0-rc.2"
+version = "1.30.0-rc.4"
 dependencies = [
  "actix",
  "anyhow",
