@@ -23,7 +23,7 @@ use crate::time;
 use crate::types::{
     ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownPeerStatus, KnownProducer,
     NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
-    NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerMessageRequest,
+    NetworkViewClientMessages, NetworkViewClientResponses, PeerIdOrHash, PeerManagerMessageRequest,
     PeerManagerMessageResponse, PeerType, ReasonForBan, SetChainInfo,
 };
 use actix::fut::future::wrap_future;
@@ -941,19 +941,18 @@ impl PeerManagerActor {
         target: &AccountOrPeerIdOrHash,
         msg: RoutedMessageBody,
     ) -> bool {
-        match target {
+        let target = match target {
             AccountOrPeerIdOrHash::AccountId(account_id) => {
-                self.state.send_message_to_account(&self.clock, account_id, msg)
+                return self.state.send_message_to_account(&self.clock, account_id, msg);
             }
-            peer_or_hash @ AccountOrPeerIdOrHash::PeerId(_)
-            | peer_or_hash @ AccountOrPeerIdOrHash::Hash(_) => self.state.send_message_to_peer(
-                &self.clock,
-                self.state.sign_message(
-                    &self.clock,
-                    RawRoutedMessage { target: peer_or_hash.clone(), body: msg },
-                ),
-            ),
-        }
+            AccountOrPeerIdOrHash::PeerId(it) => PeerIdOrHash::PeerId(it.clone()),
+            AccountOrPeerIdOrHash::Hash(it) => PeerIdOrHash::Hash(it.clone()),
+        };
+
+        self.state.send_message_to_peer(
+            &self.clock,
+            self.state.sign_message(&self.clock, RawRoutedMessage { target, body: msg }),
+        )
     }
 
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
@@ -1100,7 +1099,7 @@ impl PeerManagerActor {
                     &self.clock,
                     self.state.sign_message(
                         &self.clock,
-                        RawRoutedMessage { target: AccountOrPeerIdOrHash::Hash(route_back), body },
+                        RawRoutedMessage { target: PeerIdOrHash::Hash(route_back), body },
                     ),
                 ) {
                     NetworkResponses::NoResponse
@@ -1176,9 +1175,7 @@ impl PeerManagerActor {
                                 self.state.sign_message(
                                     &self.clock,
                                     RawRoutedMessage {
-                                        target: AccountOrPeerIdOrHash::PeerId(
-                                            matching_peer.clone(),
-                                        ),
+                                        target: PeerIdOrHash::PeerId(matching_peer.clone()),
                                         body: RoutedMessageBody::PartialEncodedChunkRequest(
                                             request.clone(),
                                         ),
@@ -1207,7 +1204,7 @@ impl PeerManagerActor {
                     self.state.sign_message(
                         &self.clock,
                         RawRoutedMessage {
-                            target: AccountOrPeerIdOrHash::Hash(route_back),
+                            target: PeerIdOrHash::Hash(route_back),
                             body: RoutedMessageBody::PartialEncodedChunkResponse(response),
                         },
                     ),
