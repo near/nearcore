@@ -285,9 +285,12 @@ impl ActorHandler {
         self.actix.addr.send(CheckConsistency).await.unwrap();
     }
 
-    pub async fn set_chain_info(&self, clock: &time::Clock, chain_info: ChainInfo) {
-        let mut events = self.events.from_now();
+    pub async fn set_chain_info(&self, chain_info: ChainInfo) {
         self.actix.addr.send(SetChainInfo(chain_info)).await.unwrap();
+    }
+
+    pub async fn tier1_connect_to_proxies(&self, clock: &time::Clock) {
+        let mut events = self.events.from_now();
         let clock = clock.clone();
         self.with_state(move |s| async move {
             if let Some(vc) = s.tier1_validator_config(&s.accounts_data.load()) {

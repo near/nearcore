@@ -46,7 +46,11 @@ async fn propagate_accounts_data(
 
     // Send it to all peers.
     for pm in all {
-        pm.set_chain_info(clock, chain_info.clone()).await;
+        pm.set_chain_info(chain_info.clone()).await;
+    }
+    // Make validator connect to proxies.
+    for pm in validators {
+        pm.tier1_connect_to_proxies(clock).await;
     }
     let want = vs.iter().map(|v| super::peer_account_data(&e, v)).collect();
     // Wait for accounts data to propagate.

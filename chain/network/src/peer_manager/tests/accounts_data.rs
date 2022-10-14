@@ -136,7 +136,7 @@ async fn accounts_data_gradual_epoch_change() {
 
         // Advance epoch in the given order.
         for id in ids {
-            pms[id].set_chain_info(&clock.clock(), chain_info.clone()).await;
+            pms[id].set_chain_info(chain_info.clone()).await;
         }
 
         // Wait for data to arrive.
@@ -221,7 +221,7 @@ async fn accounts_data_rate_limiting() {
     tracing::debug!(target:"test","set chain info");
     pms.shuffle(rng);
     for pm in &mut pms {
-        pm.set_chain_info(&clock.clock(), chain_info.clone()).await;
+        pm.set_chain_info(chain_info.clone()).await;
         tracing::debug!(target:"test","set chain info [X]");
     }
     tracing::debug!(target:"test","set chain info DONE");
