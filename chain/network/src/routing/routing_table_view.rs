@@ -1,4 +1,4 @@
-use crate::network_protocol::{Edge,PeerIdOrHash};
+use crate::network_protocol::{Edge, PeerIdOrHash};
 use crate::routing;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::store;

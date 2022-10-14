@@ -32,6 +32,7 @@ near-chain-configs = { path = "../../core/chain-configs" }
 near-client = { path = "../client" }
 near-client-primitives = { path = "../client-primitives" }
 near-network = { path = "../network" }
+near-o11y = { path = "../../core/o11y" }
 
 [dev-dependencies]
 insta.workspace = true

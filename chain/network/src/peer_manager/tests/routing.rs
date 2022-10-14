@@ -71,9 +71,10 @@ async fn ttl() {
             let got = peer
                 .events
                 .recv_until(|ev| match ev {
-                    peer::testonly::Event::Network(PME::MessageProcessed(_,PeerMessage::Routed(
-                        msg,
-                    ))) => Some(msg),
+                    peer::testonly::Event::Network(PME::MessageProcessed(
+                        _,
+                        PeerMessage::Routed(msg),
+                    )) => Some(msg),
                     _ => None,
                 })
                 .await;

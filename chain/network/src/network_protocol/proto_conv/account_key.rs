@@ -3,7 +3,9 @@ use super::*;
 
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::account_key_payload::Payload_type as ProtoPT;
-use crate::network_protocol::{OwnedAccount, SignedOwnedAccount, AccountData, AccountKeySignedPayload, SignedAccountData};
+use crate::network_protocol::{
+    AccountData, AccountKeySignedPayload, OwnedAccount, SignedAccountData, SignedOwnedAccount,
+};
 use near_primitives::account::id::ParseAccountError;
 use near_primitives::types::EpochId;
 use protobuf::{Message as _, MessageField as MF};
@@ -176,5 +178,3 @@ impl TryFrom<&proto::AccountKeySignedPayload> for SignedOwnedAccount {
         })
     }
 }
-
-

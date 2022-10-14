@@ -1,21 +1,19 @@
-use actix::{Actor, Addr, AsyncContext, Context};
-use chrono::DateTime;
-use futures::{future, FutureExt};
-use near_chunks::client::{ClientAdapterForShardsManager, ShardsManagerResponse};
-use near_chunks::test_utils::MockClientAdapterForShardsManager;
-use near_o11y::testonly::TracingCapture;
-use near_primitives::time::Utc;
-use num_rational::Ratio;
-use once_cell::sync::OnceCell;
-use rand::{thread_rng, Rng};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::mem::swap;
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
+
+use actix::{Actor, Addr, AsyncContext, Context};
+use chrono::DateTime;
+use futures::{future, FutureExt};
+use num_rational::Ratio;
+use once_cell::sync::OnceCell;
+use rand::{thread_rng, Rng};
 use tracing::info;
 
+use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_chain::test_utils::{
     wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
     ValidatorSchedule,
@@ -24,23 +22,42 @@ use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
+use near_chunks::client::{ClientAdapterForShardsManager, ShardsManagerResponse};
+use near_chunks::test_utils::MockClientAdapterForShardsManager;
+use near_client_primitives::types::Error;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::PartialEdgeInfo;
 use near_network::types::{
+    AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses,
+    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo,
+    PeerType,
+};
+use near_network::types::{
     ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkClientResponses,
     NetworkRecipient, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
+use near_network::types::{
+    NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
+};
+use near_o11y::testonly::TracingCapture;
+use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
+use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
+use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
+use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
+use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper};
+use near_primitives::time::Utc;
+use near_primitives::time::{Clock, Instant};
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, ShardId,
 };
+use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
@@ -51,21 +68,6 @@ use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
-use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
-use near_client_primitives::types::Error;
-use near_network::types::{
-    AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses,
-    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo,
-    PeerType,
-};
-use near_network::types::{
-    NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
-};
-use near_primitives::epoch_manager::RngSeed;
-use near_primitives::network::PeerId;
-use near_primitives::runtime::config::RuntimeConfig;
-use near_primitives::time::{Clock, Instant};
-use near_primitives::utils::MaybeValidated;
 
 pub struct PeerManagerMock {
     handle: Box<
@@ -500,7 +502,7 @@ fn send_chunks<T, I, F>(
 ) where
     T: Eq,
     I: Iterator<Item = (usize, T)>,
-    F: Fn() -> NetworkClientMessages,
+    F: Fn() -> WithSpanContext<NetworkClientMessages>,
 {
     for (i, name) in recipients {
         if name == target {
@@ -668,7 +670,7 @@ pub fn setup_mock_all_validators(
                             known_producers: vec![],
                             tier1_accounts: vec![],
                         };
-                        client_addr.do_send(NetworkClientMessages::NetworkInfo(info));
+                        client_addr.do_send(NetworkClientMessages::NetworkInfo(info).with_span_context());
                     }
 
                     match msg.as_network_requests_ref() {
@@ -680,11 +682,7 @@ pub fn setup_mock_all_validators(
                             }
 
                             for (client, _) in connectors1 {
-                                client.do_send(NetworkClientMessages::Block(
-                                    block.clone(),
-                                    PeerInfo::random().id,
-                                    false,
-                                ))
+                                client.do_send(NetworkClientMessages::Block( block.clone(), PeerInfo::random().id, false, ).with_span_context());
                             }
 
                             let mut last_height1 = last_height1.write().unwrap();
@@ -700,10 +698,7 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
                             let create_msg = || {
-                                NetworkClientMessages::PartialEncodedChunkRequest(
-                                    request.clone(),
-                                    my_address,
-                                )
+                                NetworkClientMessages::PartialEncodedChunkRequest(request.clone(), my_address).with_span_context()
                             };
                             send_chunks(
                                 connectors1,
@@ -718,7 +713,7 @@ pub fn setup_mock_all_validators(
                                 NetworkClientMessages::PartialEncodedChunkResponse(
                                     response.clone(),
                                     Clock::instant(),
-                                )
+                                ).with_span_context()
                             };
                             send_chunks(
                                 connectors1,
@@ -733,9 +728,7 @@ pub fn setup_mock_all_validators(
                             partial_encoded_chunk,
                         } => {
                             let create_msg = || {
-                                NetworkClientMessages::PartialEncodedChunk(
-                                    partial_encoded_chunk.clone().into(),
-                                )
+                                NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk.clone().into()).with_span_context()
                             };
                             send_chunks(
                                 connectors1,
@@ -747,7 +740,7 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                             let create_msg = || {
-                                NetworkClientMessages::PartialEncodedChunkForward(forward.clone())
+                                NetworkClientMessages::PartialEncodedChunkForward(forward.clone()).with_span_context()
                             };
                             send_chunks(
                                 connectors1,
@@ -772,7 +765,7 @@ pub fn setup_mock_all_validators(
                                                     NetworkViewClientResponses::Block(block) => {
                                                         me.do_send(NetworkClientMessages::Block(
                                                             *block, peer_id, true,
-                                                        ));
+                                                        ).with_span_context());
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -803,7 +796,7 @@ pub fn setup_mock_all_validators(
                                                         me.do_send(
                                                             NetworkClientMessages::BlockHeaders(
                                                                 headers, peer_id,
-                                                            ),
+                                                            ).with_span_context()
                                                         );
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
@@ -843,7 +836,7 @@ pub fn setup_mock_all_validators(
                                                         me.do_send(
                                                             NetworkClientMessages::StateResponse(
                                                                 *response,
-                                                            ),
+                                                            ).with_span_context()
                                                         );
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
@@ -885,7 +878,7 @@ pub fn setup_mock_all_validators(
                                                         me.do_send(
                                                             NetworkClientMessages::StateResponse(
                                                                 *response,
-                                                            ),
+                                                            ).with_span_context()
                                                         );
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
@@ -900,9 +893,7 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::StateResponse { route_back, response } => {
                             for (i, address) in addresses.iter().enumerate() {
                                 if route_back == address {
-                                    connectors1[i].0.do_send(NetworkClientMessages::StateResponse(
-                                        response.clone(),
-                                    ));
+                                    connectors1[i].0.do_send(NetworkClientMessages::StateResponse(response.clone()).with_span_context());
                                 }
                             }
                         }
@@ -946,7 +937,7 @@ pub fn setup_mock_all_validators(
                                             NetworkClientMessages::BlockApproval(
                                                 approval.clone(),
                                                 my_key_pair.id.clone(),
-                                            ),
+                                            ).with_span_context(),
                                         );
                                     }
                                 }
@@ -1387,7 +1378,10 @@ impl TestEnv {
                 ) = request
                 {
                     self.client(&account_id)
-                        .process_partial_encoded_chunk(partial_encoded_chunk.into())
+                        .shards_mgr
+                        .process_partial_encoded_chunk(
+                            PartialEncodedChunk::from(partial_encoded_chunk).into(),
+                        )
                         .unwrap();
                 }
             }
@@ -1414,7 +1408,7 @@ impl TestEnv {
         {
             let target_id = self.account_to_client_index[&target.account_id.unwrap()];
             let response = self.get_partial_encoded_chunk_response(target_id, request);
-            self.clients[id].process_partial_encoded_chunk_response(response).unwrap();
+            self.clients[id].shards_mgr.process_partial_encoded_chunk_response(response).unwrap();
         } else {
             panic!("The request is not a PartialEncodedChunk request {:?}", request);
         }

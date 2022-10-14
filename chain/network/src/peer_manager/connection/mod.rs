@@ -3,7 +3,7 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerMessage, RoutedMessageBody,
-    SignedAccountData, SyncAccountsData, SignedOwnedAccount,
+    SignedAccountData, SignedOwnedAccount, SyncAccountsData,
 };
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
@@ -12,15 +12,14 @@ use crate::stats::metrics;
 use crate::tcp;
 use crate::time;
 use crate::types::{FullPeerInfo, PeerType, ReasonForBan};
+use near_crypto::PublicKey;
+use near_o11y::WithSpanContextExt;
 use near_primitives::network::PeerId;
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
-use tracing::Span;
-use tracing_opentelemetry::OpenTelemetrySpanExt;
-use near_crypto::PublicKey;
 
 #[cfg(test)]
 mod tests;
@@ -86,7 +85,7 @@ pub(crate) struct Connection {
     pub connection_established_time: time::Instant,
 
     /// Last time requested peers.
-    pub last_time_peer_requested: AtomicCell<time::Instant>,
+    pub last_time_peer_requested: AtomicCell<Option<time::Instant>>,
     /// Last time we received a message from this peer.
     pub last_time_received_message: AtomicCell<time::Instant>,
     /// Connection stats
@@ -128,7 +127,7 @@ impl Connection {
     }
 
     pub fn stop(&self, ban_reason: Option<ReasonForBan>) {
-        self.addr.do_send(peer_actor::Stop { ban_reason, context: Span::current().context() });
+        self.addr.do_send(peer_actor::Stop { ban_reason }.with_span_context());
     }
 
     // TODO(gprusak): embed Stream directly in Connection,
@@ -136,7 +135,7 @@ impl Connection {
     pub fn send_message(&self, msg: Arc<PeerMessage>) {
         let msg_kind = msg.msg_variant().to_string();
         tracing::trace!(target: "network", ?msg_kind, "Send message");
-        self.addr.do_send(SendMessage { message: msg, context: Span::current().context() });
+        self.addr.do_send(SendMessage { message: msg }.with_span_context());
     }
 
     pub fn send_accounts_data(
@@ -186,7 +185,7 @@ impl Connection {
 
 #[derive(Clone)]
 pub(crate) struct PoolSnapshot {
-    pub me: PeerId, 
+    pub me: PeerId,
     /// Connections which have completed the handshake and are ready
     /// for transmitting messages.
     pub ready: im::HashMap<PeerId, Arc<Connection>>,
@@ -350,13 +349,17 @@ impl Pool {
     pub fn remove(&self, conn: &Arc<Connection>) {
         self.0.update(|pool| {
             match pool.ready.entry(conn.peer_info.id.clone()) {
-                im::hashmap::Entry::Occupied(e) if Arc::ptr_eq(e.get(),conn) => { e.remove_entry(); }
-                _ => {},
+                im::hashmap::Entry::Occupied(e) if Arc::ptr_eq(e.get(), conn) => {
+                    e.remove_entry();
+                }
+                _ => {}
             }
             if let Some(owned_account) = &conn.owned_account {
                 match pool.ready_by_account_key.entry(owned_account.account_key.clone()) {
-                    im::hashmap::Entry::Occupied(e) if Arc::ptr_eq(e.get(),conn) => { e.remove_entry(); }
-                    _ => {},
+                    im::hashmap::Entry::Occupied(e) if Arc::ptr_eq(e.get(), conn) => {
+                        e.remove_entry();
+                    }
+                    _ => {}
                 }
             }
         });

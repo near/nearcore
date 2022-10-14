@@ -82,7 +82,7 @@ impl StandaloneRuntime {
         );
 
         let apply_state = ApplyState {
-            block_index: 1,
+            block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
             epoch_id: Default::default(),
@@ -131,7 +131,7 @@ impl StandaloneRuntime {
             self.tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard());
         self.root = root;
         store_update.commit().unwrap();
-        self.apply_state.block_index += 1;
+        self.apply_state.block_height += 1;
 
         (apply_result.outgoing_receipts, apply_result.outcomes)
     }

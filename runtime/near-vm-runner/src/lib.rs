@@ -18,13 +18,12 @@ mod wasmer_runner;
 #[cfg(feature = "wasmtime_vm")]
 mod wasmtime_runner;
 
-pub use near_vm_errors::VMError;
 pub use near_vm_logic::with_ext_cost_counter;
 
 pub use cache::{
     get_contract_cache_key, precompile_contract, precompile_contract_vm, MockCompiledContractCache,
 };
-pub use runner::{run, VMResult, VM};
+pub use runner::{run, VM};
 
 /// This is public for internal experimentation use only, and should otherwise be considered an
 /// implementation detail of `near-vm-runner`.

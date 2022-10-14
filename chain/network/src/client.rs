@@ -6,6 +6,7 @@ use crate::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkViewClientMessages,
     NetworkViewClientResponses, ReasonForBan,
 };
+use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
@@ -17,7 +18,7 @@ use near_primitives::views::FinalExecutionOutcomeView;
 
 pub struct Client {
     /// Address of the client actor.
-    pub client_addr: actix::Recipient<NetworkClientMessages>,
+    pub client_addr: actix::Recipient<WithSpanContext<NetworkClientMessages>>,
     /// Address of the view client actor.
     pub view_client_addr: actix::Recipient<NetworkViewClientMessages>,
 }
@@ -115,7 +116,11 @@ impl Client {
     }
 
     pub async fn state_response(&self, info: StateResponseInfo) -> Result<()> {
-        match self.client_addr.send(NetworkClientMessages::StateResponse(info)).await {
+        match self
+            .client_addr
+            .send(NetworkClientMessages::StateResponse(info).with_span_context())
+            .await
+        {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
             Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
             Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
@@ -127,7 +132,11 @@ impl Client {
     }
 
     pub async fn block_approval(&self, approval: Approval, peer_id: PeerId) -> Result<()> {
-        match self.client_addr.send(NetworkClientMessages::BlockApproval(approval, peer_id)).await {
+        match self
+            .client_addr
+            .send(NetworkClientMessages::BlockApproval(approval, peer_id).with_span_context())
+            .await
+        {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
             Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
             Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
@@ -145,11 +154,10 @@ impl Client {
     ) -> Result<()> {
         match self
             .client_addr
-            .send(NetworkClientMessages::Transaction {
-                transaction,
-                is_forwarded,
-                check_only: false,
-            })
+            .send(
+                NetworkClientMessages::Transaction { transaction, is_forwarded, check_only: false }
+                    .with_span_context(),
+            )
             .await
         {
             Ok(NetworkClientResponses::ValidTx) => Ok(()),
@@ -174,7 +182,10 @@ impl Client {
     ) -> Result<()> {
         match self
             .client_addr
-            .send(NetworkClientMessages::PartialEncodedChunkRequest(req, msg_hash))
+            .send(
+                NetworkClientMessages::PartialEncodedChunkRequest(req, msg_hash)
+                    .with_span_context(),
+            )
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -194,7 +205,10 @@ impl Client {
     ) -> Result<()> {
         match self
             .client_addr
-            .send(NetworkClientMessages::PartialEncodedChunkResponse(resp, timestamp.into()))
+            .send(
+                NetworkClientMessages::PartialEncodedChunkResponse(resp, timestamp.into())
+                    .with_span_context(),
+            )
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -208,7 +222,11 @@ impl Client {
     }
 
     pub async fn partial_encoded_chunk(&self, chunk: PartialEncodedChunk) -> Result<()> {
-        match self.client_addr.send(NetworkClientMessages::PartialEncodedChunk(chunk)).await {
+        match self
+            .client_addr
+            .send(NetworkClientMessages::PartialEncodedChunk(chunk).with_span_context())
+            .await
+        {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
             Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
             Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
@@ -223,7 +241,11 @@ impl Client {
         &self,
         msg: PartialEncodedChunkForwardMsg,
     ) -> Result<()> {
-        match self.client_addr.send(NetworkClientMessages::PartialEncodedChunkForward(msg)).await {
+        match self
+            .client_addr
+            .send(NetworkClientMessages::PartialEncodedChunkForward(msg).with_span_context())
+            .await
+        {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
             Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
             Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
@@ -270,7 +292,7 @@ impl Client {
     pub async fn block(&self, block: Block, peer_id: PeerId, was_requested: bool) -> Result<()> {
         match self
             .client_addr
-            .send(NetworkClientMessages::Block(block, peer_id, was_requested))
+            .send(NetworkClientMessages::Block(block, peer_id, was_requested).with_span_context())
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -284,7 +306,11 @@ impl Client {
     }
 
     pub async fn block_headers(&self, headers: Vec<BlockHeader>, peer_id: PeerId) -> Result<()> {
-        match self.client_addr.send(NetworkClientMessages::BlockHeaders(headers, peer_id)).await {
+        match self
+            .client_addr
+            .send(NetworkClientMessages::BlockHeaders(headers, peer_id).with_span_context())
+            .await
+        {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
             Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
             Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
@@ -296,7 +322,11 @@ impl Client {
     }
 
     pub async fn challenge(&self, challenge: Challenge) -> Result<()> {
-        match self.client_addr.send(NetworkClientMessages::Challenge(challenge)).await {
+        match self
+            .client_addr
+            .send(NetworkClientMessages::Challenge(challenge).with_span_context())
+            .await
+        {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
             Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
             Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
@@ -308,7 +338,11 @@ impl Client {
     }
 
     pub async fn network_info(&self, info: NetworkInfo) {
-        match self.client_addr.send(NetworkClientMessages::NetworkInfo(info)).await {
+        match self
+            .client_addr
+            .send(NetworkClientMessages::NetworkInfo(info).with_span_context())
+            .await
+        {
             Ok(NetworkClientResponses::NoResponse) => {}
             Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
             Err(err) => tracing::error!("mailbox error: {err}"),

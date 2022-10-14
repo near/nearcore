@@ -1,5 +1,5 @@
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{PeerIdOrHash};
+use crate::network_protocol::PeerIdOrHash;
 use crate::routing;
 use crate::routing::routing_table_view::*;
 use crate::testonly::make_rng;

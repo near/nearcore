@@ -2,9 +2,9 @@ use crate::concurrency::rate;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::SyncAccountsData;
 use crate::peer;
-use crate::tcp;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
+use crate::tcp;
 use crate::testonly::{make_rng, AsSet as _};
 use crate::time;
 use crate::types::PeerMessage;
@@ -33,9 +33,10 @@ async fn accounts_data_broadcast() {
     .await;
 
     let take_sync = |ev| match ev {
-        peer::testonly::Event::Network(PME::MessageProcessed(tcp::Tier::T2, PeerMessage::SyncAccountsData(
-            msg,
-        ))) => Some(msg),
+        peer::testonly::Event::Network(PME::MessageProcessed(
+            tcp::Tier::T2,
+            PeerMessage::SyncAccountsData(msg),
+        )) => Some(msg),
         _ => None,
     };
 
@@ -135,7 +136,7 @@ async fn accounts_data_gradual_epoch_change() {
 
         // Advance epoch in the given order.
         for id in ids {
-            pms[id].set_chain_info(&clock.clock(),chain_info.clone()).await;
+            pms[id].set_chain_info(&clock.clock(), chain_info.clone()).await;
         }
 
         // Wait for data to arrive.
@@ -166,7 +167,7 @@ async fn accounts_data_rate_limiting() {
      * Here we adjust it appropriately to account for test requirements.
      */
     let limit = rlimit::Resource::NOFILE.get().unwrap();
-    rlimit::Resource::NOFILE.set(std::cmp::min(limit.1,3000),limit.1).unwrap();
+    rlimit::Resource::NOFILE.set(std::cmp::min(limit.1, 3000), limit.1).unwrap();
 
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -223,7 +224,7 @@ async fn accounts_data_rate_limiting() {
         pm.set_chain_info(&clock.clock(), chain_info.clone()).await;
         tracing::debug!(target:"test","set chain info [X]");
     }
-        tracing::debug!(target:"test","set chain info DONE");
+    tracing::debug!(target:"test","set chain info DONE");
 
     // Capture the event streams at the start, so that we can compute
     // the total number of SyncAccountsData messages exchanged in the process.

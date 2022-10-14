@@ -1,15 +1,13 @@
 use crate::accounts_data;
 use crate::config;
-use crate::network_protocol::{
-    AccountData, SyncAccountsData, PeerAddr, PeerInfo, PeerMessage,
-};
-use near_o11y::log_assert;
+use crate::network_protocol::{AccountData, PeerAddr, PeerInfo, PeerMessage, SyncAccountsData};
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::tcp;
 use crate::time;
-use crate::types::{PeerType};
-use near_primitives::network::{PeerId};
+use crate::types::PeerType;
+use near_o11y::log_assert;
+use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use rand::seq::IteratorRandom as _;
 use rand::seq::SliceRandom as _;
@@ -18,14 +16,16 @@ use std::sync::Arc;
 
 impl super::NetworkState {
     // Returns ValidatorConfig of this node iff it belongs to TIER1 according to `accounts_data`.
-    pub fn tier1_validator_config(&self, accounts_data: &accounts_data::CacheSnapshot) -> Option<&config::ValidatorConfig> {
+    pub fn tier1_validator_config(
+        &self,
+        accounts_data: &accounts_data::CacheSnapshot,
+    ) -> Option<&config::ValidatorConfig> {
         if self.config.features.tier1.is_none() {
             return None;
         }
-        self.config.validator.as_ref().filter(|cfg| accounts_data.contains_account_key(
-            cfg.signer.validator_id(),
-            &cfg.signer.public_key(),
-        ))
+        self.config.validator.as_ref().filter(|cfg| {
+            accounts_data.contains_account_key(cfg.signer.validator_id(), &cfg.signer.public_key())
+        })
     }
 
     /// Connects to ALL trusted proxies from the config.
@@ -53,10 +53,12 @@ impl super::NetworkState {
         tracing::debug!(target:"test","proxies = {proxies:?}");
         for proxy in proxies {
             // Skip the proxies we are already connected/connecting to.
-            if tier1.ready.contains_key(&proxy.peer_id) || tier1.outbound_handshakes.contains(&proxy.peer_id) {
+            if tier1.ready.contains_key(&proxy.peer_id)
+                || tier1.outbound_handshakes.contains(&proxy.peer_id)
+            {
                 continue;
             }
-            if let Err(err) = async { 
+            if let Err(err) = async {
                 let stream = tcp::Stream::connect(
                     &PeerInfo {
                         id: proxy.peer_id.clone(),
@@ -68,7 +70,9 @@ impl super::NetworkState {
                 .await?;
                 tracing::debug!(target:"test","spawning connection to {proxy:?}");
                 anyhow::Ok(PeerActor::spawn(clock.clone(), stream, None, self.clone())?)
-            }.await {
+            }
+            .await
+            {
                 tracing::info!(target:"network", ?err, ?proxy, "failed to establish a TIER1 connection");
             }
         }
@@ -86,13 +90,10 @@ impl super::NetworkState {
             config::ValidatorEndpoints::TrustedStunServers(_) => {
                 match tier1.ready.get(&self.config.node_id()) {
                     Some(conn) => {
-                        log_assert!(PeerType::Outbound==conn.peer_type);
+                        log_assert!(PeerType::Outbound == conn.peer_type);
                         log_assert!(conn.peer_info.addr.is_some());
                         match conn.peer_info.addr {
-                            Some(addr) => vec![PeerAddr{
-                                peer_id: self.config.node_id(),
-                                addr,
-                            }],
+                            Some(addr) => vec![PeerAddr { peer_id: self.config.node_id(), addr }],
                             None => vec![],
                         }
                     }
@@ -103,20 +104,20 @@ impl super::NetworkState {
                 let mut connected_proxies = vec![];
                 for proxy in proxies {
                     match tier1.ready.get(&proxy.peer_id) {
-                        // Here we compare the address from the config with the 
+                        // Here we compare the address from the config with the
                         // address of the connection (which is the IP, to which the
                         // TCP socket is connected + port indicated by the peer).
                         // We will broadcast only those addresses which we confirmed are
                         // valid (i.e. we managed to connect to them).
                         //
-                        // TODO(gprusak): It may happen that a single peer will be 
+                        // TODO(gprusak): It may happen that a single peer will be
                         // available under multiple IPs, in which case, we should
                         // prefer to connect to the IP from the config, however
                         // that would require having separate inbound and outbound
                         // pools, so that both endpoints can keep a connection
                         // to the IP that they prefer. This is a corner case which can happen
                         // only if 2 TIER1 validators are proxies for some other validator.
-                        Some(conn) if conn.peer_info.addr==Some(proxy.addr) => {
+                        Some(conn) if conn.peer_info.addr == Some(proxy.addr) => {
                             connected_proxies.push(proxy.clone());
                         }
                         _ => {}
@@ -129,7 +130,7 @@ impl super::NetworkState {
         let my_data = self
             .accounts_data
             .load()
-            .epochs(&vc.signer.validator_id(),&vc.signer.public_key())
+            .epochs(&vc.signer.validator_id(), &vc.signer.public_key())
             .iter()
             .map(|epoch_id| {
                 // This unwrap is safe, because we did signed a sample payload during
@@ -160,13 +161,11 @@ impl super::NetworkState {
             tracing::warn!("cannot broadcast TIER1 proxy addresses: UTC clock went backwards");
             return;
         }
-        self.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(
-            SyncAccountsData {
-                incremental: true,
-                requesting_full_sync: false,
-                accounts_data: new_data,
-            },
-        )));
+        self.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
+            incremental: true,
+            requesting_full_sync: false,
+            accounts_data: new_data,
+        })));
     }
 
     pub async fn tier1_connect_to_others(self: &Arc<Self>, clock: &time::Clock) {
@@ -177,7 +176,7 @@ impl super::NetworkState {
         let accounts_data = self.accounts_data.load();
         let tier1 = self.tier1.load();
         let validator_cfg = self.tier1_validator_config(&accounts_data);
-       
+
         // Construct indices on accounts_data.
         //let mut accounts_by_peer = HashMap::<_, Vec<_>>::new();
         let mut accounts_by_proxy = HashMap::<_, Vec<_>>::new();
@@ -215,7 +214,7 @@ impl super::NetworkState {
             }
         }
         // Construct a safe set of connections.
-        let mut safe_set: HashSet<PeerId> = safe.values().map(|v|(*v).clone()).collect();
+        let mut safe_set: HashSet<PeerId> = safe.values().map(|v| (*v).clone()).collect();
         // Add proxies of our node to the safe set.
         if let Some(vc) = validator_cfg {
             match &vc.endpoints {
@@ -226,7 +225,7 @@ impl super::NetworkState {
                     // TODO(gprusak): here we add peer_id to a safe set, even if
                     // the conn.peer_addr doesn't match the address from the validator config
                     // (so we cannot advertise it as our proxy). Consider making it more precise.
-                    safe_set.extend(peer_addrs.iter().map(|pa|pa.peer_id.clone()));
+                    safe_set.extend(peer_addrs.iter().map(|pa| pa.peer_id.clone()));
                 }
             }
         }

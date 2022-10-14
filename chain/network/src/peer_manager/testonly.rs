@@ -13,7 +13,9 @@ use crate::tcp;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
-use crate::types::{ChainInfo, GetNetworkInfo, PeerManagerMessageRequest, SetChainInfo};
+use crate::types::{
+    ChainInfo, GetNetworkInfo, KnownPeerStatus, PeerManagerMessageRequest, SetChainInfo,
+};
 use crate::PeerManagerActor;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, EpochId};
@@ -39,6 +41,33 @@ impl actix::Handler<WithNetworkState> for PeerManagerActor {
     }
 }
 
+#[derive(actix::Message, Debug)]
+#[rtype("()")]
+struct CheckConsistency;
+
+impl actix::Handler<CheckConsistency> for PeerManagerActor {
+    type Result = ();
+    /// Checks internal consistency of the PeerManagerActor.
+    /// This is a partial implementation, add more invariant checks
+    /// if needed.
+    fn handle(&mut self, _: CheckConsistency, _: &mut actix::Context<Self>) {
+        // Check that the set of ready connections matches the PeerStore state.
+        let tier2: HashSet<_> = self.state.tier2.load().ready.keys().cloned().collect();
+        let store: HashSet<_> = self
+            .peer_store
+            .iter()
+            .filter_map(|(peer_id, state)| {
+                if state.status == KnownPeerStatus::Connected {
+                    Some(peer_id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(tier2, store);
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Event {
     Client(fake_client::Event),
@@ -53,7 +82,10 @@ pub(crate) struct ActorHandler {
 
 pub fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData> {
     match ev {
-        Event::PeerManager(PME::MessageProcessed(tcp::Tier::T2,PeerMessage::SyncAccountsData(msg))) => Some(msg),
+        Event::PeerManager(PME::MessageProcessed(
+            tcp::Tier::T2,
+            PeerMessage::SyncAccountsData(msg),
+        )) => Some(msg),
         _ => None,
     }
 }
@@ -249,6 +281,10 @@ impl ActorHandler {
         conn
     }
 
+    pub async fn check_consistency(&self) {
+        self.actix.addr.send(CheckConsistency).await.unwrap();
+    }
+
     pub async fn set_chain_info(&self, clock: &time::Clock, chain_info: ChainInfo) {
         let mut events = self.events.from_now();
         self.actix.addr.send(SetChainInfo(chain_info)).await.unwrap();
@@ -260,26 +296,34 @@ impl ActorHandler {
                 tracing::debug!(target:"test","tier1_connect_to_proxies DONE");
                 let want = match &vc.endpoints {
                     config::ValidatorEndpoints::TrustedStunServers(_) => HashSet::<_>::default(),
-                    config::ValidatorEndpoints::PublicAddrs(proxies) => proxies.iter().map(|p|&p.peer_id).collect(),
+                    config::ValidatorEndpoints::PublicAddrs(proxies) => {
+                        proxies.iter().map(|p| &p.peer_id).collect()
+                    }
                 };
                 tracing::debug!(target:"test","want = {want:?}");
                 loop {
                     if want.is_subset(&s.tier1.load().ready.keys().collect()) {
-                        break
+                        break;
                     }
-                    events.recv_until(|ev| match ev {
-                        Event::PeerManager(PME::HandshakeCompleted(ev)) if ev.tier==tcp::Tier::T1 => Some(()),
-                        Event::PeerManager(PME::ConnectionClosed(ev)) => {
-                            tracing::debug!(target:"test","connection closed: {:?}",ev.reason);
-                            Some(())
-                        }
-                        _ => None,
-                    })
-                    .await;
+                    events
+                        .recv_until(|ev| match ev {
+                            Event::PeerManager(PME::HandshakeCompleted(ev))
+                                if ev.tier == tcp::Tier::T1 =>
+                            {
+                                Some(())
+                            }
+                            Event::PeerManager(PME::ConnectionClosed(ev)) => {
+                                tracing::debug!(target:"test","connection closed: {:?}",ev.reason);
+                                Some(())
+                            }
+                            _ => None,
+                        })
+                        .await;
                 }
                 s.tier1_broadcast_proxies(&clock).await;
             }
-        }).await;
+        })
+        .await;
     }
 
     // Awaits until the accounts_data state matches `want`.
@@ -310,12 +354,18 @@ impl ActorHandler {
             let ad = s.accounts_data.load();
             // Wait for all the connections to be established.
             loop {
-                if ad.keys.keys().all(|(_,account_id)|account_id==&my_account_id || s.get_tier1_proxy(account_id).is_some()) {
+                if ad.keys.keys().all(|(_, account_id)| {
+                    account_id == &my_account_id || s.get_tier1_proxy(account_id).is_some()
+                }) {
                     break;
                 }
                 events
                     .recv_until(|ev| match ev {
-                        Event::PeerManager(PME::HandshakeCompleted(ev)) if ev.tier==tcp::Tier::T1 => Some(()),
+                        Event::PeerManager(PME::HandshakeCompleted(ev))
+                            if ev.tier == tcp::Tier::T1 =>
+                        {
+                            Some(())
+                        }
                         _ => None,
                     })
                     .await;

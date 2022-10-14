@@ -3,8 +3,8 @@ use crate::client;
 use crate::concurrency::rate;
 use crate::config;
 use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PeerIdOrHash, PeerMessage,
-    Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
+    Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage,
+    RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
 };
 use crate::peer_manager::connection;
 use crate::private_actix::{PeerToManagerMsg, ValidateEdgeList};
@@ -25,12 +25,9 @@ use near_primitives::types::AccountId;
 use parking_lot::Mutex;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
-use tracing::{debug, trace};
 
 mod tier1;
 
-/// How often to request peers from active peers.
-const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::milliseconds(60_000);
 /// Limit number of pending Peer actors to avoid OOM.
 pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 
@@ -114,13 +111,10 @@ impl NetworkState {
     }
 
     /// Query connected peers for more peers.
-    pub fn ask_for_more_peers(&self, clock: &time::Clock) {
-        let now = clock.now();
+    pub fn ask_for_more_peers(&self) {
         let msg = Arc::new(PeerMessage::PeersRequest);
         for peer in self.tier2.load().ready.values() {
-            if now > peer.last_time_peer_requested.load() + REQUEST_PEERS_INTERVAL {
-                peer.send_message(msg.clone());
-            }
+            peer.send_message(msg.clone());
         }
     }
 
@@ -131,6 +125,32 @@ impl NetworkState {
             self.routing_table_view.get_local_edge(peer1).map_or(1, |edge| edge.next())
         });
         PartialEdgeInfo::new(&self.config.node_id(), peer1, nonce, &self.config.node_key)
+    }
+
+    /// Removes the connection from the state.
+    // TODO(gprusak): move PeerManagerActor::unregister logic here as well.
+    pub fn unregister(&self, conn: &Arc<connection::Connection>) {
+        let peer_id = conn.peer_info.id.clone();
+        if conn.tier == tcp::Tier::T1 {
+            // There is no banning or routing table for TIER1.
+            // Just remove the connection from the network_state.
+            self.tier1.remove(conn);
+            // TODO(gprusak): move PeerStore to NetworkState!!!.
+            return;
+        }
+        self.tier2.remove(conn);
+
+        // If the last edge we have with this peer represent a connection addition, create the edge
+        // update that represents the connection removal.
+        if let Some(edge) = self.routing_table_view.get_local_edge(&peer_id) {
+            if edge.edge_type() == EdgeState::Active {
+                let edge_update = edge.remove_edge(self.config.node_id(), &self.config.node_key);
+                self.add_verified_edges_to_routing_table(vec![edge_update.clone()]);
+                self.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                    RoutingTableUpdate::from_edges(vec![edge_update]),
+                )));
+            }
+        }
     }
 
     // Determine if the given target is referring to us.
@@ -177,7 +197,7 @@ impl NetworkState {
         // Check if the message is for myself and don't try to send it in that case.
         if let PeerIdOrHash::PeerId(target) = &msg.target {
             if target == &my_peer_id {
-                debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?my_peer_id, ?msg, "Drop signed message to myself");
+                tracing::debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?my_peer_id, ?msg, "Drop signed message to myself");
                 metrics::CONNECTED_TO_MYSELF.inc();
                 return false;
             }
@@ -200,7 +220,7 @@ impl NetworkState {
                 Ok(peer_id) => {
                     // Remember if we expect a response for this message.
                     if msg.author == my_peer_id && msg.expect_response() {
-                        trace!(target: "network", ?msg, "initiate route back");
+                        tracing::trace!(target: "network", ?msg, "initiate route back");
                         self.routing_table_view.add_route_back(&clock, msg.hash(), my_peer_id);
                     }
                     return self.tier2.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
@@ -209,7 +229,7 @@ impl NetworkState {
                     // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
                     metrics::MessageDropped::NoRouteFound.inc(&msg.body);
 
-                    debug!(target: "network",
+                    tracing::debug!(target: "network",
                           account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
                           to = ?msg.target,
                           reason = ?find_route_error,
@@ -239,10 +259,7 @@ impl NetworkState {
                 // but the header. This will bound the message size
                 conn.send_message(Arc::new(PeerMessage::Routed(self.sign_message(
                     clock,
-                    RawRoutedMessage {
-                        target: PeerIdOrHash::PeerId(target),
-                        body: msg.clone(),
-                    },
+                    RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg.clone() },
                 ))));
             }
         }
@@ -252,12 +269,12 @@ impl NetworkState {
             None => {
                 // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
                 metrics::MessageDropped::UnknownAccount.inc(&msg);
-                debug!(target: "network",
+                tracing::debug!(target: "network",
                        account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
                        to = ?account_id,
                        ?msg,"Drop message: unknown account",
                 );
-                trace!(target: "network", known_peers = ?self.routing_table_view.get_accounts_keys(), "Known peers");
+                tracing::trace!(target: "network", known_peers = ?self.routing_table_view.get_accounts_keys(), "Known peers");
                 return false;
             }
         };
@@ -374,7 +391,7 @@ impl NetworkState {
                 None
             }
             body => {
-                tracing::error!(target: "network", "Peer receive_view_client_message received unexpected type: {:?}", body);
+                tracing::error!(target: "network", "Peer received unexpected message type: {:?}", body);
                 None
             }
         })
@@ -394,10 +411,7 @@ impl NetworkState {
                     |body| {
                         PeerMessage::Routed(self.sign_message(
                             &clock,
-                            RawRoutedMessage {
-                                target: PeerIdOrHash::Hash(msg_hash),
-                                body,
-                            },
+                            RawRoutedMessage { target: PeerIdOrHash::Hash(msg_hash), body },
                         ))
                     },
                 )

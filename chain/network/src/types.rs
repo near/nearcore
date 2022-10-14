@@ -28,8 +28,8 @@ use std::sync::Arc;
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
     Edge, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfo, PeerChainInfoV2, PeerInfo, Ping,
-    Pong, StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
+    PartialEncodedChunkResponseMsg, PeerChainInfo, PeerChainInfoV2, PeerInfo, Ping, Pong,
+    StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
 };
 
 /// Number of hops a message is allowed to travel before being dropped.
@@ -596,7 +596,6 @@ mod tests {
 }
 
 // Don't need Borsh ?
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, borsh::BorshSerialize, borsh::BorshDeserialize, Hash)]
 /// Defines the destination for a network request.
 /// The request should be sent either to the `account_id` as a routed message, or directly to

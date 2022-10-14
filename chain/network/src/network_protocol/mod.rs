@@ -177,7 +177,7 @@ impl SignedAccountData {
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct OwnedAccount {
     pub(crate) account_key: PublicKey,
-    pub(crate) peer_id: PeerId, 
+    pub(crate) peer_id: PeerId,
     pub(crate) timestamp: time::Utc,
 }
 
@@ -219,7 +219,6 @@ impl SignedOwnedAccount {
         &self.payload
     }
 }
-
 
 #[derive(PartialEq, Eq, Clone, Debug, Default)]
 pub struct RoutingTableUpdate {
@@ -539,7 +538,7 @@ impl RoutedMessage {
         source: &PeerId,
         body: &RoutedMessageBody,
     ) -> CryptoHash {
-        CryptoHash::hash_borsh(&RoutedMessageNoSignature { target, author: source, body })
+        CryptoHash::hash_borsh(RoutedMessageNoSignature { target, author: source, body })
     }
 
     pub fn hash(&self) -> CryptoHash {

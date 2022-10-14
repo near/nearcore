@@ -53,13 +53,13 @@ async fn test_peer_communication(
     // Once borsh support is removed, the initial SyncAccountsData should be consumed in
     // complete_handshake.
     let message_processed = |ev| match ev {
-        Event::Network(PME::MessageProcessed(_,PeerMessage::SyncAccountsData { .. })) => None,
-        Event::Network(PME::MessageProcessed(_,PeerMessage::SyncRoutingTable(rtu)))
+        Event::Network(PME::MessageProcessed(_, PeerMessage::SyncAccountsData { .. })) => None,
+        Event::Network(PME::MessageProcessed(_, PeerMessage::SyncRoutingTable(rtu)))
             if rtu == RoutingTableUpdate::default() =>
         {
             None
         }
-        Event::Network(PME::MessageProcessed(_,msg)) => Some(msg),
+        Event::Network(PME::MessageProcessed(_, msg)) => Some(msg),
         _ => None,
     };
 

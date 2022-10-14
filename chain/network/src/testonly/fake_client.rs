@@ -2,6 +2,7 @@ use crate::sink::Sink;
 use crate::types::{NetworkClientMessages, NetworkClientResponses};
 use crate::types::{NetworkViewClientMessages, NetworkViewClientResponses};
 use actix::Actor as _;
+use near_o11y::WithSpanContext;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::block_header::Approval;
 use near_primitives::challenge::Challenge;
@@ -61,9 +62,15 @@ impl actix::Handler<NetworkViewClientMessages> for Actor {
     }
 }
 
-impl actix::Handler<NetworkClientMessages> for Actor {
+impl actix::Handler<WithSpanContext<NetworkClientMessages>> for Actor {
     type Result = NetworkClientResponses;
-    fn handle(&mut self, msg: NetworkClientMessages, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<NetworkClientMessages>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let msg = msg.msg;
+
         let mut resp = NetworkClientResponses::NoResponse;
         match msg {
             NetworkClientMessages::Block(b, _, _) => self.event_sink.push(Event::Block(b)),

@@ -1,9 +1,9 @@
 /// Conversion functions for messages representing crypto primitives.
 use crate::network_protocol::proto;
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
+use near_crypto::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_crypto::PublicKey;
 
 //////////////////////////////////////////
 
@@ -49,7 +49,7 @@ impl From<&PeerId> for proto::PublicKey {
 
 impl TryFrom<&proto::PublicKey> for PeerId {
     type Error = ParsePublicKeyError;
-    fn try_from(p :&proto::PublicKey) -> Result<Self,Self::Error> {
+    fn try_from(p: &proto::PublicKey) -> Result<Self, Self::Error> {
         Ok(PeerId::new(PublicKey::try_from(p)?))
     }
 }

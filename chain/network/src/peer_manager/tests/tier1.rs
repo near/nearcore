@@ -1,10 +1,10 @@
-use crate::network_protocol::testonly as data;
-use crate::network_protocol::{RoutedMessageBody,PeerMessage,PeerAddr};
 use crate::config;
+use crate::network_protocol::testonly as data;
+use crate::network_protocol::{PeerAddr, PeerMessage, RoutedMessageBody};
 use crate::peer_manager;
-use crate::tcp;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::Event;
+use crate::tcp;
 use crate::testonly::{make_rng, Rng};
 use crate::time;
 use crate::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
@@ -43,10 +43,10 @@ async fn propagate_accounts_data(
     );
     let mut chain_info = chain.get_chain_info();
     chain_info.tier1_accounts = account_keys;
-    
+
     // Send it to all peers.
     for pm in all {
-        pm.set_chain_info(clock,chain_info.clone()).await;
+        pm.set_chain_info(clock, chain_info.clone()).await;
     }
     let want = vs.iter().map(|v| super::peer_account_data(&e, v)).collect();
     // Wait for accounts data to propagate.
@@ -55,7 +55,11 @@ async fn propagate_accounts_data(
     }
 }
 
-async fn test_clique(clock: &time::Clock, rng: &mut Rng, pms: &[&peer_manager::testonly::ActorHandler]) {
+async fn test_clique(
+    clock: &time::Clock,
+    rng: &mut Rng,
+    pms: &[&peer_manager::testonly::ActorHandler],
+) {
     // Establish TIER1 connections.
     for pm in pms {
         pm.establish_tier1_connections(clock).await;
@@ -118,7 +122,7 @@ async fn direct_connections() {
             .await,
         );
     }
-    let pms : Vec<_> = pms.iter().collect();
+    let pms: Vec<_> = pms.iter().collect();
 
     // Connect peers serially.
     let peer_infos: Vec<_> = pms.iter().map(|pm| pm.peer_info()).collect();
@@ -126,10 +130,9 @@ async fn direct_connections() {
         pms[i].connect_to(&peer_infos[i + 1]).await;
     }
 
-    propagate_accounts_data(&clock.clock(),rng,&chain,&pms[..],&pms[..]).await;
-    test_clique(&clock.clock(),rng,&pms[..]).await;
+    propagate_accounts_data(&clock.clock(), rng, &chain, &pms[..], &pms[..]).await;
+    test_clique(&clock.clock(), rng, &pms[..]).await;
 }
-
 
 #[tokio::test]
 async fn proxy_connections() {
@@ -139,7 +142,7 @@ async fn proxy_connections() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    const N : usize = 5;
+    const N: usize = 5;
 
     let mut proxies = vec![];
     for _ in 0..N {
@@ -153,17 +156,16 @@ async fn proxy_connections() {
             .await,
         );
     }
-    let proxies : Vec<_> = proxies.iter().collect();
-    
+    let proxies: Vec<_> = proxies.iter().collect();
+
     let mut validators = vec![];
     for i in 0..N {
         let mut cfg = chain.make_config(rng);
-        cfg.validator.as_mut().unwrap().endpoints = config::ValidatorEndpoints::PublicAddrs(vec![
-            PeerAddr{
+        cfg.validator.as_mut().unwrap().endpoints =
+            config::ValidatorEndpoints::PublicAddrs(vec![PeerAddr {
                 peer_id: proxies[i].cfg.node_id(),
                 addr: proxies[i].cfg.node_addr.unwrap(),
-            }
-        ]);
+            }]);
         validators.push(
             peer_manager::testonly::start(
                 clock.clock(),
@@ -174,7 +176,7 @@ async fn proxy_connections() {
             .await,
         );
     }
-    let validators : Vec<_> = validators.iter().collect();
+    let validators: Vec<_> = validators.iter().collect();
 
     // Connect validators and proxies in a star topology. Any connected graph would do.
     let hub = peer_manager::testonly::start(
@@ -182,7 +184,8 @@ async fn proxy_connections() {
         near_store::db::TestDB::new(),
         chain.make_config(rng),
         chain.clone(),
-    ).await;
+    )
+    .await;
     for pm in &validators {
         pm.connect_to(&hub.peer_info()).await;
     }
@@ -194,8 +197,8 @@ async fn proxy_connections() {
     all.extend(validators.clone());
     all.extend(proxies.clone());
     all.push(&hub);
-    propagate_accounts_data(&clock.clock(),rng,&chain,&validators[..],&all[..]).await;
-    test_clique(&clock.clock(),rng,&validators[..]).await;
+    propagate_accounts_data(&clock.clock(), rng, &chain, &validators[..], &all[..]).await;
+    test_clique(&clock.clock(), rng, &validators[..]).await;
 }
 
 #[tokio::test]
@@ -207,4 +210,3 @@ async fn account_keys_change() {
 async fn proxy_change() {
     // TODO(gprusak)
 }
-

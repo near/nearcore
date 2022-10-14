@@ -3,9 +3,9 @@ use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
 use crate::peer_manager::connection;
 use crate::private_actix::RegisterPeerError;
+use crate::tcp;
 use crate::testonly::make_rng;
 use crate::time;
-use crate::tcp;
 use near_o11y::testonly::init_test_logger;
 use std::sync::Arc;
 
@@ -84,16 +84,16 @@ async fn duplicate_connections() {
     // Double inbound.
     let cfg = chain.make_config(rng);
     let conn1 = pm.start_inbound(chain.clone(), cfg.clone()).await;
-    let conn1 = conn1.handshake(&clock.clock()).await;
-    // Second inbound should be rejected. conn1 handshake has to
-    // be completed first though, otherwise we would have a race condition.
     let conn2 = pm.start_inbound(chain.clone(), cfg.clone()).await;
+    // Second inbound should be rejected.
+    let conn1 = conn1.handshake(&clock.clock()).await;
     assert_eq!(
         ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(
             connection::PoolError::AlreadyConnected
         )),
         conn2.manager_fail_handshake(&clock.clock()).await,
     );
+    pm.check_consistency().await;
     drop(conn1);
 
     // Inbound then outbound.

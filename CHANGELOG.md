@@ -37,9 +37,6 @@
 * Backtraces on panics are enabled by default, so you no longer need to set
   `RUST_BACKTRACE=1` environmental variable. To disable backtraces, set
   `RUST_BACKTRACE=0`.
-* A `[path, data]` JSON RPC query format has been removed.  It has been
-  deprecated for over two years and not documented anywhere.  Use proper
-  structured queries with `rquest_type` set instead.
 * Enable receipt prefetching by default. This feature makes receipt processing
   faster by parallelizing IO requests, which has been introduced in
   [#7590](https://github.com/near/nearcore/pull/7590) and enabled by default

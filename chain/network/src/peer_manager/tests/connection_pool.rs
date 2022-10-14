@@ -71,9 +71,12 @@ async fn loop_connection() {
     .await;
     let mut cfg = chain.make_config(rng);
     cfg.node_key = pm.cfg.node_key.clone();
-    
+
     // Loop connection on TIER1 should be accepted.
-    pm.start_outbound(chain.clone(), cfg.clone(), tcp::Tier::T1).await.handshake(&clock.clock()).await;
+    pm.start_outbound(chain.clone(), cfg.clone(), tcp::Tier::T1)
+        .await
+        .handshake(&clock.clock())
+        .await;
 
     // Starting an outbound loop connection on TIER2 should be stopped without sending the handshake.
     let conn = pm.start_outbound(chain.clone(), cfg, tcp::Tier::T2).await;
