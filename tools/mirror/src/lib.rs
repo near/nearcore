@@ -446,10 +446,6 @@ impl TxMirror {
                             .await?
                         {
                             NetworkClientResponses::RequestRouted => {
-                                tracing::debug!(
-                                    target: "mirror", "sent source #{} shard {} tx {}",
-                                    block.source_height, chunk.shard_id, tx.get_hash()
-                                );
                                 crate::metrics::TRANSACTIONS_SENT.with_label_values(&["ok"]).inc();
                                 sent.push(tx.clone());
                             }
