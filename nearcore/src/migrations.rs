@@ -1,11 +1,20 @@
-use near_chain::{ChainStore, ChainStoreAccess};
+#[cfg(feature = "protocol_feature_flat_state")]
+use crate::NightshadeRuntime;
+use borsh::BorshSerialize;
+use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::receipt::ReceiptResult;
 use near_primitives::runtime::migration_data::MigrationData;
+use near_primitives::state::ValueRef;
 use near_primitives::types::Gas;
 use near_primitives::utils::index_to_bytes;
 use near_store::migrations::BatchedStoreUpdate;
 use near_store::version::{DbVersion, DB_VERSION};
-use near_store::{DBCol, NodeStorage, Temperature};
+use near_store::{DBCol, NodeStorage, Store, Temperature};
+use near_vm_runner::run;
+use std::sync::Arc;
+#[cfg(feature = "protocol_feature_flat_state")]
+use tracing::info;
 
 /// Fix an issue with block ordinal (#5761)
 // This migration takes at least 3 hours to complete on mainnet
@@ -51,6 +60,60 @@ pub fn do_migrate_30_to_31(
         }
     }
     println!("total inconsistency count: {}", count);
+    store_update.finish()?;
+    Ok(())
+}
+
+/// Migrates database from version 33 to 34.
+///
+/// It is expected to run against a node without flat storage and should fill the flat storage
+/// columns with state data related to last final head. In other words, previously used binary
+/// should be built without `protocol_feature_flat_state` feature and new binary should include it.
+/// Don't use in production, currently used for testing and estimation purposes.
+#[cfg(feature = "protocol_feature_flat_state")]
+pub fn migrate_33_to_34(
+    storage: &NodeStorage,
+    near_config: &crate::NearConfig,
+) -> anyhow::Result<()> {
+    let store = storage.get_store(Temperature::Hot);
+    // just needed for NightshadeRuntime initialization and is used only for trying to retrieve state dump which is
+    // not present. we should consider making this parameter optional or pass homedir to migrator
+    let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
+    let runtime = NightshadeRuntime::from_config(tmpdir.path(), store.clone(), &near_config);
+    do_migrate_33_to_34(runtime, &near_config.genesis.config)?;
+    Ok(())
+}
+
+#[cfg(feature = "protocol_feature_flat_state")]
+pub fn do_migrate_33_to_34(
+    runtime: NightshadeRuntime,
+    genesis_config: &near_chain_configs::GenesisConfig,
+) -> anyhow::Result<()> {
+    let store = runtime.get_store();
+    let mut chain_store = ChainStore::new(store.clone(), genesis_config.genesis_height, false);
+    let final_head = chain_store.final_head()?;
+    let block_hash = final_head.last_block_hash;
+    let epoch_id = runtime.get_epoch_id(&block_hash)?;
+    let num_shards = runtime.num_shards(&epoch_id)?;
+    let mut store_update = BatchedStoreUpdate::new(&store, 1_000);
+    for shard_id in 0..num_shards {
+        info!(target: "chain", %shard_id, "Start flat state shard migration");
+        let shard_uid = runtime.shard_id_to_uid(shard_id, &epoch_id)?;
+        // ?! block may not include chunk - should we iterate over parents here?
+        let state_root = chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root().clone();
+        let trie = runtime.get_trie_for_shard(shard_id, &block_hash, state_root, false)?;
+        // should we create columns?
+        store_update
+            .set_ser(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap(), &block_hash)
+            .expect("Error writing flat head from storage");
+        trie.iter()?.for_each(|item| {
+            let item = item.unwrap();
+            let value_ref = ValueRef::new(&item.1);
+            store_update
+                .set_ser(DBCol::FlatState, &item.0, &value_ref)
+                .expect("Failed to put value in FlatState");
+        });
+    }
     store_update.finish()?;
     Ok(())
 }
@@ -154,6 +217,8 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
             30 => migrate_30_to_31(storage, &self.config),
             31 => near_store::migrations::migrate_31_to_32(storage),
             32 => near_store::migrations::migrate_32_to_33(storage),
+            #[cfg(feature = "protocol_feature_flat_state")]
+            33 => migrate_33_to_34(storage, &self.config),
             DB_VERSION.. => unreachable!(),
         }
     }

@@ -243,18 +243,27 @@ pub enum DBCol {
     /// Flat state contents. Used to get `ValueRef` by trie key faster than doing a trie lookup.
     /// - *Rows*: trie key (Vec<u8>)
     /// - *Column type*: ValueRef
-    #[cfg(feature = "protocol_feature_flat_state")]
+    #[cfg(any(
+        feature = "protocol_feature_flat_state",
+        feature = "protocol_feature_flat_state_migration"
+    ))]
     FlatState,
     /// Deltas for flat state. Stores how flat state should be updated for the given shard and block.
     /// - *Rows*: `KeyForFlatStateDelta { shard_id, block_hash }`
     /// - *Column type*: `FlatStateDelta`
-    #[cfg(feature = "protocol_feature_flat_state")]
+    #[cfg(any(
+        feature = "protocol_feature_flat_state",
+        feature = "protocol_feature_flat_state_migration"
+    ))]
     FlatStateDeltas,
     /// Miscellaneous data for flat state. Currently stores flat state head for each shard.
     /// - *Rows*: shard id
     /// - *Column type*: block hash (CryptoHash)
     // TODO (#7327): use only during testing, come up with proper format.
-    #[cfg(feature = "protocol_feature_flat_state")]
+    #[cfg(any(
+        feature = "protocol_feature_flat_state",
+        feature = "protocol_feature_flat_state_migration"
+    ))]
     FlatStateMisc,
 }
 

@@ -2,7 +2,10 @@
 pub type DbVersion = u32;
 
 /// Current version of the database.
+#[cfg(not(feature = "protocol_feature_flat_state"))]
 pub const DB_VERSION: DbVersion = 33;
+#[cfg(feature = "protocol_feature_flat_state")]
+pub const DB_VERSION: DbVersion = 34;
 
 /// Deserialises database version from data read from database.
 ///

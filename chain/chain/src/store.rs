@@ -2411,10 +2411,11 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::CachedContractCode => {
                 unreachable!();
             }
-            #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatState | DBCol::FlatStateDeltas | DBCol::FlatStateMisc => {
-                unreachable!();
-            }
+            #[cfg(any(
+                feature = "protocol_feature_flat_state",
+                feature = "protocol_feature_flat_state_migration"
+            ))]
+            DBCol::FlatState | DBCol::FlatStateDeltas | DBCol::FlatStateMisc => { unreachable!(); }
         }
         self.merge(store_update);
     }

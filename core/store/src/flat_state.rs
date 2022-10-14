@@ -444,7 +444,10 @@ struct FlatStorageStateInner {
     deltas: HashMap<CryptoHash, Arc<FlatStateDelta>>,
 }
 
-#[cfg(feature = "protocol_feature_flat_state")]
+#[cfg(any(
+    feature = "protocol_feature_flat_state",
+    feature = "protocol_feature_flat_state_migration"
+))]
 pub mod store_helper {
     use crate::flat_state::{FlatStorageError, KeyForFlatStateDelta};
     use crate::{FlatStateDelta, Store, StoreUpdate};
@@ -674,6 +677,8 @@ impl FlatStorageState {
         // Update flat state on disk.
         guard.flat_head = *new_head;
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
+        let shard_id = guard.shard_id;
+        tracing::info!(target: "chain", %shard_id, %new_head, "Moving FS head");
         store_helper::set_flat_head(&mut store_update, guard.shard_id, new_head);
         merged_delta.apply_to_flat_state(&mut store_update);
 
