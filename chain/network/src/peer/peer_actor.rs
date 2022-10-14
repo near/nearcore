@@ -436,8 +436,11 @@ impl PeerActor {
             }
         };
 
-        ctx.spawn(wrap_future(self.network_state.view_client_addr.send(view_client_message.with_span_context())).then(
-            move |res, act: &mut PeerActor, _ctx| {
+        ctx.spawn(
+            wrap_future(
+                self.network_state.view_client_addr.send(view_client_message.with_span_context()),
+            )
+            .then(move |res, act: &mut PeerActor, _ctx| {
                 // Ban peer if client thinks received data is bad.
                 match res {
                     Ok(NetworkViewClientResponses::TxStatus(tx_result)) => {
@@ -496,8 +499,8 @@ impl PeerActor {
                     _ => {}
                 };
                 actix::fut::ready(())
-            },
-        ));
+            }),
+        );
     }
 
     /// Process non handshake/peer related messages.
