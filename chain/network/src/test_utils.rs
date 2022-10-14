@@ -266,7 +266,7 @@ impl Handler<BanPeerSignal> for PeerManagerActor {
 
     fn handle(&mut self, msg: BanPeerSignal, _ctx: &mut Self::Context) -> Self::Result {
         debug!(target: "network", "Ban peer: {:?}", msg.peer_id);
-        self.try_ban_peer(&msg.peer_id, msg.ban_reason);
+        self.state.disconnect_and_ban(&self.clock, &msg.peer_id, msg.ban_reason);
     }
 }
 

@@ -15,13 +15,13 @@ use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::private_actix::{
     PeerToManagerMsg, PeerToManagerMsgResp, PeersRequest, PeersResponse, RegisterPeer,
-    RegisterPeerError, RegisterPeerResponse, SendMessage, Unregister,
+    RegisterPeerError, RegisterPeerResponse, SendMessage,
 };
 use crate::routing::edge::verify_nonce;
 use crate::stats::metrics;
 use crate::tcp;
 use crate::time;
-use crate::types::{Ban, Handshake, HandshakeFailureReason, PeerMessage, PeerType, ReasonForBan};
+use crate::types::{Handshake, HandshakeFailureReason, PeerMessage, PeerType, ReasonForBan};
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
 use lru::LruCache;
@@ -349,14 +349,8 @@ impl PeerActor {
     }
 
     fn send_message(&self, msg: &PeerMessage) {
-        // Rate limit PeersRequest messages.
-        // TODO(gprusak): upgrade it to a more general rate limiting.
         if let (PeerStatus::Ready(conn), PeerMessage::PeersRequest) = (&self.peer_status, msg) {
-            let now = self.clock.now();
-            match conn.last_time_peer_requested.load() {
-                Some(last) if now < last + REQUEST_PEERS_INTERVAL => return,
-                _ => conn.last_time_peer_requested.store(Some(now)),
-            }
+            conn.last_time_peer_requested.store(Some(self.clock.now()));
         }
         if let Some(enc) = self.encoding() {
             return self.send_message_with_encoding(msg, enc);
@@ -641,6 +635,7 @@ impl PeerActor {
 
         let tracker = self.tracker.clone();
         let clock = self.clock.clone();
+        
         let mut interval =
             tokio::time::interval(self.network_state.config.peer_stats_period.try_into().unwrap());
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -700,19 +695,38 @@ impl PeerActor {
                                 protocol_version: handshake.protocol_version,
                                 partial_edge_info: partial_edge_info,
                             });
-                        } else if tier==tcp::Tier::T2 {
-                            // Outbound peer triggers the inital full accounts data sync.
-                            // TODO(gprusak): implement triggering the periodic full sync.
-                            act.send_message_or_log(&PeerMessage::SyncAccountsData(SyncAccountsData{
-                                accounts_data: act.network_state.accounts_data.load().data.values().cloned().collect(),
-                                incremental: false,
-                                requesting_full_sync: true,
-                            }));
+                        }
+                        if tier==tcp::Tier::T2 {
+                            if conn.peer_type == PeerType::Outbound {
+                                // Outbound peer triggers the inital full accounts data sync.
+                                // TODO(gprusak): implement triggering the periodic full sync.
+                                act.send_message_or_log(&PeerMessage::SyncAccountsData(SyncAccountsData{
+                                    accounts_data: act.network_state.accounts_data.load().data.values().cloned().collect(),
+                                    incremental: false,
+                                    requesting_full_sync: true,
+                                }));
+                                // Only broadcast new message from the outbound endpoint.
+                                act.network_state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                                    RoutingTableUpdate::from_edges(vec![conn.edge.clone()]),
+                                )));
+                            }
+                            // Sync the RoutingTable.
+                            act.sync_routing_table();
                         }
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
                             edge: conn.edge.clone(),
                             tier: conn.tier,
+                        }));
+
+                        ctx.spawn(wrap_future(async move {
+                            let mut interval =
+                                tokio::time::interval(REQUEST_PEERS_INTERVAL.try_into().unwrap());
+                            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                            loop {
+                                conn.send_message(Arc::new(PeerMessage::PeersRequest));
+                                interval.tick().await;
+                            }
                         }));
                     },
                     Ok(RegisterPeerResponse::Reject(err)) => {
@@ -728,6 +742,20 @@ impl PeerActor {
                 actix::fut::ready(())
             })
         );
+    }
+
+    // Send full RoutingTable.
+    fn sync_routing_table(&self) {
+        let mut known_edges: Vec<Edge> =
+            self.network_state.graph.read().edges().values().cloned().collect();
+        if self.network_state.config.skip_tombstones.is_some() {
+            known_edges.retain(|edge| edge.removal_info().is_none());
+            metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
+        }
+        let known_accounts = self.network_state.routing_table_view.get_announce_accounts();
+        self.send_message_or_log(&PeerMessage::SyncRoutingTable(
+            RoutingTableUpdate::new(known_edges, known_accounts),
+        )); 
     }
 
     fn handle_msg_connecting(&mut self, ctx: &mut actix::Context<Self>, msg: PeerMessage) {
@@ -953,7 +981,7 @@ impl PeerActor {
                 );
             }
             PeerMessage::SyncRoutingTable(rtu) => {
-                self.sync_routing_table(ctx, conn, rtu);
+                self.handle_sync_routing_table(ctx, conn, rtu);
                 self.network_state
                     .config
                     .event_sink
@@ -1088,7 +1116,7 @@ impl PeerActor {
         }
     }
 
-    fn sync_routing_table(
+    fn handle_sync_routing_table(
         &mut self,
         ctx: &mut actix::Context<Self>,
         conn: &connection::Connection,
@@ -1170,24 +1198,10 @@ impl actix::Actor for PeerActor {
             // so there is nothing to be done.
             PeerStatus::Connecting(..) => {}
             // Clean up the Connection from the NetworkState.
-            PeerStatus::Ready(conn) => {
-                self.network_state.unregister(conn);
-                // Save the fact that we are disconnecting to the PeerStore.
-                match &self.closing_reason {
-                    Some(ClosingReason::Ban(ban_reason)) => {
-                        tracing::warn!(target: "network", "Banning peer {} for {:?}", self.peer_info, ban_reason);
-                        self.network_state.peer_manager_addr.do_send(PeerToManagerMsg::Ban(Ban {
-                            peer_id: conn.peer_info.id.clone(),
-                            ban_reason: *ban_reason,
-                        }));
-                    }
-                    _ => {
-                        self.network_state.peer_manager_addr.do_send(PeerToManagerMsg::Unregister(
-                            Unregister { peer_id: conn.peer_info.id.clone() },
-                        ))
-                    }
-                }
-            }
+            PeerStatus::Ready(conn) => self.network_state.unregister(&self.clock,conn,match self.closing_reason {
+                Some(ClosingReason::Ban(reason)) => Some(reason),
+                _ => None,
+            }),
         }
         actix::Running::Stop
     }

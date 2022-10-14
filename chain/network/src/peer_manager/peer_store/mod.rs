@@ -383,6 +383,7 @@ impl PeerStore {
         peer_id: &PeerId,
         ban_reason: ReasonForBan,
     ) -> anyhow::Result<()> {
+        tracing::warn!(target: "network", "Banning peer {} for {:?}", peer_id, ban_reason);
         let mut inner = self.0.lock();
         let mut store = inner.store.clone();
         if let Some(peer_state) = inner.peer_states.get_mut(peer_id) {
