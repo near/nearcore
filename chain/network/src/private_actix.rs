@@ -2,7 +2,7 @@
 /// They are not meant to be used outside.
 use crate::network_protocol::{Edge, PartialEdgeInfo, PeerInfo, PeerMessage};
 use crate::peer_manager::connection;
-use crate::types::{ReasonForBan};
+use crate::types::ReasonForBan;
 use near_primitives::network::PeerId;
 use std::collections::HashMap;
 use std::fmt;

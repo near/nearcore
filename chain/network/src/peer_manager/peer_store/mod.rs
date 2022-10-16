@@ -5,18 +5,18 @@ use crate::time;
 use crate::types::{KnownPeerState, KnownPeerStatus, ReasonForBan};
 use anyhow::bail;
 use near_primitives::network::PeerId;
+use parking_lot::Mutex;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
-use std::collections::hash_map::{Entry};
-use std::collections::{HashMap,HashSet};
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::ops::Not;
-use parking_lot::Mutex;
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod testonly;
+#[cfg(test)]
+mod tests;
 
 /// Level of trust we have about a new (PeerId, Addr) pair.
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -76,11 +76,7 @@ impl Inner {
     /// to the peer ID thus we can be sure that they control the secret key.
     ///
     /// See also [`Self::add_indirect_peers`] and [`Self::add_direct_peer`].
-    fn add_signed_peer(
-        &mut self,
-        clock: &time::Clock,
-        peer_info: PeerInfo,
-    ) -> anyhow::Result<()> {
+    fn add_signed_peer(&mut self, clock: &time::Clock, peer_info: PeerInfo) -> anyhow::Result<()> {
         self.add_peer(clock, peer_info, TrustLevel::Signed)
     }
 
@@ -233,7 +229,7 @@ impl PeerStore {
         config: Config,
         store: store::Store,
     ) -> anyhow::Result<Self> {
-        let boot_nodes : HashSet<_> = config.boot_nodes.iter().map(|p|p.id.clone()).collect();
+        let boot_nodes: HashSet<_> = config.boot_nodes.iter().map(|p| p.id.clone()).collect();
         // A mapping from `PeerId` to `KnownPeerState`.
         let mut peerid_2_state = HashMap::default();
         // Stores mapping from `SocketAddr` to `VerifiedPeer`, which contains `PeerId`.
@@ -339,7 +335,7 @@ impl PeerStore {
     }
 
     pub(crate) fn is_banned(&self, peer_id: &PeerId) -> bool {
-        self.0.lock().peer_states.get(peer_id).map_or(false, |s|s.status.is_banned())
+        self.0.lock().peer_states.get(peer_id).map_or(false, |s| s.status.is_banned())
     }
 
     pub(crate) fn count_banned(&self) -> usize {
@@ -395,7 +391,7 @@ impl PeerStore {
             bail!("Peer {} is missing in the peer store", peer_id);
         }
         Ok(())
-    }  
+    }
 
     /// Return unconnected or peers with unknown status that we can try to connect to.
     /// Peers with unknown addresses are filtered out.
@@ -420,14 +416,13 @@ impl PeerStore {
 
     /// Return healthy known peers up to given amount.
     pub(crate) fn healthy_peers(&self, max_count: usize) -> Vec<PeerInfo> {
-        self.0.lock().find_peers(|p| matches!(p.status, KnownPeerStatus::Banned(_, _)).not(), max_count)
+        self.0
+            .lock()
+            .find_peers(|p| matches!(p.status, KnownPeerStatus::Banned(_, _)).not(), max_count)
     }
 
     /// Removes peers that are not responding for expiration period.
-    pub(crate) fn remove_expired(
-        &self,
-        clock: &time::Clock,
-    ) -> anyhow::Result<()> {
+    pub(crate) fn remove_expired(&self, clock: &time::Clock) -> anyhow::Result<()> {
         let mut inner = self.0.lock();
         let now = clock.now_utc();
         let mut to_remove = vec![];
@@ -460,7 +455,8 @@ impl PeerStore {
         let mut blacklisted: usize = 0;
         for peer_info in peers {
             total += 1;
-            let is_blacklisted = peer_info.addr.map_or(false, |addr| inner.config.blacklist.contains(addr));
+            let is_blacklisted =
+                peer_info.addr.map_or(false, |addr| inner.config.blacklist.contains(addr));
             if is_blacklisted {
                 blacklisted += 1;
             } else {
@@ -489,7 +485,7 @@ impl PeerStore {
         self.0.lock().add_peer(clock, peer_info, TrustLevel::Direct)
     }
 
-    pub fn unban(&self, clock: &time::Clock) { 
+    pub fn unban(&self, clock: &time::Clock) {
         let mut inner = self.0.lock();
         let now = clock.now_utc();
         let mut to_unban = vec![];
@@ -500,7 +496,6 @@ impl PeerStore {
                 }
                 tracing::info!(target: "network", unbanned = ?peer_id, ?ban_time, "unbanning a peer");
                 to_unban.push(peer_id.clone());
-                
             }
         }
         for peer_id in &to_unban {

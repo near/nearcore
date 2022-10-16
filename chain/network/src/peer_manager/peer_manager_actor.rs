@@ -7,8 +7,8 @@ use crate::network_protocol::{
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
-use crate::peer_manager::peer_store;
 use crate::peer_manager::network_state::NetworkState;
+use crate::peer_manager::peer_store;
 use crate::private_actix::{
     PeerRequestResult, PeerToManagerMsg, PeerToManagerMsgResp, PeersRequest, PeersResponse,
     RegisterPeer, RegisterPeerError, RegisterPeerResponse, StopMsg,
@@ -19,9 +19,9 @@ use crate::store;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownProducer, NetworkInfo,
-    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    PeerType, ReasonForBan, SetChainInfo,
+    ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownProducer, NetworkInfo, NetworkRequests,
+    NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
+    ReasonForBan, SetChainInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorFutureExt as _, AsyncContext as _};
@@ -117,7 +117,7 @@ pub struct PeerManagerActor {
     /// in the first place.
     max_num_peers: u32,
     /// Peer information for this node.
-    my_peer_id: PeerId, 
+    my_peer_id: PeerId,
 
     /// Flag that track whether we started attempts to establish outbound connections.
     started_connect_attempts: bool,
@@ -139,7 +139,7 @@ pub struct PeerManagerActor {
 pub enum Event {
     ServerStarted,
     RoutedMessageDropped,
-    RoutingTableUpdate(Arc<routing::NextHopTable>),
+    RoutingTableUpdate { next_hops: Arc<routing::NextHopTable>, pruned_edges: Vec<Edge> },
     Ping(Ping),
     Pong(Pong),
     SetChainInfo,
@@ -263,12 +263,9 @@ impl PeerManagerActor {
     ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
         let store = store::Store::from(store);
-        let peer_store = peer_store::PeerStore::new(
-            &clock,
-            config.peer_store.clone(),
-            store.clone(),
-        )
-        .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+        let peer_store =
+            peer_store::PeerStore::new(&clock, config.peer_store.clone(), store.clone())
+                .map_err(|e| anyhow::Error::msg(e.to_string()))?;
         tracing::debug!(target: "network",
                len = peer_store.len(),
                boot_nodes = config.peer_store.boot_nodes.len(),
@@ -320,15 +317,17 @@ impl PeerManagerActor {
             ))
             .map(|response, act: &mut PeerManagerActor, _ctx| match response {
                 Ok(routing::actor::Response::RoutingTableUpdateResponse {
-                    local_edges_to_remove,
+                    pruned_edges,
                     next_hops,
                     peers_to_ban,
                 }) => {
-                    act.state.routing_table_view.update(&local_edges_to_remove, next_hops.clone());
+                    act.state.routing_table_view.update(&pruned_edges, next_hops.clone());
                     for peer in peers_to_ban {
                         act.state.disconnect_and_ban(&act.clock, &peer, ReasonForBan::InvalidEdge);
                     }
-                    act.config.event_sink.push(Event::RoutingTableUpdate(next_hops));
+                    act.config
+                        .event_sink
+                        .push(Event::RoutingTableUpdate { next_hops, pruned_edges });
                 }
                 _ => tracing::error!(target: "network", "expected RoutingTableUpdateResponse"),
             }),
@@ -789,7 +788,7 @@ impl PeerManagerActor {
         let _span = tracing::trace_span!(target: "network", "monitor_peers_trigger").entered();
         let _timer =
             metrics::PEER_MANAGER_TRIGGER_TIME.with_label_values(&["monitor_peers"]).start_timer();
-       
+
         self.state.peer_store.unban(&self.clock);
 
         if self.is_outbound_bootstrap_needed() {
@@ -1172,10 +1171,7 @@ impl PeerManagerActor {
     }
 
     #[perf]
-    fn handle_msg_register_peer(
-        &mut self,
-        msg: RegisterPeer,
-    ) -> RegisterPeerResponse {
+    fn handle_msg_register_peer(&mut self, msg: RegisterPeer) -> RegisterPeerResponse {
         let _d = delay_detector::DelayDetector::new(|| "consolidate".into());
 
         let peer_info = &msg.connection.peer_info;
@@ -1293,10 +1289,7 @@ impl PeerManagerActor {
         }
     }
 
-    fn handle_peer_to_manager_msg(
-        &mut self,
-        msg: PeerToManagerMsg,
-    ) -> PeerToManagerMsgResp {
+    fn handle_peer_to_manager_msg(&mut self, msg: PeerToManagerMsg) -> PeerToManagerMsgResp {
         match msg {
             PeerToManagerMsg::RegisterPeer(msg) => {
                 PeerToManagerMsgResp::RegisterPeer(self.handle_msg_register_peer(msg))

@@ -48,9 +48,11 @@ async fn test_peer_communication(
     outbound.complete_handshake().await;
     inbound.complete_handshake().await;
 
-    let message_processed = |want|move|ev| match ev {
-        Event::Network(PME::MessageProcessed(_, got)) if got==want => Some(()),
-        _ => None,
+    let message_processed = |want| {
+        move |ev| match ev {
+            Event::Network(PME::MessageProcessed(_, got)) if got == want => Some(()),
+            _ => None,
+        }
     };
 
     // RequestUpdateNonce

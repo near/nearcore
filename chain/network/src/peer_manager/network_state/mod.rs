@@ -2,19 +2,19 @@ use crate::accounts_data;
 use crate::client;
 use crate::concurrency::rate;
 use crate::config;
-use crate::store;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage,
     RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
 };
-use crate::peer_manager::peer_store;
 use crate::peer_manager::connection;
+use crate::peer_manager::peer_store;
 use crate::private_actix::{PeerToManagerMsg, ValidateEdgeList};
 use crate::routing;
 use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
+use crate::store;
 use crate::tcp;
 use crate::time;
 use crate::types::{ChainInfo, ReasonForBan};
@@ -24,7 +24,7 @@ use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
-use parking_lot::{Mutex,RwLock};
+use parking_lot::{Mutex, RwLock};
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
@@ -97,8 +97,7 @@ impl NetworkState {
     ) -> Self {
         let graph = Arc::new(RwLock::new(routing::GraphWithCache::new(config.node_id())));
         Self {
-            routing_table_addr:
-                routing::Actor::spawn(clock.clone(), store.clone(), graph.clone()),
+            routing_table_addr: routing::Actor::spawn(clock.clone(), store.clone(), graph.clone()),
             graph,
             genesis_id,
             client,
@@ -135,7 +134,12 @@ impl NetworkState {
 
     /// Stops peer instance if it is still connected,
     /// and then mark peer as banned in the peer store.
-    pub fn disconnect_and_ban(&self, clock: &time::Clock, peer_id: &PeerId, ban_reason: ReasonForBan) {
+    pub fn disconnect_and_ban(
+        &self,
+        clock: &time::Clock,
+        peer_id: &PeerId,
+        ban_reason: ReasonForBan,
+    ) {
         let tier2 = self.tier2.load();
         if let Some(peer) = tier2.ready.get(peer_id) {
             peer.stop(Some(ban_reason));
@@ -147,7 +151,12 @@ impl NetworkState {
     }
 
     /// Removes the connection from the state.
-    pub fn unregister(&self, clock: &time::Clock, conn: &Arc<connection::Connection>, ban_reason: Option<ReasonForBan>) {
+    pub fn unregister(
+        &self,
+        clock: &time::Clock,
+        conn: &Arc<connection::Connection>,
+        ban_reason: Option<ReasonForBan>,
+    ) {
         let peer_id = conn.peer_info.id.clone();
         if conn.tier == tcp::Tier::T1 {
             // There is no banning or routing table for TIER1.

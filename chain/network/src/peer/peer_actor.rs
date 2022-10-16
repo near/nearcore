@@ -635,7 +635,7 @@ impl PeerActor {
 
         let tracker = self.tracker.clone();
         let clock = self.clock.clone();
-        
+
         let mut interval =
             tokio::time::interval(self.network_state.config.peer_stats_period.try_into().unwrap());
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -712,21 +712,22 @@ impl PeerActor {
                             }
                             // Sync the RoutingTable.
                             act.sync_routing_table();
+                            // Exchange peers periodically.
+                            let conn = conn.clone();
+                            ctx.spawn(wrap_future(async move {
+                                let mut interval =
+                                    tokio::time::interval(REQUEST_PEERS_INTERVAL.try_into().unwrap());
+                                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                                loop {
+                                    conn.send_message(Arc::new(PeerMessage::PeersRequest));
+                                    interval.tick().await;
+                                }
+                            }));
                         }
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
                             edge: conn.edge.clone(),
                             tier: conn.tier,
-                        }));
-
-                        ctx.spawn(wrap_future(async move {
-                            let mut interval =
-                                tokio::time::interval(REQUEST_PEERS_INTERVAL.try_into().unwrap());
-                            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                            loop {
-                                conn.send_message(Arc::new(PeerMessage::PeersRequest));
-                                interval.tick().await;
-                            }
                         }));
                     },
                     Ok(RegisterPeerResponse::Reject(err)) => {
@@ -753,9 +754,10 @@ impl PeerActor {
             metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
         }
         let known_accounts = self.network_state.routing_table_view.get_announce_accounts();
-        self.send_message_or_log(&PeerMessage::SyncRoutingTable(
-            RoutingTableUpdate::new(known_edges, known_accounts),
-        )); 
+        self.send_message_or_log(&PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
+            known_edges,
+            known_accounts,
+        )));
     }
 
     fn handle_msg_connecting(&mut self, ctx: &mut actix::Context<Self>, msg: PeerMessage) {
@@ -1198,10 +1200,14 @@ impl actix::Actor for PeerActor {
             // so there is nothing to be done.
             PeerStatus::Connecting(..) => {}
             // Clean up the Connection from the NetworkState.
-            PeerStatus::Ready(conn) => self.network_state.unregister(&self.clock,conn,match self.closing_reason {
-                Some(ClosingReason::Ban(reason)) => Some(reason),
-                _ => None,
-            }),
+            PeerStatus::Ready(conn) => self.network_state.unregister(
+                &self.clock,
+                conn,
+                match self.closing_reason {
+                    Some(ClosingReason::Ban(reason)) => Some(reason),
+                    _ => None,
+                },
+            ),
         }
         actix::Running::Stop
     }

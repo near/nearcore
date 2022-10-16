@@ -2,8 +2,8 @@ use crate::blacklist;
 use crate::concurrency::rate;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::PeerInfo;
-use crate::peer_manager::peer_store;
 use crate::peer_manager::peer_manager_actor::Event;
+use crate::peer_manager::peer_store;
 use crate::sink::Sink;
 use crate::time;
 use crate::types::ROUTED_MESSAGE_TTL;
@@ -235,7 +235,7 @@ impl NetworkConfig {
             routed_message_ttl: ROUTED_MESSAGE_TTL,
             max_routes_to_store: MAX_ROUTES_TO_STORE,
             highest_peer_horizon: HIGHEST_PEER_HORIZON,
-            push_info_period: time::Duration::milliseconds(100), 
+            push_info_period: time::Duration::milliseconds(100),
             outbound_disabled: false,
             archive,
             accounts_data_broadcast_rate_limit: rate::Limit { qps: 0.1, burst: 1 },
@@ -275,7 +275,7 @@ impl NetworkConfig {
             node_addr: Some(node_addr),
             node_key,
             validator: Some(validator),
-            peer_store: peer_store::Config{
+            peer_store: peer_store::Config {
                 boot_nodes: vec![],
                 blacklist: blacklist::Blacklist::default(),
                 ban_window: time::Duration::seconds(1),

@@ -53,8 +53,11 @@ impl actix::Handler<CheckConsistency> for PeerManagerActor {
     fn handle(&mut self, _: CheckConsistency, _: &mut actix::Context<Self>) {
         // Check that the set of ready connections matches the PeerStore state.
         let tier2: HashSet<_> = self.state.tier2.load().ready.keys().cloned().collect();
-        let store: HashSet<_> = self.state
-            .peer_store.dump().into_iter()
+        let store: HashSet<_> = self
+            .state
+            .peer_store
+            .dump()
+            .into_iter()
             .filter_map(|state| {
                 if state.status == KnownPeerStatus::Connected {
                     Some(state.peer_info.id)

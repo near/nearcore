@@ -102,14 +102,12 @@ impl RoutingTableView {
         }))
     }
 
-    pub(crate) fn update(
-        &self,
-        local_edges_to_remove: &[PeerId],
-        next_hops: Arc<routing::NextHopTable>,
-    ) {
+    pub(crate) fn update(&self, pruned_edges: &[Edge], next_hops: Arc<routing::NextHopTable>) {
         let mut inner = self.0.lock();
-        for peer_id in local_edges_to_remove {
-            inner.local_edges.remove(peer_id);
+        for e in pruned_edges {
+            if let Some(peer_id) = e.other(&inner.my_peer_id) {
+                inner.local_edges.remove(peer_id);
+            }
         }
         inner.next_hops = next_hops;
     }
