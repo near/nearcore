@@ -57,7 +57,7 @@ fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result
     let opener = NodeStorage::opener(home_dir, &near_config.config.store)
         .with_migrator(&migrator)
         .expect_archive(near_config.client_config.archive);
-    let res = match opener.open() {
+    let storage = match opener.open() {
         Ok(storage) => Ok(storage),
         Err(StoreOpenerError::IO(err)) => {
             Err(anyhow::anyhow!("{err}"))
@@ -117,9 +117,9 @@ fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result
         Err(StoreOpenerError::MigrationError(err)) => {
             Err(err)
         },
-    };
-    let storage =
-        res.with_context(|| format!("unable to open database at {}", opener.path().display()))?;
+    }.with_context(|| format!("unable to open database at {}", opener.path().display()))?;
+
+    near_config.config.archive = storage.is_archive()?;
     Ok(storage)
 }
 

@@ -166,6 +166,14 @@ impl NodeStorage {
             Temperature::Hot => self.storage,
         }
     }
+
+    /// Reads database metadata and returns whether the storage is archival.
+    pub fn is_archive(&self) -> io::Result<bool> {
+        Ok(match metadata::DbMetadata::read(self.storage.as_ref())?.kind.unwrap() {
+            metadata::DbKind::RPC => false,
+            metadata::DbKind::Archive => true,
+        })
+    }
 }
 
 impl Store {
