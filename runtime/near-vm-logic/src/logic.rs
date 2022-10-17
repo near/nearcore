@@ -646,7 +646,11 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base`
-    pub fn get_block_hash_by_height(&mut self, height_number: BlockHeight) -> Result<u64> {
+    pub fn get_block_hash_by_height(
+        &mut self,
+        height_number: BlockHeight,
+        register_id: u64,
+    ) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
         let chain_store = self.context.chain_store;
         let tip = chain_store.header_head().expect("handle this properly");
@@ -656,6 +660,7 @@ impl<'a> VMLogic<'a> {
         }
 
         if tip.height == height_number {
+            self.internal_write_register(register_id, tip.last_block_hash.as_bytes().to_vec())?;
             return Ok(1);
         }
         let mut previous_block_hash = tip.prev_block_hash;
@@ -664,6 +669,7 @@ impl<'a> VMLogic<'a> {
             let block_header =
                 chain_store.get_block_header(&previous_block_hash).expect("handle this properly");
             if block_header.height() == height_number {
+                self.internal_write_register(register_id, block_header.hash().as_bytes().to_vec())?;
                 return Ok(1);
             }
             previous_block_hash = *(block_header.prev_hash());
