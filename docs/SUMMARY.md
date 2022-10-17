@@ -9,6 +9,7 @@
   - [How Sync Works](./architecture/how/sync.md)
   - [Garbage Collection](./architecture/how/gc.md)
   - [How Epoch Works](./architecture/how/epoch.md)
+  - [Transaction Routing](./architecture/how/tx_routing.md)
 - [Trie](./architecture/trie.md)
 - [Network](./architecture/network.md)
 
