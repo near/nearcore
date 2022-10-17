@@ -125,7 +125,7 @@ fn assert_no_deprecated_config(config: &crate::config::NearConfig) {
 
 impl<'a> near_store::StoreMigrator for Migrator<'a> {
     fn check_support(&self, version: DbVersion) -> Result<(), &'static str> {
-        assert_no_deprecated_config(self.config);
+        // assert_no_deprecated_config(self.config);
         // TODO(mina86): Once open ranges in match are stabilised, get rid of
         // this constant and change the match to be 27..DB_VERSION.
         const LAST_SUPPORTED: DbVersion = DB_VERSION - 1;

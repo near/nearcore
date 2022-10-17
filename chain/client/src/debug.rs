@@ -14,7 +14,7 @@ use near_client_primitives::{
     debug::{EpochInfoView, TrackedShardsView},
     types::StatusError,
 };
-use near_o11y::{log_assert, OpenTelemetrySpanExt, WithSpanContext};
+use near_o11y::{handler_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::{AccountId, BlockHeight, ShardId, ValidatorInfoIdentifier};
@@ -152,14 +152,7 @@ impl Handler<WithSpanContext<DebugStatus>> for ClientActor {
         msg: WithSpanContext<DebugStatus>,
         _ctx: &mut Context<Self>,
     ) -> Self::Result {
-        let span = tracing::debug_span!(
-            target: "client",
-            "handle",
-            handler = "DebugStatus",
-            actor = "ClientActor")
-        .entered();
-        span.set_parent(msg.context);
-        let msg = msg.msg;
+        let (_span, msg) = handler_span!("client", "ClientActor", "DebugStatus", msg);
         match msg {
             DebugStatus::SyncStatus => {
                 Ok(DebugStatusResponse::SyncStatus(self.client.sync_status.clone().into()))

@@ -27,6 +27,7 @@ use tracing_subscriber::{fmt, reload, EnvFilter, Layer, Registry};
 /// Custom tracing subscriber implementation that produces IO traces.
 pub mod context;
 mod io_tracer;
+pub mod macros;
 pub mod metrics;
 pub mod pretty;
 pub mod testonly;
@@ -525,6 +526,7 @@ impl<'a> EnvFilterBuilder<'a> {
             env_filter = env_filter
                 .add_directive("cranelift_codegen=warn".parse().expect("parse directive"))
                 .add_directive("h2=warn".parse().expect("parse directive"))
+                .add_directive("tower=info".parse().expect("parse directive"))
                 .add_directive("trust_dns_resolver=warn".parse().expect("parse directive"))
                 .add_directive("trust_dns_proto=warn".parse().expect("parse directive"));
             env_filter = if module.is_empty() {
