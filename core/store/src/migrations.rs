@@ -4,8 +4,11 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochInfoV1};
 use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof};
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::AccountId;
+use near_primitives::utils::get_outcome_id_block_hash;
+use tracing::info;
 
 use crate::{DBCol, Store, StoreUpdate};
 
@@ -14,11 +17,22 @@ pub struct BatchedStoreUpdate<'a> {
     batch_size: usize,
     store: &'a Store,
     store_update: Option<StoreUpdate>,
+    total_size_written: u64,
+    printed_total_size_written: u64,
 }
+
+const PRINT_PROGRESS_EVERY_BYTES: u64 = bytesize::GIB;
 
 impl<'a> BatchedStoreUpdate<'a> {
     pub fn new(store: &'a Store, batch_size_limit: usize) -> Self {
-        Self { batch_size_limit, batch_size: 0, store, store_update: Some(store.store_update()) }
+        Self {
+            batch_size_limit,
+            batch_size: 0,
+            store,
+            store_update: Some(store.store_update()),
+            total_size_written: 0,
+            printed_total_size_written: 0,
+        }
     }
 
     fn commit(&mut self) -> std::io::Result<()> {
@@ -29,21 +43,55 @@ impl<'a> BatchedStoreUpdate<'a> {
         Ok(())
     }
 
+    fn set_or_insert_ser<T: BorshSerialize>(
+        &mut self,
+        col: DBCol,
+        key: &[u8],
+        value: &T,
+        insert: bool,
+    ) -> std::io::Result<()> {
+        let value_bytes = value.try_to_vec()?;
+        let entry_size = key.as_ref().len() + value_bytes.len() + 8;
+        self.batch_size += entry_size;
+        self.total_size_written += entry_size as u64;
+        let update = self.store_update.as_mut().unwrap();
+        if insert {
+            update.insert(col, key.as_ref(), &value_bytes);
+        } else {
+            update.set(col, key.as_ref(), &value_bytes);
+        }
+
+        if self.batch_size > self.batch_size_limit {
+            self.commit()?;
+        }
+        if self.total_size_written - self.printed_total_size_written > PRINT_PROGRESS_EVERY_BYTES {
+            info!(
+                target: "migrations",
+                "Migrations: {} written",
+                bytesize::to_string(self.total_size_written, true)
+            );
+            self.printed_total_size_written = self.total_size_written;
+        }
+
+        Ok(())
+    }
+
     pub fn set_ser<T: BorshSerialize>(
         &mut self,
         col: DBCol,
         key: &[u8],
         value: &T,
     ) -> std::io::Result<()> {
-        let value_bytes = value.try_to_vec()?;
-        self.batch_size += key.as_ref().len() + value_bytes.len() + 8;
-        self.store_update.as_mut().unwrap().set(col, key.as_ref(), &value_bytes);
+        self.set_or_insert_ser(col, key, value, false)
+    }
 
-        if self.batch_size > self.batch_size_limit {
-            self.commit()?;
-        }
-
-        Ok(())
+    pub fn insert_ser<T: BorshSerialize>(
+        &mut self,
+        col: DBCol,
+        key: &[u8],
+        value: &T,
+    ) -> std::io::Result<()> {
+        self.set_or_insert_ser(col, key, value, true)
     }
 
     pub fn finish(mut self) -> std::io::Result<()> {
@@ -184,5 +232,39 @@ pub fn migrate_31_to_32(storage: &crate::NodeStorage) -> anyhow::Result<()> {
     update.delete_all(DBCol::_ChunkPerHeightShard);
     update.delete_all(DBCol::_GCCount);
     update.commit()?;
+    Ok(())
+}
+
+/// Migrates database from version 32 to 33.
+///
+/// This removes the TransactionResult column and moves it to TransactionResultForBlock.
+/// The new column removes the need for high-latency read-modify-write operations when committing
+/// new blocks.
+pub fn migrate_32_to_33(storage: &crate::NodeStorage) -> anyhow::Result<()> {
+    let store = storage.get_store(crate::Temperature::Hot);
+    let mut update = BatchedStoreUpdate::new(&store, 10_000_000);
+    for row in
+        store.iter_prefix_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(DBCol::_TransactionResult, &[])
+    {
+        let (_, mut outcomes) = row?;
+        // It appears that it was possible that the same entry in the original column contained
+        // duplicate outcomes. We remove them here to avoid panicing due to issuing a
+        // self-overwriting transaction.
+        outcomes.sort_by_key(|outcome| outcome.id().clone());
+        outcomes.dedup_by_key(|outcome| outcome.id().clone());
+        for outcome in outcomes {
+            update.insert_ser(
+                DBCol::TransactionResultForBlock,
+                &get_outcome_id_block_hash(outcome.id(), &outcome.block_hash),
+                &ExecutionOutcomeWithProof {
+                    proof: outcome.proof,
+                    outcome: outcome.outcome_with_id.outcome,
+                },
+            )?;
+        }
+    }
+    let mut delete_old_update = store.store_update();
+    delete_old_update.delete_all(DBCol::_TransactionResult);
+    delete_old_update.commit()?;
     Ok(())
 }

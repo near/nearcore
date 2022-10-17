@@ -1,5 +1,4 @@
 use crate::broadcast;
-use crate::concurrency::demux;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
@@ -11,17 +10,19 @@ use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
+use crate::routing;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::store;
 use crate::tcp;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
-use crate::types::AccountOrPeerIdOrHash;
+use crate::types::PeerIdOrHash;
 use actix::{Actor, Context, Handler};
 use near_crypto::{InMemorySigner, Signature};
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::PeerId;
+use parking_lot::RwLock;
 use std::sync::Arc;
 
 pub struct PeerConfig {
@@ -143,7 +144,7 @@ impl PeerHandle {
         ttl: u8,
         utc: Option<time::Utc>,
     ) -> RoutedMessageV2 {
-        RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id), body }.sign(
+        RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id), body }.sign(
             &self.cfg.network.node_key,
             ttl,
             utc,
@@ -162,7 +163,7 @@ impl PeerHandle {
             let fpm = FakePeerManagerActor { cfg: cfg.clone(), event_sink: send.sink() }.start();
             let fc = fake_client::start(send.sink().compose(Event::Client));
             let store = store::Store::from(near_store::db::TestDB::new());
-            let routing_table_view = RoutingTableView::new(store, cfg.id());
+            let routing_table_view = RoutingTableView::new(store.clone(), cfg.id());
             // WARNING: this is a hack to make PeerActor use a specific nonce
             if let (Some(nonce), tcp::StreamType::Outbound { peer_id }) =
                 (&cfg.nonce, &stream.type_)
@@ -177,14 +178,18 @@ impl PeerHandle {
             }
             let mut network_cfg = cfg.network.clone();
             network_cfg.event_sink = send.sink().compose(Event::Network);
+            let network_graph =
+                Arc::new(RwLock::new(routing::GraphWithCache::new(network_cfg.node_id().clone())));
+            let routing_table_addr =
+                routing::Actor::spawn(clock.clone(), store.clone(), network_graph.clone());
             let network_state = Arc::new(NetworkState::new(
                 Arc::new(network_cfg.verify().unwrap()),
                 cfg.chain.genesis_id.clone(),
                 fc.clone().recipient(),
                 fc.clone().recipient(),
                 fpm.recipient(),
+                routing_table_addr,
                 routing_table_view,
-                demux::RateLimit { qps: 100., burst: 1 },
             ));
             PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap()
         })

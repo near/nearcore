@@ -73,7 +73,7 @@ pub trait External {
     ///
     /// # Errors
     ///
-    /// This function could return [`near_vm_errors::VMError::ExternalError`].
+    /// This function could return [`near_vm_errors::VMRunnerError::ExternalError`].
     ///
     /// # Example
     /// ```

@@ -1655,7 +1655,7 @@ impl ShardsManager {
             // because prev_block_hash may not be ready
             let shard_id = proof.1.to_shard_id;
             let ReceiptProof(shard_receipts, receipt_proof) = proof;
-            let receipt_hash = CryptoHash::hash_borsh(&ReceiptList(shard_id, shard_receipts));
+            let receipt_hash = CryptoHash::hash_borsh(ReceiptList(shard_id, shard_receipts));
             if !verify_path(header.outgoing_receipts_root(), &receipt_proof.proof, &receipt_hash) {
                 byzantine_assert!(false);
                 return Err(Error::ChainError(near_chain::Error::InvalidReceiptsProof));
@@ -2081,6 +2081,7 @@ impl ShardsManager {
 
     pub fn distribute_encoded_chunk(
         &mut self,
+        partial_chunk: PartialEncodedChunk,
         encoded_chunk: EncodedShardChunk,
         merkle_paths: &Vec<MerklePath>,
         outgoing_receipts: Vec<Receipt>,
@@ -2150,6 +2151,7 @@ impl ShardsManager {
         }
 
         // Add it to the set of chunks to be included in the next block
+        self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_chunk.clone().into());
         self.encoded_chunks.insert_chunk_header(shard_id, chunk_header);
 
         Ok(())
@@ -2180,6 +2182,7 @@ mod test {
     use near_store::test_utils::create_test_store;
 
     use super::*;
+    use crate::logic::persist_chunk;
     use crate::test_utils::*;
 
     /// should not request partial encoded chunk from self
@@ -2915,5 +2918,125 @@ mod test {
                 }
             })
             .is_none());
+    }
+
+    #[test]
+    fn test_chunk_cache_hit_for_produced_chunk() {
+        let fixture = ChunkTestFixture::default();
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_shard_tracker.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+            fixture.mock_client_adapter.clone(),
+            fixture.chain_store.new_read_only_chunks_store(),
+            None,
+        );
+
+        shards_manager
+            .distribute_encoded_chunk(
+                fixture.make_partial_encoded_chunk(&fixture.all_part_ords),
+                fixture.mock_encoded_chunk.clone(),
+                &fixture.mock_merkle_paths,
+                fixture.mock_outgoing_receipts.clone(),
+            )
+            .unwrap();
+
+        let (_, source, response) =
+            shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                part_ords: fixture.all_part_ords.clone(),
+                tracking_shards: HashSet::new(),
+            });
+        assert_eq!(source, "cache");
+        assert!(response.is_some());
+        assert_eq!(response.unwrap().parts.len(), fixture.all_part_ords.len());
+    }
+
+    #[test]
+    fn test_chunk_cache_hit_for_received_chunk() {
+        let fixture = ChunkTestFixture::default();
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_shard_tracker.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+            fixture.mock_client_adapter.clone(),
+            fixture.chain_store.new_read_only_chunks_store(),
+            None,
+        );
+
+        shards_manager
+            .process_partial_encoded_chunk(
+                fixture.make_partial_encoded_chunk(&fixture.all_part_ords).into(),
+            )
+            .unwrap();
+
+        let (_, source, response) =
+            shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                part_ords: fixture.all_part_ords.clone(),
+                tracking_shards: HashSet::new(),
+            });
+        assert_eq!(source, "cache");
+        assert!(response.is_some());
+        assert_eq!(response.unwrap().parts.len(), fixture.all_part_ords.len());
+    }
+
+    #[test]
+    fn test_chunk_response_for_uncached_partial_chunk() {
+        let mut fixture = ChunkTestFixture::default();
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_shard_tracker.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+            fixture.mock_client_adapter.clone(),
+            fixture.chain_store.new_read_only_chunks_store(),
+            None,
+        );
+
+        persist_chunk(
+            fixture.make_partial_encoded_chunk(&fixture.all_part_ords),
+            None,
+            &mut fixture.chain_store,
+        )
+        .unwrap();
+
+        let (_, source, response) =
+            shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                part_ords: fixture.all_part_ords.clone(),
+                tracking_shards: HashSet::new(),
+            });
+        assert_eq!(source, "partial");
+        assert!(response.is_some());
+        assert_eq!(response.unwrap().parts.len(), fixture.all_part_ords.len());
+    }
+
+    #[test]
+    fn test_chunk_response_for_uncached_shard_chunk() {
+        let mut fixture = ChunkTestFixture::default();
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_shard_tracker.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+            fixture.mock_client_adapter.clone(),
+            fixture.chain_store.new_read_only_chunks_store(),
+            None,
+        );
+
+        let mut update = fixture.chain_store.store_update();
+        let shard_chunk =
+            fixture.mock_encoded_chunk.decode_chunk(fixture.mock_runtime.num_data_parts()).unwrap();
+        update.save_chunk(shard_chunk);
+        update.commit().unwrap();
+
+        let (_, source, response) =
+            shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
+                chunk_hash: fixture.mock_chunk_header.chunk_hash(),
+                part_ords: fixture.all_part_ords.clone(),
+                tracking_shards: HashSet::new(),
+            });
+        assert_eq!(source, "chunk");
+        assert!(response.is_some());
+        assert_eq!(response.unwrap().parts.len(), fixture.all_part_ords.len());
     }
 }
