@@ -7,7 +7,7 @@ pub type DbVersion = u32;
 pub const DB_VERSION: DbVersion = 34;
 
 /// Database version at which point DbKind was introduced.
-pub(super) const DB_VERSION_WITH_KIND: DbVersion = 34;
+const DB_VERSION_WITH_KIND: DbVersion = 34;
 
 /// Key for the version entry in DBCol::DbVersion.
 ///
@@ -73,7 +73,7 @@ pub(super) struct DbMetadata {
 impl DbMetadata {
     /// Reads metadata from the database.
     ///
-    /// If the database version is not given, returns an error.  Similarly, if
+    /// If the database version is not present, returns an error.  Similarly, if
     /// database version is ≥ [`DB_VERSION_WITH_KIND`] but the kind is not
     /// specified, returns an error.
     pub(super) fn read(db: &dyn crate::Database) -> std::io::Result<Self> {
@@ -91,9 +91,9 @@ impl DbMetadata {
 
 /// Reads value from DbVersion column and parses it using `FromStr`.
 ///
-/// Reads value for given `key` from [`DBCol::DbVersion`], verifies if it’s
-/// valid UTF-8 and then converts into `T` using `from_str`.  If the value is
-/// missing or parsing fails returns an error.
+/// Reads raw bytes for given `key` from [`DBCol::DbVersion`], verifies that
+/// they’re valid UTF-8 and then converts into `T` using `from_str`.  If the
+/// value is missing or parsing fails returns an error.
 fn read<T: std::str::FromStr>(
     what: &str,
     db: &dyn crate::Database,

@@ -278,14 +278,32 @@ pub fn migrate_32_to_33(storage: &crate::NodeStorage) -> anyhow::Result<()> {
 /// If the database has IS_ARCHIVAL key in BlockMisc column set to true, this
 /// overrides value of is_node_archival argument.  Otherwise, the kind of the
 /// resulting database is determined based on that argument.
-pub fn migrate_33_to_34(storage: &crate::NodeStorage, mut is_node_archival: bool) -> anyhow::Result<()> {
+pub fn migrate_33_to_34(
+    storage: &crate::NodeStorage,
+    mut is_node_archival: bool,
+) -> anyhow::Result<()> {
     const IS_ARCHIVE_KEY: &[u8; 10] = b"IS_ARCHIVE";
 
     let hot = storage.get_store(crate::Temperature::Hot);
-    let mut update = hot.store_update();
-    if Some(true) == hot.get_ser::<bool>(DBCol::BlockMisc, IS_ARCHIVE_KEY)? {
-        update.delete(DBCol::BlockMisc, IS_ARCHIVE_KEY);
+
+    let is_store_archival =
+        hot.get_ser::<bool>(DBCol::BlockMisc, IS_ARCHIVE_KEY)?.unwrap_or_default();
+
+    if is_store_archival != is_node_archival {
+        if is_store_archival {
+            tracing::info!(target: "migrations", "Opening an archival database.");
+            tracing::warn!(target: "migrations", "Ignoring `archive` client configuration and setting database kind to Archive.");
+        } else {
+            tracing::info!(target: "migrations", "Running node in archival mode (as per `archive` client configuration).");
+            tracing::info!(target: "migrations", "Setting database kind to Archive.");
+            tracing::warn!(target: "migrations", "Starting node in non-archival mode will no longer be possible with this database.");
+        }
         is_node_archival = true;
+    }
+
+    let mut update = hot.store_update();
+    if is_store_archival {
+        update.delete(DBCol::BlockMisc, IS_ARCHIVE_KEY);
     }
     let kind = if is_node_archival { DbKind::Archive } else { DbKind::RPC };
     update.set(DBCol::DbVersion, crate::metadata::KIND_KEY, <&str>::from(kind).as_bytes());
