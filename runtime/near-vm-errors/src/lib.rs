@@ -25,6 +25,10 @@ pub enum VMRunnerError {
     WasmUnknownError {
         debug_message: String,
     },
+    /// Error when requiring an unavailable feature of the WASM compiler.
+    ///
+    /// The only place this gets emitted today is when calling `precompile`
+    /// in wasmtime runner.
     UnsupportedCompiler {
         debug_message: String,
     },
