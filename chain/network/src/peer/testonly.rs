@@ -182,7 +182,7 @@ impl PeerHandle {
                     Signature::default(),
                 )]);
             }
-            PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap()
+            PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap().0
         })
         .await;
         Self { actix, cfg: cfg_, events: recv }

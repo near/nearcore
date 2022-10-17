@@ -28,8 +28,9 @@ impl super::NetworkState {
         })
     }
 
-    /// Connects to ALL trusted proxies from the config.
-    /// This way other TIER1 nodes can just connect to ANY proxy of this node.
+    /// Tries to connect to ALL trusted proxies from the config, then broadcasts AccountData with
+    /// the set of proxies it managed to connect to. This way other TIER1 nodes can just connect
+    /// to ANY proxy of this node.
     pub async fn tier1_connect_to_proxies(self: &Arc<Self>, clock: &time::Clock) {
         let accounts_data = self.accounts_data.load();
         let tier1 = self.tier1.load();
@@ -39,18 +40,17 @@ impl super::NetworkState {
         };
         let proxies = match &vc.endpoints {
             config::ValidatorEndpoints::TrustedStunServers(_) => {
-                // TODO(gprusak): STUN servers should be queried periocally by a daemon
-                // so that the my_peers list is always resolved.
-                // Note that currently we will broadcast an empty list.
-                // It won't help us to connect the the validator BUT it
-                // will indicate that a validator is misconfigured, which
-                // is could be useful for debugging. Consider keeping this
-                // behavior for situations when the IPs are not known.
+                // TODO(gprusak): If TrustedStunServers are specified,
+                // it means that this node is its own proxy.
+                // Resolve the public IP of this node using those STUN servers,
+                // then connect to yourself (to verify the public IP).
                 vec![]
             }
             config::ValidatorEndpoints::PublicAddrs(peer_addrs) => peer_addrs.clone(),
         };
         tracing::debug!(target:"test","proxies = {proxies:?}");
+        // Try to connect to all proxies in parallel.
+        let mut handles = vec![];
         for proxy in proxies {
             // Skip the proxies we are already connected/connecting to.
             if tier1.ready.contains_key(&proxy.peer_id)
@@ -58,7 +58,7 @@ impl super::NetworkState {
             {
                 continue;
             }
-            if let Err(err) = async {
+            handles.push(async move {
                 let stream = tcp::Stream::connect(
                     &PeerInfo {
                         id: proxy.peer_id.clone(),
@@ -69,13 +69,15 @@ impl super::NetworkState {
                 )
                 .await?;
                 tracing::debug!(target:"test","spawning connection to {proxy:?}");
-                anyhow::Ok(PeerActor::spawn(clock.clone(), stream, None, self.clone())?)
-            }
-            .await
-            {
-                tracing::info!(target:"network", ?err, ?proxy, "failed to establish a TIER1 connection");
+                anyhow::Ok(PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone()).await?)
+            });
+        }
+        for res in futures_util::future::join_all(handles).await {
+            if let Err(err) = res {
+                tracing::info!(target:"network", ?err, "failed to establish a TIER1 connection");
             }
         }
+        self.tier1_broadcast_proxies(clock).await;
     }
 
     pub async fn tier1_broadcast_proxies(self: &Arc<Self>, clock: &time::Clock) {

@@ -812,7 +812,7 @@ impl PeerManagerActor {
                     async move {
                         if let Err(err) = async {
                             let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2).await.context("tcp::Stream::connect()")?;
-                            PeerActor::spawn(clock,stream,None,state.clone()).context("PeerActor::spawn()")?;
+                            PeerActor::spawn_and_handshake(clock,stream,None,state.clone()).await.context("PeerActor::spawn()")?;
                             anyhow::Ok(())
                         }.await {
                             tracing::info!(target:"network", ?err, "failed to connect to {peer_info}");

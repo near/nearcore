@@ -292,41 +292,11 @@ impl ActorHandler {
     }
 
     pub async fn tier1_connect_to_proxies(&self, clock: &time::Clock) {
-        let mut events = self.events.from_now();
         let clock = clock.clone();
         self.with_state(move |s| async move {
-            if let Some(vc) = s.tier1_validator_config(&s.accounts_data.load()) {
-                tracing::debug!(target:"test","tier1_connect_to_proxies");
-                s.tier1_connect_to_proxies(&clock).await;
-                tracing::debug!(target:"test","tier1_connect_to_proxies DONE");
-                let want = match &vc.endpoints {
-                    config::ValidatorEndpoints::TrustedStunServers(_) => HashSet::<_>::default(),
-                    config::ValidatorEndpoints::PublicAddrs(proxies) => {
-                        proxies.iter().map(|p| &p.peer_id).collect()
-                    }
-                };
-                tracing::debug!(target:"test","want = {want:?}");
-                loop {
-                    if want.is_subset(&s.tier1.load().ready.keys().collect()) {
-                        break;
-                    }
-                    events
-                        .recv_until(|ev| match ev {
-                            Event::PeerManager(PME::HandshakeCompleted(ev))
-                                if ev.tier == tcp::Tier::T1 =>
-                            {
-                                Some(())
-                            }
-                            Event::PeerManager(PME::ConnectionClosed(ev)) => {
-                                tracing::debug!(target:"test","connection closed: {:?}",ev.reason);
-                                Some(())
-                            }
-                            _ => None,
-                        })
-                        .await;
-                }
-                s.tier1_broadcast_proxies(&clock).await;
-            }
+            tracing::debug!(target:"test","tier1_connect_to_proxies");
+            s.tier1_connect_to_proxies(&clock).await;
+            tracing::debug!(target:"test","tier1_connect_to_proxies DONE");
         })
         .await;
     }

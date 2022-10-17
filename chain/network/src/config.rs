@@ -88,7 +88,6 @@ pub struct NetworkConfig {
     pub peer_store: peer_store::Config,
     pub whitelist_nodes: Vec<PeerInfo>,
     pub handshake_timeout: time::Duration,
-    pub reconnect_delay: time::Duration,
 
     /// Maximum time between refreshing the peer list.
     pub monitor_peers_max_period: time::Duration,
@@ -220,7 +219,6 @@ impl NetworkConfig {
                     .context("whitelist_nodes")?
             },
             handshake_timeout: cfg.handshake_timeout.try_into()?,
-            reconnect_delay: cfg.reconnect_delay.try_into()?,
             monitor_peers_max_period: cfg.monitor_peers_max_period.try_into()?,
             max_num_peers: cfg.max_num_peers,
             minimum_outbound_peers: cfg.minimum_outbound_peers,
@@ -283,8 +281,7 @@ impl NetworkConfig {
                 connect_only_to_boot_nodes: false,
             },
             whitelist_nodes: vec![],
-            handshake_timeout: time::Duration::seconds(60),
-            reconnect_delay: time::Duration::seconds(60),
+            handshake_timeout: time::Duration::seconds(5),
             monitor_peers_max_period: time::Duration::seconds(100),
             max_num_peers: 40,
             minimum_outbound_peers: 5,
