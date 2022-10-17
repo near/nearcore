@@ -152,6 +152,9 @@ pub(crate) fn execute_function_call(
         VMRunnerError::WasmUnknownError { debug_message } => {
             panic!("Wasmer returned unknown message: {}", debug_message)
         }
+        VMRunnerError::UnsupportedCompiler { debug_message } => {
+            panic!("Unsupported compiler error: {}", debug_message)
+        }
     })
 }
 
