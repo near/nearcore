@@ -851,27 +851,19 @@ impl PeerManagerActor {
         target: &AccountOrPeerIdOrHash,
         msg: RoutedMessageBody,
     ) -> bool {
-        match target {
+        let target = match target {
             AccountOrPeerIdOrHash::AccountId(account_id) => {
-                self.state.send_message_to_account(&self.clock, account_id, msg)
+                return self.state.send_message_to_account(&self.clock, account_id, msg);
             }
-            AccountOrPeerIdOrHash::PeerId(peer_id) => self.state.send_message_to_peer(
-                &self.clock,
-                tcp::Tier::T2,
-                self.state.sign_message(
-                    &self.clock,
-                    RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id.clone()), body: msg },
-                ),
-            ),
-            AccountOrPeerIdOrHash::Hash(hash) => self.state.send_message_to_peer(
-                &self.clock,
-                tcp::Tier::T2,
-                self.state.sign_message(
-                    &self.clock,
-                    RawRoutedMessage { target: PeerIdOrHash::Hash(*hash), body: msg },
-                ),
-            ),
-        }
+            AccountOrPeerIdOrHash::PeerId(it) => PeerIdOrHash::PeerId(it.clone()),
+            AccountOrPeerIdOrHash::Hash(it) => PeerIdOrHash::Hash(it.clone()),
+        };
+
+        self.state.send_message_to_peer(
+            &self.clock,
+            tcp::Tier::T2,
+            self.state.sign_message(&self.clock, RawRoutedMessage { target, body: msg }),
+        )
     }
 
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
