@@ -874,14 +874,19 @@ impl Trie {
     }
 
     pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
+        let key_nibbles = NibbleSlice::new(key.clone());
+        let result = self.lookup(key_nibbles);
+
         let is_delayed = is_delayed_receipt_key(key);
         match &self.flat_state {
-            Some(flat_state) if !is_delayed => flat_state.get_ref(&key),
-            _ => {
-                let key = NibbleSlice::new(key);
-                self.lookup(key)
+            Some(flat_state) if !is_delayed => {
+                let flat_result = flat_state.get_ref(&key);
+                assert_eq!(result, flat_result);
             }
-        }
+            _ => {}
+        };
+
+        result
     }
 
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
