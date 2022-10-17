@@ -246,7 +246,12 @@ pub fn migrate_32_to_33(storage: &crate::NodeStorage) -> anyhow::Result<()> {
     for row in
         store.iter_prefix_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(DBCol::_TransactionResult, &[])
     {
-        let (_, outcomes) = row?;
+        let (_, mut outcomes) = row?;
+        // It appears that it was possible that the same entry in the original column contained
+        // duplicate outcomes. We remove them here to avoid panicing due to issuing a
+        // self-overwriting transaction.
+        outcomes.sort_by_key(|outcome| outcome.id().clone());
+        outcomes.dedup_by_key(|outcome| outcome.id().clone());
         for outcome in outcomes {
             update.insert_ser(
                 DBCol::TransactionResultForBlock,
