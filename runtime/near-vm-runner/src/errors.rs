@@ -1,7 +1,7 @@
-use near_vm_errors::VMError;
+use near_vm_errors::{FunctionCallError, VMRunnerError};
 
 pub trait IntoVMError {
-    fn into_vm_error(self) -> VMError;
+    fn into_vm_error(self) -> Result<FunctionCallError, VMRunnerError>;
 }
 
 #[derive(Debug, PartialEq)]

@@ -15,7 +15,6 @@ use crate::types::{AccountId, Balance, ShardId};
 
 /// Receipts are used for a cross-shard communication.
 /// Receipts could be 2 types (determined by a `ReceiptEnum`): `ReceiptEnum::Action` of `ReceiptEnum::Data`.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct Receipt {
     /// An issuer account_id of a particular receipt.
@@ -90,7 +89,6 @@ impl Receipt {
 }
 
 /// Receipt could be either ActionReceipt or DataReceipt
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ReceiptEnum {
     Action(ActionReceipt),
@@ -98,7 +96,6 @@ pub enum ReceiptEnum {
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ActionReceipt {
     /// A signer of the original transaction
@@ -122,7 +119,6 @@ pub struct ActionReceipt {
 
 /// An incoming (ingress) `DataReceipt` which is going to a Receipt's `receiver` input_data_ids
 /// Which will be converted to `PromiseResult::Successful(value)` or `PromiseResult::Failed`
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
 pub struct DataReceipt {
     pub data_id: CryptoHash,
@@ -132,7 +128,6 @@ pub struct DataReceipt {
 
 /// The outgoing (egress) data which will be transformed
 /// to a `DataReceipt` to be sent to a `receipt.receiver`
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, Hash, Clone, Debug, PartialEq, Eq,
 )]
