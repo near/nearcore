@@ -125,13 +125,13 @@ fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result
         hot.get_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY)?.unwrap_or_default();
     if store_is_archive != near_config.client_config.archive {
         if store_is_archive {
-            tracing::warn!(
-                target: "neard",
-                "Opening an archival database.  \
-                 Ignoring `archive` client configuration and forcing the node to run in archive mode."
-            );
+            tracing::info!(target: "neard", "Opening an archival database.");
+            tracing::warn!(target: "neard", "Ignoring `archive` client configuration and forcing the node to run in archive mode.");
             near_config.client_config.archive = true;
         } else {
+            tracing::info!(target: "neard", "Running node in archival mode (as per `archive` client configuration).");
+            tracing::info!(target: "neard", "Marking database as archival.");
+            tracing::warn!(target: "neard", "Starting node in non-archival mode will no longer be possible with this database.");
             let mut update = hot.store_update();
             update.set_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY, &true)?;
             update.commit()?;
