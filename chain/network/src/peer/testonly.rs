@@ -4,7 +4,7 @@ use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerInfo, PeerMessage, RawRoutedMessage, RoutedMessageBody,
-    RoutedMessageV2, RoutingTableUpdate,
+    RoutedMessageV2,
 };
 use crate::peer::peer_actor::{ClosingReason, PeerActor};
 use crate::peer_manager::network_state::NetworkState;
@@ -57,7 +57,6 @@ impl PeerConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Event {
-    RoutingTable(RoutingTableUpdate),
     Client(fake_client::Event),
     Network(peer_manager_actor::Event),
 }
