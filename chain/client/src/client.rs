@@ -813,24 +813,6 @@ impl Client {
         provenance: Provenance,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), near_chain::Error> {
-        let is_requested = match provenance {
-            Provenance::PRODUCED | Provenance::SYNC => true,
-            Provenance::NONE => false,
-        };
-        // Drop the block if a) it is not requested, b) we already processed this height,
-        // c) it is not building on top of current head
-        if !is_requested
-            && block.header().prev_hash()
-                != &self
-                    .chain
-                    .head()
-                    .map_or_else(|_| CryptoHash::default(), |tip| tip.last_block_hash)
-        {
-            if self.chain.store().is_height_processed(block.header().height())? {
-                return Ok(());
-            }
-        }
-
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
         let result = {
