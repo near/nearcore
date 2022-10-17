@@ -97,7 +97,7 @@ pub fn do_migrate_33_to_34(
     let epoch_id = runtime.get_epoch_id(&block_hash)?;
     let num_shards = runtime.num_shards(&epoch_id)?;
     let mut store_update = BatchedStoreUpdate::new(&store, 1_000);
-    info!(target: "chain", %shard_id, "Writing flat state heads");
+    info!(target: "chain", "Writing flat state heads");
     for shard_id in 0..num_shards {
         store_update
             .set_ser(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap(), &block_hash)
@@ -123,8 +123,8 @@ pub fn do_migrate_33_to_34(
             let storage = trie
                 .storage
                 .as_caching_storage()
-                .expect("preload called without caching storage")
-                .clone();
+                .cloned()
+                .expect("preload called without caching storage");
             let root = trie.get_root().clone();
             loop {
                 if thread_slots.load(std::sync::atomic::Ordering::Relaxed) > 0 {
@@ -155,8 +155,8 @@ pub fn do_migrate_33_to_34(
                             .expect("Failed to put value in FlatState");
                     })
                     .count();
-                store_update.finish()?;
-                debug!(target: "store", "Preload subtrie at {hex_prefix} done, loaded {n:<8} nodes");
+                store_update.finish().unwrap();
+                debug!(target: "store", "Preload subtrie at {hex_prefix} done, loaded {n:<8} state items");
                 inner_thread_slots.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 n
             });
@@ -167,7 +167,7 @@ pub fn do_migrate_33_to_34(
         for handle in handles {
             n += handle.join().expect("thread failed");
         }
-        info!(target: "store", "Preloaded cache with {n} trie nodes for account {account_id}");
+        info!(target: "store", "Wrote {n} trie nodes");
     }
     store_update.finish()?;
     Ok(())
