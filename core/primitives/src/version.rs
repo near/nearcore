@@ -136,6 +136,8 @@ pub enum ProtocolFeature {
     MaxKickoutStake,
     /// Validate account id for function call access keys.
     AccountIdInFunctionCallPermission,
+    /// Blocks created with outdated protocol version will be considered as invalid
+    RejectBlocksWithOutdatedProtocolVersions,
 
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
@@ -147,8 +149,6 @@ pub enum ProtocolFeature {
     FixContractLoadingCost,
     #[cfg(feature = "protocol_feature_ed25519_verify")]
     Ed25519Verify,
-    #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
-    RejectBlocksWithOutdatedProtocolVersions,
     #[cfg(feature = "shardnet")]
     ShardnetShardLayoutUpgrade,
 }
@@ -161,7 +161,7 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion =
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 57;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 58;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
@@ -231,6 +231,7 @@ impl ProtocolFeature {
             ProtocolFeature::AltBn128 => 55,
             ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
             ProtocolFeature::AccountIdInFunctionCallPermission => 57,
+            ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 58,
 
             // Nightly & shardnet features, this is to make feature MaxKickoutStake not enabled on
             // shardnet
@@ -240,14 +241,6 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingCost => 129,
             #[cfg(feature = "protocol_feature_ed25519_verify")]
             ProtocolFeature::Ed25519Verify => 131,
-            #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
-            ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => {
-                if cfg!(feature = "shardnet") {
-                    102
-                } else {
-                    132
-                }
-            }
             #[cfg(feature = "shardnet")]
             ProtocolFeature::ShardnetShardLayoutUpgrade => 102,
         }

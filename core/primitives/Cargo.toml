@@ -42,7 +42,6 @@ sandbox = []
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_fix_staking_threshold = []
 protocol_feature_fix_contract_loading_cost = []
-protocol_feature_reject_blocks_with_outdated_protocol_version = []
 protocol_feature_ed25519_verify = [
   "near-primitives-core/protocol_feature_ed25519_verify"
 ]
@@ -50,7 +49,6 @@ nightly = [
   "nightly_protocol",
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_fix_contract_loading_cost",
-  "protocol_feature_reject_blocks_with_outdated_protocol_version",
   "protocol_feature_ed25519_verify",
 ]
 
@@ -58,7 +56,7 @@ nightly_protocol = []
 
 
 # Shardnet is the experimental network that we deploy for chunk-only producer testing.
-shardnet = ["protocol_feature_reject_blocks_with_outdated_protocol_version"]
+shardnet = []
 
 [dev-dependencies]
 assert_matches.workspace = true
