@@ -712,8 +712,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         (self.store.clone(), ((0..self.num_shards).map(|_| Trie::EMPTY_ROOT).collect()))
     }
 
-    fn get_store(&self) -> Store {
-        self.store.clone()
+    fn store(&self) -> &Store {
+        &self.store
     }
 
     fn get_tries(&self) -> ShardTries {
