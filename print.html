@@ -76,7 +76,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><a href="index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="architecture/how/index.html"><strong aria-hidden="true">2.</strong> How neard works</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="architecture/how/sync.html"><strong aria-hidden="true">2.1.</strong> How Sync Works</a></li><li class="chapter-item expanded "><a href="architecture/how/gc.html"><strong aria-hidden="true">2.2.</strong> Garbage Collection</a></li><li class="chapter-item expanded "><a href="architecture/how/epoch.html"><strong aria-hidden="true">2.3.</strong> How Epoch Works</a></li></ol></li><li class="chapter-item expanded "><a href="architecture/trie.html"><strong aria-hidden="true">3.</strong> Trie</a></li><li class="chapter-item expanded "><a href="architecture/network.html"><strong aria-hidden="true">4.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="practices/index.html"><strong aria-hidden="true">5.</strong> Overview</a></li><li class="chapter-item expanded "><a href="practices/style.html"><strong aria-hidden="true">6.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="practices/tracking_issues.html"><strong aria-hidden="true">7.</strong> Tracking Issues</a></li><li class="chapter-item expanded "><a href="practices/fast_builds.html"><strong aria-hidden="true">8.</strong> Fast Builds</a></li><li class="chapter-item expanded "><a href="practices/testing/index.html"><strong aria-hidden="true">9.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="practices/testing/python_tests.html"><strong aria-hidden="true">9.1.</strong> Python Tests</a></li></ol></li><li class="chapter-item expanded "><a href="practices/protocol_upgrade.html"><strong aria-hidden="true">10.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="misc/index.html"><strong aria-hidden="true">11.</strong> Misc</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="architecture/how/index.html"><strong aria-hidden="true">2.</strong> How neard works</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="architecture/how/sync.html"><strong aria-hidden="true">2.1.</strong> How Sync Works</a></li><li class="chapter-item expanded "><a href="architecture/how/gc.html"><strong aria-hidden="true">2.2.</strong> Garbage Collection</a></li><li class="chapter-item expanded "><a href="architecture/how/epoch.html"><strong aria-hidden="true">2.3.</strong> How Epoch Works</a></li><li class="chapter-item expanded "><a href="architecture/how/tx_routing.html"><strong aria-hidden="true">2.4.</strong> Transaction Routing</a></li></ol></li><li class="chapter-item expanded "><a href="architecture/trie.html"><strong aria-hidden="true">3.</strong> Trie</a></li><li class="chapter-item expanded "><a href="architecture/network.html"><strong aria-hidden="true">4.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="practices/index.html"><strong aria-hidden="true">5.</strong> Overview</a></li><li class="chapter-item expanded "><a href="practices/style.html"><strong aria-hidden="true">6.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="practices/tracking_issues.html"><strong aria-hidden="true">7.</strong> Tracking Issues</a></li><li class="chapter-item expanded "><a href="practices/fast_builds.html"><strong aria-hidden="true">8.</strong> Fast Builds</a></li><li class="chapter-item expanded "><a href="practices/testing/index.html"><strong aria-hidden="true">9.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="practices/testing/python_tests.html"><strong aria-hidden="true">9.1.</strong> Python Tests</a></li></ol></li><li class="chapter-item expanded "><a href="practices/protocol_upgrade.html"><strong aria-hidden="true">10.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="misc/index.html"><strong aria-hidden="true">11.</strong> Misc</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -942,6 +942,73 @@ order should they produce the blocks.</p>
   protocol_version=52
 )
 </code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="transaction-routing"><a class="header" href="#transaction-routing">Transaction Routing</a></h1>
+<p>We all know that transactions are ‘added’ to the chain - but how do they get
+there?</p>
+<p>Hopefully by the end of this article, the image below would totally make sense.</p>
+<p><img src="https://user-images.githubusercontent.com/1711539/196204937-d6828382-16df-42bd-b59b-50eb2e6f07af.png" alt="image" /></p>
+<h2 id="step-1-transaction-creatorauthor"><a class="header" href="#step-1-transaction-creatorauthor">Step 1: Transaction creator/author</a></h2>
+<p>The journey starts with the author of the transaction - who creates the
+transaction object (basically list of commands) - and signs them with their
+private key.</p>
+<p>Basically, they prepare the payload that looks like this:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct SignedTransaction {
+    pub transaction: Transaction,
+    pub signature: Signature,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<p>With such payload, they can go ahead and send it as JSON-RPC request to ANY node
+in the system (you can choose between using ‘sync’ or ‘async’ options).</p>
+<p>From now on, you’ll also be able to query the status of the transaction - by
+using the hash of this object.</p>
+<p><strong>Fun fact:</strong> the ‘Transaction’ object also contains some fields to prevent
+attacks: like ‘nonce’ to prevent replay attack, and ‘block_hash’ to limit the
+validity of the transaction (it must be added within
+transaction_validity_period (defined in genesis) blocks of block_hash).</p>
+<h2 id="step-2-inside-the-node"><a class="header" href="#step-2-inside-the-node">Step 2: Inside the node</a></h2>
+<p>Our transaction has made it to the node in the system - but most of the nodes
+are not validators - which means that they cannot mutate the chain.</p>
+<p>That’s why the node has to forward it to someone who can - the upcoming
+validator.</p>
+<p>Roughly node does the following steps:</p>
+<ul>
+<li>verify transaction’s metadata - check signatures etc (we want to make sure
+that we don’t forward bogus data)</li>
+<li>forward it to the ‘upcoming’ validator - currently we pick the validators that
+would be a chunk creator in +2, +3, +4 and +8 blocks (this is controlled by
+TX_ROUTING_HEIGHT_HORIZON) - and send the transaction to all of them.</li>
+</ul>
+<h2 id="step-3-en-route-to-validatorproducer"><a class="header" href="#step-3-en-route-to-validatorproducer">Step 3: En-route to validator/producer</a></h2>
+<p>Great, the node knows to send (forward) the transaction to the validator, but
+how does the routing work? How do we know which peer is hosting a validator?</p>
+<p>Each validator is regularly (every config.ttl_account_id_router/2 seconds == 30
+minutes in production) broadcasting so called <code>AnnounceAccount</code>, which is
+basically a pair of <code>(account_id, peer_id)</code>, to the whole network. This way each
+node knows which peer_id to send the message to.</p>
+<p>Then it asks the routing table about the shortest path to the peer, and sends
+the ‘ForwardTx’ message to the peer.</p>
+<h2 id="step-4-chunk-producer"><a class="header" href="#step-4-chunk-producer">Step 4: Chunk producer</a></h2>
+<p>When validator receives such forwarded transaction, it double-checks that it is
+about to produce the block, and if yes, it adds the transaction to the mempool
+(<code>TransactionPool</code>) for this shard, when it waits to be picked up when the chunk
+is produced.</p>
+<p>What happens afterwards will be covered in future episodes/articles.</p>
+<h2 id="additional-notes"><a class="header" href="#additional-notes">Additional notes:</a></h2>
+<h3 id="transaction-being-added-multiple-times"><a class="header" href="#transaction-being-added-multiple-times">Transaction being added multiple times</a></h3>
+<p>But such approach means, that we’re forwarding the same transaction to multiple
+validators (currently 4) - so can it be added multiple times?</p>
+<p>No: remember that transaction has a concrete hash - that is used as a global
+identifier. If the validator sees that the transaction is present in the chain,
+it removes it from its local mempool.</p>
+<h3 id="can-transaction-get-lost"><a class="header" href="#can-transaction-get-lost">Can transaction get lost?</a></h3>
+<p>Yes - they can and they do. Sometimes node doesn’t have a path to a given
+validator or it didn’t receive an AnnouceAccount for it, so it doesn’t know
+where to forward the message. And if this happens to all 4 validators that we
+try to send to - then the message can be silently dropped.</p>
+<p>We’re working on adding some monitoring to see how often this happens.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="trie"><a class="header" href="#trie">Trie</a></h1>
 <p>We use Merkle-Patricia Trie to store blockchain state. Trie is persistent, which
 means that insertion of new node actually leads to creation of new path to this
