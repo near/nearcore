@@ -342,6 +342,7 @@ impl TrieStorage for TrieMemoryPartialStorage {
     }
 }
 
+#[derive(Clone)]
 pub struct TrieCachingStorage {
     pub(crate) store: Store,
     pub(crate) shard_uid: ShardUId,
@@ -371,6 +372,7 @@ pub struct TrieCachingStorage {
     metrics: TrieCacheInnerMetrics,
 }
 
+#[derive(Clone)]
 struct TrieCacheInnerMetrics {
     chunk_cache_hits: GenericCounter<prometheus::core::AtomicU64>,
     chunk_cache_misses: GenericCounter<prometheus::core::AtomicU64>,

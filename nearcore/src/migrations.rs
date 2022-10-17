@@ -123,8 +123,8 @@ pub fn do_migrate_33_to_34(
             let storage = trie
                 .storage
                 .as_caching_storage()
-                .cloned()
-                .expect("preload called without caching storage");
+                .expect("preload called without caching storage")
+                .clone();
             let root = trie.get_root().clone();
             loop {
                 if thread_slots.load(std::sync::atomic::Ordering::Relaxed) > 0 {
