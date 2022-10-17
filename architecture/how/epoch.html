@@ -1,0 +1,270 @@
+<!DOCTYPE HTML>
+<html lang="en" class="sidebar-visible no-js light">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>How Epoch Works - Guide to Nearcore Development</title>
+        <!-- Custom HTML head -->
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff" />
+
+        <link rel="icon" href="../../favicon.svg">
+        <link rel="shortcut icon" href="../../favicon.png">
+        <link rel="stylesheet" href="../../css/variables.css">
+        <link rel="stylesheet" href="../../css/general.css">
+        <link rel="stylesheet" href="../../css/chrome.css">
+        <link rel="stylesheet" href="../../css/print.css" media="print">
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../../fonts/fonts.css">
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../../highlight.css">
+        <link rel="stylesheet" href="../../tomorrow-night.css">
+        <link rel="stylesheet" href="../../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+    </head>
+    <body>
+        <!-- Provide site root to javascript -->
+        <script type="text/javascript">
+            var path_to_root = "../../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script type="text/javascript">
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('no-js')
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add('js');
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var html = document.querySelector('html');
+            var sidebar = 'hidden';
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            }
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../../architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../../architecture/how/index.html"><strong aria-hidden="true">2.</strong> How neard works</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../architecture/how/gc.html"><strong aria-hidden="true">2.1.</strong> Garbage Collection</a></li><li class="chapter-item expanded "><a href="../../architecture/how/epoch.html" class="active"><strong aria-hidden="true">2.2.</strong> How Epoch Works</a></li></ol></li><li class="chapter-item expanded "><a href="../../architecture/trie.html"><strong aria-hidden="true">3.</strong> Trie</a></li><li class="chapter-item expanded "><a href="../../architecture/network.html"><strong aria-hidden="true">4.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../../practices/index.html"><strong aria-hidden="true">5.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../../practices/style.html"><strong aria-hidden="true">6.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../../practices/tracking_issues.html"><strong aria-hidden="true">7.</strong> Tracking Issues</a></li><li class="chapter-item expanded "><a href="../../practices/fast_builds.html"><strong aria-hidden="true">8.</strong> Fast Builds</a></li><li class="chapter-item expanded "><a href="../../practices/testing/index.html"><strong aria-hidden="true">9.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../practices/testing/python_tests.html"><strong aria-hidden="true">9.1.</strong> Python Tests</a></li></ol></li><li class="chapter-item expanded "><a href="../../practices/protocol_upgrade.html"><strong aria-hidden="true">10.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../../misc/index.html"><strong aria-hidden="true">11.</strong> Misc</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky bordered">
+                    <div class="left-buttons">
+                        <button id="sidebar-toggle" class="icon-button" type="button" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </button>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light (default)</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Guide to Nearcore Development</h1>
+
+                    <div class="right-buttons">
+                        <a href="../../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/tree/master/docs" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/edit/master/docs/./architecture/how/epoch.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script type="text/javascript">
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="how-epoch-works"><a class="header" href="#how-epoch-works">How Epoch Works</a></h1>
+<p>This short document will tell you all you need to know about Epochs in NEAR
+protocol.</p>
+<p>You can also find additional information about epochs in
+https://nomicon.io/BlockchainLayer/EpochManager/</p>
+<h2 id="what-is-an-epoch"><a class="header" href="#what-is-an-epoch">What is an Epoch?</a></h2>
+<p>Epoch is a sequence of consecutive blocks - and within one epoch, the set of
+validators is fixed, and validator rotation happens at epoch boundaries.</p>
+<p>Basically almost all the changes that we do - are happening at epoch boundaries:</p>
+<ul>
+<li>sharding changes</li>
+<li>protocol version changes</li>
+<li>validator changes</li>
+<li>changing tracking shards</li>
+<li>state sync</li>
+</ul>
+<h2 id="where-does-the-epoch-id-come-from"><a class="header" href="#where-does-the-epoch-id-come-from">Where does the Epoch Id come from?</a></h2>
+<p>EpochId for epoch T+2 is the last hash of the block of epoch T.</p>
+<p><img src="https://user-images.githubusercontent.com/1711539/195907256-c4b1d956-632c-4c11-aa38-17603b1fcc40.png" alt="image" /></p>
+<p>Situation at genesis is interesting. We have three block:</p>
+<p>dummy ← genesis ← first-block</p>
+<h2 id="where-do-we-set-the-epoch-length"><a class="header" href="#where-do-we-set-the-epoch-length">Where do we set the epoch length?</a></h2>
+<p>Epoch length is set in the genesis config. Currently in mainnet it is set to 43200 blocks:</p>
+<pre><code>  &quot;epoch_length&quot;: 43200
+</code></pre>
+<p>See http://go/mainnet-genesis for more details.</p>
+<p>This means that each epoch lasts around 15 hours.</p>
+<p>Important: sometimes there might be ‘troubles’ on the network, that might result
+in epoch lasting a little bit longer (if we cannot get enough signatures on the
+last blocks of the previous epoch).</p>
+<p>You can read specific details on our nomicon page:
+https://nomicon.io/BlockchainLayer/EpochManager/Epoch</p>
+<h2 id="how-do-we-pick-the-next-validators"><a class="header" href="#how-do-we-pick-the-next-validators">How do we pick the next validators?</a></h2>
+<p>TL;DR: in the last block of the epoch T, we look at the accounts that have
+highest stake and we pick them to become validators in <strong>T+2</strong>.</p>
+<p>We are deciding on validators for T+2 (and not T+1) as we want to make sure that
+validators have enough time to prepare for block production and validation (they
+have to download the state of shards etc).</p>
+<p>For more info on how we pick validators - please look on nomicon.</p>
+<h2 id="epoch-and-sharding"><a class="header" href="#epoch-and-sharding">Epoch and Sharding</a></h2>
+<p>Sharding changes happen only on epoch boundary - that’s why many of the requests
+(like which shard does my account belong to), require also an epoch_id as a
+parameter.</p>
+<p>Currently (April 2022) - we don’t have dynamic sharding yet, so whole chain is
+simply using 4 shards.</p>
+<p>How can I get more information about current/previous epochs?</p>
+<p>We don’t show much information about Epochs in Explorer. Today, you can use
+state_viewer (if you have access to the network database).</p>
+<p>At the same time, we’re working on a small debug dashboard, to show you the
+basic information about past epochs - stay tuned.</p>
+<h2 id="technical-details"><a class="header" href="#technical-details">Technical details</a></h2>
+<h3 id="where-do-we-store-epoch-info"><a class="header" href="#where-do-we-store-epoch-info">Where do we store epoch info?</a></h3>
+<p>We use couple columns in database to store epoch information.</p>
+<ul>
+<li><strong>ColEpochInfo = 11</strong> - is storing the mapping from EpochId to EpochInfo
+structure that contains all the details.</li>
+<li><strong>ColEpochStart = 23</strong> - has a mapping from EpochId to the first block height
+of that epoch.</li>
+<li><strong>ColEpochValidatorInfo = 47</strong> - contains validator statistics (blocks
+produced etc) for each epoch.</li>
+</ul>
+<h3 id="how-does-epoch-info-look-like"><a class="header" href="#how-does-epoch-info-look-like">How does epoch info look like?</a></h3>
+<p>Here’s the example epoch info from the localnet node. As you can see below,
+EpochInfo mostly contains information about who is the validator and in which
+order should they produce the blocks.</p>
+<pre><code>EpochInfo.V3(
+  epoch_height=7,
+  validators=ListContainer([
+    validator_stake.V1(account_id='node0', public_key=public_key.ED25519(tuple_data=ListContainer([b'7PGseFbWxvYVgZ89K1uTJKYoKetWs7BJtbyXDzfbAcqX'])), stake=51084320187874404740382878961615),
+    validator_stake.V1(account_id='node2', public_key=public_key.ED25519(tuple_data=ListContainer([b'GkDv7nSMS3xcqA45cpMvFmfV1o4fRF6zYo1JRR6mNqg5'])), stake=51084320187874404740382878961615),
+    validator_stake.V1(account_id='node1', public_key=public_key.ED25519(tuple_data=ListContainer([b'6DSjZ8mvsRZDvFqFxo8tCKePG96omXW7eVYVSySmDk8e'])), stake=50569171534262067815663761517574)]),
+
+  validator_to_index={'node0': 0, 'node1': 2, 'node2': 1},
+
+  block_producers_settlement=ListContainer([0, 1, 2]),
+  chunk_producers_settlement=ListContainer([ListContainer([0, 1, 2]), ListContainer([0, 1, 2]), ListContainer([0, 1, 2]), ListContainer([0, 1, 2]), ListContainer([0, 1, 2])]),
+
+  hidden_validators_settlement=ListContainer([]),
+  fishermen=ListContainer([]),
+  fishermen_to_index={},
+  stake_change={'node0': 51084320187874404740382878961615, 'node1': 50569171534262067815663761517574, 'node2': 51084320187874404740382878961615},
+  validator_reward={'near': 37059603312899067633082436, 'node0': 111553789870214657675206177, 'node1': 110428850075662293347329569, 'node2': 111553789870214657675206177},
+  validator_kickout={},
+  minted_amount=370596033128990676330824359,
+  seat_price=24438049905601740367428723111,
+  protocol_version=52
+)
+</code></pre>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../../architecture/how/gc.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+                            <a rel="next" href="../../architecture/trie.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../../architecture/how/gc.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                    <a rel="next" href="../../architecture/trie.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+        <script type="text/javascript">
+            window.playground_copyable = true;
+        </script>
+        <script src="../../elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../mark.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../searcher.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../clipboard.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../highlight.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../book.js" type="text/javascript" charset="utf-8"></script>
+
+        <!-- Custom JS scripts -->
+    </body>
+</html>
