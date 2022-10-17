@@ -54,8 +54,10 @@ pub fn get_default_home() -> PathBuf {
 /// being opened.
 fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result<NodeStorage> {
     let migrator = migrations::Migrator::new(near_config);
-    let opener = NodeStorage::opener(home_dir, &near_config.config.store).with_migrator(&migrator);
-    let res = match opener.open() {
+    let opener = NodeStorage::opener(home_dir, &near_config.config.store)
+        .with_migrator(&migrator)
+        .expect_archive(near_config.client_config.archive);
+    let storage = match opener.open() {
         Ok(storage) => Ok(storage),
         Err(StoreOpenerError::IO(err)) => {
             Err(anyhow::anyhow!("{err}"))
@@ -115,29 +117,9 @@ fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result
         Err(StoreOpenerError::MigrationError(err)) => {
             Err(err)
         },
-    };
-    let storage =
-        res.with_context(|| format!("unable to open database at {}", opener.path().display()))?;
+    }.with_context(|| format!("unable to open database at {}", opener.path().display()))?;
 
-    // Check if the storage is an archive and if it is make sure we are too.
-    let hot = storage.get_store(Temperature::Hot);
-    let store_is_archive: bool =
-        hot.get_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY)?.unwrap_or_default();
-    if store_is_archive != near_config.client_config.archive {
-        if store_is_archive {
-            tracing::info!(target: "neard", "Opening an archival database.");
-            tracing::warn!(target: "neard", "Ignoring `archive` client configuration and forcing the node to run in archive mode.");
-            near_config.client_config.archive = true;
-        } else {
-            tracing::info!(target: "neard", "Running node in archival mode (as per `archive` client configuration).");
-            tracing::info!(target: "neard", "Marking database as archival.");
-            tracing::warn!(target: "neard", "Starting node in non-archival mode will no longer be possible with this database.");
-            let mut update = hot.store_update();
-            update.set_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY, &true)?;
-            update.commit()?;
-        }
-    }
-
+    near_config.config.archive = storage.is_archive()?;
     Ok(storage)
 }
 
