@@ -180,10 +180,7 @@ impl PeerHandle {
             let network_state = Arc::new(NetworkState::new(
                 Arc::new(network_cfg.verify().unwrap()),
                 cfg.chain.genesis_id.clone(),
-                client::Client {
-                    client_addr: fc.clone().recipient(),
-                    view_client_addr: fc.clone().recipient(),
-                },
+                client::Client::new(fc.clone().recipient(), fc.clone().recipient()),
                 fpm.recipient(),
                 routing_table_addr,
                 routing_table_view,

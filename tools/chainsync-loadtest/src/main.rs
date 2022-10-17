@@ -47,10 +47,10 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
         time::Clock::real(),
         near_store::db::TestDB::new(),
         config.network_config,
-        near_network::client::Client {
-            client_addr: client_actor.clone().recipient(),
-            view_client_addr: client_actor.clone().recipient(),
-        },
+        near_network::client::Client::new(
+            client_actor.clone().recipient(),
+            client_actor.clone().recipient(),
+        ),
         GenesisId {
             chain_id: config.client_config.chain_id.clone(),
             hash: genesis_hash(&config.client_config.chain_id),

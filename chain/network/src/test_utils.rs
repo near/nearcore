@@ -361,10 +361,7 @@ pub mod test_features {
             time::Clock::real(),
             store,
             config,
-            client::Client {
-                client_addr: client_addr.recipient(),
-                view_client_addr: view_client_addr.recipient(),
-            },
+            client::Client::new(client_addr.recipient(), view_client_addr.recipient()),
             GenesisId::default(),
         )
         .unwrap()

@@ -288,10 +288,7 @@ pub(crate) async fn start(
                 clock,
                 store,
                 cfg,
-                client::Client {
-                    client_addr: fc.clone().recipient(),
-                    view_client_addr: fc.clone().recipient(),
-                },
+                client::Client::new(fc.clone().recipient(), fc.clone().recipient()),
                 genesis_id,
             )
             .unwrap()

@@ -16,21 +16,33 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 
+/// A strongly typed asynchronous API for the Client logic.
+/// It abstracts away the fact that client is implemented using actix
+/// actors.
+/// TODO(gprusak): eventually we might want to replace this concrete
+/// implementation with an (async) trait, and move the
+/// concrete implementation to the near_client crate. This way we will
+/// be able to remove actix from the near_network crate entirely.
 pub struct Client {
     /// Address of the client actor.
-    pub client_addr: actix::Recipient<WithSpanContext<NetworkClientMessages>>,
+    client_addr: actix::Recipient<WithSpanContext<NetworkClientMessages>>,
     /// Address of the view client actor.
-    pub view_client_addr: actix::Recipient<NetworkViewClientMessages>,
+    view_client_addr: actix::Recipient<NetworkViewClientMessages>,
 }
 
-pub type Result<T> = std::result::Result<T, ReasonForBan>;
-
 impl Client {
+    pub fn new(
+        client_addr: actix::Recipient<WithSpanContext<NetworkClientMessages>>,
+        view_client_addr: actix::Recipient<NetworkViewClientMessages>,
+    ) -> Self {
+        Self { client_addr, view_client_addr }
+    }
+
     pub async fn tx_status_request(
         &self,
         account_id: AccountId,
         tx_hash: CryptoHash,
-    ) -> Result<Option<FinalExecutionOutcomeView>> {
+    ) -> Result<Option<FinalExecutionOutcomeView>, ReasonForBan> {
         match self
             .view_client_addr
             .send(NetworkViewClientMessages::TxStatus {
@@ -49,7 +61,10 @@ impl Client {
         }
     }
 
-    pub async fn tx_status_response(&self, tx_result: FinalExecutionOutcomeView) -> Result<()> {
+    pub async fn tx_status_response(
+        &self,
+        tx_result: FinalExecutionOutcomeView,
+    ) -> Result<(), ReasonForBan> {
         match self
             .view_client_addr
             .send(NetworkViewClientMessages::TxStatusResponse(Box::new(tx_result.clone())))
@@ -69,7 +84,7 @@ impl Client {
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-    ) -> Result<Option<StateResponseInfo>> {
+    ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
         match self
             .view_client_addr
             .send(NetworkViewClientMessages::StateRequestHeader {
@@ -94,7 +109,7 @@ impl Client {
         shard_id: ShardId,
         sync_hash: CryptoHash,
         part_id: u64,
-    ) -> Result<Option<StateResponseInfo>> {
+    ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
         match self
             .view_client_addr
             .send(NetworkViewClientMessages::StateRequestPart {
@@ -115,7 +130,7 @@ impl Client {
         }
     }
 
-    pub async fn state_response(&self, info: StateResponseInfo) -> Result<()> {
+    pub async fn state_response(&self, info: StateResponseInfo) -> Result<(), ReasonForBan> {
         match self
             .client_addr
             .send(NetworkClientMessages::StateResponse(info).with_span_context())
@@ -131,7 +146,11 @@ impl Client {
         }
     }
 
-    pub async fn block_approval(&self, approval: Approval, peer_id: PeerId) -> Result<()> {
+    pub async fn block_approval(
+        &self,
+        approval: Approval,
+        peer_id: PeerId,
+    ) -> Result<(), ReasonForBan> {
         match self
             .client_addr
             .send(NetworkClientMessages::BlockApproval(approval, peer_id).with_span_context())
@@ -151,7 +170,7 @@ impl Client {
         &self,
         transaction: SignedTransaction,
         is_forwarded: bool,
-    ) -> Result<()> {
+    ) -> Result<(), ReasonForBan> {
         match self
             .client_addr
             .send(
@@ -179,7 +198,7 @@ impl Client {
         &self,
         req: PartialEncodedChunkRequestMsg,
         msg_hash: CryptoHash,
-    ) -> Result<()> {
+    ) -> Result<(), ReasonForBan> {
         match self
             .client_addr
             .send(
@@ -202,7 +221,7 @@ impl Client {
         &self,
         resp: PartialEncodedChunkResponseMsg,
         timestamp: time::Instant,
-    ) -> Result<()> {
+    ) -> Result<(), ReasonForBan> {
         match self
             .client_addr
             .send(
@@ -221,7 +240,10 @@ impl Client {
         }
     }
 
-    pub async fn partial_encoded_chunk(&self, chunk: PartialEncodedChunk) -> Result<()> {
+    pub async fn partial_encoded_chunk(
+        &self,
+        chunk: PartialEncodedChunk,
+    ) -> Result<(), ReasonForBan> {
         match self
             .client_addr
             .send(NetworkClientMessages::PartialEncodedChunk(chunk).with_span_context())
@@ -240,7 +262,7 @@ impl Client {
     pub async fn partial_encoded_chunk_forward(
         &self,
         msg: PartialEncodedChunkForwardMsg,
-    ) -> Result<()> {
+    ) -> Result<(), ReasonForBan> {
         match self
             .client_addr
             .send(NetworkClientMessages::PartialEncodedChunkForward(msg).with_span_context())
@@ -256,7 +278,7 @@ impl Client {
         }
     }
 
-    pub async fn block_request(&self, hash: CryptoHash) -> Result<Option<Block>> {
+    pub async fn block_request(&self, hash: CryptoHash) -> Result<Option<Block>, ReasonForBan> {
         match self.view_client_addr.send(NetworkViewClientMessages::BlockRequest(hash)).await {
             Ok(NetworkViewClientResponses::Block(block)) => Ok(Some(*block)),
             Ok(NetworkViewClientResponses::NoResponse) => Ok(None),
@@ -272,7 +294,7 @@ impl Client {
     pub async fn block_headers_request(
         &self,
         hashes: Vec<CryptoHash>,
-    ) -> Result<Option<Vec<BlockHeader>>> {
+    ) -> Result<Option<Vec<BlockHeader>>, ReasonForBan> {
         match self
             .view_client_addr
             .send(NetworkViewClientMessages::BlockHeadersRequest(hashes))
@@ -289,7 +311,12 @@ impl Client {
         }
     }
 
-    pub async fn block(&self, block: Block, peer_id: PeerId, was_requested: bool) -> Result<()> {
+    pub async fn block(
+        &self,
+        block: Block,
+        peer_id: PeerId,
+        was_requested: bool,
+    ) -> Result<(), ReasonForBan> {
         match self
             .client_addr
             .send(NetworkClientMessages::Block(block, peer_id, was_requested).with_span_context())
@@ -305,7 +332,11 @@ impl Client {
         }
     }
 
-    pub async fn block_headers(&self, headers: Vec<BlockHeader>, peer_id: PeerId) -> Result<()> {
+    pub async fn block_headers(
+        &self,
+        headers: Vec<BlockHeader>,
+        peer_id: PeerId,
+    ) -> Result<(), ReasonForBan> {
         match self
             .client_addr
             .send(NetworkClientMessages::BlockHeaders(headers, peer_id).with_span_context())
@@ -321,7 +352,7 @@ impl Client {
         }
     }
 
-    pub async fn challenge(&self, challenge: Challenge) -> Result<()> {
+    pub async fn challenge(&self, challenge: Challenge) -> Result<(), ReasonForBan> {
         match self
             .client_addr
             .send(NetworkClientMessages::Challenge(challenge).with_span_context())
@@ -352,7 +383,7 @@ impl Client {
     pub async fn announce_account(
         &self,
         accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
-    ) -> Result<Vec<AnnounceAccount>> {
+    ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
         match self.view_client_addr.send(NetworkViewClientMessages::AnnounceAccount(accounts)).await
         {
             Ok(NetworkViewClientResponses::AnnounceAccount(accounts)) => Ok(accounts),

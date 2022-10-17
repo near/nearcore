@@ -49,10 +49,7 @@ fn make_peer_manager(
         time::Clock::real(),
         near_store::db::TestDB::new(),
         config,
-        near_network::client::Client {
-            client_addr: client_addr.recipient(),
-            view_client_addr: view_client_addr.recipient(),
-        },
+        near_network::client::Client::new(client_addr.recipient(), view_client_addr.recipient()),
         GenesisId::default(),
     )
     .unwrap()
