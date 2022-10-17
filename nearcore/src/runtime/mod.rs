@@ -669,8 +669,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         (self.store.clone(), self.genesis_state_roots.clone())
     }
 
-    fn get_store(&self) -> Store {
-        self.store.clone()
+    fn store(&self) -> &Store {
+        &self.store
     }
 
     fn get_tries(&self) -> ShardTries {

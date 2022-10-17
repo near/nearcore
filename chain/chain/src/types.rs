@@ -266,7 +266,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
 
     fn get_tries(&self) -> ShardTries;
 
-    fn get_store(&self) -> Store;
+    fn store(&self) -> &Store;
 
     /// Returns trie. Since shard layout may change from epoch to epoch, `shard_id` itself is
     /// not enough to identify the trie. `prev_hash` is used to identify the epoch the given
