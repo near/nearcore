@@ -19,6 +19,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
 use tracing::{debug, error, info, warn};
@@ -565,6 +566,14 @@ impl RecompressStorageSubCommand {
     }
 }
 
+#[derive(thiserror::Error, Debug, PartialEq)]
+pub enum VerifyProofError {
+    #[error("invalid outcome root proof")]
+    InvalidOutcomeRootProof,
+    #[error("invalid block hash proof")]
+    InvalidBlockHashProof,
+}
+
 #[derive(Parser)]
 pub struct VerifyProofSubCommand {
     #[clap(long)]
@@ -572,7 +581,9 @@ pub struct VerifyProofSubCommand {
 }
 
 impl VerifyProofSubCommand {
-    pub fn run(self) {
+    /// Verifies light client transaction proof (result of the EXPERIMENTAL_light_client_proof RPC call).
+    /// Returns the Hash and height of the block that transaction belongs to, and root of the light block merkle tree.
+    pub fn run(self) -> ((CryptoHash, u64), CryptoHash) {
         let file = File::open(Path::new(self.json_file_path.as_str()))
             .with_context(|| "Could not open proof file.")
             .unwrap();
@@ -580,7 +591,12 @@ impl VerifyProofSubCommand {
         let light_client_rpc_response: Value = serde_json::from_reader(reader)
             .with_context(|| "Failed to deserialize the genesis records.")
             .unwrap();
+        Self::verify_json(light_client_rpc_response).unwrap()
+    }
 
+    pub fn verify_json(
+        light_client_rpc_response: Value,
+    ) -> Result<((CryptoHash, u64), CryptoHash), VerifyProofError> {
         let light_client_proof: RpcLightClientExecutionProofResponse =
             serde_json::from_value(light_client_rpc_response["result"].clone()).unwrap();
 
@@ -613,6 +629,7 @@ impl VerifyProofSubCommand {
                     light_client_proof.block_header_lite.inner_lite.outcome_root
                 ))
             );
+            return Err(VerifyProofError::InvalidOutcomeRootProof);
         }
         let block_hash = light_client_proof.outcome_proof.block_hash;
 
@@ -625,6 +642,7 @@ impl VerifyProofSubCommand {
                 light_client_proof.block_header_lite.hash(),
                 light_client_proof.outcome_proof.block_hash
             )));
+            return Err(VerifyProofError::InvalidBlockHashProof);
         } else {
             println!(
                 "{}",
@@ -647,6 +665,10 @@ impl VerifyProofSubCommand {
             "OR verify that block with this hash {:?} is in the chain at this heigth {:?}",
             block_hash, light_client_proof.block_header_lite.inner_lite.height
         );
+        Ok((
+            (block_hash, light_client_proof.block_header_lite.inner_lite.height),
+            light_block_merkle_root,
+        ))
     }
 }
 
@@ -690,5 +712,31 @@ mod tests {
             "--fast"
         ])
         .is_err());
+    }
+
+    #[test]
+    fn verify_proof_test() {
+        assert_eq!(
+            VerifyProofSubCommand::verify_json(
+                serde_json::from_slice(include_bytes!("../res/proof_example.json")).unwrap()
+            )
+            .unwrap(),
+            (
+                (
+                    CryptoHash::from_str("HqZHDTHSqH6Az22SZgFUjodGFDtfC2qSt4v9uYFpLuFC").unwrap(),
+                    38 as u64
+                ),
+                CryptoHash::from_str("BWwZdhAhjAgKxZ5ycqn1CvXads5DjPMfj4kRdc1rWit8").unwrap()
+            )
+        );
+
+        // Proof with a wroing outcome (as user specified wrong shard).
+        assert_eq!(
+            VerifyProofSubCommand::verify_json(
+                serde_json::from_slice(include_bytes!("../res/invalid_proof.json")).unwrap()
+            )
+            .unwrap_err(),
+            VerifyProofError::InvalidOutcomeRootProof
+        );
     }
 }
