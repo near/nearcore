@@ -119,12 +119,12 @@ pub fn setup_mock_node(
     if client_start_height > 0 {
         tracing::info!(target: "mock_node", "Preparing client data dir to be able to start at the specified start height {}", client_start_height);
         let mut chain_store = ChainStore::new(
-            client_runtime.get_store(),
+            client_runtime.store().clone(),
             config.genesis.config.genesis_height,
             !config.client_config.archive,
         );
         let mut network_chain_store = ChainStore::new(
-            mock_network_runtime.get_store(),
+            mock_network_runtime.store().clone(),
             config.genesis.config.genesis_height,
             !config.client_config.archive,
         );
@@ -166,12 +166,12 @@ pub fn setup_mock_node(
 
         // copy epoch info
         let mut epoch_manager = EpochManager::new_from_genesis_config(
-            client_runtime.get_store(),
+            client_runtime.store().clone(),
             &config.genesis.config,
         )
         .unwrap();
         let mock_epoch_manager = EpochManager::new_from_genesis_config(
-            mock_network_runtime.get_store(),
+            mock_network_runtime.store().clone(),
             &config.genesis.config,
         )
         .unwrap();
