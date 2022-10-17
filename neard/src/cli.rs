@@ -1,15 +1,22 @@
 use crate::log_config_watcher::{LogConfigWatcher, UpdateBehavior};
+use anyhow::Context;
 use clap::{Args, Parser};
 use near_chain_configs::GenesisValidationMode;
+use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
     default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
     EnvFilterBuilder, OpenTelemetryLevel,
 };
+use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use near_store::Mode;
+use serde_json::Value;
+use std::fs::File;
+use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use tokio::sync::oneshot;
@@ -82,6 +89,9 @@ impl NeardCmd {
 
             NeardSubCommand::RecompressStorage(cmd) => {
                 cmd.run(&home_dir);
+            }
+            NeardSubCommand::VerifyProof(cmd) => {
+                cmd.run();
             }
         };
         Ok(())
@@ -175,6 +185,10 @@ pub(super) enum NeardSubCommand {
     /// tool, it is planned to be removed by the end of 2022.
     #[clap(alias = "recompress_storage")]
     RecompressStorage(RecompressStorageSubCommand),
+
+    /// Verify proofs
+    #[clap(alias = "verify_proof")]
+    VerifyProof(VerifyProofSubCommand),
 }
 
 #[derive(Parser)]
@@ -548,6 +562,91 @@ impl RecompressStorageSubCommand {
             error!("{}", err);
             std::process::exit(1);
         }
+    }
+}
+
+#[derive(Parser)]
+pub struct VerifyProofSubCommand {
+    #[clap(long)]
+    json_file_path: String,
+}
+
+impl VerifyProofSubCommand {
+    pub fn run(self) {
+        let file = File::open(Path::new(self.json_file_path.as_str()))
+            .with_context(|| "Could not open proof file.")
+            .unwrap();
+        let reader = BufReader::new(file);
+        let light_client_rpc_response: Value = serde_json::from_reader(reader)
+            .with_context(|| "Failed to deserialize the genesis records.")
+            .unwrap();
+
+        let light_client_proof: RpcLightClientExecutionProofResponse =
+            serde_json::from_value(light_client_rpc_response["result"].clone()).unwrap();
+
+        println!(
+            "Verifying light client proof for txn id: {:?}",
+            light_client_proof.outcome_proof.id
+        );
+        let outcome_hashes = light_client_proof.outcome_proof.clone().to_hashes();
+        println!("Hashes of the outcome are: {:?}", outcome_hashes);
+
+        //let outcome = light_client_proof.outcome_proof.outcome;
+        let outcome_hash = CryptoHash::hash_borsh(&outcome_hashes);
+        println!("Hash of the outcome is: {:?}", outcome_hash);
+
+        let outcome_shard_root =
+            compute_root_from_path(&light_client_proof.outcome_proof.proof, outcome_hash);
+        println!("Shard outcome root is: {:?}", outcome_shard_root);
+        let block_outcome_root = compute_root_from_path(
+            &light_client_proof.outcome_root_proof,
+            CryptoHash::hash_borsh(&outcome_shard_root),
+        );
+        println!("Block outcome root is: {:?}", block_outcome_root);
+
+        if light_client_proof.block_header_lite.inner_lite.outcome_root != block_outcome_root {
+            println!(
+                "{}",
+                ansi_term::Colour::Red.bold().paint(format!(
+                    "ERROR: computed outcome root: {:?} doesn't match the block one {:?}.",
+                    block_outcome_root,
+                    light_client_proof.block_header_lite.inner_lite.outcome_root
+                ))
+            );
+        }
+        let block_hash = light_client_proof.outcome_proof.block_hash;
+
+        if light_client_proof.block_header_lite.hash()
+            != light_client_proof.outcome_proof.block_hash
+        {
+            println!("{}",
+            ansi_term::Colour::Red.bold().paint(format!(
+                "ERROR: block hash from header lite {:?} doesn't match the one from outcome proof {:?}",
+                light_client_proof.block_header_lite.hash(),
+                light_client_proof.outcome_proof.block_hash
+            )));
+        } else {
+            println!(
+                "{}",
+                ansi_term::Colour::Green
+                    .bold()
+                    .paint(format!("Block hash matches {:?}", block_hash))
+            );
+        }
+
+        // And now check that block exists in the light client.
+
+        let light_block_merkle_root =
+            compute_root_from_path(&light_client_proof.block_proof, block_hash);
+
+        println!(
+            "Please verify that your light block has the following block merkle root: {:?}",
+            light_block_merkle_root
+        );
+        println!(
+            "OR verify that block with this hash {:?} is in the chain at this heigth {:?}",
+            block_hash, light_client_proof.block_header_lite.inner_lite.height
+        );
     }
 }
 
