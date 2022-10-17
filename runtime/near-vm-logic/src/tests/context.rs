@@ -8,7 +8,7 @@ pub fn create_context<'a>() -> VMContext<'a> {
         signer_account_pk: vec![0, 1, 2, 3, 4],
         predecessor_account_id: "carol".parse().unwrap(),
         input: vec![0, 1, 2, 3, 5],
-        block_index: 10,
+        block_height: 10,
         block_timestamp: 42,
         epoch_height: 1,
         account_balance: 2u128,
@@ -89,7 +89,7 @@ decl_test_bytes!(test_random_seed, random_seed, create_context().random_seed.as_
 
 decl_test_bytes!(test_input, input, create_context().input.as_slice());
 
-decl_test_u64!(test_block_index, block_index, create_context().block_index);
+decl_test_u64!(test_block_index, block_index, create_context().block_height);
 decl_test_u64!(test_block_timestamp, block_timestamp, create_context().block_timestamp);
 decl_test_u64!(test_storage_usage, storage_usage, create_context().storage_usage);
 decl_test_u64!(test_prepaid_gas, prepaid_gas, create_context().prepaid_gas);

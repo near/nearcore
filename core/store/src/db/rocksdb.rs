@@ -9,7 +9,7 @@ use tracing::warn;
 
 use crate::config::Mode;
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue};
-use crate::{metrics, DBCol, StoreConfig, StoreStatistics};
+use crate::{metadata, metrics, DBCol, StoreConfig, StoreStatistics};
 
 mod instance_tracker;
 pub(crate) mod snapshot;
@@ -195,14 +195,10 @@ impl RocksDB {
         })
     }
 
-    fn iter_raw_bytes_impl<'a>(
-        &'a self,
-        col: DBCol,
-        prefix: Option<&'a [u8]>,
-    ) -> RocksDBIterator<'a> {
+    fn iter_raw_bytes_prefix<'a>(&'a self, col: DBCol, prefix: &'a [u8]) -> RocksDBIterator<'a> {
         let cf_handle = self.cf_handle(col).unwrap();
         let mut read_options = rocksdb_read_options();
-        if let Some(prefix) = prefix {
+        if !prefix.is_empty() {
             read_options.set_iterate_range(::rocksdb::PrefixRange(prefix));
             // Note: prefix_same_as_start doesn’t do anything for us.  It takes
             // effect only if prefix extractor is configured for the column
@@ -266,15 +262,15 @@ impl Database for RocksDB {
     }
 
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        Box::new(self.iter_raw_bytes_impl(col, None))
+        Box::new(self.iter_raw_bytes_prefix(col, &[]))
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        refcount::iter_with_rc_logic(col, self.iter_raw_bytes_impl(col, None))
+        refcount::iter_with_rc_logic(col, self.iter_raw_bytes_prefix(col, &[]))
     }
 
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
-        let iter = self.iter_raw_bytes_impl(col, Some(key_prefix));
+        let iter = self.iter_raw_bytes_prefix(col, key_prefix);
         refcount::iter_with_rc_logic(col, iter)
     }
 
@@ -472,16 +468,14 @@ impl RocksDB {
         instance_tracker::block_until_all_instances_are_dropped();
     }
 
-    /// Returns version of the database state on disk.  Returns `None` if the
-    /// database does not exist.
-    pub(crate) fn get_version(
+    /// Returns metadata of the database or `None` if the db doesn’t exist.
+    pub(crate) fn get_metadata(
         path: &Path,
         config: &StoreConfig,
-    ) -> io::Result<Option<crate::version::DbVersion>> {
+    ) -> io::Result<Option<metadata::DbMetadata>> {
         if !path.join("CURRENT").is_file() {
             return Ok(None);
         }
-
         // Specify only DBCol::DbVersion.  It’s ok to open db in read-only mode
         // without specifying all column families but it’s an error to provide
         // a descriptor for a column family which doesn’t exist.  This allows us
@@ -489,14 +483,7 @@ impl RocksDB {
         // out if there are any necessary migrations to perform.
         let cols = [DBCol::DbVersion];
         let db = Self::open_with_columns(path, config, Mode::ReadOnly, &cols)?;
-        match crate::version::get_db_version(&db)? {
-            Some(db_version) => Ok(Some(db_version)),
-            None => Err(other_error(
-                "missing DbVersion; \
-                 it’s not a neard database or database is corrupted."
-                    .into(),
-            )),
-        }
+        Some(metadata::DbMetadata::read(&db)).transpose()
     }
 
     /// Gets every int property in CF_PROPERTY_NAMES for every column in DBCol.
@@ -588,7 +575,7 @@ fn col_name(col: DBCol) -> &'static str {
         DBCol::BlockHeight => "col4",
         DBCol::State => "col5",
         DBCol::ChunkExtra => "col6",
-        DBCol::TransactionResult => "col7",
+        DBCol::_TransactionResult => "col7",
         DBCol::OutgoingReceipts => "col8",
         DBCol::IncomingReceipts => "col9",
         DBCol::Peers => "col10",

@@ -730,7 +730,7 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
 
     node_dirs = [
         line.split()[-1]
-        for line in out.decode('utf8').split('\n')
+        for line in err.decode('utf8').split('\n')
         if '/test' in line
     ]
     assert len(
@@ -771,9 +771,9 @@ def apply_config_changes(node_dir, client_config_change):
         config_json = json.load(fd)
 
     # ClientConfig keys which are valid but may be missing from the config.json
-    # file.  Those are usually Option<T> types which are not stored in JSON file
+    # file.  Those are often Option<T> types which are not stored in JSON file
     # when None.
-    allowed_missing_configs = ('max_gas_burnt_view', 'rosetta_rpc')
+    allowed_missing_configs = ('archive', 'max_gas_burnt_view', 'rosetta_rpc')
 
     for k, v in client_config_change.items():
         if not (k in allowed_missing_configs or k in config_json):

@@ -14,15 +14,15 @@ pub use db::{
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 use near_crypto::PublicKey;
+use near_o11y::pretty;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
-use near_primitives::serialize::to_base58;
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
+use near_primitives::types::{AccountId, CompiledContract, CompiledContractCache, StateRoot};
 
 use crate::db::{
     refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics,
@@ -41,12 +41,12 @@ mod columns;
 pub mod config;
 pub mod db;
 pub mod flat_state;
+pub mod metadata;
 mod metrics;
 pub mod migrations;
 mod opener;
 pub mod test_utils;
 mod trie;
-pub mod version;
 
 pub use crate::config::{Mode, StoreConfig};
 pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
@@ -166,6 +166,14 @@ impl NodeStorage {
             Temperature::Hot => self.storage,
         }
     }
+
+    /// Reads database metadata and returns whether the storage is archival.
+    pub fn is_archive(&self) -> io::Result<bool> {
+        Ok(match metadata::DbMetadata::read(self.storage.as_ref())?.kind.unwrap() {
+            metadata::DbKind::RPC => false,
+            metadata::DbKind::Archive => true,
+        })
+    }
 }
 
 impl Store {
@@ -185,7 +193,7 @@ impl Store {
             target: "store",
             db_op = "get",
             col = %column,
-            key = %to_base58(key),
+            key = %pretty::StorageKey(key),
             size = value.as_deref().map(<[u8]>::len)
         );
         Ok(value)
@@ -500,16 +508,16 @@ impl StoreUpdate {
         for op in &self.transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %to_base58(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %pretty::StorageKey(key), size = value.len())
                 }
                 DBOp::Set { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %to_base58(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %pretty::StorageKey(key), size = value.len())
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %to_base58(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %pretty::StorageKey(key), size = value.len())
                 }
                 DBOp::Delete { col, key } => {
-                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %to_base58(key))
+                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %pretty::StorageKey(key))
                 }
                 DBOp::DeleteAll { col } => {
                     tracing::trace!(target: "store", db_op = "delete_all", col = %col)
@@ -539,12 +547,14 @@ impl fmt::Debug for StoreUpdate {
         writeln!(f, "Store Update {{")?;
         for op in self.transaction.ops.iter() {
             match op {
-                DBOp::Insert { col, key, .. } => writeln!(f, "  + {col} {}", to_base58(key))?,
-                DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", to_base58(key))?,
-                DBOp::UpdateRefcount { col, key, .. } => {
-                    writeln!(f, "  ± {col} {}", to_base58(key))?
+                DBOp::Insert { col, key, .. } => {
+                    writeln!(f, "  + {col} {}", pretty::StorageKey(key))?
                 }
-                DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", to_base58(key))?,
+                DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", pretty::StorageKey(key))?,
+                DBOp::UpdateRefcount { col, key, .. } => {
+                    writeln!(f, "  ± {col} {}", pretty::StorageKey(key))?
+                }
+                DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", pretty::StorageKey(key))?,
                 DBOp::DeleteAll { col } => writeln!(f, "  - {col} (all)")?,
             }
         }
@@ -765,18 +775,22 @@ impl StoreCompiledContractCache {
 /// Key must take into account VM being used and its configuration, so that
 /// we don't cache non-gas metered binaries, for example.
 impl CompiledContractCache for StoreCompiledContractCache {
-    fn put(&self, key: &CryptoHash, value: Vec<u8>) -> io::Result<()> {
+    fn put(&self, key: &CryptoHash, value: CompiledContract) -> io::Result<()> {
         let mut update = crate::db::DBTransaction::new();
         // We intentionally use `.set` here, rather than `.insert`. We don't yet
         // guarantee deterministic compilation, so, if we happen to compile the
         // same contract concurrently on two threads, the `value`s might differ,
         // but this doesn't matter.
-        update.set(DBCol::CachedContractCode, key.as_ref().to_vec(), value);
+        update.set(DBCol::CachedContractCode, key.as_ref().to_vec(), value.try_to_vec().unwrap());
         self.db.write(update)
     }
 
-    fn get(&self, key: &CryptoHash) -> io::Result<Option<Vec<u8>>> {
-        Ok(self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref())?.map(Vec::from))
+    fn get(&self, key: &CryptoHash) -> io::Result<Option<CompiledContract>> {
+        match self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref()) {
+            Ok(Some(bytes)) => Ok(Some(CompiledContract::try_from_slice(&bytes)?)),
+            Ok(None) => Ok(None),
+            Err(err) => Err(err),
+        }
     }
 
     fn has(&self, key: &CryptoHash) -> io::Result<bool> {
@@ -900,14 +914,19 @@ mod tests {
     /// Check StoreCompiledContractCache implementation.
     #[test]
     fn test_store_compiled_contract_cache() {
-        use near_primitives::types::CompiledContractCache;
+        use near_primitives::types::{CompiledContract, CompiledContractCache};
         use std::str::FromStr;
 
         let store = crate::test_utils::create_test_store();
         let cache = super::StoreCompiledContractCache::new(&store);
         let key = CryptoHash::from_str("75pAU4CJcp8Z9eoXcL6pSU8sRK5vn3NEpgvUrzZwQtr3").unwrap();
+
         assert_eq!(None, cache.get(&key).unwrap());
-        assert_eq!((), cache.put(&key, b"foo".to_vec()).unwrap());
-        assert_eq!(Some(&b"foo"[..]), cache.get(&key).unwrap().as_deref());
+        assert_eq!(false, cache.has(&key).unwrap());
+
+        let record = CompiledContract::Code(b"foo".to_vec());
+        assert_eq!((), cache.put(&key, record.clone()).unwrap());
+        assert_eq!(Some(record), cache.get(&key).unwrap());
+        assert_eq!(true, cache.has(&key).unwrap());
     }
 }

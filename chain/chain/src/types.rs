@@ -27,13 +27,13 @@ use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks,
-    ShardId, StateChangesForSplitStates, StateRoot, StateRootNode, ValidatorInfoIdentifier,
+    ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
-use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
+use near_primitives::views::{QueryRequest, QueryResponse};
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::ChainAccessForFlatStorage;
 use near_store::flat_state::FlatStorageState;
@@ -266,7 +266,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
 
     fn get_tries(&self) -> ShardTries;
 
-    fn get_store(&self) -> Store;
+    fn store(&self) -> &Store;
 
     /// Returns trie. Since shard layout may change from epoch to epoch, `shard_id` itself is
     /// not enough to identify the trie. `prev_hash` is used to identify the epoch the given
@@ -276,6 +276,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         shard_id: ShardId,
         prev_hash: &CryptoHash,
         state_root: StateRoot,
+        use_flat_storage: bool,
     ) -> Result<Trie, Error>;
 
     /// Returns trie with view cache
@@ -474,6 +475,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
         state_patch: SandboxStatePatch,
+        use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let _span = tracing::debug_span!(
             target: "runtime",
@@ -500,6 +502,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
             is_new_chunk,
             is_first_block_with_chunk_of_version,
             state_patch,
+            use_flat_storage,
         )
     }
 
@@ -522,6 +525,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
         state_patch: SandboxStatePatch,
+        use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 
     fn check_state_transition(
@@ -557,12 +561,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         request: &QueryRequest,
         chain_store: &ChainStore,
     ) -> Result<QueryResponse, near_chain_primitives::error::QueryError>;
-
-    /// WARNING: this call may be expensive.
-    fn get_validator_info(
-        &self,
-        epoch_id: ValidatorInfoIdentifier,
-    ) -> Result<EpochValidatorInfo, Error>;
 
     /// Get the part of the state from given state root.
     /// `block_hash` is a block whose `prev_state_root` is `state_root`
@@ -683,7 +681,7 @@ mod tests {
             0,
             100,
             1_000_000_000,
-            CryptoHash::hash_borsh(&genesis_bps),
+            CryptoHash::hash_borsh(genesis_bps),
         );
         let signer =
             InMemoryValidatorSigner::from_seed("other".parse().unwrap(), KeyType::ED25519, "other");

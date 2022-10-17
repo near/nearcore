@@ -39,12 +39,12 @@ use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
     EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause,
-    StateChangesForSplitStates, StateRoot, StateRootNode, ValidatorInfoIdentifier,
+    StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
-    AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
-    QueryResponseKind, ViewApplyState, ViewStateResult,
+    AccessKeyInfoView, CallResult, QueryRequest, QueryResponse, QueryResponseKind, ViewApplyState,
+    ViewStateResult,
 };
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::ChainAccessForFlatStorage;
@@ -480,7 +480,7 @@ impl NightshadeRuntime {
         debug!(target: "runtime", ?epoch_height, ?epoch_id, ?current_protocol_version, ?is_first_block_of_version);
 
         let apply_state = ApplyState {
-            block_index: block_height,
+            block_height,
             prev_block_hash: *prev_block_hash,
             block_hash: *block_hash,
             epoch_id,
@@ -669,8 +669,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         (self.store.clone(), self.genesis_state_roots.clone())
     }
 
-    fn get_store(&self) -> Store {
-        self.store.clone()
+    fn store(&self) -> &Store {
+        &self.store
     }
 
     fn get_tries(&self) -> ShardTries {
@@ -682,9 +682,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         prev_hash: &CryptoHash,
         state_root: StateRoot,
+        use_flat_storage: bool,
     ) -> Result<Trie, Error> {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
-        Ok(self.tries.get_trie_with_block_hash_for_shard(shard_uid, state_root, prev_hash))
+        if use_flat_storage {
+            Ok(self.tries.get_trie_with_block_hash_for_shard(shard_uid, state_root, prev_hash))
+        } else {
+            Ok(self.tries.get_trie_for_shard(shard_uid, state_root))
+        }
     }
 
     fn get_view_trie_for_shard(
@@ -1049,8 +1054,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
         states_to_patch: SandboxStatePatch,
+        use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
-        let trie = self.get_trie_for_shard(shard_id, prev_block_hash, state_root.clone())?;
+        let trie = self.get_trie_for_shard(
+            shard_id,
+            prev_block_hash,
+            state_root.clone(),
+            use_flat_storage,
+        )?;
 
         // TODO (#6316): support chunk nodes caching for TrieRecordingStorage
         if generate_storage_proof {
@@ -1269,16 +1280,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                 })
             }
         }
-    }
-
-    /// WARNING: this function calls EpochManager::get_epoch_info_aggregator_upto_last
-    /// underneath which can be very expensive.
-    fn get_validator_info(
-        &self,
-        epoch_id: ValidatorInfoIdentifier,
-    ) -> Result<EpochValidatorInfo, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_validator_info(epoch_id).map_err(|e| e.into())
     }
 
     /// Returns StorageError when storage is inconsistent.
@@ -1647,10 +1648,13 @@ mod test {
     use near_primitives::block::Tip;
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
-    use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId, ValidatorKickoutReason};
+    use near_primitives::types::{
+        BlockHeightDelta, Nonce, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
+    };
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_primitives::views::{
-        AccountView, CurrentEpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
+        AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
+        ValidatorKickoutView,
     };
     use near_store::{NodeStorage, Temperature};
 
@@ -1710,6 +1714,7 @@ mod test {
                     true,
                     false,
                     Default::default(),
+                    true,
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
@@ -3107,8 +3112,10 @@ mod test {
     #[test]
     fn test_flat_state_usage() {
         let env = TestEnv::new(vec![vec!["test1".parse().unwrap()]], 4, false);
-        let trie =
-            env.runtime.get_trie_for_shard(0, &env.head.prev_block_hash, Trie::EMPTY_ROOT).unwrap();
+        let trie = env
+            .runtime
+            .get_trie_for_shard(0, &env.head.prev_block_hash, Trie::EMPTY_ROOT, true)
+            .unwrap();
         assert_eq!(trie.flat_state.is_some(), cfg!(feature = "protocol_feature_flat_state"));
 
         let trie = env
@@ -3150,9 +3157,10 @@ mod test {
         // - using view state, which should never use flat state
         let head_prev_block_hash = env.head.prev_block_hash;
         let state_root = env.state_roots[0];
-        let state = env.runtime.get_trie_for_shard(0, &head_prev_block_hash, state_root).unwrap();
+        let state =
+            env.runtime.get_trie_for_shard(0, &head_prev_block_hash, state_root, true).unwrap();
         let view_state =
-            env.runtime.get_trie_for_shard(0, &head_prev_block_hash, state_root).unwrap();
+            env.runtime.get_trie_for_shard(0, &head_prev_block_hash, state_root, false).unwrap();
         let trie_key = TrieKey::Account { account_id: validators[1].clone() };
         let key = trie_key.to_vec();
 

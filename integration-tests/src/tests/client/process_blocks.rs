@@ -35,6 +35,7 @@ use near_network::types::{
 };
 use near_network::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::RngSeed;
@@ -323,11 +324,14 @@ fn produce_blocks_with_tx() {
         near_network::test_utils::wait_or_panic(5000);
         actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
             let block_hash = res.unwrap().unwrap().header.hash;
-            client.do_send(NetworkClientMessages::Transaction {
-                transaction: SignedTransaction::empty(block_hash),
-                is_forwarded: false,
-                check_only: false,
-            });
+            client.do_send(
+                NetworkClientMessages::Transaction {
+                    transaction: SignedTransaction::empty(block_hash),
+                    is_forwarded: false,
+                    check_only: false,
+                }
+                .with_span_context(),
+            );
             future::ready(())
         }))
     });
@@ -395,7 +399,10 @@ fn receive_network_block() {
                 block_merkle_tree.root(),
                 None,
             );
-            client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
+            client.do_send(
+                NetworkClientMessages::Block(block, PeerInfo::random().id, false)
+                    .with_span_context(),
+            );
             future::ready(())
         }));
         near_network::test_utils::wait_or_panic(5000);
@@ -473,11 +480,10 @@ fn produce_block_with_approvals() {
                 block_merkle_tree.root(),
                 None,
             );
-            client.do_send(NetworkClientMessages::Block(
-                block.clone(),
-                PeerInfo::random().id,
-                false,
-            ));
+            client.do_send(
+                NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, false)
+                    .with_span_context(),
+            );
 
             for i in 3..11 {
                 let s = AccountId::try_from(if i > 10 {
@@ -494,8 +500,10 @@ fn produce_block_with_approvals() {
                     10, // the height at which "test1" is producing
                     &signer,
                 );
-                client
-                    .do_send(NetworkClientMessages::BlockApproval(approval, PeerInfo::random().id));
+                client.do_send(
+                    NetworkClientMessages::BlockApproval(approval, PeerInfo::random().id)
+                        .with_span_context(),
+                );
             }
 
             future::ready(())
@@ -544,11 +552,14 @@ fn produce_block_with_approvals_arrived_early() {
                             if block.header().height() == 3 {
                                 for (i, (client, _)) in conns.iter().enumerate() {
                                     if i > 0 {
-                                        client.do_send(NetworkClientMessages::Block(
-                                            block.clone(),
-                                            PeerInfo::random().id,
-                                            false,
-                                        ))
+                                        client.do_send(
+                                            NetworkClientMessages::Block(
+                                                block.clone(),
+                                                PeerInfo::random().id,
+                                                false,
+                                            )
+                                            .with_span_context(),
+                                        )
                                     }
                                 }
                                 *block_holder.write().unwrap() = Some(block.clone());
@@ -566,11 +577,14 @@ fn produce_block_with_approvals_arrived_early() {
                             }
                             if approval_counter == 3 {
                                 let block = block_holder.read().unwrap().clone().unwrap();
-                                conns[0].0.do_send(NetworkClientMessages::Block(
-                                    block,
-                                    PeerInfo::random().id,
-                                    false,
-                                ));
+                                conns[0].0.do_send(
+                                    NetworkClientMessages::Block(
+                                        block,
+                                        PeerInfo::random().id,
+                                        false,
+                                    )
+                                    .with_span_context(),
+                                );
                             }
                             (NetworkResponses::NoResponse.into(), true)
                         }
@@ -680,11 +694,10 @@ fn invalid_blocks_common(is_requested: bool) {
             let mut block = valid_block.clone();
             block.mut_header().get_mut().inner_rest.chunk_mask = vec![];
             block.mut_header().get_mut().init();
-            client.do_send(NetworkClientMessages::Block(
-                block.clone(),
-                PeerInfo::random().id,
-                is_requested,
-            ));
+            client.do_send(
+                NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, is_requested)
+                    .with_span_context(),
+            );
 
             // Send blocks with invalid protocol version
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
@@ -693,11 +706,14 @@ fn invalid_blocks_common(is_requested: bool) {
                 block.mut_header().get_mut().inner_rest.latest_protocol_version =
                     PROTOCOL_VERSION - 1;
                 block.mut_header().get_mut().init();
-                client.do_send(NetworkClientMessages::Block(
-                    block.clone(),
-                    PeerInfo::random().id,
-                    is_requested,
-                ));
+                client.do_send(
+                    NetworkClientMessages::Block(
+                        block.clone(),
+                        PeerInfo::random().id,
+                        is_requested,
+                    )
+                    .with_span_context(),
+                );
             }
 
             // Send block with invalid chunk signature
@@ -716,28 +732,29 @@ fn invalid_blocks_common(is_requested: bool) {
                 }
             };
             block.set_chunks(chunks);
-            client.do_send(NetworkClientMessages::Block(
-                block.clone(),
-                PeerInfo::random().id,
-                is_requested,
-            ));
+            client.do_send(
+                NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, is_requested)
+                    .with_span_context(),
+            );
 
             // Send proper block.
             let block2 = valid_block;
-            client.do_send(NetworkClientMessages::Block(
-                block2.clone(),
-                PeerInfo::random().id,
-                is_requested,
-            ));
+            client.do_send(
+                NetworkClientMessages::Block(block2.clone(), PeerInfo::random().id, is_requested)
+                    .with_span_context(),
+            );
             if is_requested {
                 let mut block3 = block2;
                 block3.mut_header().get_mut().inner_rest.chunk_headers_root = hash(&[1]);
                 block3.mut_header().get_mut().init();
-                client.do_send(NetworkClientMessages::Block(
-                    block3.clone(),
-                    PeerInfo::random().id,
-                    is_requested,
-                ));
+                client.do_send(
+                    NetworkClientMessages::Block(
+                        block3.clone(),
+                        PeerInfo::random().id,
+                        is_requested,
+                    )
+                    .with_span_context(),
+                );
             }
             future::ready(())
         }));
@@ -846,11 +863,14 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
 
                                 for (i, (client, _)) in conns.clone().into_iter().enumerate() {
                                     if i != block_producer_idx {
-                                        client.do_send(NetworkClientMessages::Block(
-                                            block_mut.clone(),
-                                            PeerInfo::random().id,
-                                            false,
-                                        ))
+                                        client.do_send(
+                                            NetworkClientMessages::Block(
+                                                block_mut.clone(),
+                                                PeerInfo::random().id,
+                                                false,
+                                            )
+                                            .with_span_context(),
+                                        )
                                     }
                                 }
 
@@ -982,34 +1002,37 @@ fn client_sync_headers() {
                 _ => PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
             }),
         );
-        client.do_send(NetworkClientMessages::NetworkInfo(NetworkInfo {
-            connected_peers: vec![ConnectedPeerInfo::from(&FullPeerInfo {
-                peer_info: peer_info2.clone(),
-                chain_info: PeerChainInfoV2 {
-                    genesis_id: Default::default(),
-                    height: 5,
-                    tracked_shards: vec![],
-                    archival: false,
-                },
-                partial_edge_info: near_network::types::PartialEdgeInfo::default(),
-            })],
-            num_connected_peers: 1,
-            peer_max_count: 1,
-            highest_height_peers: vec![FullPeerInfo {
-                peer_info: peer_info2,
-                chain_info: PeerChainInfoV2 {
-                    genesis_id: Default::default(),
-                    height: 5,
-                    tracked_shards: vec![],
-                    archival: false,
-                },
-                partial_edge_info: near_network::types::PartialEdgeInfo::default(),
-            }],
-            sent_bytes_per_sec: 0,
-            received_bytes_per_sec: 0,
-            known_producers: vec![],
-            tier1_accounts: vec![],
-        }));
+        client.do_send(
+            NetworkClientMessages::NetworkInfo(NetworkInfo {
+                connected_peers: vec![ConnectedPeerInfo::from(&FullPeerInfo {
+                    peer_info: peer_info2.clone(),
+                    chain_info: PeerChainInfoV2 {
+                        genesis_id: Default::default(),
+                        height: 5,
+                        tracked_shards: vec![],
+                        archival: false,
+                    },
+                    partial_edge_info: near_network::types::PartialEdgeInfo::default(),
+                })],
+                num_connected_peers: 1,
+                peer_max_count: 1,
+                highest_height_peers: vec![FullPeerInfo {
+                    peer_info: peer_info2,
+                    chain_info: PeerChainInfoV2 {
+                        genesis_id: Default::default(),
+                        height: 5,
+                        tracked_shards: vec![],
+                        archival: false,
+                    },
+                    partial_edge_info: near_network::types::PartialEdgeInfo::default(),
+                }],
+                sent_bytes_per_sec: 0,
+                received_bytes_per_sec: 0,
+                known_producers: vec![],
+                tier1_accounts: vec![],
+            })
+            .with_span_context(),
+        );
         wait_or_panic(2000);
     });
 }
@@ -2364,7 +2387,7 @@ fn test_catchup_gas_price_change() {
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
     let f = move |msg: ApplyStatePartsRequest| {
         use borsh::BorshSerialize;
-        let store = rt.get_store();
+        let store = rt.store();
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec().unwrap();
@@ -3383,10 +3406,11 @@ mod contract_precompilation_tests {
         let state_root = *chunk_extra.state_root();
 
         let viewer = TrieViewer::default();
+        // TODO (#7327): set use_flat_storage to true when we implement support for state sync for FlatStorage
         let trie = Rc::new(
             env.clients[1]
                 .runtime_adapter
-                .get_trie_for_shard(0, block.header().prev_hash(), state_root)
+                .get_trie_for_shard(0, block.header().prev_hash(), state_root, false)
                 .unwrap(),
         );
         let state_update = TrieUpdate::new(trie);

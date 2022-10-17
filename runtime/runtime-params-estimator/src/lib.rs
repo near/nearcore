@@ -797,18 +797,22 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
 
     let mut run = || {
         let context = create_context(vec![]);
-        let vm_result = vm_kind.runtime(config.clone()).unwrap().run(
-            &code,
-            "cpu_ram_soak_test",
-            &mut fake_external,
-            context,
-            &fees,
-            &promise_results,
-            PROTOCOL_VERSION,
-            Some(&cache),
-        );
-        assert!(vm_result.error().is_some());
-        vm_result.outcome_error().0
+        let vm_result = vm_kind
+            .runtime(config.clone())
+            .unwrap()
+            .run(
+                &code,
+                "cpu_ram_soak_test",
+                &mut fake_external,
+                context,
+                &fees,
+                &promise_results,
+                PROTOCOL_VERSION,
+                Some(&cache),
+            )
+            .expect("fatal_error");
+        assert!(vm_result.aborted.is_some());
+        vm_result
     };
 
     let warmup_outcome = run();

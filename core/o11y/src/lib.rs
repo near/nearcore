@@ -3,6 +3,7 @@
 pub use {backtrace, tracing, tracing_appender, tracing_subscriber};
 
 use clap::Parser;
+pub use context::*;
 use near_crypto::PublicKey;
 use near_primitives::types::AccountId;
 use once_cell::sync::OnceCell;
@@ -17,14 +18,17 @@ use tracing::level_filters::LevelFilter;
 use tracing::subscriber::DefaultGuard;
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_opentelemetry::OpenTelemetryLayer;
+pub use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::filter::{Filtered, ParseError};
 use tracing_subscriber::layer::{Layered, SubscriberExt};
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::{fmt, reload, EnvFilter, Layer, Registry};
 
 /// Custom tracing subscriber implementation that produces IO traces.
+pub mod context;
 mod io_tracer;
 pub mod metrics;
+pub mod pretty;
 pub mod testonly;
 
 /// Produce a tracing-event for target "io_tracer" that will be consumed by the
@@ -51,6 +55,15 @@ type LogLayer<Inner> = Layered<
     Filtered<
         fmt::Layer<Inner, fmt::format::DefaultFields, fmt::format::Format, NonBlocking>,
         reload::Layer<EnvFilter, Inner>,
+        Inner,
+    >,
+    Inner,
+>;
+
+type SimpleLogLayer<Inner, W> = Layered<
+    Filtered<
+        fmt::Layer<Inner, fmt::format::DefaultFields, fmt::format::Format, W>,
+        EnvFilter,
         Inner,
     >,
     Inner,
@@ -182,15 +195,17 @@ fn is_terminal() -> bool {
     atty::is(atty::Stream::Stderr)
 }
 
-fn add_simple_log_layer<S>(
+fn add_simple_log_layer<S, W>(
     filter: EnvFilter,
+    writer: W,
     ansi: bool,
     subscriber: S,
-) -> Layered<Filtered<fmt::Layer<S>, EnvFilter, S>, S>
+) -> SimpleLogLayer<S, W>
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
+    W: for<'writer> fmt::MakeWriter<'writer> + 'static,
 {
-    let layer = fmt::layer().with_ansi(ansi).with_filter(filter);
+    let layer = fmt::layer().with_ansi(ansi).with_writer(writer).with_filter(filter);
 
     subscriber.with(layer)
 }
@@ -318,8 +333,13 @@ pub fn default_subscriber(
 ) -> DefaultSubscriberGuard<impl tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync> {
     let color_output = use_color_output(options);
 
+    let make_writer = || {
+        let stderr = std::io::stderr();
+        std::io::LineWriter::new(stderr)
+    };
+
     let subscriber = tracing_subscriber::registry();
-    let subscriber = add_simple_log_layer(env_filter, color_output, subscriber);
+    let subscriber = add_simple_log_layer(env_filter, make_writer, color_output, subscriber);
 
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),

@@ -181,7 +181,7 @@ fn create_receipt_nonce(
     amount: Balance,
     nonce: Nonce,
 ) -> CryptoHash {
-    CryptoHash::hash_borsh(&ReceiptNonce { from, to, amount, nonce })
+    CryptoHash::hash_borsh(ReceiptNonce { from, to, amount, nonce })
 }
 
 impl KeyValueRuntime {
@@ -592,6 +592,22 @@ impl EpochManagerAdapter for KeyValueRuntime {
         Err(Error::NotAValidator)
     }
 
+    fn get_validator_info(
+        &self,
+        _epoch_id: ValidatorInfoIdentifier,
+    ) -> Result<EpochValidatorInfo, Error> {
+        Ok(EpochValidatorInfo {
+            current_validators: vec![],
+            next_validators: vec![],
+            current_fishermen: vec![],
+            next_fishermen: vec![],
+            current_proposals: vec![],
+            prev_epoch_kickout: vec![],
+            epoch_start_height: 0,
+            epoch_height: 1,
+        })
+    }
+
     fn verify_block_vrf(
         &self,
         _epoch_id: &EpochId,
@@ -696,8 +712,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         (self.store.clone(), ((0..self.num_shards).map(|_| Trie::EMPTY_ROOT).collect()))
     }
 
-    fn get_store(&self) -> Store {
-        self.store.clone()
+    fn store(&self) -> &Store {
+        &self.store
     }
 
     fn get_tries(&self) -> ShardTries {
@@ -709,6 +725,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
         _block_hash: &CryptoHash,
         state_root: StateRoot,
+        _use_flat_storage: bool,
     ) -> Result<Trie, Error> {
         Ok(self
             .tries
@@ -894,6 +911,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _is_new_chunk: bool,
         _is_first_block_with_chunk_of_version: bool,
         _state_patch: SandboxStatePatch,
+        _use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
         let mut tx_results = vec![];
@@ -1273,22 +1291,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(PROTOCOL_VERSION)
     }
 
-    fn get_validator_info(
-        &self,
-        _epoch_id: ValidatorInfoIdentifier,
-    ) -> Result<EpochValidatorInfo, Error> {
-        Ok(EpochValidatorInfo {
-            current_validators: vec![],
-            next_validators: vec![],
-            current_fishermen: vec![],
-            next_fishermen: vec![],
-            current_proposals: vec![],
-            prev_epoch_kickout: vec![],
-            epoch_start_height: 0,
-            epoch_height: 1,
-        })
-    }
-
     fn compare_epoch_id(
         &self,
         epoch_id: &EpochId,
@@ -1584,7 +1586,7 @@ mod test {
                 })
                 .cloned()
                 .collect();
-            receipts_hashes.push(CryptoHash::hash_borsh(&ReceiptList(shard_id, &shard_receipts)));
+            receipts_hashes.push(CryptoHash::hash_borsh(ReceiptList(shard_id, &shard_receipts)));
         }
         receipts_hashes
     }

@@ -17,6 +17,8 @@ use near_chain::chain::{
     BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
 };
 use near_chain::test_utils::format_hash;
+#[cfg(feature = "test_features")]
+use near_chain::ChainStoreAccess;
 use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
     ChainGenesis, DoneApplyChunkCallback, Provenance, RuntimeAdapter,
@@ -28,16 +30,14 @@ use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
     StatusError, StatusSyncInfo, SyncStatus,
 };
-
-#[cfg(feature = "test_features")]
-use near_chain::ChainStoreAccess;
 use near_network::types::ReasonForBan;
 use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
 };
+use near_o11y::{OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics;
-use near_performance_metrics_macros::{perf, perf_with_debug};
+use near_performance_metrics_macros::perf;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
@@ -257,17 +257,25 @@ impl Actor for ClientActor {
     }
 }
 
-impl Handler<NetworkClientMessages> for ClientActor {
+impl Handler<WithSpanContext<NetworkClientMessages>> for ClientActor {
     type Result = NetworkClientResponses;
 
-    #[perf_with_debug]
-    fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
-        let _span = tracing::debug_span!(
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<NetworkClientMessages>,
+        ctx: &mut Context<Self>,
+    ) -> Self::Result {
+        let msg_type: &str = (&msg.msg).into();
+        let span = tracing::debug_span!(
             target: "client",
             "handle",
-            handler="NetworkClientMessages",
-            msg=msg.as_ref())
+            handler = "NetworkClientMessages",
+            actor = "ClientActor",
+            msg_type)
         .entered();
+        span.set_parent(msg.context);
+        let msg = msg.msg;
 
         self.check_triggers(ctx);
 
@@ -583,7 +591,7 @@ impl ClientActor {
             }
             NetworkClientMessages::PartialEncodedChunkResponse(response, time) => {
                 PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(time.elapsed().as_secs_f64());
-                let _ = self.client.process_partial_encoded_chunk_response(response);
+                let _ = self.client.shards_mgr.process_partial_encoded_chunk_response(response);
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
@@ -591,14 +599,17 @@ impl ClientActor {
                     partial_encoded_chunk.height_created(),
                     partial_encoded_chunk.shard_id(),
                 );
-                let _ = self.client.process_partial_encoded_chunk(partial_encoded_chunk);
+                let _ = self
+                    .client
+                    .shards_mgr
+                    .process_partial_encoded_chunk(partial_encoded_chunk.into());
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunkForward(forward) => {
-                match self.client.process_partial_encoded_chunk_forward(forward) {
-                    Ok(()) => {}
+                match self.client.shards_mgr.process_partial_encoded_chunk_forward(forward) {
+                    Ok(_) => {}
                     // Unknown chunk is normal if we get parts before the header
-                    Err(Error::Chunk(near_chunks::Error::UnknownChunk)) => (),
+                    Err(near_chunks::Error::UnknownChunk) => (),
                     Err(err) => {
                         error!(target: "client", "Error processing forwarded chunk: {}", err)
                     }
@@ -709,8 +720,12 @@ impl Handler<Status> for ClientActor {
         let protocol_version =
             self.client.runtime_adapter.get_epoch_protocol_version(&head.epoch_id)?;
 
-        let validator_and_key =
-            self.client.validator_signer.as_ref().map(|vs| (vs.validator_id(), vs.public_key()));
+        let node_public_key = self.node_id.public_key().clone();
+        let (validator_account_id, validator_public_key) = match &self.client.validator_signer {
+            Some(vs) => (Some(vs.validator_id().clone()), Some(vs.public_key().clone())),
+            None => (None, None),
+        };
+        let node_key = validator_public_key.clone();
 
         let mut earliest_block_hash = None;
         let mut earliest_block_height = None;
@@ -767,8 +782,10 @@ impl Handler<Status> for ClientActor {
                 epoch_id: Some(head.epoch_id),
                 epoch_start_height,
             },
-            validator_account_id: validator_and_key.as_ref().map(|v| v.0.clone()),
-            node_key: validator_and_key.as_ref().map(|v| v.1.clone()),
+            validator_account_id,
+            validator_public_key,
+            node_public_key,
+            node_key,
             uptime_sec,
             detailed_debug_status,
         })
@@ -1868,7 +1885,7 @@ impl SyncJobsActor {
         msg: &ApplyStatePartsRequest,
     ) -> Result<(), near_chain_primitives::error::Error> {
         let _span = tracing::debug_span!(target: "client", "apply_parts").entered();
-        let store = msg.runtime.get_store();
+        let store = msg.runtime.store();
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;

@@ -35,7 +35,9 @@ use near_primitives::syncing::{
     get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
     ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
 };
-use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
+use near_primitives::transaction::{
+    ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
+};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
@@ -642,8 +644,8 @@ impl Chain {
         }
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
-              block_head.height, block_head.last_block_hash,
-              header_head.height, header_head.last_block_hash);
+              header_head.height, header_head.last_block_hash,
+              block_head.height, block_head.last_block_hash);
         metrics::BLOCK_HEIGHT_HEAD.set(block_head.height as i64);
         let block_header = store.get_block_header(&block_head.last_block_hash)?;
         metrics::BLOCK_ORDINAL_HEAD.set(block_header.block_ordinal() as i64);
@@ -691,11 +693,11 @@ impl Chain {
         let bps = runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
         let protocol_version = runtime_adapter.get_epoch_protocol_version(&prev_epoch_id)?;
         if checked_feature!("stable", BlockHeaderV3, protocol_version) {
-            let validator_stakes: Vec<_> = bps.into_iter().map(|(bp, _)| bp).collect();
-            Ok(CryptoHash::hash_borsh(&validator_stakes))
+            let validator_stakes = bps.into_iter().map(|(bp, _)| bp);
+            Ok(CryptoHash::hash_borsh_iter(validator_stakes))
         } else {
-            let validator_stakes: Vec<_> = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
-            Ok(CryptoHash::hash_borsh(&validator_stakes))
+            let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1());
+            Ok(CryptoHash::hash_borsh_iter(validator_stakes))
         }
     }
 
@@ -2134,7 +2136,7 @@ impl Chain {
                     flat_storage_state.update_flat_head(&new_flat_head).unwrap_or_else(|err| {
                         match &err {
                             FlatStorageError::BlockNotSupported(_) => {
-                                // It's possible that new head is not a child of current flat head, e.g. when we have a 
+                                // It's possible that new head is not a child of current flat head, e.g. when we have a
                                 // fork:
                                 //
                                 //      (flat head)        /-------> 6
@@ -2202,7 +2204,8 @@ impl Chain {
         );
 
         // Determine the block status of this block (whether it is a side fork and updates the chain head)
-        // Block status is needed in Client::on_block_accepted to decide to how to update the tx pool.
+        // Block status is needed in Client::on_block_accepted_with_optional_chunk_produce to
+        // decide to how to update the tx pool.
         let block_status = self.determine_status(new_head, prev_head);
         Ok(AcceptedBlock { hash: *block.hash(), status: block_status, provenance })
     }
@@ -2734,7 +2737,7 @@ impl Chain {
             for receipt_proof in receipt_proofs.iter() {
                 let ReceiptProof(receipts, shard_proof) = receipt_proof;
                 let ShardProof { from_shard_id, to_shard_id: _, proof } = shard_proof;
-                let receipts_hash = CryptoHash::hash_borsh(&ReceiptList(shard_id, receipts));
+                let receipts_hash = CryptoHash::hash_borsh(ReceiptList(shard_id, receipts));
                 let from_shard_id = *from_shard_id as usize;
 
                 let root_proof = block.chunks()[from_shard_id].outgoing_receipts_root();
@@ -2976,7 +2979,7 @@ impl Chain {
                     _ => visited_shard_ids.insert(*from_shard_id),
                 };
                 let RootProof(root, block_proof) = &shard_state_header.root_proofs()[i][j];
-                let receipts_hash = CryptoHash::hash_borsh(&ReceiptList(shard_id, receipts));
+                let receipts_hash = CryptoHash::hash_borsh(ReceiptList(shard_id, receipts));
                 // 4e. Proving the set of receipts is the subset of outgoing_receipts of shard `shard_id`
                 if !verify_path(*root, proof, &receipts_hash) {
                     byzantine_assert!(false);
@@ -3426,11 +3429,17 @@ impl Chain {
                 .store()
                 .get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?
                 .into_iter()
-                .flat_map(|id| {
-                    let mut outcomes =
-                        self.store.get_outcomes_by_id(&id).unwrap_or_else(|_| vec![]);
-                    outcomes.retain(|outcome| &outcome.block_hash == block_hash);
-                    outcomes
+                .filter_map(|id| {
+                    let outcome_with_proof =
+                        self.store.get_outcome_by_id_and_block_hash(&id, block_hash).ok()??;
+                    Some(ExecutionOutcomeWithIdAndProof {
+                        proof: outcome_with_proof.proof,
+                        block_hash: *block_hash,
+                        outcome_with_id: ExecutionOutcomeWithId {
+                            id,
+                            outcome: outcome_with_proof.outcome,
+                        },
+                    })
                 })
                 .collect::<Vec<_>>();
             res.insert(shard_id, outcomes);
@@ -3737,6 +3746,7 @@ impl Chain {
                             true,
                             is_first_block_with_chunk_of_version,
                             state_patch,
+                            cares_about_shard_this_epoch,
                         ) {
                             Ok(apply_result) => {
                                 let apply_split_result_or_state_changes =
@@ -3797,6 +3807,7 @@ impl Chain {
                             false,
                             false,
                             state_patch,
+                            cares_about_shard_this_epoch,
                         ) {
                             Ok(apply_result) => {
                                 let apply_split_result_or_state_changes =
@@ -4405,7 +4416,7 @@ impl Chain {
         shard_layout: &ShardLayout,
     ) -> Vec<CryptoHash> {
         if shard_layout.num_shards() == 1 {
-            return vec![CryptoHash::hash_borsh(&ReceiptList(0, receipts))];
+            return vec![CryptoHash::hash_borsh(ReceiptList(0, receipts))];
         }
         let mut account_id_to_shard_id_map = HashMap::new();
         let mut shard_receipts: Vec<_> =
@@ -5173,6 +5184,7 @@ impl<'a> ChainUpdate<'a> {
             true,
             is_first_block_with_chunk_of_version,
             Default::default(),
+            false,
         )?;
 
         let (outcome_root, outcome_proofs) =
@@ -5257,6 +5269,7 @@ impl<'a> ChainUpdate<'a> {
             false,
             false,
             Default::default(),
+            false,
         )?;
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
