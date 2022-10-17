@@ -277,7 +277,7 @@ impl ChunkTestFixture {
             Vec::new(),
             &mock_merkle_paths,
         );
-        let chain_store = ChainStore::new(mock_runtime.get_store(), 0, true);
+        let chain_store = ChainStore::new(mock_runtime.store().clone(), 0, true);
 
         ChunkTestFixture {
             mock_runtime,
