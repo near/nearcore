@@ -60,14 +60,14 @@ fn test_does_not_cache_io_error() {
         let result = make_cached_contract_call_vm(&cache, &code, "main", prepaid_gas, vm_kind);
         assert_matches!(
             result.err(),
-            Some(VMRunnerError::CacheError(near_vm_errors::CacheError::ReadError))
+            Some(VMRunnerError::CacheError(near_vm_errors::CacheError::ReadError(_)))
         );
 
         cache.set_write_fault(true);
         let result = make_cached_contract_call_vm(&cache, &code, "main", prepaid_gas, vm_kind);
         assert_matches!(
             result.err(),
-            Some(VMRunnerError::CacheError(near_vm_errors::CacheError::WriteError))
+            Some(VMRunnerError::CacheError(near_vm_errors::CacheError::WriteError(_)))
         );
     })
 }
