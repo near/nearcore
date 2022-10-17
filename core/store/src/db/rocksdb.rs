@@ -195,14 +195,10 @@ impl RocksDB {
         })
     }
 
-    fn iter_raw_bytes_impl<'a>(
-        &'a self,
-        col: DBCol,
-        prefix: Option<&'a [u8]>,
-    ) -> RocksDBIterator<'a> {
+    fn iter_raw_bytes_prefix<'a>(&'a self, col: DBCol, prefix: &'a [u8]) -> RocksDBIterator<'a> {
         let cf_handle = self.cf_handle(col).unwrap();
         let mut read_options = rocksdb_read_options();
-        if let Some(prefix) = prefix {
+        if !prefix.is_empty() {
             read_options.set_iterate_range(::rocksdb::PrefixRange(prefix));
             // Note: prefix_same_as_start doesn’t do anything for us.  It takes
             // effect only if prefix extractor is configured for the column
@@ -266,15 +262,15 @@ impl Database for RocksDB {
     }
 
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        Box::new(self.iter_raw_bytes_impl(col, None))
+        Box::new(self.iter_raw_bytes_prefix(col, &[]))
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        refcount::iter_with_rc_logic(col, self.iter_raw_bytes_impl(col, None))
+        refcount::iter_with_rc_logic(col, self.iter_raw_bytes_prefix(col, &[]))
     }
 
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
-        let iter = self.iter_raw_bytes_impl(col, Some(key_prefix));
+        let iter = self.iter_raw_bytes_prefix(col, key_prefix);
         refcount::iter_with_rc_logic(col, iter)
     }
 
@@ -579,7 +575,7 @@ fn col_name(col: DBCol) -> &'static str {
         DBCol::BlockHeight => "col4",
         DBCol::State => "col5",
         DBCol::ChunkExtra => "col6",
-        DBCol::TransactionResult => "col7",
+        DBCol::_TransactionResult => "col7",
         DBCol::OutgoingReceipts => "col8",
         DBCol::IncomingReceipts => "col9",
         DBCol::Peers => "col10",

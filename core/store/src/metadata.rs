@@ -4,10 +4,10 @@ use crate::{DBCol, NodeStorage, Temperature};
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 32;
+pub const DB_VERSION: DbVersion = 34;
 
 /// Database version at which point DbKind was introduced.
-pub(super) const DB_VERSION_WITH_KIND: DbVersion = 32;
+pub(super) const DB_VERSION_WITH_KIND: DbVersion = 34;
 
 /// Key for the version entry in DBCol::DbVersion.
 ///

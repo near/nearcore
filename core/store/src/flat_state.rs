@@ -478,6 +478,11 @@ pub mod store_helper {
             .map_err(|_| FlatStorageError::StorageInternalError)
     }
 
+    pub fn remove_delta(store_update: &mut StoreUpdate, shard_id: ShardId, block_hash: CryptoHash) {
+        let key = KeyForFlatStateDelta { shard_id, block_hash };
+        store_update.delete(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap());
+    }
+
     pub(crate) fn get_flat_head(store: &Store, shard_id: ShardId) -> CryptoHash {
         store
             .get_ser(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap())
@@ -666,10 +671,33 @@ impl FlatStorageState {
             merged_delta.merge(delta.as_ref());
         }
 
+        // Update flat state on disk.
         guard.flat_head = *new_head;
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
         store_helper::set_flat_head(&mut store_update, guard.shard_id, new_head);
         merged_delta.apply_to_flat_state(&mut store_update);
+
+        // Remove old deltas and blocks info from memory and disk.
+        // TODO (#7327): in case of long forks it can take a while and delay processing of some chunk. Consider
+        // avoid iterating over all blocks and making removals lazy.
+        let flat_head_height = guard.blocks.get(&guard.flat_head).unwrap().height;
+        let hashes_to_remove: Vec<_> = guard
+            .blocks
+            .iter()
+            .filter(|(_, block_info)| block_info.height <= flat_head_height)
+            .map(|(block_hash, _)| block_hash)
+            .cloned()
+            .collect();
+        for hash in hashes_to_remove {
+            // Note that we have to remove delta for new head but we still need to keep block info, e.g. for knowing
+            // height of the head.
+            guard.deltas.remove(&hash);
+            if &hash != new_head {
+                guard.blocks.remove(&hash);
+            }
+            store_helper::remove_delta(&mut store_update, guard.shard_id, hash);
+        }
+
         store_update.commit().expect(BORSH_ERR);
         Ok(())
     }
@@ -959,6 +987,14 @@ mod tests {
         assert_eq!(flat_state0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
         assert_eq!(flat_state1.get_ref(&[1]).unwrap(), Some(ValueRef::new(&[4])));
         assert_eq!(flat_state1.get_ref(&[2]).unwrap(), None);
+        assert_matches!(
+            store_helper::get_delta(&store, 0, chain.get_block_hash(5)).unwrap(),
+            Some(_)
+        );
+        assert_matches!(
+            store_helper::get_delta(&store, 0, chain.get_block_hash(10)).unwrap(),
+            Some(_)
+        );
 
         // 5. Move the flat head to block 5, verify that flat_state0 still returns the same values
         // and flat_state1 returns an error. Also check that DBCol::FlatState is updated correctly
@@ -970,6 +1006,11 @@ mod tests {
         assert_eq!(flat_state0.get_ref(&[1]).unwrap(), None);
         assert_eq!(flat_state0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
         assert_matches!(flat_state1.get_ref(&[1]), Err(StorageError::FlatStorageError(_)));
+        assert_matches!(store_helper::get_delta(&store, 0, chain.get_block_hash(5)).unwrap(), None);
+        assert_matches!(
+            store_helper::get_delta(&store, 0, chain.get_block_hash(10)).unwrap(),
+            Some(_)
+        );
 
         // 6. Move the flat head to block 10, verify that flat_state0 still returns the same values
         //    Also checks that DBCol::FlatState is updated correctly.
@@ -981,5 +1022,9 @@ mod tests {
         assert_eq!(store_helper::get_ref(&store, &[2]).unwrap(), Some(ValueRef::new(&[1])));
         assert_eq!(flat_state0.get_ref(&[1]).unwrap(), None);
         assert_eq!(flat_state0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
+        assert_matches!(
+            store_helper::get_delta(&store, 0, chain.get_block_hash(10)).unwrap(),
+            None
+        );
     }
 }

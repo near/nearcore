@@ -181,7 +181,7 @@ fn create_receipt_nonce(
     amount: Balance,
     nonce: Nonce,
 ) -> CryptoHash {
-    CryptoHash::hash_borsh(&ReceiptNonce { from, to, amount, nonce })
+    CryptoHash::hash_borsh(ReceiptNonce { from, to, amount, nonce })
 }
 
 impl KeyValueRuntime {
@@ -709,6 +709,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
         _block_hash: &CryptoHash,
         state_root: StateRoot,
+        _use_flat_storage: bool,
     ) -> Result<Trie, Error> {
         Ok(self
             .tries
@@ -894,6 +895,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _is_new_chunk: bool,
         _is_first_block_with_chunk_of_version: bool,
         _state_patch: SandboxStatePatch,
+        _use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
         let mut tx_results = vec![];
@@ -1583,7 +1585,7 @@ mod test {
                 })
                 .cloned()
                 .collect();
-            receipts_hashes.push(CryptoHash::hash_borsh(&ReceiptList(shard_id, &shard_receipts)));
+            receipts_hashes.push(CryptoHash::hash_borsh(ReceiptList(shard_id, &shard_receipts)));
         }
         receipts_hashes
     }

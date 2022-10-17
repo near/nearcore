@@ -16,7 +16,6 @@ Error that can occur inside Near Runtime encapsulated in a separate crate. Might
 
 [dependencies]
 borsh.workspace = true
-deepsize = { workspace = true, optional = true }
 serde.workspace = true
 strum.workspace = true
 
@@ -25,7 +24,3 @@ near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
-deepsize_feature = [
-  "deepsize",
-  "near-account-id/deepsize_feature",
-]

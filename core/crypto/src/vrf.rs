@@ -14,20 +14,6 @@ pub struct SecretKey(pub(crate) Scalar, pub(crate) PublicKey);
 value_type!(pub, Value, 32, "value");
 value_type!(pub, Proof, 64, "proof");
 
-#[cfg(feature = "deepsize_feature")]
-impl deepsize::DeepSizeOf for Value {
-    fn deep_size_of_children(&self, _context: &mut deepsize::Context) -> usize {
-        0
-    }
-}
-
-#[cfg(feature = "deepsize_feature")]
-impl deepsize::DeepSizeOf for Proof {
-    fn deep_size_of_children(&self, _context: &mut deepsize::Context) -> usize {
-        0
-    }
-}
-
 impl PublicKey {
     fn from_bytes(bytes: &[u8; 32]) -> Option<Self> {
         Some(PublicKey(*bytes, unpack(bytes)?))
