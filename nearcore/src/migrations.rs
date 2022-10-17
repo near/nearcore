@@ -88,7 +88,7 @@ pub fn do_migrate_34_to_35(
     runtime: NightshadeRuntime,
     genesis_config: &near_chain_configs::GenesisConfig,
 ) -> anyhow::Result<()> {
-    let store = runtime.get_store();
+    let store = runtime.store();
     let mut chain_store = ChainStore::new(store.clone(), genesis_config.genesis_height, false);
     let final_head = chain_store.final_head()?;
     let block_hash = final_head.last_block_hash;
