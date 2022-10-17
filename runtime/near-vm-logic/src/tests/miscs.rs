@@ -946,10 +946,8 @@ fn test_ed25519_verify() {
 }
 
 #[test]
-fn test_get_block_by_hash() {
+fn test_get_block_hash_by_height() {
     let mut logic_builder = VMLogicBuilder::default();
-    let code = "a".repeat(1024).as_bytes().to_vec();
-    logic_builder.config.limit_config.max_contract_size = code.len() as u64;
     let mut logic = logic_builder.build(get_context(vec![], false));
-    logic.get_block_by_hash(BlockHeight::default());
+    logic.get_block_hash_by_height(BlockHeight::default());
 }

@@ -454,8 +454,6 @@ pub struct Chain {
     /// was empty and could not hold any records (which it cannot).  It’s
     /// impossible to have non-empty state patch on non-sandbox builds.
     pending_state_patch: SandboxStatePatch,
-    /// cache of the n latest block hashes
-    pub latest_block_hashes: VecDeque<CryptoHash>,
 }
 
 impl Drop for Chain {

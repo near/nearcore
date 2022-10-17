@@ -644,11 +644,15 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base`
-    // TODO #1903 rename to `block_height`
-    pub fn get_block_by_hash(&mut self, height_number: BlockHeight) -> Result<u64> {
+    pub fn get_block_hash_by_height(&mut self, height_number: BlockHeight) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
         let chain_store = self.context.chain_store;
         let tip = chain_store.header_head().expect("handle this properly");
+        // requested height isn't available
+        if tip.height < height_number {
+            Ok(0)
+        }
+
         if tip.height == height_number {
             return Ok(1);
         }
