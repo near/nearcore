@@ -137,6 +137,7 @@ pub fn do_migrate_33_to_34(
                 }
             }
             let inner_thread_slots = thread_slots.clone();
+            let inner_store = store.clone();
             let handle = std::thread::spawn(move || {
                 let hex_prefix: String = key_nibbles
                     .iter()
@@ -145,7 +146,7 @@ pub fn do_migrate_33_to_34(
                 debug!(target: "store", "Preload subtrie at {hex_prefix}");
                 let trie = Trie::new(Box::new(storage), root, None);
                 let inner_iter = TrieIterator { trie: &trie, trail, key_nibbles, visited_nodes };
-                let mut store_update = BatchedStoreUpdate::new(&store.clone(), 1_000);
+                let mut store_update = BatchedStoreUpdate::new(&inner_store, 1_000);
                 let n = inner_iter
                     .map(|item| {
                         let item = item.unwrap();
