@@ -1,3 +1,4 @@
+use crate::client;
 use crate::config;
 use crate::network_protocol::{
     AccountData, AccountOrPeerIdOrHash, Edge, EdgeState, PartialEdgeInfo, PeerInfo, PeerMessage,
@@ -22,18 +23,16 @@ use crate::tcp;
 use crate::time;
 use crate::types::{
     ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownPeerStatus, KnownProducer,
-    NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
+    NetworkInfo, NetworkRequests, NetworkResponses,
     NetworkViewClientMessages, NetworkViewClientResponses, PeerIdOrHash, PeerManagerMessageRequest,
     PeerManagerMessageResponse, PeerType, ReasonForBan, SetChainInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{
-    Actor, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
-    Running, WrapFuture,
+    Actor, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler, Running, WrapFuture,
 };
 use anyhow::bail;
 use anyhow::Context as _;
-use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -262,8 +261,7 @@ impl PeerManagerActor {
         clock: time::Clock,
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
-        client_addr: Recipient<WithSpanContext<NetworkClientMessages>>,
-        view_client_addr: Recipient<NetworkViewClientMessages>,
+        client: client::Client,
         genesis_id: GenesisId,
     ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
@@ -308,8 +306,7 @@ impl PeerManagerActor {
             state: Arc::new(NetworkState::new(
                 config.clone(),
                 genesis_id,
-                client_addr,
-                view_client_addr,
+                client,
                 ctx.address().recipient(),
                 routing_table_addr,
                 RoutingTableView::new(store, my_peer_id.clone()),
@@ -1009,11 +1006,9 @@ impl PeerManagerActor {
         let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
             .with_label_values(&["push_network_info"])
             .start_timer();
-
-        let _ = self
-            .state
-            .client_addr
-            .do_send(NetworkClientMessages::NetworkInfo(network_info).with_span_context());
+        // TODO(gprusak): just spawn a loop.
+        let state = self.state.clone();
+        ctx.spawn(wrap_future(async move { state.client.network_info(network_info).await }));
 
         near_performance_metrics::actix::run_later(
             ctx,

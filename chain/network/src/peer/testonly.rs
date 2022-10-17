@@ -1,4 +1,5 @@
 use crate::broadcast;
+use crate::client;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
@@ -185,8 +186,10 @@ impl PeerHandle {
             let network_state = Arc::new(NetworkState::new(
                 Arc::new(network_cfg.verify().unwrap()),
                 cfg.chain.genesis_id.clone(),
-                fc.clone().recipient(),
-                fc.clone().recipient(),
+                client::Client {
+                    client_addr: fc.clone().recipient(),
+                    view_client_addr: fc.clone().recipient(),
+                },
                 fpm.recipient(),
                 routing_table_addr,
                 routing_table_view,

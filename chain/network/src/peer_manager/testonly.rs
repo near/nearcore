@@ -1,4 +1,5 @@
 use crate::broadcast;
+use crate::client;
 use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
@@ -287,8 +288,10 @@ pub(crate) async fn start(
                 clock,
                 store,
                 cfg,
-                fc.clone().recipient(),
-                fc.clone().recipient(),
+                client::Client {
+                    client_addr: fc.clone().recipient(),
+                    view_client_addr: fc.clone().recipient(),
+                },
                 genesis_id,
             )
             .unwrap()

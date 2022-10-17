@@ -3,7 +3,7 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, ParsePeerMessageError, PartialEdgeInfo, PeerChainInfoV2, PeerInfo,
-    RawRoutedMessage, RoutedMessageBody, SyncAccountsData,
+    RoutedMessageBody, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -19,16 +19,16 @@ use crate::stats::metrics;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    Ban, Handshake, HandshakeFailureReason, NetworkClientMessages, NetworkClientResponses,
-    NetworkViewClientMessages, NetworkViewClientResponses, PeerIdOrHash, PeerMessage, PeerType,
-    ReasonForBan, StateResponseInfo,
+    Ban, Handshake, HandshakeFailureReason,
+    PeerIdOrHash, PeerMessage, PeerType,
+    ReasonForBan,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor, ActorContext, ActorFutureExt, AsyncContext, Context, Handler, Running};
 use lru::LruCache;
 use near_crypto::Signature;
 use near_o11y::OpenTelemetrySpanExt;
-use near_o11y::{log_assert, WithSpanContext, WithSpanContextExt};
+use near_o11y::{log_assert, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::logging;
 use near_primitives::network::PeerId;
@@ -356,293 +356,6 @@ impl PeerActor {
     /// `PeerId` of the other node.
     fn other_peer_id(&self) -> Option<&PeerId> {
         self.peer_info.as_ref().as_ref().map(|peer_info| &peer_info.id)
-    }
-
-    fn receive_message(
-        &mut self,
-        ctx: &mut Context<PeerActor>,
-        conn: &connection::Connection,
-        msg: PeerMessage,
-    ) {
-        if msg.is_view_client_message() {
-            metrics::PEER_VIEW_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL
-                .with_label_values(&[msg.msg_variant()])
-                .inc();
-            self.receive_view_client_message(ctx, msg);
-        } else if msg.is_client_message() {
-            metrics::PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL
-                .with_label_values(&[msg.msg_variant()])
-                .inc();
-            self.receive_client_message(ctx, conn, msg);
-        } else {
-            debug_assert!(false, "expected (view) client message, got: {}", msg.msg_variant());
-        }
-    }
-
-    fn receive_view_client_message(&self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
-        let mut msg_hash = None;
-        let view_client_message = match msg {
-            PeerMessage::Routed(message) => {
-                msg_hash = Some(message.hash());
-                match &message.msg.body {
-                    RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => {
-                        NetworkViewClientMessages::TxStatus {
-                            tx_hash: tx_hash.clone(),
-                            signer_account_id: account_id.clone(),
-                        }
-                    }
-                    RoutedMessageBody::TxStatusResponse(tx_result) => {
-                        NetworkViewClientMessages::TxStatusResponse(Box::new(tx_result.clone()))
-                    }
-                    RoutedMessageBody::ReceiptOutcomeRequest(_receipt_id) => {
-                        // Silently ignore for the time being.  We’ve been still
-                        // sending those messages at protocol version 56 so we
-                        // need to wait until 59 before we can remove the
-                        // variant completely.
-                        return;
-                    }
-                    RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
-                        NetworkViewClientMessages::StateRequestHeader {
-                            shard_id: *shard_id,
-                            sync_hash: sync_hash.clone(),
-                        }
-                    }
-                    RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id) => {
-                        NetworkViewClientMessages::StateRequestPart {
-                            shard_id: *shard_id,
-                            sync_hash: sync_hash.clone(),
-                            part_id: *part_id,
-                        }
-                    }
-                    body => {
-                        error!(target: "network", "Peer receive_view_client_message received unexpected type: {:?}", body);
-                        return;
-                    }
-                }
-            }
-            PeerMessage::BlockRequest(hash) => NetworkViewClientMessages::BlockRequest(hash),
-            PeerMessage::BlockHeadersRequest(hashes) => {
-                NetworkViewClientMessages::BlockHeadersRequest(hashes)
-            }
-            PeerMessage::EpochSyncRequest(epoch_id) => {
-                NetworkViewClientMessages::EpochSyncRequest { epoch_id }
-            }
-            PeerMessage::EpochSyncFinalizationRequest(epoch_id) => {
-                NetworkViewClientMessages::EpochSyncFinalizationRequest { epoch_id }
-            }
-            peer_message => {
-                error!(target: "network", "Peer receive_view_client_message received unexpected type: {:?}", peer_message);
-                return;
-            }
-        };
-
-        ctx.spawn(wrap_future(self.network_state.view_client_addr.send(view_client_message)).then(
-            move |res, act: &mut PeerActor, _ctx| {
-                // Ban peer if client thinks received data is bad.
-                match res {
-                    Ok(NetworkViewClientResponses::TxStatus(tx_result)) => {
-                        let msg = act.network_state.sign_message(
-                            &act.clock,
-                            RawRoutedMessage {
-                                // TODO(gprusak): Rename AccountIrPeerIdOrHash to
-                                // RoutedMessageTarget for better readability.
-                                target: PeerIdOrHash::Hash(msg_hash.unwrap()),
-                                body: RoutedMessageBody::TxStatusResponse(*tx_result),
-                            },
-                        );
-                        act.network_state.send_message_to_peer(&act.clock, msg);
-                    }
-                    Ok(NetworkViewClientResponses::StateResponse(state_response)) => {
-                        let body = match *state_response {
-                            StateResponseInfo::V1(state_response) => {
-                                RoutedMessageBody::StateResponse(state_response)
-                            }
-                            state_response @ StateResponseInfo::V2(_) => {
-                                RoutedMessageBody::VersionedStateResponse(state_response)
-                            }
-                        };
-                        let msg = act.network_state.sign_message(
-                            &act.clock,
-                            RawRoutedMessage {
-                                target: PeerIdOrHash::Hash(msg_hash.unwrap()),
-                                body,
-                            },
-                        );
-                        act.network_state.send_message_to_peer(&act.clock, msg);
-                    }
-                    Ok(NetworkViewClientResponses::Block(block)) => {
-                        // MOO need protocol version
-                        act.send_message_or_log(&PeerMessage::Block(*block));
-                    }
-                    Ok(NetworkViewClientResponses::BlockHeaders(headers)) => {
-                        act.send_message_or_log(&PeerMessage::BlockHeaders(headers));
-                    }
-                    Ok(NetworkViewClientResponses::EpochSyncResponse(response)) => {
-                        act.send_message_or_log(&PeerMessage::EpochSyncResponse(response));
-                    }
-                    Ok(NetworkViewClientResponses::EpochSyncFinalizationResponse(response)) => {
-                        act.send_message_or_log(&PeerMessage::EpochSyncFinalizationResponse(
-                            response,
-                        ));
-                    }
-                    Err(err) => {
-                        error!(
-                            target: "network",
-                            "Received error sending message to view client: {} for {}",
-                            err, act.peer_info
-                        );
-                        return actix::fut::ready(());
-                    }
-                    _ => {}
-                };
-                actix::fut::ready(())
-            },
-        ));
-    }
-
-    /// Process non handshake/peer related messages.
-    fn receive_client_message(
-        &mut self,
-        ctx: &mut Context<PeerActor>,
-        conn: &connection::Connection,
-        msg: PeerMessage,
-    ) {
-        let _span = tracing::trace_span!(target: "network", "receive_client_message").entered();
-        let peer_id = conn.peer_info.id.clone();
-
-        // This is a fancy way to clone the message iff event_sink is non-null.
-        // If you have a better idea on how to achieve that, feel free to improve this.
-        let message_processed_event = self
-            .network_state
-            .config
-            .event_sink
-            .delayed_push(|| Event::MessageProcessed(msg.clone()));
-
-        // Wrap peer message into what client expects.
-        let network_client_msg = match msg {
-            PeerMessage::Block(block) => {
-                let block_hash = *block.hash();
-                self.tracker.lock().push_received(block_hash);
-                conn.chain_height.fetch_max(block.header().height(), Ordering::Relaxed);
-                NetworkClientMessages::Block(
-                    block,
-                    peer_id,
-                    self.tracker.lock().has_request(&block_hash),
-                )
-            }
-            PeerMessage::Transaction(transaction) => NetworkClientMessages::Transaction {
-                transaction,
-                is_forwarded: false,
-                check_only: false,
-            },
-            PeerMessage::BlockHeaders(headers) => {
-                NetworkClientMessages::BlockHeaders(headers, peer_id)
-            }
-            // All Routed messages received at this point are for us.
-            PeerMessage::Routed(routed_message) => {
-                let msg_hash = routed_message.hash();
-
-                match &routed_message.msg.body {
-                    RoutedMessageBody::BlockApproval(approval) => {
-                        NetworkClientMessages::BlockApproval(approval.clone(), peer_id)
-                    }
-                    RoutedMessageBody::ForwardTx(transaction) => {
-                        NetworkClientMessages::Transaction {
-                            transaction: transaction.clone(),
-                            is_forwarded: true,
-                            check_only: false,
-                        }
-                    }
-
-                    RoutedMessageBody::StateResponse(info) => {
-                        NetworkClientMessages::StateResponse(StateResponseInfo::V1(info.clone()))
-                    }
-                    RoutedMessageBody::VersionedStateResponse(info) => {
-                        NetworkClientMessages::StateResponse(info.clone())
-                    }
-                    RoutedMessageBody::PartialEncodedChunkRequest(request) => {
-                        NetworkClientMessages::PartialEncodedChunkRequest(request.clone(), msg_hash)
-                    }
-                    RoutedMessageBody::PartialEncodedChunkResponse(response) => {
-                        NetworkClientMessages::PartialEncodedChunkResponse(
-                            response.clone(),
-                            self.clock.now().into(),
-                        )
-                    }
-                    RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
-                        NetworkClientMessages::PartialEncodedChunk(chunk.clone())
-                    }
-                    RoutedMessageBody::PartialEncodedChunkForward(forward) => {
-                        NetworkClientMessages::PartialEncodedChunkForward(forward.clone())
-                    }
-                    RoutedMessageBody::Ping(_)
-                    | RoutedMessageBody::Pong(_)
-                    | RoutedMessageBody::TxStatusRequest(_, _)
-                    | RoutedMessageBody::TxStatusResponse(_)
-                    | RoutedMessageBody::_UnusedQueryRequest
-                    | RoutedMessageBody::_UnusedQueryResponse
-                    | RoutedMessageBody::_UnusedPartialEncodedChunk
-                    | RoutedMessageBody::ReceiptOutcomeRequest(_)
-                    | RoutedMessageBody::_UnusedReceiptOutcomeResponse
-                    | RoutedMessageBody::StateRequestHeader(_, _)
-                    | RoutedMessageBody::StateRequestPart(_, _, _) => {
-                        error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", routed_message);
-                        return;
-                    }
-                }
-            }
-            PeerMessage::Challenge(challenge) => NetworkClientMessages::Challenge(challenge),
-            PeerMessage::EpochSyncResponse(response) => {
-                NetworkClientMessages::EpochSyncResponse(peer_id, response)
-            }
-            PeerMessage::EpochSyncFinalizationResponse(response) => {
-                NetworkClientMessages::EpochSyncFinalizationResponse(peer_id, response)
-            }
-            PeerMessage::Handshake(_)
-            | PeerMessage::HandshakeFailure(_, _)
-            | PeerMessage::PeersRequest
-            | PeerMessage::PeersResponse(_)
-            | PeerMessage::SyncRoutingTable(_)
-            | PeerMessage::LastEdge(_)
-            | PeerMessage::Disconnect
-            | PeerMessage::RequestUpdateNonce(_)
-            | PeerMessage::ResponseUpdateNonce(_)
-            | PeerMessage::BlockRequest(_)
-            | PeerMessage::BlockHeadersRequest(_)
-            | PeerMessage::EpochSyncRequest(_)
-            | PeerMessage::EpochSyncFinalizationRequest(_)
-            | PeerMessage::SyncAccountsData(_) => {
-                error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", msg);
-                return;
-            }
-        }.with_span_context();
-
-        ctx.spawn(wrap_future(self.network_state.client_addr.send(network_client_msg))
-            .then(move |res, act: &mut PeerActor, ctx| {
-                // Ban peer if client thinks received data is bad.
-                match res {
-                    Ok(NetworkClientResponses::InvalidTx(err)) => {
-                        warn!(target: "network", "Received invalid tx from peer {}: {}", act.peer_info, err);
-                        // TODO: count as malicious behavior?
-                    }
-                    Ok(NetworkClientResponses::Ban { ban_reason }) => {
-                        act.stop(ctx, ClosingReason::Ban(ban_reason));
-                    }
-                    Err(err) => {
-                        error!(
-                            target: "network",
-                            "Received error sending message to client: {} for {}",
-                            err, act.peer_info
-                        );
-                        return actix::fut::ready(());
-                    }
-                    _ => {
-                        message_processed_event();
-                    }
-                };
-                actix::fut::ready(())
-            })
-        );
     }
 
     /// Update stats when receiving msg
@@ -977,6 +690,48 @@ impl PeerActor {
                 tracing::warn!(target:"network","unexpected message during handshake: {}",msg)
             }
         }
+    }
+
+    fn receive_message(
+        &self,
+        ctx: &mut actix::Context<Self>,
+        conn: &connection::Connection,
+        msg: PeerMessage,
+    ) {
+        // This is a fancy way to clone the message iff event_sink is non-null.
+        // If you have a better idea on how to achieve that, feel free to improve this.
+        let message_processed_event = self
+            .network_state
+            .config
+            .event_sink
+            .delayed_push(|| Event::MessageProcessed(msg.clone()));
+        let was_requested = match &msg {
+            PeerMessage::Block(block) => {
+                let hash = *block.hash();
+                conn.chain_height.fetch_max(block.header().height(), Ordering::Relaxed);
+                self.tracker.lock().push_received(hash);
+                self.tracker.lock().has_request(&hash)
+            }
+            _ => false,
+        };
+        let clock = self.clock.clone();
+        let network_state = self.network_state.clone();
+        let peer_id = conn.peer_info.id.clone();
+        ctx.spawn(
+            wrap_future(async move {
+                network_state.receive_message(&clock, peer_id, msg, was_requested).await
+            })
+            .then(|res, act: &mut PeerActor, ctx| {
+                match res {
+                    // TODO(gprusak): make sure that for routed messages we drop routeback info correctly.
+                    Ok(Some(resp)) => act.send_message_or_log(&resp),
+                    Ok(None) => {}
+                    Err(ban_reason) => act.stop(ctx, ClosingReason::Ban(ban_reason)),
+                }
+                message_processed_event();
+                wrap_future(async {})
+            }),
+        );
     }
 
     fn handle_msg_ready(
