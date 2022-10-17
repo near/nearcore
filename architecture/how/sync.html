@@ -1,0 +1,381 @@
+<!DOCTYPE HTML>
+<html lang="en" class="sidebar-visible no-js light">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>How Sync Works - Guide to Nearcore Development</title>
+        <!-- Custom HTML head -->
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff" />
+
+        <link rel="icon" href="../../favicon.svg">
+        <link rel="shortcut icon" href="../../favicon.png">
+        <link rel="stylesheet" href="../../css/variables.css">
+        <link rel="stylesheet" href="../../css/general.css">
+        <link rel="stylesheet" href="../../css/chrome.css">
+        <link rel="stylesheet" href="../../css/print.css" media="print">
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../../fonts/fonts.css">
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../../highlight.css">
+        <link rel="stylesheet" href="../../tomorrow-night.css">
+        <link rel="stylesheet" href="../../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+    </head>
+    <body>
+        <!-- Provide site root to javascript -->
+        <script type="text/javascript">
+            var path_to_root = "../../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script type="text/javascript">
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('no-js')
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add('js');
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var html = document.querySelector('html');
+            var sidebar = 'hidden';
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            }
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../../architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../../architecture/how/index.html"><strong aria-hidden="true">2.</strong> How neard works</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../architecture/how/sync.html" class="active"><strong aria-hidden="true">2.1.</strong> How Sync Works</a></li><li class="chapter-item expanded "><a href="../../architecture/how/gc.html"><strong aria-hidden="true">2.2.</strong> Garbage Collection</a></li><li class="chapter-item expanded "><a href="../../architecture/how/epoch.html"><strong aria-hidden="true">2.3.</strong> How Epoch Works</a></li></ol></li><li class="chapter-item expanded "><a href="../../architecture/trie.html"><strong aria-hidden="true">3.</strong> Trie</a></li><li class="chapter-item expanded "><a href="../../architecture/network.html"><strong aria-hidden="true">4.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../../practices/index.html"><strong aria-hidden="true">5.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../../practices/style.html"><strong aria-hidden="true">6.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../../practices/tracking_issues.html"><strong aria-hidden="true">7.</strong> Tracking Issues</a></li><li class="chapter-item expanded "><a href="../../practices/fast_builds.html"><strong aria-hidden="true">8.</strong> Fast Builds</a></li><li class="chapter-item expanded "><a href="../../practices/testing/index.html"><strong aria-hidden="true">9.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../practices/testing/python_tests.html"><strong aria-hidden="true">9.1.</strong> Python Tests</a></li></ol></li><li class="chapter-item expanded "><a href="../../practices/protocol_upgrade.html"><strong aria-hidden="true">10.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../../misc/index.html"><strong aria-hidden="true">11.</strong> Misc</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky bordered">
+                    <div class="left-buttons">
+                        <button id="sidebar-toggle" class="icon-button" type="button" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </button>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light (default)</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Guide to Nearcore Development</h1>
+
+                    <div class="right-buttons">
+                        <a href="../../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/tree/master/docs" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/edit/master/docs/./architecture/how/sync.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script type="text/javascript">
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="how-sync-works"><a class="header" href="#how-sync-works">How Sync Works</a></h1>
+<h2 id="basics"><a class="header" href="#basics">Basics</a></h2>
+<p>While Sync and Catchup sounds similar - they are actually describing two
+completely different things.</p>
+<p><strong>Sync</strong> - is used when your node falls ‘behind’ other nodes in the network (for
+example because it was down for some time or it took longer to process some
+blocks etc).</p>
+<p><strong>Catchup</strong> - is used when you want (or have to) start caring about (a.k.a.
+tracking) additional shards in the future epochs. Currently it should be a no-op
+for 99% of nodes (see below).</p>
+<p><strong>Tracking shards</strong>: as you know our system has multiple shards (currently 4).
+Currently 99% of nodes are tracking all the shards: validators have to - as they
+have to validate the chunks from all the shards, and normal nodes mostly also
+track all the shards as this is default.</p>
+<p>But in the future - we will have more and more people tracking only a subset of
+the shards, so the catchup will be more and more important.</p>
+<h2 id="sync"><a class="header" href="#sync">Sync</a></h2>
+<p>If your node is behind the head - it will start the sync process (this code is
+running periodically in the client_actor and if you’re behind for more than
+<code>sync_height_threshold</code> (currently 50) blocks - it will enable the sync.</p>
+<p>The Sync behavior differs depending on whether you’re an archival node (which
+means you care about the state of each block) or ‘normal’ node - where you care
+mostly about the Tip of the network.</p>
+<h3 id="step-1-header-sync-archival-node--normal-node-downloading-headers"><a class="header" href="#step-1-header-sync-archival-node--normal-node-downloading-headers">Step 1: Header Sync [archival node &amp; normal node*] (“downloading headers”)</a></h3>
+<p>The goal of the header sync is to get all the block headers from your current
+HEAD all the way to the top of the chain.</p>
+<p>As headers are quite small, we try to request multiple of them in a single call
+(currently we ask for 512 headers at once).</p>
+<p><img src="https://user-images.githubusercontent.com/1711539/195892312-2fbd8241-87ce-4241-a44d-ff3056b12bab.png" alt="image" /></p>
+<h3 id="step-1a-epoch-sync-normal-node--not-implemented-yet"><a class="header" href="#step-1a-epoch-sync-normal-node--not-implemented-yet">Step 1a: Epoch Sync [normal node*] // not implemented yet</a></h3>
+<p>While currently normal nodes are using Header sync, we could actually allow them
+to do something faster - “light client sync” a.k.a “epoch sync”.</p>
+<p>The idea of the epoch sync, is to read “just” a single block header from each
+epoch - that has to contain additional information about validators.</p>
+<p>This way it would drastically reduce both the time needed for the sync and the
+db resources.</p>
+<p>We plan to enable it in Q4 2022.</p>
+<p><img src="https://user-images.githubusercontent.com/1711539/195892336-cc117c08-d3ad-43f7-9304-3233b25e8bb1.png" alt="image" /></p>
+<p>notice that in the image above - it is enough to get only ‘last’ header from
+each epoch. For the ‘current’ epoch, we still need to get all the headers.</p>
+<h3 id="step-2-state-sync-normal-node"><a class="header" href="#step-2-state-sync-normal-node">Step 2: State sync [normal node]</a></h3>
+<p>After header sync - if you notice that you’re too far behind (controlled by
+<code>block_fetch_horizon</code> config option) AND that the chain head is in a different
+epoch than your local head - the node will try to do the ‘state sync’.</p>
+<p>The idea of the state sync - is rather than trying to process all the blocks -
+try to ‘jump’ ahead by downloading the freshest state instead - and continue
+processing blocks from that place in the chain. As a side effect, it is going to
+create a ‘gap’ in the chunks/state on this node (which is fine - as the data
+will be garbage collected after 5 epochs anyway). State sync will ONLY sync to
+the beginning of the epoch - it cannot sync to any random block.</p>
+<p>This step is never run on the archival nodes - as these nodes want to have whole
+history and cannot have any gaps.</p>
+<p><img src="https://user-images.githubusercontent.com/1711539/195892354-cf2befed-98e9-40a2-9b81-b5cf738406e0.png" alt="image" /></p>
+<p>in this case, we can skip processing transactions that are in the blocks 124 - 128, and start from 129 (after sync state finishes)</p>
+<h3 id="step-3-block-sync-aka-body-sync-archival-node-normal-node-downloading-blocks"><a class="header" href="#step-3-block-sync-aka-body-sync-archival-node-normal-node-downloading-blocks">Step 3: Block sync (a.k.a Body sync) [archival node, normal node] (“downloading blocks”)</a></h3>
+<p>The final step is to start requesting and processing blocks as soon as possible,
+hoping to catchup with the chain.</p>
+<p>Block sync will request up to 5  (MAX_BLOCK_REQUESTS) blocks at a time - sending
+explicit Network BlockRequest for each one.</p>
+<p>After response (Block) is received - the code will execute the ‘standard’ path
+that tries to add this block to the chain (see section below).</p>
+<p><img src="https://user-images.githubusercontent.com/1711539/195892370-b177228b-2520-486a-94fc-67a91978cb58.png" alt="image" /></p>
+<p>In this case, we are processing each transaction for each block - until we catch
+up with the chain.</p>
+<h2 id="side-topic-how-blocks-are-added-to-the-chain"><a class="header" href="#side-topic-how-blocks-are-added-to-the-chain">Side topic: how blocks are added to the chain?</a></h2>
+<p>A node can receive a Block in two ways:</p>
+<ul>
+<li>Either by broadcasting - when a new block is produced, its contents are
+broadcasted within the network by the nodes</li>
+<li>Or by explicitly sending a BlockRequest to another peer - and getting a Block
+in return.</li>
+</ul>
+<p>(in case of broadcasting, the node will automatically reject any Blocks that are
+more than 500 (BLOCK_HORIZON) blocks away from the current HEAD).</p>
+<p>When a given block is received, the node checks if it can be added to the
+current chain.</p>
+<p>If block’s “parent” (prev_block) is not in the chain yet - the block gets added
+to the orphan list.</p>
+<p>If the parent is already in the chain - we can try to add the block as the head
+of the chain.</p>
+<p>Before adding the block, we want to download the chunks for the shards that we
+are tracking - so in many cases, we’ll call <code>missing_chunks</code> functions that will
+try to go ahead and request those chunks.</p>
+<p>Note: as the optimization, we’re also sometimes also trying to fetch chunks for
+the blocks that are in the orphan pool – but only if they are not more than 3
+(NUM_ORPHAN_ANCESTORS_CHECK) blocks away from our head.</p>
+<p>We also keep a separate job in client_actor that keeps retrying chunk fetching
+from other nodes if the original request fails.</p>
+<p>After all the chunks for a given block are received (we have a separate HashMap
+that checks if how many chunks are missing for each block) - we’re ready to
+process the block and attach it to the chain.</p>
+<p>Afterwards, we look at other entries in the orphan pool - to see if any of them
+is the direct descendant of the block that we just added - and if yes, we repeat
+the process.</p>
+<h2 id="catchup"><a class="header" href="#catchup">Catchup</a></h2>
+<h3 id="the-goal-of-catchup"><a class="header" href="#the-goal-of-catchup">The goal of catchup</a></h3>
+<p>Catchup is needed when not all nodes in the network track all shards and nodes
+can change the shard they are tracking during different epochs.</p>
+<p>For example, if a node tracks shard 0 at epoch T and track shard 1 at epoch T+1,
+it actually needs to have the state of shard 1 ready before the beginning of
+epoch T+1. How we make sure that in the code is that the node will start
+downloading state for shard 1 at the beginning of epoch T, and apply blocks
+during epoch T to shard 1’s state. Because downloading state can take time, the
+node may have already processed some blocks (for shard 0 at this epoch), so when
+the state finishes downloading, the node needs to “catch up” processing these
+blocks for shard 1.</p>
+<p>Right now, all nodes do track all shards, so technically we shouldn’t need the
+catchup process, but it is still implemented for the future.</p>
+<p>Image below: Example of the node, that tracked only shard 0 in epoch T-1, and
+will start tracking shard 0 &amp; 1 in epoch T+1.</p>
+<p>At the beginning of the epoch T, it will initiate the state download (green) and
+afterwards will try to ‘catchup’ the blocks (orange). After blocks are caught
+up, it will continue processing as normal.</p>
+<p><img src="https://user-images.githubusercontent.com/1711539/195892395-2e12808e-002b-4c04-9505-611288386dc8.png" alt="image" /></p>
+<h3 id="how-catchup-interact-with-normal-block-processing"><a class="header" href="#how-catchup-interact-with-normal-block-processing">How catchup interact with normal block processing</a></h3>
+<p>The catchup process has two phases: downloading states for shards that we are
+going to care about in epoch T+1 and catching up blocks that have already been
+applied.</p>
+<p>When epoch T starts, the node will start downloading states of shards that it
+will track for epoch T+1 that it is not tracking already. Downloading happens in
+a different thread so <code>ClientActor</code> can still process new blocks. Before the
+shard states for epoch T+1 are ready, processing new blocks only applies chunks
+for the shards that the node is tracking in epoch T. When the shard states for
+epoch T+1 finishes downloading, the catchup process needs to reprocess the
+blocks that have already been processed in epoch T to apply the chunks for the
+shards in epoch T+1.</p>
+<p>In other words, there are three modes for applying chunks and two code paths,
+either through the normal <code>process_block</code> (blue) or through <code>catchup_blocks</code>
+(orange). When <code>process_block</code>, either that the shard states for the next epoch
+are ready, corresponding to <code>IsCaughtUp</code> and all shards the node is tracking in
+this epoch or will be tracking in the next epoch will be applied, or that the
+states are not ready, corresponding to <code>NotCaughtup</code> and only the shards for
+this epoch will be applied. When <code>catchup_blocks</code>, shards for the next epoch
+will be applied.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>enum ApplyChunksMode {
+    IsCaughtUp,
+    CatchingUp,
+    NotCaughtUp,
+}
+<span class="boring">}
+</span></code></pre></pre>
+<h3 id="how-catchup-works"><a class="header" href="#how-catchup-works">How catchup works</a></h3>
+<p>The catchup process is initiated by <code>process_block</code>, where we check if the block
+is caught up and if we need to download states. The logic works as follows</p>
+<ul>
+<li>For the first block in an epoch T, we check if the previous block is caught
+up, which signifies if the state of the new epoch is ready. If the previous
+block is not caught up, the block will be orphaned and not processed for now
+because it is not ready to be processed yet. Ideally, this case should never
+happen, because the node will appear stalled until the blocks in the previous
+epoch are catching up.</li>
+<li>Otherwise, we start processing blocks for the new epoch T. For the first
+block, we always consider it as not caught up and will initiate the process
+for downloading states for shards that we are going to care about in epoch
+T+1.</li>
+<li>For other blocks, we consider it caught up if the previous block is caught up.</li>
+<li><code>process_block</code> will apply chunks differently depending on whether the block
+is caught up or not, as we discussed in <code>ApplyChunksMode</code>.</li>
+</ul>
+<p>The information of which blocks need to catch up (<code>add_block_to_catch_up</code>) and
+which new states need to be downloaded (<code>add_state_dl_info</code>) are stored in
+storage to be persisted across different runs.</p>
+<p>The catchup process is implemented through the function <code>Client::run_catchup</code>.
+<code>ClientActor</code> schedules a call to <code>run_catchup</code> every 100ms. However, the call
+can be delayed if ClientActor has a lot of messages in its actix queue.</p>
+<p>Every time <code>run_catchup</code> is called, it checks the store to see if there are any
+shard states that should be downloaded (iterate_state_sync_infos). If so, it
+initiates the syncing process for these shards. After the state is downloaded,
+<code>run_catchup</code> will start to apply blocks that need to be caught up.</p>
+<p>One thing to note is that <code>run_catchup</code> is located at <code>ClientActor</code>, but
+intensive work such as applying state parts and apply blocks is actually
+offloaded to <code>SyncJobActor</code> in another thread, because we don’t want
+<code>ClientActor</code> to be blocked by this. <code>run_catchup</code> is simply responsible for
+scheduling <code>SyncJobActor</code> to do the intensive job. Note that <code>SyncJobActor</code> is
+state-less, it doesn’t have write access to chain. It will return the changes
+that need to be made as part of the response to <code>ClientActor</code>, and <code>ClientActor</code>
+is responsible for applying these changes. This is to ensure only one thread
+(<code>ClientActor</code>) has write access to the chain state. However, this also adds a
+lot of limits, for example, <code>SyncJobActor</code> can only be scheduled to apply one
+block at a time. Because <code>run_catchup</code> is only scheduled to run every 100ms, the
+speed of catching up blocks is limited to 100ms per block, even when blocks
+applying can be faster. Similar constraints happen to apply state parts.</p>
+<h3 id="improvements"><a class="header" href="#improvements">Improvements</a></h3>
+<p>There are three improvements we can make to the current code.</p>
+<p>First, currently we always initiate the state downloading process at the first
+block of an epoch, even when there are no new states to be downloaded for the
+new epoch. This is unnecessary.</p>
+<p>Second, even though <code>run_catchup</code> is scheduled to run every 100ms, the call can
+be delayed if ClientActor has messages in its actix queue. A better way to do
+this is to move the scheduling of run_catchup to check_triggers.</p>
+<p>Third, because of how <code>run_catchup</code> interacts with <code>SyncJobActor</code>, <code>run_catchup</code>
+can catch up at most one block every 100 ms. This is because we don’t want to
+write to <code>ChainStore</code> in multiple threads. However, the changes that catching up
+blocks make do not interfere with regular block processing and they can be
+processed at the same time. However, to restructure this, we will need to
+re-implement <code>ChainStore</code> to separate the parts that can be shared among threads
+and the part that can’t.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../../architecture/how/index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+                            <a rel="next" href="../../architecture/how/gc.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../../architecture/how/index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                    <a rel="next" href="../../architecture/how/gc.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+        <script type="text/javascript">
+            window.playground_copyable = true;
+        </script>
+        <script src="../../elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../mark.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../searcher.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../clipboard.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../highlight.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../book.js" type="text/javascript" charset="utf-8"></script>
+
+        <!-- Custom JS scripts -->
+    </body>
+</html>
