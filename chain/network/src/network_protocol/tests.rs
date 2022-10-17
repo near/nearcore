@@ -2,12 +2,10 @@ use super::*;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::Encoding;
 use crate::testonly::make_rng;
+use crate::time;
 use crate::types::{HandshakeFailureReason, PeerMessage};
+use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use anyhow::{bail, Context as _};
-use near_network_primitives::time;
-use near_network_primitives::types::{
-    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, RoutedMessageBody,
-};
 use near_primitives::syncing::EpochSyncResponse;
 use near_primitives::types::EpochId;
 
@@ -111,7 +109,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         for m in &msgs {
             (|| {
                 let m2 = PeerMessage::deserialize(enc, &m.serialize(enc))
-                    .with_context(|| format!("{m}"))?;
+                    .with_context(|| m.to_string())?;
                 if *m != m2 {
                     bail!("deserialize(serialize({m}) = {m2}");
                 }

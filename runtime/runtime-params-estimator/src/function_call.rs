@@ -39,26 +39,19 @@ fn make_many_methods_contract(method_count: i32) -> ContractCode {
     for i in 0..method_count {
         write!(
             &mut methods,
-            "
-            (export \"hello{}\" (func {i}))
-              (func (;{i};)
+            r#"
+            (export "hello{i}" (func {i}))
+              (func
                 i32.const {i}
                 drop
                 return
               )
-            ",
-            i = i
+            "#,
         )
         .unwrap();
     }
 
-    let code = format!(
-        "
-        (module
-            {}
-            )",
-        methods
-    );
+    let code = format!("(module {methods})");
     ContractCode::new(wat::parse_str(code).unwrap(), None)
 }
 
@@ -84,32 +77,36 @@ fn compute_function_call_cost(
 
     // Warmup.
     for _ in 0..warmup_repeats {
-        let result = runtime.run(
-            contract,
-            "hello0",
-            &mut fake_external,
-            fake_context.clone(),
-            &fees,
-            &promise_results,
-            protocol_version,
-            cache,
-        );
-        assert!(result.error().is_none());
+        let result = runtime
+            .run(
+                contract,
+                "hello0",
+                &mut fake_external,
+                fake_context.clone(),
+                &fees,
+                &promise_results,
+                protocol_version,
+                cache,
+            )
+            .expect("fatal error");
+        assert!(result.aborted.is_none());
     }
     // Run with gas metering.
     let start = GasCost::measure(gas_metric);
     for _ in 0..repeats {
-        let result = runtime.run(
-            contract,
-            "hello0",
-            &mut fake_external,
-            fake_context.clone(),
-            &fees,
-            &promise_results,
-            protocol_version,
-            cache,
-        );
-        assert!(result.error().is_none());
+        let result = runtime
+            .run(
+                contract,
+                "hello0",
+                &mut fake_external,
+                fake_context.clone(),
+                &fees,
+                &promise_results,
+                protocol_version,
+                cache,
+            )
+            .expect("fatal_error");
+        assert!(result.aborted.is_none());
     }
     start.elapsed()
 }

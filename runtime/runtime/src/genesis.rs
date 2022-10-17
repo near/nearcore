@@ -14,6 +14,8 @@ use near_primitives::{
     trie_key::TrieKey,
     types::{AccountId, Balance, MerkleHash, ShardId, StateChangeCause, StateRoot},
 };
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_store::flat_state::FlatStateDelta;
 use near_store::{
     get_account, get_received_data, set, set_access_key, set_account, set_code,
     set_postponed_receipt, set_received_data, ShardTries, TrieUpdate,
@@ -98,7 +100,8 @@ impl GenesisStateApplier {
             let (trie_changes, state_changes) =
                 state_update.finalize().expect("Genesis state update failed");
             let (mut store_update, new_state_root) = tries.apply_all(&trie_changes, shard_uid);
-            tries.apply_changes_to_flat_state(&state_changes, &mut store_update);
+            FlatStateDelta::from_state_changes(&state_changes)
+                .apply_to_flat_state(&mut store_update);
             (store_update, new_state_root)
         };
 

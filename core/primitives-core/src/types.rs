@@ -50,8 +50,6 @@ pub type NumSeats = u64;
 /// Block height delta that measures the difference between `BlockHeight`s.
 pub type BlockHeightDelta = u64;
 
-pub type GCCount = u64;
-
 pub type ReceiptIndex = usize;
 pub type PromiseId = Vec<ReceiptIndex>;
 

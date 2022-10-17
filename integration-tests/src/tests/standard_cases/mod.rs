@@ -4,7 +4,6 @@ mod rpc;
 mod runtime;
 
 use assert_matches::assert_matches;
-use borsh::BorshSerialize;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
@@ -1423,7 +1422,7 @@ fn make_receipt(node: &impl Node, actions: Vec<Action>, receiver_id: AccountId) 
     Receipt {
         predecessor_id: alice_account(),
         receiver_id,
-        receipt_id: hash(&receipt_enum.try_to_vec().unwrap()),
+        receipt_id: CryptoHash::hash_borsh(&receipt_enum),
         receipt: receipt_enum,
     }
 }
@@ -1536,7 +1535,7 @@ pub fn test_chunk_nodes_cache_mode(node: impl Node, runtime_config: RuntimeConfi
         make_receipt(&node, vec![make_write_key_value_action(vec![1], vec![1])], bob_account()),
         make_receipt(
             &node,
-            vec![DeployContractAction { code: test_utils::encode(&vec![2]) }.into()],
+            vec![DeployContractAction { code: test_utils::encode(&[2]) }.into()],
             alice_account(),
         ),
         make_receipt(&node, vec![make_write_key_value_action(vec![2], vec![2])], bob_account()),

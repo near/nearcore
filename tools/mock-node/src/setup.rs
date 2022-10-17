@@ -9,9 +9,9 @@ use near_chain::{
 };
 use near_chain_configs::GenesisConfig;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
-use near_epoch_manager::EpochManager;
-use near_network::types::NetworkClientMessages;
-use near_network::types::NetworkRecipient;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_network::types::{NetworkClientMessages, NetworkRecipient};
+use near_o11y::WithSpanContext;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::BlockHeight;
@@ -44,7 +44,7 @@ fn setup_runtime(
 
 fn setup_mock_peer_manager_actor(
     chain: Chain,
-    client_addr: Recipient<NetworkClientMessages>,
+    client_addr: Recipient<WithSpanContext<NetworkClientMessages>>,
     genesis_config: &GenesisConfig,
     block_production_delay: Duration,
     client_start_height: BlockHeight,
@@ -289,9 +289,6 @@ pub fn setup_mock_node(
         });
     network_adapter.set_recipient(mock_network_actor);
 
-    // for some reason, with "test_features", start_http requires PeerManagerActor,
-    // we are not going to run start_mock_network with test_features, so let's disable that for now
-    #[cfg(not(feature = "test_features"))]
     let servers = config.rpc_config.map(|rpc_config| {
         near_jsonrpc::start_http(
             rpc_config,
@@ -300,8 +297,6 @@ pub fn setup_mock_node(
             view_client.clone(),
         )
     });
-    #[cfg(feature = "test_features")]
-    let servers = None;
 
     MockNode { client, view_client, servers, target_height }
 }
@@ -319,6 +314,7 @@ mod tests {
     use near_network::test_utils::{open_port, WaitOrTimeoutActor};
     use near_network::types::NetworkClientMessages;
     use near_o11y::testonly::init_integration_logger;
+    use near_o11y::WithSpanContextExt;
     use near_primitives::hash::CryptoHash;
     use near_primitives::transaction::SignedTransaction;
     use near_store::test_utils::gen_account;
@@ -333,6 +329,7 @@ mod tests {
     // to generate a chain history
     // then start a mock network with this chain history and test that
     // the client in the mock network can catch up these 20 blocks
+    #[cfg_attr(not(feature = "mock_node"), ignore)]
     #[test]
     fn test_mock_node_basic() {
         init_integration_logger();
@@ -384,11 +381,14 @@ mod tests {
                                         );
                                         spawn_interruptible(
                                             client1
-                                                .send(NetworkClientMessages::Transaction {
-                                                    transaction,
-                                                    is_forwarded: false,
-                                                    check_only: false,
-                                                })
+                                                .send(
+                                                    NetworkClientMessages::Transaction {
+                                                        transaction,
+                                                        is_forwarded: false,
+                                                        check_only: false,
+                                                    }
+                                                    .with_span_context(),
+                                                )
                                                 .then(move |_res| future::ready(())),
                                         );
                                     }),

@@ -51,7 +51,8 @@ impl Trie {
         if part_id.idx + 1 != part_id.total {
             let mut iterator = self.iter()?;
             let path_end_encoded = NibbleSlice::encode_nibbles(&path_end, false);
-            iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_end_encoded[..]).0)?;
+            iterator
+                .seek_nibble_slice(NibbleSlice::from_encoded(&path_end_encoded[..]).0, false)?;
             if let Some(item) = iterator.next() {
                 item?;
             }
@@ -60,8 +61,9 @@ impl Trie {
         Ok(())
     }
 
-    /// Part part_id has nodes with paths [ path(part_id) .. path(part_id + 1) )
-    /// path is returned as nibbles, last path is vec![16], previous paths end in nodes
+    /// Part part_id has nodes with paths `[path(part_id), path(part_id + 1))`
+    /// path is returned as nibbles, last path is `vec![16]`, previous paths end
+    /// in nodes
     pub(crate) fn find_path_for_part_boundary(
         &self,
         part_id: u64,
@@ -99,14 +101,14 @@ impl Trie {
             }
             TrieNode::Branch(children, _) => {
                 for child_index in 0..children.len() {
-                    let (_, child) = match &children[child_index] {
+                    let child = match &children[child_index] {
                         None => {
                             continue;
                         }
                         Some(NodeHandle::InMemory(_)) => {
                             unreachable!("only possible while mutating")
                         }
-                        Some(NodeHandle::Hash(h)) => self.retrieve_node(h)?,
+                        Some(NodeHandle::Hash(h)) => self.retrieve_node(h)?.1,
                     };
                     if *size_skipped + child.memory_usage <= size_start {
                         *size_skipped += child.memory_usage;
@@ -134,9 +136,9 @@ impl Trie {
                 Ok(false)
             }
             TrieNode::Extension(key, child_handle) => {
-                let (_, child) = match child_handle {
+                let child = match child_handle {
                     NodeHandle::InMemory(_) => unreachable!("only possible while mutating"),
-                    NodeHandle::Hash(h) => self.retrieve_node(h)?,
+                    NodeHandle::Hash(h) => self.retrieve_node(h)?.1,
                 };
                 let (slice, _is_leaf) = NibbleSlice::from_encoded(key);
                 key_nibbles.extend(slice.iter());
@@ -353,7 +355,7 @@ mod tests {
                             }
                             if i < 16 {
                                 if let Some(NodeHandle::Hash(h)) = children[i].clone() {
-                                    let (_, child) = self.retrieve_node(&h)?;
+                                    let child = self.retrieve_node(&h)?.1;
                                     stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
                                     stack.push((h, child, CrumbStatus::Entering));
                                 } else {
@@ -377,7 +379,7 @@ mod tests {
                                     unreachable!("only possible while mutating")
                                 }
                                 NodeHandle::Hash(h) => {
-                                    let (_, child) = self.retrieve_node(&h)?;
+                                    let child = self.retrieve_node(&h)?.1;
                                     stack.push((hash, node, CrumbStatus::Exiting));
                                     stack.push((h, child, CrumbStatus::Entering));
                                 }
@@ -400,7 +402,8 @@ mod tests {
 
             let mut iterator = self.iter()?;
             let path_begin_encoded = NibbleSlice::encode_nibbles(&path_begin, false);
-            iterator.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded[..]).0)?;
+            iterator
+                .seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded[..]).0, false)?;
             loop {
                 match iterator.next() {
                     None => break,
@@ -445,7 +448,7 @@ mod tests {
     #[test]
     fn test_combine_empty_trie_parts() {
         let state_root = Trie::EMPTY_ROOT;
-        let _ = Trie::combine_state_parts_naive(&state_root, &vec![]).unwrap();
+        let _ = Trie::combine_state_parts_naive(&state_root, &[]).unwrap();
         let _ = Trie::validate_trie_nodes_for_part(
             &state_root,
             PartId::new(0, 1),
@@ -610,7 +613,7 @@ mod tests {
 
             {
                 // Test that combining all parts gets all nodes
-                let num_parts = rng.gen_range(2, 10);
+                let num_parts = rng.gen_range(2..10);
                 let parts = (0..num_parts)
                     .map(|part_id| {
                         trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap().0
@@ -697,8 +700,8 @@ mod tests {
 
             for _ in 0..10 {
                 // Test that creating and validating are consistent
-                let num_parts: u64 = rng.gen_range(1, 10);
-                let part_id = rng.gen_range(0, num_parts);
+                let num_parts: u64 = rng.gen_range(1..10);
+                let part_id = rng.gen_range(0..num_parts);
                 let trie_nodes =
                     trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap();
                 let trie_nodes2 =

@@ -1,9 +1,10 @@
+use crate::network_protocol::Edge;
 use crate::routing;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::store;
+use crate::time;
+use crate::types::PeerIdOrHash;
 use lru::LruCache;
-use near_network_primitives::time;
-use near_network_primitives::types::{Edge, PeerIdOrHash};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
@@ -86,7 +87,6 @@ impl Inner {
 #[derive(Debug)]
 pub(crate) enum FindRouteError {
     PeerUnreachable,
-    AccountNotFound,
     RouteBackNotFound,
 }
 
@@ -148,12 +148,8 @@ impl RoutingTableView {
     }
 
     /// Find peer that owns this AccountId.
-    pub(crate) fn account_owner(&self, account_id: &AccountId) -> Result<PeerId, FindRouteError> {
-        self.0
-            .lock()
-            .get_announce(account_id)
-            .map(|announce_account| announce_account.peer_id)
-            .ok_or(FindRouteError::AccountNotFound)
+    pub(crate) fn account_owner(&self, account_id: &AccountId) -> Option<PeerId> {
+        self.0.lock().get_announce(account_id).map(|announce_account| announce_account.peer_id)
     }
 
     /// Adds accounts to the routing table.

@@ -23,8 +23,6 @@ steps:
 
   - label: "cargo test not integration-tests*"
     command: |
-      docker rm -f $(docker ps --filter "publish=6379" -q) | true
-      docker run -d -p 6379:6379 -d redis
       source ~/.cargo/env && set -eux
       cargo test --locked --workspace -p '*' --exclude 'integration-tests*'
 
@@ -45,10 +43,8 @@ steps:
 
   - label: "cargo test nightly not integration-tests*"
     command: |
-      docker rm -f $(docker ps --filter "publish=6379" -q) | true
-      docker run -d -p 6379:6379 -d redis
       source ~/.cargo/env && set -eux
-      cargo test --workspace --features nightly,test_features -p '*' --exclude 'integration-tests*'
+      cargo test --workspace --features nightly,test_features,mock_node -p '*' --exclude 'integration-tests*'
 
     timeout: 60
     agents:
@@ -94,16 +90,6 @@ steps:
           exit 1
       fi >&2
     timeout: 30
-    agents:
-    - "distro=amazonlinux"
-    branches: "!master"
-
-  - label: "nearlib test"
-    command: |
-      source ~/.cargo/env && set -eux
-      source ~/.nvm/nvm.sh
-      scripts/test_nearlib.sh
-    timeout: 20
     agents:
     - "distro=amazonlinux"
     branches: "!master"

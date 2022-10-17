@@ -18,10 +18,10 @@ use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
-use near_network_primitives::types::{
-    NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo,
-};
+use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo};
+
 use near_o11y::testonly::init_test_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::time::Utc;
 use near_primitives::transaction::SignedTransaction;
@@ -29,7 +29,7 @@ use near_primitives::types::{BlockId, BlockReference, EpochId};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{FinalExecutionOutcomeViewEnum, QueryRequest, QueryResponseKind};
+use near_primitives::views::{QueryRequest, QueryResponseKind};
 use num_rational::Ratio;
 
 /// Query account from view client
@@ -100,7 +100,10 @@ fn query_status_not_crash() {
 
             actix::spawn(
                 client
-                    .send(NetworkClientMessages::Block(next_block, PeerInfo::random().id, false))
+                    .send(
+                        NetworkClientMessages::Block(next_block, PeerInfo::random().id, false)
+                            .with_span_context(),
+                    )
                     .then(move |_| {
                         actix::spawn(
                             client.send(Status { is_health_check: true, detailed: false }).then(
@@ -141,17 +144,20 @@ fn test_execution_outcome_for_chunk() {
             );
             let tx_hash = transaction.get_hash();
             let res = client
-                .send(NetworkClientMessages::Transaction {
-                    transaction,
-                    is_forwarded: false,
-                    check_only: false,
-                })
+                .send(
+                    NetworkClientMessages::Transaction {
+                        transaction,
+                        is_forwarded: false,
+                        check_only: false,
+                    }
+                    .with_span_context(),
+                )
                 .await
                 .unwrap();
             assert!(matches!(res, NetworkClientResponses::ValidTx));
 
             actix::clock::sleep(Duration::from_millis(500)).await;
-            let execution_outcome = view_client
+            let block_hash = view_client
                 .send(TxStatus {
                     tx_hash,
                     signer_account_id: "test".parse().unwrap(),
@@ -160,18 +166,13 @@ fn test_execution_outcome_for_chunk() {
                 .await
                 .unwrap()
                 .unwrap()
-                .unwrap();
-            let feo = match execution_outcome {
-                FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(outcome) => outcome,
-                FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(outcome) => {
-                    outcome.into()
-                }
-            };
+                .unwrap()
+                .into_outcome()
+                .transaction_outcome
+                .block_hash;
 
             let mut execution_outcomes_in_block = view_client
-                .send(GetExecutionOutcomesForBlock {
-                    block_hash: feo.transaction_outcome.block_hash,
-                })
+                .send(GetExecutionOutcomesForBlock { block_hash })
                 .await
                 .unwrap()
                 .unwrap();

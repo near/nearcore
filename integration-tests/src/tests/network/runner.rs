@@ -7,19 +7,20 @@ use near_chain_configs::ClientConfig;
 use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_network::actix::ActixSystem;
+use near_network::blacklist;
 use near_network::broadcast;
 use near_network::config;
+use near_network::tcp;
 use near_network::test_utils::{
     expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal, GetInfo,
 };
+use near_network::time;
 use near_network::types::NetworkRecipient;
-use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
-use near_network::{Event, PeerManagerActor};
-use near_network_primitives::time;
-use near_network_primitives::types::{
-    Blacklist, BlacklistEntry, OutboundTcpConnect, PeerInfo, Ping as NetPing, Pong as NetPong,
-    ROUTED_MESSAGE_TTL,
+use near_network::types::{
+    PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, Ping as NetPing,
+    Pong as NetPong, ROUTED_MESSAGE_TTL,
 };
+use near_network::{Event, PeerManagerActor};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
@@ -262,13 +263,14 @@ impl StateMachine {
                     debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
                     let pm = info.get_node(from)?.actix.addr.clone();
                     let peer_info = info.runner.test_config[to].peer_info();
-                    let peer_id = peer_info.id.clone();
-                    pm.send(PeerManagerMessageRequest::OutboundTcpConnect(
-                        OutboundTcpConnect { peer_info },
-                    )).await?;
+                    match tcp::Stream::connect(&peer_info).await {
+                        Ok(stream) => { pm.send(PeerManagerMessageRequest::OutboundTcpConnect(stream)).await?; },
+                        Err(err) => tracing::debug!("tcp::Stream::connect({peer_info}): {err}"),
+                    }
                     if !force {
                         return Ok(ControlFlow::Break(()))
                     }
+                    let peer_id = peer_info.id.clone();
                     let res = pm.send(GetInfo{}).await?;
                     for peer in &res.connected_peers {
                         if peer.full_peer_info.peer_info.id==peer_id {
@@ -527,12 +529,12 @@ impl Runner {
 
         let boot_nodes =
             config.boot_nodes.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
-        let blacklist: Blacklist = config
+        let blacklist: blacklist::Blacklist = config
             .blacklist
             .iter()
             .map(|x| match x {
-                Some(x) => BlacklistEntry::from_addr(self.test_config[*x].addr()),
-                None => BlacklistEntry::from_ip(Ipv4Addr::LOCALHOST.into()),
+                Some(x) => blacklist::Entry::from_addr(self.test_config[*x].addr()),
+                None => blacklist::Entry::from_ip(Ipv4Addr::LOCALHOST.into()),
             })
             .collect();
         let whitelist =

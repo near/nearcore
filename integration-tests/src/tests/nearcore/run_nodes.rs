@@ -14,7 +14,7 @@ fn run_heavy_nodes(
     num_blocks: BlockHeightDelta,
 ) {
     let mut rng = thread_rng();
-    let genesis_height = rng.gen_range(0, 10000);
+    let genesis_height = rng.gen_range(0..10000);
 
     let cluster = NodeCluster::default()
         .set_num_shards(num_shards)

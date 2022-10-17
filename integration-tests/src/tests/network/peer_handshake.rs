@@ -1,5 +1,5 @@
 use crate::tests::network::runner::*;
-use near_network_primitives::time;
+use near_network::time;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -18,8 +18,8 @@ use near_network::test_utils::{
     convert_boot_nodes, open_port, wait_or_timeout, GetInfo, StopSignal, WaitOrTimeoutActor,
 };
 use near_network::types::NetworkClientResponses;
+use near_network::types::NetworkViewClientResponses;
 use near_network::PeerManagerActor;
-use near_network_primitives::types::NetworkViewClientResponses;
 
 type ClientMock = Mocker<ClientActor>;
 type ViewClientMock = Mocker<ViewClientActor>;
@@ -211,10 +211,6 @@ fn check_connection_with_new_identity() -> anyhow::Result<()> {
     runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
 
     runner.push(Action::Wait(time::Duration::milliseconds(2000)));
-
-    // Check the no node tried to connect to itself in this process.
-    #[cfg(feature = "test_features")]
-    runner.push_action(wait_for(|| near_network::RECEIVED_INFO_ABOUT_ITSELF.get() == 0));
 
     start_test(runner)
 }

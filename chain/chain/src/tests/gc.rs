@@ -162,13 +162,13 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     );
     let verbose = false;
 
-    let num_shards = rand::thread_rng().gen_range(1, 3);
+    let num_shards = rand::thread_rng().gen_range(1..3);
 
     // Init Chain 1
     let mut chain1 = get_chain(num_shards);
     let tries1 = chain1.runtime_adapter.get_tries();
     let mut rng = rand::thread_rng();
-    let shard_to_check_trie = rng.gen_range(0, num_shards);
+    let shard_to_check_trie = rng.gen_range(0..num_shards);
     let shard_uid = ShardUId { version: 0, shard_id: shard_to_check_trie as u32 };
     let genesis1 = chain1.get_block_by_height(0).unwrap();
     let mut states1 = vec![];
@@ -501,14 +501,14 @@ fn test_gc_random_common(runs: u64) {
         let canonical_len = 101;
         let mut chains = vec![SimpleChain { from: 0, length: canonical_len, is_removed: false }];
         for _num_chains in 1..10 {
-            let from = rng.gen_range(0, 50);
-            let len = rng.gen_range(0, 50) + 1;
+            let from = rng.gen_range(0..50);
+            let len = rng.gen_range(0..50) + 1;
             chains.push(SimpleChain {
                 from,
                 length: len,
                 is_removed: from + len < canonical_len - 50,
             });
-            gc_fork_common(chains.clone(), rng.gen_range(0, 20) + 1);
+            gc_fork_common(chains.clone(), rng.gen_range(0..20) + 1);
         }
     }
 }

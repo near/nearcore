@@ -1,17 +1,18 @@
 use crate::cache::into_vm_result;
 use crate::imports::wasmer2::Wasmer2Imports;
 use crate::prepare::WASM_FEATURES;
-use crate::runner::VMResult;
 use crate::{cache, imports};
 use memoffset::offset_of;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_stable_hasher::StableHasher;
-use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
+use near_vm_errors::{
+    CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
+};
 use near_vm_logic::gas_counter::FastGasCounter;
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
-use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic};
+use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMOutcome};
 use std::hash::{Hash, Hasher};
 use std::mem::size_of;
 use std::sync::Arc;
@@ -121,12 +122,10 @@ impl MemoryLike for Wasmer2Memory {
 fn get_entrypoint_index(
     artifact: &wasmer_engine_universal::UniversalArtifact,
     method_name: &str,
-) -> Result<FunctionIndex, VMError> {
+) -> Result<FunctionIndex, FunctionCallError> {
     if method_name.is_empty() {
         // Do we really need this code?
-        return Err(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-            MethodResolveError::MethodEmptyName,
-        )));
+        return Err(FunctionCallError::MethodResolveError(MethodResolveError::MethodEmptyName));
     }
     if let Some(wasmer_types::ExportIndex::Function(index)) = artifact.export_field(method_name) {
         let signature = artifact.function_signature(index).expect("index should produce signature");
@@ -135,29 +134,30 @@ fn get_entrypoint_index(
         if signature.params().is_empty() && signature.results().is_empty() {
             Ok(index)
         } else {
-            Err(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                MethodResolveError::MethodInvalidSignature,
-            )))
+            Err(FunctionCallError::MethodResolveError(MethodResolveError::MethodInvalidSignature))
         }
     } else {
-        Err(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-            MethodResolveError::MethodNotFound,
-        )))
+        Err(FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound))
     }
 }
 
-fn translate_runtime_error(error: wasmer_engine::RuntimeError, logic: &mut VMLogic) -> VMError {
+fn translate_runtime_error(
+    error: wasmer_engine::RuntimeError,
+    logic: &mut VMLogic,
+) -> Result<FunctionCallError, VMRunnerError> {
     // Errors produced by host function calls also become `RuntimeError`s that wrap a dynamic
     // instance of `VMLogicError` internally. See the implementation of `Wasmer2Imports`.
     let error = match error.downcast::<near_vm_errors::VMLogicError>() {
-        Ok(vm_logic) => return vm_logic.into(),
+        Ok(vm_logic) => {
+            return vm_logic.try_into();
+        }
         Err(original) => original,
     };
     let msg = error.message();
     let trap_code = error.to_trap().unwrap_or_else(|| {
         panic!("runtime error is not a trap: {}", msg);
     });
-    VMError::FunctionCallError(match trap_code {
+    Ok(match trap_code {
         TrapCode::GasExceeded => FunctionCallError::HostError(logic.process_gas_limit()),
         TrapCode::StackOverflow => FunctionCallError::WasmTrap(WasmTrap::StackOverflow),
         TrapCode::HeapAccessOutOfBounds => FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds),
@@ -293,7 +293,7 @@ impl Wasmer2VM {
         artifact: &VMArtifact,
         mut import: Wasmer2Imports<'_, '_, '_>,
         method_name: &str,
-    ) -> Result<(), VMError> {
+    ) -> Result<Result<(), FunctionCallError>, VMRunnerError> {
         let _span = tracing::debug_span!(target: "vm", "run_method").entered();
 
         // FastGasCounter in Nearcore and Wasmer must match in layout.
@@ -311,7 +311,10 @@ impl Wasmer2VM {
             offset_of!(wasmer_types::FastGasCounter, opcode_cost)
         );
         let gas = import.vmlogic.gas_counter_pointer() as *mut wasmer_types::FastGasCounter;
-        let entrypoint = get_entrypoint_index(&*artifact, method_name)?;
+        let entrypoint = match get_entrypoint_index(&*artifact, method_name) {
+            Ok(index) => index,
+            Err(abort) => return Ok(Err(abort)),
+        };
         unsafe {
             let instance = {
                 let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
@@ -321,39 +324,44 @@ impl Wasmer2VM {
                 // we can be sure that `VMLogic` remains live and valid at any time.
                 // SAFETY: we ensure that the tables are valid during the lifetime of this instance
                 // by retaining an instance to `UniversalEngine` which holds the allocations.
-                let handle = Arc::clone(artifact)
-                    .instantiate(
-                        &self,
-                        &mut import,
-                        Box::new(()),
-                        // SAFETY: We have verified that the `FastGasCounter` layout matches the
-                        // expected layout. `gas` remains dereferenceable throughout this function
-                        // by the virtue of it being contained within `import` which lives for the
-                        // entirety of this function.
-                        InstanceConfig::default()
-                            .with_counter(gas)
-                            .with_stack_limit(self.config.limit_config.wasmer2_stack_limit),
-                    )
-                    .map_err(|err| {
+                let maybe_handle = Arc::clone(artifact).instantiate(
+                    &self,
+                    &mut import,
+                    Box::new(()),
+                    // SAFETY: We have verified that the `FastGasCounter` layout matches the
+                    // expected layout. `gas` remains dereferenceable throughout this function
+                    // by the virtue of it being contained within `import` which lives for the
+                    // entirety of this function.
+                    InstanceConfig::default()
+                        .with_counter(gas)
+                        .with_stack_limit(self.config.limit_config.wasmer2_stack_limit),
+                );
+                let handle = match maybe_handle {
+                    Ok(handle) => handle,
+                    Err(err) => {
                         use wasmer_engine::InstantiationError::*;
-                        match err {
-                            Start(err) => translate_runtime_error(err.clone(), import.vmlogic),
-                            Link(e) => VMError::FunctionCallError(FunctionCallError::LinkError {
-                                msg: e.to_string(),
-                            }),
+                        let abort = match err {
+                            Start(err) => translate_runtime_error(err.clone(), import.vmlogic)?,
+                            Link(e) => FunctionCallError::LinkError { msg: e.to_string() },
                             CpuFeature(e) => panic!(
                                 "host doesn't support the CPU features needed to run contracts: {}",
                                 e
                             ),
-                        }
-                    })?;
+                        };
+                        return Ok(Err(abort));
+                    }
+                };
                 // SAFETY: being called immediately after instantiation.
-                handle.finish_instantiation().map_err(|err| {
-                    translate_runtime_error(
-                        wasmer_engine::RuntimeError::from_trap(err),
-                        import.vmlogic,
-                    )
-                })?;
+                match handle.finish_instantiation() {
+                    Ok(handle) => handle,
+                    Err(trap) => {
+                        let abort = translate_runtime_error(
+                            wasmer_engine::RuntimeError::from_trap(trap),
+                            import.vmlogic,
+                        )?;
+                        return Ok(Err(abort));
+                    }
+                };
                 handle
             };
             if let Some(function) = instance.function_by_index(entrypoint) {
@@ -370,19 +378,19 @@ impl Wasmer2VM {
                     // SAFETY: we double-checked the signature, and all of the remaining arguments
                     // come from an exported function definition which must be valid since it comes
                     // from wasmer itself.
-                    instance
-                        .invoke_function(
-                            function.vmctx,
-                            trampoline,
-                            function.address,
-                            [].as_mut_ptr() as *mut _,
-                        )
-                        .map_err(|e| {
-                            translate_runtime_error(
-                                wasmer_engine::RuntimeError::from_trap(e),
-                                import.vmlogic,
-                            )
-                        })?;
+                    let res = instance.invoke_function(
+                        function.vmctx,
+                        trampoline,
+                        function.address,
+                        [].as_mut_ptr() as *mut _,
+                    );
+                    if let Err(trap) = res {
+                        let abort = translate_runtime_error(
+                            wasmer_engine::RuntimeError::from_trap(trap),
+                            import.vmlogic,
+                        )?;
+                        return Ok(Err(abort));
+                    }
                 } else {
                     panic!("signature should've already been checked by `get_entrypoint_index`")
                 }
@@ -397,7 +405,7 @@ impl Wasmer2VM {
             }
         }
 
-        Ok(())
+        Ok(Ok(()))
     }
 }
 
@@ -464,7 +472,7 @@ impl crate::runner::VM for Wasmer2VM {
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
         cache: Option<&dyn CompiledContractCache>,
-    ) -> VMResult {
+    ) -> Result<VMOutcome, VMRunnerError> {
         let mut memory = Wasmer2Memory::new(
             self.config.limit_config.initial_memory_pages,
             self.config.limit_config.max_memory_pages,
@@ -490,21 +498,21 @@ impl crate::runner::VM for Wasmer2VM {
             code.code().len(),
         );
         if let Err(e) = result {
-            return VMResult::abort(logic, e);
+            return Ok(VMOutcome::abort(logic, e));
         }
 
         let artifact =
             cache::wasmer2_cache::compile_module_cached_wasmer2(code, &self.config, cache);
-        let artifact = match into_vm_result(artifact) {
+        let artifact = match into_vm_result(artifact)? {
             Ok(it) => it,
             Err(err) => {
-                return VMResult::abort(logic, err);
+                return Ok(VMOutcome::abort(logic, err));
             }
         };
 
         let result = logic.after_loading_executable(current_protocol_version, code.code().len());
         if let Err(e) = result {
-            return VMResult::abort(logic, e);
+            return Ok(VMOutcome::abort(logic, e));
         }
         let import = imports::wasmer2::build(
             vmmemory,
@@ -513,15 +521,15 @@ impl crate::runner::VM for Wasmer2VM {
             artifact.engine(),
         );
         if let Err(e) = get_entrypoint_index(&*artifact, method_name) {
-            return VMResult::abort_but_nop_outcome_in_old_protocol(
+            return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
                 logic,
                 e,
                 current_protocol_version,
-            );
+            ));
         }
-        match self.run_method(&artifact, import, method_name) {
-            Ok(()) => VMResult::ok(logic),
-            Err(err) => VMResult::abort(logic, err),
+        match self.run_method(&artifact, import, method_name)? {
+            Ok(()) => Ok(VMOutcome::ok(logic)),
+            Err(err) => Ok(VMOutcome::abort(logic, err)),
         }
     }
 
@@ -530,14 +538,15 @@ impl crate::runner::VM for Wasmer2VM {
         code: &[u8],
         code_hash: &near_primitives::hash::CryptoHash,
         cache: &dyn CompiledContractCache,
-    ) -> Option<VMError> {
+    ) -> Result<Option<near_vm_errors::FunctionCallError>, VMRunnerError> {
         let result = crate::cache::wasmer2_cache::compile_and_serialize_wasmer2(
             code,
             code_hash,
             &self.config,
             cache,
         );
-        into_vm_result(result).err()
+        let outcome = into_vm_result(result)?;
+        Ok(outcome.err())
     }
 
     fn check_compile(&self, code: &[u8]) -> bool {

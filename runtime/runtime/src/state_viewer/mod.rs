@@ -118,6 +118,7 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
         prefix: &[u8],
+        include_proof: bool,
     ) -> Result<ViewStateResult, errors::ViewStateError> {
         match get_account(state_update, account_id)? {
             Some(account) => {
@@ -143,20 +144,18 @@ impl TrieViewer {
         let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, prefix);
         let acc_sep_len = query.len() - prefix.len();
         let mut iter = state_update.trie().iter()?;
-        iter.seek(&query)?;
-        for item in iter {
+        iter.remember_visited_nodes(include_proof);
+        iter.seek_prefix(&query)?;
+        for item in &mut iter {
             let (key, value) = item?;
-            if !key.starts_with(query.as_ref()) {
-                break;
-            }
             values.push(StateItem {
                 key: key[acc_sep_len..].to_vec(),
                 value: value,
                 proof: vec![],
             });
         }
-        // TODO(2076): Add proofs for the storage items.
-        Ok(ViewStateResult { values, proof: vec![] })
+        let proof = iter.into_visited_nodes();
+        Ok(ViewStateResult { values, proof })
     }
 
     pub fn call_function(
@@ -193,7 +192,7 @@ impl TrieViewer {
         let config_store = RuntimeConfigStore::new(None);
         let config = config_store.get_config(PROTOCOL_VERSION);
         let apply_state = ApplyState {
-            block_index: view_state.block_height,
+            block_height: view_state.block_height,
             // Used for legacy reasons
             prev_block_hash: view_state.prev_block_hash,
             block_hash: view_state.block_hash,
@@ -224,7 +223,7 @@ impl TrieViewer {
             gas: self.max_gas_burnt_view,
             deposit: 0,
         };
-        let (outcome, err) = execute_function_call(
+        let outcome = execute_function_call(
             &apply_state,
             &mut runtime_ext,
             &mut account,
@@ -237,13 +236,13 @@ impl TrieViewer {
             true,
             Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view }),
         )
-        .outcome_error();
+        .map_err(|e| errors::CallFunctionError::InternalError { error_message: e.to_string() })?;
         let elapsed = now.elapsed();
         let time_ms =
             (elapsed.as_secs() as f64 / 1_000.0) + f64::from(elapsed.subsec_nanos()) / 1_000_000.0;
         let time_str = format!("{:.*}ms", 2, time_ms);
 
-        if let Some(err) = err {
+        if let Some(err) = outcome.aborted {
             logs.extend(outcome.logs);
             let message = format!("wasm execution failed with error: {:?}", err);
             debug!(target: "runtime", "(exec time {}) {}", time_str, message);

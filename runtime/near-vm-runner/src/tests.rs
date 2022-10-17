@@ -36,7 +36,7 @@ fn create_context(input: Vec<u8>) -> VMContext {
         signer_account_pk: Vec::from(&SIGNER_ACCOUNT_PK[..]),
         predecessor_account_id: PREDECESSOR_ACCOUNT_ID.parse().unwrap(),
         input,
-        block_index: 10,
+        block_height: 10,
         block_timestamp: 42,
         epoch_height: 1,
         account_balance: 2u128,

@@ -52,7 +52,11 @@ impl RpcRequest for RpcQueryRequest {
                     },
                 },
                 "code" => QueryRequest::ViewCode { account_id },
-                "contract" => QueryRequest::ViewState { account_id, prefix: data.into() },
+                "contract" => QueryRequest::ViewState {
+                    account_id,
+                    prefix: data.into(),
+                    include_proof: false,
+                },
                 "call" => match maybe_extra_arg {
                     Some(method_name) => QueryRequest::CallFunction {
                         account_id,

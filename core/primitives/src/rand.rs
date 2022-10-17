@@ -3,7 +3,6 @@ use aliases::Aliases;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::Serialize;
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct WeightedIndex {
     weight_sum: Balance,

@@ -2,6 +2,7 @@ use borsh::BorshSerialize;
 use near_chain::RuntimeAdapter;
 use near_chain_configs::{Genesis, GenesisChangeConfig, GenesisConfig};
 use near_crypto::PublicKey;
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::BlockHeader;
 use near_primitives::state_record::state_record_to_account_id;
@@ -141,7 +142,12 @@ pub fn state_dump_redis(
 
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime
-            .get_trie_for_shard(shard_id as u64, last_block_header.prev_hash(), state_root.clone())
+            .get_trie_for_shard(
+                shard_id as u64,
+                last_block_header.prev_hash(),
+                state_root.clone(),
+                false,
+            )
             .unwrap();
         for item in trie.iter().unwrap() {
             let (key, value) = item.unwrap();
@@ -232,7 +238,12 @@ fn iterate_over_records(
     let mut total_supply = 0;
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime
-            .get_trie_for_shard(shard_id as u64, last_block_header.prev_hash(), state_root.clone())
+            .get_trie_for_shard(
+                shard_id as u64,
+                last_block_header.prev_hash(),
+                state_root.clone(),
+                false,
+            )
             .unwrap();
         for item in trie.iter().unwrap() {
             let (key, value) = item.unwrap();
@@ -615,7 +626,7 @@ mod test {
             let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
             block.mut_header().set_latest_protocol_version(SimpleNightshade.protocol_version());
             env.process_block(0, block, Provenance::PRODUCED);
-            run_catchup(&mut env.clients[0], &vec![]).unwrap();
+            run_catchup(&mut env.clients[0], &[]).unwrap();
         }
         let head = env.clients[0].chain.head().unwrap();
         assert_eq!(

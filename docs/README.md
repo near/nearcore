@@ -1,36 +1,29 @@
-This directory contains an assorted set of documentation about `nearcore` and
-the protocol.  Currently, the directory is not properly organised and is missing
-key pieces of documentation.  We hope to address the shortcomings soon.
+# Introduction
 
-## Crate Versioning and Publishing
+Welcome to the nearcore development guide!
 
-While all the crates in the workspace are directly unversioned (`v0.0.0`), they
-all share a unified variable version in the [workspace manifest](Cargo.toml).
-This keeps versions consistent across the workspace and informs their versions
-at the moment of publishing.
+The target audience of this guide are developers of nearcore itself. If you are
+a user of NEAR (either a contract developer, or validator running a node),
+please refer to the user docs at <https://docs.near.org>.
 
-We also have CI infrastructure set up to automate the publishing process to
-crates.io.  So, on every merge to master, if there's a version change, it is
-automatically applied to all the crates in the workspace and it attempts to
-publish the new versions of all non-private crates.  All crates that should be
-exempt from this process should be marked `private`.  That is, they should have
-the `publish = false` specification in their package manifest.
+This guide is built with [mdBook](https://rust-lang.github.io/mdBook/index.html)
+from sources in the [nearcore repository](https://github.com/near/nearcore/).
+You can edit it by pressing the "edit" icon in the top right corner, we welcome
+all contributions. The guide is hosted at <https://near.github.io/nearcore/>.
 
-This process is managed by
-[cargo-workspaces](https://github.com/pksunkara/cargo-workspaces), with a [bit
-of
-magic](https://github.com/pksunkara/cargo-workspaces/compare/master...miraclx:grouping-and-exclusion#files_bucket)
-sprinkled on top.
+The guide is organized as a collection of loosely coupled chapters -- you don't
+need to read them in order, feel free to peruse the TOC, and focus on
+the interesting bits. The chapters are classified into three parts:
 
-## Issue Labels
+* [**Architecture**](./architecture/index.html) talks about how the code works.
+  So, for example, if you are interested in how a transaction flows through the
+  system, look there!
+* [**Practices**](./practices/index.html) describe, broadly, how we write code.
+  For example, if you want to learn about code style, issue tracking, or
+  debugging performance problems, this is the chapter for you.
+* Finally, the [**Misc**](./misc/index.html) part holds various assorted bits
+  and pieces. We are trying to bias ourselves towards writing more docs, so, if
+  you want to document something and it doesn't cleanly map to a category above,
+  just put it in misc!
 
-Issue labels are of the following format `<type>-<content>` where `<type>` is a
-capital letter indicating the type of the label and `<content>` is a hyphened
-phrase indicating what is label is about.  For example, in the label `C-bug`,
-`C` means category and `bug` means that the label is about bugs.  Common types
-include `C`, which means category, `A`, which means area, `T`, which means team.
-
-An issue can have multiple labels including which area it touches, which team
-should be responsible for the issue, and so on.  Each issue should have at least
-one label attached to it after it is triaged and the label could be a general
-one, such as `C-enhancement` or `C-bug`.
+If you are unsure, start with the next chapter, [Architecture Overview](./architecture/index.html)
