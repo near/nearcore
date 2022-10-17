@@ -10,8 +10,7 @@ use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
-    PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerError, RegisterPeerResponse,
-    StopMsg,
+    PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerError, RegisterPeerResponse, StopMsg,
 };
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp, PeersResponse};
 use crate::routing;
@@ -21,14 +20,14 @@ use crate::store;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownPeerStatus, KnownProducer,
-    NetworkInfo, NetworkRequests, NetworkResponses,
-    PeerIdOrHash, PeerManagerMessageRequest,
+    ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownPeerStatus, KnownProducer, NetworkInfo,
+    NetworkRequests, NetworkResponses, PeerIdOrHash, PeerManagerMessageRequest,
     PeerManagerMessageResponse, PeerType, ReasonForBan, SetChainInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{
-    Actor, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler, Running, WrapFuture,
+    Actor, ActorFutureExt, AsyncContext, Context, ContextFutureSpawner, Handler, Running,
+    WrapFuture,
 };
 use anyhow::bail;
 use anyhow::Context as _;
@@ -154,7 +153,7 @@ pub struct PeerManagerActor {
 pub enum Event {
     ServerStarted,
     RoutedMessageDropped,
-    RoutingTableUpdate(Arc<routing::NextHopTable>),
+    RoutingTableUpdate { next_hops: Arc<routing::NextHopTable>, pruned_edges: Vec<Edge> },
     Ping(Ping),
     Pong(Pong),
     SetChainInfo,
@@ -326,15 +325,17 @@ impl PeerManagerActor {
             .into_actor(self)
             .map(|response, act, _ctx| match response {
                 Ok(routing::actor::Response::RoutingTableUpdateResponse {
-                    local_edges_to_remove,
+                    pruned_edges,
                     next_hops,
                     peers_to_ban,
                 }) => {
-                    act.state.routing_table_view.update(&local_edges_to_remove, next_hops.clone());
+                    act.state.routing_table_view.update(&pruned_edges, next_hops.clone());
                     for peer in peers_to_ban {
                         act.try_ban_peer(&peer, ReasonForBan::InvalidEdge);
                     }
-                    act.config.event_sink.push(Event::RoutingTableUpdate(next_hops));
+                    act.config
+                        .event_sink
+                        .push(Event::RoutingTableUpdate { next_hops, pruned_edges });
                 }
                 _ => error!(target: "network", "expected RoutingTableUpdateResponse"),
             })

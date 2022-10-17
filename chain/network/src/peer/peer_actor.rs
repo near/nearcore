@@ -3,7 +3,7 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, ParsePeerMessageError, PartialEdgeInfo, PeerChainInfoV2, PeerInfo,
-    RoutedMessageBody, SyncAccountsData, RoutingTableUpdate,
+    RoutedMessageBody, RoutingTableUpdate, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -19,9 +19,7 @@ use crate::stats::metrics;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    Ban, Handshake, HandshakeFailureReason,
-    PeerIdOrHash, PeerMessage, PeerType,
-    ReasonForBan,
+    Ban, Handshake, HandshakeFailureReason, PeerIdOrHash, PeerMessage, PeerType, ReasonForBan,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor, ActorContext, ActorFutureExt, AsyncContext, Context, Handler, Running};
@@ -815,10 +813,7 @@ impl PeerActor {
             }
             PeerMessage::SyncRoutingTable(rtu) => {
                 self.handle_sync_routing_table(ctx, conn, rtu);
-                self.network_state
-                    .config
-                    .event_sink
-                    .push(Event::MessageProcessed(peer_msg));
+                self.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
             }
             PeerMessage::SyncAccountsData(msg) => {
                 let peer_id = conn.peer_info.id.clone();
