@@ -61,6 +61,15 @@ type LogLayer<Inner> = Layered<
     Inner,
 >;
 
+type SimpleLogLayer<Inner, W> = Layered<
+    Filtered<
+        fmt::Layer<Inner, fmt::format::DefaultFields, fmt::format::Format, W>,
+        EnvFilter,
+        Inner,
+    >,
+    Inner,
+>;
+
 type TracingLayer<Inner> = Layered<
     Filtered<OpenTelemetryLayer<Inner, Tracer>, reload::Layer<LevelFilter, Inner>, Inner>,
     Inner,
@@ -187,15 +196,17 @@ fn is_terminal() -> bool {
     atty::is(atty::Stream::Stderr)
 }
 
-fn add_simple_log_layer<S>(
+fn add_simple_log_layer<S, W>(
     filter: EnvFilter,
+    writer: W,
     ansi: bool,
     subscriber: S,
-) -> Layered<Filtered<fmt::Layer<S>, EnvFilter, S>, S>
+) -> SimpleLogLayer<S, W>
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
+    W: for<'writer> fmt::MakeWriter<'writer> + 'static,
 {
-    let layer = fmt::layer().with_ansi(ansi).with_filter(filter);
+    let layer = fmt::layer().with_ansi(ansi).with_writer(writer).with_filter(filter);
 
     subscriber.with(layer)
 }
@@ -323,8 +334,13 @@ pub fn default_subscriber(
 ) -> DefaultSubscriberGuard<impl tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync> {
     let color_output = use_color_output(options);
 
+    let make_writer = || {
+        let stderr = std::io::stderr();
+        std::io::LineWriter::new(stderr)
+    };
+
     let subscriber = tracing_subscriber::registry();
-    let subscriber = add_simple_log_layer(env_filter, color_output, subscriber);
+    let subscriber = add_simple_log_layer(env_filter, make_writer, color_output, subscriber);
 
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),
