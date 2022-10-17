@@ -1,11 +1,11 @@
+use crate::errors::ContractPrecompilatonResult;
 use crate::vm_kind::VMKind;
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
-use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
-use near_vm_errors::{FunctionCallError, VMRunnerError};
+use near_vm_errors::{CacheError, CompilationError, VMRunnerError};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMOutcome};
 
@@ -64,9 +64,9 @@ pub fn run(
     )
     .entered();
 
-    let runtime = vm_kind.runtime(wasm_config.clone()).unwrap_or_else(|| {
-        panic!("the {:?} runtime has not been enabled at compile time", vm_kind)
-    });
+    let runtime = vm_kind
+        .runtime(wasm_config.clone())
+        .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
 
     let outcome = runtime.run(
         code,
@@ -118,15 +118,9 @@ pub trait VM {
     /// precompilation step.
     fn precompile(
         &self,
-        code: &[u8],
-        code_hash: &CryptoHash,
+        code: &ContractCode,
         cache: &dyn CompiledContractCache,
-    ) -> Result<Option<FunctionCallError>, VMRunnerError>;
-
-    /// Verify the `code` contract can be compiled with this `VM`.
-    ///
-    /// This is intended primarily for testing purposes.
-    fn check_compile(&self, code: &[u8]) -> bool;
+    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError>;
 }
 
 impl VMKind {

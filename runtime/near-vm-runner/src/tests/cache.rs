@@ -128,12 +128,12 @@ fn test_wasmer2_artifact_output_stability() {
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {
-        let contract = near_test_contracts::arbitrary_contract(seed);
+        let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
 
         let config = VMConfig::test();
-        let prepared_code = prepare::prepare_contract(&contract, &config).unwrap();
+        let prepared_code = prepare::prepare_contract(contract.code(), &config).unwrap();
         let mut hasher = StableHasher::new();
-        (&contract, &prepared_code).hash(&mut hasher);
+        (&contract.code(), &prepared_code).hash(&mut hasher);
         got_prepared_hashes.push(hasher.finish());
 
         let mut features = CpuFeature::set();
@@ -141,7 +141,7 @@ fn test_wasmer2_artifact_output_stability() {
         let triple = "x86_64-unknown-linux-gnu".parse().unwrap();
         let target = Target::new(triple, features);
         let vm = Wasmer2VM::new_for_target(config, target);
-        let artifact = vm.compile_uncached(&prepared_code).unwrap();
+        let artifact = vm.compile_uncached(&contract).unwrap();
         let serialized = artifact.serialize().unwrap();
         let mut hasher = StableHasher::new();
         serialized.hash(&mut hasher);
