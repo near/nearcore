@@ -63,13 +63,6 @@ pub enum StoreOpenerError {
     )]
     DbVersionMismatch { got: DbVersion, want: DbVersion },
 
-    /// The database kind isn’t what was expected.
-    #[error(
-        "Database kind {got} doesn’t match expected {want}; \
-         adjust node’s client configuration appropriately"
-    )]
-    DbKindMismatch { got: DbKind, want: DbKind },
-
     /// Database has version which is no longer supported.
     ///
     /// `latest_release` gives latest neard release which still supports that
@@ -218,21 +211,39 @@ impl<'a> StoreOpener<'a> {
         tracing::info!(target: "near", path=%self.path().display(),
                        "Opening an existing RocksDB database");
         let (storage, metadata) = self.open_storage(mode, DB_VERSION)?;
+        self.ensure_kind(&storage, metadata)?;
+        snapshot.remove()?;
+        Ok(storage)
+    }
 
-        // Update kind if the database is an RPC but we expect an Archive.
-        if self.expected_kind.is_some() && self.expected_kind != metadata.kind {
-            assert_eq!(Some(DbKind::Archive), self.expected_kind);
-            assert_eq!(Some(DbKind::RPC), metadata.kind);
-            tracing::info!(target: "near", path=%self.path().display(),
-                           "Converting database to Archive kind");
+    /// Makes sure that database’s kind
+    fn ensure_kind(
+        &self,
+        storage: &NodeStorage,
+        metadata: DbMetadata,
+    ) -> Result<DbKind, StoreOpenerError> {
+        let expected = match self.expected_kind {
+            Some(kind) => kind,
+            None => return Ok(metadata.kind.unwrap()),
+        };
+
+        if expected == metadata.kind.unwrap() {
+            return Ok(expected);
+        }
+
+        if expected == DbKind::RPC {
+            tracing::info!(target: "neard", "Opening an archival database.");
+            tracing::warn!(target: "migrations", "Ignoring `archive` client configuration and setting database kind to Archive.");
+        } else {
+            tracing::info!(target: "neard", "Running node in archival mode (as per `archive` client configuration).");
+            tracing::info!(target: "migrations", "Setting database kind to Archive.");
+            tracing::warn!(target: "migrations", "Starting node in non-archival mode will no longer be possible with this database.");
             set_store_metadata(
                 &storage,
                 DbMetadata { version: metadata.version, kind: self.expected_kind },
             )?;
         }
-
-        snapshot.remove()?;
-        Ok(storage)
+        return Ok(DbKind::Archive);
     }
 
     fn open_new(&self) -> Result<crate::NodeStorage, StoreOpenerError> {
@@ -253,14 +264,6 @@ impl<'a> StoreOpener<'a> {
         mode: Mode,
         metadata: DbMetadata,
     ) -> Result<Snapshot, StoreOpenerError> {
-        if let (Some(want), Some(got)) = (self.expected_kind, metadata.kind) {
-            // For backwards compatibility, if we want archive but we got RPC
-            // we’re allowing that and we’re going to switch the kind.
-            if want == DbKind::Archive && got != want {
-                return Err(StoreOpenerError::DbKindMismatch { want, got });
-            }
-        }
-
         if metadata.version == DB_VERSION {
             return Ok(Snapshot::none());
         } else if metadata.version > DB_VERSION {
