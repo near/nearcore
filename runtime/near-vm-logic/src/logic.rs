@@ -10,6 +10,7 @@ use near_chain::ChainStoreAccess;
 use near_crypto::Secp256K1Signature;
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
+use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
@@ -664,6 +665,10 @@ impl<'a> VMLogic<'a> {
             return Ok(1);
         }
         let mut previous_block_hash = tip.prev_block_hash;
+        if previous_block_hash == CryptoHash::default() {
+            // this indicates it's the genesis block
+            return Ok(3);
+        }
         // iterate up to 255 times more
         for _ in 0..255 {
             let block_header =
