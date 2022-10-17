@@ -11,11 +11,10 @@ use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_store::PeerStore;
 use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerError, RegisterPeerResponse,
-    StopMsg, ValidateEdgeList,
+    StopMsg,
 };
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp, PeersResponse};
 use crate::routing;
-use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use crate::store;
@@ -24,7 +23,7 @@ use crate::time;
 use crate::types::{
     ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownPeerStatus, KnownProducer,
     NetworkInfo, NetworkRequests, NetworkResponses,
-    NetworkViewClientMessages, NetworkViewClientResponses, PeerIdOrHash, PeerManagerMessageRequest,
+    PeerIdOrHash, PeerManagerMessageRequest,
     PeerManagerMessageResponse, PeerType, ReasonForBan, SetChainInfo,
 };
 use actix::fut::future::wrap_future;
@@ -36,7 +35,7 @@ use anyhow::Context as _;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::{AccountId, EpochId};
+use near_primitives::types::AccountId;
 use parking_lot::RwLock;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
@@ -135,8 +134,6 @@ pub struct PeerManagerActor {
     /// generic threadpool (or multiple pools) in the near-network crate.
     /// It the threadpool setup, inevitably some of the state will be shared.
     network_graph: Arc<RwLock<routing::GraphWithCache>>,
-    /// Fields used for communicating with EdgeValidatorActor
-    routing_table_exchange_helper: EdgeValidatorHelper,
     /// Flag that track whether we started attempts to establish outbound connections.
     started_connect_attempts: bool,
     /// Connected peers we have sent new edge update, but we haven't received response so far.
@@ -299,7 +296,6 @@ impl PeerManagerActor {
             max_num_peers: config.max_num_peers,
             peer_store,
             network_graph,
-            routing_table_exchange_helper: Default::default(),
             started_connect_attempts: false,
             local_peer_pending_update_nonce_request: HashMap::new(),
             whitelist_nodes,
@@ -434,7 +430,9 @@ impl PeerManagerActor {
             .start_timer();
         let start = self.clock.now();
         let mut new_edges = Vec::new();
-        while let Some(edge) = self.routing_table_exchange_helper.edges_to_add_receiver.pop() {
+        while let Ok(edge) =
+            self.state.routing_table_exchange_helper.edges_to_add_receiver.try_recv()
+        {
             new_edges.push(edge);
             // TODO: do we really need this limit?
             if self.clock.now() >= start + BROAD_CAST_EDGES_MAX_WORK_ALLOWED {
@@ -912,24 +910,6 @@ impl PeerManagerActor {
                 act.monitor_peers_trigger(ctx, new_interval, (default_interval, max_interval));
             },
         );
-    }
-
-    /// Sends list of edges, from peer `peer_id` to check their signatures to `EdgeValidatorActor`.
-    /// Bans peer `peer_id` if an invalid edge is found.
-    /// `PeerManagerActor` periodically runs `broadcast_validated_edges_trigger`, which gets edges
-    /// from `EdgeValidatorActor` concurrent queue and sends edges to be added to `RoutingTableActor`.
-    fn validate_edges_and_add_to_routing_table(&self, peer_id: PeerId, edges: Vec<Edge>) {
-        if edges.is_empty() {
-            return;
-        }
-        self.state.routing_table_addr.do_send(routing::actor::Message::ValidateEdgeList(
-            ValidateEdgeList {
-                source_peer_id: peer_id,
-                edges,
-                edges_info_shared: self.routing_table_exchange_helper.edges_info_shared.clone(),
-                sender: self.routing_table_exchange_helper.edges_to_add_sender.clone(),
-            },
-        ));
     }
 
     /// Return whether the message is sent or not.
@@ -1449,49 +1429,6 @@ impl PeerManagerActor {
                 } else {
                     PeerToManagerMsgResp::BanPeer(ReasonForBan::InvalidEdge)
                 }
-            }
-            PeerToManagerMsg::SyncRoutingTable { peer_id, routing_table_update } => {
-                // Process edges and add new edges to the routing table. Also broadcast new edges.
-                let edges = routing_table_update.edges;
-                let accounts = routing_table_update.accounts;
-
-                // Filter known accounts before validating them.
-                let old = self
-                    .state
-                    .routing_table_view
-                    .get_announces(accounts.iter().map(|a| &a.account_id));
-                let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = accounts
-                    .into_iter()
-                    .map(|aa| {
-                        let id = aa.account_id.clone();
-                        (aa, old.get(&id).map(|old| old.epoch_id.clone()))
-                    })
-                    .collect();
-
-                // Ask client to validate accounts before accepting them.
-                let peer_id_clone = peer_id.clone();
-                self.state.view_client_addr
-                    .send(NetworkViewClientMessages::AnnounceAccount(accounts))
-                    .in_current_span()
-                    .into_actor(self)
-                    .then(move |response, act, _ctx| {
-                        let _span = tracing::trace_span!(target: "network", "announce_account").entered();
-                        match response {
-                            Ok(NetworkViewClientResponses::Ban { ban_reason }) => {
-                                act.try_ban_peer(&peer_id_clone, ban_reason);
-                            }
-                            Ok(NetworkViewClientResponses::AnnounceAccount(accounts)) => {
-                                act.broadcast_accounts(accounts);
-                            }
-                            _ => {
-                                debug!(target: "network", "Received invalid account confirmation from client.");
-                            }
-                        }
-                        actix::fut::ready(())
-                    }).spawn(ctx);
-
-                self.validate_edges_and_add_to_routing_table(peer_id, edges);
-                PeerToManagerMsgResp::Empty
             }
         }
     }

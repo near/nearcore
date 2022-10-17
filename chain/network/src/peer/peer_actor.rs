@@ -3,7 +3,7 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, ParsePeerMessageError, PartialEdgeInfo, PeerChainInfoV2, PeerInfo,
-    RoutedMessageBody, SyncAccountsData,
+    RoutedMessageBody, SyncAccountsData, RoutingTableUpdate,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -31,7 +31,8 @@ use near_o11y::OpenTelemetrySpanExt;
 use near_o11y::{log_assert, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::logging;
-use near_primitives::network::PeerId;
+use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::types::EpochId;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
@@ -812,11 +813,12 @@ impl PeerActor {
                     }),
                 );
             }
-            PeerMessage::SyncRoutingTable(routing_table_update) => {
-                self.network_state.peer_manager_addr.do_send(PeerToManagerMsg::SyncRoutingTable {
-                    peer_id: conn.peer_info.id.clone(),
-                    routing_table_update,
-                });
+            PeerMessage::SyncRoutingTable(rtu) => {
+                self.handle_sync_routing_table(ctx, conn, rtu);
+                self.network_state
+                    .config
+                    .event_sink
+                    .push(Event::MessageProcessed(peer_msg));
             }
             PeerMessage::SyncAccountsData(msg) => {
                 let peer_id = conn.peer_info.id.clone();
@@ -932,6 +934,46 @@ impl PeerActor {
             }
             msg => self.receive_message(ctx, conn, msg),
         }
+    }
+
+    fn handle_sync_routing_table(
+        &mut self,
+        ctx: &mut actix::Context<Self>,
+        conn: &connection::Connection,
+        rtu: RoutingTableUpdate,
+    ) {
+        // Process edges and add new edges to the routing table. Also broadcast new edges.
+        let edges = rtu.edges;
+        let accounts = rtu.accounts;
+
+        // Filter known accounts before validating them.
+        let old = self
+            .network_state
+            .routing_table_view
+            .get_announces(accounts.iter().map(|a| &a.account_id));
+        let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = accounts
+            .into_iter()
+            .map(|aa| {
+                let id = aa.account_id.clone();
+                (aa, old.get(&id).map(|old| old.epoch_id.clone()))
+            })
+            .collect();
+
+        // Ask client to validate accounts before accepting them.
+        let network_state = self.network_state.clone();
+        self.network_state
+            .validate_edges_and_add_to_routing_table(conn.peer_info.id.clone(), edges);
+        ctx.spawn(
+            wrap_future(async move { network_state.client.announce_account(accounts).await }).then(
+                move |res, act: &mut PeerActor, ctx| {
+                    match res {
+                        Err(ban_reason) => act.stop(ctx, ClosingReason::Ban(ban_reason)),
+                        Ok(accounts) => act.network_state.broadcast_accounts(accounts),
+                    }
+                    wrap_future(async {})
+                },
+            ),
+        );
     }
 }
 

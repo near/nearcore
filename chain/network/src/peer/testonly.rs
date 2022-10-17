@@ -64,7 +64,6 @@ pub(crate) enum Event {
 
 struct FakePeerManagerActor {
     cfg: Arc<PeerConfig>,
-    event_sink: crate::sink::Sink<Event>,
 }
 
 impl Actor for FakePeerManagerActor {
@@ -79,10 +78,6 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
         match msg {
             PeerToManagerMsg::RegisterPeer(..) => {
                 PeerToManagerMsgResp::RegisterPeer(RegisterPeerResponse::Accept)
-            }
-            PeerToManagerMsg::SyncRoutingTable { routing_table_update, .. } => {
-                self.event_sink.push(Event::RoutingTable(routing_table_update));
-                PeerToManagerMsgResp::Empty
             }
             PeerToManagerMsg::RequestUpdateNonce(..) => PeerToManagerMsgResp::Empty,
             PeerToManagerMsg::ResponseUpdateNonce(..) => PeerToManagerMsgResp::Empty,
@@ -161,7 +156,7 @@ impl PeerHandle {
         let cfg_ = cfg.clone();
         let (send, recv) = broadcast::unbounded_channel();
         let actix = ActixSystem::spawn(move || {
-            let fpm = FakePeerManagerActor { cfg: cfg.clone(), event_sink: send.sink() }.start();
+            let fpm = FakePeerManagerActor { cfg: cfg.clone() }.start();
             let fc = fake_client::start(send.sink().compose(Event::Client));
             let store = store::Store::from(near_store::db::TestDB::new());
             let routing_table_view = RoutingTableView::new(store.clone(), cfg.id());

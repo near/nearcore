@@ -6,8 +6,9 @@ use crate::network_protocol::{
     RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
 };
 use crate::peer_manager::connection;
-use crate::private_actix::PeerToManagerMsg;
+use crate::private_actix::{PeerToManagerMsg, ValidateEdgeList};
 use crate::routing;
+use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
 use crate::time;
@@ -16,7 +17,7 @@ use actix::Recipient;
 use arc_swap::ArcSwap;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
@@ -55,6 +56,8 @@ pub(crate) struct NetworkState {
     /// - account id
     /// Full routing table (that currently includes information about all edges in the graph) is now inside Routing Table.
     pub routing_table_view: RoutingTableView,
+    /// Fields used for communicating with EdgeValidatorActor
+    pub routing_table_exchange_helper: EdgeValidatorHelper,
 
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
     /// messages sincce last block.
@@ -80,6 +83,7 @@ impl NetworkState {
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             accounts_data: Arc::new(accounts_data::Cache::new()),
             routing_table_view,
+            routing_table_exchange_helper: Default::default(),
             config,
             txns_since_last_block: AtomicUsize::new(0),
         }
@@ -233,6 +237,34 @@ impl NetworkState {
         }
         self.routing_table_view.add_local_edges(&edges);
         self.routing_table_addr.do_send(routing::actor::Message::AddVerifiedEdges { edges });
+    }
+
+    pub fn broadcast_accounts(&self, accounts: Vec<AnnounceAccount>) {
+        let new_accounts = self.routing_table_view.add_accounts(accounts);
+        tracing::debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
+        if new_accounts.len() > 0 {
+            self.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                RoutingTableUpdate::from_accounts(new_accounts),
+            )));
+        }
+    }
+
+    /// Sends list of edges, from peer `peer_id` to check their signatures to `EdgeValidatorActor`.
+    /// Bans peer `peer_id` if an invalid edge is found.
+    /// `PeerManagerActor` periodically runs `broadcast_validated_edges_trigger`, which gets edges
+    /// from `EdgeValidatorActor` concurrent queue and sends edges to be added to `RoutingTableActor`.
+    pub fn validate_edges_and_add_to_routing_table(&self, peer_id: PeerId, edges: Vec<Edge>) {
+        if edges.is_empty() {
+            return;
+        }
+        self.routing_table_addr.do_send(routing::actor::Message::ValidateEdgeList(
+            ValidateEdgeList {
+                source_peer_id: peer_id,
+                edges,
+                edges_info_shared: self.routing_table_exchange_helper.edges_info_shared.clone(),
+                sender: self.routing_table_exchange_helper.edges_to_add_sender.clone(),
+            },
+        ));
     }
 
     async fn receive_routed_message(

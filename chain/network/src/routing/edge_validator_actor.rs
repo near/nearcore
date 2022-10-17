@@ -1,7 +1,6 @@
 use crate::network_protocol::Edge;
 use crate::private_actix::{StopMsg, ValidateEdgeList};
 use actix::{Actor, ActorContext, Handler, SyncContext};
-use conqueue::{QueueReceiver, QueueSender};
 use near_performance_metrics_macros::perf;
 use near_primitives::borsh::maybestd::collections::HashMap;
 use near_primitives::borsh::maybestd::sync::{Arc, Mutex};
@@ -50,7 +49,8 @@ impl Handler<ValidateEdgeList> for EdgeValidatorActor {
                 let cur_nonce = entry.or_insert_with(|| edge.nonce());
                 *cur_nonce = max(*cur_nonce, edge.nonce());
             }
-            msg.sender.push(edge);
+            // Ignore sending error, which can happen only if the channel is closed.
+            let _ = msg.sender.send(edge);
         }
         true
     }
@@ -59,14 +59,14 @@ impl Handler<ValidateEdgeList> for EdgeValidatorActor {
 pub struct EdgeValidatorHelper {
     /// Shared version of `edges_info` used by multiple threads.
     pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
-    /// Queue of edges verified, but not added yes.
-    pub edges_to_add_receiver: QueueReceiver<Edge>,
-    pub edges_to_add_sender: QueueSender<Edge>,
+    /// Queue of edges verified, but not added yet.
+    pub edges_to_add_receiver: crossbeam_channel::Receiver<Edge>,
+    pub edges_to_add_sender: crossbeam_channel::Sender<Edge>,
 }
 
 impl Default for EdgeValidatorHelper {
     fn default() -> Self {
-        let (tx, rx) = conqueue::Queue::unbounded::<Edge>();
+        let (tx, rx) = crossbeam_channel::unbounded();
         Self {
             edges_info_shared: Default::default(),
             edges_to_add_sender: tx,
