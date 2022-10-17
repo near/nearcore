@@ -592,6 +592,22 @@ impl EpochManagerAdapter for KeyValueRuntime {
         Err(Error::NotAValidator)
     }
 
+    fn get_validator_info(
+        &self,
+        _epoch_id: ValidatorInfoIdentifier,
+    ) -> Result<EpochValidatorInfo, Error> {
+        Ok(EpochValidatorInfo {
+            current_validators: vec![],
+            next_validators: vec![],
+            current_fishermen: vec![],
+            next_fishermen: vec![],
+            current_proposals: vec![],
+            prev_epoch_kickout: vec![],
+            epoch_start_height: 0,
+            epoch_height: 1,
+        })
+    }
+
     fn verify_block_vrf(
         &self,
         _epoch_id: &EpochId,
@@ -1272,22 +1288,6 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_protocol_version(&self, _epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
         Ok(PROTOCOL_VERSION)
-    }
-
-    fn get_validator_info(
-        &self,
-        _epoch_id: ValidatorInfoIdentifier,
-    ) -> Result<EpochValidatorInfo, Error> {
-        Ok(EpochValidatorInfo {
-            current_validators: vec![],
-            next_validators: vec![],
-            current_fishermen: vec![],
-            next_fishermen: vec![],
-            current_proposals: vec![],
-            prev_epoch_kickout: vec![],
-            epoch_start_height: 0,
-            epoch_height: 1,
-        })
     }
 
     fn compare_epoch_id(
