@@ -30,7 +30,7 @@ const TERAGAS: f64 = 1_000_000_000_000_f64;
 pub struct ValidatorInfoHelper {
     pub is_validator: bool,
     pub num_validators: usize,
-    pub num_chunk_only_validators: usize,
+    pub num_chunk_only_producers: usize,
 }
 
 /// A helper that prints information about current chain and reports to telemetry.
@@ -145,11 +145,11 @@ impl InfoHelper {
 
         let validator_info_log = validator_info.as_ref().map(|info| {
             format!(
-                " {}{} validator{} (of which {} are chunk only)",
+                " {}{} validator{} (+ {} chunk-only producers)",
                 if info.is_validator { "Validator | " } else { "" },
                 info.num_validators,
                 s(info.num_validators),
-                info.num_chunk_only_validators,
+                info.num_chunk_only_producers,
             )
         });
 
