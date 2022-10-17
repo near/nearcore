@@ -668,11 +668,26 @@ impl<'a> VMLogic<'a> {
         for _ in 0..255 {
             let block_header =
                 chain_store.get_block_header(&previous_block_hash).expect("handle this properly");
-            if block_header.height() == height_number {
-                self.internal_write_register(register_id, block_header.hash().as_bytes().to_vec())?;
-                return Ok(1);
+
+            match block_header.height().cmp(&height_number) {
+                std::cmp::Ordering::Less => {
+                    // User requested block height which does not exist, i.e. a block height
+                    // has been skipped
+                    return Ok(2);
+                }
+                std::cmp::Ordering::Equal => {
+                    // TODO: return the hash to the user
+                    self.internal_write_register(
+                        register_id,
+                        block_header.hash().as_bytes().to_vec(),
+                    )?;
+                    return Ok(1);
+                }
+                std::cmp::Ordering::Greater => {
+                    // Still need to continue going back.
+                    previous_block_hash = *(block_header.prev_hash());
+                }
             }
-            previous_block_hash = *(block_header.prev_hash());
         }
 
         Ok(0)
