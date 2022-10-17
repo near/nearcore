@@ -8,8 +8,7 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
 use near_vm_errors::{
-    CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMLogicError,
-    VMRunnerError, WasmTrap,
+    FunctionCallError, MethodResolveError, PrepareError, VMLogicError, VMRunnerError, WasmTrap,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, MemoryLike, VMContext, VMLogic, VMOutcome};
@@ -295,9 +294,9 @@ impl crate::runner::VM for WasmtimeVM {
         _code_hash: &CryptoHash,
         _cache: &dyn CompiledContractCache,
     ) -> Result<Option<near_vm_errors::FunctionCallError>, VMRunnerError> {
-        Ok(Some(FunctionCallError::CompilationError(CompilationError::UnsupportedCompiler {
-            msg: "Precompilation not supported in Wasmtime yet".to_string(),
-        })))
+        Err(VMRunnerError::UnsupportedCompiler {
+            debug_message: "Precompilation not supported in Wasmtime yet".to_string(),
+        })
     }
 
     fn check_compile(&self, code: &[u8]) -> bool {
