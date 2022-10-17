@@ -13,9 +13,7 @@ use near_chain_configs::Genesis;
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::DelayedReceiptIndices;
-use near_primitives::transaction::{
-    Action, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof,
-};
+use near_primitives::transaction::{Action, ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -90,15 +88,17 @@ fn old_outcomes(
     new_outcomes
         .iter()
         .map(|outcome| {
-            store
-                .get_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(
-                    DBCol::TransactionResult,
+            let old_outcome = store
+                .iter_prefix_ser::<ExecutionOutcomeWithProof>(
+                    DBCol::TransactionResultForBlock,
                     outcome.id.as_ref(),
                 )
+                .next()
                 .unwrap()
-                .unwrap()[0]
-                .outcome_with_id
-                .clone()
+                .unwrap()
+                .1
+                .outcome;
+            ExecutionOutcomeWithId { id: outcome.id, outcome: old_outcome }
         })
         .collect()
 }
@@ -246,6 +246,7 @@ fn apply_block_from_range(
                 true,
                 is_first_block_with_chunk_of_version,
                 Default::default(),
+                false,
             )
             .unwrap()
     } else {
@@ -272,6 +273,7 @@ fn apply_block_from_range(
                 false,
                 false,
                 Default::default(),
+                false,
             )
             .unwrap()
     };

@@ -2384,7 +2384,7 @@ fn test_catchup_gas_price_change() {
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
     let f = move |msg: ApplyStatePartsRequest| {
         use borsh::BorshSerialize;
-        let store = rt.get_store();
+        let store = rt.store();
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec().unwrap();
@@ -3401,10 +3401,11 @@ mod contract_precompilation_tests {
         let state_root = *chunk_extra.state_root();
 
         let viewer = TrieViewer::default();
+        // TODO (#7327): set use_flat_storage to true when we implement support for state sync for FlatStorage
         let trie = Rc::new(
             env.clients[1]
                 .runtime_adapter
-                .get_trie_for_shard(0, block.header().prev_hash(), state_root)
+                .get_trie_for_shard(0, block.header().prev_hash(), state_root, false)
                 .unwrap(),
         );
         let state_update = TrieUpdate::new(trie);

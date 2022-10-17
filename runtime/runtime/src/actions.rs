@@ -28,11 +28,11 @@ use near_store::{
     StorageError, TrieUpdate,
 };
 use near_vm_errors::{
-    AnyError, CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMError,
+    CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::VMContext;
-use near_vm_runner::{precompile_contract, VMResult};
+use near_vm_logic::{VMContext, VMOutcome};
+use near_vm_runner::precompile_contract;
 
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
@@ -47,7 +47,7 @@ pub(crate) fn execute_function_call(
     config: &RuntimeConfig,
     is_last_action: bool,
     view_config: Option<ViewConfig>,
-) -> VMResult {
+) -> Result<VMOutcome, RuntimeError> {
     let account_id = runtime_ext.account_id();
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
     let code = match runtime_ext.get_code(account.code_hash()) {
@@ -56,12 +56,10 @@ pub(crate) fn execute_function_call(
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
                 account_id: account_id.clone(),
             });
-            return VMResult::nop_outcome(VMError::FunctionCallError(error));
+            return Ok(VMOutcome::nop_outcome(error));
         }
         Err(e) => {
-            return VMResult::nop_outcome(VMError::ExternalError(AnyError::new(
-                ExternalError::StorageError(e),
-            )));
+            return Err(RuntimeError::StorageError(e));
         }
     };
     // Output data receipts are ignored if the function call is not the last action in the batch.
@@ -120,7 +118,44 @@ pub(crate) fn execute_function_call(
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
     }
 
-    result
+    // There are many specific errors that the runtime can encounter.
+    // Some can be translated to the more general `RuntimeError`, which allows to pass
+    // the error up to the caller. For all other cases, panicking here is better
+    // than leaking the exact details further up.
+    // Note that this does not include errors caused by user code / input, those are
+    // stored in outcome.aborted.
+    result.map_err(|e| match e {
+        VMRunnerError::ExternalError(any_err) => {
+            let err: ExternalError =
+                any_err.downcast().expect("Downcasting AnyError should not fail");
+            match err {
+                ExternalError::StorageError(err) => err.into(),
+                ExternalError::ValidatorError(err) => RuntimeError::ValidatorError(err),
+            }
+        }
+        VMRunnerError::InconsistentStateError(err @ InconsistentStateError::IntegerOverflow) => {
+            StorageError::StorageInconsistentState(err.to_string()).into()
+        }
+        VMRunnerError::CacheError(err) => {
+            metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS.with_label_values(&[(&err).into()]).inc();
+            let message = match err {
+                CacheError::DeserializationError => "Cache deserialization error",
+                CacheError::SerializationError { hash: _hash } => "Cache serialization error",
+                CacheError::ReadError => "Cache read error",
+                CacheError::WriteError => "Cache write error",
+            };
+            StorageError::StorageInconsistentState(message.to_string()).into()
+        }
+        VMRunnerError::Nondeterministic(msg) => {
+            panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
+        }
+        VMRunnerError::WasmUnknownError { debug_message } => {
+            panic!("Wasmer returned unknown message: {}", debug_message)
+        }
+        VMRunnerError::UnsupportedCompiler { debug_message } => {
+            panic!("Unsupported compiler error: {}", debug_message)
+        }
+    })
 }
 
 pub(crate) fn action_function_call(
@@ -154,7 +189,7 @@ pub(crate) fn action_function_call(
         epoch_info_provider,
         apply_state.current_protocol_version,
     );
-    let (outcome, err) = execute_function_call(
+    let outcome = execute_function_call(
         apply_state,
         &mut runtime_ext,
         account,
@@ -166,10 +201,9 @@ pub(crate) fn action_function_call(
         config,
         is_last_action,
         None,
-    )
-    .outcome_error();
+    )?;
 
-    match &err {
+    match &outcome.aborted {
         None => {
             metrics::FUNCTION_CALL_PROCESSED.with_label_values(&["ok"]).inc();
         }
@@ -178,18 +212,12 @@ pub(crate) fn action_function_call(
         }
     }
 
-    let execution_succeeded = match err {
-        Some(VMError::FunctionCallError(err)) => {
+    let execution_succeeded = match outcome.aborted {
+        Some(err) => {
             metrics::FUNCTION_CALL_PROCESSED_FUNCTION_CALL_ERRORS
                 .with_label_values(&[(&err).into()])
                 .inc();
             match err {
-                FunctionCallError::Nondeterministic(msg) => {
-                    panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
-                }
-                FunctionCallError::WasmUnknownError { debug_message } => {
-                    panic!("Wasmer returned unknown message: {}", debug_message)
-                }
                 FunctionCallError::CompilationError(err) => {
                     metrics::FUNCTION_CALL_PROCESSED_COMPILATION_ERRORS
                         .with_label_values(&[(&err).into()])
@@ -240,27 +268,6 @@ pub(crate) fn action_function_call(
                 }
                 FunctionCallError::_EVMError => unreachable!(),
             }
-        }
-        Some(VMError::ExternalError(any_err)) => {
-            let err: ExternalError =
-                any_err.downcast().expect("Downcasting AnyError should not fail");
-            return match err {
-                ExternalError::StorageError(err) => Err(err.into()),
-                ExternalError::ValidatorError(err) => Err(RuntimeError::ValidatorError(err)),
-            };
-        }
-        Some(VMError::InconsistentStateError(err @ InconsistentStateError::IntegerOverflow)) => {
-            return Err(StorageError::StorageInconsistentState(err.to_string()).into());
-        }
-        Some(VMError::CacheError(err)) => {
-            metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS.with_label_values(&[(&err).into()]).inc();
-            let message = match err {
-                CacheError::DeserializationError => "Cache deserialization error",
-                CacheError::SerializationError { hash: _hash } => "Cache serialization error",
-                CacheError::ReadError => "Cache read error",
-                CacheError::WriteError => "Cache write error",
-            };
-            return Err(StorageError::StorageInconsistentState(message.to_string()).into());
         }
         None => true,
     };

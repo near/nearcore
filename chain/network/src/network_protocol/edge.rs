@@ -108,7 +108,7 @@ impl Edge {
     /// It is important that peer0 < peer1 at this point.
     pub fn build_hash(peer0: &PeerId, peer1: &PeerId, nonce: u64) -> CryptoHash {
         let (peer0, peer1) = if peer0 < peer1 { (peer0, peer1) } else { (peer1, peer0) };
-        CryptoHash::hash_borsh(&(peer0, peer1, nonce))
+        CryptoHash::hash_borsh((peer0, peer1, nonce))
     }
 
     pub fn make_key(peer0: PeerId, peer1: PeerId) -> (PeerId, PeerId) {

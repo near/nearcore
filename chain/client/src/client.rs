@@ -1272,8 +1272,13 @@ impl Client {
             self.me.as_ref(),
             self.runtime_adapter.as_ref(),
         )?;
-        persist_chunk(partial_chunk, Some(shard_chunk), self.chain.mut_store())?;
-        self.shards_mgr.distribute_encoded_chunk(encoded_chunk, &merkle_paths, receipts)?;
+        persist_chunk(partial_chunk.clone(), Some(shard_chunk), self.chain.mut_store())?;
+        self.shards_mgr.distribute_encoded_chunk(
+            partial_chunk,
+            encoded_chunk,
+            &merkle_paths,
+            receipts,
+        )?;
         Ok(())
     }
 
