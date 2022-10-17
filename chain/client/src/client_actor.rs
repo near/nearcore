@@ -641,7 +641,7 @@ impl Handler<WithSpanContext<near_client_primitives::types::SandboxMessage>> for
         msg: WithSpanContext<near_client_primitives::types::SandboxMessage>,
         _ctx: &mut Context<Self>,
     ) -> near_client_primitives::types::SandboxResponse {
-        let WithSpanContext { msg, context, .. } = msg;
+        let WithSpanContext { msg, context: _context, .. } = msg;
         match msg {
             near_client_primitives::types::SandboxMessage::SandboxPatchState(state) => {
                 self.client.chain.patch_state(
