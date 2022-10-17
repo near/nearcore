@@ -8,14 +8,12 @@ use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::state::ValueRef;
 use near_primitives::types::Gas;
 use near_primitives::utils::index_to_bytes;
+use near_store::metadata::{DbVersion, DB_VERSION};
 use near_store::migrations::BatchedStoreUpdate;
-use near_store::version::{DbVersion, DB_VERSION};
 use near_store::{DBCol, NodeStorage, Store, Temperature, Trie, TrieIterator};
-use near_vm_runner::run;
 use std::sync::Arc;
-use tracing::debug;
 #[cfg(feature = "protocol_feature_flat_state")]
-use tracing::info;
+use tracing::{debug, info};
 
 /// Fix an issue with block ordinal (#5761)
 // This migration takes at least 3 hours to complete on mainnet
@@ -65,14 +63,14 @@ pub fn do_migrate_30_to_31(
     Ok(())
 }
 
-/// Migrates database from version 33 to 34.
+/// Migrates database from version 34 to 35.
 ///
 /// It is expected to run against a node without flat storage and should fill the flat storage
 /// columns with state data related to last final head. In other words, previously used binary
 /// should be built without `protocol_feature_flat_state` feature and new binary should include it.
 /// Don't use in production, currently used for testing and estimation purposes.
 #[cfg(feature = "protocol_feature_flat_state")]
-pub fn migrate_33_to_34(
+pub fn migrate_34_to_35(
     storage: &NodeStorage,
     near_config: &crate::NearConfig,
 ) -> anyhow::Result<()> {
@@ -81,12 +79,12 @@ pub fn migrate_33_to_34(
     // not present. we should consider making this parameter optional or pass homedir to migrator
     let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
     let runtime = NightshadeRuntime::from_config(tmpdir.path(), store.clone(), &near_config);
-    do_migrate_33_to_34(runtime, &near_config.genesis.config)?;
+    do_migrate_34_to_35(runtime, &near_config.genesis.config)?;
     Ok(())
 }
 
 #[cfg(feature = "protocol_feature_flat_state")]
-pub fn do_migrate_33_to_34(
+pub fn do_migrate_34_to_35(
     runtime: NightshadeRuntime,
     genesis_config: &near_chain_configs::GenesisConfig,
 ) -> anyhow::Result<()> {
@@ -255,7 +253,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
         }
     }
 
-    fn migrate(&self, storage: &NodeStorage, version: DbVersion) -> Result<(), anyhow::Error> {
+    fn migrate(&self, storage: &NodeStorage, version: DbVersion) -> anyhow::Result<()> {
         match version {
             0..=26 => unreachable!(),
             27 => {
@@ -273,8 +271,11 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
             30 => migrate_30_to_31(storage, &self.config),
             31 => near_store::migrations::migrate_31_to_32(storage),
             32 => near_store::migrations::migrate_32_to_33(storage),
+            33 => {
+                near_store::migrations::migrate_33_to_34(storage, self.config.client_config.archive)
+            }
             #[cfg(feature = "protocol_feature_flat_state")]
-            33 => migrate_33_to_34(storage, &self.config),
+            34 => migrate_34_to_35(storage, &self.config),
             DB_VERSION.. => unreachable!(),
         }
     }

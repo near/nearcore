@@ -87,7 +87,6 @@ impl Inner {
 #[derive(Debug)]
 pub(crate) enum FindRouteError {
     PeerUnreachable,
-    AccountNotFound,
     RouteBackNotFound,
 }
 
@@ -149,12 +148,8 @@ impl RoutingTableView {
     }
 
     /// Find peer that owns this AccountId.
-    pub(crate) fn account_owner(&self, account_id: &AccountId) -> Result<PeerId, FindRouteError> {
-        self.0
-            .lock()
-            .get_announce(account_id)
-            .map(|announce_account| announce_account.peer_id)
-            .ok_or(FindRouteError::AccountNotFound)
+    pub(crate) fn account_owner(&self, account_id: &AccountId) -> Option<PeerId> {
+        self.0.lock().get_announce(account_id).map(|announce_account| announce_account.peer_id)
     }
 
     /// Adds accounts to the routing table.

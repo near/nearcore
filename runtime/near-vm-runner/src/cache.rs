@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 #[cfg(target_arch = "x86_64")]
 use crate::prepare;
 #[cfg(target_arch = "x86_64")]
-use near_vm_errors::{FunctionCallError, VMError};
+use near_vm_errors::{FunctionCallError, VMRunnerError};
 
 #[derive(Debug, Clone, BorshSerialize)]
 enum ContractCacheKey {
@@ -73,11 +73,11 @@ fn cache_error(
 #[cfg(target_arch = "x86_64")]
 pub fn into_vm_result<T>(
     res: Result<Result<T, CompilationError>, CacheError>,
-) -> Result<T, VMError> {
+) -> Result<Result<T, FunctionCallError>, VMRunnerError> {
     match res {
-        Ok(Ok(it)) => Ok(it),
-        Ok(Err(err)) => Err(VMError::FunctionCallError(FunctionCallError::CompilationError(err))),
-        Err(cache_error) => Err(VMError::CacheError(cache_error)),
+        Ok(Ok(it)) => Ok(Ok(it)),
+        Ok(Err(err)) => Ok(Err(FunctionCallError::CompilationError(err))),
+        Err(cache_error) => Err(VMRunnerError::CacheError(cache_error)),
     }
 }
 
