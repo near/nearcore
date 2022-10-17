@@ -1,7 +1,7 @@
 use anyhow::Context;
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{self, BufRead, Write};
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::str::SplitWhitespace;
 use tracing::log::error;
@@ -42,17 +42,18 @@ pub(crate) enum ReplayMode {
 impl ReplayCmd {
     pub(crate) fn run(&self, out: &mut dyn Write) -> anyhow::Result<()> {
         let file = File::open(&self.trace)?;
+        self.run_on_input(io::BufReader::new(file), out)
+    }
 
+    fn run_on_input(&self, input: impl io::BufRead, out: &mut dyn Write) -> anyhow::Result<()> {
         let mut visitor = self.build_visitor();
-
-        for line in io::BufReader::new(file).lines() {
+        for line in input.lines() {
             let line = line?;
             if let Err(e) = visitor.eval_line(out, &line) {
                 error!("ERROR: {e} for input line: {line}");
             }
         }
         visitor.flush(out)?;
-
         Ok(())
     }
 
@@ -220,21 +221,53 @@ fn extract_key_values<'a>(
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::{ReplayCmd, ReplayMode};
 
-    // These inputs are real mainnet traffic for the given block heights.
-    // Each trace contains two chunks in one shard.
-    // In combination, they cover an interesting variety of content.
-    //  Shard 0: Many receipts, but no function calls.
-    //  Shard 1: Empty chunks without txs / receipts.
-    //  Shard 2: Some receipts and txs, but no function calls.
-    //  Shard 3: Many function calls with lots of storage accesses.
+    /// These inputs are real mainnet traffic for the given block heights.
+    /// Each trace contains two chunks in one shard.
+    /// In combination, they cover an interesting variety of content.
+    ///  Shard 0: Many receipts, but no function calls.
+    ///  Shard 1: Empty chunks without txs / receipts.
+    ///  Shard 2: Some receipts and txs, but no function calls.
+    ///  Shard 3: Many function calls with lots of storage accesses.
     const INPUT_TRACES: &[&str] = &[
         "75220100-75220101.s0.io_trace",
         "75220100-75220101.s1.io_trace",
         "75220100-75220101.s2.io_trace",
         "75220100-75220101.s3.io_trace",
     ];
+
+    /// A synthetic trace that should be a bit easier to read and verify.
+    const SYNTHETIC_TRACE: &str = r#"
+GET BlockHeader "fAkeHeAd3R" size=6000
+GET BlockInfo "FAk31nf0" size=1
+apply_transactions shard_id=0
+    process_state_update 
+        apply num_transactions=1 shard_cache_hit=10 shard_cache_miss=1
+            process_transaction tx_hash=txHash0 shard_cache_miss=1 shard_cache_hit=20
+                GET State "stateKey0" size=300
+            process_receipt receipt_id=id0 predecessor=system receiver=alice.near id=id0 shard_cache_miss=2 shard_cache_hit=6
+                GET State "stateKey1" size=10
+                GET State "stateKey2" size=20
+            process_receipt receipt_id=id1 predecessor=system receiver=bob.near id=id1 shard_cache_hit=18 shard_cache_miss=3 shard_cache_too_large=1
+                GET State "stateKey3" size=100
+                GET State "stateKey4" size=200
+                GET State "stateKey5" size=9000
+            process_receipt receipt_id=id2 predecessor=system receiver=alice.near id=id2 shard_cache_miss=1 shard_cache_hit=6
+                GET State "stateKey6" size=30
+                attached_deposit 
+                input 
+                register_len 
+                read_register 
+                storage_read READ key=StorageKey0 size=1000 tn_db_reads=20 tn_mem_reads=0 shard_cache_hit=19 shard_cache_miss=1
+                    GET State "stateKey7" size=5
+            process_receipt receipt_id=id3 predecessor=utiha.near receiver=alice.near id=id3 shard_cache_miss=0 shard_cache_hit=15
+            GET State "stateKey8" size=300
+        GET State "stateKey9" size=400
+GET State "stateKey10" size=500
+"#;
 
     #[test]
     fn test_cache_stats() {
@@ -281,5 +314,33 @@ mod tests {
             });
             insta::assert_snapshot!(format!("{mode:?}-{trace_name}"), output);
         }
+    }
+
+    #[test]
+    fn test_account_filter_cache_stats() {
+        check_account_filter(ReplayMode::CacheStats);
+    }
+
+    #[test]
+    fn test_account_filter_receipt_cache_stats() {
+        check_account_filter(ReplayMode::ReceiptCacheStats);
+    }
+
+    #[test]
+    fn test_account_filter_receipt_db_stats() {
+        check_account_filter(ReplayMode::ReceiptDbStats);
+    }
+
+    #[track_caller]
+    fn check_account_filter(mode: ReplayMode) {
+        let account = Some("alice.near".to_owned());
+        // trace path not used, will be read from in-memory input instead
+        let trace = PathBuf::new();
+        let cmd = ReplayCmd { trace, mode, account };
+        let mut buffer = Vec::new();
+        cmd.run_on_input(SYNTHETIC_TRACE.as_bytes(), &mut buffer).expect("failed replaying");
+        let output =
+            String::from_utf8(buffer).unwrap_or_else(|e| panic!("invalid output, failure was {e}"));
+        insta::assert_snapshot!(format!("account_filter_{mode:?}"), output);
     }
 }

@@ -20,8 +20,18 @@ pub(super) struct FoldDbOps {
     /// Only show data for a specific smart contract, specified by account id.
     /// Currently only applies within receipts.
     account_filter: Option<String>,
-    /// Skip all input lines that have deeper indentation.
-    skip_indent: Option<usize>,
+    /// Skip all input lines that are less indented.
+    ///
+    /// Used to apply filters and skip some parts of the trace.
+    /// Default is 0, which collects everything.
+    min_indent: usize,
+    /// Reset the filter when indentation goes back to this value.
+    ///
+    /// Used in combination with `min_indent` and `account_filter`.
+    /// Resetting means that `min_indent` is set to usize::MAX and nothing will
+    /// be evaluated until the `account_filter` is triggered again and sets it
+    /// to a smaller value again.
+    filter_reset_indent: Option<usize>,
     /// Optionally collect and print detailed statistics for cache hits and misses.
     track_caches: bool,
     /// Keeps track of current block.
@@ -52,7 +62,8 @@ impl FoldDbOps {
             track_caches: false,
             states: vec![State::default()],
             block_hash: None,
-            skip_indent: None,
+            min_indent: 0,
+            filter_reset_indent: None,
         }
     }
 
@@ -64,7 +75,7 @@ impl FoldDbOps {
     /// Pre-set that folds on receipts.
     pub(super) fn receipts(self) -> Self {
         self.fold("process_receipt", &["receiver", "receipt_id"])
-            .fold("process_transaction", &["receipt_id"])
+            .fold("process_transaction", &["tx_hash"])
             .print_top_level(false)
     }
 
@@ -86,6 +97,10 @@ impl FoldDbOps {
     }
 
     pub(super) fn account_filter(mut self, account: Option<String>) -> Self {
+        if account.is_some() {
+            // evaluate nothing if there is a filter, until the filter matches the first time
+            self.min_indent = usize::MAX;
+        }
         self.account_filter = account;
         self
     }
@@ -108,21 +123,22 @@ impl FoldDbOps {
         state
     }
 
-    fn skip(&mut self, indent: usize) -> bool {
-        if let Some(skip_indent) = self.skip_indent {
-            if skip_indent >= indent {
-                self.skip_indent = None;
-            } else {
-                return true;
-            }
-        }
-        false
+    fn skip(&mut self, trace_indent: usize) -> bool {
+        trace_indent < self.min_indent
     }
 
-    /// Check if indentation has gone back enough to pop current state.
+    /// Check if indentation has gone back enough to pop current state or reset filter.
+    ///
+    /// Call this before `skip()` to ensure it uses the correct `min_indent`.
     fn check_indent(&mut self, out: &mut dyn Write, indent: usize) -> anyhow::Result<()> {
         if self.states.len() > 1 && self.state().indent >= indent {
             self.pop_state().print(out)?;
+        }
+        if let Some(reset_indent) = self.filter_reset_indent {
+            if indent <= reset_indent {
+                self.filter_reset_indent = None;
+                self.min_indent = usize::MAX;
+            }
         }
         Ok(())
     }
@@ -198,17 +214,17 @@ impl Visitor for FoldDbOps {
         label: &str,
         dict: &BTreeMap<&str, &str>,
     ) -> anyhow::Result<()> {
-        if self.skip(indent) {
-            return Ok(());
-        }
         self.check_indent(out, indent)?;
         if let (Some(receiver), Some(filtered_account)) =
             (dict.get("receiver"), &self.account_filter)
         {
-            if receiver != filtered_account {
-                self.skip_indent = Some(indent);
-                return Ok(());
+            if receiver == filtered_account && self.filter_reset_indent.is_none() {
+                self.min_indent = indent;
+                self.filter_reset_indent = Some(indent);
             }
+        }
+        if self.skip(indent) {
+            return Ok(());
         }
         if self.fold_anchors.contains_key(label) {
             // Section to fold on starts. Push a new state on the stack and

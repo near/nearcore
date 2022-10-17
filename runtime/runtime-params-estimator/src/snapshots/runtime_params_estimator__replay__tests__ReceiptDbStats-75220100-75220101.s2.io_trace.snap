@@ -2,22 +2,22 @@
 source: runtime/runtime-params-estimator/src/replay.rs
 expression: output
 ---
-      process_transaction block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+      process_transaction tx_hash=C9PVvnuVYGk5b7aYUYMRVxvaZVF4agPiZcTAWyKBrndT block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
         GET   34 State  
 
-      process_transaction block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+      process_transaction tx_hash=7kRLAD7JBKVuZbD2VpSCN82G7vmCtmXGPcC56XaE2Wdw block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
         GET   28 State  
 
       process_receipt receiver=ccbca04bf1056af531129685cc7a372eb6df6bc38bc1d050f5eafea8faa979b1 receipt_id=aCqt8Sq8HwJrj6pyeRJmt9PSMJtGBFj38bs9rd1EBuz block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
         GET   30 State  
 
-      process_transaction block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+      process_transaction tx_hash=Fkz3BnfKsTXcRhnkxHkGnEc8Vis48PakuGR7oKmWcGsi block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
         GET   29 State  
 
-      process_transaction block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+      process_transaction tx_hash=GQWnDgrcFaLK6fbQ9p5sfHJZ4SYMsyrJDnhWY7HCRjde block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
         GET   28 State  
 
-      process_transaction block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+      process_transaction tx_hash=Bq4jgcZED8v78974HhVLYbpNfZKDcMAf5tDU47cTjhcT block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
         GET   28 State  
 
       process_receipt receiver=ccbca04bf1056af531129685cc7a372eb6df6bc38bc1d050f5eafea8faa979b1 receipt_id=5xT8ygLFj9Zy5jEqg3ZBoMYQtrFTPBf9xu2ApjaRkY2C block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9

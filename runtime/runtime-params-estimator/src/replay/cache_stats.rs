@@ -178,8 +178,7 @@ impl CacheStats {
             "SHARD CACHE",
             self.num_tn_shard_cache_hit_guest + self.num_tn_shard_cache_hit_host,
             self.num_tn_shard_cache_miss_guest + self.num_tn_shard_cache_miss_host,
-            self.num_tn_shard_cache_too_large,
-            "too large nodes",
+            Some((self.num_tn_shard_cache_too_large, "too large nodes")),
         )?;
         Self::print_cache_rate(
             out,
@@ -187,8 +186,7 @@ impl CacheStats {
             "CHUNK CACHE",
             self.num_tn_chunk_cache_hit,
             self.num_tn_db_paid,
-            self.num_tn_shard_cache_too_large,
-            "too large nodes",
+            None,
         )?;
         Ok(())
     }
@@ -204,25 +202,28 @@ impl CacheStats {
         cache_name: &str,
         hits: u64,
         misses: u64,
-        special_misses: u64,
-        special_misses_msg: &str,
+        special_misses: Option<(u64, &str)>,
     ) -> anyhow::Result<()> {
         let total = hits + misses;
-        if special_misses > 0 {
-            writeln!(out,
-                "{:indent$}{cache_name:<16}   {:>6.2}% hit rate, {:>6.2}% if removing {} {special_misses_msg} from total",
-                "",
-                hits as f64 / total as f64 * 100.0,
-                hits as f64 / (total - special_misses) as f64 * 100.0,
-                special_misses,
-            )?;
-        } else if total > 0 {
-            writeln!(
+        if total > 0 {
+            write!(
                 out,
-                "{:indent$}{cache_name:<16} {:>6.2}% hit rate",
+                "{:indent$}{cache_name:<16}   {:>6.2}% hit rate",
                 "",
                 hits as f64 / total as f64 * 100.0,
             )?;
+            if let Some((special_misses, msg)) = special_misses {
+                if special_misses > 0 {
+                    debug_assert!(special_misses <= misses, "failed: {special_misses} <= {misses}");
+                    write!(
+                        out,
+                        ", {:>6.2}% if removing {} {msg} from total",
+                        hits as f64 / (total - special_misses) as f64 * 100.0,
+                        special_misses,
+                    )?;
+                }
+            }
+            writeln!(out)?;
         } else {
             writeln!(out, "{:indent$}{cache_name} not accessed", "")?;
         }

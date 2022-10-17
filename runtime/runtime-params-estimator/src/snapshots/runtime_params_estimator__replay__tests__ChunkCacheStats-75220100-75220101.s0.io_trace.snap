@@ -11,7 +11,7 @@ apply_transactions shard_id=0 block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
   TRIE NODES (guest)  400 /   2 /  93  (chunk-cache/shard-cache/DB)
   TRIE NODES (host)         289 / 194  (shard-cache/DB)
   SHARD CACHE         50.35% hit rate,  50.61% if removing 3 too large nodes from total
-  CHUNK CACHE         80.81% hit rate,  81.30% if removing 3 too large nodes from total
+  CHUNK CACHE         80.81% hit rate
 
 apply_transactions shard_id=0 block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
   GET   345 State  
@@ -22,7 +22,7 @@ apply_transactions shard_id=0 block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
   TRIE NODES (guest)  351 /   2 /  94  (chunk-cache/shard-cache/DB)
   TRIE NODES (host)         472 / 251  (shard-cache/DB)
   SHARD CACHE         57.88% hit rate,  58.02% if removing 2 too large nodes from total
-  CHUNK CACHE         78.52% hit rate,  78.88% if removing 2 too large nodes from total
+  CHUNK CACHE         78.52% hit rate
 
 top-level:
   GET   4 Block  4 BlockHeader  2 BlockHeight  4 BlockInfo  2 BlockMisc  2 ChunkExtra  2 Chunks  4 EpochInfo  2 IncomingReceipts  4 State  

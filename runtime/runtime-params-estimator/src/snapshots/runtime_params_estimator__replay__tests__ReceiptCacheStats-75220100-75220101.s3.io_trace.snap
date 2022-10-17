@@ -2,7 +2,7 @@
 source: runtime/runtime-params-estimator/src/replay.rs
 expression: output
 ---
-      process_transaction block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+      process_transaction tx_hash=AA7U5AQwKV5zCMEqN1317cqwBQkAMRiWtAtoRSNjXEjT block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
         GET   32 State  
         DB GET               32 requests for a total of     6116 B
         DB SET                0 requests for a total of        0 B
@@ -10,10 +10,10 @@ expression: output
         STORAGE WRITE         0 requests for a total of        0 B
         TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)           2 /  32  (shard-cache/DB)
-        SHARD CACHE        5.88% hit rate
+        SHARD CACHE          5.88% hit rate
         CHUNK CACHE not accessed
 
-      process_transaction block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+      process_transaction tx_hash=AKtUBGwV1zxbG3dRjCQD9WJ12Fzo9YgQ1ow2nZCd2m6t block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
         GET   21 State  
         DB GET               21 requests for a total of     4361 B
         DB SET                0 requests for a total of        0 B
@@ -21,10 +21,10 @@ expression: output
         STORAGE WRITE         0 requests for a total of        0 B
         TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)           8 /  21  (shard-cache/DB)
-        SHARD CACHE       27.59% hit rate
+        SHARD CACHE         27.59% hit rate
         CHUNK CACHE not accessed
 
-      process_transaction block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+      process_transaction tx_hash=uSKvjryKgJQrWKg5EFSvEpnDUPRtRSbPrX42i84ekV3 block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
         GET   37 State  
         DB GET               37 requests for a total of     7681 B
         DB SET                0 requests for a total of        0 B
@@ -32,7 +32,7 @@ expression: output
         STORAGE WRITE         0 requests for a total of        0 B
         TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)           6 /  37  (shard-cache/DB)
-        SHARD CACHE       13.95% hit rate
+        SHARD CACHE         13.95% hit rate
         CHUNK CACHE not accessed
 
       process_receipt receiver=verrelkeung.near receipt_id=cesi14ugy8KbNKu5SqL5SYY8MUFRWC39qzKYP9xiJL7 block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
@@ -42,7 +42,7 @@ expression: output
         STORAGE WRITE         0 requests for a total of        0 B
         TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)          16 /   0  (shard-cache/DB)
-        SHARD CACHE      100.00% hit rate
+        SHARD CACHE        100.00% hit rate
         CHUNK CACHE not accessed
 
       process_receipt receiver=token.sweat receipt_id=4tSv2K8ohafiXnCAKprrWinzRFuaMwQzM83dkVx99q7r block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
@@ -54,7 +54,7 @@ expression: output
         TRIE NODES (guest)  121 /   2 /  37  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)           6 /  33  (shard-cache/DB)
         SHARD CACHE         10.26% hit rate,  10.39% if removing 1 too large nodes from total
-        CHUNK CACHE         75.62% hit rate,  76.10% if removing 1 too large nodes from total
+        CHUNK CACHE         75.62% hit rate
 
       process_receipt receiver=tge-lockup.sweat receipt_id=7UeSKKYxqRLsSwnW5xJm116QTJEWJJa7YqR1JmNWZE3L block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
         DB GET                0 requests for a total of        0 B
@@ -74,7 +74,7 @@ expression: output
         STORAGE WRITE         0 requests for a total of        0 B
         TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)           6 /  16  (shard-cache/DB)
-        SHARD CACHE       27.27% hit rate
+        SHARD CACHE         27.27% hit rate
         CHUNK CACHE not accessed
 
       process_receipt receiver=tge-lockup.sweat receipt_id=CHPvzniPWKMWCiZ3c6ydqN6QgsEBpS3pNgP7HH48iQLK block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
@@ -86,7 +86,7 @@ expression: output
         TRIE NODES (guest)   17 /   0 /   5  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)           8 /  15  (shard-cache/DB)
         SHARD CACHE         28.57% hit rate,  29.63% if removing 1 too large nodes from total
-        CHUNK CACHE         77.27% hit rate,  80.95% if removing 1 too large nodes from total
+        CHUNK CACHE         77.27% hit rate
 
       process_receipt receiver=sweat_welcome.near receipt_id=H8GTFPKBkuUjvs8NfzcPNZuapFiMbGUMvscNZhnjUsPv block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
         GET   36 State  
@@ -96,7 +96,7 @@ expression: output
         STORAGE WRITE         0 requests for a total of        0 B
         TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)           4 /  36  (shard-cache/DB)
-        SHARD CACHE       10.00% hit rate
+        SHARD CACHE         10.00% hit rate
         CHUNK CACHE not accessed
 
       process_receipt receiver=token.sweat receipt_id=4rYKmJdE5pAHCDb9qVYRjTruvE58vRPRH9A7sGroBa3b block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
@@ -108,7 +108,7 @@ expression: output
         TRIE NODES (guest)  107 /   0 /  18  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)          16 /   1  (shard-cache/DB)
         SHARD CACHE         45.71% hit rate,  47.06% if removing 1 too large nodes from total
-        CHUNK CACHE         85.60% hit rate,  86.29% if removing 1 too large nodes from total
+        CHUNK CACHE         85.60% hit rate
 
       process_receipt receiver=token.sweat receipt_id=ohgxoczB4YhnAsUDpFVDpnMGP5iXuZbftgNe86KZ5XN block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
         GET   13 State  
@@ -119,7 +119,7 @@ expression: output
         TRIE NODES (guest)  107 /   0 /  12  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)          16 /   1  (shard-cache/DB)
         SHARD CACHE         55.17% hit rate,  57.14% if removing 1 too large nodes from total
-        CHUNK CACHE         89.92% hit rate,  90.68% if removing 1 too large nodes from total
+        CHUNK CACHE         89.92% hit rate
 
       process_receipt receiver=token.sweat receipt_id=9iNcdK3djEA1mqNP4gaQM8jcaEvBtqas31S79cAWH4TY block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
         GET   8 State  
@@ -130,7 +130,7 @@ expression: output
         TRIE NODES (guest)   55 /   0 /   7  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)          16 /   1  (shard-cache/DB)
         SHARD CACHE         66.67% hit rate,  69.57% if removing 1 too large nodes from total
-        CHUNK CACHE         88.71% hit rate,  90.16% if removing 1 too large nodes from total
+        CHUNK CACHE         88.71% hit rate
 
       process_receipt receiver=token.sweat receipt_id=22c3R5Xe82GCre4Mxa33Se7M4Rhp77RMf4ZwRjS55Ai7 block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
         GET   8 State  
@@ -141,7 +141,7 @@ expression: output
         TRIE NODES (guest)   55 /   0 /   7  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)          16 /   1  (shard-cache/DB)
         SHARD CACHE         66.67% hit rate,  69.57% if removing 1 too large nodes from total
-        CHUNK CACHE         88.71% hit rate,  90.16% if removing 1 too large nodes from total
+        CHUNK CACHE         88.71% hit rate
 
       process_receipt receiver=ya_gul.near receipt_id=B2XmBAZhY3gYwktoRiP96KBip7Jd5iQNHbRXKLW2348W block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
         GET   16 State  
@@ -151,7 +151,7 @@ expression: output
         STORAGE WRITE         0 requests for a total of        0 B
         TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)           4 /  16  (shard-cache/DB)
-        SHARD CACHE       20.00% hit rate
+        SHARD CACHE         20.00% hit rate
         CHUNK CACHE not accessed
 
       process_receipt receiver=nex1234.near receipt_id=DbRHWcLYjARUjjUZj3ERR5SGcBE7nLrXTe1dKmuLWivu block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
@@ -162,7 +162,7 @@ expression: output
         STORAGE WRITE         0 requests for a total of        0 B
         TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)           8 /  14  (shard-cache/DB)
-        SHARD CACHE       36.36% hit rate
+        SHARD CACHE         36.36% hit rate
         CHUNK CACHE not accessed
 
       process_receipt receiver=xtoken.ref-finance.near receipt_id=6RiUAxqBmiBo4XnEURb87D5twzmrZjELre4cJkEzdFuu block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
@@ -174,7 +174,7 @@ expression: output
         TRIE NODES (guest)   42 /   0 /  16  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)           4 /  18  (shard-cache/DB)
         SHARD CACHE         10.53% hit rate,  10.81% if removing 1 too large nodes from total
-        CHUNK CACHE         72.41% hit rate,  73.68% if removing 1 too large nodes from total
+        CHUNK CACHE         72.41% hit rate
 
       process_receipt receiver=tge-lockup.sweat receipt_id=EYwsRh17pfzg1n6uWEduBbrvbWmf2hnt2g8HPeABZLHR block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
         GET   25 State  
@@ -185,9 +185,9 @@ expression: output
         TRIE NODES (guest)   38 /   0 /  24  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)           6 /   1  (shard-cache/DB)
         SHARD CACHE         19.35% hit rate,  20.00% if removing 1 too large nodes from total
-        CHUNK CACHE         61.29% hit rate,  62.30% if removing 1 too large nodes from total
+        CHUNK CACHE         61.29% hit rate
 
-      process_transaction block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+      process_transaction tx_hash=Fdaq5LbQw49MfMp1BHMfXCkDVA3RW9ZnYqTbTSrdz2VD block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
         GET   44 State  
         DB GET               44 requests for a total of     6721 B
         DB SET                0 requests for a total of        0 B
@@ -195,10 +195,10 @@ expression: output
         STORAGE WRITE         0 requests for a total of        0 B
         TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)           4 /  44  (shard-cache/DB)
-        SHARD CACHE        8.33% hit rate
+        SHARD CACHE          8.33% hit rate
         CHUNK CACHE not accessed
 
-      process_transaction block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+      process_transaction tx_hash=D8U1btrcfRbbf8wV1uWLmHKY1hDHBYUySwwE7hmPWjAP block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
         GET   33 State  
         DB GET               33 requests for a total of     7465 B
         DB SET                0 requests for a total of        0 B
@@ -206,10 +206,10 @@ expression: output
         STORAGE WRITE         0 requests for a total of        0 B
         TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)           6 /  33  (shard-cache/DB)
-        SHARD CACHE       15.38% hit rate
+        SHARD CACHE         15.38% hit rate
         CHUNK CACHE not accessed
 
-      process_transaction block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+      process_transaction tx_hash=FjwDNPxNxgpipRX3s48kRNUGfaPwgxG64N7KRQ7YULx2 block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
         GET   24 State  
         DB GET               24 requests for a total of     4210 B
         DB SET                0 requests for a total of        0 B
@@ -217,10 +217,10 @@ expression: output
         STORAGE WRITE         0 requests for a total of        0 B
         TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)           8 /  24  (shard-cache/DB)
-        SHARD CACHE       25.00% hit rate
+        SHARD CACHE         25.00% hit rate
         CHUNK CACHE not accessed
 
-      process_transaction block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+      process_transaction tx_hash=HN32RHYR9J1up2MguxxCpcyhnFwbxttKNTscT4n748SR block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
         GET   20 State  
         DB GET               20 requests for a total of     3159 B
         DB SET                0 requests for a total of        0 B
@@ -228,10 +228,10 @@ expression: output
         STORAGE WRITE         0 requests for a total of        0 B
         TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)          24 /  20  (shard-cache/DB)
-        SHARD CACHE       54.55% hit rate
+        SHARD CACHE         54.55% hit rate
         CHUNK CACHE not accessed
 
-      process_transaction block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+      process_transaction tx_hash=A76PNL2oTtuUtpe51dpCrcCU2NShF2vkB6ZTLHoXEnKx block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
         DB GET                0 requests for a total of        0 B
         DB SET                0 requests for a total of        0 B
         STORAGE READ          0 requests for a total of        0 B
@@ -250,7 +250,7 @@ expression: output
         TRIE NODES (guest)  121 /   4 /  35  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)          22 /  17  (shard-cache/DB)
         SHARD CACHE         33.33% hit rate,  33.77% if removing 1 too large nodes from total
-        CHUNK CACHE         75.62% hit rate,  76.10% if removing 1 too large nodes from total
+        CHUNK CACHE         75.62% hit rate
 
       process_receipt receiver=seensayer.near receipt_id=J6m2SVXWwC3oR2g2QDbbqZf7GCTYx8tQETZuFCi1QDBU block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
         GET   24 State  
@@ -260,7 +260,7 @@ expression: output
         STORAGE WRITE         0 requests for a total of        0 B
         TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)           6 /  24  (shard-cache/DB)
-        SHARD CACHE       20.00% hit rate
+        SHARD CACHE         20.00% hit rate
         CHUNK CACHE not accessed
 
       process_receipt receiver=tge-lockup.sweat receipt_id=AZawzkDrLTMrbxZTBWwgkYTY5AEcEBJQYsVrRckDayf4 block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
@@ -272,7 +272,7 @@ expression: output
         TRIE NODES (guest)   54 /   9 /  20  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)          10 /   7  (shard-cache/DB)
         SHARD CACHE         41.30% hit rate,  42.22% if removing 1 too large nodes from total
-        CHUNK CACHE         65.06% hit rate,  65.85% if removing 1 too large nodes from total
+        CHUNK CACHE         65.06% hit rate
 
       process_receipt receiver=token.sweat receipt_id=454QLeWg3Yy4HQLcowLtvQGJfwzw2reUREx1sLtv1gga block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
         GET   16 State  
@@ -283,7 +283,7 @@ expression: output
         TRIE NODES (guest)  104 /   0 /  15  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)          16 /   1  (shard-cache/DB)
         SHARD CACHE         50.00% hit rate,  51.61% if removing 1 too large nodes from total
-        CHUNK CACHE         87.39% hit rate,  88.14% if removing 1 too large nodes from total
+        CHUNK CACHE         87.39% hit rate
 
       process_receipt receiver=tge-lockup.sweat receipt_id=Jf6Hh3cgANXPYkd536rGMFbWkXzkA1CBNFNJhwn3ksL block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
         GET   6 State  
@@ -294,7 +294,7 @@ expression: output
         TRIE NODES (guest)    1 /   0 /   0  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)           7 /   6  (shard-cache/DB)
         SHARD CACHE         53.85% hit rate,  58.33% if removing 1 too large nodes from total
-        CHUNK CACHE        100.00% hit rate,    inf% if removing 1 too large nodes from total
+        CHUNK CACHE        100.00% hit rate
 
       process_receipt receiver=token.v2.ref-finance.near receipt_id=8vJXghN3eeQr2HLsSMEUmVb85sZymMSKseYNfKmK328o block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
         GET   29 State  
@@ -305,7 +305,7 @@ expression: output
         TRIE NODES (guest)  131 /   0 /  21  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)          27 /   8  (shard-cache/DB)
         SHARD CACHE         48.21% hit rate,  49.09% if removing 1 too large nodes from total
-        CHUNK CACHE         86.18% hit rate,  86.75% if removing 1 too large nodes from total
+        CHUNK CACHE         86.18% hit rate
 
       process_receipt receiver=xtoken.ref-finance.near receipt_id=9r96hCrbYcEzqaTRrA6mZHv26KJqrihjuomU6Hf6vfTX block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
         DB GET                0 requests for a total of        0 B
@@ -326,7 +326,7 @@ expression: output
         TRIE NODES (guest)  105 /   0 /  14  (chunk-cache/shard-cache/DB)
         TRIE NODES (host)          16 /   1  (shard-cache/DB)
         SHARD CACHE         51.61% hit rate,  53.33% if removing 1 too large nodes from total
-        CHUNK CACHE         88.24% hit rate,  88.98% if removing 1 too large nodes from total
+        CHUNK CACHE         88.24% hit rate
 
       process_receipt receiver=tge-lockup.sweat receipt_id=EvN6kHZCYkBr4E8V8jm5R97Nf7paX6xhbtz57YZbHsn block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
         DB GET                0 requests for a total of        0 B

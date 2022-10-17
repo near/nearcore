@@ -11,6 +11,6 @@ top-level:
   TRIE NODES (guest) 1058 /  15 / 231  (chunk-cache/shard-cache/DB)
   TRIE NODES (host)         991 / 443  (shard-cache/DB)
   SHARD CACHE         59.88% hit rate,  60.38% if removing 14 too large nodes from total
-  CHUNK CACHE         81.13% hit rate,  82.02% if removing 14 too large nodes from total
+  CHUNK CACHE         81.13% hit rate
 
 
