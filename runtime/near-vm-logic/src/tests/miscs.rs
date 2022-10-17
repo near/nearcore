@@ -949,5 +949,5 @@ fn test_ed25519_verify() {
 fn test_get_block_hash_by_height() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
-    logic.get_block_hash_by_height(BlockHeight::default());
+    logic.get_block_hash_by_height(BlockHeight::default()).unwrap();
 }

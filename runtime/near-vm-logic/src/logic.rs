@@ -652,7 +652,7 @@ impl<'a> VMLogic<'a> {
         let tip = chain_store.header_head().expect("handle this properly");
         // requested height isn't available
         if tip.height < height_number {
-            Ok(0)
+            return Ok(0);
         }
 
         if tip.height == height_number {

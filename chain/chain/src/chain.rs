@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
@@ -518,7 +518,6 @@ impl Chain {
             apply_chunks_receiver: rc,
             last_time_head_updated: Clock::instant(),
             pending_state_patch: Default::default(),
-            latest_block_hashes: VecDeque::default(),
         })
     }
 
@@ -675,7 +674,6 @@ impl Chain {
             apply_chunks_receiver: rc,
             last_time_head_updated: Clock::instant(),
             pending_state_patch: Default::default(),
-            latest_block_hashes: VecDeque::default(),
         })
     }
 
@@ -753,18 +751,11 @@ impl Chain {
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
         let inner_block = block.into_inner();
-        let block_hash = *inner_block.hash();
         chain_store_update.save_block(inner_block);
         // We don't need to increase refcount for `prev_hash` at this point
         // because this is the block before State Sync.
 
         chain_store_update.commit()?;
-        // ensure that the queue never contains more than 256 elements
-        // TODO(blas): make this number configurable
-        if self.latest_block_hashes.len() == 256 {
-            self.latest_block_hashes.pop_front();
-        }
-        self.latest_block_hashes.push_back(block_hash);
         Ok(())
     }
 
