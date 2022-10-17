@@ -1885,7 +1885,7 @@ impl SyncJobsActor {
         msg: &ApplyStatePartsRequest,
     ) -> Result<(), near_chain_primitives::error::Error> {
         let _span = tracing::debug_span!(target: "client", "apply_parts").entered();
-        let store = msg.runtime.get_store();
+        let store = msg.runtime.store();
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
