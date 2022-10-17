@@ -167,9 +167,9 @@ pub fn do_migrate_33_to_34(
         for handle in handles {
             n += handle.join().expect("thread failed");
         }
-        info!(target: "store", "Wrote {n} trie nodes");
+        info!(target: "store", "Wrote {n} state items");
     }
-    store_update.finish()?;
+
     Ok(())
 }
 
