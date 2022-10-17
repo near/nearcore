@@ -6,7 +6,9 @@
 
 - [Overview](./architecture/README.md)
 - [How neard works](./architecture/how/README.md)
+  - [How Sync Works](./architecture/how/sync.md)
   - [Garbage Collection](./architecture/how/gc.md)
+  - [How Epoch Works](./architecture/how/epoch.md)
 - [Trie](./architecture/trie.md)
 - [Network](./architecture/network.md)
 

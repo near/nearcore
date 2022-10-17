@@ -17,7 +17,7 @@ use crate::tcp;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
-use crate::types::AccountOrPeerIdOrHash;
+use crate::types::PeerIdOrHash;
 use actix::{Actor, Context, Handler};
 use near_crypto::{InMemorySigner, Signature};
 use near_o11y::WithSpanContextExt;
@@ -144,7 +144,7 @@ impl PeerHandle {
         ttl: u8,
         utc: Option<time::Utc>,
     ) -> RoutedMessageV2 {
-        RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id), body }.sign(
+        RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id), body }.sign(
             &self.cfg.network.node_key,
             ttl,
             utc,

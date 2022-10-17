@@ -2,8 +2,8 @@ use crate::accounts_data;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Edge, EdgeState, Encoding, ParsePeerMessageError, PartialEdgeInfo,
-    PeerChainInfoV2, PeerInfo, RawRoutedMessage, RoutedMessageBody, SyncAccountsData,
+    Edge, EdgeState, Encoding, ParsePeerMessageError, PartialEdgeInfo, PeerChainInfoV2, PeerInfo,
+    RawRoutedMessage, RoutedMessageBody, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -446,7 +446,7 @@ impl PeerActor {
                             RawRoutedMessage {
                                 // TODO(gprusak): Rename AccountIrPeerIdOrHash to
                                 // RoutedMessageTarget for better readability.
-                                target: AccountOrPeerIdOrHash::Hash(msg_hash.unwrap()),
+                                target: PeerIdOrHash::Hash(msg_hash.unwrap()),
                                 body: RoutedMessageBody::TxStatusResponse(*tx_result),
                             },
                         );
@@ -464,7 +464,7 @@ impl PeerActor {
                         let msg = act.network_state.sign_message(
                             &act.clock,
                             RawRoutedMessage {
-                                target: AccountOrPeerIdOrHash::Hash(msg_hash.unwrap()),
+                                target: PeerIdOrHash::Hash(msg_hash.unwrap()),
                                 body,
                             },
                         );
