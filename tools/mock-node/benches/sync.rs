@@ -11,6 +11,7 @@ use near_actix_test_utils::{block_on_interruptible, setup_actix};
 use near_chain_configs::GenesisValidationMode;
 use near_client::GetBlock;
 use near_crypto::{InMemorySigner, KeyType};
+use near_o11y::WithSpanContextExt;
 use near_primitives::types::BlockHeight;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -117,7 +118,7 @@ fn do_bench(c: &mut Criterion, home_archive: &str, target_height: Option<BlockHe
                 loop {
                     // TODO: make it so that we can just get notified when syncing has finished instead
                     // of asking over and over.
-                    if let Ok(Ok(block)) = view_client.send(GetBlock::latest()).await {
+                    if let Ok(Ok(block)) = view_client.send(GetBlock::latest().with_span_context()).await {
                         if block.header.height >= target_height {
                             break;
                         }

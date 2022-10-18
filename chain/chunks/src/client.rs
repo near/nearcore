@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use actix::Message;
 use near_network::types::MsgRecipient;
+use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_pool::{PoolIteratorWrapper, TransactionPool};
 use near_primitives::{
     epoch_manager::RngSeed,
@@ -26,16 +27,19 @@ pub enum ShardsManagerResponse {
     InvalidChunk(EncodedShardChunk),
 }
 
-impl<A: MsgRecipient<ShardsManagerResponse>> ClientAdapterForShardsManager for A {
+impl<A: MsgRecipient<WithSpanContext<ShardsManagerResponse>>> ClientAdapterForShardsManager for A {
     fn did_complete_chunk(
         &self,
         partial_chunk: PartialEncodedChunk,
         shard_chunk: Option<ShardChunk>,
     ) {
-        self.do_send(ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk });
+        self.do_send(
+            ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk }
+                .with_span_context(),
+        );
     }
     fn saw_invalid_chunk(&self, chunk: EncodedShardChunk) {
-        self.do_send(ShardsManagerResponse::InvalidChunk(chunk));
+        self.do_send(ShardsManagerResponse::InvalidChunk(chunk).with_span_context());
     }
 }
 
