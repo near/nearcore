@@ -2683,7 +2683,7 @@ mod test {
 
     #[test]
     // test that
-    // when a non valdiator requests chunks, the request is sent immediately
+    // when a non validator requests chunks, the request is sent immediately
     // when a validator requests chunks, the request is recorded but not sent, because it
     // will wait for chunks being forwarded
     fn test_chunk_forward_non_validator() {
