@@ -27,7 +27,7 @@ use actix::fut::future::wrap_future;
 use actix::{Actor, ActorContext, ActorFutureExt, AsyncContext, Context, Handler, Running};
 use lru::LruCache;
 use near_crypto::Signature;
-use near_o11y::OpenTelemetrySpanExt;
+use near_o11y::{handler_span, OpenTelemetrySpanExt};
 use near_o11y::{log_assert, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::logging;
@@ -436,8 +436,11 @@ impl PeerActor {
             }
         };
 
-        ctx.spawn(wrap_future(self.network_state.view_client_addr.send(view_client_message)).then(
-            move |res, act: &mut PeerActor, _ctx| {
+        ctx.spawn(
+            wrap_future(
+                self.network_state.view_client_addr.send(view_client_message.with_span_context()),
+            )
+            .then(move |res, act: &mut PeerActor, _ctx| {
                 // Ban peer if client thinks received data is bad.
                 match res {
                     Ok(NetworkViewClientResponses::TxStatus(tx_result)) => {
@@ -496,8 +499,8 @@ impl PeerActor {
                     _ => {}
                 };
                 actix::fut::ready(())
-            },
-        ));
+            }),
+        );
     }
 
     /// Process non handshake/peer related messages.
@@ -1380,15 +1383,9 @@ impl Handler<WithSpanContext<SendMessage>> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<SendMessage>, _: &mut Self::Context) {
-        let span = tracing::debug_span!(
-                target: "network",
-                "handle",
-                handler = "SendMessage",
-                actor = "PeerActor")
-        .entered();
-        span.set_parent(msg.context);
+        let (_span, msg) = handler_span!("network", msg);
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
-        self.send_message_or_log(&msg.msg.message);
+        self.send_message_or_log(&msg.message);
     }
 }
 
@@ -1404,13 +1401,10 @@ impl actix::Handler<WithSpanContext<Stop>> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<Stop>, ctx: &mut Self::Context) -> Self::Result {
-        let span =
-            tracing::trace_span!(target: "network", "handle", handler = "Stop", actor="PeerActor")
-                .entered();
-        span.set_parent(msg.context);
+        let (_span, msg) = handler_span!("network", msg);
         self.stop(
             ctx,
-            match msg.msg.ban_reason {
+            match msg.ban_reason {
                 Some(reason) => ClosingReason::Ban(reason),
                 None => ClosingReason::PeerManager,
             },
