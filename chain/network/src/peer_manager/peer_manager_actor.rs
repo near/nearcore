@@ -1456,7 +1456,7 @@ impl Handler<WithSpanContext<GetNetworkInfo>> for PeerManagerActor {
         msg: WithSpanContext<GetNetworkInfo>,
         _ctx: &mut Self::Context,
     ) -> NetworkInfo {
-        let (_span, _msg) = handler_span!("network", msg);
+        let (_span, _msg) = handler_trace_span!("network", msg);
         let _timer = metrics::PEER_MANAGER_MESSAGES_TIME
             .with_label_values(&["GetNetworkInfo"])
             .start_timer();
@@ -1467,7 +1467,7 @@ impl Handler<WithSpanContext<GetNetworkInfo>> for PeerManagerActor {
 impl Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
     type Result = ();
     fn handle(&mut self, msg: WithSpanContext<SetChainInfo>, ctx: &mut Self::Context) {
-        let (_span, info) = handler_span!("network", msg);
+        let (_span, info) = handler_trace_span!("network", msg);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&["SetChainInfo"]).start_timer();
         let now = self.clock.now_utc();
