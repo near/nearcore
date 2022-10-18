@@ -138,7 +138,7 @@ pub fn do_migrate_34_to_35(
         for sub_trie in state_iter.heavy_sub_tries(sub_trie_size)? {
             let TrieIterator { trie, trail, key_nibbles, visited_nodes } = sub_trie?;
             debug!(target: "store", "Preload subtrie with nibbles len = {}", key_nibbles.len());
-            if key_nibbles.len() > 1000 {
+            if key_nibbles.len() > 2000 {
                 panic!("Too long nibbles vec");
             }
             // DEBUG HEX PREFIXES
@@ -147,7 +147,6 @@ pub fn do_migrate_34_to_35(
             //     .map(|&n| char::from_digit(n as u32, 16).expect("nibble should be <16"))
             //     .collect();
             // debug!(target: "store", "Preload subtrie at {hex_prefix}");
-            continue;
 
             let storage = trie
                 .storage
