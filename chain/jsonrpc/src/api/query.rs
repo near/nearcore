@@ -49,7 +49,7 @@ impl RpcRequest for RpcQueryRequest {
                 .next()
                 .ok_or_else(make_err)?
                 .parse()
-                .map_err(|err| RpcParseError(err.to_string()))?;
+                .map_err(|err| RpcParseError(format!("{}", err)))?;
             let maybe_extra_arg = path_parts.next();
 
             let request = match query_command {
