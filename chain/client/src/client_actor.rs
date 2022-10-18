@@ -632,6 +632,13 @@ impl ClientActor {
         }
     }
 }
+
+macro_rules! client_handler_span {
+    ($handler:expr, $msg:expr) => {
+        handler_span!("client", "ClientActor", $handler, $msg)
+    };
+}
+
 #[cfg(feature = "sandbox")]
 impl Handler<WithSpanContext<near_client_primitives::types::SandboxMessage>> for ClientActor {
     type Result = near_client_primitives::types::SandboxResponse;
@@ -641,7 +648,7 @@ impl Handler<WithSpanContext<near_client_primitives::types::SandboxMessage>> for
         msg: WithSpanContext<near_client_primitives::types::SandboxMessage>,
         _ctx: &mut Context<Self>,
     ) -> near_client_primitives::types::SandboxResponse {
-        let WithSpanContext { msg, context: _context, .. } = msg;
+        let (_span, msg) = client_handler_span!("SandboxMessage", msg);
         match msg {
             near_client_primitives::types::SandboxMessage::SandboxPatchState(state) => {
                 self.client.chain.patch_state(
@@ -670,12 +677,6 @@ impl Handler<WithSpanContext<near_client_primitives::types::SandboxMessage>> for
             }
         }
     }
-}
-
-macro_rules! client_handler_span {
-    ($handler:expr, $msg:expr) => {
-        handler_span!("client", "ClientActor", $handler, $msg)
-    };
 }
 
 impl Handler<WithSpanContext<Status>> for ClientActor {
