@@ -1210,7 +1210,7 @@ impl StateSync {
         state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<StateSyncResult, near_chain::Error> {
         let _span = tracing::debug_span!(target: "sync", "run", sync = "StateSync").entered();
-        debug!(target: "sync", ?sync_hash, ?tracking_shards, "syncing state");
+        debug!(target: "sync", %sync_hash, ?tracking_shards, "syncing state");
         let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let now = Clock::utc();
 
