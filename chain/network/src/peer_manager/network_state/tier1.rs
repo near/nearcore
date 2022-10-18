@@ -266,15 +266,17 @@ impl super::NetworkState {
                             tcp::Tier::T1,
                         )
                         .await?;
-                        anyhow::Ok(PeerActor::spawn(clock.clone(), stream, None, self.clone())?)
+                        PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone()).await
                     });
                 }
             }
+            tracing::debug!(target:"dupa","{}: establishing {} new connections",self.config.node_id(),handles.len());
             for res in futures_util::future::join_all(handles).await {
                 if let Err(err) = res {
                     tracing::info!(target:"network", ?err, "failed to establish a TIER1 connection");
                 }
             }
+            tracing::debug!(target:"dupa","{}: establishing new connections DONE",self.config.node_id());
         }
     }
 

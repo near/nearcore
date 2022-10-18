@@ -68,6 +68,7 @@ async fn test_clique(
     for pm in pms {
         pm.tier1_connect(clock).await;
     }
+    tracing::debug!(target:"dupa","tier1_connect DONE");
     // Send a message over each connection.
     for from in pms {
         let from_signer = from.cfg.validator.as_ref().unwrap().signer.clone();
@@ -82,6 +83,7 @@ async fn test_clique(
                 approval_message: ApprovalMessage { approval: want.clone(), target },
             };
             let mut events = to.events.from_now();
+            tracing::debug!(target:"dupa", "sending message {} -> {}",from.cfg.node_id(),to.cfg.node_id());
             let resp = from
                 .actix
                 .addr
@@ -89,7 +91,7 @@ async fn test_clique(
                 .await
                 .unwrap();
             assert_eq!(NetworkResponses::NoResponse, resp.as_network_response());
-            tracing::debug!(target:"test", "awaiting message {} -> {}",from.cfg.node_id(),to.cfg.node_id());
+            tracing::debug!(target:"dupa", "awaiting message {} -> {}",from.cfg.node_id(),to.cfg.node_id());
             let got = events
                 .recv_until(|ev| match ev {
                     Event::PeerManager(PME::MessageProcessed(
@@ -99,7 +101,7 @@ async fn test_clique(
                     _ => None,
                 })
                 .await;
-            tracing::debug!(target:"test", "got {} -> {}",from.cfg.node_id(),to.cfg.node_id());
+            tracing::debug!(target:"dupa", "got {} -> {}",from.cfg.node_id(),to.cfg.node_id());
             assert_eq!(from.cfg.node_id(), got.author);
             assert_eq!(RoutedMessageBody::BlockApproval(want), got.body);
         }
@@ -130,11 +132,12 @@ async fn direct_connections() {
 
     // Connect peers serially.
     let peer_infos: Vec<_> = pms.iter().map(|pm| pm.peer_info()).collect();
-    for i in 0..pms.len() - 1 {
-        pms[i].connect_to(&peer_infos[i + 1]).await;
+    for i in 1..pms.len() {
+        pms[i-1].connect_to(&peer_infos[i]).await;
     }
 
     propagate_accounts_data(&clock.clock(), rng, &chain, &pms[..], &pms[..]).await;
+    tracing::debug!(target:"dupa", "propagate_accounts_data DONE");
     test_clique(&clock.clock(), rng, &pms[..]).await;
 }
 

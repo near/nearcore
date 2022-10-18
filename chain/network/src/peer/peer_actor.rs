@@ -177,7 +177,7 @@ impl PeerActor {
     ) -> anyhow::Result<actix::Addr<Self>> {
         let (addr,handshake_signal) = Self::spawn(clock,stream,force_encoding,network_state)?;
         // This is a receiver of Infallible, so it only completes when the channel is closed.
-        let _ = handshake_signal.await;
+        handshake_signal.await.err().unwrap();
         Ok(addr)
     }
 
@@ -704,6 +704,7 @@ impl PeerActor {
             .then(move |res, act: &mut PeerActor, ctx| {
                 match res.map(|r|r.unwrap_consolidate_response()) {
                     Ok(RegisterPeerResponse::Accept) => {
+                        tracing::debug!(target:"test", "{}: registered connection to {}",act.network_state.config.node_id(),conn.peer_info.id);
                         act.peer_info = Some(peer_info).into();
                         act.peer_status = PeerStatus::Ready(conn.clone());
                         // Respond to handshake if it's inbound and connection was consolidated.
