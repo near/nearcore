@@ -138,12 +138,12 @@ pub fn do_migrate_34_to_35(
         for sub_trie in state_iter.heavy_sub_tries(sub_trie_size)? {
             let TrieIterator { trie, trail, key_nibbles, visited_nodes } = sub_trie?;
             // DEBUG HEX PREFIXES
-            // let hex_prefix: String = key_nibbles
-            //     .iter()
-            //     .map(|&n| char::from_digit(n as u32, 16).expect("nibble should be <16"))
-            //     .collect();
-            // debug!(target: "store", "Preload subtrie at {hex_prefix}");
-            debug!(target: "store", "Preload subtrie with nibbles len = {}", key_nibbles.len());
+            let hex_prefix: String = key_nibbles
+                .iter()
+                .map(|&n| char::from_digit(n as u32, 16).expect("nibble should be <16"))
+                .collect();
+            debug!(target: "store", "Preload subtrie at {hex_prefix}");
+            // debug!(target: "store", "Preload subtrie with nibbles len = {}", key_nibbles.len());
             continue;
 
             let storage = trie
