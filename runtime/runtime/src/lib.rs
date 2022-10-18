@@ -85,7 +85,7 @@ pub struct ValidatorAccountsUpdate {
     pub validator_rewards: HashMap<AccountId, Balance>,
     /// Stake proposals from the last chunk.
     pub last_proposals: HashMap<AccountId, Balance>,
-    /// The ID of the protocol treasure account if it belongs to the current shard.
+    /// The ID of the protocol treasury account if it belongs to the current shard.
     pub protocol_treasury_account_id: Option<AccountId>,
     /// Accounts to slash and the slashed amount (None means everything)
     pub slashing_info: HashMap<AccountId, Option<Balance>>,
@@ -966,7 +966,7 @@ impl Runtime {
     }
 
     /// Iterates over the validators in the current shard and updates their accounts to return stake
-    /// and allocate rewards. Also updates protocol treasure account if it belongs to the current
+    /// and allocate rewards. Also updates protocol treasury account if it belongs to the current
     /// shard.
     fn update_validator_accounts(
         &self,

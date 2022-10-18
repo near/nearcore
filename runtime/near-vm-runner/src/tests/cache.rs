@@ -12,7 +12,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::{CompiledContract, CompiledContractCache};
 use near_stable_hasher::StableHasher;
-use near_vm_errors::VMError;
+use near_vm_errors::VMRunnerError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::VMConfig;
 use std::hash::{Hash, Hasher};
@@ -32,11 +32,15 @@ fn test_caches_compilation_error() {
         let code = [42; 1000];
         let terragas = 1000000000000u64;
         assert_eq!(cache.len(), 0);
-        let err1 = make_cached_contract_call_vm(&cache, &code, "method_name1", terragas, vm_kind);
+        let outcome1 =
+            make_cached_contract_call_vm(&cache, &code, "method_name1", terragas, vm_kind)
+                .expect("bad failure");
         println!("{:?}", cache);
         assert_eq!(cache.len(), 1);
-        let err2 = make_cached_contract_call_vm(&cache, &code, "method_name2", terragas, vm_kind);
-        assert_eq!(err1, err2);
+        let outcome2 =
+            make_cached_contract_call_vm(&cache, &code, "method_name2", terragas, vm_kind)
+                .expect("bad failure");
+        assert_eq!(outcome1.aborted.as_ref(), outcome2.aborted.as_ref());
     })
 }
 
@@ -54,19 +58,16 @@ fn test_does_not_cache_io_error() {
 
         cache.set_read_fault(true);
         let result = make_cached_contract_call_vm(&cache, &code, "main", prepaid_gas, vm_kind);
-        let expected_gas = crate::tests::prepaid_loading_gas(code.len());
-        assert_eq!(result.outcome().used_gas, expected_gas);
         assert_matches!(
-            result.error(),
-            Some(&VMError::CacheError(near_vm_errors::CacheError::ReadError))
+            result.err(),
+            Some(VMRunnerError::CacheError(near_vm_errors::CacheError::ReadError(_)))
         );
 
         cache.set_write_fault(true);
         let result = make_cached_contract_call_vm(&cache, &code, "main", prepaid_gas, vm_kind);
-        assert_eq!(result.outcome().used_gas, expected_gas);
         assert_matches!(
-            result.error(),
-            Some(&VMError::CacheError(near_vm_errors::CacheError::WriteError))
+            result.err(),
+            Some(VMRunnerError::CacheError(near_vm_errors::CacheError::WriteError(_)))
         );
     })
 }
