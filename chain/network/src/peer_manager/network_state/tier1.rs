@@ -1,6 +1,6 @@
 use crate::accounts_data;
 use crate::config;
-use crate::network_protocol::{AccountData, PeerAddr, PeerInfo, PeerMessage, SyncAccountsData};
+use crate::network_protocol::{SignedAccountData, AccountData, PeerAddr, PeerInfo, PeerMessage, SyncAccountsData};
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::tcp;
@@ -31,12 +31,12 @@ impl super::NetworkState {
     /// Tries to connect to ALL trusted proxies from the config, then broadcasts AccountData with
     /// the set of proxies it managed to connect to. This way other TIER1 nodes can just connect
     /// to ANY proxy of this node.
-    pub async fn tier1_advertise_proxies(self: &Arc<Self>, clock: &time::Clock) {
+    pub async fn tier1_advertise_proxies(self: &Arc<Self>, clock: &time::Clock) -> Vec<Arc<SignedAccountData>> {
         let accounts_data = self.accounts_data.load();
         let tier1 = self.tier1.load();
         let vc = match self.tier1_validator_config(&accounts_data) {
             Some(it) => it,
-            None => return,
+            None => return vec![],
         };
         let proxies = match &vc.proxies {
             config::ValidatorProxies::Dynamic(_) => {
@@ -152,13 +152,14 @@ impl super::NetworkState {
             // TODO(gprusak): UTC timestamp acts just as a "AccountsData version ID", so perhaps
             // it would be semantically better to use "last timestamp + eps" as a fallback.
             tracing::warn!("cannot broadcast TIER1 proxy addresses: UTC clock went backwards");
-            return;
+            return vec![];
         }
         self.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
             incremental: true,
             requesting_full_sync: false,
-            accounts_data: new_data,
+            accounts_data: new_data.clone(),
         })));
+        new_data
     }
 
     /// Closes TIER1 connections from nodes which are not TIER1 any more. 

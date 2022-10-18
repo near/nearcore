@@ -291,21 +291,17 @@ impl ActorHandler {
         self.actix.addr.send(SetChainInfo(chain_info)).await.unwrap();
     }
 
-    pub async fn tier1_advertise_proxies(&self, clock: &time::Clock) {
+    pub async fn tier1_advertise_proxies(&self, clock: &time::Clock) -> Vec<Arc<SignedAccountData>> {
         let clock = clock.clone();
-        self.with_state(move |s| async move {
-            s.tier1_advertise_proxies(&clock).await;
-        })
-        .await;
+        self.with_state(move |s| async move { s.tier1_advertise_proxies(&clock).await }).await
     }
 
     // Awaits until the accounts_data state matches `want`.
-    pub async fn wait_for_accounts_data(&self, want: &HashSet<NormalAccountData>) {
+    pub async fn wait_for_accounts_data(&self, want: &HashSet<Arc<SignedAccountData>>) {
         let mut events = self.events.from_now();
         loop {
             let info = self.actix.addr.send(GetNetworkInfo).await.unwrap();
-            let got: HashSet<_> = info.tier1_accounts.iter().map(|d| d.into()).collect();
-            if &got == want {
+            if &info.tier1_accounts.into_iter().collect::<HashSet<_>>() == want {
                 break;
             }
             // It is important that we wait for the next PeerMessage::SyncAccountsData to get

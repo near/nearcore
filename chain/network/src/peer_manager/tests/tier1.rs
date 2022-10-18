@@ -13,6 +13,7 @@ use near_primitives::block_header::{Approval, ApprovalInner, ApprovalMessage};
 use near_primitives::validator_signer::ValidatorSigner;
 use rand::Rng as _;
 use std::sync::Arc;
+use std::collections::HashSet;
 
 /// Constructs a random TIER1 message.
 fn make_block_approval(rng: &mut Rng, signer: &dyn ValidatorSigner) -> Approval {
@@ -26,8 +27,7 @@ fn make_block_approval(rng: &mut Rng, signer: &dyn ValidatorSigner) -> Approval 
     }
 }
 
-async fn propagate_accounts_data(
-    clock: &time::Clock,
+async fn set_chain_info(
     rng: &mut Rng,
     chain: &data::Chain,
     validators: &[&peer_manager::testonly::ActorHandler],
@@ -47,28 +47,26 @@ async fn propagate_accounts_data(
     // Send it to all peers.
     for pm in all {
         pm.set_chain_info(chain_info.clone()).await;
-    }
+    } 
+}
+
+async fn establish_connections(clock: &time::Clock, pms: &[&peer_manager::testonly::ActorHandler]) {
     // Make validator connect to proxies.
-    for pm in validators {
-        pm.tier1_advertise_proxies(clock).await;
+    let mut data = HashSet::new();
+    for pm in pms {
+        data.extend(pm.tier1_advertise_proxies(clock).await);
     }
-    let want = vs.iter().map(|v| super::peer_account_data(&e, v)).collect();
     // Wait for accounts data to propagate.
-    for pm in all {
-        pm.wait_for_accounts_data(&want).await;
+    for pm in pms {
+        pm.wait_for_accounts_data(&data).await;
+        pm.tier1_connect(clock).await;
     }
 }
 
 async fn test_clique(
-    clock: &time::Clock,
     rng: &mut Rng,
     pms: &[&peer_manager::testonly::ActorHandler],
 ) {
-    // Establish TIER1 connections.
-    for pm in pms {
-        pm.tier1_connect(clock).await;
-    }
-    tracing::debug!(target:"dupa","tier1_connect DONE");
     // Send a message over each connection.
     for from in pms {
         let from_signer = from.cfg.validator.as_ref().unwrap().signer.clone();
@@ -136,9 +134,9 @@ async fn direct_connections() {
         pms[i-1].connect_to(&peer_infos[i]).await;
     }
 
-    propagate_accounts_data(&clock.clock(), rng, &chain, &pms[..], &pms[..]).await;
-    tracing::debug!(target:"dupa", "propagate_accounts_data DONE");
-    test_clique(&clock.clock(), rng, &pms[..]).await;
+    set_chain_info(rng, &chain, &pms[..], &pms[..]).await;
+    establish_connections(&clock.clock(), &pms[..]).await;
+    test_clique(rng, &pms[..]).await;
 }
 
 #[tokio::test]
@@ -204,16 +202,55 @@ async fn proxy_connections() {
     all.extend(validators.clone());
     all.extend(proxies.clone());
     all.push(&hub);
-    propagate_accounts_data(&clock.clock(), rng, &chain, &validators[..], &all[..]).await;
-    test_clique(&clock.clock(), rng, &validators[..]).await;
+    set_chain_info(rng, &chain, &validators[..], &all[..]).await;
+    establish_connections(&clock.clock(), &all[..]).await;
+    test_clique(rng, &validators[..]).await;
 }
 
 #[tokio::test]
 async fn account_keys_change() {
     // TODO(gprusak)
 }
-
+/*
+// Let's say that a validator has 2 proxies configured. At first proxy0 is available and proxy1 is not,
+// then proxy1 is available and proxy0 is not. In both situations validator should be reachable,
+// as long as it manages to advertise the currently available proxy and the TIER1 nodes connect to
+// that proxy.
 #[tokio::test]
 async fn proxy_change() {
-    // TODO(gprusak)
-}
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let mut proxies = vec![];
+    for _ in 0..2 {
+        proxies.push(
+            peer_manager::testonly::start(clock.clock(), near_store::db::TestDB::new(), chain.make_config(rng), chain.clone()).await,
+        );
+    }
+    // Turn down proxy[0]; + set_chain
+    // validator[0].advertise()
+    // validator[1].await_data;
+    // validator[1].connect();
+    // validator[1].send();
+    // Turn down proxy[1]; 
+    // Turn up proxy[0]; + set_chain
+    // validator[0].advertise()
+    // validator[1].await_data;
+    // validator[1].connect();
+    // validator[1].send();
+
+    let mut cfg = chain.make_config(rng);
+    cfg.validator.as_mut().unwrap().proxies = config::ValidatorProxies::Static(
+        proxies.iter().map(|p|PeerAddr {
+            peer_id: p.cfg.node_id(),
+            addr: p.cfg.node_addr.unwrap(),
+        }).collect()
+    );
+    let v0 = peer_manager::testonly::start(clock.clock(), near_store::db::TestDB::new(),cfg,chain.clone()).await;
+    let v1 = peer_manager::testonly::start(clock.clock(), near_store::db::TestDB::new(),chain_make_config(rng),chain.clone()).await;
+
+    
+
+}*/

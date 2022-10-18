@@ -13,6 +13,7 @@ use near_o11y::testonly::init_test_logger;
 use pretty_assertions::assert_eq;
 use rand::seq::SliceRandom as _;
 use std::sync::Arc;
+use std::collections::HashSet;
 
 #[tokio::test]
 async fn accounts_data_broadcast() {
@@ -54,15 +55,15 @@ async fn accounts_data_broadcast() {
         incremental: true,
         requesting_full_sync: false,
     };
-    let want = msg.accounts_data.clone();
+    let want : HashSet<_> = msg.accounts_data.iter().cloned().collect();
     peer1.send(PeerMessage::SyncAccountsData(msg)).await;
-    pm.wait_for_accounts_data(&want.iter().map(|d| d.into()).collect()).await;
+    pm.wait_for_accounts_data(&want).await;
 
     // Connect another peer and perform initial full sync.
     let mut peer2 =
         pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
     let got2 = peer2.events.recv_until(take_sync).await;
-    assert_eq!(got2.accounts_data.as_set(), want.as_set());
+    assert_eq!(got2.accounts_data.as_set(), want.iter().collect());
 
     // Send a mix of new and old data. Only new data should be broadcasted.
     let msg = SyncAccountsData {
@@ -134,6 +135,7 @@ async fn accounts_data_gradual_epoch_change() {
                 .collect(),
         );
 
+        let mut want = HashSet::new();
         // Advance epoch in the given order.
         for id in ids {
             pms[id].set_chain_info(chain_info.clone()).await;
@@ -142,11 +144,10 @@ async fn accounts_data_gradual_epoch_change() {
             // If some other node B was a proxy for a node A, then first both 
             // A and B would have to update their chain_info, and only then A
             // would be able to connect to B and advertise B as proxy afterwards.
-            pms[id].tier1_advertise_proxies(&clock.clock()).await;
+            want.extend(pms[id].tier1_advertise_proxies(&clock.clock()).await);
         }
 
         // Wait for data to arrive.
-        let want = vs.iter().map(|v| super::peer_account_data(&e, v)).collect();
         for pm in &mut pms {
             pm.wait_for_accounts_data(&want).await;
         }
@@ -225,9 +226,10 @@ async fn accounts_data_rate_limiting() {
 
     // Advance epoch in random order.
     pms.shuffle(rng);
+    let mut want = HashSet::new();
     for pm in &mut pms {
         pm.set_chain_info(chain_info.clone()).await;
-        pm.tier1_advertise_proxies(&clock.clock()).await;
+        want.extend(pm.tier1_advertise_proxies(&clock.clock()).await);
         tracing::debug!(target:"test","set chain info [X]");
     }
 
@@ -236,7 +238,6 @@ async fn accounts_data_rate_limiting() {
     let events: Vec<_> = pms.iter().map(|pm| pm.events.clone()).collect();
 
     // Wait for data to arrive.
-    let want = vs.iter().map(|v| super::peer_account_data(&e, v)).collect();
     for pm in &mut pms {
         pm.wait_for_accounts_data(&want).await;
     }
