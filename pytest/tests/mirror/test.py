@@ -203,6 +203,24 @@ def send_add_access_key(node, creator_key, nonce, block_hash):
     return k
 
 
+def create_subaccount(node, signer_key, nonce, block_hash):
+    k = key.Key.from_random('foo.test0')
+    actions = []
+    actions.append(transaction.create_create_account_action())
+    actions.append(transaction.create_full_access_key_action(k.decoded_pk()))
+    actions.append(transaction.create_payment_action(int(1e24)))
+    actions.append(
+        transaction.create_full_access_key_action(
+            key.Key.from_random('foo.test0').decoded_pk()))
+
+    tx = transaction.sign_and_serialize_transaction(
+        'foo.test0', nonce, actions,
+        base58.b58decode(block_hash.encode('utf8')), 'test0',
+        signer_key.decoded_pk(), signer_key.decoded_sk())
+    node.send_tx(tx)
+    return k
+
+
 def main():
     config_changes = {}
     for i in range(NUM_VALIDATORS + 1):
@@ -261,6 +279,11 @@ def main():
     new_key = None
     new_key_nonce = -1
 
+    subaccount_key = create_subaccount(nodes[0], nodes[0].signer_key,
+                                       ctx.next_nonce, block_hash)
+    ctx.next_nonce += 1
+    subaccount_nonce = -1
+
     for height, block_hash in utils.poll_blocks(nodes[0], timeout=TIMEOUT):
         ctx.send_moar_txs(block_hash, 10, use_routing=False)
         code = p.poll()
@@ -283,6 +306,17 @@ def main():
             new_key = send_add_access_key(nodes[0], nodes[0].signer_key,
                                           ctx.next_nonce, block_hash)
             ctx.next_nonce += 1
+
+        if subaccount_nonce == -1:
+            nonce = nodes[0].get_nonce_for_pk('foo.test0', subaccount_key.pk)
+            if nonce is not None:
+                subaccount_nonce = nonce
+        else:
+            tx = transaction.sign_payment_tx(
+                subaccount_key, 'test3', 200, subaccount_nonce,
+                base58.b58decode(block_hash.encode('utf8')))
+            nodes[0].send_tx(tx)
+            subaccount_nonce += 1
 
         if not restarted and height >= 90:
             logger.info('stopping mirror process')

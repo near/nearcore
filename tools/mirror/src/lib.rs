@@ -3,7 +3,10 @@ use anyhow::Context;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_configs::GenesisValidationMode;
 use near_client::{ClientActor, ViewClientActor};
-use near_client_primitives::types::{GetBlock, GetBlockError, GetChunk, GetChunkError, Query};
+use near_client_primitives::types::{
+    GetBlock, GetChunk, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
+    GetExecutionOutcomeResponse, Query,
+};
 use near_crypto::{PublicKey, SecretKey};
 use near_indexer::{Indexer, StreamerMessage};
 use near_network::types::{NetworkClientMessages, NetworkClientResponses};
@@ -12,12 +15,16 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteKeyAction, SignedTransaction, Transaction,
 };
-use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockReference, Finality};
-use near_primitives::views::{ActionView, QueryRequest, QueryResponseKind};
+use near_primitives::types::{
+    AccountId, BlockHeight, BlockId, BlockReference, Finality, TransactionOrReceiptId,
+};
+use near_primitives::views::{
+    ExecutionStatusView, QueryRequest, QueryResponseKind, SignedTransactionView,
+};
 use near_primitives_core::types::{Nonce, ShardId};
 use nearcore::config::NearConfig;
 use rocksdb::DB;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::{Duration, Instant};
 use strum::IntoEnumIterator;
@@ -55,6 +62,13 @@ fn nonce_col_key(account_id: &AccountId, public_key: &PublicKey) -> Vec<u8> {
     (account_id.clone(), public_key.clone()).try_to_vec().unwrap()
 }
 
+#[derive(Clone, BorshDeserialize, BorshSerialize, Debug, PartialEq, Eq, PartialOrd, Hash)]
+struct TxIds {
+    tx_hash: CryptoHash,
+    signer_id: AccountId,
+    receiver_id: AccountId,
+}
+
 // For a given AddKey Action, records the starting nonces of the
 // resulting Access Keys.  We need this because when an AddKey receipt
 // is processed, the nonce field of the AddKey action is actually
@@ -65,6 +79,7 @@ fn nonce_col_key(account_id: &AccountId, public_key: &PublicKey) -> Vec<u8> {
 struct NonceDiff {
     source_start: Option<Nonce>,
     target_start: Option<Nonce>,
+    pending_source_txs: HashSet<TxIds>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -80,6 +95,11 @@ pub(crate) enum MapNonceError {
 }
 
 impl NonceDiff {
+    fn set_source(&mut self, nonce: Nonce) {
+        self.source_start = Some(nonce);
+        self.pending_source_txs.clear();
+    }
+
     fn map(&self, nonce: Nonce) -> Result<Nonce, MapNonceError> {
         let source_start = self.source_start.ok_or(MapNonceError::SourceKeyNotOnChain)?;
         let target_start = self.target_start.ok_or(MapNonceError::TargetKeyNotOnChain)?;
@@ -144,7 +164,6 @@ struct MappedChunk {
 #[derive(Debug)]
 struct MappedBlock {
     source_height: BlockHeight,
-    source_block_hash: CryptoHash,
     chunks: Vec<MappedChunk>,
 }
 
@@ -180,6 +199,111 @@ async fn fetch_access_key_nonce(
         },
         Err(_) => Ok(None),
     }
+}
+
+#[derive(Clone, Debug)]
+enum TxOutcome {
+    Success(CryptoHash),
+    Pending,
+    Failure,
+}
+
+async fn fetch_tx_outcome(
+    view_client: &Addr<ViewClientActor>,
+    transaction_hash: CryptoHash,
+    signer_id: &AccountId,
+    receiver_id: &AccountId,
+) -> anyhow::Result<TxOutcome> {
+    let receipt_id = match view_client
+        .send(
+            GetExecutionOutcome {
+                id: TransactionOrReceiptId::Transaction {
+                    transaction_hash,
+                    sender_id: signer_id.clone(),
+                },
+            }
+            .with_span_context(),
+        )
+        .await
+        .unwrap()
+    {
+        Ok(GetExecutionOutcomeResponse { outcome_proof, .. }) => {
+            match outcome_proof.outcome.status {
+                ExecutionStatusView::SuccessReceiptId(id) => id,
+                ExecutionStatusView::SuccessValue(_) => unreachable!(),
+                ExecutionStatusView::Failure(_) | ExecutionStatusView::Unknown => {
+                    return Ok(TxOutcome::Failure)
+                }
+            }
+        }
+        Err(
+            GetExecutionOutcomeError::NotConfirmed { .. }
+            | GetExecutionOutcomeError::UnknownBlock { .. },
+        ) => return Ok(TxOutcome::Pending),
+        Err(e) => {
+            return Err(e)
+                .with_context(|| format!("failed fetching outcome for tx {}", transaction_hash))
+        }
+    };
+    match view_client
+        .send(
+            GetExecutionOutcome {
+                id: TransactionOrReceiptId::Receipt {
+                    receipt_id,
+                    receiver_id: receiver_id.clone(),
+                },
+            }
+            .with_span_context(),
+        )
+        .await
+        .unwrap()
+    {
+        Ok(GetExecutionOutcomeResponse { outcome_proof, .. }) => {
+            match outcome_proof.outcome.status {
+                ExecutionStatusView::SuccessReceiptId(_) | ExecutionStatusView::SuccessValue(_) => {
+                    // the view client code actually modifies the outcome's block_hash field to be the
+                    // next block with a new chunk in the relevant shard, so go backwards one block,
+                    // since that's what we'll want to give in the query for AccessKeys
+                    let block = view_client
+                        .send(
+                            GetBlock(BlockReference::BlockId(BlockId::Hash(
+                                outcome_proof.block_hash,
+                            )))
+                            .with_span_context(),
+                        )
+                        .await
+                        .unwrap()
+                        .with_context(|| {
+                            format!("failed fetching block {}", &outcome_proof.block_hash)
+                        })?;
+                    Ok(TxOutcome::Success(block.header.prev_hash))
+                }
+                ExecutionStatusView::Failure(_) | ExecutionStatusView::Unknown => {
+                    Ok(TxOutcome::Failure)
+                }
+            }
+        }
+        Err(
+            GetExecutionOutcomeError::NotConfirmed { .. }
+            | GetExecutionOutcomeError::UnknownBlock { .. }
+            | GetExecutionOutcomeError::UnknownTransactionOrReceipt { .. },
+        ) => Ok(TxOutcome::Pending),
+        Err(e) => {
+            Err(e).with_context(|| format!("failed fetching outcome for receipt {}", &receipt_id))
+        }
+    }
+}
+
+async fn block_hash_to_height(
+    view_client: &Addr<ViewClientActor>,
+    hash: &CryptoHash,
+) -> anyhow::Result<BlockHeight> {
+    Ok(view_client
+        .send(GetBlock(BlockReference::BlockId(BlockId::Hash(hash.clone()))).with_span_context())
+        .await
+        .unwrap()?
+        .header
+        .height)
 }
 
 impl TxMirror {
@@ -299,6 +423,35 @@ impl TxMirror {
         Ok(sent)
     }
 
+    fn read_nonce_diff(
+        &self,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> anyhow::Result<Option<NonceDiff>> {
+        let db_key = nonce_col_key(account_id, public_key);
+        // TODO: cache this?
+        Ok(self
+            .db
+            .get_cf(self.db.cf_handle(DBCol::Nonces.name()).unwrap(), &db_key)?
+            .map(|v| NonceDiff::try_from_slice(&v).unwrap()))
+    }
+
+    fn put_nonce_diff(
+        &self,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+        diff: &NonceDiff,
+    ) -> anyhow::Result<()> {
+        tracing::debug!(target: "mirror", "storing {:?} in DB for ({:?}, {:?})", &diff, account_id, public_key);
+        let db_key = nonce_col_key(account_id, public_key);
+        self.db.put_cf(
+            self.db.cf_handle(DBCol::Nonces.name()).unwrap(),
+            &db_key,
+            &diff.try_to_vec().unwrap(),
+        )?;
+        Ok(())
+    }
+
     // If the access key was present in the genesis records, just
     // return the same nonce. Otherwise, we need to change the
     // nonce. So check if we already know what the difference in
@@ -309,95 +462,155 @@ impl TxMirror {
         source_public: &PublicKey,
         target_public: &PublicKey,
         nonce: Nonce,
-        source_block_hash: &CryptoHash,
     ) -> anyhow::Result<Result<Nonce, MapNonceError>> {
-        let db_key = nonce_col_key(signer_id, target_public);
-        let mut m =
-            // TODO: cache this?
-            match self.db.get_cf(self.db.cf_handle(DBCol::Nonces.name()).unwrap(), &db_key)? {
-                Some(v) => NonceDiff::try_from_slice(&v).unwrap(),
-                // If it's not stored in the database, it's an access key that was present in the genesis
-                // records, so we don't need to do anything to the nonce.
-                None => return Ok(Ok(nonce)),
-            };
-        if m.known() {
-            return Ok(m.map(nonce));
+        let mut diff = match self.read_nonce_diff(signer_id, source_public)? {
+            Some(m) => m,
+            // If it's not stored in the database, it's an access key that was present in the genesis
+            // records, so we don't need to do anything to the nonce.
+            None => return Ok(Ok(nonce)),
+        };
+        if diff.known() {
+            return Ok(diff.map(nonce));
         }
 
         let mut rewrite = false;
-        if m.source_start.is_none() {
-            m.source_start = fetch_access_key_nonce(
-                &self.source_view_client,
-                signer_id,
-                source_public,
-                Some(source_block_hash),
-            )
-            .await?;
-            rewrite |= m.source_start.is_some();
+        if diff.source_start.is_none() {
+            self.update_source_nonce(signer_id, source_public, &mut diff).await?;
+            // this should not happen, since if we're mapping a nonce for a valid access key,
+            // it better have landed on the source chain by then
+            if diff.source_start.is_none() {
+                return Ok(Err(MapNonceError::SourceKeyNotOnChain));
+            }
+            rewrite = true;
         }
-        if m.target_start.is_none() {
-            m.target_start =
+        if diff.target_start.is_none() {
+            diff.target_start =
                 fetch_access_key_nonce(&self.target_view_client, signer_id, target_public, None)
-                    .await?
-                    // add one because we need to start from a nonce one greater than the current one
-                    .map(|n| n + 1);
-            rewrite |= m.target_start.is_some();
+                    .await?;
+            rewrite |= diff.target_start.is_some();
         }
 
         if rewrite {
-            tracing::debug!(target: "mirror", "storing {:?} in DB for ({:?}, {:?})", &m, signer_id, target_public);
-            self.db.put_cf(
-                self.db.cf_handle(DBCol::Nonces.name()).unwrap(),
-                &db_key,
-                &m.try_to_vec().unwrap(),
-            )?;
+            self.put_nonce_diff(signer_id, source_public, &diff)?;
         }
-        Ok(m.map(nonce))
+        Ok(diff.map(nonce))
     }
 
-    fn map_action(
+    async fn update_source_nonce(
         &self,
-        a: &ActionView,
-        receiver_id: &AccountId,
-    ) -> anyhow::Result<Option<Action>> {
-        // this try_from() won't fail since the ActionView was constructed from the Action
-        let action = Action::try_from(a.clone()).unwrap();
+        account_id: &AccountId,
+        public_key: &PublicKey,
+        diff: &mut NonceDiff,
+    ) -> anyhow::Result<()> {
+        let mut block_height = 0;
+        let mut block_hash = CryptoHash::default();
+        let mut failed_txs = Vec::new();
 
-        match &action {
-            Action::AddKey(add_key) => {
-                let replacement =
-                    crate::key_mapping::map_key(&add_key.public_key, self.secret.as_ref());
-                let public_key = replacement.public_key();
-                let db_key = nonce_col_key(receiver_id, &public_key);
-                // TODO: probably better to use a merge operator here. Not urgent, though.
-                if self
-                    .db
-                    .get_cf(self.db.cf_handle(DBCol::Nonces.name()).unwrap(), &db_key)?
-                    .is_none()
-                {
-                    self.db.put_cf(
-                        self.db.cf_handle(DBCol::Nonces.name()).unwrap(),
-                        &db_key,
-                        &NonceDiff::default().try_to_vec().unwrap(),
-                    )?;
+        // first find the earliest block hash where the access key should exist
+        for tx in diff.pending_source_txs.iter() {
+            match fetch_tx_outcome(
+                &self.source_view_client,
+                tx.tx_hash.clone(),
+                &tx.signer_id,
+                &tx.receiver_id,
+            )
+            .await?
+            {
+                TxOutcome::Success(hash) => {
+                    let height =
+                        block_hash_to_height(&self.source_view_client, &hash).await.with_context(
+                            || format!("failed fetching block height of block {}", &hash),
+                        )?;
+                    if &block_hash == &CryptoHash::default() || block_height > height {
+                        block_height = height;
+                        block_hash = hash;
+                    }
                 }
-
-                Ok(Some(Action::AddKey(AddKeyAction {
-                    public_key,
-                    access_key: add_key.access_key.clone(),
-                })))
+                TxOutcome::Failure => {
+                    failed_txs.push(tx.clone());
+                }
+                TxOutcome::Pending => {}
             }
-            Action::DeleteKey(delete_key) => {
-                let replacement =
-                    crate::key_mapping::map_key(&delete_key.public_key, self.secret.as_ref());
-                let public_key = replacement.public_key();
-
-                Ok(Some(Action::DeleteKey(DeleteKeyAction { public_key })))
-            }
-            // We don't want to mess with the set of validators in the target chain
-            Action::Stake(_) => Ok(None),
-            _ => Ok(Some(action)),
         }
+        if &block_hash == &CryptoHash::default() {
+            // no need to do this if block_hash is set because set_source() below will clear it
+            for tx in failed_txs.iter() {
+                diff.pending_source_txs.remove(tx);
+            }
+            return Ok(());
+        }
+        let nonce = fetch_access_key_nonce(
+            &self.source_view_client,
+            account_id,
+            public_key,
+            Some(&block_hash),
+        )
+        .await?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "expected access key to exist for {}, {} after finding successful receipt in {}",
+                &account_id,
+                &public_key,
+                &block_hash
+            )
+        })?;
+        diff.set_source(nonce);
+        Ok(())
+    }
+
+    // we have a situation where nonces need to be mapped (AddKey actions
+    // or implicit account transfers). So store the initial nonce data in the DB.
+    async fn store_source_nonce(
+        &self,
+        tx: &SignedTransactionView,
+        public_key: &PublicKey,
+    ) -> anyhow::Result<()> {
+        // TODO: probably better to use a merge operator here. Not urgent, though.
+        let mut diff = self.read_nonce_diff(&tx.receiver_id, &public_key)?.unwrap_or_default();
+        if diff.source_start.is_some() {
+            return Ok(());
+        }
+        diff.pending_source_txs.insert(TxIds {
+            tx_hash: tx.hash.clone(),
+            signer_id: tx.signer_id.clone(),
+            receiver_id: tx.receiver_id.clone(),
+        });
+        self.update_source_nonce(&tx.receiver_id, &public_key, &mut diff).await?;
+        self.put_nonce_diff(&tx.receiver_id, &public_key, &diff)
+    }
+
+    async fn map_actions(&self, tx: &SignedTransactionView) -> anyhow::Result<Vec<Action>> {
+        let mut actions = Vec::new();
+
+        for a in tx.actions.iter() {
+            // this try_from() won't fail since the ActionView was constructed from the Action
+            let action = Action::try_from(a.clone()).unwrap();
+
+            match &action {
+                Action::AddKey(add_key) => {
+                    self.store_source_nonce(tx, &add_key.public_key).await?;
+
+                    let replacement =
+                        crate::key_mapping::map_key(&add_key.public_key, self.secret.as_ref());
+
+                    actions.push(Action::AddKey(AddKeyAction {
+                        public_key: replacement.public_key(),
+                        access_key: add_key.access_key.clone(),
+                    }));
+                }
+                Action::DeleteKey(delete_key) => {
+                    let replacement =
+                        crate::key_mapping::map_key(&delete_key.public_key, self.secret.as_ref());
+                    let public_key = replacement.public_key();
+
+                    actions.push(Action::DeleteKey(DeleteKeyAction { public_key }));
+                }
+                // We don't want to mess with the set of validators in the target chain
+                Action::Stake(_) => {}
+                _ => actions.push(action),
+            };
+        }
+        Ok(actions)
     }
 
     // fetch the source chain block at `source_height`, and prepare a
@@ -408,20 +621,6 @@ impl TxMirror {
         source_height: BlockHeight,
         ref_hash: CryptoHash,
     ) -> anyhow::Result<Option<MappedBlock>> {
-        let source_block_hash = match self
-            .source_view_client
-            .send(
-                GetBlock(BlockReference::BlockId(BlockId::Height(source_height)))
-                    .with_span_context(),
-            )
-            .await?
-        {
-            Ok(b) => b.header.hash,
-            Err(e) => match e {
-                GetBlockError::UnknownBlock { .. } => return Ok(None),
-                e => return Err(e.into()),
-            },
-        };
         let mut chunks = Vec::new();
         for shard_id in self.tracked_shards.iter() {
             let mut txs = Vec::new();
@@ -450,28 +649,15 @@ impl TxMirror {
             }
 
             for t in chunk.transactions {
-                let mapped_key = crate::key_mapping::map_key(&t.public_key, self.secret.as_ref());
-                let public_key = mapped_key.public_key();
-                let mut actions = Vec::new();
-                for action in t.actions.iter() {
-                    if let Some(action) = self.map_action(action, &t.receiver_id)? {
-                        actions.push(action);
-                    }
-                }
+                let actions = self.map_actions(&t).await?;
                 if actions.is_empty() {
                     // If this is a tx containing only stake actions, skip it.
                     continue;
                 }
-                match self
-                    .map_nonce(
-                        &t.signer_id,
-                        &t.public_key,
-                        &public_key,
-                        t.nonce,
-                        &source_block_hash,
-                    )
-                    .await?
-                {
+                let mapped_key = crate::key_mapping::map_key(&t.public_key, self.secret.as_ref());
+                let public_key = mapped_key.public_key();
+
+                match self.map_nonce(&t.signer_id, &t.public_key, &public_key, t.nonce).await? {
                     Ok(nonce) => {
                         let mut tx = Transaction::new(
                             t.signer_id.clone(),
@@ -529,7 +715,7 @@ impl TxMirror {
             }
             chunks.push(MappedChunk { txs, txs_awaiting_nonce, shard_id: *shard_id });
         }
-        Ok(Some(MappedBlock { source_height, source_block_hash, chunks }))
+        Ok(Some(MappedBlock { source_height, chunks }))
     }
 
     // Up to a certain capacity, prepare and queue up batches of
@@ -614,7 +800,6 @@ impl TxMirror {
                             &tx.source_public,
                             &tx.tx.public_key,
                             tx.tx.nonce,
-                            &b.source_block_hash,
                         )
                         .await?
                     {
