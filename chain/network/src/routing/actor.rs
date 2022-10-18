@@ -267,7 +267,7 @@ pub enum Response {
     RoutingTableUpdateResponse {
         /// PeerManager maintains list of local edges. We will notify `PeerManager`
         /// to remove those edges.
-        local_edges_to_remove: Vec<PeerId>,
+        pruned_edges: Vec<Edge>,
         /// Active PeerId that are part of the shortest path to each PeerId.
         next_hops: Arc<routing::NextHopTable>,
         /// List of peers to ban for sending invalid edges.
@@ -309,11 +309,7 @@ impl actix::Handler<Message> for Actor {
                 let (next_hops, pruned_edges) =
                     self.update_routing_table(prune_unreachable_since, prune_edges_older_than);
                 Response::RoutingTableUpdateResponse {
-                    local_edges_to_remove: pruned_edges
-                        .iter()
-                        .filter_map(|e| e.other(&self.my_peer_id))
-                        .cloned()
-                        .collect(),
+                    pruned_edges,
                     next_hops,
                     peers_to_ban: std::mem::take(&mut self.peers_to_ban),
                 }
