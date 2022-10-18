@@ -27,13 +27,13 @@ pub struct Client {
     /// Address of the client actor.
     client_addr: actix::Recipient<WithSpanContext<NetworkClientMessages>>,
     /// Address of the view client actor.
-    view_client_addr: actix::Recipient<NetworkViewClientMessages>,
+    view_client_addr: actix::Recipient<WithSpanContext<NetworkViewClientMessages>>,
 }
 
 impl Client {
     pub fn new(
         client_addr: actix::Recipient<WithSpanContext<NetworkClientMessages>>,
-        view_client_addr: actix::Recipient<NetworkViewClientMessages>,
+        view_client_addr: actix::Recipient<WithSpanContext<NetworkViewClientMessages>>,
     ) -> Self {
         Self { client_addr, view_client_addr }
     }
@@ -45,10 +45,13 @@ impl Client {
     ) -> Result<Option<FinalExecutionOutcomeView>, ReasonForBan> {
         match self
             .view_client_addr
-            .send(NetworkViewClientMessages::TxStatus {
-                tx_hash: tx_hash,
-                signer_account_id: account_id,
-            })
+            .send(
+                NetworkViewClientMessages::TxStatus {
+                    tx_hash: tx_hash,
+                    signer_account_id: account_id,
+                }
+                .with_span_context(),
+            )
             .await
         {
             Ok(NetworkViewClientResponses::TxStatus(tx_result)) => Ok(Some(*tx_result)),
@@ -67,7 +70,10 @@ impl Client {
     ) -> Result<(), ReasonForBan> {
         match self
             .view_client_addr
-            .send(NetworkViewClientMessages::TxStatusResponse(Box::new(tx_result.clone())))
+            .send(
+                NetworkViewClientMessages::TxStatusResponse(Box::new(tx_result.clone()))
+                    .with_span_context(),
+            )
             .await
         {
             Ok(NetworkViewClientResponses::NoResponse) => Ok(()),
@@ -87,10 +93,13 @@ impl Client {
     ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
         match self
             .view_client_addr
-            .send(NetworkViewClientMessages::StateRequestHeader {
-                shard_id: shard_id,
-                sync_hash: sync_hash,
-            })
+            .send(
+                NetworkViewClientMessages::StateRequestHeader {
+                    shard_id: shard_id,
+                    sync_hash: sync_hash,
+                }
+                .with_span_context(),
+            )
             .await
         {
             Ok(NetworkViewClientResponses::StateResponse(resp)) => Ok(Some(*resp)),
@@ -112,11 +121,14 @@ impl Client {
     ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
         match self
             .view_client_addr
-            .send(NetworkViewClientMessages::StateRequestPart {
-                shard_id: shard_id,
-                sync_hash: sync_hash,
-                part_id: part_id,
-            })
+            .send(
+                NetworkViewClientMessages::StateRequestPart {
+                    shard_id: shard_id,
+                    sync_hash: sync_hash,
+                    part_id: part_id,
+                }
+                .with_span_context(),
+            )
             .await
         {
             Ok(NetworkViewClientResponses::StateResponse(resp)) => Ok(Some(*resp)),
@@ -279,7 +291,11 @@ impl Client {
     }
 
     pub async fn block_request(&self, hash: CryptoHash) -> Result<Option<Block>, ReasonForBan> {
-        match self.view_client_addr.send(NetworkViewClientMessages::BlockRequest(hash)).await {
+        match self
+            .view_client_addr
+            .send(NetworkViewClientMessages::BlockRequest(hash).with_span_context())
+            .await
+        {
             Ok(NetworkViewClientResponses::Block(block)) => Ok(Some(*block)),
             Ok(NetworkViewClientResponses::NoResponse) => Ok(None),
             Ok(NetworkViewClientResponses::Ban { ban_reason }) => Err(ban_reason),
@@ -297,7 +313,7 @@ impl Client {
     ) -> Result<Option<Vec<BlockHeader>>, ReasonForBan> {
         match self
             .view_client_addr
-            .send(NetworkViewClientMessages::BlockHeadersRequest(hashes))
+            .send(NetworkViewClientMessages::BlockHeadersRequest(hashes).with_span_context())
             .await
         {
             Ok(NetworkViewClientResponses::BlockHeaders(block_headers)) => Ok(Some(block_headers)),
@@ -384,7 +400,10 @@ impl Client {
         &self,
         accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
     ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
-        match self.view_client_addr.send(NetworkViewClientMessages::AnnounceAccount(accounts)).await
+        match self
+            .view_client_addr
+            .send(NetworkViewClientMessages::AnnounceAccount(accounts).with_span_context())
+            .await
         {
             Ok(NetworkViewClientResponses::AnnounceAccount(accounts)) => Ok(accounts),
             Ok(NetworkViewClientResponses::NoResponse) => Ok(vec![]),
