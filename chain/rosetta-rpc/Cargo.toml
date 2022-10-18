@@ -36,4 +36,6 @@ near-o11y = { path = "../../core/o11y" }
 
 
 [dev-dependencies]
+insta = "1"
+near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
 insta.workspace = true
