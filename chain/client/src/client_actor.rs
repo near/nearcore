@@ -266,16 +266,13 @@ impl Handler<WithSpanContext<NetworkClientMessages>> for ClientActor {
         msg: WithSpanContext<NetworkClientMessages>,
         ctx: &mut Context<Self>,
     ) -> Self::Result {
-        let WithSpanContext { msg, context, .. } = msg;
-        let msg_type: &str = (&msg).into();
-        let span = tracing::debug_span!(
-            target: "client",
-            "handle",
-            handler = "NetworkClientMessages",
-            actor = "ClientActor",
-            msg_type)
-        .entered();
-        span.set_parent(context);
+        let (_span, msg) = handler_span!(
+            "client",
+            "ClientActor",
+            "NetworkClientMessages",
+            msg,
+            |msg: &NetworkClientMessages| msg.into()
+        );
 
         self.check_triggers(ctx);
 

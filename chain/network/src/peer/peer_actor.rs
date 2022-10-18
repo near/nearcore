@@ -1401,14 +1401,7 @@ impl actix::Handler<WithSpanContext<Stop>> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<Stop>, ctx: &mut Self::Context) -> Self::Result {
-        let span = tracing::trace_span!(
-                target: "network",
-                "handle",
-                handler = "Stop",
-                actor = "PeerActor")
-        .entered();
-        let WithSpanContext { msg, context, .. } = msg;
-        span.set_parent(context);
+        let (_span, msg) = handler_span!("network", "PeerActor", "Stop", msg);
         self.stop(
             ctx,
             match msg.ban_reason {

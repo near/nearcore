@@ -41,34 +41,34 @@ fn test_block_unknown_block_error() {
 
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
-                spawn_interruptible(view_client.send(GetBlock::latest().with_span_context()).then(
-                    move |res| {
-                        if let Ok(Ok(block)) = res {
-                            if block.header.height > 1 {
-                                let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                                spawn_interruptible(
-                                    client
-                                        .block_by_id(BlockId::Height(block.header.height + 100))
-                                        .map_err(|err| {
-                                            let error_json = serde_json::to_value(err).unwrap();
-                                            assert_eq!(
-                                                error_json["name"],
-                                                serde_json::json!("HANDLER_ERROR")
-                                            );
-                                            assert_eq!(
-                                                error_json["cause"]["name"],
-                                                serde_json::json!("UNKNOWN_BLOCK")
-                                            );
-                                            System::current().stop();
-                                        })
-                                        .map_ok(|_| panic!("The block mustn't be found"))
-                                        .map(drop),
-                                );
-                            }
+                let actor = view_client.send(GetBlock::latest().with_span_context());
+                let actor = actor.then(move |res| {
+                    if let Ok(Ok(block)) = res {
+                        if block.header.height > 1 {
+                            let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                            spawn_interruptible(
+                                client
+                                    .block_by_id(BlockId::Height(block.header.height + 100))
+                                    .map_err(|err| {
+                                        let error_json = serde_json::to_value(err).unwrap();
+                                        assert_eq!(
+                                            error_json["name"],
+                                            serde_json::json!("HANDLER_ERROR")
+                                        );
+                                        assert_eq!(
+                                            error_json["cause"]["name"],
+                                            serde_json::json!("UNKNOWN_BLOCK")
+                                        );
+                                        System::current().stop();
+                                    })
+                                    .map_ok(|_| panic!("The block mustn't be found"))
+                                    .map(drop),
+                            );
                         }
-                        future::ready(())
-                    },
-                ));
+                    }
+                    future::ready(())
+                });
+                spawn_interruptible(actor);
             }),
             100,
             40000,
@@ -101,45 +101,45 @@ fn test_chunk_unknown_chunk_error() {
 
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
-                spawn_interruptible(view_client.send(GetBlock::latest().with_span_context()).then(
-                    move |res| {
-                        if let Ok(Ok(block)) = res {
-                            if block.header.height > 1 {
-                                let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                                spawn_interruptible(
-                                    client
-                                        .chunk(near_jsonrpc::client::ChunkId::Hash(
-                                            CryptoHash::from_str(
-                                                "3tMcx4KU2KvkwJPMWPXqK2MUU1FDVbigPFNiAeuVa7Tu",
+                let actor = view_client.send(GetBlock::latest().with_span_context());
+                let actor = actor.then(move |res| {
+                    if let Ok(Ok(block)) = res {
+                        if block.header.height > 1 {
+                            let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                            spawn_interruptible(
+                                client
+                                    .chunk(near_jsonrpc::client::ChunkId::Hash(
+                                        CryptoHash::from_str(
+                                            "3tMcx4KU2KvkwJPMWPXqK2MUU1FDVbigPFNiAeuVa7Tu",
+                                        )
+                                        .unwrap(),
+                                    ))
+                                    .map_err(|err| {
+                                        let error_json = serde_json::to_value(err).unwrap();
+                                        assert_eq!(
+                                            error_json["name"],
+                                            serde_json::json!("HANDLER_ERROR")
+                                        );
+                                        assert_eq!(
+                                            error_json["cause"]["name"],
+                                            serde_json::json!("UNKNOWN_CHUNK")
+                                        );
+                                        assert_eq!(
+                                            error_json["cause"]["info"]["chunk_hash"],
+                                            serde_json::json!(
+                                                "3tMcx4KU2KvkwJPMWPXqK2MUU1FDVbigPFNiAeuVa7Tu"
                                             )
-                                            .unwrap(),
-                                        ))
-                                        .map_err(|err| {
-                                            let error_json = serde_json::to_value(err).unwrap();
-                                            assert_eq!(
-                                                error_json["name"],
-                                                serde_json::json!("HANDLER_ERROR")
-                                            );
-                                            assert_eq!(
-                                                error_json["cause"]["name"],
-                                                serde_json::json!("UNKNOWN_CHUNK")
-                                            );
-                                            assert_eq!(
-                                                error_json["cause"]["info"]["chunk_hash"],
-                                                serde_json::json!(
-                                                    "3tMcx4KU2KvkwJPMWPXqK2MUU1FDVbigPFNiAeuVa7Tu"
-                                                )
-                                            );
-                                            System::current().stop();
-                                        })
-                                        .map_ok(|_| panic!("The chunk mustn't be found"))
-                                        .map(drop),
-                                );
-                            }
+                                        );
+                                        System::current().stop();
+                                    })
+                                    .map_ok(|_| panic!("The chunk mustn't be found"))
+                                    .map(drop),
+                            );
                         }
-                        future::ready(())
-                    },
-                ));
+                    }
+                    future::ready(())
+                });
+                spawn_interruptible(actor);
             }),
             100,
             40000,
@@ -170,7 +170,8 @@ fn test_protocol_config_unknown_block_error() {
 
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
-                spawn_interruptible(view_client.send(GetBlock::latest().with_span_context()).then(move |res| {
+                let actor = view_client.send(GetBlock::latest().with_span_context());
+                let actor = actor.then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
@@ -200,7 +201,8 @@ fn test_protocol_config_unknown_block_error() {
                         }
                     }
                     future::ready(())
-                }));
+                });
+                spawn_interruptible(actor);
             }),
             100,
             40000,
@@ -232,35 +234,35 @@ fn test_gas_price_unknown_block_error() {
 
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
-                spawn_interruptible(view_client.send(GetBlock::latest().with_span_context()).then(
-                    move |res| {
-                        if let Ok(Ok(block)) = res {
-                            if block.header.height > 1 {
-                                let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                                spawn_interruptible(
-                                    client
-                                        .gas_price(Some(BlockId::Height(block.header.height + 100)))
-                                        .map_err(|err| {
-                                            let error_json = serde_json::to_value(err).unwrap();
+                let actor = view_client.send(GetBlock::latest().with_span_context());
+                let actor = actor.then(move |res| {
+                    if let Ok(Ok(block)) = res {
+                        if block.header.height > 1 {
+                            let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                            spawn_interruptible(
+                                client
+                                    .gas_price(Some(BlockId::Height(block.header.height + 100)))
+                                    .map_err(|err| {
+                                        let error_json = serde_json::to_value(err).unwrap();
 
-                                            assert_eq!(
-                                                error_json["name"],
-                                                serde_json::json!("HANDLER_ERROR")
-                                            );
-                                            assert_eq!(
-                                                error_json["cause"]["name"],
-                                                serde_json::json!("UNKNOWN_BLOCK")
-                                            );
-                                            System::current().stop();
-                                        })
-                                        .map_ok(|_| panic!("The block mustn't be found"))
-                                        .map(drop),
-                                );
-                            }
+                                        assert_eq!(
+                                            error_json["name"],
+                                            serde_json::json!("HANDLER_ERROR")
+                                        );
+                                        assert_eq!(
+                                            error_json["cause"]["name"],
+                                            serde_json::json!("UNKNOWN_BLOCK")
+                                        );
+                                        System::current().stop();
+                                    })
+                                    .map_ok(|_| panic!("The block mustn't be found"))
+                                    .map(drop),
+                            );
                         }
-                        future::ready(())
-                    },
-                ));
+                    }
+                    future::ready(())
+                });
+                spawn_interruptible(actor);
             }),
             100,
             40000,
@@ -292,7 +294,8 @@ fn test_receipt_id_unknown_receipt_error() {
 
                 // We are sending this tx unstop, just to get over the warm up period.
                 // Probably make sense to stop after 1 time though.
-                spawn_interruptible(view_client.send(GetBlock::latest().with_span_context()).then(move |res| {
+                let actor = view_client.send(GetBlock::latest().with_span_context());
+                let actor = actor.then(move |res| {
                     if let Ok(Ok(block)) = res {
                         if block.header.height > 1 {
                             let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
@@ -330,7 +333,8 @@ fn test_receipt_id_unknown_receipt_error() {
                         }
                     }
                     future::ready(())
-                }));
+                });
+                spawn_interruptible(actor);
             }),
             100,
             40000,
@@ -375,40 +379,40 @@ fn test_tx_invalid_tx_error() {
                 let transaction_copy = transaction.clone();
                 let tx_hash = transaction_copy.get_hash();
 
-                spawn_interruptible(view_client.send(GetBlock::latest().with_span_context()).then(
-                    move |res| {
-                        if let Ok(Ok(block)) = res {
-                            if block.header.height > 10 {
-                                let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                                let bytes = transaction_copy.try_to_vec().unwrap();
-                                spawn_interruptible(
-                                    client
-                                        .EXPERIMENTAL_broadcast_tx_sync(to_base64(&bytes))
-                                        .map_err(move |err| {
-                                            let error_json = serde_json::to_value(err).unwrap();
+                let actor = view_client.send(GetBlock::latest().with_span_context());
+                let actor = actor.then(move |res| {
+                    if let Ok(Ok(block)) = res {
+                        if block.header.height > 10 {
+                            let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
+                            let bytes = transaction_copy.try_to_vec().unwrap();
+                            spawn_interruptible(
+                                client
+                                    .EXPERIMENTAL_broadcast_tx_sync(to_base64(&bytes))
+                                    .map_err(move |err| {
+                                        let error_json = serde_json::to_value(err).unwrap();
 
-                                            assert_eq!(
-                                                error_json["name"],
-                                                serde_json::json!("HANDLER_ERROR")
-                                            );
-                                            assert_eq!(
-                                                error_json["cause"]["name"],
-                                                serde_json::json!("REQUEST_ROUTED")
-                                            );
-                                            assert_eq!(
-                                                error_json["cause"]["info"]["transaction_hash"],
-                                                serde_json::json!(tx_hash)
-                                            );
-                                            System::current().stop();
-                                        })
-                                        .map_ok(|_| panic!("The transaction mustn't succeed"))
-                                        .map(drop),
-                                );
-                            }
+                                        assert_eq!(
+                                            error_json["name"],
+                                            serde_json::json!("HANDLER_ERROR")
+                                        );
+                                        assert_eq!(
+                                            error_json["cause"]["name"],
+                                            serde_json::json!("REQUEST_ROUTED")
+                                        );
+                                        assert_eq!(
+                                            error_json["cause"]["info"]["transaction_hash"],
+                                            serde_json::json!(tx_hash)
+                                        );
+                                        System::current().stop();
+                                    })
+                                    .map_ok(|_| panic!("The transaction mustn't succeed"))
+                                    .map(drop),
+                            );
                         }
-                        future::ready(())
-                    },
-                ));
+                    }
+                    future::ready(())
+                });
+                spawn_interruptible(actor);
             }),
             100,
             40000,

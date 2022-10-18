@@ -39,24 +39,22 @@ fn query_client() {
     run_actix(async {
         let (_, view_client) =
             setup_no_network(vec!["test".parse().unwrap()], "other".parse().unwrap(), true, true);
-        actix::spawn(
-            view_client
-                .send(
-                    Query::new(
-                        BlockReference::latest(),
-                        QueryRequest::ViewAccount { account_id: "test".parse().unwrap() },
-                    )
-                    .with_span_context(),
-                )
-                .then(|res| {
-                    match res.unwrap().unwrap().kind {
-                        QueryResponseKind::ViewAccount(_) => (),
-                        _ => panic!("Invalid response"),
-                    }
-                    System::current().stop();
-                    future::ready(())
-                }),
+        let actor = view_client.send(
+            Query::new(
+                BlockReference::latest(),
+                QueryRequest::ViewAccount { account_id: "test".parse().unwrap() },
+            )
+            .with_span_context(),
         );
+        let actor = actor.then(|res| {
+            match res.unwrap().unwrap().kind {
+                QueryResponseKind::ViewAccount(_) => (),
+                _ => panic!("Invalid response"),
+            }
+            System::current().stop();
+            future::ready(())
+        });
+        actix::spawn(actor);
     });
 }
 
@@ -70,62 +68,62 @@ fn query_status_not_crash() {
             setup_no_network(vec!["test".parse().unwrap()], "other".parse().unwrap(), true, false);
         let signer =
             InMemoryValidatorSigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
-        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest().with_span_context()).then(
-            move |res| {
-                let (block, block_merkle_tree) = res.unwrap().unwrap();
-                let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
-                let header: BlockHeader = block.header.clone().into();
-                block_merkle_tree.insert(*header.hash());
-                let mut next_block = Block::produce(
-                    PROTOCOL_VERSION,
-                    PROTOCOL_VERSION,
-                    &header,
-                    block.header.height + 1,
-                    header.block_ordinal() + 1,
-                    block.chunks.into_iter().map(|c| c.into()).collect(),
-                    EpochId(block.header.next_epoch_id),
-                    EpochId(block.header.hash),
-                    None,
-                    vec![],
-                    Ratio::from_integer(0),
-                    0,
-                    100,
-                    None,
-                    vec![],
-                    vec![],
-                    &signer,
-                    block.header.next_bp_hash,
-                    block_merkle_tree.root(),
-                    None,
-                );
-                next_block.mut_header().get_mut().inner_lite.timestamp =
-                    to_timestamp(next_block.header().timestamp() + chrono::Duration::seconds(60));
-                next_block.mut_header().resign(&signer);
+        let actor = view_client.send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor.then(move |res| {
+            let (block, block_merkle_tree) = res.unwrap().unwrap();
+            let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
+            let header: BlockHeader = block.header.clone().into();
+            block_merkle_tree.insert(*header.hash());
+            let mut next_block = Block::produce(
+                PROTOCOL_VERSION,
+                PROTOCOL_VERSION,
+                &header,
+                block.header.height + 1,
+                header.block_ordinal() + 1,
+                block.chunks.into_iter().map(|c| c.into()).collect(),
+                EpochId(block.header.next_epoch_id),
+                EpochId(block.header.hash),
+                None,
+                vec![],
+                Ratio::from_integer(0),
+                0,
+                100,
+                None,
+                vec![],
+                vec![],
+                &signer,
+                block.header.next_bp_hash,
+                block_merkle_tree.root(),
+                None,
+            );
+            next_block.mut_header().get_mut().inner_lite.timestamp =
+                to_timestamp(next_block.header().timestamp() + chrono::Duration::seconds(60));
+            next_block.mut_header().resign(&signer);
 
-                actix::spawn(
-                    client
-                        .send(
-                            NetworkClientMessages::Block(next_block, PeerInfo::random().id, false)
-                                .with_span_context(),
-                        )
-                        .then(move |_| {
-                            actix::spawn(
-                                client
-                                    .send(
-                                        Status { is_health_check: true, detailed: false }
-                                            .with_span_context(),
-                                    )
-                                    .then(move |_| {
-                                        System::current().stop();
-                                        future::ready(())
-                                    }),
-                            );
-                            future::ready(())
-                        }),
-                );
-                future::ready(())
-            },
-        ));
+            actix::spawn(
+                client
+                    .send(
+                        NetworkClientMessages::Block(next_block, PeerInfo::random().id, false)
+                            .with_span_context(),
+                    )
+                    .then(move |_| {
+                        actix::spawn(
+                            client
+                                .send(
+                                    Status { is_health_check: true, detailed: false }
+                                        .with_span_context(),
+                                )
+                                .then(move |_| {
+                                    System::current().stop();
+                                    future::ready(())
+                                }),
+                        );
+                        future::ready(())
+                    }),
+            );
+            future::ready(())
+        });
+        actix::spawn(actor);
         near_network::test_utils::wait_or_panic(5000);
     });
 }

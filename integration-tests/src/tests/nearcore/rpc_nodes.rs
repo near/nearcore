@@ -158,45 +158,36 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                             ) {
                                 let view_client2 = view_client1.clone();
                                 let fut = view_client1
-                                    .send(GetExecutionOutcome { id }.with_span_context())
-                                    .then(move |res| {
-                                        let execution_outcome_response = res.unwrap().unwrap();
-                                        view_client2
-                                            .send(
-                                                GetBlock(BlockReference::BlockId(BlockId::Hash(
-                                                    execution_outcome_response
-                                                        .outcome_proof
-                                                        .block_hash,
-                                                )))
-                                                .with_span_context(),
-                                            )
-                                            .then(move |res| {
-                                                let res = res.unwrap().unwrap();
-                                                let mut outcome_with_id_to_hash = vec![
-                                                    execution_outcome_response.outcome_proof.id,
-                                                ];
-                                                outcome_with_id_to_hash.extend(
-                                                    outcome_view_to_hashes(
-                                                        &execution_outcome_response
-                                                            .outcome_proof
-                                                            .outcome,
-                                                    ),
+                                    .send(GetExecutionOutcome { id }.with_span_context());
+                                let fut = fut.then(move |res| {
+                                    let execution_outcome_response = res.unwrap().unwrap();
+                                    view_client2
+                                        .send(
+                                            GetBlock(BlockReference::BlockId(BlockId::Hash(
+                                                execution_outcome_response.outcome_proof.block_hash,
+                                            )))
+                                            .with_span_context(),
+                                        )
+                                        .then(move |res| {
+                                            let res = res.unwrap().unwrap();
+                                            let mut outcome_with_id_to_hash =
+                                                vec![execution_outcome_response.outcome_proof.id];
+                                            outcome_with_id_to_hash.extend(outcome_view_to_hashes(
+                                                &execution_outcome_response.outcome_proof.outcome,
+                                            ));
+                                            let chunk_outcome_root =
+                                                compute_root_from_path_and_item(
+                                                    &execution_outcome_response.outcome_proof.proof,
+                                                    &outcome_with_id_to_hash,
                                                 );
-                                                let chunk_outcome_root =
-                                                    compute_root_from_path_and_item(
-                                                        &execution_outcome_response
-                                                            .outcome_proof
-                                                            .proof,
-                                                        &outcome_with_id_to_hash,
-                                                    );
-                                                assert!(verify_path(
-                                                    res.header.outcome_root,
-                                                    &execution_outcome_response.outcome_root_proof,
-                                                    &chunk_outcome_root
-                                                ));
-                                                future::ready(())
-                                            })
-                                    });
+                                            assert!(verify_path(
+                                                res.header.outcome_root,
+                                                &execution_outcome_response.outcome_root_proof,
+                                                &chunk_outcome_root
+                                            ));
+                                            future::ready(())
+                                        })
+                                });
                                 futures.push(fut);
                             }
                             spawn_interruptible(join_all(futures).then(|_| {
