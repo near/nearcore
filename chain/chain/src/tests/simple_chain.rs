@@ -81,7 +81,7 @@ fn build_chain() {
 }
 
 #[test]
-fn build_chain_with_orhpans() {
+fn build_chain_with_orphans() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
     let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
