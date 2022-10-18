@@ -88,6 +88,8 @@ pub enum CacheError {
     DeserializationError,
     #[error("cache serialization error")]
     SerializationError { hash: [u8; 32] },
+    #[error("cache loading error")]
+    LoadingError,
 }
 /// A kind of a trap happened during execution of a binary
 #[derive(

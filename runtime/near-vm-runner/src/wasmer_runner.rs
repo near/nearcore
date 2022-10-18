@@ -290,7 +290,7 @@ impl Wasmer0VM {
                             .unwrap();
                             let module =
                                 wasmer_runtime_core::load_cache_with(artifact, compiler.as_ref())
-                                    .map_err(|_| CacheError::DeserializationError)?;
+                                    .map_err(|_| CacheError::LoadingError)?;
                             Some(module)
                         }
                     }

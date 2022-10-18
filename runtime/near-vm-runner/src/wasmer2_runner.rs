@@ -322,7 +322,7 @@ impl Wasmer2VM {
                                 .engine
                                 .load_universal_executable_ref(&executable)
                                 .map(Arc::new)
-                                .map_err(|_| CacheError::DeserializationError)?;
+                                .map_err(|_| CacheError::LoadingError)?;
                             Some(artifact)
                         }
                     }
@@ -349,7 +349,7 @@ impl Wasmer2VM {
                                 .engine
                                 .load_universal_executable(&executable)
                                 .map(Arc::new)
-                                .map_err(|_| CacheError::DeserializationError)?,
+                                .map_err(|_| CacheError::LoadingError)?,
                             Err(it) => return Ok(Err(it)),
                         }
                     }
