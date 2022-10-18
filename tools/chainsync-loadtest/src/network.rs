@@ -292,9 +292,14 @@ impl Actor for FakeClientActor {
     type Context = Context<Self>;
 }
 
-impl Handler<NetworkViewClientMessages> for FakeClientActor {
+impl Handler<WithSpanContext<NetworkViewClientMessages>> for FakeClientActor {
     type Result = NetworkViewClientResponses;
-    fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<NetworkViewClientMessages>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let msg = msg.msg;
         let name = match msg {
             NetworkViewClientMessages::TxStatus { .. } => "TxStatus",
             NetworkViewClientMessages::TxStatusResponse(_) => "TxStatusResponse",

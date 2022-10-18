@@ -10,6 +10,7 @@ use near_chain_configs::Genesis;
 use near_client::GetBlock;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
 use near_o11y::testonly::init_integration_logger;
+use near_o11y::WithSpanContextExt;
 use nearcore::{config::GenesisExt, load_test_config, start_with_config};
 
 /// One client is in front, another must sync to it using state (fast) sync.
@@ -42,7 +43,8 @@ fn sync_state_nodes() {
                         let arbiters_holder2 = arbiters_holder2.clone();
                         let genesis2 = genesis.clone();
 
-                        actix::spawn(view_client1.send(GetBlock::latest()).then(move |res| {
+                        let actor = view_client1.send(GetBlock::latest().with_span_context());
+                        let actor = actor.then(move |res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => {
                                     let mut view_client2_holder2 =
@@ -79,11 +81,13 @@ fn sync_state_nodes() {
                                 _ => {}
                             };
                             future::ready(())
-                        }));
+                        });
+                        actix::spawn(actor);
                     }
 
                     if let Some(view_client2) = &*view_client2_holder.write().unwrap() {
-                        actix::spawn(view_client2.send(GetBlock::latest()).then(|res| {
+                        let actor = view_client2.send(GetBlock::latest().with_span_context());
+                        let actor = actor.then(|res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
                                 Ok(Ok(b)) if b.header.height < 101 => {
@@ -93,7 +97,8 @@ fn sync_state_nodes() {
                                 _ => {}
                             };
                             future::ready(())
-                        }));
+                        });
+                        actix::spawn(actor);
                     } else {
                     }
                 }),
@@ -177,7 +182,8 @@ fn sync_state_nodes_multishard() {
                         let arbiter_holder2 = arbiter_holder2.clone();
                         let genesis2 = genesis.clone();
 
-                        actix::spawn(view_client1.send(GetBlock::latest()).then(move |res| {
+                        let actor = view_client1.send(GetBlock::latest().with_span_context());
+                        let actor = actor.then(move |res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => {
                                     let mut view_client2_holder2 =
@@ -220,11 +226,13 @@ fn sync_state_nodes_multishard() {
                                 _ => {}
                             };
                             future::ready(())
-                        }));
+                        });
+                        actix::spawn(actor);
                     }
 
                     if let Some(view_client2) = &*view_client2_holder.write().unwrap() {
-                        actix::spawn(view_client2.send(GetBlock::latest()).then(|res| {
+                        let actor = view_client2.send(GetBlock::latest().with_span_context());
+                        let actor = actor.then(|res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
                                 Ok(Ok(b)) if b.header.height < 101 => {
@@ -243,7 +251,8 @@ fn sync_state_nodes_multishard() {
                                 }
                             };
                             future::ready(())
-                        }));
+                        });
+                        actix::spawn(actor);
                     }
                 }),
                 100,
@@ -298,7 +307,8 @@ fn sync_empty_state() {
                         let genesis2 = genesis.clone();
                         let dir2 = dir2.clone();
 
-                        actix::spawn(view_client1.send(GetBlock::latest()).then(move |res| {
+                        let actor = view_client1.send(GetBlock::latest().with_span_context());
+                        let actor = actor.then(move |res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= state_sync_horizon + 1 => {
                                     let mut view_client2_holder2 =
@@ -340,11 +350,13 @@ fn sync_empty_state() {
                                 _ => {}
                             };
                             future::ready(())
-                        }));
+                        });
+                        actix::spawn(actor);
                     }
 
                     if let Some(view_client2) = &*view_client2_holder.write().unwrap() {
-                        actix::spawn(view_client2.send(GetBlock::latest()).then(|res| {
+                        let actor = view_client2.send(GetBlock::latest().with_span_context());
+                        let actor = actor.then(|res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 40 => System::current().stop(),
                                 Ok(Ok(b)) if b.header.height < 40 => {
@@ -363,7 +375,8 @@ fn sync_empty_state() {
                                 }
                             };
                             future::ready(())
-                        }));
+                        });
+                        actix::spawn(actor);
                     }
                 }),
                 100,
