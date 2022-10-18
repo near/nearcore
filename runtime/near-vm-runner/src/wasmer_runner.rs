@@ -244,6 +244,7 @@ impl Wasmer0VM {
         &self,
         code: &ContractCode,
     ) -> Result<wasmer_runtime::Module, CompilationError> {
+        let _span = tracing::debug_span!(target: "vm", "Wasmer0VM::compile_uncached").entered();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config)
             .map_err(CompilationError::PrepareError)?;
         wasmer_runtime::compile(&prepared_code).map_err(|err| match err {
@@ -263,10 +264,16 @@ impl Wasmer0VM {
         code: &ContractCode,
         cache: Option<&dyn CompiledContractCache>,
     ) -> Result<Result<wasmer_runtime::Module, CompilationError>, CacheError> {
+        let _span = tracing::debug_span!(target: "vm", "Wasmer0VM::compile_and_load").entered();
+
         let key = get_contract_cache_key(code, VMKind::Wasmer0, &self.config);
 
         let compile_or_read_from_cache =
             || -> Result<Result<wasmer_runtime::Module, CompilationError>, CacheError> {
+                let _span =
+                    tracing::debug_span!(target: "vm", "Wasmer0VM::compile_or_read_from_cache")
+                        .entered();
+
                 let cache_record = cache
                     .map(|cache| cache.get(&key))
                     .transpose()
@@ -277,6 +284,9 @@ impl Wasmer0VM {
                     None => None,
                     Some(CompiledContract::CompileModuleError(err)) => return Ok(Err(err)),
                     Some(CompiledContract::Code(serialized_module)) => {
+                        let _span =
+                            tracing::debug_span!(target: "vm", "Wasmer0VM::read_from_cache")
+                                .entered();
                         let artifact = wasmer_runtime_core::cache::Artifact::deserialize(
                             serialized_module.as_slice(),
                         )

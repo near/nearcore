@@ -290,10 +290,23 @@ impl Wasmer2VM {
         code: &ContractCode,
         cache: Option<&dyn CompiledContractCache>,
     ) -> Result<Result<VMArtifact, CompilationError>, CacheError> {
+        // A bit of a tricky logic ahead! We need to deal with two levels of
+        // caching:
+        //   * `cache` stores compiled machine code in the database
+        //   * `MEM_CACHE` below holds in-memory cache of loaded contracts
+        //
+        // Caches also cache _compilation_ errors, so that we don't have to
+        // re-parse invalid code (invalid code, in a sense, is a normal
+        // outcome). And `cache`, being a database, can fail with an `io::Error`.
+        let _span = tracing::debug_span!(target: "vm", "Wasmer2VM::compile_and_load").entered();
+
         let key = get_contract_cache_key(code, VMKind::Wasmer2, &self.config);
 
         let compile_or_read_from_cache =
             || -> Result<Result<VMArtifact, CompilationError>, CacheError> {
+                let _span =
+                    tracing::debug_span!(target: "vm", "Wasmer2VM::compile_or_read_from_cache")
+                        .entered();
                 let cache_record = cache
                     .map(|cache| cache.get(&key))
                     .transpose()
@@ -304,6 +317,9 @@ impl Wasmer2VM {
                     None => None,
                     Some(CompiledContract::CompileModuleError(err)) => return Ok(Err(err)),
                     Some(CompiledContract::Code(serialized_module)) => {
+                        let _span =
+                            tracing::debug_span!(target: "vm", "Wasmer2VM::read_from_cache")
+                                .entered();
                         unsafe {
                             // (UN-)SAFETY: the `serialized_module` must have been produced by a prior call to
                             // `serialize`.
