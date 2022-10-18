@@ -126,7 +126,7 @@ pub fn do_migrate_34_to_35(
         let state_root = chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root().clone();
         let trie = runtime.get_trie_for_shard(shard_id, &block_hash, state_root, false)?;
 
-        let sub_trie_size = 1_000_000;
+        let sub_trie_size = 5_000_000;
         let max_threads = 128;
         let thread_slots = Arc::new(std::sync::atomic::AtomicU32::new(max_threads));
 
@@ -142,11 +142,11 @@ pub fn do_migrate_34_to_35(
                 panic!("Too long nibbles vec");
             }
             // DEBUG HEX PREFIXES
-            let hex_prefix: String = key_nibbles
-                .iter()
-                .map(|&n| char::from_digit(n as u32, 16).expect("nibble should be <16"))
-                .collect();
-            debug!(target: "store", "Preload subtrie at {hex_prefix}");
+            // let hex_prefix: String = key_nibbles
+            //     .iter()
+            //     .map(|&n| char::from_digit(n as u32, 16).expect("nibble should be <16"))
+            //     .collect();
+            // debug!(target: "store", "Preload subtrie at {hex_prefix}");
             continue;
 
             let storage = trie
