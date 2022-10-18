@@ -85,6 +85,7 @@ impl fmt::Debug for MockCompiledContractCache {
     }
 }
 
+/// Size of in-memory cache for compiled and loaded contracts.
 #[cfg(all(not(feature = "no_cache"), target_arch = "x86_64"))]
 pub(crate) const CACHE_SIZE: usize = 128;
 
