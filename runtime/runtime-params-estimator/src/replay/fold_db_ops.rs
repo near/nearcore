@@ -20,7 +20,7 @@ pub(super) struct FoldDbOps {
     /// Only show data for a specific smart contract, specified by account id.
     /// Currently only applies within receipts.
     account_filter: Option<String>,
-    /// Skip all input lines that are less indented.
+    /// Only evaluate lines with at least this depth of indentation.
     ///
     /// Used to apply filters and skip some parts of the trace.
     /// Default is 0, which collects everything.
@@ -123,14 +123,14 @@ impl FoldDbOps {
         state
     }
 
-    fn skip(&mut self, trace_indent: usize) -> bool {
+    fn skip_eval(&mut self, trace_indent: usize) -> bool {
         trace_indent < self.min_indent
     }
 
     /// Check if indentation has gone back enough to pop current state or reset filter.
     ///
     /// Call this before `skip()` to ensure it uses the correct `min_indent`.
-    fn check_indent(&mut self, out: &mut dyn Write, indent: usize) -> anyhow::Result<()> {
+    fn update_state(&mut self, out: &mut dyn Write, indent: usize) -> anyhow::Result<()> {
         if self.states.len() > 1 && self.state().indent >= indent {
             self.pop_state().print(out)?;
         }
@@ -154,7 +154,7 @@ impl Visitor for FoldDbOps {
         key: &[u8],
         col: &str,
     ) -> anyhow::Result<()> {
-        self.check_indent(out, indent)?;
+        self.update_state(out, indent)?;
 
         // Block hash in traces is visibly by looking at DB lookups of
         // `BlockInfo` column. Keep track of it so that each time something is
@@ -170,7 +170,7 @@ impl Visitor for FoldDbOps {
             }
         }
 
-        if self.skip(indent) {
+        if self.skip_eval(indent) {
             return Ok(());
         }
 
@@ -197,8 +197,8 @@ impl Visitor for FoldDbOps {
         op: &str,
         dict: &BTreeMap<&str, &str>,
     ) -> anyhow::Result<()> {
-        self.check_indent(out, indent)?;
-        if self.skip(indent) {
+        self.update_state(out, indent)?;
+        if self.skip_eval(indent) {
             return Ok(());
         }
         if let Some(cache_stats) = &mut self.state().cache_stats {
@@ -214,7 +214,7 @@ impl Visitor for FoldDbOps {
         label: &str,
         dict: &BTreeMap<&str, &str>,
     ) -> anyhow::Result<()> {
-        self.check_indent(out, indent)?;
+        self.update_state(out, indent)?;
         if let (Some(receiver), Some(filtered_account)) =
             (dict.get("receiver"), &self.account_filter)
         {
@@ -223,7 +223,7 @@ impl Visitor for FoldDbOps {
                 self.filter_reset_indent = Some(indent);
             }
         }
-        if self.skip(indent) {
+        if self.skip_eval(indent) {
             return Ok(());
         }
         if self.fold_anchors.contains_key(label) {
