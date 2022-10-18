@@ -10,7 +10,7 @@ macro_rules! handler_span {
         let WithSpanContext { msg, context, .. } = $msg;
 
         fn fix_name(name: &str) -> &str {
-            name.rsplit_once("::").map_or("_", |(_, name)| name)
+            name.rsplit_once("::").map_or(name, |(_, name)| name)
         }
         fn type_name_of<T>(_: &T) -> &str {
             fix_name(std::any::type_name::<T>())
@@ -30,7 +30,7 @@ macro_rules! handler_span {
         let WithSpanContext { msg, context, .. } = $msg;
 
         fn fix_name(name: &str) -> &str {
-            name.rsplit_once("::").map_or("_", |(_, name)| name)
+            name.rsplit_once("::").map_or(name, |(_, name)| name)
         }
         fn type_name_of<T>(_: &T) -> &str {
             fix_name(std::any::type_name::<T>())
