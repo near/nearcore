@@ -3,8 +3,8 @@ use near_primitives::receipt::ReceiptResult;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::types::Gas;
 use near_primitives::utils::index_to_bytes;
+use near_store::metadata::{DbVersion, DB_VERSION};
 use near_store::migrations::BatchedStoreUpdate;
-use near_store::version::{DbVersion, DB_VERSION};
 use near_store::{DBCol, NodeStorage, Temperature};
 
 /// Fix an issue with block ordinal (#5761)
@@ -136,7 +136,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
         }
     }
 
-    fn migrate(&self, storage: &NodeStorage, version: DbVersion) -> Result<(), anyhow::Error> {
+    fn migrate(&self, storage: &NodeStorage, version: DbVersion) -> anyhow::Result<()> {
         match version {
             0..=26 => unreachable!(),
             27 => {
@@ -153,6 +153,10 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
             29 => near_store::migrations::migrate_29_to_30(storage),
             30 => migrate_30_to_31(storage, &self.config),
             31 => near_store::migrations::migrate_31_to_32(storage),
+            32 => near_store::migrations::migrate_32_to_33(storage),
+            33 => {
+                near_store::migrations::migrate_33_to_34(storage, self.config.client_config.archive)
+            }
             DB_VERSION.. => unreachable!(),
         }
     }

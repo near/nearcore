@@ -16,10 +16,10 @@ use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
 use near_primitives::syncing::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
+use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId};
-use near_primitives::utils::get_block_shard_id_rev;
+use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash_rev};
 use near_store::db::refcount;
 use near_store::{DBCol, Store, TrieChanges};
 use validate::StoreValidatorError;
@@ -221,7 +221,7 @@ impl StoreValidator {
                 DBCol::OutcomeIds => {
                     let (block_hash, _) = get_block_shard_id_rev(key_ref)?;
                     let outcome_ids = Vec::<CryptoHash>::try_from_slice(value_ref)?;
-                    // TransactionResult which can be indexed by Outcome id exists
+                    // TransactionResultForBlock should exist for outcome ID and block hash
                     self.check(
                         &validate::outcome_by_outcome_id_exists,
                         &block_hash,
@@ -231,15 +231,14 @@ impl StoreValidator {
                     // Block which can be indexed by Outcome block_hash exists
                     self.check(&validate::outcome_id_block_exists, &block_hash, &outcome_ids, col);
                 }
-                DBCol::TransactionResult => {
-                    let outcome_id = CryptoHash::try_from_slice(key_ref)?;
-                    let outcomes =
-                        <Vec<ExecutionOutcomeWithIdAndProof>>::try_from_slice(value_ref)?;
+                DBCol::TransactionResultForBlock => {
+                    let (outcome_id, block_hash) = get_outcome_id_block_hash_rev(key_ref)?;
+                    let outcome = <ExecutionOutcomeWithProof>::try_from_slice(value_ref)?;
                     // Outcome is reachable in ColOutcomesByBlockHash
                     self.check(
                         &validate::outcome_indexed_by_block_hash,
-                        &outcome_id,
-                        &outcomes,
+                        &(outcome_id, block_hash),
+                        &outcome,
                         col,
                     );
                 }
@@ -412,7 +411,7 @@ mod tests {
         store_update.set_raw_bytes(
             DBCol::Block,
             chain.get_block_by_height(0).unwrap().hash().as_ref(),
-            &vec![123],
+            &[123],
         );
         store_update.commit().unwrap();
         match sv.validate_col(DBCol::Block) {
@@ -426,7 +425,7 @@ mod tests {
         let (chain, mut sv) = init();
         let mut store_update = chain.store().store().store_update();
         assert!(sv.validate_col(DBCol::TrieChanges).is_ok());
-        store_update.set_ser::<Vec<u8>>(DBCol::TrieChanges, "567".as_ref(), &vec![123]).unwrap();
+        store_update.set_ser::<[u8]>(DBCol::TrieChanges, "567".as_ref(), &[123]).unwrap();
         store_update.commit().unwrap();
         match sv.validate_col(DBCol::TrieChanges) {
             Err(StoreValidatorError::DBCorruption(_)) => {}

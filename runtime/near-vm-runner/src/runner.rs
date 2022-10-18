@@ -1,16 +1,30 @@
-use near_primitives::checked_feature;
+use crate::vm_kind::VMKind;
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
-use near_primitives::profile::ProfileData;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
-use near_vm_errors::VMError;
+use near_vm_errors::{FunctionCallError, VMRunnerError};
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, ReturnData, VMContext, VMLogic, VMOutcome};
+use near_vm_logic::{External, VMContext, VMOutcome};
 
-use crate::vm_kind::VMKind;
+/// Returned by VM::run method.
+///
+/// `VMRunnerError` means nearcore is buggy or the data base has been corrupted.
+/// We are unable to produce a deterministic result. The correct action usually
+/// is to crash or maybe ban a peer and/or send a challenge.
+///
+/// A `VMOutcome` is a graceful completion of a VM execution. It can also contain
+/// an guest error message in the `aborted` field. But these are not errors in
+/// the real sense, those are just reasons why execution failed at some point.
+/// Such as when a smart contract code panics.
+/// Note that the fact that `VMOutcome` contains is tracked on the blockchain.
+/// All validators must produce an error deterministically or all should succeed.
+/// (See also `PartialExecutionStatus`.)
+/// Similarly, the gas values on `VMOutcome` must be the exact same on all
+/// validators, even when a guest error occurs, or else their state will diverge.
+pub(crate) type VMResult = Result<VMOutcome, VMRunnerError>;
 
 /// Validate and run the specified contract.
 ///
@@ -54,7 +68,7 @@ pub fn run(
         panic!("the {:?} runtime has not been enabled at compile time", vm_kind)
     });
 
-    let res = runtime.run(
+    let outcome = runtime.run(
         code,
         method_name,
         ext,
@@ -63,10 +77,10 @@ pub fn run(
         promise_results,
         current_protocol_version,
         cache,
-    );
+    )?;
 
-    span.record("burnt_gas", &res.outcome().burnt_gas);
-    res
+    span.record("burnt_gas", &outcome.burnt_gas);
+    Ok(outcome)
 }
 
 pub trait VM {
@@ -107,7 +121,7 @@ pub trait VM {
         code: &[u8],
         code_hash: &CryptoHash,
         cache: &dyn CompiledContractCache,
-    ) -> Option<VMError>;
+    ) -> Result<Option<FunctionCallError>, VMRunnerError>;
 
     /// Verify the `code` contract can be compiled with this `VM`.
     ///
@@ -130,93 +144,6 @@ impl VMKind {
             Self::Wasmer2 => Some(Box::new(crate::wasmer2_runner::Wasmer2VM::new(config))),
             #[allow(unreachable_patterns)] // reachable when some of the VMs are disabled.
             _ => None,
-        }
-    }
-}
-
-/// Type returned by any VM instance after loading a contract and executing a
-/// function inside.
-#[derive(Debug, PartialEq)]
-pub enum VMResult {
-    /// Execution started but hit an error.
-    Aborted(VMOutcome, VMError),
-    /// Execution finished without error.
-    Ok(VMOutcome),
-}
-
-impl VMResult {
-    /// Consumes the `VMLogic` object and computes the final outcome with the
-    /// given error that stopped execution from finishing successfully.
-    pub fn abort(logic: VMLogic, error: VMError) -> VMResult {
-        let outcome = logic.compute_outcome_and_distribute_gas();
-        VMResult::Aborted(outcome, error)
-    }
-
-    /// Consumes the `VMLogic` object and computes the final outcome for a
-    /// successful execution.
-    pub fn ok(logic: VMLogic) -> VMResult {
-        let outcome = logic.compute_outcome_and_distribute_gas();
-        VMResult::Ok(outcome)
-    }
-
-    /// Creates an outcome with a no-op outcome.
-    pub fn nop_outcome(error: VMError) -> VMResult {
-        let outcome = VMOutcome {
-            // Note: Balance and storage fields are ignored on a failed outcome.
-            balance: 0,
-            storage_usage: 0,
-            // Note: Fields below are added or merged when processing the
-            // outcome. With 0 or the empty set, those are no-ops.
-            return_data: ReturnData::None,
-            burnt_gas: 0,
-            used_gas: 0,
-            logs: Vec::new(),
-            profile: ProfileData::default(),
-            action_receipts: Vec::new(),
-        };
-        VMResult::Aborted(outcome, error)
-    }
-
-    /// Like `VMResult::abort()` but without feature `FixContractLoadingCost` it
-    /// will return a NOP outcome. This is used for backwards-compatibility only.
-    pub fn abort_but_nop_outcome_in_old_protocol(
-        logic: VMLogic,
-        error: VMError,
-        current_protocol_version: u32,
-    ) -> VMResult {
-        if checked_feature!(
-            "protocol_feature_fix_contract_loading_cost",
-            FixContractLoadingCost,
-            current_protocol_version
-        ) {
-            VMResult::abort(logic, error)
-        } else {
-            VMResult::nop_outcome(error)
-        }
-    }
-
-    /// Borrow the internal outcome, if there is one.
-    pub fn outcome(&self) -> &VMOutcome {
-        match self {
-            VMResult::Aborted(outcome, _err) => outcome,
-            VMResult::Ok(outcome) => outcome,
-        }
-    }
-
-    /// Borrow the internal error, if there is one.
-    pub fn error(&self) -> Option<&VMError> {
-        match self {
-            VMResult::Aborted(_outcome, err) => Some(err),
-            VMResult::Ok(_outcome) => None,
-        }
-    }
-
-    /// Unpack the internal outcome and error. This method mostly exists for
-    /// easy compatibility with code that was written before `VMResult` existed.
-    pub fn outcome_error(self) -> (VMOutcome, Option<VMError>) {
-        match self {
-            VMResult::Aborted(outcome, err) => (outcome, Some(err)),
-            VMResult::Ok(outcome) => (outcome, None),
         }
     }
 }

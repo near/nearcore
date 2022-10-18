@@ -135,6 +135,7 @@ pub(crate) fn apply_chunk(
             true,
             is_first_block_with_chunk_of_version,
             Default::default(),
+            false,
         )?,
         chunk_header.gas_limit(),
     ))
@@ -196,7 +197,7 @@ fn apply_tx_in_block(
             }
         },
         None => {
-            Err(anyhow!("Could not find tx with hash {} in block {}, even though `DBCol::TransactionResult` says it should be there", tx_hash, block_hash))
+            Err(anyhow!("Could not find tx with hash {} in block {}, even though `DBCol::TransactionResultForBlock` says it should be there", tx_hash, block_hash))
         }
     }
 }

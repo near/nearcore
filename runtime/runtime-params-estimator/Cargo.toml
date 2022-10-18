@@ -32,7 +32,6 @@ tempfile.workspace = true
 tracing-span-tree.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
-walrus.workspace = true
 wat.workspace = true
 
 genesis-populate = { path = "../../genesis-tools/genesis-populate"}

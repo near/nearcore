@@ -5,7 +5,10 @@ use serde::ser::{Serialize, Serializer};
 use serde_json::json;
 use tokio;
 
+use near_jsonrpc_primitives::types;
 use near_jsonrpc_tests as test_utils;
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::Finality;
 
 static mut NODE_ADDR: Option<String> = None;
 static NODE_INIT: std::sync::Once = std::sync::Once::new();
@@ -13,11 +16,11 @@ static NODE_INIT: std::sync::Once = std::sync::Once::new();
 #[derive(Debug, arbitrary::Arbitrary)]
 enum JsonRpcRequest {
     Query(RpcQueryRequest),
-    Block(RpcBlockRequest),
-    Chunk(RpcChunkRequest),
+    Block(types::blocks::RpcBlockRequest),
+    Chunk(types::chunks::RpcChunkRequest),
     Tx(RpcTxStatusRequest),
-    Validators(RpcValidatorsRequest),
-    GasPrice(RpcGasPriceRequest),
+    Validators(types::validator::RpcValidatorRequest),
+    GasPrice(types::gas_price::RpcGasPriceRequest),
     BroadcastTxAsync(RpcBroadcastTx),
     BroadcastTxCommit(RpcBroadcastTx),
 }
@@ -51,49 +54,13 @@ enum RpcQueryRequest {
     },
 }
 
-#[derive(Debug, arbitrary::Arbitrary, serde::Serialize)]
-#[serde(rename_all = "kebab-case")]
-enum Finality {
-    Optimistic,
-    NearFinal,
-    Final,
-}
-
-#[derive(Debug, arbitrary::Arbitrary, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-enum RpcBlockRequest {
-    BlockId(u64),
-    Finality(Finality),
-}
-
-#[derive(Debug, arbitrary::Arbitrary)]
-struct Base58String([u8; 32]);
-
 #[derive(Debug, arbitrary::Arbitrary)]
 struct Base64String([u8; 32]);
 
 #[derive(Debug, arbitrary::Arbitrary, serde::Serialize)]
-#[serde(untagged, rename_all = "snake_case")]
-enum RpcChunkRequest {
-    ChunkHash([Base58String; 1]),
-}
-
-#[derive(Debug, arbitrary::Arbitrary, serde::Serialize)]
 #[serde(untagged)]
 enum RpcTxStatusRequest {
-    Transaction(Base58String, String),
-}
-
-#[derive(Debug, arbitrary::Arbitrary, serde::Serialize)]
-#[serde(untagged)]
-enum RpcValidatorsRequest {
-    BlockHash([Base58String; 1]),
-}
-
-#[derive(Debug, arbitrary::Arbitrary, serde::Serialize)]
-#[serde(untagged)]
-enum RpcGasPriceRequest {
-    BlockHash([Base58String; 1]),
+    Transaction(CryptoHash, String),
 }
 
 #[derive(Debug, arbitrary::Arbitrary, serde::Serialize)]
@@ -117,23 +84,9 @@ impl JsonRpcRequest {
     }
 }
 
-impl Serialize for Base58String {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let serialised = near_primitives::serialize::to_base58(&self.0);
-        serializer.serialize_newtype_struct("Base58String", &serialised)
-    }
-}
-
 impl Serialize for Base64String {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let serialised = near_primitives::serialize::to_base64(&self.0);
-        serializer.serialize_newtype_struct("Base64String", &serialised)
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        near_primitives::serialize::base64_format::serialize(&self.0, serializer)
     }
 }
 

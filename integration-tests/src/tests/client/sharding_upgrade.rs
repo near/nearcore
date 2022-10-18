@@ -159,7 +159,7 @@ impl TestShardUpgradeEnv {
                 )
                 .unwrap();
             if should_catchup {
-                run_catchup(&mut env.clients[j], &vec![]).unwrap();
+                run_catchup(&mut env.clients[j], &[]).unwrap();
             }
             while wait_for_all_blocks_in_processing(&mut env.clients[j].chain) {
                 let (_, errors) =
@@ -167,7 +167,7 @@ impl TestShardUpgradeEnv {
                 assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
             }
             if should_catchup {
-                run_catchup(&mut env.clients[j], &vec![]).unwrap();
+                run_catchup(&mut env.clients[j], &[]).unwrap();
             }
         }
 
