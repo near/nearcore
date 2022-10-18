@@ -24,26 +24,38 @@ pub const MAX_ROUTES_TO_STORE: usize = 5;
 /// Maximum number of PeerAddts in the ValidatorConfig::endpoints field.
 pub const MAX_PEER_ADDRS: usize = 10;
 
-/// ValidatorEndpoints are the endpoints that peers should connect to, to send messages to this
-/// validator. Validator will sign the endpoints and broadcast them to the network.
-/// For a static setup (a static IP, or a list of relay nodes with static IPs) use PublicAddrs.
-/// For a dynamic setup (with a single dynamic/ephemeral IP), use TrustedStunServers.
+/// Address of the format "<domain/ip>:<port>" of STUN servers.
+pub type StunServerAddr = String;
+
+/// ValidatorProxies are nodes with public IP (aka proxies) that this validator trusts to be honest
+/// and willing to forward traffic to this validator. Whenever this node is a TIER1 validator
+/// (i.e. whenever it is a block producer/chunk producer/approver for the given epoch),
+/// it will connect to all the proxies in this config and advertise a signed list of proxies that
+/// it has established a connection to.
+///
+/// Once other TIER1 nodes learn the list of proxies, they will maintain a connection to a random
+/// proxy on this list. This way a message from any TIER1 node to this node will require at most 2
+/// hops.
+///
+/// neard supports 2 modes for configuring proxy addresses:
+/// * [recommended] `Static` list of proxies (public SocketAddr + PeerId), supports up to 10 proxies. 
+///   It is a totally valid setup for a TIER1 validator to be its own (perahaps only) proxy:
+///   to achieve that, add an entry with the public address of this node to the Static list.
+/// * [discouraged] `Dynamic` proxy - in case you want this validator to be its own and only proxy,
+///   instead of adding the public address explicitly to the `Static` list, you can specify a STUN
+///   server address (or a couple of them) which will be used to dynamically resolve the public IP
+///   of this validator. Note that in this case the validator trusts the STUN servers to correctly
+///   resolve the public IP.
 #[derive(Clone)]
-pub enum ValidatorEndpoints {
-    /// Single public address of this validator, or a list of public addresses of trusted nodes
-    /// willing to route messages to this validator. Validator will connect to the listed relay
-    /// nodes on startup.
-    PublicAddrs(Vec<PeerAddr>),
-    /// Addresses of the format "<domain/ip>:<port>" of STUN servers.
-    /// The IP of the validator will be determined dynamically by querying all the STUN servers on
-    /// the list.
-    TrustedStunServers(Vec<String>),
+pub enum ValidatorProxies {
+    Static(Vec<PeerAddr>),
+    Dynamic(Vec<StunServerAddr>),
 }
 
 #[derive(Clone)]
 pub struct ValidatorConfig {
     pub signer: Arc<dyn ValidatorSigner>,
-    pub endpoints: ValidatorEndpoints,
+    pub proxies: ValidatorProxies,
 }
 
 impl ValidatorConfig {
@@ -59,8 +71,15 @@ pub struct Features {
 
 #[derive(Clone)]
 pub struct Tier1 {
-    pub daemon_tick_interval: time::Duration,
-    pub new_connections_per_tick: usize,
+    /// Interval between attempts to connect to proxies of other TIER1 nodes.
+    pub connect_interval: time::Duration,
+    /// Maximal number of new connections established every connect_interval.
+    /// TIER1 can consists of hundreds of nodes, so it is not feasible to connect to all of them at
+    /// once.
+    pub new_connections_per_attempt: usize,
+    /// Interval between broacasts of the list of validator's proxies.
+    /// Before the broadcast, validator tries to establish all the missing connections to proxies.
+    pub advertise_proxies_interval: time::Duration,
     /*
     /// Max rate at which TIER1 messages will be read from TCP sockets.
     /// Above that rate reading will block, which will cause extra data
@@ -173,10 +192,10 @@ impl NetworkConfig {
             node_key,
             validator: validator_signer.map(|signer| ValidatorConfig {
                 signer,
-                endpoints: if cfg.public_addrs.len() > 0 {
-                    ValidatorEndpoints::PublicAddrs(cfg.public_addrs)
+                proxies: if cfg.public_addrs.len() > 0 {
+                    ValidatorProxies::Static(cfg.public_addrs)
                 } else {
-                    ValidatorEndpoints::TrustedStunServers(cfg.trusted_stun_servers)
+                    ValidatorProxies::Dynamic(cfg.trusted_stun_servers)
                 },
             }),
             node_addr: match cfg.addr.as_str() {
@@ -264,7 +283,7 @@ impl NetworkConfig {
                 KeyType::ED25519,
                 seed,
             )),
-            endpoints: ValidatorEndpoints::PublicAddrs(vec![PeerAddr {
+            proxies: ValidatorProxies::Static(vec![PeerAddr {
                 addr: node_addr,
                 peer_id: PeerId::new(node_key.public_key()),
             }]),
@@ -305,8 +324,9 @@ impl NetworkConfig {
                 tier1: Some(Tier1 {
                     // The tick is triggered manually.
                     // The all feasible connections should be established.
-                    daemon_tick_interval: time::Duration::hours(1000),
-                    new_connections_per_tick: 10000,
+                    connect_interval: time::Duration::hours(1000),
+                    new_connections_per_attempt: 10000,
+                    advertise_proxies_interval: time::Duration::hours(1000),
                 }),
             },
             skip_tombstones: None,

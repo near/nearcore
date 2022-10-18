@@ -137,7 +137,12 @@ async fn accounts_data_gradual_epoch_change() {
         // Advance epoch in the given order.
         for id in ids {
             pms[id].set_chain_info(chain_info.clone()).await;
-            pms[id].tier1_connect_to_proxies(&clock.clock()).await;
+            // In this tests each node is its own proxy, so it can immediately
+            // connect to itself (to verify the public addr) and advertise it.
+            // If some other node B was a proxy for a node A, then first both 
+            // A and B would have to update their chain_info, and only then A
+            // would be able to connect to B and advertise B as proxy afterwards.
+            pms[id].tier1_advertise_proxies(&clock.clock()).await;
         }
 
         // Wait for data to arrive.
@@ -222,7 +227,7 @@ async fn accounts_data_rate_limiting() {
     pms.shuffle(rng);
     for pm in &mut pms {
         pm.set_chain_info(chain_info.clone()).await;
-        pm.tier1_connect_to_proxies(&clock.clock()).await;
+        pm.tier1_advertise_proxies(&clock.clock()).await;
         tracing::debug!(target:"test","set chain info [X]");
     }
 

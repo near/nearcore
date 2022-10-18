@@ -646,7 +646,7 @@ impl PeerActor {
             }),
             last_time_peer_requested: AtomicCell::new(None),
             last_time_received_message: AtomicCell::new(now),
-            connection_established_time: now,
+            established_time: now,
             send_accounts_data_demux: demux::Demux::new(
                 self.network_state.config.accounts_data_broadcast_rate_limit,
             ),
@@ -1357,7 +1357,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
                 // case when our peer doesn't use that logic yet.
                 if let Some(skip_tombstones) = self.network_state.config.skip_tombstones {
                     if let PeerMessage::SyncRoutingTable(routing_table) = &mut peer_msg {
-                        if conn.connection_established_time + skip_tombstones > self.clock.now() {
+                        if conn.established_time + skip_tombstones > self.clock.now() {
                             routing_table
                                 .edges
                                 .retain(|edge| edge.edge_type() == EdgeState::Active);

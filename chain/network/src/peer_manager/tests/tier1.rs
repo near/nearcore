@@ -50,7 +50,7 @@ async fn propagate_accounts_data(
     }
     // Make validator connect to proxies.
     for pm in validators {
-        pm.tier1_connect_to_proxies(clock).await;
+        pm.tier1_advertise_proxies(clock).await;
     }
     let want = vs.iter().map(|v| super::peer_account_data(&e, v)).collect();
     // Wait for accounts data to propagate.
@@ -66,7 +66,7 @@ async fn test_clique(
 ) {
     // Establish TIER1 connections.
     for pm in pms {
-        pm.establish_tier1_connections(clock).await;
+        pm.tier1_connect(clock).await;
     }
     // Send a message over each connection.
     for from in pms {
@@ -165,8 +165,8 @@ async fn proxy_connections() {
     let mut validators = vec![];
     for i in 0..N {
         let mut cfg = chain.make_config(rng);
-        cfg.validator.as_mut().unwrap().endpoints =
-            config::ValidatorEndpoints::PublicAddrs(vec![PeerAddr {
+        cfg.validator.as_mut().unwrap().proxies =
+            config::ValidatorProxies::Static(vec![PeerAddr {
                 peer_id: proxies[i].cfg.node_id(),
                 addr: proxies[i].cfg.node_addr.unwrap(),
             }]);

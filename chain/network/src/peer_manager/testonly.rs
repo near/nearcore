@@ -291,12 +291,10 @@ impl ActorHandler {
         self.actix.addr.send(SetChainInfo(chain_info)).await.unwrap();
     }
 
-    pub async fn tier1_connect_to_proxies(&self, clock: &time::Clock) {
+    pub async fn tier1_advertise_proxies(&self, clock: &time::Clock) {
         let clock = clock.clone();
         self.with_state(move |s| async move {
-            tracing::debug!(target:"test","tier1_connect_to_proxies");
-            s.tier1_connect_to_proxies(&clock).await;
-            tracing::debug!(target:"test","tier1_connect_to_proxies DONE");
+            s.tier1_advertise_proxies(&clock).await;
         })
         .await;
     }
@@ -316,37 +314,11 @@ impl ActorHandler {
         }
     }
 
-    pub async fn establish_tier1_connections(&self, clock: &time::Clock) {
-        let mut events = self.events.from_now();
-        let my_account_id = match &self.cfg.validator {
-            Some(v) => v.signer.validator_id().clone(),
-            None => return,
-        };
+    pub async fn tier1_connect(&self, clock: &time::Clock) {
         let clock = clock.clone();
         self.with_state(move |s| async move {
-            // Start the connections.
-            s.tier1_connect_to_others(&clock).await;
-            let ad = s.accounts_data.load();
-            // Wait for all the connections to be established.
-            loop {
-                if ad.keys.keys().all(|(_, account_id)| {
-                    account_id == &my_account_id || s.get_tier1_proxy(account_id).is_some()
-                }) {
-                    break;
-                }
-                events
-                    .recv_until(|ev| match ev {
-                        Event::PeerManager(PME::HandshakeCompleted(ev))
-                            if ev.tier == tcp::Tier::T1 =>
-                        {
-                            Some(())
-                        }
-                        _ => None,
-                    })
-                    .await;
-            }
-        })
-        .await;
+            s.tier1_connect(&clock).await;
+        }).await;
     }
 }
 

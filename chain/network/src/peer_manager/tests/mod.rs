@@ -12,10 +12,10 @@ fn peer_account_data(e: &EpochId, vc: &config::ValidatorConfig) -> NormalAccount
     NormalAccountData {
         epoch_id: e.clone(),
         account_id: vc.signer.validator_id().clone(),
-        peers: match &vc.endpoints {
-            config::ValidatorEndpoints::PublicAddrs(peer_addrs) => peer_addrs.clone(),
-            config::ValidatorEndpoints::TrustedStunServers(_) => {
-                panic!("tests only support PublicAddrs in validator config")
+        peers: match &vc.proxies {
+            config::ValidatorProxies::Static(proxies) => proxies.clone(),
+            config::ValidatorProxies::Dynamic(_) => {
+                panic!("tests only support Static in validator config")
             }
         },
     }

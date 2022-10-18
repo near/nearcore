@@ -31,31 +31,29 @@ impl super::NetworkState {
     /// Tries to connect to ALL trusted proxies from the config, then broadcasts AccountData with
     /// the set of proxies it managed to connect to. This way other TIER1 nodes can just connect
     /// to ANY proxy of this node.
-    pub async fn tier1_connect_to_proxies(self: &Arc<Self>, clock: &time::Clock) {
+    pub async fn tier1_advertise_proxies(self: &Arc<Self>, clock: &time::Clock) {
         let accounts_data = self.accounts_data.load();
         let tier1 = self.tier1.load();
         let vc = match self.tier1_validator_config(&accounts_data) {
             Some(it) => it,
             None => return,
         };
-        let proxies = match &vc.endpoints {
-            config::ValidatorEndpoints::TrustedStunServers(_) => {
-                // TODO(gprusak): If TrustedStunServers are specified,
+        let proxies = match &vc.proxies {
+            config::ValidatorProxies::Dynamic(_) => {
+                // TODO(gprusak): If Dynamic are specified,
                 // it means that this node is its own proxy.
                 // Resolve the public IP of this node using those STUN servers,
                 // then connect to yourself (to verify the public IP).
                 vec![]
             }
-            config::ValidatorEndpoints::PublicAddrs(peer_addrs) => peer_addrs.clone(),
+            config::ValidatorProxies::Static(peer_addrs) => peer_addrs.clone(),
         };
         tracing::debug!(target:"test","proxies = {proxies:?}");
         // Try to connect to all proxies in parallel.
         let mut handles = vec![];
         for proxy in proxies {
-            // Skip the proxies we are already connected/connecting to.
-            if tier1.ready.contains_key(&proxy.peer_id)
-                || tier1.outbound_handshakes.contains(&proxy.peer_id)
-            {
+            // Skip the proxies we are already connected to.
+            if tier1.ready.contains_key(&proxy.peer_id) {
                 continue;
             }
             handles.push(async move {
@@ -74,22 +72,15 @@ impl super::NetworkState {
         }
         for res in futures_util::future::join_all(handles).await {
             if let Err(err) = res {
-                tracing::info!(target:"network", ?err, "failed to establish a TIER1 connection");
+                tracing::info!(target:"network", ?err, "failed to establish a TIER1 proxy");
             }
         }
-        self.tier1_broadcast_proxies(clock).await;
-    }
-
-    pub async fn tier1_broadcast_proxies(self: &Arc<Self>, clock: &time::Clock) {
-        let accounts_data = self.accounts_data.load();
+        
+        // Snapshot tier1 connections again before broadcasting.
         let tier1 = self.tier1.load();
-        // If not a TIER1 validator, skip.
-        let vc = match self.tier1_validator_config(&accounts_data) {
-            Some(it) => it,
-            None => return,
-        };
-        let my_proxies = match &vc.endpoints {
-            config::ValidatorEndpoints::TrustedStunServers(_) => {
+        
+        let my_proxies = match &vc.proxies {
+            config::ValidatorProxies::Dynamic(_) => {
                 match tier1.ready.get(&self.config.node_id()) {
                     Some(conn) => {
                         log_assert!(PeerType::Outbound == conn.peer_type);
@@ -102,7 +93,7 @@ impl super::NetworkState {
                     None => vec![],
                 }
             }
-            config::ValidatorEndpoints::PublicAddrs(proxies) => {
+            config::ValidatorProxies::Static(proxies) => {
                 let mut connected_proxies = vec![];
                 for proxy in proxies {
                     match tier1.ready.get(&proxy.peer_id) {
@@ -170,60 +161,59 @@ impl super::NetworkState {
         })));
     }
 
-    pub async fn tier1_connect_to_others(self: &Arc<Self>, clock: &time::Clock) {
+    /// Closes TIER1 connections from nodes which are not TIER1 any more. 
+    /// If this node is TIER1, it additionally connects to proxies of other TIER1 nodes.
+    pub async fn tier1_connect(self: &Arc<Self>, clock: &time::Clock) {
         let tier1_cfg = match &self.config.features.tier1 {
             Some(it) => it,
             None => return,
         };
         let accounts_data = self.accounts_data.load();
-        let tier1 = self.tier1.load();
         let validator_cfg = self.tier1_validator_config(&accounts_data);
 
         // Construct indices on accounts_data.
-        //let mut accounts_by_peer = HashMap::<_, Vec<_>>::new();
         let mut accounts_by_proxy = HashMap::<_, Vec<_>>::new();
         let mut proxies_by_account = HashMap::<_, Vec<_>>::new();
         for d in accounts_data.data.values() {
             proxies_by_account.entry(&d.account_id).or_default().extend(d.peers.iter());
-            /*if let Some(peer_id) = &d.peer_id {
-                accounts_by_peer.entry(peer_id).or_default().push(&d.account_id);
-            }*/
             for p in &d.peers {
                 accounts_by_proxy.entry(&p.peer_id).or_default().push(&d.account_id);
             }
         }
+        
+        // Browse the connections from newest to oldest.
+        let tier1 = self.tier1.load();
         let mut ready: Vec<_> = tier1.ready.values().collect();
-
-        // Browse the connections from oldest to newest.
-        ready.sort_unstable_by_key(|c| c.connection_established_time);
+        ready.sort_unstable_by_key(|c| c.established_time);
         ready.reverse();
-        let ready: Vec<&PeerId> = ready.into_iter().map(|c| &c.peer_info.id).collect();
 
         // Select the oldest TIER1 connection for each account.
         let mut safe = HashMap::<&AccountId, &PeerId>::new();
-        // Direct TIER1 connections have priority.
-        /*for peer_id in &ready {
-            for account_id in accounts_by_peer.get(peer_id).into_iter().flatten() {
-                safe.insert(account_id, peer_id);
-            }
-        }*/
         if validator_cfg.is_some() {
             // TIER1 nodes can also connect to TIER1 proxies.
-            for peer_id in &ready {
+            for conn in &ready {
+                let peer_id = &conn.peer_info.id;
                 for account_id in accounts_by_proxy.get(peer_id).into_iter().flatten() {
                     safe.insert(account_id, peer_id);
                 }
             }
         }
+        // Direct TIER1 connections have priority.
+        for ((_,account_id),key) in accounts_data.keys.iter() {
+            if let Some(conn) = tier1.ready_by_account_key.get(&key) {
+                safe.insert(account_id,&conn.peer_info.id);
+            }
+        }
+
         // Construct a safe set of connections.
         let mut safe_set: HashSet<PeerId> = safe.values().map(|v| (*v).clone()).collect();
         // Add proxies of our node to the safe set.
         if let Some(vc) = validator_cfg {
-            match &vc.endpoints {
-                config::ValidatorEndpoints::TrustedStunServers(_) => {
+            match &vc.proxies {
+                config::ValidatorProxies::Dynamic(_) => {
                     safe_set.insert(self.config.node_id());
                 }
-                config::ValidatorEndpoints::PublicAddrs(peer_addrs) => {
+                config::ValidatorProxies::Static(peer_addrs) => {
                     // TODO(gprusak): here we add peer_id to a safe set, even if
                     // the conn.peer_addr doesn't match the address from the validator config
                     // (so we cannot advertise it as our proxy). Consider making it more precise.
@@ -239,37 +229,37 @@ impl super::NetworkState {
         }
         if let Some(vc) = validator_cfg {
             // Try to establish new TIER1 connections to accounts in random order.
+            let mut handles = vec![];
             let mut account_ids: Vec<_> = proxies_by_account.keys().copied().collect();
             account_ids.shuffle(&mut rand::thread_rng());
-            let mut new_connections = 0;
             for account_id in account_ids {
-                // Do not start loop connections. We need loop connections, in
-                // case our node is its own proxy (to verify the public IP),
-                // but here we are establishing connections to proxies of other nodes.
+                // tier1_establish_proxies() is responsible for connecting to proxies
+                // of this node. tier1_establish_connections() connects only to proxies
+                // of other TIER1 nodes.
                 if account_id == vc.signer.validator_id() {
                     continue;
                 }
-                if new_connections >= tier1_cfg.new_connections_per_tick {
+                // Bound the number of connections established at a single call to
+                // tier1_establish_connections().
+                if handles.len() >= tier1_cfg.new_connections_per_attempt {
                     break;
                 }
+                // If we are already connected to some proxy of account_id, then
+                // don't establish another connection.
                 if safe.contains_key(account_id) {
                     continue;
                 }
+                // Find addresses of proxies of account_id.
                 let proxies: Vec<&PeerAddr> =
                     proxies_by_account.get(account_id).into_iter().flatten().map(|x| *x).collect();
-                // It there is an outound connection in progress to a potential proxy, then skip.
-                if proxies.iter().any(|p| tier1.outbound_handshakes.contains(&p.peer_id)) {
-                    continue;
-                }
-                // Start a new connection to one of the proxies of the account A, if
-                // we are not already connected/connecting to any proxy of A.
+                // Select a random proxy of the account_id and try to connect to it.
                 let proxy = proxies.iter().choose(&mut rand::thread_rng());
                 if let Some(proxy) = proxy {
-                    new_connections += 1;
-                    if let Err(err) = async {
+                    let proxy = (*proxy).clone();
+                    handles.push(async move {
                         let stream = tcp::Stream::connect(
                             &PeerInfo {
-                                id: proxy.peer_id.clone(),
+                                id: proxy.peer_id,
                                 addr: Some(proxy.addr),
                                 account_id: None,
                             },
@@ -277,11 +267,12 @@ impl super::NetworkState {
                         )
                         .await?;
                         anyhow::Ok(PeerActor::spawn(clock.clone(), stream, None, self.clone())?)
-                    }
-                    .await
-                    {
-                        tracing::info!(target:"network", ?err, ?proxy, "failed to establish a TIER1 connection");
-                    }
+                    });
+                }
+            }
+            for res in futures_util::future::join_all(handles).await {
+                if let Err(err) = res {
+                    tracing::info!(target:"network", ?err, "failed to establish a TIER1 connection");
                 }
             }
         }

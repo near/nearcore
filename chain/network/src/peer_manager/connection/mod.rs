@@ -75,6 +75,7 @@ pub(crate) struct Connection {
 
     pub peer_info: PeerInfo,
     pub edge: Edge,
+    /// AccountKey ownership proof.
     pub owned_account: Option<SignedOwnedAccount>,
     pub initial_chain_info: PeerChainInfoV2,
     pub chain_height: AtomicU64,
@@ -82,7 +83,7 @@ pub(crate) struct Connection {
     /// Who started connection. Inbound (other) or Outbound (us).
     pub peer_type: PeerType,
     /// Time where the connection was established.
-    pub connection_established_time: time::Instant,
+    pub established_time: time::Instant,
 
     /// Last time requested peers.
     pub last_time_peer_requested: AtomicCell<Option<time::Instant>>,
@@ -103,7 +104,7 @@ impl fmt::Debug for Connection {
             .field("peer_info", &self.peer_info)
             .field("edge", &self.edge)
             .field("peer_type", &self.peer_type)
-            .field("connection_established_time", &self.connection_established_time)
+            .field("established_time", &self.established_time)
             .finish()
     }
 }

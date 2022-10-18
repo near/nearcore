@@ -199,16 +199,28 @@ impl actix::Actor for PeerManagerActor {
         }
 
         if let Some(cfg) = self.state.config.features.tier1.clone() {
-            // TIER1 daemon, which closes/initiates TIER1 connections.
+            // Update TIER1 connections periodically.
             let clock = self.clock.clone();
             let state = self.state.clone();
             ctx.spawn(wrap_future(async move {
                 let mut interval =
-                    tokio::time::interval(cfg.daemon_tick_interval.try_into().unwrap());
+                    tokio::time::interval(cfg.connect_interval.try_into().unwrap());
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
+                    state.tier1_connect(&clock).await;
                     interval.tick().await;
-                    state.tier1_connect_to_others(&clock).await;
+                }
+            }));
+            // Update and broadcast the list of TIER1 proxies periodically.
+            let clock = self.clock.clone();
+            let state = self.state.clone();
+            ctx.spawn(wrap_future(async move {
+                let mut interval =
+                    tokio::time::interval(cfg.advertise_proxies_interval.try_into().unwrap());
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    state.tier1_advertise_proxies(&clock).await;
+                    interval.tick().await;
                 }
             }));
         }
@@ -745,7 +757,7 @@ impl PeerManagerActor {
             .collect();
 
         // Sort by established time.
-        active_peers.sort_by_key(|p| p.connection_established_time);
+        active_peers.sort_by_key(|p| p.established_time);
         // Saturate safe set with recently active peers.
         let set_limit = self.config.safe_set_size as usize;
         for p in active_peers {
@@ -881,7 +893,7 @@ impl PeerManagerActor {
                         .load()
                         .unwrap_or(self.clock.now()),
                     last_time_received_message: cp.last_time_received_message.load(),
-                    connection_established_time: cp.connection_established_time,
+                    connection_established_time: cp.established_time,
                     peer_type: cp.peer_type,
                 })
                 .collect(),
