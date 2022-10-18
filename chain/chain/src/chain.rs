@@ -4288,6 +4288,11 @@ impl Chain {
         self.blocks_in_processing.contains(hash)
     }
 
+    #[inline]
+    pub fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error> {
+        self.store.is_height_processed(height)
+    }
+
     /// Check if can sync with sync_hash
     pub fn check_sync_hash_validity(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
         let head = self.head()?;
