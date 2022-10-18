@@ -19,7 +19,7 @@ macro_rules! handler_span {
         let actor = fix_name(std::any::type_name::<Self>());
         let handler = type_name_of(&msg);
 
-        let span = tracing::debug_span!(target: $target, "handle", handler, actor,).entered();
+        let span = tracing::debug_span!(target: $target, "handle", handler, actor).entered();
 
         span.set_parent(context);
         (span, msg)
