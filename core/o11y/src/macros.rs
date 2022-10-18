@@ -9,14 +9,14 @@ macro_rules! handler_span {
     ($target:expr, $msg:expr) => {{
         let WithSpanContext { msg, context, .. } = $msg;
 
-        fn fix_name(name: &str) -> &str {
+        fn last_component_of_name(name: &str) -> &str {
             name.rsplit_once("::").map_or(name, |(_, name)| name)
         }
         fn type_name_of<T>(_: &T) -> &str {
-            fix_name(std::any::type_name::<T>())
+            last_component_of_name(std::any::type_name::<T>())
         }
 
-        let actor = fix_name(std::any::type_name::<Self>());
+        let actor = last_component_of_name(std::any::type_name::<Self>());
         let handler = type_name_of(&msg);
 
         let span = tracing::debug_span!(target: $target, "handle", handler, actor).entered();
@@ -29,15 +29,15 @@ macro_rules! handler_span {
     ($target:expr, $msg:expr, $msg_type_fn:expr) => {{
         let WithSpanContext { msg, context, .. } = $msg;
 
-        fn fix_name(name: &str) -> &str {
+        fn last_component_of_name(name: &str) -> &str {
             name.rsplit_once("::").map_or(name, |(_, name)| name)
         }
         fn type_name_of<T>(_: &T) -> &str {
-            fix_name(std::any::type_name::<T>())
+            last_component_of_name(std::any::type_name::<T>())
         }
 
         let msg_type: &'static str = $msg_type_fn(&msg);
-        let actor = fix_name(std::any::type_name::<Self>());
+        let actor = last_component_of_name(std::any::type_name::<Self>());
         let handler = type_name_of(&msg);
 
         let span =
