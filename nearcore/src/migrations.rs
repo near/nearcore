@@ -120,7 +120,7 @@ pub fn do_migrate_34_to_35(
     // });
     // panic!("Test finished");
 
-    for shard_id in 1..num_shards {
+    for shard_id in 0..num_shards {
         info!(target: "chain", %shard_id, "Start flat state shard migration");
         let shard_uid = runtime.shard_id_to_uid(shard_id, &epoch_id)?;
         let state_root = chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root().clone();
