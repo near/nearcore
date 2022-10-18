@@ -131,6 +131,8 @@ pub fn do_migrate_34_to_35(
         let thread_slots = Arc::new(std::sync::atomic::AtomicU32::new(max_threads));
 
         let mut state_iter = trie.iter()?;
+        let path_begin_encoded = NibbleSlice::encode_nibbles(&[], false);
+        state_iter.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, true)?;
 
         let mut handles = vec![];
         for sub_trie in state_iter.heavy_sub_tries(sub_trie_size)? {
