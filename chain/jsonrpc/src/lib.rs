@@ -31,7 +31,7 @@ use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
 
 mod api;
@@ -788,7 +788,7 @@ impl JsonRpcHandler {
                         self.client_send(DebugStatus::EpochInfo).await?.rpc_into()
                     }
                     "/debug/api/block_status" => {
-                        self.client_send(DebugStatus::BlockStatus).await?.rpc_into()
+                        self.client_send(DebugStatus::BlockStatus(None)).await?.rpc_into()
                     }
                     "/debug/api/validator_status" => {
                         self.client_send(DebugStatus::ValidatorStatus).await?.rpc_into()
@@ -799,6 +799,24 @@ impl JsonRpcHandler {
                         .rpc_into(),
                     _ => return Ok(None),
                 };
+            return Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
+                status_response: debug_status,
+            }));
+        } else {
+            return Ok(None);
+        }
+    }
+
+    pub async fn debug_block_status(
+        &self,
+        starting_height: Option<BlockHeight>,
+    ) -> Result<
+        Option<near_jsonrpc_primitives::types::status::RpcDebugStatusResponse>,
+        near_jsonrpc_primitives::types::status::RpcStatusError,
+    > {
+        if self.enable_debug_rpc {
+            let debug_status =
+                self.client_send(DebugStatus::BlockStatus(starting_height)).await?.rpc_into();
             return Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
                 status_response: debug_status,
             }));
@@ -1330,6 +1348,17 @@ async fn debug_handler(
     }
 }
 
+async fn debug_block_status_handler(
+    path: web::Path<u64>,
+    handler: web::Data<JsonRpcHandler>,
+) -> Result<HttpResponse, HttpError> {
+    match handler.debug_block_status(Some(*path)).await {
+        Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
+        Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
+        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+    }
+}
+
 fn health_handler(
     handler: web::Data<JsonRpcHandler>,
 ) -> impl Future<Output = Result<HttpResponse, HttpError>> {
@@ -1479,6 +1508,10 @@ pub fn start_http(
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
             .service(web::resource("/debug/api/{api}").route(web::get().to(debug_handler)))
+            .service(
+                web::resource("/debug/api/block_status/{starting_height}")
+                    .route(web::get().to(debug_block_status_handler)),
+            )
             .service(debug_html)
             .service(display_debug_html)
     })

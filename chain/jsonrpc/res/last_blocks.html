@@ -2,9 +2,24 @@
 
 <head>
     <style>
+        .explanation {
+            color: gray;
+        }
+
+        .missed-blocks,
+        .missed-chunks {
+            margin-top: 10px;
+            margin-bottom: 10px;
+        }
+
+        button {
+            margin-right: 8px;
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
+            margin-top: 10px;
         }
 
         table,
@@ -15,203 +30,475 @@
 
         td {
             text-align: left;
-            vertical-align: top;
             padding: 8px;
+            vertical-align: middle;
+        }
+
+        .graph-node-cell {
+            border: none;
+            text-align: center;
         }
 
         th {
             text-align: center;
-            vertical-align: center;
+            vertical-align: middle;
             padding: 8px;
             background-color: lightgrey;
         }
 
-        tr.active {
-            background-color: #eff8bf;
+        .skipped-chunk {
+            background-color: lightgray;
         }
 
-        .skippedChunk {
-            background-color: grey;
+        .hash-element {
+            font-family: monospace;
+            cursor: pointer;
         }
 
-        .validatorUnavailable {
+        .validator-unavailable {
             color: red;
         }
+
+        .error {
+            color: red;
+            white-space: pre;
+        }
+
+        .not-on-canonical-chain {
+            color: gray;
+        }
+
+        .missed-height {
+            color: gray;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .graph-dot {
+            width: 12px;
+            height: 12px;
+            background-color: black;
+            border-radius: 100%;
+            display: inline-block;
+        }
+
+        .graph-dot-col-1 {
+            margin-left: 24px;
+        }
+
+        .graph-dot-col-0.graph-dot-total-2 {
+            margin-right: 24px;
+        }
+
+        .not-on-canonical-chain .graph-dot {
+            background-color: gray;
+        }
+
+        .head-label,
+        .header-head-label {
+            font-size: 10px;
+            font-family: Arial, Helvetica, sans-serif;
+            font-weight: bold;
+            color: white;
+            border-radius: 4px;
+            text-align: center;
+            padding: 4px;
+            margin-top: 2px;
+        }
+
+        .head-label {
+            background-color: rgb(76, 208, 0);
+        }
+
+        .header-head-label {
+            background-color: rgb(235, 215, 0);
+        }
     </style>
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://unpkg.com/react@18.2.0/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/lodash@4.17.21/lodash.min.js"></script>
+    <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
     <script>
-        let known_producers = new Set([]);
-
-        function createHashElement(hashValue, creator) {
-            var element = $('<span>');
-            element.addClass('hashElem');
-            if (!known_producers.has(creator)) {
-                element.addClass('validatorUnavailable')
-            }
-            element.attr("hashvalue", hashValue);
-            element.attr("creator", creator);
-            element.css("font-family", "monospace");
-            var suffix = "...";
-            if (creator.length <= 10) {
-                suffix = "";
-            }
-            element.text(hashValue.substring(0, 5) + "... " + creator.substring(0, 10) + suffix);
-            element.click(function () {
-                element.text(hashValue + " " + creator);
-            })
-
-            return element;
-        }
-
-        function fetchBlockStatus() {
-            $.ajax({
-                type: "GET",
-                url: "/debug/api/block_status",
-                success: function (data) {
-                    var root = $("#blocks_table_tbody");
-                    root.html("");
-                    var max_shard = 0;
-                    data.status_response.BlockStatus.forEach(element => {
-                        element.chunks.forEach(chunk => {
-                            if (chunk.shard_id > max_shard) {
-                                max_shard = chunk.shard_id;
-                            }
-                        });
-                    });
-                    let chunks_by_index = {};
-
-                    prepareTableHeader(max_shard);
-                    let missing_blocks = 0;
-                    let missing_chunks_per_shard = Array(max_shard+1).fill(0);
-                    let total_blocks = data.status_response.BlockStatus.length;
-                    data.status_response.BlockStatus.forEach(element => {
-                        var row = $('<tr>');
-
-                        row.append($('<td>').text(element.block_height));
-                        if (element.block_hash == "11111111111111111111111111111111") {
-                            missing_blocks += 1;
-                        }
-                        row.append($('<td>').append(createHashElement(element.block_hash, element.block_producer, "block_id")));
-
-                        row.append($('<td>').text(element.processing_time_ms));
-                        row.append($('<td>').text((element.timestamp_delta / 1000000000).toFixed(3)));
-                        row.append($('<td>').text(element.gas_price_ratio));
-
-
-                        let shards_cells = []
-                        for (let i = 0; i < (max_shard + 1) * 3; i += 1) {
-                            shards_cells.push($('<td>'));
-                        }
-                        element.chunks.forEach((chunk, index) => {
-                            let element = createHashElement(chunk.chunk_hash, chunk.chunk_producer);
-                            (chunks_by_index[index] = chunks_by_index[index] || []).push(element);
-                            shards_cells[chunk.shard_id * 3].append(element);
-                            shards_cells[chunk.shard_id * 3 + 1].text((chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1));
-                            shards_cells[chunk.shard_id * 3 + 2].text(chunk.processing_time_ms);
-                        });
-
-                        for (let i = 0; i < shards_cells.length; i += 1) {
-                            row.append(shards_cells[i]);
-                        }
-                        root.append(row);
-
-                    });
-
-                    for (let i = 0; i <= max_shard; i += 1) {
-                        let previous_hash = ""
-                        for (let j = chunks_by_index[i].length - 1; j >= 0; j -= 1) {
-                            let new_hash = chunks_by_index[i][j][0].attributes['hashvalue'].value;
-                            if (previous_hash == new_hash) {
-                                chunks_by_index[i][j].addClass('skippedChunk')
-                                missing_chunks_per_shard[i] += 1;
-                            }
-                            previous_hash = new_hash;
-                        }
-
-                    }
-                    $('.missing-blocks').append("Missing blocks: " + missing_blocks + "   Produced: " + (total_blocks - missing_blocks) + "   Missing Rate: " + (missing_blocks / total_blocks * 100).toFixed(2) + "%");
-                    let produced_blocks = total_blocks - missing_blocks;
-                    for (let i = 0; i <= max_shard; i += 1) {
-                        $('.missing-chunks').append("Shard " + i + ", Missing chunks: " + missing_chunks_per_shard[i] + " Produced: " + (produced_blocks - missing_chunks_per_shard[i]) + " Missing Rate: " + (missing_chunks_per_shard[i] / produced_blocks * 100).toFixed(2) + "%<br>");
-                    }
-
-                    return;
-                },
-                dataType: "json",
-                error: function (errMsg, textStatus, errorThrown) {
-                    if (errMsg.status == 405) {
-                        // Method not allowd.
-                        alert("debug not allowed - did you set enable_debug_rpc: true in your config?")
-                    } else {
-                        alert("Failed: " + textStatus + " :" + errorThrown);
-                    }
-                },
-                contentType: "application/json; charset=utf-8",
-            })
-        }
-
-
-
-        $(document).ready(function () {
-            $(".expand_all").click(function () {
-                $(".hashElem").click();
-            })
-
-            var root = $("#blocks_table_tbody");
-            root.html("Loading...");
-
-            $.ajax({
-                type: "GET",
-                url: "/debug/api/status",
-                success: function (data) {
-                    data.detailed_debug_status.network_info.known_producers.forEach(element => {
-                        known_producers.add(element.account_id);
-                    });
-                    fetchBlockStatus();
-                    return;
-                },
-                dataType: "json",
-                error: function (errMsg, textStatus, errorThrown) {
-                    if (errMsg.status == 405) {
-                        // Method not allowd.
-                        alert("debug not allowed - did you set enable_debug_rpc: true in your config?")
-                    } else {
-                        alert("Failed: " + textStatus + " :" + errorThrown);
-                    }
-                },
-                contentType: "application/json; charset=utf-8",
-            })
-        });
-
-        function prepareTableHeader(max_shard) {
-            var headers = '<th>Block id</th> <th>Block hash</th>' +
-                '<th>Processing Time(ms)</th> <th>Next block time(s)</th> <th>Gas price ratio</th>';
-            for (let i = 0; i < max_shard + 1; i += 1) {
-                headers += `<th colspan=3>Shard ${i} (hash/gas(Tgas)/time(ms))</th>`;
-            }
-            $("#blocks_table_thead")[0].innerHTML = headers;
-        }
+        // react-xarrows expects dependencies to be named differently... so let's do that.
+        window.react = React;
+        window['prop-types'] = PropTypes;
+        window.lodash = _;
     </script>
+    <script src="https://unpkg.com/react-xarrows@2.0.2/lib/index.js"></script>
 </head>
 
 <body>
-    <h1>
-        Most recent blocks.
-    </h1>
-    Skipped chunks have grey background.<br>
-    Skipped blocks have hashes set to 11111. <br>
-    <h3 class="missing-blocks"></h3>
-    <h3 class="missing-chunks"></h3>
-    Red text means that we don't know this producer (it is not present in our announce account list). <br>
-    <button class="expand_all">Expand all</button><br>
-    <div id="blocks_table">
-        <table>
-            <thead id="blocks_table_thead">
-            </thead>
-            <tbody id="blocks_table_tbody">
-            </tbody>
-        </table>
-    </div>
+    <div id="react-container"></div>
+
+    <script>
+        // We don't have JSX syntax, so use a shorthand at least.
+        //   e('div', { key: i }, e('span', null, 'a'), 'text')
+        // would be equivalent in the JSX world as:
+        //   <div key={i}>
+        //     <span>a</span>
+        //     text
+        //   </div>
+        const e = React.createElement;
+
+        function ellipsify(str, maxLen) {
+            if (str.length > maxLen) {
+                return str.substring(0, maxLen - 3) + '...';
+            }
+            return str;
+        }
+
+        // Makes an element that when clicked, expands or ellipsifies the hash and creator.
+        function hashElement({ hashValue, creator, expandAll, knownProducers }) {
+            let [expanded, setExpanded] = React.useState(false);
+            let updateXarrow = reactXarrow.useXarrow();
+            return e(
+                'span',
+                {
+                    className: [
+                        'hash-element',
+                        knownProducers.has(creator) ? '' : 'validator-unavailable',
+                    ].join(' '),
+                    onClick: () => {
+                        setExpanded((value) => !value);
+                        // xarrows need to be updated whenever graph dot positions may change.
+                        updateXarrow();
+                    }
+                },
+                expanded || expandAll ? `${hashValue} ${creator}`
+                    : `${ellipsify(hashValue, 8)} ${ellipsify(creator, 13)}`);
+        }
+
+        // Sorts the API response into easily displayable rows, and computes the graph layout.
+        //
+        // Inputs:
+        //   blocks: array of DebugBlockStatus
+        //   missedHeights: array of MissedHeightInfo
+        //   head: block hash of the chain's head
+        //   headerHead: block hash of the chain's header head
+        // Output: array of elements where each element is either {
+        //   block: DebugBlockStatus,
+        //   parentIndex: number?,  // the index of the parent block, or null if parent not included in the data
+        //   graphColumn: number,  // the column to display the graph node in
+        //   blockDelay: number?,  // number of seconds since parent's block timestamp, or null if parent not included in the data
+        //   chunkSkipped: boolean[],  // for each chunk, whether the chunk is the same as that chunk of parent block
+        //   isHead: boolean,
+        //   isHeaderHead: boolean,
+        // } or { missedHeight: MissedHeightInfo }
+        function sortBlocksAndDetermineBlockGraphLayout(blocks, missedHeights, head, headerHead) {
+            const rows = [];
+            for (let block of blocks) {
+                rows.push({
+                    block,
+                    parentIndex: null,
+                    graphColumn: -1,
+                    blockDelay: null,
+                    chunkSkipped: block.chunks.map(() => false),
+                    isHead: head == block.block_hash,
+                    isHeaderHead: headerHead == block.block_hash,
+                });
+            }
+            for (let missedHeight of missedHeights) {
+                rows.push({ missedHeight });
+            }
+
+            function sortingKey(row) {
+                if ('block' in row) {
+                    // some lousy tie-breaking for same-height rows.
+                    return row.block.block_height + (row.block.block_timestamp / 1e12 % 1);
+                } else {
+                    return row.missedHeight.block_height;
+                }
+            }
+
+            rows.sort((a, b) => sortingKey(b) - sortingKey(a));
+
+            const rowIndexByHash = new Map();
+            rows.forEach((row, rowIndex) => {
+                if ('block' in row) {
+                    rowIndexByHash.set(row.block.block_hash, rowIndex);
+                }
+            });
+
+            let highestNodeOnFirstColumn = rows.length;
+            for (let i = rows.length - 1; i >= 0; i--) {
+                let row = rows[i];
+                if ('missedHeight' in row) {
+                    continue;
+                }
+                const block = row.block;
+
+                // Look up parent index, and also compute things that depend on the parent block.
+                if (rowIndexByHash.has(block.prev_block_hash)) {
+                    row.parentIndex = rowIndexByHash.get(block.prev_block_hash);
+                    const parent = rows[row.parentIndex];
+                    row.blockDelay = (block.block_timestamp - parent.block.block_timestamp) / 1e9;
+                    for (let j = 0;
+                        j < Math.min(block.chunks.length, parent.block.chunks.length);
+                        j++) {
+                        row.chunkSkipped[j] =
+                            block.chunks[j].chunk_hash == parent.block.chunks[j].chunk_hash;
+                    }
+                }
+                // We'll use a two-column layout for the block graph. We traverse from bottom
+                // up (oldest block to latest), and for each row we pick the first column unless
+                // that would make us draw a line (from the parent to this node) through another
+                // node; in which case we would pick the second column. To do that we just need
+                // to keep track of the highest node we've seen so far for the first column.
+                //
+                // Not the best layout for a graph, but it's sufficient since we rarely have forks.
+                let column = 0;
+                if (row.parentIndex != null &&
+                    rows[row.parentIndex].graphColumn == 0 &&
+                    row.parentIndex > highestNodeOnFirstColumn) {
+                    column = 1;
+                } else {
+                    highestNodeOnFirstColumn = i;
+                }
+                row.graphColumn = column;
+            }
+            return rows;
+        }
+
+        function blocksTable({ rows, knownProducers, expandAll, hideMissingHeights }) {
+            let numGraphColumns = 1;  // either 1 or 2; determines the width of leftmost td
+            let numShards = 0;
+            for (let row of rows) {
+                if ('block' in row) {
+                    numGraphColumns = Math.max(numGraphColumns, row.graphColumn + 1);
+                    for (let chunk of row.block.chunks) {
+                        numShards = Math.max(numShards, chunk.shard_id + 1);
+                    }
+                }
+            }
+            const header = e('tr', null,
+                e('th', null, 'Chain'),
+                e('th', null, 'Height'),
+                e('th', null, 'Hash & creator'),
+                e('th', null, 'Processing Time (ms)'),
+                e('th', null, 'Block Delay (s)'),
+                e('th', null, 'Gas price ratio'),
+                [...Array(numShards).keys()].map(i =>
+                    e('th', { key: i, colSpan: 3 }, `Shard ${i} (hash/gas(Tgas)/time(ms))`)),
+            );
+
+            // One xarrow element per arrow (from block to block).
+            const graphArrows = [];
+
+            // One 'tr' element per row.
+            const tableRows = [];
+            for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                if ('missedHeight' in row) {
+                    if (!hideMissingHeights) {
+                        tableRows.push(e(
+                            'tr',
+                            { key: row.missedHeight.block_height, className: 'missed-height' },
+                            e('td', { className: 'graph-node-cell' }),
+                            e('td', null, row.missedHeight.block_height),
+                            e('td', { colSpan: 4 + numShards * 3 }, `${row.missedHeight.block_producer} missed block`),
+                        ));
+                    }
+                    continue;
+                }
+                let block = row.block;
+                tableRows.push(e(
+                    'tr',
+                    {
+                        key: block.block_hash,  // unique key per row for react
+                        className: [
+                            'block-row',
+                            row.block.is_on_canonical_chain ? '' : 'not-on-canonical-chain'
+                        ].join(' ')
+                    },
+                    e('td', { className: "graph-node-cell" },
+                        e('div', {
+                            id: `graph-node-${i}`,
+                            className: [
+                                'graph-dot',
+                                `graph-dot-col-${row.graphColumn}`,
+                                `graph-dot-total-${numGraphColumns}`,
+                            ].join(' ')
+                        })),
+                    e('td', null,
+                        block.block_height,
+                        row.isHead && e('div', { className: 'head-label' }, 'HEAD'),
+                        row.isHeaderHead && e('div', { className: 'header-head-label' }, 'HEADER HEAD'),
+                    ),
+                    e('td', null, e(hashElement, {
+                        hashValue: block.block_hash,
+                        creator: block.block_producer,
+                        expandAll,
+                        knownProducers
+                    })),
+                    e('td', null, block.processing_time_ms),
+                    e('td', null, row.blockDelay ?? ''),
+                    e('td', null, block.gas_price_ratio),
+                    block.is_block_missing && e('td', { colSpan: numShards * 3 }, 'header only'),
+                    block.chunks.flatMap((chunk, shardId) => {
+                        return [
+                            e('td', {
+                                key: `hash${shardId}`,
+                                className: row.chunkSkipped[shardId] ? 'skipped-chunk' : '',
+                            }, e(hashElement, {
+                                hashValue: chunk.chunk_hash,
+                                creator: chunk.chunk_producer,
+                                expandAll,
+                                knownProducers
+                            })),
+                            e('td', {
+                                key: `gas${shardId}`
+                            }, (chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1)),
+                            e('td', {
+                                key: `time${shardId}`
+                            }, chunk.processing_time_ms),
+                        ];
+                    })
+                ));
+                if (row.parentIndex != null) {
+                    graphArrows.push(e(reactXarrow.default, {
+                        key: i,
+                        start: `graph-node-${i}`,
+                        end: `graph-node-${row.parentIndex}`,
+                        color: row.block.is_on_canonical_chain ? 'black' : 'darkgray',
+                        strokeWidth: row.block.is_on_canonical_chain ? 3 : 1,
+                        headSize: 0,
+                        path: 'straight',
+                    }));
+                }
+            }
+            return e('div', null,
+                graphArrows,
+                e('table', null,
+                    e('tbody', null, header, tableRows)),
+            );
+        }
+
+        function page() {
+            const [rows, setRows] = React.useState([]);
+            const [error, setError] = React.useState(null);
+            const [blockError, setBlockError] = React.useState(null);
+            const [knownProducers, setKnownProducers] = React.useState(new Set());
+            const [expandAll, setExpandAll] = React.useState(false);
+            const [hideMissingHeights, setHideMissingHeights] = React.useState(false);
+            const updateXarrow = reactXarrow.useXarrow();
+            let blockStatusApiPath = '/debug/api/block_status';
+            const url = new URL(window.location.toString());
+            let title = 'Most Recent Blocks';
+            if (url.searchParams.has('height')) {
+                blockStatusApiPath += '/' + url.searchParams.get('height');
+                title = 'Blocks from ' + url.searchParams.get('height');
+            }
+            // useEffect with empty dependency list means to run this once at beginning.
+            React.useEffect(async () => {
+                try {
+                    let resp = await fetch('/debug/api/status');
+                    if (resp.status == 405) {
+                        throw new Error('Debug not allowed - did you set enable_debug_rpc: true in your config?');
+                    } else if (!resp.ok) {
+                        throw new Error('Debug API call failed: ' + resp.statusText);
+                    }
+                    const { detailed_debug_status: { network_info: { known_producers } } } = await resp.json();
+                    const knownProducerSet = new Set();
+                    for (const producer of known_producers) {
+                        knownProducerSet.add(producer.account_id);
+                    }
+                    setKnownProducers(knownProducerSet);
+
+                    resp = await fetch(blockStatusApiPath);
+                    if (!resp.ok) {
+                        throw new Error('Could not fetch block debug status: ' + resp.statusText);
+                    }
+                    const { status_response: { BlockStatus: data } } = await resp.json();
+                    setRows(sortBlocksAndDetermineBlockGraphLayout(
+                        data.blocks,
+                        data.missed_heights,
+                        data.head,
+                        data.header_head));
+                } catch (error) {
+                    setError(error);
+                }
+            }, []);
+
+            // Compute missing blocks and chunks statistics (whenever rows changes).
+            const { numCanonicalBlocks, canonicalHeightCount, numChunksSkipped } = React.useMemo(() => {
+                let firstCanonicalHeight = 0;
+                let lastCanonicalHeight = 0;
+                let numCanonicalBlocks = 0;
+                const numChunksSkipped = [];
+                for (const row of rows) {
+                    if (!('block' in row)) {
+                        continue;
+                    }
+                    const block = row.block;
+                    if (!block.is_on_canonical_chain) {
+                        continue;
+                    }
+                    if (firstCanonicalHeight == 0) {
+                        firstCanonicalHeight = block.block_height;
+                    }
+                    lastCanonicalHeight = block.block_height;
+                    numCanonicalBlocks++;
+                    for (let i = 0; i < row.chunkSkipped.length; i++) {
+                        while (numChunksSkipped.length < i + 1) {
+                            numChunksSkipped.push(0);
+                        }
+                        if (row.chunkSkipped[i]) {
+                            numChunksSkipped[i]++;
+                        }
+                    }
+                }
+                return {
+                    numCanonicalBlocks,
+                    canonicalHeightCount: firstCanonicalHeight - lastCanonicalHeight + 1,
+                    numChunksSkipped,
+                };
+            }, [rows]);
+
+            return e(reactXarrow.Xwrapper, null,
+                e('h1', null, title),
+                e('div', { className: 'explanation' }, 'Skipped chunks have grey background.'),
+                e('div', { className: 'explanation' },
+                    "Red text means that we don't know this producer (it's not present in our announce account list)."),
+                error && e('div', { className: 'error' }, error.stack),
+                blockError && e('div', { className: 'error' }, blockError.stack),
+                e('div', { className: 'missed-blocks' },
+                    `Missing blocks: ${canonicalHeightCount - numCanonicalBlocks} 
+                     Produced: ${numCanonicalBlocks}
+                     Missing Rate: ${((canonicalHeightCount - numCanonicalBlocks) / canonicalHeightCount * 100).toFixed(2)}%`),
+                e('div', { className: 'missed-chunks' },
+                    numChunksSkipped.map((numSkipped, shardId) =>
+                        e('div', { key: shardId }, `
+                            Shard ${shardId}: Missing chunks: ${numSkipped}
+                            Produced: ${numCanonicalBlocks - numSkipped}
+                            Missing Rate: ${(numSkipped / numCanonicalBlocks * 100).toFixed(2)}%`))),
+                e('button',
+                    {
+                        className: 'expand-all',
+                        onClick: () => {
+                            setExpandAll(value => !value);
+                            updateXarrow();
+                        }
+                    },
+                    expandAll ? "Don't expand all" : 'Expand all'),
+                e('button',
+                    {
+                        className: 'hide-missing-heights',
+                        onClick: () => {
+                            setHideMissingHeights(value => !value);
+                            updateXarrow();
+                        }
+                    },
+                    hideMissingHeights ? "Show missing heights" : 'Hide missing heights'),
+                e(blocksTable, { rows, knownProducers, expandAll, hideMissingHeights }),
+            );
+        }
+
+        ReactDOM
+            .createRoot(document.getElementById('react-container'))
+            .render(e(page));
+    </script>
 </body>
 
 </html>
