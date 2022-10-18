@@ -105,20 +105,20 @@ pub fn do_migrate_34_to_35(
     store_update.finish()?;
 
     // DEBUG SPECIFIC KEY
-    let x = String::from("01302e636c69656e742e726");
-    let x_nibbles: Vec<_> = x.chars().map(|c| char::to_digit(c, 16).unwrap() as u8).collect();
-    let shard_uid = runtime.shard_id_to_uid(0, &epoch_id)?;
-    let state_root = chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root().clone();
-    let trie = runtime.get_trie_for_shard(0, &block_hash, state_root, false)?;
-    let mut trie_iter = trie.iter()?;
-    let path_begin_encoded = NibbleSlice::encode_nibbles(&x_nibbles, false);
-    trie_iter.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, true)?;
-    trie_iter.for_each(|item| {
-        let item = item.unwrap();
-        let sr = StateRecord::from_raw_key_value(item.0, item.1).unwrap();
-        debug!(target: "store", %sr);
-    });
-    panic!("Test finished");
+    // let x = String::from("01302e636c69656e742e726");
+    // let x_nibbles: Vec<_> = x.chars().map(|c| char::to_digit(c, 16).unwrap() as u8).collect();
+    // let shard_uid = runtime.shard_id_to_uid(0, &epoch_id)?;
+    // let state_root = chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root().clone();
+    // let trie = runtime.get_trie_for_shard(0, &block_hash, state_root, false)?;
+    // let mut trie_iter = trie.iter()?;
+    // let path_begin_encoded = NibbleSlice::encode_nibbles(&x_nibbles, false);
+    // trie_iter.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, true)?;
+    // trie_iter.for_each(|item| {
+    //     let item = item.unwrap();
+    //     let sr = StateRecord::from_raw_key_value(item.0, item.1).unwrap();
+    //     debug!(target: "store", %sr);
+    // });
+    // panic!("Test finished");
 
     for shard_id in 0..num_shards {
         info!(target: "chain", %shard_id, "Start flat state shard migration");
@@ -135,6 +135,14 @@ pub fn do_migrate_34_to_35(
         let mut handles = vec![];
         for sub_trie in state_iter.heavy_sub_tries(sub_trie_size)? {
             let TrieIterator { trie, trail, key_nibbles, visited_nodes } = sub_trie?;
+            // DEBUG HEX PREFIXES
+            let hex_prefix: String = key_nibbles
+                .iter()
+                .map(|&n| char::from_digit(n as u32, 16).expect("nibble should be <16"))
+                .collect();
+            debug!(target: "store", "Preload subtrie at {hex_prefix}");
+            continue;
+
             let storage = trie
                 .storage
                 .as_caching_storage()
