@@ -9,6 +9,7 @@ use actix::{
     Actor as _, ActorContext as _, ActorFutureExt, Addr, Context, ContextFutureSpawner as _,
     Running, WrapFuture as _,
 };
+use near_o11y::{handler_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
 use parking_lot::RwLock;
@@ -232,10 +233,11 @@ impl actix::Actor for Actor {
     }
 }
 
-impl actix::Handler<StopMsg> for Actor {
+impl actix::Handler<WithSpanContext<StopMsg>> for Actor {
     type Result = ();
-    fn handle(&mut self, _: StopMsg, ctx: &mut Self::Context) -> Self::Result {
-        self.edge_validator_pool.do_send(StopMsg {});
+    fn handle(&mut self, msg: WithSpanContext<StopMsg>, ctx: &mut Self::Context) -> Self::Result {
+        let (_span, _msg) = handler_span!("network", msg);
+        self.edge_validator_pool.do_send(StopMsg {}.with_span_context());
         ctx.stop();
     }
 }
@@ -275,13 +277,15 @@ pub enum Response {
     },
 }
 
-impl actix::Handler<Message> for Actor {
+impl actix::Handler<WithSpanContext<Message>> for Actor {
     type Result = Response;
 
     #[perf]
-    fn handle(&mut self, msg: Message, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: WithSpanContext<Message>, ctx: &mut Self::Context) -> Self::Result {
+        let msg_type: &str = (&msg.msg).into();
+        let (_span, msg) = handler_span!("network", msg, msg_type);
         let _timer =
-            metrics::ROUTING_TABLE_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
+            metrics::ROUTING_TABLE_MESSAGES_TIME.with_label_values(&[msg_type]).start_timer();
         match msg {
             // Schedules edges for validation.
             Message::ValidateEdgeList(mut msg) => {
@@ -289,7 +293,7 @@ impl actix::Handler<Message> for Actor {
                 msg.edges.retain(|x| !self.graph.read().has(x));
                 let peer_id = msg.source_peer_id.clone();
                 self.edge_validator_pool
-                    .send(msg)
+                    .send(msg.with_span_context())
                     .into_actor(self)
                     .map(move |res, act, _| {
                         act.edge_validator_requests_in_progress -= 1;

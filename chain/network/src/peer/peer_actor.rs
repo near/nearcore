@@ -854,7 +854,7 @@ impl PeerActor {
         ctx.wait(wrap_future(self.network_state.peer_manager_addr
                 .send(PeerToManagerMsg::RegisterPeer(RegisterPeer {
                     connection: conn.clone(),
-                }))
+                }).with_span_context())
             )
             .then(move |res, act: &mut PeerActor, ctx| {
                 match res.map(|r|r.unwrap_consolidate_response()) {
@@ -930,9 +930,9 @@ impl PeerActor {
                     }
                     HandshakeFailureReason::InvalidTarget => {
                         debug!(target: "network", "Peer found was not what expected. Updating peer info with {:?}", peer_info);
-                        self.network_state
-                            .peer_manager_addr
-                            .do_send(PeerToManagerMsg::UpdatePeerInfo(peer_info));
+                        self.network_state.peer_manager_addr.do_send(
+                            PeerToManagerMsg::UpdatePeerInfo(peer_info).with_span_context(),
+                        );
                         self.stop(ctx, ClosingReason::HandshakeFailed);
                     }
                 }
@@ -999,7 +999,7 @@ impl PeerActor {
             }
             PeerMessage::PeersRequest => {
                 ctx.spawn(wrap_future(
-                    self.network_state.peer_manager_addr.send(PeerToManagerMsg::PeersRequest(PeersRequest {}))
+                    self.network_state.peer_manager_addr.send(PeerToManagerMsg::PeersRequest(PeersRequest {}).with_span_context())
                 ).then(|res, act: &mut PeerActor, _ctx| {
                     if let Ok(peers) = res.map(|f|f.unwrap_peers_request_result()) {
                         if !peers.peers.is_empty() {
@@ -1013,19 +1013,22 @@ impl PeerActor {
             }
             PeerMessage::PeersResponse(peers) => {
                 debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
-                self.network_state
-                    .peer_manager_addr
-                    .do_send(PeerToManagerMsg::PeersResponse(PeersResponse { peers }));
+                self.network_state.peer_manager_addr.do_send(
+                    PeerToManagerMsg::PeersResponse(PeersResponse { peers }).with_span_context(),
+                );
                 self.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
             }
             PeerMessage::RequestUpdateNonce(edge_info) => {
                 ctx.spawn(
-                    wrap_future(self.network_state.peer_manager_addr.send(
-                        PeerToManagerMsg::RequestUpdateNonce(
-                            self.other_peer_id().unwrap().clone(),
-                            edge_info,
+                    wrap_future(
+                        self.network_state.peer_manager_addr.send(
+                            PeerToManagerMsg::RequestUpdateNonce(
+                                self.other_peer_id().unwrap().clone(),
+                                edge_info,
+                            )
+                            .with_span_context(),
                         ),
-                    ))
+                    )
                     .then(|res, act: &mut PeerActor, ctx| {
                         match res.map(|f| f) {
                             Ok(PeerToManagerMsgResp::EdgeUpdate(edge)) => {
@@ -1046,7 +1049,7 @@ impl PeerActor {
                     wrap_future(
                         self.network_state
                             .peer_manager_addr
-                            .send(PeerToManagerMsg::ResponseUpdateNonce(edge)),
+                            .send(PeerToManagerMsg::ResponseUpdateNonce(edge).with_span_context()),
                     )
                     .then(|res, act: &mut PeerActor, ctx| {
                         match res {
@@ -1061,10 +1064,13 @@ impl PeerActor {
                 );
             }
             PeerMessage::SyncRoutingTable(routing_table_update) => {
-                self.network_state.peer_manager_addr.do_send(PeerToManagerMsg::SyncRoutingTable {
-                    peer_id: conn.peer_info.id.clone(),
-                    routing_table_update,
-                });
+                self.network_state.peer_manager_addr.do_send(
+                    PeerToManagerMsg::SyncRoutingTable {
+                        peer_id: conn.peer_info.id.clone(),
+                        routing_table_update,
+                    }
+                    .with_span_context(),
+                );
             }
             PeerMessage::SyncAccountsData(msg) => {
                 let peer_id = conn.peer_info.id.clone();
@@ -1230,16 +1236,20 @@ impl Actor for PeerActor {
                 match &self.closing_reason {
                     Some(ClosingReason::Ban(ban_reason)) => {
                         warn!(target: "network", "Banning peer {} for {:?}", self.peer_info, ban_reason);
-                        self.network_state.peer_manager_addr.do_send(PeerToManagerMsg::Ban(Ban {
+                        self.network_state.peer_manager_addr.do_send(
+                            PeerToManagerMsg::Ban(Ban {
+                                peer_id: conn.peer_info.id.clone(),
+                                ban_reason: *ban_reason,
+                            })
+                            .with_span_context(),
+                        );
+                    }
+                    _ => self.network_state.peer_manager_addr.do_send(
+                        PeerToManagerMsg::Unregister(Unregister {
                             peer_id: conn.peer_info.id.clone(),
-                            ban_reason: *ban_reason,
-                        }));
-                    }
-                    _ => {
-                        self.network_state.peer_manager_addr.do_send(PeerToManagerMsg::Unregister(
-                            Unregister { peer_id: conn.peer_info.id.clone() },
-                        ))
-                    }
+                        })
+                        .with_span_context(),
+                    ),
                 }
             }
         }

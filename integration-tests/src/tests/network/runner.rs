@@ -22,6 +22,7 @@ use near_network::types::{
 };
 use near_network::{Event, PeerManagerActor};
 use near_o11y::testonly::init_test_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, ValidatorId};
@@ -172,7 +173,7 @@ async fn check_routing_table(
         })
         .collect();
     let pm = info.get_node(u)?.actix.addr.clone();
-    let resp = pm.send(PeerManagerMessageRequest::FetchRoutingTable).await?;
+    let resp = pm.send(PeerManagerMessageRequest::FetchRoutingTable.with_span_context()).await?;
     let rt = match resp {
         PeerManagerMessageResponse::FetchRoutingTable(rt) => rt,
         _ => bail!("bad response"),
@@ -193,7 +194,8 @@ async fn check_account_id(
         expected_known.push(info.runner.test_config[u].account_id.clone());
     }
     let pm = &info.get_node(source)?.actix.addr;
-    let rt = match pm.send(PeerManagerMessageRequest::FetchRoutingTable).await? {
+    let rt = match pm.send(PeerManagerMessageRequest::FetchRoutingTable.with_span_context()).await?
+    {
         PeerManagerMessageResponse::FetchRoutingTable(rt) => rt,
         _ => bail!("bad response"),
     };
@@ -254,7 +256,7 @@ impl StateMachine {
                     debug!(target: "network", num_prev_actions, action = ?action_clone, "runner.rs: Action");
                     info.get_node(target)?.actix.addr.send(PeerManagerMessageRequest::SetAdvOptions(near_network::test_utils::SetAdvOptions {
                         set_max_peers: max_num_peers,
-                    })).await?;
+                    }).with_span_context()).await?;
                     Ok(ControlFlow::Break(()))
                 })));
             }
@@ -264,14 +266,14 @@ impl StateMachine {
                     let pm = info.get_node(from)?.actix.addr.clone();
                     let peer_info = info.runner.test_config[to].peer_info();
                     match tcp::Stream::connect(&peer_info).await {
-                        Ok(stream) => { pm.send(PeerManagerMessageRequest::OutboundTcpConnect(stream)).await?; },
+                        Ok(stream) => { pm.send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context()).await?; },
                         Err(err) => tracing::debug!("tcp::Stream::connect({peer_info}): {err}"),
                     }
                     if !force {
                         return Ok(ControlFlow::Break(()))
                     }
                     let peer_id = peer_info.id.clone();
-                    let res = pm.send(GetInfo{}).await?;
+                    let res = pm.send(GetInfo{}.with_span_context()).await?;
                     for peer in &res.connected_peers {
                         if peer.full_peer_info.peer_info.id==peer_id {
                             return Ok(ControlFlow::Break(()))
@@ -296,7 +298,7 @@ impl StateMachine {
                     let target = info.runner.test_config[target].peer_id();
                     info.get_node(source)?.actix.addr.send(PeerManagerMessageRequest::PingTo{
                         nonce, target,
-                    }).await?;
+                    }.with_span_context()).await?;
                     Ok(ControlFlow::Break(()))
                 })));
             }
@@ -648,7 +650,7 @@ pub fn assert_expected_peers(node_id: usize, peers: Vec<usize>) -> ActionFn {
         let peers = peers.clone();
         Box::pin(async move {
             let pm = &info.get_node(node_id)?.actix.addr;
-            let network_info = pm.send(GetInfo {}).await?;
+            let network_info = pm.send(GetInfo {}.with_span_context()).await?;
             let got: HashSet<_> = network_info
                 .connected_peers
                 .into_iter()
@@ -676,7 +678,7 @@ pub fn check_expected_connections(
         Box::pin(async move {
             debug!(target: "network", node_id, expected_connections_lo, ?expected_connections_hi, "runner.rs: check_expected_connections");
             let pm = &info.get_node(node_id)?.actix.addr;
-            let res = pm.send(GetInfo {}).await?;
+            let res = pm.send(GetInfo {}.with_span_context()).await?;
             if expected_connections_lo.map_or(false, |l| l > res.num_connected_peers) {
                 return Ok(ControlFlow::Continue(()));
             }
@@ -696,7 +698,8 @@ async fn check_direct_connection_inner(
     let target_peer_id = info.runner.test_config[target_id].peer_id();
     debug!(target: "network",  node_id, ?target_id, "runner.rs: check_direct_connection");
     let pm = &info.get_node(node_id)?.actix.addr;
-    let rt = match pm.send(PeerManagerMessageRequest::FetchRoutingTable).await? {
+    let rt = match pm.send(PeerManagerMessageRequest::FetchRoutingTable.with_span_context()).await?
+    {
         PeerManagerMessageResponse::FetchRoutingTable(rt) => rt,
         _ => bail!("bad response"),
     };
@@ -741,7 +744,7 @@ async fn ban_peer_inner(
     debug!(target: "network", target_peer, banned_peer, "runner.rs: ban_peer");
     let banned_peer_id = info.runner.test_config[banned_peer].peer_id();
     let pm = &info.get_node(target_peer)?.actix.addr;
-    pm.send(BanPeerSignal::new(banned_peer_id)).await?;
+    pm.send(BanPeerSignal::new(banned_peer_id).with_span_context()).await?;
     Ok(ControlFlow::Break(()))
 }
 

@@ -13,7 +13,7 @@ use crate::time;
 use crate::types::{ChainInfo, NetworkClientMessages, NetworkViewClientMessages};
 use actix::Recipient;
 use arc_swap::ArcSwap;
-use near_o11y::WithSpanContext;
+use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -39,7 +39,7 @@ pub(crate) struct NetworkState {
     /// Address of the view client actor.
     pub view_client_addr: Recipient<WithSpanContext<NetworkViewClientMessages>>,
     /// Address of the peer manager actor.
-    pub peer_manager_addr: Recipient<PeerToManagerMsg>,
+    pub peer_manager_addr: Recipient<WithSpanContext<PeerToManagerMsg>>,
     /// RoutingTableActor, responsible for computing routing table, routing table exchange, etc.
     pub routing_table_addr: actix::Addr<routing::Actor>,
 
@@ -70,7 +70,7 @@ impl NetworkState {
         genesis_id: GenesisId,
         client_addr: Recipient<WithSpanContext<NetworkClientMessages>>,
         view_client_addr: Recipient<WithSpanContext<NetworkViewClientMessages>>,
-        peer_manager_addr: Recipient<PeerToManagerMsg>,
+        peer_manager_addr: Recipient<WithSpanContext<PeerToManagerMsg>>,
         routing_table_addr: actix::Addr<routing::Actor>,
         routing_table_view: RoutingTableView,
     ) -> Self {
@@ -237,6 +237,7 @@ impl NetworkState {
             return;
         }
         self.routing_table_view.add_local_edges(&edges);
-        self.routing_table_addr.do_send(routing::actor::Message::AddVerifiedEdges { edges });
+        self.routing_table_addr
+            .do_send(routing::actor::Message::AddVerifiedEdges { edges }.with_span_context());
     }
 }
