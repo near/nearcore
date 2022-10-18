@@ -137,7 +137,6 @@ pub fn do_migrate_34_to_35(
         let mut handles = vec![];
         for sub_trie in state_iter.heavy_sub_tries(sub_trie_size)? {
             let TrieIterator { trie, trail, key_nibbles, visited_nodes } = sub_trie?;
-            debug!(target: "store", "Preload subtrie with nibbles len = {}", key_nibbles.len());
             if key_nibbles.len() > 2000 {
                 panic!("Too long nibbles vec");
             }
@@ -174,7 +173,7 @@ pub fn do_migrate_34_to_35(
                 debug!(target: "store", "Preload subtrie at {hex_prefix}");
                 let trie = Trie::new(Box::new(storage), root, None);
                 let inner_iter = TrieIterator { trie: &trie, trail, key_nibbles, visited_nodes };
-                let mut store_update = BatchedStoreUpdate::new(&inner_store, 1_000);
+                let mut store_update = inner_store.store_update();
                 let n = inner_iter
                     .map(|item| {
                         let item = item.unwrap();
@@ -184,7 +183,7 @@ pub fn do_migrate_34_to_35(
                             .expect("Failed to put value in FlatState");
                     })
                     .count();
-                store_update.finish().unwrap();
+                store_update.commit().unwrap();
                 debug!(target: "store", "Preload subtrie at {hex_prefix} done, loaded {n:<8} state items");
                 inner_thread_slots.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 n
