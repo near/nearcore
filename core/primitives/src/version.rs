@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::str::FromStr;
 
 use once_cell::sync::Lazy;
@@ -175,22 +174,17 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protoco
     STABLE_PROTOCOL_VERSION
 };
 
-/// The points in time after which the voting for the protocol version should start.
+/// The points in time after which the voting for the latest protocol version
+/// should start.
 #[allow(dead_code)]
-const PROTOCOL_UPGRADE_SCHEDULE: Lazy<HashMap<ProtocolVersion, ProtocolUpgradeVotingSchedule>> =
-    Lazy::new(|| {
-        let mut schedule = HashMap::new();
+const PROTOCOL_UPGRADE_SCHEDULE: Lazy<Option<ProtocolUpgradeVotingSchedule>> = Lazy::new(|| {
+    if cfg!(feature = "shardnet") {
+        Some(ProtocolUpgradeVotingSchedule::from_str("2022-09-05 15:00:00").unwrap())
+    } else {
         // Update to latest protocol version on release.
-        schedule
-            .insert(54, ProtocolUpgradeVotingSchedule::from_str("2022-06-27 15:00:00").unwrap());
-
-        /*
-        // Final shardnet release. Do not include it in testnet or mainnet releases.
-        schedule
-            .insert(102, ProtocolUpgradeVotingSchedule::from_str("2022-09-05 15:00:00").unwrap());
-         */
-        schedule
-    });
+        None
+    }
+});
 
 /// Gives new clients an option to upgrade without announcing that they support
 /// the new version.  This gives non-validator nodes time to upgrade.  See

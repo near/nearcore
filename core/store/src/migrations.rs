@@ -10,6 +10,7 @@ use near_primitives::types::AccountId;
 use near_primitives::utils::get_outcome_id_block_hash;
 use tracing::info;
 
+use crate::metadata::DbKind;
 use crate::{DBCol, Store, StoreUpdate};
 
 pub struct BatchedStoreUpdate<'a> {
@@ -223,19 +224,18 @@ pub fn migrate_29_to_30(storage: &crate::NodeStorage) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Migrates database from version 31 to 32.
+/// Migrates the database from version 31 to 32.
 ///
-/// This involves deleting contents of ChunkPerHeightShard and GCCount columns
-/// which are now deprecated and no longer used.
+/// This involves deleting contents of ChunkPerHeightShard column which is now
+/// deprecated and no longer used.
 pub fn migrate_31_to_32(storage: &crate::NodeStorage) -> anyhow::Result<()> {
     let mut update = storage.get_store(crate::Temperature::Hot).store_update();
     update.delete_all(DBCol::_ChunkPerHeightShard);
-    update.delete_all(DBCol::_GCCount);
     update.commit()?;
     Ok(())
 }
 
-/// Migrates database from version 32 to 33.
+/// Migrates the database from version 32 to 33.
 ///
 /// This removes the TransactionResult column and moves it to TransactionResultForBlock.
 /// The new column removes the need for high-latency read-modify-write operations when committing
@@ -246,7 +246,12 @@ pub fn migrate_32_to_33(storage: &crate::NodeStorage) -> anyhow::Result<()> {
     for row in
         store.iter_prefix_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(DBCol::_TransactionResult, &[])
     {
-        let (_, outcomes) = row?;
+        let (_, mut outcomes) = row?;
+        // It appears that it was possible that the same entry in the original column contained
+        // duplicate outcomes. We remove them here to avoid panicing due to issuing a
+        // self-overwriting transaction.
+        outcomes.sort_by_key(|outcome| outcome.id().clone());
+        outcomes.dedup_by_key(|outcome| outcome.id().clone());
         for outcome in outcomes {
             update.insert_ser(
                 DBCol::TransactionResultForBlock,
@@ -261,5 +266,48 @@ pub fn migrate_32_to_33(storage: &crate::NodeStorage) -> anyhow::Result<()> {
     let mut delete_old_update = store.store_update();
     delete_old_update.delete_all(DBCol::_TransactionResult);
     delete_old_update.commit()?;
+    Ok(())
+}
+
+/// Migrates the database from version 33 to 34.
+///
+/// Most importantly, this involves adding KIND entry to DbVersion column,
+/// removing IS_ARCHIVAL from BlockMisc column.  Furthermore, migration deletes
+/// GCCount column which is no longer used.
+///
+/// If the database has IS_ARCHIVAL key in BlockMisc column set to true, this
+/// overrides value of is_node_archival argument.  Otherwise, the kind of the
+/// resulting database is determined based on that argument.
+pub fn migrate_33_to_34(
+    storage: &crate::NodeStorage,
+    mut is_node_archival: bool,
+) -> anyhow::Result<()> {
+    const IS_ARCHIVE_KEY: &[u8; 10] = b"IS_ARCHIVE";
+
+    let hot = storage.get_store(crate::Temperature::Hot);
+
+    let is_store_archival =
+        hot.get_ser::<bool>(DBCol::BlockMisc, IS_ARCHIVE_KEY)?.unwrap_or_default();
+
+    if is_store_archival != is_node_archival {
+        if is_store_archival {
+            tracing::info!(target: "migrations", "Opening an archival database.");
+            tracing::warn!(target: "migrations", "Ignoring `archive` client configuration and setting database kind to Archive.");
+        } else {
+            tracing::info!(target: "migrations", "Running node in archival mode (as per `archive` client configuration).");
+            tracing::info!(target: "migrations", "Setting database kind to Archive.");
+            tracing::warn!(target: "migrations", "Starting node in non-archival mode will no longer be possible with this database.");
+        }
+        is_node_archival = true;
+    }
+
+    let mut update = hot.store_update();
+    if is_store_archival {
+        update.delete(DBCol::BlockMisc, IS_ARCHIVE_KEY);
+    }
+    let kind = if is_node_archival { DbKind::Archive } else { DbKind::RPC };
+    update.set(DBCol::DbVersion, crate::metadata::KIND_KEY, <&str>::from(kind).as_bytes());
+    update.delete_all(DBCol::_GCCount);
+    update.commit()?;
     Ok(())
 }

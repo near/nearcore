@@ -3466,6 +3466,7 @@ dependencies = [
  "near-rpc-error-macro",
  "serde",
  "strum",
+ "thiserror",
 ]
 
 [[package]]

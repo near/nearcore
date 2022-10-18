@@ -119,16 +119,6 @@ impl KnownPeerStatus {
     }
 }
 
-impl AccountOrPeerIdOrHash {
-    pub(crate) fn peer_id_or_hash(&self) -> Option<PeerIdOrHash> {
-        match self {
-            AccountOrPeerIdOrHash::AccountId(_) => None,
-            AccountOrPeerIdOrHash::PeerId(peer_id) => Some(PeerIdOrHash::PeerId(peer_id.clone())),
-            AccountOrPeerIdOrHash::Hash(hash) => Some(PeerIdOrHash::Hash(*hash)),
-        }
-    }
-}
-
 /// Set of account keys.
 /// This is information which chain pushes to network to implement tier1.
 /// See ChainInfo.
