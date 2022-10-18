@@ -25,6 +25,13 @@ pub enum VMRunnerError {
     WasmUnknownError {
         debug_message: String,
     },
+    /// Error when requiring an unavailable feature of the WASM compiler.
+    ///
+    /// The only place this gets emitted today is when calling `precompile`
+    /// in wasmtime runner.
+    UnsupportedCompiler {
+        debug_message: String,
+    },
 }
 
 /// Permitted errors that cause a function call to fail gracefully.
@@ -152,7 +159,6 @@ pub enum CompilationError {
     CodeDoesNotExist { account_id: AccountId },
     PrepareError(PrepareError),
     WasmerCompileError { msg: String },
-    UnsupportedCompiler { msg: String },
 }
 
 #[derive(
@@ -395,9 +401,6 @@ impl fmt::Display for CompilationError {
             CompilationError::WasmerCompileError { msg } => {
                 write!(f, "Wasmer compilation error: {}", msg)
             }
-            CompilationError::UnsupportedCompiler { msg } => {
-                write!(f, "Unsupported compiler: {}", msg)
-            }
         }
     }
 }
@@ -419,6 +422,9 @@ impl fmt::Display for VMRunnerError {
             }
             VMRunnerError::Nondeterministic(msg) => {
                 write!(f, "Nondeterministic error during contract execution: {}", msg)
+            }
+            VMRunnerError::UnsupportedCompiler { debug_message } => {
+                write!(f, "Unsupported compiler: {debug_message}")
             }
         }
     }

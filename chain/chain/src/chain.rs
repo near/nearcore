@@ -643,8 +643,8 @@ impl Chain {
         }
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
-              block_head.height, block_head.last_block_hash,
-              header_head.height, header_head.last_block_hash);
+              header_head.height, header_head.last_block_hash,
+              block_head.height, block_head.last_block_hash);
         metrics::BLOCK_HEIGHT_HEAD.set(block_head.height as i64);
         let block_header = store.get_block_header(&block_head.last_block_hash)?;
         metrics::BLOCK_ORDINAL_HEAD.set(block_header.block_ordinal() as i64);

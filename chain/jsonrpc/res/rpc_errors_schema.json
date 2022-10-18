@@ -49,8 +49,7 @@
       "subtypes": [
         "CodeDoesNotExist",
         "PrepareError",
-        "WasmerCompileError",
-        "UnsupportedCompiler"
+        "WasmerCompileError"
       ],
       "props": {}
     },
@@ -390,13 +389,6 @@
       "name": "Unreachable",
       "subtypes": [],
       "props": {}
-    },
-    "UnsupportedCompiler": {
-      "name": "UnsupportedCompiler",
-      "subtypes": [],
-      "props": {
-        "msg": ""
-      }
     },
     "ValueLengthExceeded": {
       "name": "ValueLengthExceeded",
