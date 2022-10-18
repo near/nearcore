@@ -143,6 +143,7 @@ pub fn do_migrate_34_to_35(
             //     .map(|&n| char::from_digit(n as u32, 16).expect("nibble should be <16"))
             //     .collect();
             // debug!(target: "store", "Preload subtrie at {hex_prefix}");
+            debug!(target: "store", "Preload subtrie with nibbles len = {}", key_nibbles.len());
             continue;
 
             let storage = trie
