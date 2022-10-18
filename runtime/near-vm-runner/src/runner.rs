@@ -24,7 +24,7 @@ use near_vm_logic::{External, VMContext, VMOutcome};
 /// (See also `PartialExecutionStatus`.)
 /// Similarly, the gas values on `VMOutcome` must be the exact same on all
 /// validators, even when a guest error occurs, or else their state will diverge.
-pub(crate) type VMResult = Result<VMOutcome, VMRunnerError>;
+pub(crate) type VMResult<T = VMOutcome> = Result<T, VMRunnerError>;
 
 /// Validate and run the specified contract.
 ///

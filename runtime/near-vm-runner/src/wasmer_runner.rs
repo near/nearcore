@@ -2,6 +2,7 @@ use crate::errors::{ContractPrecompilatonResult, IntoVMError};
 use crate::internal::VMKind;
 use crate::memory::WasmerMemory;
 use crate::prepare;
+use crate::runner::VMResult;
 use crate::{get_contract_cache_key, imports};
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
@@ -288,13 +289,13 @@ impl Wasmer0VM {
         &self,
         code: &ContractCode,
         cache: Option<&dyn CompiledContractCache>,
-    ) -> Result<Result<wasmer_runtime::Module, CompilationError>, CacheError> {
+    ) -> VMResult<Result<wasmer_runtime::Module, CompilationError>> {
         let _span = tracing::debug_span!(target: "vm", "Wasmer0VM::compile_and_load").entered();
 
         let key = get_contract_cache_key(code, VMKind::Wasmer0, &self.config);
 
         let compile_or_read_from_cache =
-            || -> Result<Result<wasmer_runtime::Module, CompilationError>, CacheError> {
+            || -> VMResult<Result<wasmer_runtime::Module, CompilationError>> {
                 let _span =
                     tracing::debug_span!(target: "vm", "Wasmer0VM::compile_or_read_from_cache")
                         .entered();
@@ -321,9 +322,11 @@ impl Wasmer0VM {
                                 wasmer_runtime::Backend::Singlepass,
                             )
                             .unwrap();
-                            let module =
-                                wasmer_runtime_core::load_cache_with(artifact, compiler.as_ref())
-                                    .map_err(|_| CacheError::LoadingError)?;
+                            let module = wasmer_runtime_core::load_cache_with(
+                                artifact,
+                                compiler.as_ref(),
+                            )
+                            .map_err(|err| VMRunnerError::LoadingError(format!("{err:?}")))?;
                             Some(module)
                         }
                     }
@@ -409,7 +412,7 @@ impl crate::runner::VM for Wasmer0VM {
         }
 
         // TODO: consider using get_module() here, once we'll go via deployment path.
-        let module = self.compile_and_load(code, cache).map_err(VMRunnerError::CacheError)?;
+        let module = self.compile_and_load(code, cache)?;
         let module = match module {
             Ok(x) => x,
             // Note on backwards-compatibility: This error used to be an error

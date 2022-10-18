@@ -138,6 +138,9 @@ pub(crate) fn execute_function_call(
             metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS.with_label_values(&[(&err).into()]).inc();
             StorageError::StorageInconsistentState(err.to_string()).into()
         }
+        VMRunnerError::LoadingError(msg) => {
+            panic!("Contract runtime failed to load a contrct: {msg}")
+        }
         VMRunnerError::Nondeterministic(msg) => {
             panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
         }

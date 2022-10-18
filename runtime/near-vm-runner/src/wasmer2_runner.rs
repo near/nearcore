@@ -2,6 +2,7 @@ use crate::errors::ContractPrecompilatonResult;
 use crate::imports::wasmer2::Wasmer2Imports;
 use crate::internal::VMKind;
 use crate::prepare::{self, WASM_FEATURES};
+use crate::runner::VMResult;
 use crate::{get_contract_cache_key, imports};
 use memoffset::offset_of;
 use near_primitives::contract::ContractCode;
@@ -313,7 +314,7 @@ impl Wasmer2VM {
         &self,
         code: &ContractCode,
         cache: Option<&dyn CompiledContractCache>,
-    ) -> Result<Result<VMArtifact, CompilationError>, CacheError> {
+    ) -> VMResult<Result<VMArtifact, CompilationError>> {
         // A bit of a tricky logic ahead! We need to deal with two levels of
         // caching:
         //   * `cache` stores compiled machine code in the database
@@ -326,64 +327,60 @@ impl Wasmer2VM {
 
         let key = get_contract_cache_key(code, VMKind::Wasmer2, &self.config);
 
-        let compile_or_read_from_cache =
-            || -> Result<Result<VMArtifact, CompilationError>, CacheError> {
-                let _span =
-                    tracing::debug_span!(target: "vm", "Wasmer2VM::compile_or_read_from_cache")
-                        .entered();
-                let cache_record = cache
-                    .map(|cache| cache.get(&key))
-                    .transpose()
-                    .map_err(CacheError::ReadError)?
-                    .flatten();
+        let compile_or_read_from_cache = || -> VMResult<Result<VMArtifact, CompilationError>> {
+            let _span = tracing::debug_span!(target: "vm", "Wasmer2VM::compile_or_read_from_cache")
+                .entered();
+            let cache_record = cache
+                .map(|cache| cache.get(&key))
+                .transpose()
+                .map_err(CacheError::ReadError)?
+                .flatten();
 
-                let stored_artifact: Option<VMArtifact> = match cache_record {
-                    None => None,
-                    Some(CompiledContract::CompileModuleError(err)) => return Ok(Err(err)),
-                    Some(CompiledContract::Code(serialized_module)) => {
-                        let _span =
-                            tracing::debug_span!(target: "vm", "Wasmer2VM::read_from_cache")
-                                .entered();
-                        unsafe {
-                            // (UN-)SAFETY: the `serialized_module` must have been produced by a prior call to
-                            // `serialize`.
-                            //
-                            // In practice this is not necessarily true. One could have forgotten to change the
-                            // cache key when upgrading the version of the wasmer library or the database could
-                            // have had its data corrupted while at rest.
-                            //
-                            // There should definitely be some validation in wasmer to ensure we load what we think
-                            // we load.
-                            let executable =
-                                UniversalExecutableRef::deserialize(&serialized_module)
-                                    .map_err(|_| CacheError::DeserializationError)?;
-                            let artifact = self
-                                .engine
-                                .load_universal_executable_ref(&executable)
-                                .map(Arc::new)
-                                .map_err(|_| CacheError::LoadingError)?;
-                            Some(artifact)
-                        }
+            let stored_artifact: Option<VMArtifact> = match cache_record {
+                None => None,
+                Some(CompiledContract::CompileModuleError(err)) => return Ok(Err(err)),
+                Some(CompiledContract::Code(serialized_module)) => {
+                    let _span =
+                        tracing::debug_span!(target: "vm", "Wasmer2VM::read_from_cache").entered();
+                    unsafe {
+                        // (UN-)SAFETY: the `serialized_module` must have been produced by a prior call to
+                        // `serialize`.
+                        //
+                        // In practice this is not necessarily true. One could have forgotten to change the
+                        // cache key when upgrading the version of the wasmer library or the database could
+                        // have had its data corrupted while at rest.
+                        //
+                        // There should definitely be some validation in wasmer to ensure we load what we think
+                        // we load.
+                        let executable = UniversalExecutableRef::deserialize(&serialized_module)
+                            .map_err(|_| CacheError::DeserializationError)?;
+                        let artifact = self
+                            .engine
+                            .load_universal_executable_ref(&executable)
+                            .map(Arc::new)
+                            .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
+                        Some(artifact)
                     }
-                };
-
-                let artifact: VMArtifact = match stored_artifact {
-                    Some(it) => it,
-                    None => {
-                        let executable_or_error = self.compile_and_cache(code, cache)?;
-                        match executable_or_error {
-                            Ok(executable) => self
-                                .engine
-                                .load_universal_executable(&executable)
-                                .map(Arc::new)
-                                .map_err(|_| CacheError::LoadingError)?,
-                            Err(it) => return Ok(Err(it)),
-                        }
-                    }
-                };
-
-                Ok(Ok(artifact))
+                }
             };
+
+            let artifact: VMArtifact = match stored_artifact {
+                Some(it) => it,
+                None => {
+                    let executable_or_error = self.compile_and_cache(code, cache)?;
+                    match executable_or_error {
+                        Ok(executable) => self
+                            .engine
+                            .load_universal_executable(&executable)
+                            .map(Arc::new)
+                            .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?,
+                        Err(it) => return Ok(Err(it)),
+                    }
+                }
+            };
+
+            Ok(Ok(artifact))
+        };
 
         #[cfg(feature = "no_cache")]
         return compile_or_read_from_cache();
@@ -615,7 +612,7 @@ impl crate::runner::VM for Wasmer2VM {
             return Ok(VMOutcome::abort(logic, e));
         }
 
-        let artifact = self.compile_and_load(code, cache).map_err(VMRunnerError::CacheError)?;
+        let artifact = self.compile_and_load(code, cache)?;
         let artifact = match artifact {
             Ok(it) => it,
             Err(err) => {
