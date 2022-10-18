@@ -115,8 +115,8 @@ pub fn do_migrate_34_to_35(
     trie_iter.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, false)?;
     trie_iter.for_each(|item| {
         let item = item.unwrap();
-        let sr = StateRecord::from_raw_key_value(item.0, item.1);
-        debug!(target: "store", ?sr);
+        let sr = StateRecord::from_raw_key_value(item.0, item.1).unwrap();
+        debug!(target: "store", %sr);
     });
     panic!("Test finished");
 
