@@ -1,0 +1,5 @@
+{"run_id":"1666124319-656355000","line":47,"new":{"module_name":"near_chain__tests__simple_chain","snapshot_name":"build_chain","metadata":{"source":"chain/chain/src/tests/simple_chain.rs","assertion_line":47,"expression":"hash"},"snapshot":"7r5VSLXhkxHHEeiAAPQbKPGv3rr877obehGYwPbKZMA7"},"old":{"module_name":"near_chain__tests__simple_chain","metadata":{},"snapshot":"2iGtRFjF6BcqPF6tDcfLLojRaNax2PKDLxRqRc3RxRn7"}}
+{"run_id":"1666124486-940911000","line":47,"new":null,"old":null}
+{"run_id":"1666124486-940911000","line":79,"new":{"module_name":"near_chain__tests__simple_chain","snapshot_name":"build_chain-2","metadata":{"source":"chain/chain/src/tests/simple_chain.rs","assertion_line":79,"expression":"hash"},"snapshot":"9772sSKzm1eGPV3pRi17YaZkotrcN6dAkJUn226CopTm"},"old":{"module_name":"near_chain__tests__simple_chain","metadata":{},"snapshot":"7BkghFM7ZA8piYHAWYu4vTY6vE1pkTwy14bqQnS138qE"}}
+{"run_id":"1666124516-580365000","line":47,"new":null,"old":null}
+{"run_id":"1666124516-580365000","line":79,"new":null,"old":null}
