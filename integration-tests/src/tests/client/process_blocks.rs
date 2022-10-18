@@ -2121,6 +2121,7 @@ fn test_sync_hash_validity() {
 }
 
 /// Only process one block per height
+#[ignore]
 #[test]
 fn test_not_process_height_twice() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
