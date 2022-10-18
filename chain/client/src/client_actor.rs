@@ -266,13 +266,7 @@ impl Handler<WithSpanContext<NetworkClientMessages>> for ClientActor {
         msg: WithSpanContext<NetworkClientMessages>,
         ctx: &mut Context<Self>,
     ) -> Self::Result {
-        let (_span, msg) = handler_span!(
-            "client",
-            "ClientActor",
-            "NetworkClientMessages",
-            msg,
-            |msg: &NetworkClientMessages| msg.into()
-        );
+        let (_span, msg) = handler_span!("client", msg, |msg: &NetworkClientMessages| msg.into());
 
         self.check_triggers(ctx);
 
@@ -630,12 +624,6 @@ impl ClientActor {
     }
 }
 
-macro_rules! client_handler_span {
-    ($handler:expr, $msg:expr) => {
-        handler_span!("client", "ClientActor", $handler, $msg)
-    };
-}
-
 #[cfg(feature = "sandbox")]
 impl Handler<WithSpanContext<near_client_primitives::types::SandboxMessage>> for ClientActor {
     type Result = near_client_primitives::types::SandboxResponse;
@@ -645,7 +633,7 @@ impl Handler<WithSpanContext<near_client_primitives::types::SandboxMessage>> for
         msg: WithSpanContext<near_client_primitives::types::SandboxMessage>,
         _ctx: &mut Context<Self>,
     ) -> near_client_primitives::types::SandboxResponse {
-        let (_span, msg) = client_handler_span!("SandboxMessage", msg);
+        let (_span, msg) = handler_span!("client", msg);
         match msg {
             near_client_primitives::types::SandboxMessage::SandboxPatchState(state) => {
                 self.client.chain.patch_state(
@@ -681,7 +669,7 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<Status>, ctx: &mut Context<Self>) -> Self::Result {
-        let (_span, msg) = client_handler_span!("Status", msg);
+        let (_span, msg) = handler_span!("client", msg);
         let _d = delay_detector::DelayDetector::new(|| "client status".into());
         self.check_triggers(ctx);
 
@@ -827,7 +815,7 @@ impl Handler<WithSpanContext<GetNetworkInfo>> for ClientActor {
         msg: WithSpanContext<GetNetworkInfo>,
         ctx: &mut Context<Self>,
     ) -> Self::Result {
-        let (_span, _msg) = client_handler_span!("GetNetworkInfo", msg);
+        let (_span, _msg) = handler_span!("client", msg);
         let _d = delay_detector::DelayDetector::new(|| "client get network info".into());
         self.check_triggers(ctx);
 
@@ -864,7 +852,7 @@ impl Handler<WithSpanContext<ApplyChunksDoneMessage>> for ClientActor {
         msg: WithSpanContext<ApplyChunksDoneMessage>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, _msg) = client_handler_span!("ApplyChunksDoneMessage", msg);
+        let (_span, _msg) = handler_span!("client", msg);
         self.try_process_unfinished_blocks();
     }
 }
@@ -1926,7 +1914,7 @@ impl Handler<WithSpanContext<ApplyStatePartsRequest>> for SyncJobsActor {
         msg: WithSpanContext<ApplyStatePartsRequest>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = handler_span!("client", "SyncJobsActor", "ApplyStatePartsRequest", msg);
+        let (_span, msg) = handler_span!("client", msg);
         let result = self.apply_parts(&msg);
 
         self.client_addr.do_send(
@@ -1948,7 +1936,7 @@ impl Handler<WithSpanContext<ApplyStatePartsResponse>> for ClientActor {
         msg: WithSpanContext<ApplyStatePartsResponse>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = client_handler_span!("ApplyStatePartsResponse", msg);
+        let (_span, msg) = handler_span!("client", msg);
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
             sync.set_apply_result(msg.shard_id, msg.apply_result);
@@ -1966,7 +1954,7 @@ impl Handler<WithSpanContext<BlockCatchUpRequest>> for SyncJobsActor {
         msg: WithSpanContext<BlockCatchUpRequest>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = handler_span!("client", "SyncJobsActor", "BlockCatchUpRequest", msg);
+        let (_span, msg) = handler_span!("client", msg);
         let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work);
 
         self.client_addr.do_send(
@@ -1984,7 +1972,7 @@ impl Handler<WithSpanContext<BlockCatchUpResponse>> for ClientActor {
         msg: WithSpanContext<BlockCatchUpResponse>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = client_handler_span!("BlockCatchUpResponse", msg);
+        let (_span, msg) = handler_span!("client", msg);
         if let Some((_, _, blocks_catch_up_state)) =
             self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
         {
@@ -2004,7 +1992,7 @@ impl Handler<WithSpanContext<StateSplitRequest>> for SyncJobsActor {
         msg: WithSpanContext<StateSplitRequest>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = handler_span!("client", "SyncJobsActor", "StateSplitRequest", msg);
+        let (_span, msg) = handler_span!("client", msg);
         let results = msg.runtime.build_state_for_split_shards(
             msg.shard_uid,
             &msg.state_root,
@@ -2031,7 +2019,7 @@ impl Handler<WithSpanContext<StateSplitResponse>> for ClientActor {
         msg: WithSpanContext<StateSplitResponse>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = client_handler_span!("StateSplitResponse", msg);
+        let (_span, msg) = handler_span!("client", msg);
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
             sync.set_split_result(msg.shard_id, msg.new_state_roots);
@@ -2049,7 +2037,7 @@ impl Handler<WithSpanContext<ShardsManagerResponse>> for ClientActor {
         msg: WithSpanContext<ShardsManagerResponse>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = client_handler_span!("ShardsManagerResponse", msg);
+        let (_span, msg) = handler_span!("client", msg);
         match msg {
             ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
                 self.client.on_chunk_completed(

@@ -1383,7 +1383,7 @@ impl Handler<WithSpanContext<SendMessage>> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<SendMessage>, _: &mut Self::Context) {
-        let (_span, msg) = handler_span!("network", "PeerActor", "SendMessage", msg);
+        let (_span, msg) = handler_span!("network", msg);
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
         self.send_message_or_log(&msg.message);
     }
@@ -1401,7 +1401,7 @@ impl actix::Handler<WithSpanContext<Stop>> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<Stop>, ctx: &mut Self::Context) -> Self::Result {
-        let (_span, msg) = handler_span!("network", "PeerActor", "Stop", msg);
+        let (_span, msg) = handler_span!("network", msg);
         self.stop(
             ctx,
             match msg.ban_reason {

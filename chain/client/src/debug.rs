@@ -152,7 +152,7 @@ impl Handler<WithSpanContext<DebugStatus>> for ClientActor {
         msg: WithSpanContext<DebugStatus>,
         _ctx: &mut Context<Self>,
     ) -> Self::Result {
-        let (_span, msg) = handler_span!("client", "ClientActor", "DebugStatus", msg);
+        let (_span, msg) = handler_span!("client", msg);
         match msg {
             DebugStatus::SyncStatus => {
                 Ok(DebugStatusResponse::SyncStatus(self.client.sync_status.clone().into()))
