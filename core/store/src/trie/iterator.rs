@@ -422,7 +422,7 @@ impl<'a> HeavySubTrieIterator<'a> {
     // TODO: Instead return `SendTrieIterator` that contains only Send fields and has an into_iter() -> TrieIterator method.
     fn spawn_sub_trie_iter(&mut self) -> TrieIterator<'a> {
         let key_nibbles = self.trie_iterator.key_nibbles.clone();
-        debug!(target: "store", "{key_nibbles.len()}");
+        debug!(target: "store", "nibbles len = {}", key_nibbles.len());
         let node = self.trie_iterator.trail.pop().unwrap();
         return TrieIterator {
             trie: self.trie_iterator.trie,
