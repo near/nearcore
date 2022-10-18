@@ -102,7 +102,7 @@ impl<'a> TrieIterator<'a> {
     }
 
     /// Returns the hash of the last node
-    pub(crate) fn seek_nibble_slice(
+    pub fn seek_nibble_slice(
         &mut self,
         mut key: NibbleSlice<'_>,
         is_prefix_seek: bool,
