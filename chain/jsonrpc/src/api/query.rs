@@ -31,7 +31,7 @@ fn parse_bs58_data(max_len: usize, encoded: String) -> Result<Vec<u8>, RpcParseE
 impl RpcRequest for RpcQueryRequest {
     fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
         let params = parse_params::<(String, String)>(value.clone());
-        let query_request = if let Ok((path, encoded)) = params {
+        let query_request = if let Ok((path, data)) = params {
             // Handle a soft-deprecated version of the query API, which is based on
             // positional arguments with a "path"-style first argument.
             //
@@ -39,7 +39,7 @@ impl RpcRequest for RpcQueryRequest {
 
             let parse_data = || {
                 let max_len = QUERY_DATA_MAX_SIZE.saturating_sub(path.len());
-                parse_bs58_data(max_len, encoded)
+                parse_bs58_data(max_len, data)
             };
 
             let mut path_parts = path.splitn(3, '/');
