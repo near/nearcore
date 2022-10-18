@@ -109,14 +109,14 @@ pub fn do_migrate_34_to_35(
     let x_nibbles: Vec<_> = x.chars().map(|c| char::to_digit(c, 16).unwrap() as u8).collect();
     let shard_uid = runtime.shard_id_to_uid(0, &epoch_id)?;
     let state_root = chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root().clone();
-    let trie = runtime.get_trie_for_shard(shard_id, &block_hash, state_root, false)?;
+    let trie = runtime.get_trie_for_shard(0, &block_hash, state_root, false)?;
     let mut trie_iter = trie.iter()?;
     let path_begin_encoded = NibbleSlice::encode_nibbles(&x_nibbles, false);
     trie_iter.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, false)?;
     trie_iter.for_each(|item| {
         let item = item.unwrap();
         let sr = StateRecord::from_raw_key_value(item.0, item.1);
-        debug!(target: "store", %sr);
+        debug!(target: "store", "{sr}");
     });
     panic!("Test finished");
 
