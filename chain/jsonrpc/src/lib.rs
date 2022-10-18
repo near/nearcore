@@ -1,5 +1,8 @@
 #![doc = include_str!("../README.md")]
 
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use actix::Addr;
@@ -33,6 +36,8 @@ use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
 
 mod api;
+#[macro_use]
+mod macros;
 mod metrics;
 
 use api::RpcRequest;
@@ -83,6 +88,10 @@ pub struct RpcConfig {
     // We disable it by default, as some of those endpoints might be quite CPU heavy.
     #[serde(default = "default_enable_debug_rpc")]
     pub enable_debug_rpc: bool,
+    // For node developers only: if specified, the HTML files used to serve the debug pages will
+    // be read from this directory, instead of the contents compiled into the binary. This allows
+    // for quick iterative development.
+    pub debug_pages_src_path: Option<String>,
 }
 
 impl Default for RpcConfig {
@@ -94,6 +103,7 @@ impl Default for RpcConfig {
             polling_config: Default::default(),
             limits_config: Default::default(),
             enable_debug_rpc: false,
+            debug_pages_src_path: None,
         }
     }
 }
@@ -217,6 +227,7 @@ struct JsonRpcHandler {
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
     enable_debug_rpc: bool,
+    debug_pages_src_path: Option<String>,
 }
 
 impl JsonRpcHandler {
@@ -986,6 +997,19 @@ impl JsonRpcHandler {
         let validators = self.view_client_send(GetValidatorOrdered { block_id }).await?;
         Ok(validators)
     }
+
+    fn read_html_file_override(&self, html_file: &'static str) -> Option<String> {
+        if let Some(directory) = &self.debug_pages_src_path {
+            let path = Path::new(directory).join(html_file);
+            if let Ok(mut file) = File::open(path) {
+                let mut contents = String::new();
+                if let Ok(_) = file.read_to_string(&mut contents) {
+                    return Some(contents);
+                }
+            }
+        }
+        None
+    }
 }
 
 #[cfg(feature = "sandbox")]
@@ -1330,23 +1354,26 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
 }
 
 #[get("/debug")]
-async fn debug_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(include_str!("../res/debug.html")))
+async fn debug_html(
+    handler: web::Data<JsonRpcHandler>,
+) -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(debug_page_string!("debug.html", handler)))
 }
 
 #[get("/debug/pages/{page}")]
 async fn display_debug_html(
     path: web::Path<(String,)>,
+    handler: web::Data<JsonRpcHandler>,
 ) -> actix_web::Result<impl actix_web::Responder> {
     let page_name = path.into_inner().0;
 
     let content = match page_name.as_str() {
-        "last_blocks" => Some(include_str!("../res/last_blocks.html")),
-        "network_info" => Some(include_str!("../res/network_info.html")),
-        "epoch_info" => Some(include_str!("../res/epoch_info.html")),
-        "chain_n_chunk_info" => Some(include_str!("../res/chain_n_chunk_info.html")),
-        "sync" => Some(include_str!("../res/sync.html")),
-        "validator" => Some(include_str!("../res/validator.html")),
+        "last_blocks" => Some(debug_page_string!("last_blocks.html", handler)),
+        "network_info" => Some(debug_page_string!("network_info.html", handler)),
+        "epoch_info" => Some(debug_page_string!("epoch_info.html", handler)),
+        "chain_n_chunk_info" => Some(debug_page_string!("chain_n_chunk_info.html", handler)),
+        "sync" => Some(debug_page_string!("sync.html", handler)),
+        "validator" => Some(debug_page_string!("validator.html", handler)),
         _ => None,
     };
 
@@ -1382,6 +1409,7 @@ pub fn start_http(
         polling_config,
         limits_config,
         enable_debug_rpc,
+        debug_pages_src_path,
     } = config;
     let prometheus_addr = prometheus_addr.filter(|it| it != &addr);
     let cors_allowed_origins_clone = cors_allowed_origins.clone();
@@ -1396,6 +1424,7 @@ pub fn start_http(
                 polling_config,
                 genesis_config: genesis_config.clone(),
                 enable_debug_rpc,
+                debug_pages_src_path: debug_pages_src_path.clone(),
             }))
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())
