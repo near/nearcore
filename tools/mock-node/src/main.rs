@@ -14,6 +14,7 @@ use near_client::{GetBlock, Status};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_integration_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::types::BlockHeight;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
@@ -138,7 +139,11 @@ fn main() -> anyhow::Result<()> {
 
                 let latency = {
                     let t = Instant::now();
-                    let _ = client.send(Status { is_health_check: false, detailed: false }).await;
+                    let _ = client
+                        .send(
+                            Status { is_health_check: false, detailed: false }.with_span_context(),
+                        )
+                        .await;
                     t.elapsed()
                 };
 
@@ -154,7 +159,7 @@ fn main() -> anyhow::Result<()> {
             // Let's set the timeout to 5 seconds per block - just in case we test on very full blocks.
             target_height * 5_000,
             || async {
-                match view_client.send(GetBlock::latest()).await {
+                match view_client.send(GetBlock::latest().with_span_context()).await {
                     Ok(Ok(block)) if block.header.height >= target_height => ControlFlow::Break(()),
                     _ => ControlFlow::Continue(()),
                 }
