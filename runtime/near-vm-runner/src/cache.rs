@@ -67,7 +67,7 @@ fn cache_error(
     cache: &dyn CompiledContractCache,
 ) -> Result<(), CacheError> {
     let record = CompiledContract::CompileModuleError(error.clone());
-    cache.put(key, record).map_err(|_io_err| CacheError::ReadError)
+    cache.put(key, record).map_err(CacheError::ReadError)
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -176,7 +176,7 @@ pub mod wasmer0_cache {
             .and_then(|it| it.serialize())
             .map_err(|_e| CacheError::SerializationError { hash: key.0 })?;
         let record = CompiledContract::Code(code);
-        cache.put(key, record).map_err(|_io_err| CacheError::WriteError)?;
+        cache.put(key, record).map_err(CacheError::WriteError)?;
         Ok(Ok(module))
     }
 
@@ -211,7 +211,7 @@ pub mod wasmer0_cache {
     ) -> Result<Result<wasmer_runtime::Module, CompilationError>, CacheError> {
         match cache {
             None => Ok(compile_module(wasm_code, config)),
-            Some(cache) => match cache.get(&key).map_err(|_io_err| CacheError::ReadError)? {
+            Some(cache) => match cache.get(&key).map_err(CacheError::ReadError)? {
                 Some(record) => deserialize_wasmer(record),
                 None => compile_and_serialize_wasmer(wasm_code, config, &key, cache),
             },
@@ -272,7 +272,7 @@ pub mod wasmer2_cache {
         let code =
             executable.serialize().map_err(|_e| CacheError::SerializationError { hash: key.0 })?;
         let record = CompiledContract::Code(code);
-        cache.put(key, record).map_err(|_io_err| CacheError::WriteError)?;
+        cache.put(key, record).map_err(CacheError::WriteError)?;
         match vm.engine.load_universal_executable(&executable) {
             Ok(artifact) => Ok(Ok(Arc::new(artifact) as _)),
             Err(err) => {
@@ -324,7 +324,7 @@ pub mod wasmer2_cache {
                     .map(|v| Arc::new(v) as _)
                     .map_err(|err| panic!("could not load the executable: {}", err.to_string()))
             })),
-            Some(cache) => match cache.get(&key).map_err(|_io_err| CacheError::ReadError)? {
+            Some(cache) => match cache.get(&key).map_err(CacheError::ReadError)? {
                 Some(record) => deserialize_wasmer2(record, config),
                 None => compile_and_serialize_wasmer2(code.code(), &key, config, cache),
             },
@@ -360,7 +360,7 @@ pub fn precompile_contract_vm(
     };
     let key = get_contract_cache_key(wasm_code, vm_kind, config);
     // Check if we already cached with such a key.
-    if cache.has(&key).map_err(|_io_error| CacheError::ReadError)? {
+    if cache.has(&key).map_err(CacheError::ReadError)? {
         return Ok(Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
     }
     match vm_kind {

@@ -6,6 +6,7 @@ use near_rpc_error_macro::RpcError;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::fmt::{self, Error, Formatter};
+use std::io;
 
 /// For bugs in the runtime itself, crash and die is the usual response.
 ///
@@ -84,11 +85,15 @@ pub enum FunctionCallErrorSer {
     ExecutionError(String),
 }
 
-#[derive(Debug, PartialEq, Eq, strum::IntoStaticStr)]
+#[derive(Debug, strum::IntoStaticStr, thiserror::Error)]
 pub enum CacheError {
-    ReadError,
-    WriteError,
+    #[error("cache read error")]
+    ReadError(#[source] io::Error),
+    #[error("cache write error")]
+    WriteError(#[source] io::Error),
+    #[error("cache deserialization error")]
     DeserializationError,
+    #[error("cache serialization error")]
     SerializationError { hash: [u8; 32] },
 }
 /// A kind of a trap happened during execution of a binary
