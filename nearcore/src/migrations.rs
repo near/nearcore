@@ -112,7 +112,7 @@ pub fn do_migrate_34_to_35(
     let trie = runtime.get_trie_for_shard(0, &block_hash, state_root, false)?;
     let mut trie_iter = trie.iter()?;
     let path_begin_encoded = NibbleSlice::encode_nibbles(&x_nibbles, false);
-    trie_iter.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, false)?;
+    trie_iter.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, true)?;
     trie_iter.for_each(|item| {
         let item = item.unwrap();
         let sr = StateRecord::from_raw_key_value(item.0, item.1).unwrap();
