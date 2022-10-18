@@ -3,7 +3,7 @@ use crate::client;
 use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Encoding, PeerAddr, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
+    Encoding, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
 };
 use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
@@ -18,7 +18,6 @@ use crate::types::{
 };
 use crate::PeerManagerActor;
 use near_primitives::network::PeerId;
-use near_primitives::types::{AccountId, EpochId};
 use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
@@ -89,23 +88,6 @@ pub fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData
             PeerMessage::SyncAccountsData(msg),
         )) => Some(msg),
         _ => None,
-    }
-}
-
-#[derive(PartialEq, Eq, Hash)]
-pub struct NormalAccountData {
-    pub epoch_id: EpochId,
-    pub account_id: AccountId,
-    pub peers: Vec<PeerAddr>,
-}
-
-impl From<&Arc<SignedAccountData>> for NormalAccountData {
-    fn from(d: &Arc<SignedAccountData>) -> Self {
-        Self {
-            epoch_id: d.epoch_id.clone(),
-            account_id: d.account_id.clone(),
-            peers: d.peers.clone(),
-        }
     }
 }
 
