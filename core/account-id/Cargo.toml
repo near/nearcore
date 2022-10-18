@@ -16,6 +16,7 @@ default = ["borsh", "serde"]
 internal_unstable = []
 
 [dependencies]
+arbitrary = { workspace = true, optional = true }
 borsh = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 
