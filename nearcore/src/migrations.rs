@@ -120,7 +120,7 @@ pub fn do_migrate_34_to_35(
     // });
     // panic!("Test finished");
 
-    for shard_id in 0..num_shards {
+    for shard_id in 1..num_shards {
         info!(target: "chain", %shard_id, "Start flat state shard migration");
         let shard_uid = runtime.shard_id_to_uid(shard_id, &epoch_id)?;
         let state_root = chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root().clone();
@@ -131,18 +131,18 @@ pub fn do_migrate_34_to_35(
         let thread_slots = Arc::new(std::sync::atomic::AtomicU32::new(max_threads));
 
         let mut state_iter = trie.iter()?;
-        let path_begin_encoded = NibbleSlice::encode_nibbles(&[0], false);
-        state_iter.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, true)?;
+        // let path_begin_encoded = NibbleSlice::encode_nibbles(&[0], false);
+        // state_iter.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, true)?;
 
         let mut handles = vec![];
         for sub_trie in state_iter.heavy_sub_tries(sub_trie_size)? {
             let TrieIterator { trie, trail, key_nibbles, visited_nodes } = sub_trie?;
             // DEBUG HEX PREFIXES
-            let hex_prefix: String = key_nibbles
-                .iter()
-                .map(|&n| char::from_digit(n as u32, 16).expect("nibble should be <16"))
-                .collect();
-            debug!(target: "store", "Preload subtrie at {hex_prefix}");
+            // let hex_prefix: String = key_nibbles
+            //     .iter()
+            //     .map(|&n| char::from_digit(n as u32, 16).expect("nibble should be <16"))
+            //     .collect();
+            // debug!(target: "store", "Preload subtrie at {hex_prefix}");
             continue;
 
             let storage = trie
