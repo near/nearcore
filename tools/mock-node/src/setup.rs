@@ -119,12 +119,12 @@ pub fn setup_mock_node(
     if client_start_height > 0 {
         tracing::info!(target: "mock_node", "Preparing client data dir to be able to start at the specified start height {}", client_start_height);
         let mut chain_store = ChainStore::new(
-            client_runtime.get_store(),
+            client_runtime.store().clone(),
             config.genesis.config.genesis_height,
             !config.client_config.archive,
         );
         let mut network_chain_store = ChainStore::new(
-            mock_network_runtime.get_store(),
+            mock_network_runtime.store().clone(),
             config.genesis.config.genesis_height,
             !config.client_config.archive,
         );
@@ -166,12 +166,12 @@ pub fn setup_mock_node(
 
         // copy epoch info
         let mut epoch_manager = EpochManager::new_from_genesis_config(
-            client_runtime.get_store(),
+            client_runtime.store().clone(),
             &config.genesis.config,
         )
         .unwrap();
         let mock_epoch_manager = EpochManager::new_from_genesis_config(
-            mock_network_runtime.get_store(),
+            mock_network_runtime.store().clone(),
             &config.genesis.config,
         )
         .unwrap();
@@ -356,7 +356,8 @@ mod tests {
                     let last_block2 = last_block1.clone();
                     let nonce = nonce.clone();
                     let client1 = client.clone();
-                    spawn_interruptible(view_client1.send(GetBlock::latest()).then(move |res| {
+                    let actor = view_client1.send(GetBlock::latest().with_span_context());
+                    let actor = actor.then(move |res| {
                         if let Ok(Ok(block)) = res {
                             let next_nonce = *nonce.read().unwrap();
                             if next_nonce < 100 {
@@ -405,7 +406,8 @@ mod tests {
                             }
                         }
                         future::ready(())
-                    }));
+                    });
+                    spawn_interruptible(actor);
                 }),
                 100,
                 60000,
@@ -435,7 +437,8 @@ mod tests {
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     let last_block1 = last_block.clone();
-                    actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
+                    let actor = view_client.send(GetBlock::latest().with_span_context());
+                    let actor = actor.then(move |res| {
                         if let Ok(Ok(block)) = res {
                             if block.header.height >= 20 {
                                 assert_eq!(*last_block1.read().unwrap(), block.header.hash);
@@ -443,7 +446,8 @@ mod tests {
                             }
                         }
                         future::ready(())
-                    }));
+                    });
+                    actix::spawn(actor);
                 }),
                 100,
                 60000,

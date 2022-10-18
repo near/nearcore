@@ -91,7 +91,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
 
-/// Maximum age of orhpan to store in the chain.
+/// Maximum age of orphan to store in the chain.
 const MAX_ORPHAN_AGE_SECS: u64 = 300;
 
 // Number of orphan ancestors should be checked to request chunks
@@ -643,8 +643,8 @@ impl Chain {
         }
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
-              block_head.height, block_head.last_block_hash,
-              header_head.height, header_head.last_block_hash);
+              header_head.height, header_head.last_block_hash,
+              block_head.height, block_head.last_block_hash);
         metrics::BLOCK_HEIGHT_HEAD.set(block_head.height as i64);
         let block_header = store.get_block_header(&block_head.last_block_hash)?;
         metrics::BLOCK_ORDINAL_HEAD.set(block_header.block_ordinal() as i64);

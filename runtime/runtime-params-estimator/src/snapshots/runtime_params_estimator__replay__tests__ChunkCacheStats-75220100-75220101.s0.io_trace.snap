@@ -1,0 +1,38 @@
+---
+source: runtime/runtime-params-estimator/src/replay.rs
+expression: output
+---
+apply_transactions shard_id=0 block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+  GET   287 State  
+  DB GET              287 requests for a total of  1668244 B
+  DB SET                0 requests for a total of        0 B
+  STORAGE READ          9 requests for a total of      800 B
+  STORAGE WRITE        10 requests for a total of      881 B
+  TRIE NODES (guest)  400 /   2 /  93  (chunk-cache/shard-cache/DB)
+  TRIE NODES (host)         289 / 194  (shard-cache/DB)
+  SHARD CACHE         50.35% hit rate,  50.61% if removing 3 too large nodes from total
+  CHUNK CACHE         80.81% hit rate
+
+apply_transactions shard_id=0 block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+  GET   345 State  
+  DB GET              345 requests for a total of  1141968 B
+  DB SET                0 requests for a total of        0 B
+  STORAGE READ          9 requests for a total of      945 B
+  STORAGE WRITE        11 requests for a total of      792 B
+  TRIE NODES (guest)  351 /   2 /  94  (chunk-cache/shard-cache/DB)
+  TRIE NODES (host)         472 / 251  (shard-cache/DB)
+  SHARD CACHE         57.88% hit rate,  58.02% if removing 2 too large nodes from total
+  CHUNK CACHE         78.52% hit rate
+
+top-level:
+  GET   4 Block  4 BlockHeader  2 BlockHeight  4 BlockInfo  2 BlockMisc  2 ChunkExtra  2 Chunks  4 EpochInfo  2 IncomingReceipts  4 State  
+  DB GET               30 requests for a total of   149811 B
+  DB SET                0 requests for a total of        0 B
+  STORAGE READ          0 requests for a total of        0 B
+  STORAGE WRITE         0 requests for a total of        0 B
+  TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+  TRIE NODES (host)           0 /   0  (shard-cache/DB)
+  SHARD CACHE not accessed
+  CHUNK CACHE not accessed
+
+

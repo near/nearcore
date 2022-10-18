@@ -753,7 +753,7 @@ pub fn setup_mock_all_validators(
                                     actix::spawn(
                                         connectors1[i]
                                             .1
-                                            .send(NetworkViewClientMessages::BlockRequest(*hash))
+                                            .send(NetworkViewClientMessages::BlockRequest(*hash).with_span_context())
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -779,7 +779,7 @@ pub fn setup_mock_all_validators(
                                             .1
                                             .send(NetworkViewClientMessages::EpochSyncRequest {
                                                 epoch_id: epoch_id.clone(),
-                                            })
+                                            }.with_span_context())
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -805,7 +805,7 @@ pub fn setup_mock_all_validators(
                                             .1
                                             .send(NetworkViewClientMessages::EpochSyncFinalizationRequest {
                                                 epoch_id: epoch_id.clone(),
-                                            })
+                                            }.with_span_context())
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -831,7 +831,7 @@ pub fn setup_mock_all_validators(
                                             .1
                                             .send(NetworkViewClientMessages::BlockHeadersRequest(
                                                 hashes.clone(),
-                                            ))
+                                            ).with_span_context())
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -867,7 +867,7 @@ pub fn setup_mock_all_validators(
                                             .send(NetworkViewClientMessages::StateRequestHeader {
                                                 shard_id: *shard_id,
                                                 sync_hash: *sync_hash,
-                                            })
+                                            }.with_span_context())
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -905,7 +905,7 @@ pub fn setup_mock_all_validators(
                                                 shard_id: *shard_id,
                                                 sync_hash: *sync_hash,
                                                 part_id: *part_id,
-                                            })
+                                            }.with_span_context())
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -941,7 +941,7 @@ pub fn setup_mock_all_validators(
                                 for (_, view_client) in connectors1 {
                                     view_client.do_send(NetworkViewClientMessages::AnnounceAccount(
                                         vec![(announce_account.clone(), None)],
-                                    ))
+                                    ).with_span_context())
                                 }
                             }
                         }

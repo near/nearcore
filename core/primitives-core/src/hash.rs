@@ -8,7 +8,17 @@ use sha2::Digest;
 
 use crate::logging::pretty_hash;
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, derive_more::AsRef, derive_more::AsMut)]
+#[derive(
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    derive_more::AsRef,
+    derive_more::AsMut,
+    arbitrary::Arbitrary,
+)]
 #[as_ref(forward)]
 #[as_mut(forward)]
 pub struct CryptoHash(pub [u8; 32]);
