@@ -9,7 +9,9 @@ use actix::{
     Actor as _, ActorContext as _, ActorFutureExt, Addr, Context, ContextFutureSpawner as _,
     Running, WrapFuture as _,
 };
-use near_o11y::{handler_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_o11y::{
+    handler_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt,
+};
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
 use parking_lot::RwLock;
@@ -283,7 +285,7 @@ impl actix::Handler<WithSpanContext<Message>> for Actor {
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<Message>, ctx: &mut Self::Context) -> Self::Result {
         let msg_type: &str = (&msg.msg).into();
-        let (_span, msg) = handler_span!("network", msg, msg_type);
+        let (_span, msg) = handler_trace_span!("network", msg, msg_type);
         let _timer =
             metrics::ROUTING_TABLE_MESSAGES_TIME.with_label_values(&[msg_type]).start_timer();
         match msg {

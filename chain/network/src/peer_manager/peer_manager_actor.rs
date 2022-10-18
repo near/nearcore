@@ -33,7 +33,9 @@ use actix::{
 };
 use anyhow::bail;
 use anyhow::Context as _;
-use near_o11y::{handler_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_o11y::{
+    handler_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt,
+};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -1627,7 +1629,7 @@ impl Handler<WithSpanContext<PeerToManagerMsg>> for PeerManagerActor {
         ctx: &mut Self::Context,
     ) -> Self::Result {
         let msg_type: &str = (&msg.msg).into();
-        let (_span, msg) = handler_span!("network", msg, msg_type);
+        let (_span, msg) = handler_trace_span!("network", msg, msg_type);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[msg_type]).start_timer();
         self.handle_peer_to_manager_msg(msg, ctx)
@@ -1642,7 +1644,7 @@ impl Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerActor {
         ctx: &mut Self::Context,
     ) -> Self::Result {
         let msg_type: &str = (&msg.msg).into();
-        let (_span, msg) = handler_span!("network", msg, msg_type);
+        let (_span, msg) = handler_trace_span!("network", msg, msg_type);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         self.handle_peer_manager_message(msg, ctx)

@@ -20,6 +20,28 @@ macro_rules! handler_span {
     }};
 }
 
+/// Creates a TRACE level span.
+#[macro_export]
+macro_rules! handler_trace_span {
+    ($target:expr, $msg:expr $(, $extra_fields:tt)*) => {{
+        let WithSpanContext { msg, context, .. } = $msg;
+
+        let actor = near_o11y::macros::last_component_of_name(std::any::type_name::<Self>());
+        let handler = near_o11y::macros::type_name_of(&msg);
+
+        let span = tracing::trace_span!(
+            target: $target,
+            "handle",
+            handler,
+            actor,
+            $($extra_fields)*)
+        .entered();
+
+        span.set_parent(context);
+        (span, msg)
+    }};
+}
+
 /// For internal use by `handler_span!`.
 /// Given 'abc::bcd::cde' returns 'cde'.
 /// Given 'abc' returns 'abc'.
