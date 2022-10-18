@@ -2,7 +2,7 @@ use near_primitives::types::MaybeBlockId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, arbitrary::Arbitrary)]
 pub struct RpcGasPriceRequest {
     pub block_id: MaybeBlockId,
 }
