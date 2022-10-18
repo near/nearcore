@@ -100,8 +100,7 @@ fn setup_network_node(
         time::Clock::real(),
         db.clone(),
         config,
-        client_actor.recipient(),
-        view_client_actor.recipient(),
+        near_network::client::Client::new(client_actor.recipient(), view_client_actor.recipient()),
         genesis_id,
     )
     .unwrap();
