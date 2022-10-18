@@ -266,7 +266,8 @@ impl Handler<WithSpanContext<NetworkClientMessages>> for ClientActor {
         msg: WithSpanContext<NetworkClientMessages>,
         ctx: &mut Context<Self>,
     ) -> Self::Result {
-        let (_span, msg) = handler_span!("client", msg, |msg: &NetworkClientMessages| msg.into());
+        let msg_type: &'static str = (&msg.msg).into();
+        let (_span, msg) = handler_span!("client", msg, msg_type);
 
         self.check_triggers(ctx);
 
