@@ -642,12 +642,12 @@ async fn construction_combine(
             errors::ErrorKind::InvalidInput(err.to_string())
         })?;
 
-    let signed_transction = near_primitives::transaction::SignedTransaction::new(
+    let signed_transaction = near_primitives::transaction::SignedTransaction::new(
         signature,
         unsigned_transaction.into_inner(),
     );
 
-    Ok(Json(models::ConstructionCombineResponse { signed_transaction: signed_transction.into() }))
+    Ok(Json(models::ConstructionCombineResponse { signed_transaction: signed_transaction.into() }))
 }
 
 #[api_v2_operation]
