@@ -1,13 +1,13 @@
 use crate::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
 use crate::internal::VMKind;
-use crate::VMResult;
+use crate::runner::VMResult;
 use arbitrary::Arbitrary;
 use bolero::check;
 use core::fmt;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_vm_errors::{FunctionCallError, VMError};
+use near_vm_errors::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext};
 
@@ -112,7 +112,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     let promise_results = vec![];
 
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
-    let res = vm_kind.runtime(config).unwrap().run(
+    let mut res = vm_kind.runtime(config).unwrap().run(
         code,
         &method_name,
         &mut fake_external,
@@ -126,17 +126,16 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     // Remove the VMError message details as they can differ between runtimes
     // TODO: maybe there's actually things we could check for equality here too?
     match res {
-        VMResult::Ok(err) => VMResult::Ok(err),
-        VMResult::Aborted(mut outcome, _err) => {
-            outcome.logs = vec!["[censored]".to_owned()];
-            VMResult::Aborted(
-                outcome,
-                VMError::FunctionCallError(FunctionCallError::Nondeterministic(
-                    "[censored]".to_owned(),
-                )),
-            )
+        Ok(ref mut outcome) => {
+            if outcome.aborted.is_some() {
+                outcome.logs = vec!["[censored]".to_owned()];
+                outcome.aborted =
+                    Some(FunctionCallError::LinkError { msg: "[censored]".to_owned() });
+            }
         }
+        Err(err) => panic!("fatal error: {err:?}"),
     }
+    res
 }
 
 #[test]
@@ -161,8 +160,9 @@ fn wasmer2_and_wasmtime_agree() {
             Err(_) => return,
         };
         let code = ContractCode::new(module.0.module.to_bytes(), None);
-        let wasmer2 = run_fuzz(&code, VMKind::Wasmer2);
-        let wasmtime = run_fuzz(&code, VMKind::Wasmtime);
+        let wasmer2 = run_fuzz(&code, VMKind::Wasmer2).expect("fatal failure");
+        let wasmtime = run_fuzz(&code, VMKind::Wasmtime).expect("fatal failure");
+        assert_eq!(wasmer2, wasmtime);
         assert_eq!(wasmer2, wasmtime);
     });
 }

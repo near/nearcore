@@ -8,7 +8,6 @@ rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
-deepsize = { workspace = true, optional = true }
 serde.workspace = true
 
 near-primitives = { path = "../../core/primitives" }
@@ -16,4 +15,3 @@ near-network = { path = "../network" }
 
 [features]
 test_features = ["near-network/test_features"]
-deepsize_feature = ["deepsize", "near-primitives/deepsize_feature"]

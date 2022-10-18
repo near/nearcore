@@ -50,7 +50,7 @@ use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
+use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper};
 use near_primitives::time::Utc;
 use near_primitives::time::{Clock, Instant};
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
@@ -753,7 +753,7 @@ pub fn setup_mock_all_validators(
                                     actix::spawn(
                                         connectors1[i]
                                             .1
-                                            .send(NetworkViewClientMessages::BlockRequest(*hash))
+                                            .send(NetworkViewClientMessages::BlockRequest(*hash).with_span_context())
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -779,7 +779,7 @@ pub fn setup_mock_all_validators(
                                             .1
                                             .send(NetworkViewClientMessages::EpochSyncRequest {
                                                 epoch_id: epoch_id.clone(),
-                                            })
+                                            }.with_span_context())
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -805,7 +805,7 @@ pub fn setup_mock_all_validators(
                                             .1
                                             .send(NetworkViewClientMessages::EpochSyncFinalizationRequest {
                                                 epoch_id: epoch_id.clone(),
-                                            })
+                                            }.with_span_context())
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -831,7 +831,7 @@ pub fn setup_mock_all_validators(
                                             .1
                                             .send(NetworkViewClientMessages::BlockHeadersRequest(
                                                 hashes.clone(),
-                                            ))
+                                            ).with_span_context())
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -867,7 +867,7 @@ pub fn setup_mock_all_validators(
                                             .send(NetworkViewClientMessages::StateRequestHeader {
                                                 shard_id: *shard_id,
                                                 sync_hash: *sync_hash,
-                                            })
+                                            }.with_span_context())
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -905,7 +905,7 @@ pub fn setup_mock_all_validators(
                                                 shard_id: *shard_id,
                                                 sync_hash: *sync_hash,
                                                 part_id: *part_id,
-                                            })
+                                            }.with_span_context())
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -941,7 +941,7 @@ pub fn setup_mock_all_validators(
                                 for (_, view_client) in connectors1 {
                                     view_client.do_send(NetworkViewClientMessages::AnnounceAccount(
                                         vec![(announce_account.clone(), None)],
-                                    ))
+                                    ).with_span_context())
                                 }
                             }
                         }
@@ -1410,7 +1410,10 @@ impl TestEnv {
                 ) = request
                 {
                     self.client(&account_id)
-                        .process_partial_encoded_chunk(partial_encoded_chunk.into())
+                        .shards_mgr
+                        .process_partial_encoded_chunk(
+                            PartialEncodedChunk::from(partial_encoded_chunk).into(),
+                        )
                         .unwrap();
                 }
             }
@@ -1437,7 +1440,7 @@ impl TestEnv {
         {
             let target_id = self.account_to_client_index[&target.account_id.unwrap()];
             let response = self.get_partial_encoded_chunk_response(target_id, request);
-            self.clients[id].process_partial_encoded_chunk_response(response).unwrap();
+            self.clients[id].shards_mgr.process_partial_encoded_chunk_response(response).unwrap();
         } else {
             panic!("The request is not a PartialEncodedChunk request {:?}", request);
         }

@@ -16,7 +16,6 @@ pub const EDGE_MIN_TIMESTAMP_NONCE: Lazy<time::Utc> =
 
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Clone, BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Default)]
 pub struct PartialEdgeInfo {
     pub nonce: u64,
@@ -37,7 +36,6 @@ pub enum InvalidNonceError {
     NonceOutOfBoundsError { nonce: u64 },
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "test_features", derive(serde::Serialize, serde::Deserialize))]
 pub struct Edge(pub Arc<EdgeInner>);
@@ -110,7 +108,7 @@ impl Edge {
     /// It is important that peer0 < peer1 at this point.
     pub fn build_hash(peer0: &PeerId, peer1: &PeerId, nonce: u64) -> CryptoHash {
         let (peer0, peer1) = if peer0 < peer1 { (peer0, peer1) } else { (peer1, peer0) };
-        CryptoHash::hash_borsh(&(peer0, peer1, nonce))
+        CryptoHash::hash_borsh((peer0, peer1, nonce))
     }
 
     pub fn make_key(peer0: PeerId, peer1: PeerId) -> (PeerId, PeerId) {
@@ -257,7 +255,6 @@ impl Edge {
 /// Note that edge might either in `Active` or `Removed` state.
 /// We need to keep explicitly `Removed` edges, in order to be able to proof, that given `Edge`
 /// isn't `Active` anymore. In case, someone delivers a proof that the edge existed.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "test_features", derive(serde::Serialize, serde::Deserialize))]
 pub struct EdgeInner {

@@ -119,16 +119,6 @@ impl KnownPeerStatus {
     }
 }
 
-impl AccountOrPeerIdOrHash {
-    pub(crate) fn peer_id_or_hash(&self) -> Option<PeerIdOrHash> {
-        match self {
-            AccountOrPeerIdOrHash::AccountId(_) => None,
-            AccountOrPeerIdOrHash::PeerId(peer_id) => Some(PeerIdOrHash::PeerId(peer_id.clone())),
-            AccountOrPeerIdOrHash::Hash(hash) => Some(PeerIdOrHash::Hash(*hash)),
-        }
-    }
-}
-
 /// Set of account keys.
 /// This is information which chain pushes to network to implement tier1.
 /// See ChainInfo.
@@ -665,7 +655,6 @@ mod tests {
 }
 
 // Don't need Borsh ?
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, borsh::BorshSerialize, borsh::BorshDeserialize, Hash)]
 /// Defines the destination for a network request.
 /// The request should be sent either to the `account_id` as a routed message, or directly to

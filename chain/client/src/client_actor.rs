@@ -35,7 +35,7 @@ use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_o11y::{OpenTelemetrySpanExt, WithSpanContext};
+use near_o11y::{handler_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::block_header::ApprovalType;
@@ -219,10 +219,10 @@ fn create_sync_job_scheduler<M>(address: Addr<SyncJobsActor>) -> Box<dyn Fn(M)>
 where
     M: Message + Send + 'static,
     M::Result: Send,
-    SyncJobsActor: Handler<M>,
+    SyncJobsActor: Handler<WithSpanContext<M>>,
 {
     Box::new(move |msg: M| {
-        if let Err(err) = address.try_send(msg) {
+        if let Err(err) = address.try_send(msg.with_span_context()) {
             match err {
                 SendError::Full(request) => {
                     address.do_send(request);
@@ -266,16 +266,8 @@ impl Handler<WithSpanContext<NetworkClientMessages>> for ClientActor {
         msg: WithSpanContext<NetworkClientMessages>,
         ctx: &mut Context<Self>,
     ) -> Self::Result {
-        let msg_type: &str = (&msg.msg).into();
-        let span = tracing::debug_span!(
-            target: "client",
-            "handle",
-            handler = "NetworkClientMessages",
-            actor = "ClientActor",
-            msg_type)
-        .entered();
-        span.set_parent(msg.context);
-        let msg = msg.msg;
+        let msg_type: &'static str = (&msg.msg).into();
+        let (_span, msg) = handler_span!("client", msg, msg_type);
 
         self.check_triggers(ctx);
 
@@ -591,7 +583,7 @@ impl ClientActor {
             }
             NetworkClientMessages::PartialEncodedChunkResponse(response, time) => {
                 PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(time.elapsed().as_secs_f64());
-                let _ = self.client.process_partial_encoded_chunk_response(response);
+                let _ = self.client.shards_mgr.process_partial_encoded_chunk_response(response);
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
@@ -599,14 +591,17 @@ impl ClientActor {
                     partial_encoded_chunk.height_created(),
                     partial_encoded_chunk.shard_id(),
                 );
-                let _ = self.client.process_partial_encoded_chunk(partial_encoded_chunk);
+                let _ = self
+                    .client
+                    .shards_mgr
+                    .process_partial_encoded_chunk(partial_encoded_chunk.into());
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunkForward(forward) => {
-                match self.client.process_partial_encoded_chunk_forward(forward) {
-                    Ok(()) => {}
+                match self.client.shards_mgr.process_partial_encoded_chunk_forward(forward) {
+                    Ok(_) => {}
                     // Unknown chunk is normal if we get parts before the header
-                    Err(Error::Chunk(near_chunks::Error::UnknownChunk)) => (),
+                    Err(near_chunks::Error::UnknownChunk) => (),
                     Err(err) => {
                         error!(target: "client", "Error processing forwarded chunk: {}", err)
                     }
@@ -629,15 +624,17 @@ impl ClientActor {
         }
     }
 }
+
 #[cfg(feature = "sandbox")]
-impl Handler<near_client_primitives::types::SandboxMessage> for ClientActor {
+impl Handler<WithSpanContext<near_client_primitives::types::SandboxMessage>> for ClientActor {
     type Result = near_client_primitives::types::SandboxResponse;
 
     fn handle(
         &mut self,
-        msg: near_client_primitives::types::SandboxMessage,
+        msg: WithSpanContext<near_client_primitives::types::SandboxMessage>,
         _ctx: &mut Context<Self>,
     ) -> near_client_primitives::types::SandboxResponse {
+        let (_span, msg) = handler_span!("client", msg);
         match msg {
             near_client_primitives::types::SandboxMessage::SandboxPatchState(state) => {
                 self.client.chain.patch_state(
@@ -668,12 +665,12 @@ impl Handler<near_client_primitives::types::SandboxMessage> for ClientActor {
     }
 }
 
-impl Handler<Status> for ClientActor {
+impl Handler<WithSpanContext<Status>> for ClientActor {
     type Result = Result<StatusResponse, StatusError>;
 
     #[perf]
-    fn handle(&mut self, msg: Status, ctx: &mut Context<Self>) -> Self::Result {
-        let _span = tracing::debug_span!(target: "client", "handle", handler = "Status").entered();
+    fn handle(&mut self, msg: WithSpanContext<Status>, ctx: &mut Context<Self>) -> Self::Result {
+        let (_span, msg) = handler_span!("client", msg);
         let _d = delay_detector::DelayDetector::new(|| "client status".into());
         self.check_triggers(ctx);
 
@@ -717,8 +714,12 @@ impl Handler<Status> for ClientActor {
         let protocol_version =
             self.client.runtime_adapter.get_epoch_protocol_version(&head.epoch_id)?;
 
-        let validator_and_key =
-            self.client.validator_signer.as_ref().map(|vs| (vs.validator_id(), vs.public_key()));
+        let node_public_key = self.node_id.public_key().clone();
+        let (validator_account_id, validator_public_key) = match &self.client.validator_signer {
+            Some(vs) => (Some(vs.validator_id().clone()), Some(vs.public_key().clone())),
+            None => (None, None),
+        };
+        let node_key = validator_public_key.clone();
 
         let mut earliest_block_hash = None;
         let mut earliest_block_height = None;
@@ -775,8 +776,10 @@ impl Handler<Status> for ClientActor {
                 epoch_id: Some(head.epoch_id),
                 epoch_start_height,
             },
-            validator_account_id: validator_and_key.as_ref().map(|v| v.0.clone()),
-            node_key: validator_and_key.as_ref().map(|v| v.1.clone()),
+            validator_account_id,
+            validator_public_key,
+            node_public_key,
+            node_key,
             uptime_sec,
             detailed_debug_status,
         })
@@ -804,16 +807,16 @@ fn make_known_producer(
     }
 }
 
-impl Handler<GetNetworkInfo> for ClientActor {
+impl Handler<WithSpanContext<GetNetworkInfo>> for ClientActor {
     type Result = Result<NetworkInfoResponse, String>;
 
     #[perf]
-    fn handle(&mut self, _msg: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
-        let _span = tracing::debug_span!(
-            target: "client",
-            "handle",
-            handler="GetNetworkInfo")
-        .entered();
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetNetworkInfo>,
+        ctx: &mut Context<Self>,
+    ) -> Self::Result {
+        let (_span, _msg) = handler_span!("client", msg);
         let _d = delay_detector::DelayDetector::new(|| "client get network info".into());
         self.check_triggers(ctx);
 
@@ -842,10 +845,15 @@ impl Handler<GetNetworkInfo> for ClientActor {
 #[rtype(result = "()")]
 pub struct ApplyChunksDoneMessage;
 
-impl Handler<ApplyChunksDoneMessage> for ClientActor {
+impl Handler<WithSpanContext<ApplyChunksDoneMessage>> for ClientActor {
     type Result = ();
 
-    fn handle(&mut self, _msg: ApplyChunksDoneMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<ApplyChunksDoneMessage>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, _msg) = handler_span!("client", msg);
         self.try_process_unfinished_blocks();
     }
 }
@@ -1375,7 +1383,7 @@ impl ClientActor {
     fn get_apply_chunks_done_callback(&self) -> DoneApplyChunkCallback {
         let addr = self.my_address.clone();
         Arc::new(move |_| {
-            addr.do_send(ApplyChunksDoneMessage {});
+            addr.do_send(ApplyChunksDoneMessage {}.with_span_context());
         })
     }
 
@@ -1876,7 +1884,7 @@ impl SyncJobsActor {
         msg: &ApplyStatePartsRequest,
     ) -> Result<(), near_chain_primitives::error::Error> {
         let _span = tracing::debug_span!(target: "client", "apply_parts").entered();
-        let store = msg.runtime.get_store();
+        let store = msg.runtime.store();
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
@@ -1899,30 +1907,37 @@ impl Actor for SyncJobsActor {
     type Context = Context<Self>;
 }
 
-impl Handler<ApplyStatePartsRequest> for SyncJobsActor {
+impl Handler<WithSpanContext<ApplyStatePartsRequest>> for SyncJobsActor {
     type Result = ();
 
-    fn handle(&mut self, msg: ApplyStatePartsRequest, _: &mut Self::Context) -> Self::Result {
-        let _span =
-            tracing::debug_span!(target: "client", "handle", handler = "ApplyStatePartsRequest")
-                .entered();
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<ApplyStatePartsRequest>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_span!("client", msg);
         let result = self.apply_parts(&msg);
 
-        self.client_addr.do_send(ApplyStatePartsResponse {
-            apply_result: result,
-            shard_id: msg.shard_id,
-            sync_hash: msg.sync_hash,
-        });
+        self.client_addr.do_send(
+            ApplyStatePartsResponse {
+                apply_result: result,
+                shard_id: msg.shard_id,
+                sync_hash: msg.sync_hash,
+            }
+            .with_span_context(),
+        );
     }
 }
 
-impl Handler<ApplyStatePartsResponse> for ClientActor {
+impl Handler<WithSpanContext<ApplyStatePartsResponse>> for ClientActor {
     type Result = ();
 
-    fn handle(&mut self, msg: ApplyStatePartsResponse, _: &mut Self::Context) -> Self::Result {
-        let _span =
-            tracing::debug_span!(target: "client", "handle", handler = "ApplyStatePartsResponse")
-                .entered();
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<ApplyStatePartsResponse>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_span!("client", msg);
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
             sync.set_apply_result(msg.shard_id, msg.apply_result);
@@ -1932,27 +1947,33 @@ impl Handler<ApplyStatePartsResponse> for ClientActor {
     }
 }
 
-impl Handler<BlockCatchUpRequest> for SyncJobsActor {
+impl Handler<WithSpanContext<BlockCatchUpRequest>> for SyncJobsActor {
     type Result = ();
 
-    fn handle(&mut self, msg: BlockCatchUpRequest, _: &mut Self::Context) -> Self::Result {
-        let _span =
-            tracing::debug_span!(target: "client", "handle", handler = "BlockCatchUpRequest")
-                .entered();
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<BlockCatchUpRequest>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_span!("client", msg);
         let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work);
 
-        self.client_addr.do_send(BlockCatchUpResponse {
-            sync_hash: msg.sync_hash,
-            block_hash: msg.block_hash,
-            results,
-        });
+        self.client_addr.do_send(
+            BlockCatchUpResponse { sync_hash: msg.sync_hash, block_hash: msg.block_hash, results }
+                .with_span_context(),
+        );
     }
 }
 
-impl Handler<BlockCatchUpResponse> for ClientActor {
+impl Handler<WithSpanContext<BlockCatchUpResponse>> for ClientActor {
     type Result = ();
 
-    fn handle(&mut self, msg: BlockCatchUpResponse, _: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<BlockCatchUpResponse>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_span!("client", msg);
         if let Some((_, _, blocks_catch_up_state)) =
             self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
         {
@@ -1964,12 +1985,15 @@ impl Handler<BlockCatchUpResponse> for ClientActor {
     }
 }
 
-impl Handler<StateSplitRequest> for SyncJobsActor {
+impl Handler<WithSpanContext<StateSplitRequest>> for SyncJobsActor {
     type Result = ();
 
-    fn handle(&mut self, msg: StateSplitRequest, _: &mut Self::Context) -> Self::Result {
-        let _span = tracing::debug_span!(target: "client", "handle", handler = "StateSplitRequest")
-            .entered();
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<StateSplitRequest>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_span!("client", msg);
         let results = msg.runtime.build_state_for_split_shards(
             msg.shard_uid,
             &msg.state_root,
@@ -1977,18 +2001,26 @@ impl Handler<StateSplitRequest> for SyncJobsActor {
             msg.state_split_status,
         );
 
-        self.client_addr.do_send(StateSplitResponse {
-            sync_hash: msg.sync_hash,
-            shard_id: msg.shard_id,
-            new_state_roots: results,
-        });
+        self.client_addr.do_send(
+            StateSplitResponse {
+                sync_hash: msg.sync_hash,
+                shard_id: msg.shard_id,
+                new_state_roots: results,
+            }
+            .with_span_context(),
+        );
     }
 }
 
-impl Handler<StateSplitResponse> for ClientActor {
+impl Handler<WithSpanContext<StateSplitResponse>> for ClientActor {
     type Result = ();
 
-    fn handle(&mut self, msg: StateSplitResponse, _: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<StateSplitResponse>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_span!("client", msg);
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
             sync.set_split_result(msg.shard_id, msg.new_state_roots);
@@ -1998,13 +2030,15 @@ impl Handler<StateSplitResponse> for ClientActor {
     }
 }
 
-impl Handler<ShardsManagerResponse> for ClientActor {
+impl Handler<WithSpanContext<ShardsManagerResponse>> for ClientActor {
     type Result = ();
 
-    fn handle(&mut self, msg: ShardsManagerResponse, _: &mut Self::Context) -> Self::Result {
-        let _span =
-            tracing::debug_span!(target: "client", "handle", handler = "ShardsManagerResponse")
-                .entered();
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<ShardsManagerResponse>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_span!("client", msg);
         match msg {
             ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
                 self.client.on_chunk_completed(

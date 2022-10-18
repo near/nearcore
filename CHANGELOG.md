@@ -17,6 +17,9 @@
   deprecated.  If they are set in `config.json` the node will fail if migration
   needs to be performed.  Use `store.migration_snapshot` instead to configure
   the behaviour [#7486](https://github.com/near/nearcore/pull/7486)
+* `/status` response has now two more fields: `node_public_key` and
+  `validator_public_key`.  The `node_key` field is now deprecated and should not
+  be used since it confusingly holds validator key.
 * Added `near_peer_message_sent_by_type_bytes` and
   `near_peer_message_sent_by_type_total` Prometheus metrics measuring
   size and number of messages sent to peers.
@@ -37,9 +40,6 @@
 * Backtraces on panics are enabled by default, so you no longer need to set
   `RUST_BACKTRACE=1` environmental variable. To disable backtraces, set
   `RUST_BACKTRACE=0`.
-* A `[path, data]` JSON RPC query format has been removed.  It has been
-  deprecated for over two years and not documented anywhere.  Use proper
-  structured queries with `rquest_type` set instead.
 * Enable receipt prefetching by default. This feature makes receipt processing
   faster by parallelizing IO requests, which has been introduced in
   [#7590](https://github.com/near/nearcore/pull/7590) and enabled by default

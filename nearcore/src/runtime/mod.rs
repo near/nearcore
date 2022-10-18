@@ -39,12 +39,12 @@ use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
     EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause,
-    StateChangesForSplitStates, StateRoot, StateRootNode, ValidatorInfoIdentifier,
+    StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
-    AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
-    QueryResponseKind, ViewApplyState, ViewStateResult,
+    AccessKeyInfoView, CallResult, QueryRequest, QueryResponse, QueryResponseKind, ViewApplyState,
+    ViewStateResult,
 };
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::ChainAccessForFlatStorage;
@@ -669,8 +669,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         (self.store.clone(), self.genesis_state_roots.clone())
     }
 
-    fn get_store(&self) -> Store {
-        self.store.clone()
+    fn store(&self) -> &Store {
+        &self.store
     }
 
     fn get_tries(&self) -> ShardTries {
@@ -682,9 +682,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         prev_hash: &CryptoHash,
         state_root: StateRoot,
+        use_flat_storage: bool,
     ) -> Result<Trie, Error> {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
-        Ok(self.tries.get_trie_with_block_hash_for_shard(shard_uid, state_root, prev_hash))
+        if use_flat_storage {
+            Ok(self.tries.get_trie_with_block_hash_for_shard(shard_uid, state_root, prev_hash))
+        } else {
+            Ok(self.tries.get_trie_for_shard(shard_uid, state_root))
+        }
     }
 
     fn get_view_trie_for_shard(
@@ -1049,8 +1054,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
         states_to_patch: SandboxStatePatch,
+        use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
-        let trie = self.get_trie_for_shard(shard_id, prev_block_hash, state_root.clone())?;
+        let trie = self.get_trie_for_shard(
+            shard_id,
+            prev_block_hash,
+            state_root.clone(),
+            use_flat_storage,
+        )?;
 
         // TODO (#6316): support chunk nodes caching for TrieRecordingStorage
         if generate_storage_proof {
@@ -1267,16 +1278,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                 })
             }
         }
-    }
-
-    /// WARNING: this function calls EpochManager::get_epoch_info_aggregator_upto_last
-    /// underneath which can be very expensive.
-    fn get_validator_info(
-        &self,
-        epoch_id: ValidatorInfoIdentifier,
-    ) -> Result<EpochValidatorInfo, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        epoch_manager.get_validator_info(epoch_id).map_err(|e| e.into())
     }
 
     /// Returns StorageError when storage is inconsistent.
@@ -1643,12 +1644,15 @@ mod test {
     use near_primitives::block::Tip;
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
-    use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId, ValidatorKickoutReason};
+    use near_primitives::types::{
+        BlockHeightDelta, Nonce, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
+    };
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_primitives::views::{
-        AccountView, CurrentEpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
+        AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
+        ValidatorKickoutView,
     };
-    use near_store::{NodeStorage, Temperature};
+    use near_store::{flat_state, FlatStateDelta, NodeStorage, Temperature};
 
     use super::*;
 
@@ -1706,16 +1710,78 @@ mod test {
                     true,
                     false,
                     Default::default(),
+                    true,
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
+            let flat_state_delta =
+                FlatStateDelta::from_state_changes(&result.trie_changes.state_changes());
             result.trie_changes.insertions_into(&mut store_update);
             result.trie_changes.state_changes_into(&mut store_update);
+
+            match self.get_flat_storage_state_for_shard(shard_id) {
+                Some(flat_storage_state) => {
+                    let block_info = flat_state::BlockInfo {
+                        hash: block_hash.clone(),
+                        height,
+                        prev_hash: prev_block_hash.clone(),
+                    };
+                    let new_store_update = flat_storage_state
+                        .add_block(&block_hash, flat_state_delta, block_info)
+                        .unwrap();
+                    store_update.merge(new_store_update);
+                }
+                None => {}
+            }
             store_update.commit().unwrap();
+
             (result.new_root, result.validator_proposals, result.outgoing_receipts)
         }
     }
 
+    /// Stores chain data for genesis block to initialize flat storage in test environment.
+    #[cfg(feature = "protocol_feature_flat_state")]
+    struct MockChainForFlatStorage {
+        height_to_hashes: HashMap<BlockHeight, CryptoHash>,
+        blocks: HashMap<CryptoHash, flat_state::BlockInfo>,
+    }
+
+    #[cfg(feature = "protocol_feature_flat_state")]
+    impl ChainAccessForFlatStorage for MockChainForFlatStorage {
+        fn get_block_info(&self, block_hash: &CryptoHash) -> flat_state::BlockInfo {
+            self.blocks.get(block_hash).unwrap().clone()
+        }
+
+        fn get_block_hashes_at_height(&self, block_height: BlockHeight) -> HashSet<CryptoHash> {
+            HashSet::from([self.get_block_hash(block_height)])
+        }
+    }
+
+    #[cfg(feature = "protocol_feature_flat_state")]
+    impl MockChainForFlatStorage {
+        /// Creates mock chain containing only genesis block data.
+        pub fn new(genesis_height: BlockHeight, genesis_hash: CryptoHash) -> Self {
+            Self {
+                height_to_hashes: HashMap::from([(genesis_height, genesis_hash)]),
+                blocks: HashMap::from([(
+                    genesis_hash,
+                    flat_state::BlockInfo {
+                        hash: genesis_hash,
+                        height: genesis_height,
+                        prev_hash: CryptoHash::default(),
+                    },
+                )]),
+            }
+        }
+
+        fn get_block_hash(&self, height: BlockHeight) -> CryptoHash {
+            *self.height_to_hashes.get(&height).unwrap()
+        }
+    }
+
+    /// Environment to test runtime behaviour separate from Chain.
+    /// Runtime operates in a mock chain where i-th block is attached to (i-1)-th one, has height `i` and hash
+    /// `hash([i])`.
     struct TestEnv {
         pub runtime: NightshadeRuntime,
         pub head: Tip,
@@ -1813,6 +1879,25 @@ mod test {
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&[0]);
+
+            // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
+            // and use a mock chain, so we need to initialize flat storage manually.
+            let store_update = runtime
+                .set_flat_storage_state_for_genesis(&genesis_hash, &EpochId::default())
+                .unwrap();
+            store_update.commit().unwrap();
+            #[cfg(feature = "protocol_feature_flat_state")]
+            {
+                let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
+                for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {
+                    runtime.create_flat_storage_state_for_shard(
+                        shard_id as ShardId,
+                        0,
+                        &mock_chain,
+                    );
+                }
+            }
+
             runtime
                 .add_validator_proposals(BlockHeaderInfo {
                     prev_hash: CryptoHash::default(),
@@ -2287,6 +2372,8 @@ mod test {
         init_test_logger();
     }
 
+    // TODO (#7327): enable test when flat storage will support state sync.
+    #[cfg(not(feature = "protocol_feature_flat_state"))]
     #[test]
     fn test_state_sync() {
         init_test_logger();
@@ -3103,8 +3190,10 @@ mod test {
     #[test]
     fn test_flat_state_usage() {
         let env = TestEnv::new(vec![vec!["test1".parse().unwrap()]], 4, false);
-        let trie =
-            env.runtime.get_trie_for_shard(0, &env.head.prev_block_hash, Trie::EMPTY_ROOT).unwrap();
+        let trie = env
+            .runtime
+            .get_trie_for_shard(0, &env.head.prev_block_hash, Trie::EMPTY_ROOT, true)
+            .unwrap();
         assert_eq!(trie.flat_state.is_some(), cfg!(feature = "protocol_feature_flat_state"));
 
         let trie = env
@@ -3146,9 +3235,10 @@ mod test {
         // - using view state, which should never use flat state
         let head_prev_block_hash = env.head.prev_block_hash;
         let state_root = env.state_roots[0];
-        let state = env.runtime.get_trie_for_shard(0, &head_prev_block_hash, state_root).unwrap();
+        let state =
+            env.runtime.get_trie_for_shard(0, &head_prev_block_hash, state_root, true).unwrap();
         let view_state =
-            env.runtime.get_trie_for_shard(0, &head_prev_block_hash, state_root).unwrap();
+            env.runtime.get_view_trie_for_shard(0, &head_prev_block_hash, state_root).unwrap();
         let trie_key = TrieKey::Account { account_id: validators[1].clone() };
         let key = trie_key.to_vec();
 

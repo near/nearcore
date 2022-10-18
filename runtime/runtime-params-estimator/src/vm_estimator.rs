@@ -4,7 +4,7 @@ use crate::{utils::read_resource, REAL_CONTRACTS_SAMPLE};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::types::CompiledContractCache;
+use near_primitives::types::{CompiledContract, CompiledContractCache};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::StoreCompiledContractCache;
 use near_vm_logic::VMContext;
@@ -57,11 +57,11 @@ fn measure_contract(
 struct MockCompiledContractCache;
 
 impl CompiledContractCache for MockCompiledContractCache {
-    fn put(&self, _key: &CryptoHash, _value: Vec<u8>) -> Result<(), std::io::Error> {
+    fn put(&self, _key: &CryptoHash, _value: CompiledContract) -> std::io::Result<()> {
         Ok(())
     }
 
-    fn get(&self, _key: &CryptoHash) -> Result<Option<Vec<u8>>, std::io::Error> {
+    fn get(&self, _key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
         Ok(None)
     }
 }
