@@ -285,7 +285,31 @@ impl Wasmer2VM {
         Ok(executable)
     }
 
-    pub(crate) fn compile_and_load(
+    fn compile_and_cache(
+        &self,
+        code: &ContractCode,
+        cache: Option<&dyn CompiledContractCache>,
+    ) -> Result<Result<UniversalExecutable, CompilationError>, CacheError> {
+        let executable_or_error = self.compile_uncached(code);
+        let key = get_contract_cache_key(code, VMKind::Wasmer2, &self.config);
+
+        if let Some(cache) = cache {
+            let record = match &executable_or_error {
+                Ok(executable) => {
+                    let code = executable
+                        .serialize()
+                        .map_err(|_e| CacheError::SerializationError { hash: key.0 })?;
+                    CompiledContract::Code(code)
+                }
+                Err(err) => CompiledContract::CompileModuleError(err.clone()),
+            };
+            cache.put(&key, record).map_err(CacheError::WriteError)?;
+        }
+
+        Ok(executable_or_error)
+    }
+
+    fn compile_and_load(
         &self,
         code: &ContractCode,
         cache: Option<&dyn CompiledContractCache>,
@@ -346,19 +370,7 @@ impl Wasmer2VM {
                 let artifact: VMArtifact = match stored_artifact {
                     Some(it) => it,
                     None => {
-                        let executable_or_error = self.compile_uncached(code);
-                        if let Some(cache) = cache {
-                            let record = match &executable_or_error {
-                                Ok(executable) => {
-                                    let code = executable.serialize().map_err(|_e| {
-                                        CacheError::SerializationError { hash: key.0 }
-                                    })?;
-                                    CompiledContract::Code(code)
-                                }
-                                Err(err) => CompiledContract::CompileModuleError(err.clone()),
-                            };
-                            cache.put(&key, record).map_err(CacheError::WriteError)?;
-                        }
+                        let executable_or_error = self.compile_and_cache(code, cache)?;
                         match executable_or_error {
                             Ok(executable) => self
                                 .engine
@@ -641,7 +653,7 @@ impl crate::runner::VM for Wasmer2VM {
     ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, near_vm_errors::CacheError>
     {
         Ok(self
-            .compile_and_load(code, Some(cache))?
+            .compile_and_cache(code, Some(cache))?
             .map(|_| ContractPrecompilatonResult::ContractCompiled))
     }
 }

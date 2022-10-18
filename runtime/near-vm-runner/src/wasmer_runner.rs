@@ -259,6 +259,31 @@ impl Wasmer0VM {
         })
     }
 
+    pub(crate) fn compile_and_cache(
+        &self,
+        code: &ContractCode,
+        cache: Option<&dyn CompiledContractCache>,
+    ) -> Result<Result<wasmer_runtime::Module, CompilationError>, CacheError> {
+        let module_or_error = self.compile_uncached(code);
+        let key = get_contract_cache_key(code, VMKind::Wasmer0, &self.config);
+
+        if let Some(cache) = cache {
+            let record = match &module_or_error {
+                Ok(module) => {
+                    let code = module
+                        .cache()
+                        .and_then(|it| it.serialize())
+                        .map_err(|_e| CacheError::SerializationError { hash: key.0 })?;
+                    CompiledContract::Code(code)
+                }
+                Err(err) => CompiledContract::CompileModuleError(err.clone()),
+            };
+            cache.put(&key, record).map_err(CacheError::WriteError)?;
+        }
+
+        Ok(module_or_error)
+    }
+
     pub(crate) fn compile_and_load(
         &self,
         code: &ContractCode,
@@ -306,26 +331,10 @@ impl Wasmer0VM {
 
                 let module = match stored_module {
                     Some(it) => it,
-                    None => {
-                        let module_or_error = self.compile_uncached(code);
-                        if let Some(cache) = cache {
-                            let record = match &module_or_error {
-                                Ok(module) => {
-                                    let code =
-                                        module.cache().and_then(|it| it.serialize()).map_err(
-                                            |_e| CacheError::SerializationError { hash: key.0 },
-                                        )?;
-                                    CompiledContract::Code(code)
-                                }
-                                Err(err) => CompiledContract::CompileModuleError(err.clone()),
-                            };
-                            cache.put(&key, record).map_err(CacheError::WriteError)?;
-                        }
-                        match module_or_error {
-                            Ok(it) => it,
-                            Err(it) => return Ok(Err(it)),
-                        }
-                    }
+                    None => match self.compile_and_cache(code, cache)? {
+                        Ok(it) => it,
+                        Err(it) => return Ok(Err(it)),
+                    },
                 };
 
                 Ok(Ok(module))
@@ -444,7 +453,7 @@ impl crate::runner::VM for Wasmer0VM {
     ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, near_vm_errors::CacheError>
     {
         Ok(self
-            .compile_and_load(code, Some(cache))?
+            .compile_and_cache(code, Some(cache))?
             .map(|_| ContractPrecompilatonResult::ContractCompiled))
     }
 }
