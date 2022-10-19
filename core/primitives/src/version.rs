@@ -176,11 +176,16 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protoco
 
 /// The points in time after which the voting for the latest protocol version
 /// should start.
+///
+/// In non-release builds this is typically a date in the far past (meaning that
+/// nightly builds will vote for new protocols immediately).  On release builds
+/// it’s set according to the schedule for that protocol upgrade.  Release
+/// candidates usually have separate schedule to final releases.
 pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy::new(|| {
     if cfg!(feature = "shardnet") {
         ProtocolUpgradeVotingSchedule::from_str("2022-09-05 15:00:00").unwrap()
     } else {
-        // Update to latest protocol version on release.
+        // Update to according to schedule when making a release.
         ProtocolUpgradeVotingSchedule::default()
     }
 });
