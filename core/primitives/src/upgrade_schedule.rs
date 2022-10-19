@@ -4,9 +4,16 @@ use std::str::FromStr;
 
 /// Defines the point in time after which validators are expected to vote on the
 /// new protocol version.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub struct ProtocolUpgradeVotingSchedule {
     timestamp: chrono::DateTime<Utc>,
+}
+
+impl Default for ProtocolUpgradeVotingSchedule {
+    fn default() -> Self {
+        let epoch = NaiveDateTime::from_timestamp(0, 0);
+        Self { timestamp: DateTime::<Utc>::from_utc(epoch, Utc) }
+    }
 }
 
 impl FromStr for ProtocolUpgradeVotingSchedule {
