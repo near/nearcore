@@ -31,6 +31,7 @@ use actix::{
 };
 use anyhow::bail;
 use anyhow::Context as _;
+use near_o11y::{handler_trace_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -243,7 +244,7 @@ impl Actor for PeerManagerActor {
     fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
         warn!("PeerManager: stopping");
         self.state.tier2.broadcast_message(Arc::new(PeerMessage::Disconnect));
-        self.state.routing_table_addr.do_send(StopMsg {});
+        self.state.routing_table_addr.do_send(StopMsg {}.with_span_context());
         Running::Stop
     }
 
@@ -318,10 +319,13 @@ impl PeerManagerActor {
     ) {
         self.state
             .routing_table_addr
-            .send(routing::actor::Message::RoutingTableUpdate {
-                prune_unreachable_since,
-                prune_edges_older_than,
-            })
+            .send(
+                routing::actor::Message::RoutingTableUpdate {
+                    prune_unreachable_since,
+                    prune_edges_older_than,
+                }
+                .with_span_context(),
+            )
             .into_actor(self)
             .map(|response, act, _ctx| match response {
                 Ok(routing::actor::Response::RoutingTableUpdateResponse {
@@ -465,7 +469,10 @@ impl PeerManagerActor {
             }
             self.state
                 .routing_table_addr
-                .send(routing::actor::Message::AddVerifiedEdges { edges: new_edges })
+                .send(
+                    routing::actor::Message::AddVerifiedEdges { edges: new_edges }
+                        .with_span_context(),
+                )
                 .in_current_span()
                 .into_actor(self)
                 .map(move |response, act, _ctx| {
@@ -1440,25 +1447,27 @@ impl PeerManagerActor {
 /// TODO(gprusak): In prod, NetworkInfo is pushed periodically from PeerManagerActor to ClientActor.
 /// It would be cleaner to replace the push loop in PeerManagerActor with a pull loop
 /// in the ClientActor.
-impl Handler<GetNetworkInfo> for PeerManagerActor {
+impl Handler<WithSpanContext<GetNetworkInfo>> for PeerManagerActor {
     type Result = NetworkInfo;
-    fn handle(&mut self, _: GetNetworkInfo, _ctx: &mut Self::Context) -> NetworkInfo {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetNetworkInfo>,
+        _ctx: &mut Self::Context,
+    ) -> NetworkInfo {
+        let (_span, _msg) = handler_trace_span!(target: "network", msg);
         let _timer = metrics::PEER_MANAGER_MESSAGES_TIME
             .with_label_values(&["GetNetworkInfo"])
             .start_timer();
-        let _span =
-            tracing::trace_span!(target: "network", "handle", handler = "GetNetworkInfo").entered();
         self.get_network_info()
     }
 }
 
-impl Handler<SetChainInfo> for PeerManagerActor {
+impl Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
     type Result = ();
-    fn handle(&mut self, info: SetChainInfo, ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: WithSpanContext<SetChainInfo>, ctx: &mut Self::Context) {
+        let (_span, info) = handler_trace_span!(target: "network", msg);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&["SetChainInfo"]).start_timer();
-        let _span =
-            tracing::trace_span!(target: "network", "handle", handler = "SetChainInfo").entered();
         let now = self.clock.now_utc();
         let SetChainInfo(info) = info;
         let state = self.state.clone();
@@ -1543,23 +1552,32 @@ impl Handler<SetChainInfo> for PeerManagerActor {
     }
 }
 
-impl Handler<PeerToManagerMsg> for PeerManagerActor {
+impl Handler<WithSpanContext<PeerToManagerMsg>> for PeerManagerActor {
     type Result = PeerToManagerMsgResp;
-    fn handle(&mut self, msg: PeerToManagerMsg, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<PeerToManagerMsg>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let msg_type: &str = (&msg.msg).into();
+        let (_span, msg) = handler_trace_span!(target: "network", msg, msg_type);
         let _timer =
-            metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
-        let _span = tracing::trace_span!(target: "network", "handle", handler = "PeerToManagerMsg")
-            .entered();
+            metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[msg_type]).start_timer();
         self.handle_peer_to_manager_msg(msg, ctx)
     }
 }
 
-impl Handler<PeerManagerMessageRequest> for PeerManagerActor {
+impl Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerActor {
     type Result = PeerManagerMessageResponse;
-    fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<PeerManagerMessageRequest>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let msg_type: &str = (&msg.msg).into();
+        let (_span, msg) = handler_trace_span!(target: "network", msg, msg_type);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
-        let _span = tracing::trace_span!(target: "network", "handle", handler = "PeerManagerMessageRequest").entered();
         self.handle_peer_manager_message(msg, ctx)
     }
 }

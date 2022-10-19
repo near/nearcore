@@ -1,6 +1,7 @@
 use crate::network_protocol::Edge;
 use crate::private_actix::{StopMsg, ValidateEdgeList};
 use actix::{Actor, ActorContext, Handler, SyncContext};
+use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::borsh::maybestd::collections::HashMap;
 use near_primitives::borsh::maybestd::sync::{Arc, Mutex};
@@ -19,18 +20,24 @@ impl Actor for EdgeValidatorActor {
     type Context = SyncContext<Self>;
 }
 
-impl Handler<StopMsg> for EdgeValidatorActor {
+impl Handler<WithSpanContext<StopMsg>> for EdgeValidatorActor {
     type Result = ();
-    fn handle(&mut self, _: StopMsg, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: WithSpanContext<StopMsg>, ctx: &mut Self::Context) -> Self::Result {
+        let (_span, _msg) = handler_debug_span!(target: "network", msg);
         ctx.stop();
     }
 }
 
-impl Handler<ValidateEdgeList> for EdgeValidatorActor {
+impl Handler<WithSpanContext<ValidateEdgeList>> for EdgeValidatorActor {
     type Result = bool;
 
     #[perf]
-    fn handle(&mut self, msg: ValidateEdgeList, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<ValidateEdgeList>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_trace_span!(target: "network", msg);
         for edge in msg.edges {
             let key = edge.key();
             if msg.edges_info_shared.lock().unwrap().get(key).cloned().unwrap_or(0u64)
