@@ -127,14 +127,14 @@ pub fn do_migrate_34_to_35(
         let trie = runtime.get_trie_for_shard(shard_id, &block_hash, state_root, false)?;
 
         let sub_trie_size = 5_000_000;
-        let max_threads = 128;
+        let max_threads = 64;
         let thread_slots = Arc::new(std::sync::atomic::AtomicU32::new(max_threads));
 
         let mut state_iter = trie.iter()?;
-        let x = String::from("09626173656c696e655f73776561742");
-        let x_nibbles: Vec<_> = x.chars().map(|c| char::to_digit(c, 16).unwrap() as u8).collect();
-        let path_begin_encoded = NibbleSlice::encode_nibbles(&x_nibbles, false);
-        state_iter.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, true)?;
+        // let x = String::from("09626173656c696e655f73776561742");
+        // let x_nibbles: Vec<_> = x.chars().map(|c| char::to_digit(c, 16).unwrap() as u8).collect();
+        // let path_begin_encoded = NibbleSlice::encode_nibbles(&x_nibbles, false);
+        // state_iter.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, true)?;
         // let path_begin_encoded = NibbleSlice::encode_nibbles(&[0], false);
         // state_iter.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, true)?;
 
@@ -201,6 +201,8 @@ pub fn do_migrate_34_to_35(
         }
         info!(target: "store", "Wrote {n} state items");
     }
+
+    panic!("Migration succeeded. Still, don't start the node yet.");
 
     Ok(())
 }
