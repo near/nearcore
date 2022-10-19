@@ -27,6 +27,8 @@
   Instead of it aggregate `near_peer_message_received_by_type_total` metric.
   For example, to get total rate of received messages use
   `sum(rate(near_peer_message_received_by_type_total{...}[5m]))`.
+* Added `near_node_protocol_upgrade_voting_start` Prometheus metric whose value
+  is timestamp when voting for the next protocol version starts.
 * Few changes to `view_state` JSON RPC query:
   - The requset has now an optional `include_proof` argument.  When set to
     `true`, response’s `proof` will be populated.

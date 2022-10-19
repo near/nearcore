@@ -3,7 +3,7 @@ use near_primitives_core::types::ProtocolVersion;
 use std::str::FromStr;
 
 /// Defines the point in time after which validators are expected to vote on the new protocol version.
-pub(crate) struct ProtocolUpgradeVotingSchedule {
+pub struct ProtocolUpgradeVotingSchedule {
     timestamp: chrono::DateTime<Utc>,
 }
 
@@ -23,6 +23,10 @@ impl FromStr for ProtocolUpgradeVotingSchedule {
 impl ProtocolUpgradeVotingSchedule {
     pub fn is_in_future(&self) -> bool {
         chrono::Utc::now() < self.timestamp
+    }
+
+    pub fn timestamp(&self) -> i64 {
+        self.timestamp.timestamp()
     }
 }
 
