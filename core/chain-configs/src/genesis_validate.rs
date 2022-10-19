@@ -150,74 +150,74 @@ mod test {
     #[test]
     #[should_panic(expected = "wrong total supply")]
     fn test_total_supply_not_match() {
-        let mut genesis = Genesis::default();
-        genesis.config.validators = vec![AccountInfo {
+        let mut config = GenesisConfig::default();
+        config.validators = vec![AccountInfo {
             account_id: "test".parse().unwrap(),
             public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
             amount: 10,
         }];
-        genesis.records = GenesisRecords(vec![StateRecord::Account {
+        let records = GenesisRecords(vec![StateRecord::Account {
             account_id: "test".parse().unwrap(),
             account: create_account(),
         }]);
-        validate_genesis(&genesis);
+        validate_genesis(&Genesis::new(config, records));
     }
 
     #[test]
     #[should_panic(expected = "validator staking key is not valid")]
     fn test_invalid_staking_key() {
-        let mut genesis = Genesis::default();
-        genesis.config.validators = vec![AccountInfo {
+        let mut config = GenesisConfig::default();
+        config.validators = vec![AccountInfo {
             account_id: "test".parse().unwrap(),
             public_key: PublicKey::empty(KeyType::ED25519),
             amount: 10,
         }];
-        genesis.records = GenesisRecords(vec![StateRecord::Account {
+        let records = GenesisRecords(vec![StateRecord::Account {
             account_id: "test".parse().unwrap(),
             account: create_account(),
         }]);
-        validate_genesis(&genesis);
+        validate_genesis(&Genesis::new(config, records));
     }
 
     #[test]
     #[should_panic(expected = "validator accounts do not match staked accounts")]
     fn test_validator_not_match() {
-        let mut genesis = Genesis::default();
-        genesis.config.validators = vec![AccountInfo {
+        let mut config = GenesisConfig::default();
+        config.validators = vec![AccountInfo {
             account_id: "test".parse().unwrap(),
             public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
             amount: 100,
         }];
-        genesis.config.total_supply = 110;
-        genesis.records = GenesisRecords(vec![StateRecord::Account {
+        config.total_supply = 110;
+        let records = GenesisRecords(vec![StateRecord::Account {
             account_id: "test".parse().unwrap(),
             account: create_account(),
         }]);
-        validate_genesis(&genesis);
+        validate_genesis(&Genesis::new(config, records));
     }
 
     #[test]
     #[should_panic(expected = "no validators in genesis")]
     fn test_empty_validator() {
-        let mut genesis = Genesis::default();
-        genesis.records = GenesisRecords(vec![StateRecord::Account {
+        let config = GenesisConfig::default();
+        let records = GenesisRecords(vec![StateRecord::Account {
             account_id: "test".parse().unwrap(),
             account: create_account(),
         }]);
-        validate_genesis(&genesis);
+        validate_genesis(&Genesis::new(config, records));
     }
 
     #[test]
     #[should_panic(expected = "access key account test1 does not exist")]
     fn test_access_key_with_nonexistent_account() {
-        let mut genesis = Genesis::default();
-        genesis.config.validators = vec![AccountInfo {
+        let mut config = GenesisConfig::default();
+        config.validators = vec![AccountInfo {
             account_id: "test".parse().unwrap(),
             public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
             amount: 10,
         }];
-        genesis.config.total_supply = 110;
-        genesis.records = GenesisRecords(vec![
+        config.total_supply = 110;
+        let records = GenesisRecords(vec![
             StateRecord::Account { account_id: "test".parse().unwrap(), account: create_account() },
             StateRecord::AccessKey {
                 account_id: "test1".parse().unwrap(),
@@ -225,20 +225,20 @@ mod test {
                 access_key: AccessKey::full_access(),
             },
         ]);
-        validate_genesis(&genesis);
+        validate_genesis(&Genesis::new(config, records));
     }
 
     #[test]
     #[should_panic(expected = "account test has more than one contract deployed")]
     fn test_more_than_one_contract() {
-        let mut genesis = Genesis::default();
-        genesis.config.validators = vec![AccountInfo {
+        let mut config = GenesisConfig::default();
+        config.validators = vec![AccountInfo {
             account_id: "test".parse().unwrap(),
             public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
             amount: 10,
         }];
-        genesis.config.total_supply = 110;
-        genesis.records = GenesisRecords(vec![
+        config.total_supply = 110;
+        let records = GenesisRecords(vec![
             StateRecord::Account { account_id: "test".parse().unwrap(), account: create_account() },
             StateRecord::Contract { account_id: "test".parse().unwrap(), code: [1, 2, 3].to_vec() },
             StateRecord::Contract {
@@ -246,6 +246,6 @@ mod test {
                 code: [1, 2, 3, 4].to_vec(),
             },
         ]);
-        validate_genesis(&genesis);
+        validate_genesis(&Genesis::new(config, records));
     }
 }

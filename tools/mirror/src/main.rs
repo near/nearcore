@@ -105,14 +105,11 @@ fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
 
     let runtime = tokio::runtime::Runtime::new().context("failed to start tokio runtime")?;
-    let _subscriber = runtime.block_on(async {
-        near_o11y::default_subscriber(
-            near_o11y::EnvFilterBuilder::from_env().finish().unwrap(),
-            &Default::default(),
-        )
-        .await
-        .global()
-    });
+    let _subscriber = near_o11y::default_subscriber(
+        near_o11y::EnvFilterBuilder::from_env().finish().unwrap(),
+        &Default::default(),
+    )
+    .global();
 
     match args.subcmd {
         SubCommand::Prepare(r) => r.run(),

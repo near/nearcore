@@ -3,10 +3,11 @@ use anyhow::Context;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_configs::GenesisValidationMode;
 use near_client::{ClientActor, ViewClientActor};
-use near_client_primitives::types::{GetBlockError, GetBlockHash, GetChunk, GetChunkError, Query};
+use near_client_primitives::types::{GetBlock, GetBlockError, GetChunk, GetChunkError, Query};
 use near_crypto::{PublicKey, SecretKey};
 use near_indexer::{Indexer, StreamerMessage};
 use near_network::types::{NetworkClientMessages, NetworkClientResponses};
+use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteKeyAction, SignedTransaction, Transaction,
@@ -112,7 +113,7 @@ pub struct TxMirror {
 
 fn open_db<P: AsRef<Path>>(home: &P, config: &NearConfig) -> anyhow::Result<DB> {
     let db_path =
-        near_store::Store::opener(home.as_ref(), &config.config.store).get_path().join("mirror");
+        near_store::NodeStorage::opener(home.as_ref(), &config.config.store).path().join("mirror");
     let mut options = rocksdb::Options::default();
     options.create_missing_column_families(true);
     options.create_if_missing(true);
@@ -158,13 +159,16 @@ async fn fetch_access_key_nonce(
         None => BlockReference::Finality(Finality::None),
     };
     match view_client
-        .send(Query::new(
-            block_ref,
-            QueryRequest::ViewAccessKey {
-                account_id: account_id.clone(),
-                public_key: public_key.clone(),
-            },
-        ))
+        .send(
+            Query::new(
+                block_ref,
+                QueryRequest::ViewAccessKey {
+                    account_id: account_id.clone(),
+                    public_key: public_key.clone(),
+                },
+            )
+            .with_span_context(),
+        )
         .await?
     {
         Ok(res) => match res.kind {
@@ -252,11 +256,14 @@ impl TxMirror {
             for tx in chunk.txs.iter() {
                 match self
                     .target_client
-                    .send(NetworkClientMessages::Transaction {
-                        transaction: tx.clone(),
-                        is_forwarded: false,
-                        check_only: false,
-                    })
+                    .send(
+                        NetworkClientMessages::Transaction {
+                            transaction: tx.clone(),
+                            is_forwarded: false,
+                            check_only: false,
+                        }
+                        .with_span_context(),
+                    )
                     .await?
                 {
                     NetworkClientResponses::RequestRouted => {
@@ -407,10 +414,13 @@ impl TxMirror {
     ) -> anyhow::Result<Option<MappedBlock>> {
         let source_block_hash = match self
             .source_view_client
-            .send(GetBlockHash(BlockReference::BlockId(BlockId::Height(source_height))))
+            .send(
+                GetBlock(BlockReference::BlockId(BlockId::Height(source_height)))
+                    .with_span_context(),
+            )
             .await?
         {
-            Ok(h) => h,
+            Ok(b) => b.header.hash,
             Err(e) => match e {
                 GetBlockError::UnknownBlock { .. } => return Ok(None),
                 e => return Err(e.into()),
@@ -423,7 +433,7 @@ impl TxMirror {
 
             let chunk = match self
                 .source_view_client
-                .send(GetChunk::Height(source_height, *shard_id))
+                .send(GetChunk::Height(source_height, *shard_id).with_span_context())
                 .await?
             {
                 Ok(c) => c,
@@ -678,7 +688,9 @@ impl TxMirror {
 
     async fn get_source_height(&self) -> Option<BlockHeight> {
         self.source_client
-            .send(near_client::Status { is_health_check: false, detailed: false })
+            .send(
+                near_client::Status { is_health_check: false, detailed: false }.with_span_context(),
+            )
             .await
             .unwrap()
             .ok()

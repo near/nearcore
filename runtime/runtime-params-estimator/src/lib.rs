@@ -38,6 +38,17 @@
 //! costs and don't want to just run everything in order (as that would be to
 //! slow), we have a very simple manual caching infrastructure in place.
 //!
+//! To run estimations on a non-empty DB with standardised content, we first
+//! dump all records to a `StateDump` written to a file. Then for each
+//! iteration of a an estimation, we first load the records from this dump into
+//! a fresh database. Afterwards, it is crucial to run compaction on RocksDB
+//! before starting measurements. Otherwise, the SST file layout can be very
+//! inefficient, as there was no time to restructure them. We assume that in
+//! production, the inflow of new data is not as bulky and therefore it should
+//! always be reasonably compacted. Also, without forcing it before
+//! measurements start, compaction may start during the measurement and makes
+//! the results unstable.
+//!
 //! Notes on code architecture:
 //!
 //! To keep estimations comprehensible, each estimation has a simple function
@@ -73,6 +84,7 @@ mod gas_metering;
 mod trie;
 
 use std::convert::TryFrom;
+use std::iter;
 use std::time::Instant;
 
 use estimator_params::sha256_cost;
@@ -94,9 +106,9 @@ use near_vm_runner::MockCompiledContractCache;
 use rand::Rng;
 use serde_json::json;
 use utils::{
-    aggregate_per_block_measurements, average_cost, fn_cost, fn_cost_count, fn_cost_in_contract,
-    fn_cost_with_setup, generate_data_only_contract, generate_fn_name, noop_function_call_cost,
-    read_resource, transaction_cost, transaction_cost_ext,
+    average_cost, fn_cost, fn_cost_count, fn_cost_in_contract, fn_cost_with_setup,
+    generate_data_only_contract, generate_fn_name, noop_function_call_cost, read_resource,
+    transaction_cost, transaction_cost_ext,
 };
 use vm_estimator::{compile_single_contract_cost, compute_compile_cost_vm};
 
@@ -156,6 +168,10 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::Ripemd160Base, ripemd160_base),
     (Cost::Ripemd160Block, ripemd160_block),
     (Cost::EcrecoverBase, ecrecover_base),
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    (Cost::Ed25519VerifyBase, ed25519_verify_base),
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    (Cost::Ed25519VerifyByte, ed25519_verify_byte),
     (Cost::AltBn128G1MultiexpBase, alt_bn128g1_multiexp_base),
     (Cost::AltBn128G1MultiexpElement, alt_bn128g1_multiexp_element),
     (Cost::AltBn128G1SumBase, alt_bn128g1_sum_base),
@@ -213,12 +229,10 @@ pub fn run(config: Config) -> CostTable {
     let mut res = CostTable::default();
 
     for (cost, f) in ALL_COSTS.iter().copied() {
-        let skip = match &ctx.config.costs_to_measure {
-            None => false,
-            Some(costs) => !costs.contains(&format!("{:?}", cost)),
-        };
-        if skip {
-            continue;
+        if let Some(costs) = &ctx.config.costs_to_measure {
+            if !costs.contains(&format!("{:?}", cost)) {
+                continue;
+            }
         }
 
         let start = Instant::now();
@@ -283,10 +297,7 @@ fn action_sir_receipt_creation(ctx: &mut EstimatorContext) -> GasCost {
 
         tb.transaction_from_actions(sender, receiver, vec![])
     };
-    let total_cost = transaction_cost(ctx, &mut make_transaction);
-
-    let block_overhead_cost = apply_block_cost(ctx);
-    let cost = total_cost.saturating_sub(&block_overhead_cost, &NonNegativeTolerance::PER_MILLE);
+    let cost = transaction_cost(ctx, &mut make_transaction);
 
     ctx.cached.action_sir_receipt_creation = Some(cost.clone());
     cost
@@ -630,7 +641,7 @@ fn contract_compile_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost, Ga
         compile_single_contract_cost(ctx.config.metric, ctx.config.vm_kind, smallest_contract);
     let smallest_size = smallest_contract.len() as u64;
 
-    let mut max_bytes_cost = GasCost::zero(ctx.config.metric);
+    let mut max_bytes_cost = GasCost::zero();
     for (contract, _) in REAL_CONTRACTS_SAMPLE {
         let binary = read_resource(contract);
         let cost = compile_single_contract_cost(ctx.config.metric, ctx.config.vm_kind, &binary);
@@ -660,11 +671,15 @@ fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
     (cost_4mb - cost_empty) / (large_code_len - small_code_len) as u64
 }
 
+/// Base cost for a fn call action, without receipt creation or contract loading.
 fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
-    let total_cost = noop_function_call_cost(ctx);
-    let base_cost = action_sir_receipt_creation(ctx);
-
-    total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
+    let n_actions = 100;
+    let code = generate_data_only_contract(0, &VMConfig::test());
+    // This returns a cost without block/transaction/receipt overhead.
+    let base_cost = fn_cost_in_contract(ctx, "main", &code, n_actions);
+    // Executable loading is a separately charged step, so it must be subtracted on the action cost.
+    let executable_loading_cost = contract_loading_base(ctx);
+    base_cost.saturating_sub(&executable_loading_cost, &NonNegativeTolerance::PER_MILLE)
 }
 fn action_function_call_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     // X values below 1M have a rather high variance. Therefore, use one small X
@@ -715,13 +730,13 @@ fn contract_loading_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCo
 }
 fn function_call_per_storage_byte(ctx: &mut EstimatorContext) -> GasCost {
     let vm_config = VMConfig::test();
-    let block_size = 5;
+    let n_actions = 5;
 
     let small_code = generate_data_only_contract(0, &vm_config);
-    let small_cost = fn_cost_in_contract(ctx, "main", &small_code, block_size);
+    let small_cost = fn_cost_in_contract(ctx, "main", &small_code, n_actions);
 
     let large_code = generate_data_only_contract(4_000_000, &vm_config);
-    let large_cost = fn_cost_in_contract(ctx, "main", &large_code, block_size);
+    let large_cost = fn_cost_in_contract(ctx, "main", &large_code, n_actions);
 
     large_cost.saturating_sub(&small_cost, &NonNegativeTolerance::PER_MILLE)
         / (large_code.len() - small_code.len()) as u64
@@ -782,18 +797,22 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
 
     let mut run = || {
         let context = create_context(vec![]);
-        let vm_result = vm_kind.runtime(config.clone()).unwrap().run(
-            &code,
-            "cpu_ram_soak_test",
-            &mut fake_external,
-            context,
-            &fees,
-            &promise_results,
-            PROTOCOL_VERSION,
-            Some(&cache),
-        );
-        assert!(vm_result.error().is_some());
-        vm_result.outcome_error().0
+        let vm_result = vm_kind
+            .runtime(config.clone())
+            .unwrap()
+            .run(
+                &code,
+                "cpu_ram_soak_test",
+                &mut fake_external,
+                context,
+                &fees,
+                &promise_results,
+                PROTOCOL_VERSION,
+                Some(&cache),
+            )
+            .expect("fatal_error");
+        assert!(vm_result.aborted.is_some());
+        vm_result
     };
 
     let warmup_outcome = run();
@@ -910,6 +929,18 @@ fn ripemd160_block(ctx: &mut EstimatorContext) -> GasCost {
 
 fn ecrecover_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "ecrecover_10k", ExtCosts::ecrecover_base, 10_000)
+}
+
+#[cfg(feature = "protocol_feature_ed25519_verify")]
+// TODO: gas estimation will be calculated later -> setting a placeholder for now
+fn ed25519_verify_base(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "ed25519_verify_10k", ExtCosts::ed25519_verify_base, 10_000)
+}
+
+#[cfg(feature = "protocol_feature_ed25519_verify")]
+// TODO: gas estimation will be calculated later -> setting a placeholder for now
+fn ed25519_verify_byte(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost(ctx, "ed25519_verify_10k", ExtCosts::ed25519_verify_byte, 960000)
 }
 
 fn alt_bn128g1_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {
@@ -1094,7 +1125,7 @@ fn read_cached_trie_node(ctx: &mut EstimatorContext) -> GasCost {
         .map(|_| trie::read_node_from_chunk_cache(&mut testbed))
         .skip(warmup_iters)
         .collect::<Vec<_>>();
-    average_cost(ctx.config, &results)
+    average_cost(results)
 }
 
 fn apply_block_cost(ctx: &mut EstimatorContext) -> GasCost {
@@ -1104,14 +1135,29 @@ fn apply_block_cost(ctx: &mut EstimatorContext) -> GasCost {
 
     let mut testbed = ctx.testbed();
 
-    let n_blocks = testbed.config.warmup_iters_per_block + testbed.config.iter_per_block;
-    let blocks = vec![vec![]; n_blocks];
+    let n_warmup = testbed.config.warmup_iters_per_block;
+    // Inner + outer iterations such that a single measurement is reasonably stable.
+    let n_blocks = 10;
+    let outer_iterations = testbed.config.iter_per_block;
 
-    let measurements = testbed.measure_blocks(blocks, 0);
-    let measurements =
-        measurements.into_iter().skip(testbed.config.warmup_iters_per_block).collect::<Vec<_>>();
-    let (gas_cost, _ext_costs) =
-        aggregate_per_block_measurements(testbed.config, 1, measurements, None);
+    // Warmup inner and outer loop, to make sure this estimation is not
+    // overestimated. This value is subtracted from other measurements,
+    // overestimating is more of a concern than usual.
+    let blocks = vec![vec![]; n_blocks + n_warmup];
+    let measurements = iter::repeat_with(|| {
+        testbed
+            .measure_blocks(blocks.clone(), 0)
+            .into_iter()
+            .skip(n_warmup)
+            .map(|(gas, _ext)| gas)
+            .sum::<GasCost>()
+            / n_blocks as u64
+    })
+    .skip(n_warmup)
+    .take(outer_iterations)
+    .collect::<Vec<_>>();
+
+    let gas_cost = average_cost(measurements);
 
     ctx.cached.apply_block = Some(gas_cost.clone());
 

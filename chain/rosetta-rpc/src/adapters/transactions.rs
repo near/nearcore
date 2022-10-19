@@ -1,46 +1,59 @@
+use crate::models::AccountIdentifier;
+use actix::Addr;
+use near_account_id::AccountId;
+use near_o11y::WithSpanContextExt;
+use near_primitives::hash::CryptoHash;
+use near_primitives::views::SignedTransactionView;
 use std::collections::HashMap;
 use std::string::ToString;
 
-use actix::Addr;
-
-use near_primitives::hash::CryptoHash;
-use near_primitives::views::SignedTransactionView;
-
-/// A mapping from NEAR transaction or receipt hash to list of receipts.
-/// and a mapping from transaction hashes to transactions.
-/// The latter map is needed to determine the amount of deposit in a single transaction when
-/// converting blocks to Rosetta transactions.
 pub(crate) struct ExecutionToReceipts {
+    /// A mapping from NEAR transaction or receipt hash to list of receipts hashes
     map: HashMap<CryptoHash, Vec<CryptoHash>>,
+    /// A mapping from transaction hashes to transactions
+    /// transactions map is needed to determine the amount of deposit in a single transaction when
+    /// converting blocks to Rosetta transactions.
     transactions: HashMap<CryptoHash, SignedTransactionView>,
+    /// A mapping of receipts to predecessor_ids
+    /// receipts map is needed to determine the initing account of the receipt
+    /// and to determine if a receipt is a refund.
+    receipts: HashMap<CryptoHash, AccountId>,
 }
-
 impl ExecutionToReceipts {
     /// Fetches execution outcomes for given block and constructs a mapping from
     /// transaction or receipt causing the execution to list of created
     /// receipts’ hashes.
     pub(crate) async fn for_block(
-        view_client_addr: Addr<near_client::ViewClientActor>,
+        view_client_addr: &Addr<near_client::ViewClientActor>,
         block_hash: CryptoHash,
     ) -> crate::errors::Result<Self> {
         let block = view_client_addr
-            .send(near_client::GetBlock(near_primitives::types::BlockId::Hash(block_hash).into()))
+            .send(
+                near_client::GetBlock(near_primitives::types::BlockId::Hash(block_hash).into())
+                    .with_span_context(),
+            )
             .await?
             .map_err(|e| crate::errors::ErrorKind::InternalError(e.to_string()))?;
         let mut transactions = HashMap::new();
+        let mut receipts = HashMap::new();
         for (shard_id, contained) in block.header.chunk_mask.iter().enumerate() {
             if *contained {
                 let chunk = view_client_addr
-                    .send(near_client::GetChunk::ChunkHash(near_primitives::sharding::ChunkHash(
-                        block.chunks[shard_id].chunk_hash,
-                    )))
+                    .send(
+                        near_client::GetChunk::ChunkHash(near_primitives::sharding::ChunkHash(
+                            block.chunks[shard_id].chunk_hash,
+                        ))
+                        .with_span_context(),
+                    )
                     .await?
                     .map_err(|e| crate::errors::ErrorKind::InternalInvariantError(e.to_string()))?;
                 transactions.extend(chunk.transactions.into_iter().map(|t| (t.hash, t)));
+                receipts
+                    .extend(chunk.receipts.into_iter().map(|t| (t.receipt_id, t.predecessor_id)));
             }
         }
         let map = view_client_addr
-            .send(near_client::GetExecutionOutcomesForBlock { block_hash })
+            .send(near_client::GetExecutionOutcomesForBlock { block_hash }.with_span_context())
             .await?
             .map_err(crate::errors::ErrorKind::InternalInvariantError)?
             .into_values()
@@ -48,13 +61,17 @@ impl ExecutionToReceipts {
             .filter(|exec| !exec.outcome.receipt_ids.is_empty())
             .map(|exec| (exec.id, exec.outcome.receipt_ids))
             .collect();
-        Ok(Self { map, transactions })
+        Ok(Self { map, transactions, receipts })
     }
 
     /// Creates an empty mapping.  This is useful for tests.
     #[cfg(test)]
     pub(crate) fn empty() -> Self {
-        Self { map: Default::default(), transactions: Default::default() }
+        Self {
+            map: Default::default(),
+            transactions: Default::default(),
+            receipts: Default::default(),
+        }
     }
 
     /// Returns list of related transactions for given NEAR transaction or
@@ -124,6 +141,57 @@ fn convert_cause_to_transaction_id(
     }
 }
 
+async fn get_predecessor_id_from_receipt_or_transaction(
+    view_client: &Addr<near_client::ViewClientActor>,
+    cause: &near_primitives::views::StateChangeCauseView,
+    transactions_in_block: &HashMap<CryptoHash, SignedTransactionView>,
+    receipts_in_block: &HashMap<CryptoHash, AccountId>,
+) -> Option<AccountIdentifier> {
+    let predecessor_id = match cause {
+        near_primitives::views::StateChangeCauseView::TransactionProcessing { tx_hash } => {
+            transactions_in_block.get(tx_hash)?.signer_id.clone()
+        }
+        near_primitives::views::StateChangeCauseView::ReceiptProcessing { receipt_hash } => {
+            match receipts_in_block.get(receipt_hash) {
+                Some(t) => t.clone(),
+                None => get_predecessor_id_from_receipt_hash(view_client, *receipt_hash).await?,
+            }
+        }
+        near_primitives::views::StateChangeCauseView::PostponedReceipt { receipt_hash } => {
+            match receipts_in_block.get(receipt_hash) {
+                Some(t) => t.clone(),
+                None => get_predecessor_id_from_receipt_hash(view_client, *receipt_hash).await?,
+            }
+        }
+        near_primitives::views::StateChangeCauseView::ActionReceiptProcessingStarted {
+            receipt_hash,
+        } => match receipts_in_block.get(receipt_hash) {
+            Some(t) => t.clone(),
+            None => get_predecessor_id_from_receipt_hash(view_client, *receipt_hash).await?,
+        },
+        near_primitives::views::StateChangeCauseView::ActionReceiptGasReward { receipt_hash } => {
+            match receipts_in_block.get(receipt_hash) {
+                Some(t) => t.clone(),
+                None => get_predecessor_id_from_receipt_hash(view_client, *receipt_hash).await?,
+            }
+        }
+        _ => return None,
+    };
+    Some(crate::models::AccountIdentifier::from(predecessor_id))
+}
+
+async fn get_predecessor_id_from_receipt_hash(
+    view_client: &Addr<near_client::ViewClientActor>,
+    receipt_id: CryptoHash,
+) -> Option<AccountId> {
+    let receipt_view = view_client
+        .send(near_client::GetReceipt { receipt_id }.with_span_context())
+        .await
+        .ok()?
+        .ok()?;
+    Some(receipt_view?.predecessor_id)
+}
+
 type RosettaTransactionsMap = std::collections::HashMap<String, crate::models::Transaction>;
 
 pub(crate) struct RosettaTransactions<'a> {
@@ -165,7 +233,8 @@ impl<'a> RosettaTransactions<'a> {
 }
 
 /// Returns Rosetta transactions which map to given account changes.
-pub(crate) fn convert_block_changes_to_transactions(
+pub(crate) async fn convert_block_changes_to_transactions(
+    view_client_addr: &Addr<near_client::ViewClientActor>,
     runtime_config: &near_primitives::runtime::config::RuntimeConfig,
     block_hash: &CryptoHash,
     accounts_changes: near_primitives::views::StateChangesView,
@@ -178,6 +247,7 @@ pub(crate) fn convert_block_changes_to_transactions(
     let mut transactions = RosettaTransactions::new(exec_to_rx, block_hash);
     for account_change in accounts_changes {
         let transactions_in_block = &transactions.exec_to_rx.transactions;
+        let receipts_in_block = &transactions.exec_to_rx.receipts;
         match account_change.value {
             near_primitives::views::StateChangeValueView::AccountUpdate { account_id, account } => {
                 // Calculate the total amount of deposit from transfer actions.
@@ -205,6 +275,13 @@ pub(crate) fn convert_block_changes_to_transactions(
                     }),
                     _ => None,
                 };
+                let predecessor_id = get_predecessor_id_from_receipt_or_transaction(
+                    view_client_addr,
+                    &account_change.cause,
+                    &transactions_in_block,
+                    &receipts_in_block,
+                )
+                .await;
                 let previous_account_state = accounts_previous_state.get(&account_id);
                 convert_account_update_to_operations(
                     runtime_config,
@@ -213,6 +290,7 @@ pub(crate) fn convert_block_changes_to_transactions(
                     previous_account_state,
                     &account,
                     deposit,
+                    &predecessor_id,
                 );
                 accounts_previous_state.insert(account_id, account);
             }
@@ -233,7 +311,6 @@ pub(crate) fn convert_block_changes_to_transactions(
             }
         }
     }
-
     Ok(transactions.map)
 }
 
@@ -244,6 +321,7 @@ fn convert_account_update_to_operations(
     previous_account_state: Option<&near_primitives::views::AccountView>,
     account: &near_primitives::views::AccountView,
     deposit: Option<near_primitives::types::Balance>,
+    predecessor_id: &Option<crate::models::AccountIdentifier>,
 ) {
     let previous_account_balances = previous_account_state
         .map(|account| crate::utils::RosettaAccountBalances::from_account(account, runtime_config))
@@ -251,7 +329,6 @@ fn convert_account_update_to_operations(
 
     let new_account_balances =
         crate::utils::RosettaAccountBalances::from_account(account, runtime_config);
-
     if previous_account_balances.liquid != new_account_balances.liquid {
         // Transfers would only lead to change in liquid balance, so it is sufficient to
         // have the check here only. If deposit is not `None` then we separate it into its own
@@ -263,11 +340,14 @@ fn convert_account_update_to_operations(
                 account: crate::models::AccountIdentifier {
                     address: account_id.clone().into(),
                     sub_account: None,
+                    metadata: None,
                 },
                 amount: Some(-crate::models::Amount::from_yoctonear(deposit)),
                 type_: crate::models::OperationType::Transfer,
                 status: Some(crate::models::OperationStatusKind::Success),
-                metadata: None,
+                metadata: crate::models::OperationMetadata::from_predecessor(
+                    predecessor_id.clone(),
+                ),
             });
             operations.push(crate::models::Operation {
                 operation_identifier: crate::models::OperationIdentifier::new(operations),
@@ -275,6 +355,7 @@ fn convert_account_update_to_operations(
                 account: crate::models::AccountIdentifier {
                     address: account_id.clone().into(),
                     sub_account: None,
+                    metadata: None,
                 },
                 amount: Some(crate::models::Amount::from_yoctonear_diff(
                     crate::utils::SignedDiff::cmp(
@@ -285,7 +366,14 @@ fn convert_account_update_to_operations(
                 )),
                 type_: crate::models::OperationType::Transfer,
                 status: Some(crate::models::OperationStatusKind::Success),
-                metadata: None,
+                metadata: crate::models::OperationMetadata::from_predecessor(
+                    predecessor_id.clone(),
+                )
+                .map(|metadata| {
+                    metadata.with_transfer_fee_type(
+                        crate::models::OperationMetadataTransferFeeType::GasPrepayment,
+                    )
+                }),
             });
         } else {
             operations.push(crate::models::Operation {
@@ -294,6 +382,7 @@ fn convert_account_update_to_operations(
                 account: crate::models::AccountIdentifier {
                     address: account_id.clone().into(),
                     sub_account: None,
+                    metadata: None,
                 },
                 amount: Some(crate::models::Amount::from_yoctonear_diff(
                     crate::utils::SignedDiff::cmp(
@@ -303,7 +392,21 @@ fn convert_account_update_to_operations(
                 )),
                 type_: crate::models::OperationType::Transfer,
                 status: Some(crate::models::OperationStatusKind::Success),
-                metadata: None,
+                metadata: crate::models::OperationMetadata::from_predecessor(
+                    predecessor_id.clone(),
+                )
+                .map(|metadata| {
+                    if let Some("system") = predecessor_id
+                        .as_ref()
+                        .map(|predecessor_id| predecessor_id.address.as_str())
+                    {
+                        metadata.with_transfer_fee_type(
+                            crate::models::OperationMetadataTransferFeeType::GasRefund,
+                        )
+                    } else {
+                        metadata
+                    }
+                }),
             });
         }
     }
@@ -315,6 +418,7 @@ fn convert_account_update_to_operations(
             account: crate::models::AccountIdentifier {
                 address: account_id.clone().into(),
                 sub_account: Some(crate::models::SubAccount::LiquidBalanceForStorage.into()),
+                metadata: None,
             },
             amount: Some(crate::models::Amount::from_yoctonear_diff(
                 crate::utils::SignedDiff::cmp(
@@ -324,7 +428,7 @@ fn convert_account_update_to_operations(
             )),
             type_: crate::models::OperationType::Transfer,
             status: Some(crate::models::OperationStatusKind::Success),
-            metadata: None,
+            metadata: crate::models::OperationMetadata::from_predecessor(predecessor_id.clone()),
         });
     }
 
@@ -335,6 +439,7 @@ fn convert_account_update_to_operations(
             account: crate::models::AccountIdentifier {
                 address: account_id.clone().into(),
                 sub_account: Some(crate::models::SubAccount::Locked.into()),
+                metadata: None,
             },
             amount: Some(crate::models::Amount::from_yoctonear_diff(
                 crate::utils::SignedDiff::cmp(
@@ -344,7 +449,7 @@ fn convert_account_update_to_operations(
             )),
             type_: crate::models::OperationType::Transfer,
             status: Some(crate::models::OperationStatusKind::Success),
-            metadata: None,
+            metadata: crate::models::OperationMetadata::from_predecessor(predecessor_id.clone()),
         });
     }
 }
@@ -369,6 +474,7 @@ fn convert_account_delete_to_operations(
             account: crate::models::AccountIdentifier {
                 address: account_id.clone().into(),
                 sub_account: None,
+                metadata: None,
             },
             amount: Some(crate::models::Amount::from_yoctonear_diff(
                 crate::utils::SignedDiff::cmp(
@@ -389,6 +495,7 @@ fn convert_account_delete_to_operations(
             account: crate::models::AccountIdentifier {
                 address: account_id.clone().into(),
                 sub_account: Some(crate::models::SubAccount::LiquidBalanceForStorage.into()),
+                metadata: None,
             },
             amount: Some(crate::models::Amount::from_yoctonear_diff(
                 crate::utils::SignedDiff::cmp(
@@ -409,6 +516,7 @@ fn convert_account_delete_to_operations(
             account: crate::models::AccountIdentifier {
                 address: account_id.clone().into(),
                 sub_account: Some(crate::models::SubAccount::Locked.into()),
+                metadata: None,
             },
             amount: Some(crate::models::Amount::from_yoctonear_diff(
                 crate::utils::SignedDiff::cmp(

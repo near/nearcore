@@ -1,5 +1,5 @@
 use crate::peer::transfer_stats::TransferStats;
-use near_network_primitives::time;
+use crate::time;
 use near_primitives::hash::CryptoHash;
 
 /// Maximum number of requests and responses to track.
@@ -62,15 +62,13 @@ impl Default for Tracker {
     }
 }
 
-// TODO: these functions take directly the system time.
-// Consider migrating them to a fakeable clock.
 impl Tracker {
-    pub(crate) fn increment_received(&mut self, size: u64) {
-        self.received_bytes.record(size, time::Instant::now());
+    pub(crate) fn increment_received(&mut self, clock: &time::Clock, size: u64) {
+        self.received_bytes.record(clock, size);
     }
 
-    pub(crate) fn increment_sent(&mut self, size: u64) {
-        self.sent_bytes.record(size, time::Instant::now());
+    pub(crate) fn increment_sent(&mut self, clock: &time::Clock, size: u64) {
+        self.sent_bytes.record(clock, size);
     }
 
     pub(crate) fn has_received(&self, hash: &CryptoHash) -> bool {

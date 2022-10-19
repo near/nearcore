@@ -48,13 +48,11 @@ pub(crate) fn write_node(
     let results = &testbed.measure_blocks(blocks, block_latency)[1..];
     let (short_key_results, long_key_results) = results.split_at(measured_iters + warmup_iters);
     let (cost_short_key, ext_cost_short_key) = aggregate_per_block_measurements(
-        testbed.config,
         1,
         short_key_results[warmup_iters..].to_vec(),
         Some(overhead.clone()),
     );
     let (cost_long_key, ext_cost_long_key) = aggregate_per_block_measurements(
-        testbed.config,
         1,
         long_key_results[warmup_iters..].to_vec(),
         Some(overhead),
@@ -103,13 +101,11 @@ pub(crate) fn read_node_from_db(
     let results = &testbed.measure_blocks(blocks, block_latency)[1..];
     let (short_key_results, long_key_results) = results.split_at(measured_iters + warmup_iters);
     let (cost_short_key, ext_cost_short_key) = aggregate_per_block_measurements(
-        testbed.config,
         1,
         short_key_results[warmup_iters..].to_vec(),
         Some(overhead.clone()),
     );
     let (cost_long_key, ext_cost_long_key) = aggregate_per_block_measurements(
-        testbed.config,
         1,
         long_key_results[warmup_iters..].to_vec(),
         Some(overhead),

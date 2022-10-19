@@ -5,116 +5,181 @@ use std::sync::{Arc, RwLock};
 use borsh::BorshSerialize;
 use near_primitives::borsh::maybestd::collections::HashMap;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout;
-use near_primitives::shard_layout::{ShardUId, ShardVersion};
+use near_primitives::shard_layout::{self, ShardUId, ShardVersion};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 
+use crate::flat_state::FlatStateFactory;
+use crate::trie::config::TrieConfig;
+use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
-use crate::{DBCol, DBOp, DBTransaction};
+use crate::{metrics, DBCol, DBOp, DBTransaction, PrefetchApi};
 use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
-
-/// Responsible for creation of trie caches, stores necessary configuration for it.
-#[derive(Default)]
-pub struct TrieCacheFactory {
-    capacities: HashMap<ShardUId, usize>,
-    shard_version: ShardVersion,
-    num_shards: NumShards,
-}
-
-impl TrieCacheFactory {
-    pub fn new(
-        capacities: HashMap<ShardUId, usize>,
-        shard_version: ShardVersion,
-        num_shards: NumShards,
-    ) -> Self {
-        Self { capacities, shard_version, num_shards }
-    }
-
-    /// Create new cache for the given shard uid.
-    pub fn create_cache(&self, shard_uid: &ShardUId) -> TrieCache {
-        match self.capacities.get(shard_uid) {
-            Some(capacity) => TrieCache::with_capacity(*capacity),
-            None => TrieCache::new(),
-        }
-    }
-
-    /// Create caches on the initialization of storage structures.
-    pub fn create_initial_caches(&self) -> HashMap<ShardUId, TrieCache> {
-        assert_ne!(self.num_shards, 0);
-        let shards: Vec<_> = (0..self.num_shards)
-            .map(|shard_id| ShardUId { version: self.shard_version, shard_id: shard_id as u32 })
-            .collect();
-        shards.iter().map(|&shard_uid| (shard_uid, self.create_cache(&shard_uid))).collect()
-    }
-}
 
 struct ShardTriesInner {
     store: Store,
-    trie_cache_factory: TrieCacheFactory,
+    trie_config: TrieConfig,
     /// Cache reserved for client actor to use
     caches: RwLock<HashMap<ShardUId, TrieCache>>,
     /// Cache for readers.
     view_caches: RwLock<HashMap<ShardUId, TrieCache>>,
+    flat_state_factory: FlatStateFactory,
+    /// Prefetcher state, such as IO threads, per shard.
+    prefetchers: RwLock<HashMap<ShardUId, (PrefetchApi, PrefetchingThreadsHandle)>>,
 }
 
 #[derive(Clone)]
 pub struct ShardTries(Arc<ShardTriesInner>);
 
 impl ShardTries {
-    pub fn new(store: Store, trie_cache_factory: TrieCacheFactory) -> Self {
-        let caches = trie_cache_factory.create_initial_caches();
-        let view_caches = trie_cache_factory.create_initial_caches();
+    pub fn new(
+        store: Store,
+        trie_config: TrieConfig,
+        shard_uids: &[ShardUId],
+        flat_state_factory: FlatStateFactory,
+    ) -> Self {
+        let caches = Self::create_initial_caches(&trie_config, &shard_uids, false);
+        let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
         ShardTries(Arc::new(ShardTriesInner {
-            store,
-            trie_cache_factory,
+            store: store.clone(),
+            trie_config,
             caches: RwLock::new(caches),
             view_caches: RwLock::new(view_caches),
+            flat_state_factory,
+            prefetchers: Default::default(),
         }))
     }
 
+    /// Create `ShardTries` with a fixed number of shards with shard version 0.
+    ///
+    /// If your test cares about the shard version, use `test_shard_version` instead.
     pub fn test(store: Store, num_shards: NumShards) -> Self {
-        Self::new(store, TrieCacheFactory::new(Default::default(), 0, num_shards))
+        let shard_version = 0;
+        Self::test_shard_version(store, shard_version, num_shards)
     }
 
-    pub fn is_same(&self, other: &Self) -> bool {
+    pub fn test_shard_version(store: Store, version: ShardVersion, num_shards: NumShards) -> Self {
+        assert_ne!(0, num_shards);
+        let shard_uids: Vec<ShardUId> =
+            (0..num_shards as u32).map(|shard_id| ShardUId { shard_id, version }).collect();
+        let trie_config = TrieConfig::default();
+        ShardTries::new(
+            store.clone(),
+            trie_config,
+            &shard_uids,
+            FlatStateFactory::new(store.clone()),
+        )
+    }
+
+    /// Create caches for all shards according to the trie config.
+    fn create_initial_caches(
+        config: &TrieConfig,
+        shard_uids: &[ShardUId],
+        is_view: bool,
+    ) -> HashMap<ShardUId, TrieCache> {
+        shard_uids
+            .iter()
+            .map(|&shard_uid| (shard_uid, TrieCache::new(config, shard_uid, is_view)))
+            .collect()
+    }
+
+    pub(crate) fn is_same(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
 
-    pub fn new_trie_update(&self, shard_uid: ShardUId, state_root: CryptoHash) -> TrieUpdate {
-        TrieUpdate::new(Rc::new(self.get_trie_for_shard(shard_uid)), state_root)
+    pub fn new_trie_update(&self, shard_uid: ShardUId, state_root: StateRoot) -> TrieUpdate {
+        TrieUpdate::new(Rc::new(self.get_trie_for_shard(shard_uid, state_root)))
     }
 
-    pub fn new_trie_update_view(&self, shard_uid: ShardUId, state_root: CryptoHash) -> TrieUpdate {
-        TrieUpdate::new(Rc::new(self.get_view_trie_for_shard(shard_uid)), state_root)
+    pub fn new_trie_update_view(&self, shard_uid: ShardUId, state_root: StateRoot) -> TrieUpdate {
+        TrieUpdate::new(Rc::new(self.get_view_trie_for_shard(shard_uid, state_root)))
     }
 
-    fn get_trie_for_shard_internal(&self, shard_uid: ShardUId, is_view: bool) -> Trie {
+    #[allow(unused_variables)]
+    fn get_trie_for_shard_internal(
+        &self,
+        shard_uid: ShardUId,
+        state_root: StateRoot,
+        is_view: bool,
+        block_hash: Option<CryptoHash>,
+    ) -> Trie {
         let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
         let cache = {
             let mut caches = caches_to_use.write().expect(POISONED_LOCK_ERR);
             caches
                 .entry(shard_uid)
-                .or_insert_with(|| self.0.trie_cache_factory.create_cache(&shard_uid))
+                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view))
                 .clone()
         };
-        let store = Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid));
-        Trie::new(store)
+        // Do not enable prefetching on view caches.
+        // 1) Performance of view calls is not crucial.
+        // 2) A lot of the prefetcher code assumes there is only one "main-thread" per shard active.
+        //    If you want to enable it for view calls, at least make sure they don't share
+        //    the `PrefetchApi` instances with the normal calls.
+        let prefetch_enabled = !is_view
+            && (self.0.trie_config.enable_receipt_prefetching
+                || (!self.0.trie_config.sweat_prefetch_receivers.is_empty()
+                    && !self.0.trie_config.sweat_prefetch_senders.is_empty()));
+        let prefetch_api = prefetch_enabled.then(|| {
+            self.0
+                .prefetchers
+                .write()
+                .expect(POISONED_LOCK_ERR)
+                .entry(shard_uid)
+                .or_insert_with(|| {
+                    PrefetchApi::new(
+                        self.0.store.clone(),
+                        cache.clone(),
+                        shard_uid.clone(),
+                        &self.0.trie_config,
+                    )
+                })
+                .0
+                .clone()
+        });
+
+        let storage = Box::new(TrieCachingStorage::new(
+            self.0.store.clone(),
+            cache,
+            shard_uid,
+            is_view,
+            prefetch_api,
+        ));
+        let flat_state = self.0.flat_state_factory.new_flat_state_for_shard(
+            shard_uid.shard_id(),
+            block_hash,
+            is_view,
+        );
+
+        Trie::new(storage, state_root, flat_state)
     }
 
-    pub fn get_trie_for_shard(&self, shard_uid: ShardUId) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, false)
+    pub fn get_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {
+        self.get_trie_for_shard_internal(shard_uid, state_root, false, None)
     }
 
-    pub fn get_view_trie_for_shard(&self, shard_uid: ShardUId) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, true)
+    pub fn get_trie_with_block_hash_for_shard(
+        &self,
+        shard_uid: ShardUId,
+        state_root: StateRoot,
+        block_hash: &CryptoHash,
+    ) -> Trie {
+        self.get_trie_for_shard_internal(shard_uid, state_root, false, Some(block_hash.clone()))
+    }
+
+    pub fn get_view_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {
+        self.get_trie_for_shard_internal(shard_uid, state_root, true, None)
     }
 
     pub fn get_store(&self) -> Store {
         self.0.store.clone()
+    }
+
+    pub(crate) fn get_db(&self) -> &Arc<dyn crate::Database> {
+        &self.0.store.storage
     }
 
     pub(crate) fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
@@ -122,26 +187,33 @@ impl ShardTries {
         let mut shards = HashMap::new();
         for op in &transaction.ops {
             match op {
-                DBOp::UpdateRefcount { col, ref key, ref value } if *col == DBCol::State => {
-                    let (shard_uid, hash) =
-                        TrieCachingStorage::get_shard_uid_and_hash_from_key(key)?;
-                    shards.entry(shard_uid).or_insert(vec![]).push((hash, Some(value)));
-                }
-                DBOp::Set { col, .. } if *col == DBCol::State => unreachable!(),
-                DBOp::Delete { col, .. } if *col == DBCol::State => unreachable!(),
-                DBOp::DeleteAll { col } if *col == DBCol::State => {
-                    // Delete is possible in reset_data_pre_state_sync
-                    for (_, cache) in caches.iter() {
-                        cache.clear();
+                DBOp::UpdateRefcount { col, key, value } => {
+                    if *col == DBCol::State {
+                        let (shard_uid, hash) =
+                            TrieCachingStorage::get_shard_uid_and_hash_from_key(key)?;
+                        shards
+                            .entry(shard_uid)
+                            .or_insert(vec![])
+                            .push((hash, Some(value.as_slice())));
                     }
                 }
-                _ => {}
+                DBOp::DeleteAll { col } => {
+                    if *col == DBCol::State {
+                        // Delete is possible in reset_data_pre_state_sync
+                        for (_, cache) in caches.iter() {
+                            cache.clear();
+                        }
+                    }
+                }
+                DBOp::Set { col, .. } | DBOp::Insert { col, .. } | DBOp::Delete { col, .. } => {
+                    assert_ne!(*col, DBCol::State);
+                }
             }
         }
         for (shard_uid, ops) in shards {
             let cache = caches
                 .entry(shard_uid)
-                .or_insert_with(|| self.0.trie_cache_factory.create_cache(&shard_uid))
+                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))
                 .clone();
             cache.update_cache(ops);
         }
@@ -150,27 +222,23 @@ impl ShardTries {
 
     fn apply_deletions_inner(
         &self,
-        deletions: &Vec<TrieRefcountChange>,
+        deletions: &[TrieRefcountChange],
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
         store_update.set_shard_tries(self);
         for TrieRefcountChange { trie_node_or_value_hash, rc, .. } in deletions.iter() {
-            let rc = match std::num::NonZeroU32::new(*rc) {
-                None => continue,
-                Some(rc) => rc,
-            };
             let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
                 shard_uid,
                 trie_node_or_value_hash,
             );
-            store_update.decrement_refcount_by(DBCol::State, key.as_ref(), rc);
+            store_update.decrement_refcount_by(DBCol::State, key.as_ref(), *rc);
         }
     }
 
     fn apply_insertions_inner(
         &self,
-        insertions: &Vec<TrieRefcountChange>,
+        insertions: &[TrieRefcountChange],
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
@@ -178,15 +246,11 @@ impl ShardTries {
         for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
             insertions.iter()
         {
-            let rc = match std::num::NonZeroU32::new(*rc) {
-                None => continue,
-                Some(rc) => rc,
-            };
             let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
                 shard_uid,
                 trie_node_or_value_hash,
             );
-            store_update.increment_refcount_by(DBCol::State, key.as_ref(), trie_node_or_value, rc);
+            store_update.increment_refcount_by(DBCol::State, key.as_ref(), trie_node_or_value, *rc);
         }
     }
 
@@ -210,6 +274,13 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
+        // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
+        let mut buffer = itoa::Buffer::new();
+        let shard_id = buffer.format(shard_uid.shard_id);
+
+        metrics::APPLIED_TRIE_INSERTIONS
+            .with_label_values(&[&shard_id])
+            .inc_by(trie_changes.insertions.len() as u64);
         self.apply_insertions_inner(&trie_changes.insertions, shard_uid, store_update)
     }
 
@@ -219,6 +290,13 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
+        // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
+        let mut buffer = itoa::Buffer::new();
+        let shard_id = buffer.format(shard_uid.shard_id);
+
+        metrics::APPLIED_TRIE_DELETIONS
+            .with_label_values(&[&shard_id])
+            .inc_by(trie_changes.deletions.len() as u64);
         self.apply_deletions_inner(&trie_changes.deletions, shard_uid, store_update)
     }
 
@@ -228,6 +306,13 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
+        // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
+        let mut buffer = itoa::Buffer::new();
+        let shard_id = buffer.format(shard_uid.shard_id);
+
+        metrics::REVERTED_TRIE_INSERTIONS
+            .with_label_values(&[&shard_id])
+            .inc_by(trie_changes.insertions.len() as u64);
         self.apply_deletions_inner(&trie_changes.insertions, shard_uid, store_update)
     }
 
@@ -263,8 +348,14 @@ impl WrappedTrieChanges {
         &self.state_changes
     }
 
+    /// Save insertions of trie nodes into Store.
     pub fn insertions_into(&self, store_update: &mut StoreUpdate) {
         self.tries.apply_insertions(&self.trie_changes, self.shard_uid, store_update)
+    }
+
+    /// Save deletions of trie nodes into Store.
+    pub fn deletions_into(&self, store_update: &mut StoreUpdate) {
+        self.tries.apply_deletions(&self.trie_changes, self.shard_uid, store_update)
     }
 
     /// Save state changes into Store.

@@ -15,7 +15,7 @@ pub enum RpcValidatorError {
     InternalError { error_message: String },
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, arbitrary::Arbitrary)]
 pub struct RpcValidatorRequest {
     #[serde(flatten)]
     pub epoch_reference: near_primitives::types::EpochReference,

@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::concurrency::{Ctx, Once, RateLimiter, Scope, WeakMap};
 
-use near_network_primitives::types::{
+use near_network::types::{
     AccountIdOrPeerTrackingShard, NetworkViewClientMessages, NetworkViewClientResponses,
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
 };
@@ -13,7 +13,8 @@ use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_primitives::block::{Block, BlockHeader, GenesisId};
+use near_o11y::{WithSpanContext, WithSpanContextExt};
+use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::time::Clock;
@@ -24,19 +25,6 @@ use std::future::Future;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 use tokio::time;
-
-fn genesis_hash(chain_id: &str) -> CryptoHash {
-    return match chain_id {
-        "mainnet" => "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H",
-        "testnet" => "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
-        "betanet" => "6hy7VoEJhPEUaJr1d5ePBhKdgeDWKCjLoUAn7XS9YPj",
-        _ => {
-            return Default::default();
-        }
-    }
-    .parse()
-    .unwrap();
-}
 
 #[derive(Default, Debug)]
 pub struct Stats {
@@ -68,7 +56,6 @@ pub struct Network {
     pub chunks: Arc<WeakMap<ChunkHash, Once<PartialEncodedChunkResponseMsg>>>,
     data: Mutex<NetworkData>,
 
-    chain_id: String,
     // client_config.min_num_peers
     min_peers: usize,
     // Currently it is equivalent to genesis_config.num_block_producer_seats,
@@ -98,7 +85,7 @@ impl Network {
                     sent_bytes_per_sec: 0,
                     received_bytes_per_sec: 0,
                     known_producers: vec![],
-                    peer_counter: 0,
+                    tier1_accounts: vec![],
                 }),
                 info_futures: Default::default(),
             }),
@@ -106,7 +93,6 @@ impl Network {
             block_headers: WeakMap::new(),
             chunks: WeakMap::new(),
 
-            chain_id: config.client_config.chain_id.clone(),
             min_peers: config.client_config.min_num_peers,
             parts_per_chunk: config.genesis.config.num_block_producer_seats,
             rate_limiter: RateLimiter::new(
@@ -138,9 +124,12 @@ impl Network {
                 for peer in peers {
                     // TODO: rate limit per peer.
                     self_.rate_limiter.allow(&ctx).await?;
-                    self_
-                        .network_adapter
-                        .do_send(PeerManagerMessageRequest::NetworkRequests(new_req(peer.clone())));
+                    self_.network_adapter.do_send(
+                        PeerManagerMessageRequest::NetworkRequests(new_req(
+                            peer.full_peer_info.clone(),
+                        ))
+                        .with_span_context(),
+                    );
                     self_.stats.msgs_sent.fetch_add(1, Ordering::Relaxed);
                     ctx.wait(self_.request_timeout).await?;
                 }
@@ -260,7 +249,8 @@ impl Network {
         .await
     }
 
-    fn notify(&self, msg: NetworkClientMessages) {
+    fn notify(&self, msg: WithSpanContext<NetworkClientMessages>) {
+        let msg = msg.msg;
         self.stats.msgs_recv.fetch_add(1, Ordering::Relaxed);
         match msg {
             NetworkClientMessages::NetworkInfo(info) => {
@@ -305,14 +295,17 @@ impl Actor for FakeClientActor {
     type Context = Context<Self>;
 }
 
-impl Handler<NetworkViewClientMessages> for FakeClientActor {
+impl Handler<WithSpanContext<NetworkViewClientMessages>> for FakeClientActor {
     type Result = NetworkViewClientResponses;
-    fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<NetworkViewClientMessages>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let msg = msg.msg;
         let name = match msg {
             NetworkViewClientMessages::TxStatus { .. } => "TxStatus",
             NetworkViewClientMessages::TxStatusResponse(_) => "TxStatusResponse",
-            NetworkViewClientMessages::ReceiptOutcomeRequest(_) => "ReceiptOutcomeRequest",
-            NetworkViewClientMessages::ReceiptOutcomeResponse(_) => "ReceiptOutputResponse",
             NetworkViewClientMessages::BlockRequest(_) => "BlockRequest",
             NetworkViewClientMessages::BlockHeadersRequest(_) => "BlockHeadersRequest",
             NetworkViewClientMessages::StateRequestHeader { .. } => "StateRequestHeader",
@@ -320,17 +313,6 @@ impl Handler<NetworkViewClientMessages> for FakeClientActor {
             NetworkViewClientMessages::EpochSyncRequest { .. } => "EpochSyncRequest",
             NetworkViewClientMessages::EpochSyncFinalizationRequest { .. } => {
                 "EpochSyncFinalizationRequest"
-            }
-            NetworkViewClientMessages::GetChainInfo => {
-                return NetworkViewClientResponses::ChainInfo {
-                    genesis_id: GenesisId {
-                        chain_id: self.network.chain_id.clone(),
-                        hash: genesis_hash(&self.network.chain_id),
-                    },
-                    height: 0,
-                    tracked_shards: Default::default(),
-                    archival: false,
-                }
             }
             NetworkViewClientMessages::AnnounceAccount(_) => {
                 return NetworkViewClientResponses::NoResponse;
@@ -343,9 +325,13 @@ impl Handler<NetworkViewClientMessages> for FakeClientActor {
     }
 }
 
-impl Handler<NetworkClientMessages> for FakeClientActor {
+impl Handler<WithSpanContext<NetworkClientMessages>> for FakeClientActor {
     type Result = NetworkClientResponses;
-    fn handle(&mut self, msg: NetworkClientMessages, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<NetworkClientMessages>,
+        _ctx: &mut Context<Self>,
+    ) -> Self::Result {
         self.network.notify(msg);
         return NetworkClientResponses::NoResponse;
     }

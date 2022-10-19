@@ -1,11 +1,14 @@
+use crate::{
+    errors,
+    models::{self, AccountBalanceResponseMetadata},
+    types::AccountId,
+};
 use actix::Addr;
 use futures::StreamExt;
-
 use near_chain_configs::ProtocolConfigView;
 use near_client::ViewClientActor;
+use near_o11y::WithSpanContextExt;
 use near_primitives::borsh::{BorshDeserialize, BorshSerialize};
-
-use crate::{errors, models};
 
 #[derive(Debug, Clone, PartialEq, derive_more::AsRef, derive_more::From)]
 pub(crate) struct BorshInHexString<T: BorshSerialize + BorshDeserialize>(T);
@@ -72,7 +75,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq, derive_more::AsRef, derive_more::From)]
+#[derive(Debug, Clone, Eq, PartialEq, derive_more::AsRef, derive_more::From)]
 #[as_ref(forward)]
 pub(crate) struct BlobInHexString<T: AsRef<[u8]> + From<Vec<u8>>>(T);
 
@@ -316,7 +319,7 @@ pub(crate) async fn query_account(
         block_id,
         near_primitives::views::QueryRequest::ViewAccount { account_id },
     );
-    let account_info_response = match view_client_addr.send(query).await? {
+    let account_info_response = match view_client_addr.send(query.with_span_context()).await? {
         Ok(query_response) => query_response,
         Err(err) => match err {
             near_client_primitives::types::QueryError::UnknownAccount { .. } => {
@@ -384,18 +387,19 @@ pub(crate) async fn query_access_key(
         block_id,
         near_primitives::views::QueryRequest::ViewAccessKey { account_id, public_key },
     );
-    let access_key_query_response = match view_client_addr.send(access_key_query).await? {
-        Ok(query_response) => query_response,
-        Err(err) => {
-            return match err {
-                near_client_primitives::types::QueryError::UnknownAccount { .. }
-                | near_client_primitives::types::QueryError::UnknownAccessKey { .. } => {
-                    Err(crate::errors::ErrorKind::NotFound(err.to_string()))
+    let access_key_query_response =
+        match view_client_addr.send(access_key_query.with_span_context()).await? {
+            Ok(query_response) => query_response,
+            Err(err) => {
+                return match err {
+                    near_client_primitives::types::QueryError::UnknownAccount { .. }
+                    | near_client_primitives::types::QueryError::UnknownAccessKey { .. } => {
+                        Err(crate::errors::ErrorKind::NotFound(err.to_string()))
+                    }
+                    _ => Err(crate::errors::ErrorKind::InternalError(err.to_string())),
                 }
-                _ => Err(crate::errors::ErrorKind::InternalError(err.to_string())),
             }
-        }
-    };
+        };
 
     match access_key_query_response.kind {
         near_primitives::views::QueryResponseKind::AccessKey(access_key) => Ok((
@@ -414,9 +418,12 @@ pub(crate) async fn query_protocol_config(
     view_client_addr: &Addr<ViewClientActor>,
 ) -> crate::errors::Result<ProtocolConfigView> {
     view_client_addr
-        .send(near_client::GetProtocolConfig(near_primitives::types::BlockReference::from(
-            near_primitives::types::BlockId::Hash(block_hash),
-        )))
+        .send(
+            near_client::GetProtocolConfig(near_primitives::types::BlockReference::from(
+                near_primitives::types::BlockId::Hash(block_hash),
+            ))
+            .with_span_context(),
+        )
         .await?
         .map_err(|err| crate::errors::ErrorKind::NotFound(err.to_string()))
 }
@@ -486,7 +493,10 @@ pub(crate) async fn get_block_if_final(
         }
         _ => false,
     };
-    let block = match view_client_addr.send(near_client::GetBlock(block_id.clone())).await? {
+    let block = match view_client_addr
+        .send(near_client::GetBlock(block_id.clone()).with_span_context())
+        .await?
+    {
         Ok(block) => block,
         Err(near_client_primitives::types::GetBlockError::UnknownBlock { .. }) => return Ok(None),
         Err(err) => return Err(errors::ErrorKind::InternalError(err.to_string()).into()),
@@ -500,9 +510,12 @@ pub(crate) async fn get_block_if_final(
         return Ok(Some(block));
     }
     let block_on_canonical_chain = view_client_addr
-        .send(near_client::GetBlock(
-            near_primitives::types::BlockId::Height(block.header.height).into(),
-        ))
+        .send(
+            near_client::GetBlock(
+                near_primitives::types::BlockId::Height(block.header.height).into(),
+            )
+            .with_span_context(),
+        )
         .await?
         .map_err(|_| errors::ErrorKind::InternalError("final block not found".to_string()))?;
     if block.header.hash == block_on_canonical_chain.header.hash {
@@ -516,9 +529,37 @@ pub(crate) async fn get_final_block(
     view_client_addr: &Addr<ViewClientActor>,
 ) -> Result<near_primitives::views::BlockView, errors::ErrorKind> {
     view_client_addr
-        .send(near_client::GetBlock(near_primitives::types::BlockReference::Finality(
-            near_primitives::types::Finality::Final,
-        )))
+        .send(
+            near_client::GetBlock(near_primitives::types::BlockReference::Finality(
+                near_primitives::types::Finality::Final,
+            ))
+            .with_span_context(),
+        )
         .await?
         .map_err(|_| errors::ErrorKind::InternalError("final block not found".to_string()))
+}
+
+pub(crate) async fn get_nonces(
+    view_client_addr: &Addr<ViewClientActor>,
+    account_id: AccountId,
+    public_keys: Vec<models::PublicKey>,
+) -> Result<AccountBalanceResponseMetadata, models::Error> {
+    let mut nonces = Vec::with_capacity(public_keys.len());
+    for public_key in public_keys {
+        let account_id_for_public_key = account_id.clone();
+        let (_block_hash, _block_height, access_key) = crate::utils::query_access_key(
+            near_primitives::types::BlockReference::latest(),
+            account_id_for_public_key.into(),
+            (&public_key).try_into().map_err(|err| {
+                errors::ErrorKind::InvalidInput(format!(
+                    "public key could not be parsed due to: {:?}",
+                    err
+                ))
+            })?,
+            &view_client_addr,
+        )
+        .await?;
+        nonces.push(access_key.nonce);
+    }
+    Ok(models::AccountBalanceResponseMetadata { nonces })
 }

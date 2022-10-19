@@ -2,13 +2,12 @@ use crate::commands::*;
 use crate::epoch_info;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use clap::{Args, Parser, Subcommand};
-use near_chain_configs::GenesisValidationMode;
+use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::db::Mode;
-use near_store::Store;
+use near_store::{Mode, Store};
 use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -68,37 +67,41 @@ pub enum StateViewerSubCommand {
     /// even if it's not included in any block on disk
     #[clap(alias = "apply_receipt")]
     ApplyReceipt(ApplyReceiptCmd),
+    /// View trie structure.
+    #[clap(alias = "view_trie")]
+    ViewTrie(ViewTrieCmd),
 }
 
 impl StateViewerSubCommand {
     pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode, mode: Mode) {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-        let store_opener =
-            near_store::Store::opener(home_dir, &near_config.config.store).mode(mode);
-        let store = store_opener.open();
+        let store_opener = near_store::NodeStorage::opener(home_dir, &near_config.config.store);
+        let store = store_opener.open_in_mode(mode).unwrap();
+        let hot = store.get_store(near_store::Temperature::Hot);
         match self {
             StateViewerSubCommand::Peers => peers(store),
-            StateViewerSubCommand::State => state(home_dir, near_config, store),
-            StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::ApplyRange(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::Apply(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
-            StateViewerSubCommand::CheckBlock => check_block_chunk_existence(store, near_config),
-            StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(&store_opener.get_path()),
-            StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
-            StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
-            StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
-            StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::State => state(home_dir, near_config, hot),
+            StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::ApplyRange(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::Apply(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, hot),
+            StateViewerSubCommand::CheckBlock => check_block_chunk_existence(near_config, hot),
+            StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(store_opener.path()),
+            StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, hot),
+            StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, hot),
+            StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, hot),
+            StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::ViewTrie(cmd) => cmd.run(hot),
         }
     }
 }
@@ -124,6 +127,11 @@ pub struct DumpStateCmd {
     /// If not set, all account IDs will be dumped.
     #[clap(long)]
     account_ids: Option<Vec<AccountId>>,
+    /// List of validators to remain validators.
+    /// All other validators will be kicked, but still dumped.
+    /// Their stake will be returned to balance.
+    #[clap(long)]
+    include_validators: Option<Vec<AccountId>>,
 }
 
 impl DumpStateCmd {
@@ -135,7 +143,9 @@ impl DumpStateCmd {
             home_dir,
             near_config,
             store,
-            self.account_ids.as_ref(),
+            &GenesisChangeConfig::default()
+                .with_select_account_ids(self.account_ids)
+                .with_whitelist_validators(self.include_validators),
         );
     }
 }
@@ -178,7 +188,7 @@ impl DumpTxCmd {
             home_dir,
             near_config,
             store,
-            self.account_ids.as_ref(),
+            self.account_ids.as_deref(),
             self.output_path,
         )
         .expect("Failed to dump transaction...")
@@ -438,5 +448,24 @@ impl ApplyReceiptCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
         apply_receipt(home_dir, near_config, store, hash).unwrap();
+    }
+}
+
+#[derive(Parser)]
+pub struct ViewTrieCmd {
+    #[clap(long)]
+    hash: String,
+    #[clap(long)]
+    shard_id: u32,
+    #[clap(long)]
+    shard_version: u32,
+    #[clap(long)]
+    max_depth: u32,
+}
+
+impl ViewTrieCmd {
+    pub fn run(self, store: Store) {
+        let hash = CryptoHash::from_str(&self.hash).unwrap();
+        view_trie(store, hash, self.shard_id, self.shard_version, self.max_depth).unwrap();
     }
 }

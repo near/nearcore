@@ -58,7 +58,7 @@ pub enum Cost {
     ///
     /// Estimation: Measure a transaction that creates an account and transfers
     /// an initial balance to it. Subtract the base cost of creating a receipt.
-    /// (TODO[jakmeier] consider also subtracting transfer fee)
+    // TODO(jakmeier): consider also subtracting transfer fee
     ActionCreateAccount,
     // Deploying a new contract for an account on the blockchain stores the WASM
     // code in the trie. Additionally, it also triggers a compilation of the
@@ -84,9 +84,11 @@ pub enum Cost {
     /// for all costs of calling a function that are already known on the caller
     /// side.
     ///
-    /// Estimation: Measure the cost to execute a transaction with an empty
-    /// function with no arguments. Subtract the receipt creating cost from
-    /// that, as that is already charged separately.
+    /// Estimation: Measure the cost to execute a NOP function on a tiny
+    /// contract. To filter out block and general receipt processing overhead,
+    /// the difference between calling it N +1 times and calling it once in a
+    /// transaction is divided by N. Executable loading cost is also subtracted
+    /// from the final result because this is charged separately.
     ActionFunctionCallBase,
     /// Estimates `action_creation_config.function_call_cost_per_byte`, which is
     /// the incremental cost for each byte of the method name and method
@@ -108,8 +110,8 @@ pub enum Cost {
     ///
     /// Estimation: Measure a transaction with only a staking action and
     /// subtract the base cost of creating a sir-receipt.
-    /// (TODO[jakmeier] find out and document the reasoning behind send vs exec
-    /// values in this specific case)
+    // TODO(jakmeier): find out and document the reasoning behind send vs exec
+    // values in this specific case
     ActionStake,
     /// Estimates `action_creation_config.add_key_cost.full_access_cost` which
     /// is charged for every `Action::AddKey` where the key is a full access
@@ -143,14 +145,14 @@ pub enum Cost {
     /// Estimation: Measure a transaction that deletes a full access key and
     /// transfers an initial balance to it. Subtract the base cost of creating a
     /// receipt.
-    /// (TODO[jakmeier] check cost for function call keys with many methods)
+    // TODO(jakmeier): check cost for function call keys with many methods
     ActionDeleteKey,
     /// Estimates `action_creation_config.delete_account_cost` which is charged
     /// for `DeleteAccount` actions, the same value on sending and executing.
     ///
     /// Estimation: Measure a transaction that deletes an existing account.
     /// Subtract the base cost of creating a sir-receipt.
-    /// (TODO[jakmeier] Consider different account states.
+    /// TODO(jakmeier): Consider different account states.
     ActionDeleteAccount,
 
     /// Estimates `wasm_config.ext_costs.base` which is intended to be charged
@@ -352,7 +354,12 @@ pub enum Cost {
     /// function `ecrecover` to verify an ECDSA signature and extract the
     /// signer.
     EcrecoverBase,
-
+    /// Estimates `ed25519_verify_base`, which covers the base cost of the host
+    /// function `ed25519_verify` to verify an ED25519 signatures.
+    Ed25519VerifyBase,
+    /// Estimates `ed25519_verify_byte`, the cost charged per input byte in calls to the
+    /// ed25519_verify host function.
+    Ed25519VerifyByte,
     // `storage_write` records a single key-value pair, initially in the
     // prospective changes in-memory hash map, and then once a full block has
     // been processed, in the on-disk trie. If there was already a value

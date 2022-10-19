@@ -25,10 +25,23 @@ pub struct RuntimeTestbed {
 
 impl RuntimeTestbed {
     /// Copies dump from another directory and loads the state from it.
-    pub fn from_state_dump(dump_dir: &Path) -> Self {
+    pub fn from_state_dump(dump_dir: &Path, in_memory_db: bool) -> Self {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-        let StateDump { store, roots } = StateDump::from_dir(dump_dir, workdir.path());
-        let tries = ShardTries::test(store, 1);
+        let StateDump { store, roots } =
+            StateDump::from_dir(dump_dir, workdir.path(), in_memory_db);
+        // Ensure decent RocksDB SST file layout.
+        store.compact().expect("compaction failed");
+
+        // Create ShardTries with relevant settings adjusted for estimator.
+        let shard_uids = [ShardUId { shard_id: 0, version: 0 }];
+        let mut trie_config = near_store::TrieConfig::default();
+        trie_config.enable_receipt_prefetching = true;
+        let tries = ShardTries::new(
+            store.clone(),
+            trie_config,
+            &shard_uids,
+            near_store::flat_state::FlatStateFactory::new(store.clone()),
+        );
 
         assert!(roots.len() <= 1, "Parameter estimation works with one shard only.");
         assert!(!roots.is_empty(), "No state roots found.");
@@ -60,7 +73,7 @@ impl RuntimeTestbed {
 
         let apply_state = ApplyState {
             // Put each runtime into a separate shard.
-            block_index: 1,
+            block_height: 1,
             // Epoch length is long enough to avoid corner cases.
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
@@ -72,7 +85,7 @@ impl RuntimeTestbed {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
-            cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
+            cache: Some(Box::new(StoreCompiledContractCache::new(&tries.get_store()))),
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
@@ -97,14 +110,13 @@ impl RuntimeTestbed {
         let apply_result = self
             .runtime
             .apply(
-                self.tries.get_trie_for_shard(ShardUId::single_shard()),
-                self.root,
+                self.tries.get_trie_for_shard(ShardUId::single_shard(), self.root.clone()),
                 &None,
                 &self.apply_state,
                 &self.prev_receipts,
                 transactions,
                 &self.epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
 
@@ -112,7 +124,7 @@ impl RuntimeTestbed {
             self.tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard());
         self.root = root;
         store_update.commit().unwrap();
-        self.apply_state.block_index += 1;
+        self.apply_state.block_height += 1;
 
         let mut total_burnt_gas = 0;
         if !allow_failures {

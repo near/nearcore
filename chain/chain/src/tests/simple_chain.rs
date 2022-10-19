@@ -1,14 +1,15 @@
 use crate::near_chain_primitives::error::BlockKnownError;
-use crate::test_utils::setup;
-use crate::{Block, ChainStoreAccess, Error};
+use crate::test_utils::{setup, wait_for_all_blocks_in_processing};
+use crate::{Block, BlockProcessingArtifact, ChainStoreAccess, Error};
 use assert_matches::assert_matches;
 use chrono;
 use chrono::TimeZone;
-use near_logger_utils::init_test_logger;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::time::MockClockGuard;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Ratio;
+use std::sync::Arc;
 use std::time::Instant;
 
 #[test]
@@ -17,11 +18,13 @@ fn build_chain() {
     let mock_clock_guard = MockClockGuard::default();
 
     mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444));
+    mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 0, 0)); // Client startup timestamp.
+    mock_clock_guard.add_instant(Instant::now());
 
     let (mut chain, _, signer) = setup();
 
-    assert_eq!(mock_clock_guard.utc_call_count(), 1);
-    assert_eq!(mock_clock_guard.instant_call_count(), 0);
+    assert_eq!(mock_clock_guard.utc_call_count(), 2);
+    assert_eq!(mock_clock_guard.instant_call_count(), 1);
     assert_eq!(chain.head().unwrap().height, 0);
 
     // The hashes here will have to be modified after changes to the protocol.
@@ -39,9 +42,9 @@ fn build_chain() {
     //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"FxxmGH4peXwKR5C9YiSKjX7nWVg3zBuvjp9k5bTF1yDs");
+        insta::assert_display_snapshot!(hash, @"HTpETHnBkxcX1h3eD87uC5YP5nV66E6UYPrJGnQHuRqt");
     } else {
-        insta::assert_display_snapshot!(hash, @"6sAno2uEwwQ5yiDscePWY8HWmRJLpGNv39uoff3BCpxT");
+        insta::assert_display_snapshot!(hash, @"2iGtRFjF6BcqPF6tDcfLLojRaNax2PKDLxRqRc3RxRn7");
     }
 
     for i in 1..5 {
@@ -50,7 +53,10 @@ fn build_chain() {
         // - one time for validating block header
         mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
         mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
+        mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
         // Instant calls for CryptoHashTimer.
+        mock_clock_guard.add_instant(Instant::now());
+        mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
@@ -58,24 +64,24 @@ fn build_chain() {
         let prev_hash = *chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
         let block = Block::empty(&prev, &*signer);
-        let tip = chain.process_block_test(&None, block).unwrap();
-        assert_eq!(tip.unwrap().height, i as u64);
+        chain.process_block_test(&None, block).unwrap();
+        assert_eq!(chain.head().unwrap().height, i as u64);
     }
 
-    assert_eq!(mock_clock_guard.utc_call_count(), 9);
-    assert_eq!(mock_clock_guard.instant_call_count(), 12);
+    assert_eq!(mock_clock_guard.utc_call_count(), 14);
+    assert_eq!(mock_clock_guard.instant_call_count(), 21);
     assert_eq!(chain.head().unwrap().height, 4);
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"43q5wcc9rdsocY2Htbk7vT88x6zkka5Vr17CQJUTkT9n");
+        insta::assert_display_snapshot!(hash, @"HyDYbjs5tgeEDf1N1XB4m312VdCeKjHqeGQ7dc7Lqwv8");
     } else {
-        insta::assert_display_snapshot!(hash, @"Fn9MgjUx6VXhPYNqqDtf2C9kBVveY2vuSLXNLZUNJCqK");
+        insta::assert_display_snapshot!(hash, @"7BkghFM7ZA8piYHAWYu4vTY6vE1pkTwy14bqQnS138qE");
     }
 }
 
 #[test]
-fn build_chain_with_orhpans() {
+fn build_chain_with_orphans() {
     init_test_logger();
     let (mut chain, _, signer) = setup();
     let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
@@ -115,14 +121,23 @@ fn build_chain_with_orhpans() {
         chain.process_block_test(&None, blocks.pop().unwrap()).unwrap_err(),
         Error::Orphan
     );
-    let res = chain.process_block_test(&None, blocks.pop().unwrap());
-    assert_eq!(res.unwrap().unwrap().height, 10);
+    chain.process_block_test(&None, blocks.pop().unwrap()).unwrap();
+    while wait_for_all_blocks_in_processing(&mut chain) {
+        chain.postprocess_ready_blocks(
+            &None,
+            &mut BlockProcessingArtifact::default(),
+            Arc::new(|_| {}),
+        );
+    }
+    assert_eq!(chain.head().unwrap().height, 10);
     assert_matches!(
         chain.process_block_test(&None, blocks.pop().unwrap(),).unwrap_err(),
         Error::BlockKnown(BlockKnownError::KnownInStore)
     );
 }
 
+/// Checks that chain successfully processes blocks with skipped blocks and forks, but doesn't process block behind
+/// final head.
 #[test]
 fn build_chain_with_skips_and_forks() {
     init_test_logger();
@@ -133,17 +148,36 @@ fn build_chain_with_skips_and_forks() {
     let b3 = Block::empty_with_height(&b1, 3, &*signer);
     let b4 = Block::empty_with_height(&b2, 4, &*signer);
     let b5 = Block::empty(&b4, &*signer);
+    let b6 = Block::empty(&b5, &*signer);
     assert!(chain.process_block_test(&None, b1).is_ok());
     assert!(chain.process_block_test(&None, b2).is_ok());
-    assert!(chain.process_block_test(&None, b3).is_ok());
+    assert!(chain.process_block_test(&None, b3.clone()).is_ok());
     assert!(chain.process_block_test(&None, b4).is_ok());
     assert!(chain.process_block_test(&None, b5).is_ok());
-    assert!(chain.get_header_by_height(1).is_err());
-    assert_eq!(chain.get_header_by_height(5).unwrap().height(), 5);
+    assert!(chain.process_block_test(&None, b6).is_ok());
+    assert!(chain.get_block_header_by_height(1).is_err());
+    assert_eq!(chain.get_block_header_by_height(5).unwrap().height(), 5);
+    assert_eq!(chain.get_block_header_by_height(6).unwrap().height(), 6);
+
+    let c4 = Block::empty_with_height(&b3, 4, &*signer);
+    assert_eq!(chain.final_head().unwrap().height, 4);
+    assert_matches!(chain.process_block_test(&None, c4), Err(Error::CannotBeFinalized));
 }
 
-/// Verifies that the block at height are updated correctly when blocks from different forks are
-/// processed, especially when certain heights are skipped
+/// Verifies that getting block by its height are updated correctly when blocks from different forks are
+/// processed, especially when certain heights are skipped.
+/// Chain looks as follows (variable name + height):
+///
+/// 0 -> b1 (c1) -> b2
+///        |  \      \
+///        |   \      -> d3 -------> d5 -> d6
+///        |    \
+///        |     ------> c3 -> c4
+///        |
+///        ------------------------------------> e7
+///
+/// Note that only block b1 is finalized, so all blocks here can be processed. But getting block by height should
+/// return only blocks from the canonical chain.
 #[test]
 fn blocks_at_height() {
     init_test_logger();
@@ -151,76 +185,68 @@ fn blocks_at_height() {
     let genesis = chain.get_block_by_height(0).unwrap();
     let b_1 = Block::empty_with_height(&genesis, 1, &*signer);
     let b_2 = Block::empty_with_height(&b_1, 2, &*signer);
-    let b_3 = Block::empty_with_height(&b_2, 3, &*signer);
 
     let c_1 = Block::empty_with_height(&genesis, 1, &*signer);
     let c_3 = Block::empty_with_height(&c_1, 3, &*signer);
     let c_4 = Block::empty_with_height(&c_3, 4, &*signer);
-    let c_5 = Block::empty_with_height(&c_4, 5, &*signer);
 
     let d_3 = Block::empty_with_height(&b_2, 3, &*signer);
-    let d_4 = Block::empty_with_height(&d_3, 4, &*signer);
-    let d_6 = Block::empty_with_height(&d_4, 6, &*signer);
+    let d_5 = Block::empty_with_height(&d_3, 5, &*signer);
+    let d_6 = Block::empty_with_height(&d_5, 6, &*signer);
 
     let e_7 = Block::empty_with_height(&b_1, 7, &*signer);
 
     let b_1_hash = *b_1.hash();
     let b_2_hash = *b_2.hash();
-    let b_3_hash = *b_3.hash();
 
     let c_1_hash = *c_1.hash();
     let c_3_hash = *c_3.hash();
     let c_4_hash = *c_4.hash();
-    let c_5_hash = *c_5.hash();
 
     let d_3_hash = *d_3.hash();
-    let d_4_hash = *d_4.hash();
+    let d_5_hash = *d_5.hash();
     let d_6_hash = *d_6.hash();
 
     let e_7_hash = *e_7.hash();
 
-    assert_ne!(d_3_hash, b_3_hash);
+    assert_ne!(c_3_hash, d_3_hash);
 
     chain.process_block_test(&None, b_1).unwrap();
     chain.process_block_test(&None, b_2).unwrap();
-    chain.process_block_test(&None, b_3).unwrap();
-    assert_eq!(chain.header_head().unwrap().height, 3);
+    assert_eq!(chain.header_head().unwrap().height, 2);
 
-    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), &b_1_hash);
-    assert_eq!(chain.get_header_by_height(2).unwrap().hash(), &b_2_hash);
-    assert_eq!(chain.get_header_by_height(3).unwrap().hash(), &b_3_hash);
+    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &b_1_hash);
+    assert_eq!(chain.get_block_header_by_height(2).unwrap().hash(), &b_2_hash);
 
     chain.process_block_test(&None, c_1).unwrap();
     chain.process_block_test(&None, c_3).unwrap();
     chain.process_block_test(&None, c_4).unwrap();
-    chain.process_block_test(&None, c_5).unwrap();
-    assert_eq!(chain.header_head().unwrap().height, 5);
+    assert_eq!(chain.header_head().unwrap().height, 4);
 
-    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), &c_1_hash);
-    assert!(chain.get_header_by_height(2).is_err());
-    assert_eq!(chain.get_header_by_height(3).unwrap().hash(), &c_3_hash);
-    assert_eq!(chain.get_header_by_height(4).unwrap().hash(), &c_4_hash);
-    assert_eq!(chain.get_header_by_height(5).unwrap().hash(), &c_5_hash);
+    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &c_1_hash);
+    assert!(chain.get_block_header_by_height(2).is_err());
+    assert_eq!(chain.get_block_header_by_height(3).unwrap().hash(), &c_3_hash);
+    assert_eq!(chain.get_block_header_by_height(4).unwrap().hash(), &c_4_hash);
 
     chain.process_block_test(&None, d_3).unwrap();
-    chain.process_block_test(&None, d_4).unwrap();
+    chain.process_block_test(&None, d_5).unwrap();
     chain.process_block_test(&None, d_6).unwrap();
     assert_eq!(chain.header_head().unwrap().height, 6);
 
-    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), &b_1_hash);
-    assert_eq!(chain.get_header_by_height(2).unwrap().hash(), &b_2_hash);
-    assert_eq!(chain.get_header_by_height(3).unwrap().hash(), &d_3_hash);
-    assert_eq!(chain.get_header_by_height(4).unwrap().hash(), &d_4_hash);
-    assert!(chain.get_header_by_height(5).is_err());
-    assert_eq!(chain.get_header_by_height(6).unwrap().hash(), &d_6_hash);
+    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &b_1_hash);
+    assert_eq!(chain.get_block_header_by_height(2).unwrap().hash(), &b_2_hash);
+    assert_eq!(chain.get_block_header_by_height(3).unwrap().hash(), &d_3_hash);
+    assert!(chain.get_block_header_by_height(4).is_err());
+    assert_eq!(chain.get_block_header_by_height(5).unwrap().hash(), &d_5_hash);
+    assert_eq!(chain.get_block_header_by_height(6).unwrap().hash(), &d_6_hash);
 
     chain.process_block_test(&None, e_7).unwrap();
 
-    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), &b_1_hash);
+    assert_eq!(chain.get_block_header_by_height(1).unwrap().hash(), &b_1_hash);
     for h in 2..=5 {
-        assert!(chain.get_header_by_height(h).is_err());
+        assert!(chain.get_block_header_by_height(h).is_err());
     }
-    assert_eq!(chain.get_header_by_height(7).unwrap().hash(), &e_7_hash);
+    assert_eq!(chain.get_block_header_by_height(7).unwrap().hash(), &e_7_hash);
 }
 
 #[test]

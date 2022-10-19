@@ -49,8 +49,7 @@
       "subtypes": [
         "CodeDoesNotExist",
         "PrepareError",
-        "WasmerCompileError",
-        "UnsupportedCompiler"
+        "WasmerCompileError"
       ],
       "props": {}
     },
@@ -76,6 +75,13 @@
     },
     "ECRecoverError": {
       "name": "ECRecoverError",
+      "subtypes": [],
+      "props": {
+        "msg": ""
+      }
+    },
+    "Ed25519VerifyInvalidInput": {
+      "name": "Ed25519VerifyInvalidInput",
       "subtypes": [],
       "props": {
         "msg": ""
@@ -147,7 +153,8 @@
         "ContractSizeExceeded",
         "Deprecated",
         "ECRecoverError",
-        "AltBn128InvalidInput"
+        "AltBn128InvalidInput",
+        "Ed25519VerifyInvalidInput"
       ],
       "props": {}
     },
@@ -382,13 +389,6 @@
       "name": "Unreachable",
       "subtypes": [],
       "props": {}
-    },
-    "UnsupportedCompiler": {
-      "name": "UnsupportedCompiler",
-      "subtypes": [],
-      "props": {
-        "msg": ""
-      }
     },
     "ValueLengthExceeded": {
       "name": "ValueLengthExceeded",

@@ -3,9 +3,10 @@
 
 use std::collections::HashMap;
 
-use crate::types::{StatusError, SyncStatus};
+use crate::types::StatusError;
 use actix::Message;
 use chrono::DateTime;
+use near_primitives::views::{CatchupStatusView, EpochValidatorInfo, SyncStatusView};
 use near_primitives::{
     block_header::ApprovalInner,
     hash::CryptoHash,
@@ -15,26 +16,24 @@ use near_primitives::{
 };
 use serde::{Deserialize, Serialize};
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TrackedShardsView {
     pub shards_tracked_this_epoch: Vec<bool>,
     pub shards_tracked_next_epoch: Vec<bool>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct EpochInfoView {
     pub epoch_id: CryptoHash,
     pub height: BlockHeight,
     pub first_block: Option<(CryptoHash, DateTime<chrono::Utc>)>,
-    pub validators: Vec<ValidatorInfo>,
+    pub block_producers: Vec<ValidatorInfo>,
     pub chunk_only_producers: Vec<String>,
+    pub validator_info: Option<EpochValidatorInfo>,
     pub protocol_version: u32,
     pub shards_size_and_parts: Vec<(u64, u64, bool)>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DebugChunkStatus {
     pub shard_id: u64,
@@ -45,7 +44,6 @@ pub struct DebugChunkStatus {
     pub processing_time_ms: Option<u64>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DebugBlockStatus {
     pub block_hash: CryptoHash,
@@ -62,7 +60,6 @@ pub struct DebugBlockStatus {
 
 // Information about the approval created by this node.
 // Used for debug purposes only.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Debug, Clone)]
 pub struct ApprovalHistoryEntry {
     // If target_height == base_height + 1  - this is endorsement.
@@ -79,8 +76,7 @@ pub struct ApprovalHistoryEntry {
 
 // Information about chunk produced by this node.
 // For debug purposes only.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Serialize, Debug, Default)]
+#[derive(Serialize, Debug, Default, Clone)]
 pub struct ChunkProduction {
     // Time when we produced the chunk.
     pub chunk_production_time: Option<DateTime<chrono::Utc>>,
@@ -90,32 +86,44 @@ pub struct ChunkProduction {
 }
 // Information about the block produced by this node.
 // For debug purposes only.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Serialize, Debug, Default, Clone)]
+#[derive(Serialize, Debug, Clone, Default)]
 pub struct BlockProduction {
-    // Time at which we received chunk for given shard.
-    pub chunks_collection_time: Vec<Option<DateTime<chrono::Utc>>>,
-    // Time when we produced the block.
+    // Approvals that we received.
+    pub approvals: ApprovalAtHeightStatus,
+    // Chunk producer and time at which we received chunk for given shard. This field will not be
+    // set if we didn't produce the block.
+    pub chunks_collection_time: Vec<ChunkCollection>,
+    // Time when we produced the block, None if we didn't produce the block.
     pub block_production_time: Option<DateTime<chrono::Utc>>,
+    // Whether this block is included on the canonical chain.
+    pub block_included: bool,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct ChunkCollection {
+    // Chunk producer of the chunk
+    pub chunk_producer: AccountId,
+    // Time when the chunk was received. Note that this field can be filled even if the block doesn't
+    // include a chunk for the shard, if a chunk at this height was received after the block was produced.
+    pub received_time: Option<DateTime<chrono::Utc>>,
+    // Whether the block included a chunk for this shard
+    pub chunk_included: bool,
 }
 
 // Information about things related to block/chunk production
 // at given height.
 // For debug purposes only.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Debug, Default)]
 pub struct ProductionAtHeight {
-    // Approvals that we received.
-    pub approvals: ApprovalAtHeightStatus,
-    // Block that we produced.
+    // Stores information about block production is we are responsible for producing this block,
+    // None if we are not responsible for producing this block.
     pub block_production: Option<BlockProduction>,
-    // Map from shard_id to chunk that we produced for this height.
+    // Map from shard_id to chunk that we are responsible to produce at this height
     pub chunk_production: HashMap<u64, ChunkProduction>,
 }
 
 // Infromation about the approvals that we received.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Serialize, Debug, Default)]
+#[derive(Serialize, Debug, Default, Clone)]
 pub struct ApprovalAtHeightStatus {
     // Map from validator id to the type of approval that they sent and timestamp.
     pub approvals: HashMap<AccountId, (ApprovalInner, DateTime<chrono::Utc>)>,
@@ -123,7 +131,6 @@ pub struct ApprovalAtHeightStatus {
     pub ready_at: Option<DateTime<chrono::Utc>>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Debug)]
 pub struct ValidatorStatus {
     pub validator_name: Option<AccountId>,
@@ -136,8 +143,9 @@ pub struct ValidatorStatus {
     // All approvals that we've sent.
     pub approval_history: Vec<ApprovalHistoryEntry>,
     // Blocks & chunks that we've produced or about to produce.
+    // Sorted by block height inversely (high to low)
     // The range of heights are controlled by constants in client_actor.rs
-    pub production: HashMap<BlockHeight, ProductionAtHeight>,
+    pub production: Vec<(BlockHeight, ProductionAtHeight)>,
 }
 
 // Different debug requests that can be sent by HTML pages, via GET.
@@ -152,6 +160,8 @@ pub enum DebugStatus {
     BlockStatus,
     // Consensus related information.
     ValidatorStatus,
+    // Request for the current catchup status
+    CatchupStatus,
 }
 
 impl Message for DebugStatus {
@@ -160,7 +170,8 @@ impl Message for DebugStatus {
 
 #[derive(Serialize, Debug)]
 pub enum DebugStatusResponse {
-    SyncStatus(SyncStatus),
+    SyncStatus(SyncStatusView),
+    CatchupStatus(Vec<CatchupStatusView>),
     TrackedShards(TrackedShardsView),
     // List of epochs - in descending order (next epoch is first).
     EpochInfo(Vec<EpochInfoView>),

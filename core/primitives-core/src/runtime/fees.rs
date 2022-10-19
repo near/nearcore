@@ -301,27 +301,3 @@ pub fn transfer_send_fee(
         cfg.transfer_cost.send_fee(sender_is_receiver)
     }
 }
-
-/// Serde serializer for u128 to integer.
-/// This is copy from core/primitives/src/serialize.rs
-/// It is required as this module doesn't depend on primitives.
-/// TODO(3384): move basic primitives into a separate module and use in runtime.
-pub mod u128_dec_format {
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S>(num: &u128, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&format!("{}", num))
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<u128, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        u128::from_str_radix(&s, 10).map_err(de::Error::custom)
-    }
-}

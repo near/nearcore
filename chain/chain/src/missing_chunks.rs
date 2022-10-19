@@ -1,7 +1,6 @@
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::BlockHeight;
-use near_primitives::views::BlockStatusView;
 use std::cmp::Ordering;
 use std::collections::{
     btree_map::{self, BTreeMap},
@@ -147,18 +146,6 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
                 }
             }
         }
-    }
-
-    pub fn list_blocks_by_height(&self) -> Vec<BlockStatusView> {
-        let mut result = Vec::new();
-        for (height, blocks_with_missing_chunks) in &self.height_idx {
-            result.extend(
-                blocks_with_missing_chunks
-                    .iter()
-                    .map(|block| BlockStatusView::new(&height, &block)),
-            );
-        }
-        result
     }
 
     fn mark_block_as_ready(&mut self, block_hash: &BlockHash) {

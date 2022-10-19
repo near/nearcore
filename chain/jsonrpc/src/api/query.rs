@@ -3,7 +3,6 @@ use serde_json::Value;
 use near_client_primitives::types::QueryError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::query::{RpcQueryError, RpcQueryRequest, RpcQueryResponse};
-use near_primitives::serialize;
 use near_primitives::types::BlockReference;
 use near_primitives::views::{QueryRequest, QueryResponse};
 
@@ -12,23 +11,36 @@ use super::{parse_params, RpcFrom, RpcRequest};
 /// Max size of the query path (soft-deprecated)
 const QUERY_DATA_MAX_SIZE: usize = 10 * 1024;
 
+/// Parses base58-encoded data from legacy path+data request format.
+fn parse_bs58_data(max_len: usize, encoded: String) -> Result<Vec<u8>, RpcParseError> {
+    // N-byte encoded base58 string decodes to at most N bytes so there’s no
+    // need to allocate full max_len output buffer if encoded length is shorter.
+    let mut data = vec![0u8; max_len.min(encoded.len())];
+    match bs58::decode(encoded.as_bytes()).into(data.as_mut_slice()) {
+        Ok(len) => {
+            data.truncate(len);
+            Ok(data)
+        }
+        Err(bs58::decode::Error::BufferTooSmall) => {
+            Err(RpcParseError("Query data size is too large".to_string()))
+        }
+        Err(err) => Err(RpcParseError(err.to_string())),
+    }
+}
+
 impl RpcRequest for RpcQueryRequest {
     fn parse(value: Option<Value>) -> Result<Self, RpcParseError> {
-        let query_request = if let Ok((path, data)) =
-            parse_params::<(String, String)>(value.clone())
-        {
+        let params = parse_params::<(String, String)>(value.clone());
+        let query_request = if let Ok((path, data)) = params {
             // Handle a soft-deprecated version of the query API, which is based on
             // positional arguments with a "path"-style first argument.
             //
             // This whole block can be removed one day, when the new API is 100% adopted.
-            let data = serialize::from_base(&data).map_err(|err| RpcParseError(err.to_string()))?;
-            let query_data_size = path.len() + data.len();
-            if query_data_size > QUERY_DATA_MAX_SIZE {
-                return Err(RpcParseError(format!(
-                    "Query data size {} is too large",
-                    query_data_size
-                )));
-            }
+
+            let parse_data = || {
+                let max_len = QUERY_DATA_MAX_SIZE.saturating_sub(path.len());
+                parse_bs58_data(max_len, data)
+            };
 
             let mut path_parts = path.splitn(3, '/');
             let make_err = || RpcParseError("Not enough query parameters provided".to_string());
@@ -52,12 +64,16 @@ impl RpcRequest for RpcQueryRequest {
                     },
                 },
                 "code" => QueryRequest::ViewCode { account_id },
-                "contract" => QueryRequest::ViewState { account_id, prefix: data.into() },
+                "contract" => QueryRequest::ViewState {
+                    account_id,
+                    prefix: parse_data()?.into(),
+                    include_proof: false,
+                },
                 "call" => match maybe_extra_arg {
                     Some(method_name) => QueryRequest::CallFunction {
                         account_id,
                         method_name: method_name.to_string(),
-                        args: data.into(),
+                        args: parse_data()?.into(),
                     },
                     None => return Err(RpcParseError("Method name is missing".to_string())),
                 },

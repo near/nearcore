@@ -25,18 +25,12 @@ impl Trie {
     ///
     /// # Errors
     /// StorageError if the storage is corrupted
-    pub fn get_trie_items_for_part(
-        &self,
-        part_id: PartId,
-        state_root: &StateRoot,
-    ) -> Result<Vec<TrieItem>, StorageError> {
+    pub fn get_trie_items_for_part(&self, part_id: PartId) -> Result<Vec<TrieItem>, StorageError> {
         assert!(self.storage.as_caching_storage().is_some());
 
-        let path_begin =
-            self.find_path_for_part_boundary(state_root, part_id.idx, part_id.total)?;
-        let path_end =
-            self.find_path_for_part_boundary(state_root, part_id.idx + 1, part_id.total)?;
-        self.iter(state_root)?.get_trie_items(&path_begin, &path_end)
+        let path_begin = self.find_path_for_part_boundary(part_id.idx, part_id.total)?;
+        let path_end = self.find_path_for_part_boundary(part_id.idx + 1, part_id.total)?;
+        self.iter()?.get_trie_items(&path_begin, &path_end)
     }
 }
 
@@ -157,9 +151,9 @@ impl ShardTries {
         let mut new_state_roots = state_roots.clone();
         let mut store_update = StoreUpdate::new_with_tries(self.clone());
         for (shard_uid, changes) in changes_by_shard {
-            let trie = self.get_trie_for_shard(shard_uid);
-            // Here we assume that state_roots contains shard_uid, the caller of this method will guarantee that
-            let trie_changes = trie.update(&state_roots[&shard_uid], changes.into_iter())?;
+            // Here we assume that state_roots contains shard_uid, the caller of this method will guarantee that.
+            let trie_changes =
+                self.get_trie_for_shard(shard_uid, state_roots[&shard_uid]).update(changes)?;
             let (update, state_root) = self.apply_all(&trie_changes, shard_uid);
             new_state_roots.insert(shard_uid, state_root);
             store_update.merge(update);
@@ -373,8 +367,9 @@ mod tests {
         shard_uid: &ShardUId,
         state_root: &StateRoot,
     ) -> Vec<(Vec<u8>, Vec<u8>)> {
-        let trie = tries.get_trie_for_shard(*shard_uid);
-        trie.iter(state_root)
+        tries
+            .get_trie_for_shard(*shard_uid, state_root.clone())
+            .iter()
             .unwrap()
             .map(Result::unwrap)
             .filter(|(key, _)| parse_account_id_from_raw_key(key).unwrap().is_some())
@@ -427,13 +422,13 @@ mod tests {
     fn test_get_trie_items_for_part() {
         let mut rng = rand::thread_rng();
         let tries = create_tries();
-        let num_parts = rng.gen_range(5, 10);
+        let num_parts = rng.gen_range(5..10);
 
         let changes = gen_larger_changes(&mut rng, 1000);
         let changes = simplify_changes(&changes);
         let state_root = test_populate_trie(
             &tries,
-            &CryptoHash::default(),
+            &Trie::EMPTY_ROOT,
             ShardUId::single_shard(),
             changes.clone(),
         );
@@ -441,15 +436,13 @@ mod tests {
             changes.into_iter().map(|(key, value)| (key, value.unwrap())).collect();
         expected_trie_items.sort();
 
-        let trie = tries.get_trie_for_shard(ShardUId::single_shard());
-        let total_trie_items =
-            trie.get_trie_items_for_part(PartId::new(0, 1), &state_root).unwrap();
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
+        let total_trie_items = trie.get_trie_items_for_part(PartId::new(0, 1)).unwrap();
         assert_eq!(expected_trie_items, total_trie_items);
 
         let mut combined_trie_items = vec![];
         for part_id in 0..num_parts {
-            let trie_items =
-                trie.get_trie_items_for_part(PartId::new(part_id, num_parts), &state_root).unwrap();
+            let trie_items = trie.get_trie_items_for_part(PartId::new(part_id, num_parts)).unwrap();
             combined_trie_items.extend_from_slice(&trie_items);
             // check that items are split relatively evenly across all parts
             assert!(
@@ -474,12 +467,11 @@ mod tests {
             let tries = create_tries();
             // add 4 new shards for version 1
             let num_shards = 4;
-            let mut state_root = Trie::empty_root();
+            let mut state_root = Trie::EMPTY_ROOT;
             let mut state_roots: HashMap<_, _> = (0..num_shards)
-                .map(|x| (ShardUId { version: 1, shard_id: x as u32 }, CryptoHash::default()))
+                .map(|x| (ShardUId { version: 1, shard_id: x as u32 }, Trie::EMPTY_ROOT))
                 .collect();
             for _ in 0..10 {
-                let trie = tries.get_trie_for_shard(ShardUId::single_shard());
                 let changes = gen_changes(&mut rng, 100);
                 state_root = test_populate_trie(
                     &tries,
@@ -500,13 +492,13 @@ mod tests {
                 state_roots = new_state_roots;
 
                 // check that the 4 tries combined to the orig trie
-                let trie_items: HashMap<_, _> =
-                    trie.iter(&state_root).unwrap().map(Result::unwrap).collect();
+                let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
+                let trie_items: HashMap<_, _> = trie.iter().unwrap().map(Result::unwrap).collect();
                 let mut combined_trie_items: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
-                state_roots.iter().for_each(|(shard_uid, state_root)| {
-                    let trie = tries.get_view_trie_for_shard(*shard_uid);
-                    combined_trie_items.extend(trie.iter(state_root).unwrap().map(Result::unwrap));
-                });
+                for (shard_uid, state_root) in state_roots.iter() {
+                    let trie = tries.get_view_trie_for_shard(*shard_uid, *state_root);
+                    combined_trie_items.extend(trie.iter().unwrap().map(Result::unwrap));
+                }
                 assert_eq!(trie_items, combined_trie_items);
             }
         }
@@ -516,13 +508,12 @@ mod tests {
     fn test_get_delayed_receipts() {
         let mut rng = rand::thread_rng();
         for _ in 0..20 {
-            let memory_limit = bytesize::ByteSize::b(rng.gen_range(200, 1000));
+            let memory_limit = bytesize::ByteSize::b(rng.gen_range(200..1000));
             let all_receipts = gen_receipts(&mut rng, 200);
 
             // push receipt to trie
             let tries = create_tries();
-            let mut trie_update =
-                tries.new_trie_update(ShardUId::single_shard(), StateRoot::default());
+            let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), Trie::EMPTY_ROOT);
             let mut delayed_receipt_indices = DelayedReceiptIndices::default();
 
             for (i, receipt) in all_receipts.iter().enumerate() {
@@ -613,13 +604,13 @@ mod tests {
 
         for _ in 0..10 {
             let mut state_roots: HashMap<_, _> = (0..num_shards)
-                .map(|x| (ShardUId { version: 1, shard_id: x as u32 }, CryptoHash::default()))
+                .map(|x| (ShardUId { version: 1, shard_id: x as u32 }, Trie::EMPTY_ROOT))
                 .collect();
             let mut all_receipts = vec![];
             let mut start_index = 0;
             for _ in 0..10 {
                 let receipts = gen_receipts(&mut rng, 100);
-                let new_start_index = rng.gen_range(start_index, all_receipts.len() + 1);
+                let new_start_index = rng.gen_range(start_index..all_receipts.len() + 1);
 
                 all_receipts.extend_from_slice(&receipts);
                 state_roots = test_apply_delayed_receipts(
@@ -643,8 +634,7 @@ mod tests {
         let tries = create_tries();
         // add accounts and receipts to state
         let mut account_ids = gen_unique_accounts(rng, 100);
-        let mut trie_update =
-            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
+        let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), Trie::EMPTY_ROOT);
         for account_id in account_ids.iter() {
             set_account(
                 &mut trie_update,
@@ -683,12 +673,12 @@ mod tests {
         // add accounts and receipts to the split shards
         let mut split_state_roots = {
             let trie_items = tries
-                .get_view_trie_for_shard(ShardUId::single_shard())
-                .get_trie_items_for_part(PartId::new(0, 1), &state_root)
+                .get_view_trie_for_shard(ShardUId::single_shard(), state_root.clone())
+                .get_trie_items_for_part(PartId::new(0, 1))
                 .unwrap();
             let split_state_roots: HashMap<_, _> = (0..num_shards)
                 .map(|shard_id| {
-                    (ShardUId { version: 1, shard_id: shard_id as u32 }, CryptoHash::default())
+                    (ShardUId { version: 1, shard_id: shard_id as u32 }, Trie::EMPTY_ROOT)
                 })
                 .collect();
             let (store_update, split_state_roots) = tries
@@ -730,7 +720,7 @@ mod tests {
             }
             // remove accounts
             account_ids.shuffle(rng);
-            let remove_count = rng.gen_range(0, 10).min(account_ids.len());
+            let remove_count = rng.gen_range(0..10).min(account_ids.len());
             for account_id in account_ids[0..remove_count].iter() {
                 trie_update.remove(TrieKey::Account { account_id: account_id.clone() });
             }
@@ -744,8 +734,8 @@ mod tests {
                 delayed_receipt_indices.first_index, delayed_receipt_indices.next_available_index
             );
             let next_first_index = rng.gen_range(
-                delayed_receipt_indices.first_index,
-                delayed_receipt_indices.next_available_index + 1,
+                delayed_receipt_indices.first_index
+                    ..delayed_receipt_indices.next_available_index + 1,
             );
             let mut removed_receipts = vec![];
             for index in delayed_receipt_indices.first_index..next_first_index {

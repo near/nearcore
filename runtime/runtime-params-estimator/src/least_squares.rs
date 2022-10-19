@@ -1,4 +1,7 @@
+use crate::estimator_params::GAS_IN_NS;
+use crate::qemu::QemuMeasurement;
 use num_rational::Ratio;
+use num_traits::ToPrimitive;
 
 pub(crate) fn least_squares_method(
     xs: &[u64],
@@ -35,6 +38,77 @@ pub(crate) fn least_squares_method(
     }
 
     (a, b, errs)
+}
+
+pub(crate) fn time_measurement_least_squares(
+    xs: &[u64],
+    ys: &[Ratio<u64>],
+) -> ((Ratio<u64>, Ratio<u64>), (Ratio<u64>, Ratio<u64>)) {
+    let t = least_squares_method(
+        xs,
+        &ys.iter().map(|ns| (ns * GAS_IN_NS).to_integer()).collect::<Vec<_>>(),
+    );
+    let (pos_t_base, neg_t_base) = split_pos_neg(t.0);
+    let (pos_t_factor, neg_t_factor) = split_pos_neg(t.1);
+
+    let neg_base = neg_t_base / GAS_IN_NS;
+    let neg_factor = neg_t_factor / GAS_IN_NS;
+    let pos_base = pos_t_base / GAS_IN_NS;
+    let pos_factor = pos_t_factor / GAS_IN_NS;
+
+    ((pos_base, pos_factor), (neg_base, neg_factor))
+}
+
+pub(crate) fn qemu_measurement_least_squares(
+    xs: &[u64],
+    ys: &[QemuMeasurement],
+) -> ((QemuMeasurement, QemuMeasurement), (QemuMeasurement, QemuMeasurement)) {
+    let i = least_squares_method(
+        xs,
+        &ys.iter().map(|q| q.instructions.to_integer()).collect::<Vec<_>>(),
+    );
+    let r =
+        least_squares_method(xs, &ys.iter().map(|q| q.io_r_bytes.to_integer()).collect::<Vec<_>>());
+    let w =
+        least_squares_method(xs, &ys.iter().map(|q| q.io_w_bytes.to_integer()).collect::<Vec<_>>());
+
+    let (pos_i_base, neg_i_base) = split_pos_neg(i.0);
+    let (pos_r_base, neg_r_base) = split_pos_neg(r.0);
+    let (pos_w_base, neg_w_base) = split_pos_neg(w.0);
+
+    let (pos_i_factor, neg_i_factor) = split_pos_neg(i.1);
+    let (pos_r_factor, neg_r_factor) = split_pos_neg(r.1);
+    let (pos_w_factor, neg_w_factor) = split_pos_neg(w.1);
+
+    let neg_base = QemuMeasurement {
+        instructions: neg_i_base,
+        io_r_bytes: neg_r_base,
+        io_w_bytes: neg_w_base,
+    };
+    let neg_factor = QemuMeasurement {
+        instructions: neg_i_factor,
+        io_r_bytes: neg_r_factor,
+        io_w_bytes: neg_w_factor,
+    };
+    let pos_base = QemuMeasurement {
+        instructions: pos_i_base,
+        io_r_bytes: pos_r_base,
+        io_w_bytes: pos_w_base,
+    };
+    let pos_factor = QemuMeasurement {
+        instructions: pos_i_factor,
+        io_r_bytes: pos_r_factor,
+        io_w_bytes: pos_w_factor,
+    };
+    ((pos_base, pos_factor), (neg_base, neg_factor))
+}
+
+/// Transforms input C into two components, where A,B are non-negative and where A-B ~= input.
+/// This method intentionally rounds fractions to whole integers, rounding towards zero.
+fn split_pos_neg(num: Ratio<i128>) -> (Ratio<u64>, Ratio<u64>) {
+    let pos = num.to_integer().to_u64().unwrap_or_default().into();
+    let neg = (-num).to_integer().to_u64().unwrap_or_default().into();
+    (pos, neg)
 }
 
 #[cfg(test)]

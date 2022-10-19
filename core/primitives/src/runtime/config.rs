@@ -5,7 +5,7 @@ use crate::config::VMConfig;
 use crate::runtime::config_store::INITIAL_TESTNET_CONFIG;
 use crate::runtime::fees::RuntimeFeesConfig;
 use crate::runtime::parameter_table::ParameterTable;
-use crate::serialize::u128_dec_format;
+use crate::serialize::dec_format;
 use crate::types::{AccountId, Balance};
 
 use super::parameter_table::InvalidConfigError;
@@ -15,7 +15,7 @@ use super::parameter_table::InvalidConfigError;
 pub struct RuntimeConfig {
     /// Amount of yN per byte required to have on the account.  See
     /// <https://nomicon.io/Economics/README.html#state-stake> for details.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub storage_amount_per_byte: Balance,
     /// Costs of different actions that need to be performed when sending and processing transaction
     /// and receipts.

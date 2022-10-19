@@ -1,6 +1,7 @@
 use paperclip::actix::{api_v2_errors, Apiv2Schema};
 
-use near_primitives::serialize::BaseEncode;
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{BlockHeight, Nonce};
 
 use crate::utils::{BlobInHexString, BorshInHexString};
 
@@ -28,15 +29,19 @@ pub(crate) struct AccountBalanceResponse {
 
     /// A single account may have a balance in multiple currencies.
     pub balances: Vec<Amount>,
-    /* Rosetta Spec also optionally provides:
-     *
-     * /// Account-based blockchains that utilize a nonce or sequence number should
-     * /// include that number in the metadata. This number could be unique to the
-     * /// identifier or global across the account address.
-     * #[serde(skip_serializing_if = "Option::is_none")]
-     * pub metadata: Option<serde_json::Value>, */
+    /// Rosetta Spec also optionally provides:
+    /// Account-based blockchains that utilize a nonce or sequence number should
+    /// include that number in the metadata. This number could be unique to the
+    /// identifier or global across the account address.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<AccountBalanceResponseMetadata>,
 }
-
+// Account-based blockchains that utilize a nonce or sequence number should
+// include that number in the metadata.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+pub(crate) struct AccountBalanceResponseMetadata {
+    pub nonces: Vec<Nonce>,
+}
 /// The account_identifier uniquely identifies an account within a network. All
 /// fields in the account_identifier are utilized to determine this uniqueness
 /// (including the metadata field, if populated).
@@ -48,18 +53,17 @@ pub(crate) struct AccountIdentifier {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sub_account: Option<SubAccountIdentifier>,
-    /* Rosetta Spec also optionally provides:
-     *
-     * /// Blockchains that utilize a username model (where the address is not a
-     * /// derivative of a cryptographic public key) should specify the public
-     * /// key(s) owned by the address in metadata.
-     * #[serde(skip_serializing_if = "Option::is_none")]
-     * pub metadata: Option<serde_json::Value>, */
+    /// Rosetta Spec also optionally provides:
+    /// Blockchains that utilize a username model (where the address is not a
+    /// derivative of a cryptographic public key) should specify the public
+    /// key(s) owned by the address in metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<AccountIdentifierMetadata>,
 }
 
 impl From<near_primitives::types::AccountId> for AccountIdentifier {
     fn from(account_id: near_primitives::types::AccountId) -> Self {
-        Self { address: account_id.into(), sub_account: None }
+        Self { address: account_id.into(), sub_account: None, metadata: None }
     }
 }
 
@@ -69,6 +73,13 @@ impl std::str::FromStr for AccountIdentifier {
     fn from_str(account_id: &str) -> Result<Self, Self::Err> {
         Ok(Self::from(account_id.parse::<near_primitives::types::AccountId>()?))
     }
+}
+
+#[derive(
+    Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize, Apiv2Schema,
+)]
+pub(crate) struct AccountIdentifierMetadata {
+    pub public_keys: Vec<PublicKey>,
 }
 
 /// Allow specifies supported Operation status, Operation types, and all
@@ -164,19 +175,21 @@ pub(crate) struct Block {
 pub(crate) struct BlockIdentifier {
     /// This is also known as the block height.
     pub index: i64,
-
     pub hash: String,
 }
 
-impl From<&near_primitives::views::BlockHeaderView> for BlockIdentifier {
-    fn from(header: &near_primitives::views::BlockHeaderView) -> Self {
+impl BlockIdentifier {
+    pub fn new(height: BlockHeight, hash: &CryptoHash) -> Self {
         Self {
-            index: header
-                .height
-                .try_into()
-                .expect("Rosetta only supports block indecies up to i64::MAX"),
-            hash: header.hash.to_base(),
+            index: height.try_into().expect("Rosetta only supports block indecies up to i64::MAX"),
+            hash: hash.to_string(),
         }
+    }
+}
+
+impl From<&near_primitives::views::BlockView> for BlockIdentifier {
+    fn from(block: &near_primitives::views::BlockView) -> Self {
+        Self::new(block.header.height, &block.header.hash)
     }
 }
 
@@ -738,8 +751,18 @@ impl OperationStatusKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum OperationMetadataTransferFeeType {
+    GasPrepayment,
+    GasRefund,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct OperationMetadata {
+    /// Has to be specified for TRANSFER operations which represent gas prepayments or gas refunds
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transfer_fee_type: Option<OperationMetadataTransferFeeType>,
     /// Has to be specified for ADD_KEY, REMOVE_KEY, and STAKE operations
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_key: Option<PublicKey>,
@@ -760,6 +783,27 @@ pub(crate) struct OperationMetadata {
     /// Has to be specified for FUNCTION_CALL operation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attached_gas: Option<crate::utils::SignedDiff<near_primitives::types::Gas>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub predecessor_id: Option<AccountIdentifier>,
+}
+
+impl OperationMetadata {
+    pub(crate) fn from_predecessor(
+        predecessor_id: Option<AccountIdentifier>,
+    ) -> Option<OperationMetadata> {
+        predecessor_id.map(|predecessor_id| crate::models::OperationMetadata {
+            predecessor_id: Some(predecessor_id),
+            ..Default::default()
+        })
+    }
+
+    pub(crate) fn with_transfer_fee_type(
+        mut self,
+        transfer_fee_type: OperationMetadataTransferFeeType,
+    ) -> Self {
+        self.transfer_fee_type = Some(transfer_fee_type);
+        self
+    }
 }
 
 /// Operations contain all balance-changing information within a transaction.
@@ -1038,7 +1082,7 @@ impl TransactionIdentifier {
     /// Returns an identifier for block events constructed as <prefix>:<hash>.
     ///
     /// Note: If constructing identifiers for transactions or receipts, use
-    /// [`transaction`] or [`receipt`] methods instead.
+    /// [`Self::transaction`] or [`Self::receipt`] methods instead.
     pub(crate) fn block_event(
         prefix: &'static str,
         block_hash: &near_primitives::hash::CryptoHash,
@@ -1050,7 +1094,7 @@ impl TransactionIdentifier {
         prefix: &'static str,
         hash: &near_primitives::hash::CryptoHash,
     ) -> Self {
-        Self { hash: format!("{}:{}", prefix, hash.to_base()) }
+        Self { hash: format!("{}:{}", prefix, hash) }
     }
 }
 
@@ -1083,7 +1127,7 @@ pub(crate) struct Version {
 /// PublicKey contains a public key byte array for a particular CurveType
 /// encoded in hex. Note that there is no PrivateKey struct as this is NEVER the
 /// concern of an implementation.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct PublicKey {
     /// Hex-encoded public key bytes in the format specified by the CurveType.
     pub hex_bytes: BlobInHexString<Vec<u8>>,
@@ -1113,12 +1157,12 @@ impl TryFrom<&PublicKey> for near_crypto::PublicKey {
 }
 
 /// CurveType is the type of cryptographic curve associated with a PublicKey.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum CurveType {
-    /// `y (255-bits) || x-sign-bit (1-bit)` - `32 bytes` (https://ed25519.cr.yp.to/ed25519-20110926.pdf)
+    /// `y (255-bits) || x-sign-bit (1-bit)` - 32 bytes (<https://ed25519.cr.yp.to/ed25519-20110926.pdf>)
     Edwards25519,
-    /// SEC compressed - `33 bytes` (https://secg.org/sec1-v2.pdf#subsubsection.2.3.3)
+    /// SEC compressed - 33 bytes (<https://secg.org/sec1-v2.pdf#subsubsection.2.3.3>)
     Secp256k1,
 }
 

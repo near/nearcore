@@ -13,9 +13,7 @@ use near_chain_configs::Genesis;
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::DelayedReceiptIndices;
-use near_primitives::transaction::{
-    Action, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof,
-};
+use near_primitives::transaction::{Action, ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -85,20 +83,22 @@ impl ProgressReporter {
 
 fn old_outcomes(
     store: Store,
-    new_outcomes: &Vec<ExecutionOutcomeWithId>,
+    new_outcomes: &[ExecutionOutcomeWithId],
 ) -> Vec<ExecutionOutcomeWithId> {
     new_outcomes
         .iter()
         .map(|outcome| {
-            store
-                .get_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(
-                    DBCol::TransactionResult,
+            let old_outcome = store
+                .iter_prefix_ser::<ExecutionOutcomeWithProof>(
+                    DBCol::TransactionResultForBlock,
                     outcome.id.as_ref(),
                 )
+                .next()
                 .unwrap()
-                .unwrap()[0]
-                .outcome_with_id
-                .clone()
+                .unwrap()
+                .1
+                .outcome;
+            ExecutionOutcomeWithId { id: outcome.id, outcome: old_outcome }
         })
         .collect()
 }
@@ -118,7 +118,7 @@ fn apply_block_from_range(
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     progress_reporter: &ProgressReporter,
     verbose_output: bool,
-    csv_file_mutex: &Arc<Mutex<Option<&mut File>>>,
+    csv_file_mutex: &Mutex<Option<&mut File>>,
     only_contracts: bool,
 ) {
     // normally save_trie_changes depends on whether the node is
@@ -245,7 +245,8 @@ fn apply_block_from_range(
                 *block.header().random_value(),
                 true,
                 is_first_block_with_chunk_of_version,
-                None,
+                Default::default(),
+                false,
             )
             .unwrap()
     } else {
@@ -271,7 +272,8 @@ fn apply_block_from_range(
                 *block.header().random_value(),
                 false,
                 false,
-                None,
+                Default::default(),
+                false,
             )
             .unwrap()
     };
@@ -288,8 +290,8 @@ fn apply_block_from_range(
 
     let state_update =
         runtime_adapter.get_tries().new_trie_update(shard_uid, *chunk_extra.state_root());
-    let delayed_indices =
-        get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
+    let delayed_indices: Option<DelayedReceiptIndices> =
+        get(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
 
     match existing_chunk_extra {
         Some(existing_chunk_extra) => {
@@ -360,7 +362,7 @@ pub fn apply_chain_range(
     );
 
     println!("Printing results including outcomes of applying receipts");
-    let csv_file_mutex = Arc::new(Mutex::new(csv_file));
+    let csv_file_mutex = Mutex::new(csv_file);
     maybe_add_to_csv(&csv_file_mutex, "Height,Hash,Author,#Tx,#Receipt,Timestamp,GasUsed,ChunkPresent,#ProcessedDelayedReceipts,#DelayedReceipts,#StateChanges");
 
     let range = start_height..=end_height;

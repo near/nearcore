@@ -1,13 +1,11 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use borsh::BorshSerialize;
-
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 
 use crate::block::{Approval, ApprovalInner, BlockHeader};
 use crate::challenge::ChallengeBody;
-use crate::hash::{hash, CryptoHash};
+use crate::hash::CryptoHash;
 use crate::network::{AnnounceAccount, PeerId};
 use crate::sharding::ChunkHash;
 use crate::telemetry::TelemetryInfo;
@@ -48,6 +46,19 @@ pub trait ValidatorSigner: Sync + Send {
         peer_id: &PeerId,
         epoch_id: &EpochId,
     ) -> Signature;
+
+    /// Signs a proto-serialized AccountKeyPayload (see
+    /// chain/network/src/network_protocol/network.proto).
+    /// Making it typesafe would require moving the definition of
+    /// AccountKeyPayload proto to this crate to avoid a dependency cycle,
+    /// so for now we are just signing an already-serialized byte sequence.
+    /// We are serializing a proto rather than borsh here (as an experiment,
+    /// to allow the network protocol to evolve faster than on-chain stuff),
+    /// but we can always revert that decision, because these signatures are
+    /// used only for networking purposes and are not persisted on chain.
+    /// Moving to proto serialization for stuff stored on chain would be way
+    /// harder.
+    fn sign_account_key_payload(&self, proto_bytes: &[u8]) -> Signature;
 
     fn compute_vrf_with_proof(
         &self,
@@ -98,8 +109,7 @@ impl ValidatorSigner for EmptyValidatorSigner {
     }
 
     fn sign_challenge(&self, challenge_body: &ChallengeBody) -> (CryptoHash, Signature) {
-        let hash = hash(&challenge_body.try_to_vec().expect("Failed to serialize"));
-        (hash, Signature::default())
+        (CryptoHash::hash_borsh(challenge_body), Signature::default())
     }
 
     fn sign_account_announce(
@@ -108,6 +118,10 @@ impl ValidatorSigner for EmptyValidatorSigner {
         _peer_id: &PeerId,
         _epoch_id: &EpochId,
     ) -> Signature {
+        Signature::default()
+    }
+
+    fn sign_account_key_payload(&self, _proto_bytes: &[u8]) -> Signature {
         Signature::default()
     }
 
@@ -163,7 +177,7 @@ impl ValidatorSigner for InMemoryValidatorSigner {
     fn sign_telemetry(&self, info: &TelemetryInfo) -> serde_json::Value {
         let mut value = serde_json::to_value(info).expect("Telemetry must serialize to JSON");
         let content = serde_json::to_string(&value).expect("Telemetry must serialize to JSON");
-        value["signature"] = format!("{}", self.signer.sign(content.as_bytes())).into();
+        value["signature"] = self.signer.sign(content.as_bytes()).to_string().into();
         value
     }
 
@@ -186,7 +200,7 @@ impl ValidatorSigner for InMemoryValidatorSigner {
     }
 
     fn sign_challenge(&self, challenge_body: &ChallengeBody) -> (CryptoHash, Signature) {
-        let hash = hash(&challenge_body.try_to_vec().expect("Failed to serialize"));
+        let hash = CryptoHash::hash_borsh(challenge_body);
         let signature = self.signer.sign(hash.as_ref());
         (hash, signature)
     }
@@ -199,6 +213,10 @@ impl ValidatorSigner for InMemoryValidatorSigner {
     ) -> Signature {
         let hash = AnnounceAccount::build_header_hash(account_id, peer_id, epoch_id);
         self.signer.sign(hash.as_ref())
+    }
+
+    fn sign_account_key_payload(&self, proto_bytes: &[u8]) -> Signature {
+        self.signer.sign(proto_bytes)
     }
 
     fn compute_vrf_with_proof(

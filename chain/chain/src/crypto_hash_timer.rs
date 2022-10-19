@@ -31,7 +31,10 @@ pub struct CryptoHashTimer {
 
 impl CryptoHashTimer {
     pub fn new(key: CryptoHash) -> Self {
-        CryptoHashTimer { key, start: Clock::instant() }
+        Self::new_with_start(key, Clock::instant())
+    }
+    pub fn new_with_start(key: CryptoHash, start: Instant) -> Self {
+        CryptoHashTimer { key, start }
     }
     pub fn get_timer_value(key: CryptoHash) -> Option<Duration> {
         CRYPTO_HASH_TIMER_RESULTS.lock().unwrap().get(&key).cloned()

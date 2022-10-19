@@ -19,8 +19,8 @@ use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
 
 use self::errors::FailedToFetchData;
 use self::fetchers::{
-    fetch_block_by_hash, fetch_block_by_height, fetch_block_chunks, fetch_latest_block,
-    fetch_outcomes, fetch_state_changes, fetch_status,
+    fetch_block, fetch_block_by_height, fetch_block_chunks, fetch_latest_block, fetch_outcomes,
+    fetch_state_changes, fetch_status,
 };
 use self::utils::convert_transactions_sir_into_local_receipts;
 use crate::streamer::fetchers::fetch_protocol_config;
@@ -28,12 +28,13 @@ use crate::INDEXER;
 
 mod errors;
 mod fetchers;
+mod metrics;
 mod utils;
 
 const INTERVAL: Duration = Duration::from_millis(500);
 
 /// Blocks #47317863 and #47317864 with restored receipts.
-const PROBLEMATIC_BLOKS: [CryptoHash; 2] = [
+const PROBLEMATIC_BLOCKS: [CryptoHash; 2] = [
     CryptoHash(
         *b"\xcd\xde\x9a\x3f\x5d\xdf\xb4\x2c\xb9\x9b\xf4\x8c\x04\x95\x6f\x5b\
            \xa0\xb7\x29\xe2\xa5\x04\xf8\xbd\x9c\x86\x92\xd6\x16\x8c\xcf\x14",
@@ -44,14 +45,15 @@ const PROBLEMATIC_BLOKS: [CryptoHash; 2] = [
     ),
 ];
 
-/// Tests whether raw hashes in [`PROBLEMATIC_BLOKS`] match expected
+/// Tests whether raw hashes in [`PROBLEMATIC_BLOCKS`] match expected
 /// user-readable hashes.  Ideally we would compute the hashes at compile time
 /// but there’s no const function for base58→bytes conversion so instead we’re
-/// hard-coding the raw base in [`PROBLEMATIC_BLOKS`] and have this test to
+/// hard-coding the raw base in [`PROBLEMATIC_BLOCKS`] and have this test to
 /// confirm the raw values are correct.
 #[test]
 fn test_problematic_blocks_hash() {
-    let got: Vec<String> = PROBLEMATIC_BLOKS.iter().map(std::string::ToString::to_string).collect();
+    let got: Vec<String> =
+        PROBLEMATIC_BLOCKS.iter().map(std::string::ToString::to_string).collect();
     assert_eq!(
         vec![
             "ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK",
@@ -69,6 +71,7 @@ async fn build_streamer_message(
     client: &Addr<near_client::ViewClientActor>,
     block: views::BlockView,
 ) -> Result<StreamerMessage, FailedToFetchData> {
+    let _timer = metrics::BUILD_STREAMER_MESSAGE_TIME.start_timer();
     let chunks = fetch_block_chunks(&client, &block).await?;
 
     let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
@@ -155,7 +158,7 @@ async fn build_streamer_message(
                     if prev_block_tried > 1000 {
                         panic!("Failed to find local receipt in 1000 prev blocks");
                     }
-                    let prev_block = match fetch_block_by_hash(&client, prev_block_hash).await {
+                    let prev_block = match fetch_block(&client, prev_block_hash).await {
                         Ok(block) => block,
                         Err(err) => panic!("Unable to get previous block: {:?}", err),
                     };
@@ -188,7 +191,7 @@ async fn build_streamer_message(
         // so it was decided to artificially include the Receipts into the Chunk of the Block where
         // ExecutionOutcomes appear.
         // ref: https://github.com/near/nearcore/pull/4248
-        if PROBLEMATIC_BLOKS.contains(&block.header.hash)
+        if PROBLEMATIC_BLOCKS.contains(&block.header.hash)
             && &protocol_config_view.chain_id == "mainnet"
         {
             let mut restored_receipts: Vec<views::ReceiptView> = vec![];
@@ -287,8 +290,8 @@ pub(crate) async fn start(
     blocks_sink: mpsc::Sender<StreamerMessage>,
 ) {
     info!(target: INDEXER, "Starting Streamer...");
-    let indexer_db_path = near_store::Store::opener(&indexer_config.home_dir, &store_config)
-        .get_path()
+    let indexer_db_path = near_store::NodeStorage::opener(&indexer_config.home_dir, &store_config)
+        .path()
         .join("indexer");
 
     // TODO: implement proper error handling
@@ -339,7 +342,10 @@ pub(crate) async fn start(
             start_syncing_block_height,
             latest_block_height
         );
+        metrics::START_BLOCK_HEIGHT.set(start_syncing_block_height as i64);
+        metrics::LATEST_BLOCK_HEIGHT.set(latest_block_height as i64);
         for block_height in start_syncing_block_height..=latest_block_height {
+            metrics::CURRENT_BLOCK_HEIGHT.set(block_height as i64);
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
                 let response = build_streamer_message(&view_client, block).await;
 
@@ -352,6 +358,8 @@ pub(crate) async fn start(
                                 "Unable to send StreamerMessage to listener, listener doesn't listen. terminating..."
                             );
                             break 'main;
+                        } else {
+                            metrics::NUM_STREAMER_MESSAGES_SENT.inc();
                         }
                     }
                     Err(err) => {

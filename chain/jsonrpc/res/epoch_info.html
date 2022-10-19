@@ -71,6 +71,77 @@
             return bytes.toFixed(dp) + ' ' + units[u];
         }
 
+        function humanStake(stake) {
+            let stake_in_near = parseInt(stake / 10**24);
+            return stake_in_near.toLocaleString('en-US')
+        }
+
+        function toggle_tbody(element) {
+            let x = document.getElementsByClassName(element)[0];
+            if (x.style.display === "none") {
+                x.style.display = "table-row-group";
+            } else {
+                x.style.display = "none";
+            }
+        }
+
+        function process_validator_info(validator_info) {
+            let total_stake = 0;
+            validator_info.current_validators.forEach(validator => {
+                total_stake += parseInt(validator.stake);
+            })
+            $('.js-tbody-curepoch').append("Total stake " + humanStake(total_stake))
+            validator_info.current_validators.forEach(validator => {
+                let row = $('<tr>');
+                row.append($('<td>').append(validator.account_id));
+                row.append($('<td>').append(humanStake(validator.stake) + "/" + (100 * validator.stake / total_stake).toFixed(2) + "%"));
+                row.append($('<td>').append(validator.shards.join(",")));
+                row.append($('<td>').append(validator.num_expected_blocks - validator.num_produced_blocks));
+                row.append($('<td>').append(validator.num_expected_blocks));
+                let missed_blocks_perc = 100 * (validator.num_expected_blocks - validator.num_produced_blocks) / validator.num_expected_blocks;
+                if (missed_blocks_perc >= 20) {
+                    row.append($('<td>').append("<strong>" + missed_blocks_perc.toFixed(2) + "%</strong>"));
+                } else {
+                    row.append($('<td>').append(missed_blocks_perc.toFixed(2) + "%"));
+                }
+                row.append($('<td>').append(validator.num_expected_chunks - validator.num_produced_chunks));
+                row.append($('<td>').append(validator.num_expected_chunks));
+                let missed_chunks_perc = 100 * (validator.num_expected_chunks - validator.num_produced_chunks) / validator.num_expected_chunks;
+                if (missed_chunks_perc >= 20) {
+                    row.append($('<td>').append("<strong>" + missed_chunks_perc.toFixed(2) + "%</strong>"));
+                } else {
+                    row.append($('<td>').append(missed_chunks_perc.toFixed(2) + "%"));
+                }
+                if (missed_blocks_perc >= 20 || missed_chunks_perc >= 20) {
+                    row.css('background-color', 'red');
+                }
+                $('.js-tbody-curepoch-curvalidators').append(row)
+            })
+
+            validator_info.next_validators.forEach(validator => {
+                let row = $('<tr>');
+                row.append($('<td>').append(validator.account_id));
+                row.append($('<td>').append(humanStake(validator.stake) + "/" + (100 * validator.stake / total_stake).toFixed(2) + "%"));
+                row.append($('<td>').append(validator.shards.join(",")));
+                $('.js-tbody-curepoch-nextvalidators').append(row)
+            })
+
+            validator_info.current_proposals.forEach(proposal=> {
+                let row = $('<tr>');
+                row.append($('<td>').append(proposal.account_id));
+                row.append($('<td>').append(humanStake(proposal.stake) + "/" + (100*proposal.stake/total_stake).toFixed(2) + "%"));
+                $('.js-tbody-curepoch-proposals').append(row);
+            })
+
+            validator_info.prev_epoch_kickout.forEach(kickout=> {
+                let row = $('<tr>');
+                row.append($('<td>').append(kickout.account_id));
+                row.append($('<td>').append(JSON.stringify(kickout.reason)));
+                $('.js-tbody-curepoch-kickouts').append(row);
+            })
+            return total_stake
+        }
+
         function process_responses(data, epoch_data) {
             let validatorMap = new Map();
             let maxShards = 0;
@@ -94,7 +165,13 @@
                         row.append($('<td>').append(epoch.first_block[0]));
                         row.append($('<td>').append(convertTime(Date.now() - Date.parse(epoch.first_block[1])) + " ago"));
                     }
+                    row.append($('<td>').append(epoch.block_producers.length));
+                    row.append($('<td>').append(epoch.chunk_only_producers.length));
                     $('.js-tbody-epochs').append(row);
+                    if (index == 1) {
+                        $('.js-thead-curepoch').append("Current Epoch " + epoch.epoch_id);
+                        process_validator_info(epoch.validator_info);
+                    }
                 }
 
                 $('.js-head-validators').append($('<th>').append(epoch.epoch_id.substr(0, 10)));
@@ -102,7 +179,7 @@
                 // 00 -- not participated
                 // 01 -- block producer
                 // 10 -- chunk only producer
-                epoch.validators.forEach(validator => {
+                epoch.block_producers.forEach(validator => {
                     let account_id = validator.account_id;
                     let value = 2 ** (index * 2);
                     if (validatorMap.has(account_id)) {
@@ -208,17 +285,79 @@
                 <th>Protocol version</th>
                 <th>First block</th>
                 <th>Epoch start</th>
+                <th>Block producers</th>
+                <th>Chunk only producers</th>
             </tr>
         </thead>
         <tbody class="js-tbody-epochs">
         </tbody>
     </table>
 
+    <div> Click table headers to toggle.</div>
+
+    <h2> <span class="js-thead-curepoch"></span></h2>
+    <h3> <span class="js-tbody-curepoch"></span></h3>
+    <h3>Validators</h3>
+    <div> Validators that missed more than 20% blocks or chunks are marked red.</div>
+    <table>
+        <thead onclick="toggle_tbody('js-tbody-curepoch-curvalidators')">
+        <tr>
+            <th>Account id</th>
+            <th>Stake / Stake %</th>
+            <th>Shards</th>
+            <th># Missed blocks</th>
+            <th># Expected blocks</th>
+            <th>Missed blocks %</th>
+            <th># Missed chunks</th>
+            <th># Expected chunks</th>
+            <th>Missed chunks %</th>
+        </tr>
+        </thead>
+        <tbody class ="js-tbody-curepoch-curvalidators">
+        </tbody>
+    </table>
+
+    <h3>Validators for next epoch</h3>
+    <table>
+        <thead onclick="toggle_tbody('js-tbody-curepoch-nextvalidators')">
+        <tr>
+            <th>AccountId</th>
+            <th>Stake/Stake Percentage</th>
+            <th>Shards</th>
+        </tr>
+        </thead>
+        <tbody class = "js-tbody-curepoch-nextvalidators">
+        </tbody>
+    </table>
+
+    <h3>Proposals</h3>
+    <table>
+        <thead onclick="toggle_tbody('js-tbody-curepoch-proposals')">
+        <tr>
+            <th>AccountId</th>
+            <th>Stake/Stake Percentage</th>
+        </tr>
+        </thead>
+        <tbody class = "js-tbody-curepoch-proposals">
+        </tbody>
+    </table>
+
+    <h3>Previous Epoch Kickouts</h3>
+    <table>
+        <thead onclick="toggle_tbody('js-tbody-curepoch-kickouts')">
+        <tr>
+            <th>AccountId</th>
+            <th>Kickout Reason</th>
+        </tr>
+        </thead>
+        <tbody class = "js-tbody-curepoch-kickouts">
+        </tbody>
+    </table>
 
     <h2> Validators </h2>
 
     <table>
-        <thead>
+        <thead onclick="toggle_tbody('js-tbody-validators')">
             <tr class="js-head-validators">
                 <th>Account ID</th>
             </tr>
@@ -230,7 +369,7 @@
     <h2> Shard sizes </h2>
 
     <table>
-        <thead>
+        <thead onclick="toggle_tbody('js-tbody-shard-sizes')">
             <tr class="js-head-shard-sizes">
                 <th rowspan="2">Epoch Id</th>
             </tr>

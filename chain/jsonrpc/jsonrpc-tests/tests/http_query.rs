@@ -3,7 +3,7 @@ use futures::{future, FutureExt};
 
 use near_actix_test_utils::run_actix;
 use near_jsonrpc::client::new_http_client;
-use near_logger_utils::init_test_logger;
+use near_o11y::testonly::init_test_logger;
 
 use near_jsonrpc_tests as test_utils;
 

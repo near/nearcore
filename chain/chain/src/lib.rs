@@ -1,4 +1,4 @@
-pub use block_processing_utils::BlockProcessingArtifact;
+pub use block_processing_utils::{BlockProcessingArtifact, DoneApplyChunkCallback};
 pub use chain::{check_known, collect_receipts, Chain, MAX_ORPHAN_SIZE};
 pub use doomslug::{Doomslug, DoomslugBlockProductionReadiness, DoomslugThresholdMode};
 pub use lightclient::{create_light_client_block_view, get_epoch_block_producers_view};
@@ -11,6 +11,7 @@ pub use types::{Block, BlockHeader, BlockStatus, ChainGenesis, Provenance, Runti
 mod block_processing_utils;
 pub mod blocks_delay_tracker;
 pub mod chain;
+pub mod chunks_store;
 pub mod crypto_hash_timer;
 mod doomslug;
 mod lightclient;

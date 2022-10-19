@@ -1,13 +1,11 @@
-use actix::{Actor, System};
-use futures::{future, FutureExt};
-
-use near_actix_test_utils::spawn_interruptible;
+use crate::tests::nearcore::node_cluster::NodeCluster;
+use actix::System;
 use near_client::GetBlock;
-use near_network::test_utils::WaitOrTimeoutActor;
+use near_network::test_utils::wait_or_timeout;
+use near_o11y::WithSpanContextExt;
 use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards};
 use rand::{thread_rng, Rng};
-
-use crate::tests::nearcore::node_cluster::NodeCluster;
+use std::ops::ControlFlow;
 
 fn run_heavy_nodes(
     num_shards: NumShards,
@@ -17,7 +15,7 @@ fn run_heavy_nodes(
     num_blocks: BlockHeightDelta,
 ) {
     let mut rng = thread_rng();
-    let genesis_height = rng.gen_range(0, 10000);
+    let genesis_height = rng.gen_range(0..10000);
 
     let cluster = NodeCluster::default()
         .set_num_shards(num_shards)
@@ -30,21 +28,18 @@ fn run_heavy_nodes(
     cluster.exec_until_stop(|_, _, clients| async move {
         let view_client = clients.last().unwrap().1.clone();
 
-        WaitOrTimeoutActor::new(
-            Box::new(move |_ctx| {
-                spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
-                    match &res {
-                        Ok(Ok(b)) if b.header.height > num_blocks => System::current().stop(),
-                        Err(_) => return future::ready(()),
-                        _ => {}
-                    };
-                    future::ready(())
-                }));
-            }),
-            100,
-            40000,
-        )
-        .start();
+        wait_or_timeout(100, 40000, || async {
+            let res = view_client.send(GetBlock::latest().with_span_context()).await;
+            match &res {
+                Ok(Ok(b)) if b.header.height > num_blocks => return ControlFlow::Break(()),
+                Err(_) => return ControlFlow::Continue(()),
+                _ => {}
+            };
+            ControlFlow::Continue(())
+        })
+        .await
+        .unwrap();
+        System::current().stop()
     });
 
     // See https://github.com/near/nearcore/issues/3925 for why it is here.

@@ -1,17 +1,9 @@
 /// This file is contains all types used for communication between `Actors` within this crate.
 /// They are not meant to be used outside.
-use crate::network_protocol::{PeerMessage, RoutingTableUpdate};
-use crate::peer::peer_actor::PeerActor;
-use conqueue::QueueSender;
-use near_network_primitives::time;
-use near_network_primitives::types::{
-    Ban, Edge, InboundTcpConnect, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerType,
-    ReasonForBan, RoutedMessageBody, RoutedMessageFrom,
-};
-use near_primitives::hash::CryptoHash;
+use crate::network_protocol::{Edge, PartialEdgeInfo, PeerInfo, PeerMessage};
+use crate::peer_manager::connection;
+use crate::types::{Ban, ReasonForBan};
 use near_primitives::network::PeerId;
-use near_primitives::version::ProtocolVersion;
-use near_rate_limiter::ThrottleController;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
@@ -19,39 +11,27 @@ use std::sync::{Arc, Mutex};
 
 /// Received new peers from another peer.
 #[derive(Debug, Clone)]
-pub struct PeersResponse {
+pub(crate) struct PeersResponse {
     pub(crate) peers: Vec<PeerInfo>,
 }
 
-#[derive(actix::Message, Debug, strum::IntoStaticStr)]
+#[derive(actix::Message, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
 #[rtype(result = "PeerToManagerMsgResp")]
 pub(crate) enum PeerToManagerMsg {
-    RoutedMessageFrom(RoutedMessageFrom),
     RegisterPeer(RegisterPeer),
     PeersRequest(PeersRequest),
     PeersResponse(PeersResponse),
-    InboundTcpConnect(InboundTcpConnect),
     Unregister(Unregister),
     Ban(Ban),
     RequestUpdateNonce(PeerId, PartialEdgeInfo),
     ResponseUpdateNonce(Edge),
-    /// Data to sync routing table from active peer.
-    SyncRoutingTable {
-        peer_id: PeerId,
-        routing_table_update: RoutingTableUpdate,
-    },
-
     // PeerRequest
-    UpdateEdge((PeerId, u64)),
-    RouteBack(Box<RoutedMessageBody>, CryptoHash),
     UpdatePeerInfo(PeerInfo),
-    ReceivedMessage(PeerId, time::Instant),
 }
 
 /// List of all replies to messages to `PeerManager`. See `PeerManagerMessageRequest` for more details.
 #[derive(actix::MessageResponse, Debug)]
-pub enum PeerToManagerMsgResp {
-    RoutedMessageFrom(bool),
+pub(crate) enum PeerToManagerMsgResp {
     RegisterPeer(RegisterPeerResponse),
     PeersRequest(PeerRequestResult),
 
@@ -61,7 +41,6 @@ pub enum PeerToManagerMsgResp {
     BanPeer(ReasonForBan),
 
     // PeerResponse
-    UpdatedEdge(PartialEdgeInfo),
     Empty,
 }
 /// Actor message which asks `PeerManagerActor` to register peer.
@@ -70,46 +49,37 @@ pub enum PeerToManagerMsgResp {
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "RegisterPeerResponse")]
 pub(crate) struct RegisterPeer {
-    pub actor: actix::Addr<PeerActor>,
-    pub peer_info: PeerInfo,
-    pub peer_type: PeerType,
-    pub chain_info: PeerChainInfoV2,
-    /// Edge information from this node.
-    /// If this is None it implies we are outbound connection, so we need to create our
-    /// EdgeInfo part and send it to the other peer.
-    pub this_edge_info: Option<PartialEdgeInfo>,
-    /// Edge information from other node.
-    pub other_edge_info: PartialEdgeInfo,
-    /// Protocol version of new peer. May be higher than ours.
-    #[allow(dead_code)]
-    pub peer_protocol_version: ProtocolVersion,
-    /// A helper data structure for limiting reading, reporting bandwidth stats.
-    pub throttle_controller: ThrottleController,
+    pub connection: Arc<connection::Connection>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RegisterPeerError {
+    Blacklisted,
+    Banned,
+    PoolError(connection::PoolError),
+    ConnectionLimitExceeded,
 }
 
 #[derive(actix::MessageResponse, Debug)]
-pub enum RegisterPeerResponse {
-    Accept(Option<PartialEdgeInfo>),
-    InvalidNonce(Box<Edge>),
-    Reject,
+pub(crate) enum RegisterPeerResponse {
+    Accept,
+    Reject(RegisterPeerError),
 }
 
 /// Unregister message from Peer to PeerManager.
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, PartialEq, Eq, Clone)]
 #[rtype(result = "()")]
 pub(crate) struct Unregister {
     pub peer_id: PeerId,
-    pub peer_type: PeerType,
-    pub remove_from_peer_store: bool,
 }
 
 /// Requesting peers from peer manager to communicate to a peer.
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "PeerRequestResult")]
-pub struct PeersRequest {}
+pub(crate) struct PeersRequest {}
 
 #[derive(Debug, actix::MessageResponse)]
-pub struct PeerRequestResult {
+pub(crate) struct PeerRequestResult {
     pub peers: Vec<PeerInfo>,
 }
 
@@ -119,15 +89,8 @@ pub(crate) struct StopMsg {}
 
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "()")]
-pub struct StartRoutingTableSync {
-    pub peer_id: PeerId,
-}
-
-#[derive(actix::Message, Clone, Debug)]
-#[rtype(result = "()")]
-pub struct SendMessage {
-    pub(crate) message: PeerMessage,
-    pub(crate) context: opentelemetry::Context,
+pub(crate) struct SendMessage {
+    pub message: Arc<PeerMessage>,
 }
 
 impl Debug for ValidateEdgeList {
@@ -140,31 +103,24 @@ impl Debug for ValidateEdgeList {
 /// Those are list of edges received through `NetworkRequests::Sync`.
 #[derive(actix::Message)]
 #[rtype(result = "bool")]
-pub struct ValidateEdgeList {
+pub(crate) struct ValidateEdgeList {
     /// The list of edges is provided by `source_peer_id`, that peer will be banned
     ///if any of these edges are invalid.
-    pub(crate) source_peer_id: PeerId,
+    pub source_peer_id: PeerId,
     /// List of Edges, which will be sent to `EdgeValidatorActor`.
-    pub(crate) edges: Vec<Edge>,
+    pub edges: Vec<Edge>,
     /// A set of edges, which have been verified. This is a cache with all verified edges.
     /// `EdgeValidatorActor`, and is a source of memory leak.
     /// TODO(#5254): Simplify this process.
-    pub(crate) edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
+    pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
     /// A concurrent queue. After edge become validated it will be sent from `EdgeValidatorActor` back to
     /// `PeerManagetActor`, and then send to `RoutingTableActor`. And then `RoutingTableActor`
     /// will add them.
     /// TODO(#5254): Simplify this process.
-    pub(crate) sender: QueueSender<Edge>,
+    pub sender: crossbeam_channel::Sender<Edge>,
 }
 
 impl PeerToManagerMsgResp {
-    pub fn unwrap_routed_message_from(self) -> bool {
-        match self {
-            Self::RoutedMessageFrom(item) => item,
-            _ => panic!("expected PeerMessageRequest::RoutedMessageFrom"),
-        }
-    }
-
     pub fn unwrap_consolidate_response(self) -> RegisterPeerResponse {
         match self {
             Self::RegisterPeer(item) => item,

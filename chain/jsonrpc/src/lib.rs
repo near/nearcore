@@ -25,10 +25,9 @@ pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
-use near_metrics::{prometheus, Encoder, TextEncoder};
 use near_network::types::{NetworkClientMessages, NetworkClientResponses};
+use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
@@ -38,6 +37,7 @@ mod metrics;
 
 use api::RpcRequest;
 pub use api::{RpcFrom, RpcInto};
+use near_o11y::{WithSpanContext, WithSpanContextExt};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -271,7 +271,7 @@ impl JsonRpcHandler {
             "block" => process_method_call(request, |params| self.block(params)).await,
             "broadcast_tx_async" => {
                 process_method_call(request, |params| async {
-                    let tx = self.send_tx_async(params).await.to_base();
+                    let tx = self.send_tx_async(params).await.to_string();
                     Result::<_, std::convert::Infallible>::Ok(tx)
                 })
                 .await
@@ -384,24 +384,32 @@ impl JsonRpcHandler {
 
     async fn client_send<M, T, E, F>(&self, msg: M) -> Result<T, E>
     where
-        ClientActor: actix::Handler<M>,
+        ClientActor: actix::Handler<WithSpanContext<M>>,
         M: actix::Message<Result = Result<T, F>> + Send + 'static,
         M::Result: Send,
         E: RpcFrom<F>,
         E: RpcFrom<actix::MailboxError>,
     {
-        self.client_addr.send(msg).await.map_err(RpcFrom::rpc_from)?.map_err(RpcFrom::rpc_from)
+        self.client_addr
+            .send(msg.with_span_context())
+            .await
+            .map_err(RpcFrom::rpc_from)?
+            .map_err(RpcFrom::rpc_from)
     }
 
     async fn view_client_send<M, T, E, F>(&self, msg: M) -> Result<T, E>
     where
-        ViewClientActor: actix::Handler<M>,
+        ViewClientActor: actix::Handler<WithSpanContext<M>>,
         M: actix::Message<Result = Result<T, F>> + Send + 'static,
         M::Result: Send,
         E: RpcFrom<F>,
         E: RpcFrom<actix::MailboxError>,
     {
-        self.view_client_addr.send(msg).await.map_err(RpcFrom::rpc_from)?.map_err(RpcFrom::rpc_from)
+        self.view_client_addr
+            .send(msg.with_span_context())
+            .await
+            .map_err(RpcFrom::rpc_from)?
+            .map_err(RpcFrom::rpc_from)
     }
 
     async fn send_tx_async(
@@ -410,11 +418,14 @@ impl JsonRpcHandler {
     ) -> CryptoHash {
         let tx = request_data.signed_transaction;
         let hash = tx.get_hash().clone();
-        self.client_addr.do_send(NetworkClientMessages::Transaction {
-            transaction: tx,
-            is_forwarded: false,
-            check_only: false, // if we set true here it will not actually send the transaction
-        });
+        self.client_addr.do_send(
+            NetworkClientMessages::Transaction {
+                transaction: tx,
+                is_forwarded: false,
+                check_only: false, // if we set true here it will not actually send the transaction
+            }
+            .with_span_context(),
+        );
         hash
     }
 
@@ -576,11 +587,14 @@ impl JsonRpcHandler {
         let signer_account_id = tx.transaction.signer_id.clone();
         let response = self
             .client_addr
-            .send(NetworkClientMessages::Transaction {
-                transaction: tx,
-                is_forwarded: false,
-                check_only,
-            })
+            .send(
+                NetworkClientMessages::Transaction {
+                    transaction: tx,
+                    is_forwarded: false,
+                    check_only,
+                }
+                .with_span_context(),
+            )
             .await
             .map_err(RpcFrom::rpc_from)?;
 
@@ -740,6 +754,7 @@ impl JsonRpcHandler {
             let debug_status = match path {
                 "/debug/api/tracked_shards" => self.client_send(DebugStatus::TrackedShards).await?,
                 "/debug/api/sync_status" => self.client_send(DebugStatus::SyncStatus).await?,
+                "/debug/api/catchup_status" => self.client_send(DebugStatus::CatchupStatus).await?,
                 "/debug/api/epoch_info" => self.client_send(DebugStatus::EpochInfo).await?,
                 "/debug/api/block_status" => self.client_send(DebugStatus::BlockStatus).await?,
                 "/debug/api/validator_status" => {
@@ -983,9 +998,12 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateError,
     > {
         self.client_addr
-            .send(near_client_primitives::types::SandboxMessage::SandboxPatchState(
-                patch_state_request.records,
-            ))
+            .send(
+                near_client_primitives::types::SandboxMessage::SandboxPatchState(
+                    patch_state_request.records,
+                )
+                .with_span_context(),
+            )
             .await
             .map_err(RpcFrom::rpc_from)?;
 
@@ -993,7 +1011,10 @@ impl JsonRpcHandler {
             loop {
                 let patch_state_finished = self
                     .client_addr
-                    .send(near_client_primitives::types::SandboxMessage::SandboxPatchStateStatus {})
+                    .send(
+                        near_client_primitives::types::SandboxMessage::SandboxPatchStateStatus {}
+                            .with_span_context(),
+                    )
                     .await;
                 if let Ok(
                     near_client_primitives::types::SandboxResponse::SandboxPatchStateFinished(true),
@@ -1020,9 +1041,12 @@ impl JsonRpcHandler {
         use near_client_primitives::types::SandboxResponse;
 
         self.client_addr
-            .send(near_client_primitives::types::SandboxMessage::SandboxFastForward(
-                fast_forward_request.delta_height,
-            ))
+            .send(
+                near_client_primitives::types::SandboxMessage::SandboxFastForward(
+                    fast_forward_request.delta_height,
+                )
+                .with_span_context(),
+            )
             .await
             .map_err(RpcFrom::rpc_from)?;
 
@@ -1033,7 +1057,8 @@ impl JsonRpcHandler {
                 let fast_forward_finished = self
                     .client_addr
                     .send(
-                        near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus {},
+                        near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus {}
+                            .with_span_context(),
                     )
                     .await;
 
@@ -1069,12 +1094,13 @@ impl JsonRpcHandler {
     async fn adv_set_sync_info(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let height = crate::api::parse_params::<u64>(params)?;
         actix::spawn(
-            self.view_client_addr
-                .send(near_network_primitives::types::NetworkViewClientMessages::Adversarial(
-                    near_network_primitives::types::NetworkAdversarialMessage::AdvSetSyncInfo(
-                        height,
-                    ),
-                ))
+            self.client_addr
+                .send(
+                    near_network::types::NetworkClientMessages::Adversarial(
+                        near_network::types::NetworkAdversarialMessage::AdvSetSyncInfo(height),
+                    )
+                    .with_span_context(),
+                )
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -1083,16 +1109,22 @@ impl JsonRpcHandler {
     async fn adv_disable_header_sync(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr
-                .send(near_network::types::NetworkClientMessages::Adversarial(
-                    near_network_primitives::types::NetworkAdversarialMessage::AdvDisableHeaderSync,
-                ))
+                .send(
+                    near_network::types::NetworkClientMessages::Adversarial(
+                        near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync,
+                    )
+                    .with_span_context(),
+                )
                 .map(|_| ()),
         );
         actix::spawn(
             self.view_client_addr
-                .send(near_network_primitives::types::NetworkViewClientMessages::Adversarial(
-                    near_network_primitives::types::NetworkAdversarialMessage::AdvDisableHeaderSync,
-                ))
+                .send(
+                    near_network::types::NetworkViewClientMessages::Adversarial(
+                        near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync,
+                    )
+                    .with_span_context(),
+                )
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -1101,16 +1133,22 @@ impl JsonRpcHandler {
     async fn adv_disable_doomslug(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr
-                .send(NetworkClientMessages::Adversarial(
-                    near_network_primitives::types::NetworkAdversarialMessage::AdvDisableDoomslug,
-                ))
+                .send(
+                    NetworkClientMessages::Adversarial(
+                        near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug,
+                    )
+                    .with_span_context(),
+                )
                 .map(|_| ()),
         );
         actix::spawn(
             self.view_client_addr
-                .send(near_network_primitives::types::NetworkViewClientMessages::Adversarial(
-                    near_network_primitives::types::NetworkAdversarialMessage::AdvDisableDoomslug,
-                ))
+                .send(
+                    near_network::types::NetworkViewClientMessages::Adversarial(
+                        near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug,
+                    )
+                    .with_span_context(),
+                )
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -1120,11 +1158,14 @@ impl JsonRpcHandler {
         let (num_blocks, only_valid) = crate::api::parse_params::<(u64, bool)>(params)?;
         actix::spawn(
             self.client_addr
-                .send(NetworkClientMessages::Adversarial(
-                    near_network_primitives::types::NetworkAdversarialMessage::AdvProduceBlocks(
-                        num_blocks, only_valid,
-                    ),
-                ))
+                .send(
+                    NetworkClientMessages::Adversarial(
+                        near_network::types::NetworkAdversarialMessage::AdvProduceBlocks(
+                            num_blocks, only_valid,
+                        ),
+                    )
+                    .with_span_context(),
+                )
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -1134,20 +1175,22 @@ impl JsonRpcHandler {
         let (height,) = crate::api::parse_params::<(u64,)>(params)?;
         actix::spawn(
             self.client_addr
-                .send(NetworkClientMessages::Adversarial(
-                    near_network_primitives::types::NetworkAdversarialMessage::AdvSwitchToHeight(
-                        height,
-                    ),
-                ))
+                .send(
+                    NetworkClientMessages::Adversarial(
+                        near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height),
+                    )
+                    .with_span_context(),
+                )
                 .map(|_| ()),
         );
         actix::spawn(
             self.view_client_addr
-                .send(near_network_primitives::types::NetworkViewClientMessages::Adversarial(
-                    near_network_primitives::types::NetworkAdversarialMessage::AdvSwitchToHeight(
-                        height,
-                    ),
-                ))
+                .send(
+                    near_network::types::NetworkViewClientMessages::Adversarial(
+                        near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height),
+                    )
+                    .with_span_context(),
+                )
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -1156,9 +1199,12 @@ impl JsonRpcHandler {
     async fn adv_get_saved_blocks(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         match self
             .client_addr
-            .send(NetworkClientMessages::Adversarial(
-                near_network_primitives::types::NetworkAdversarialMessage::AdvGetSavedBlocks,
-            ))
+            .send(
+                NetworkClientMessages::Adversarial(
+                    near_network::types::NetworkAdversarialMessage::AdvGetSavedBlocks,
+                )
+                .with_span_context(),
+            )
             .await
         {
             Ok(result) => match result {
@@ -1172,9 +1218,12 @@ impl JsonRpcHandler {
     async fn adv_check_store(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         match self
             .client_addr
-            .send(NetworkClientMessages::Adversarial(
-                near_network_primitives::types::NetworkAdversarialMessage::AdvCheckStorageConsistency,
-            ))
+            .send(
+                NetworkClientMessages::Adversarial(
+                    near_network::types::NetworkAdversarialMessage::AdvCheckStorageConsistency,
+                )
+                .with_span_context(),
+            )
             .await
         {
             Ok(result) => match result {

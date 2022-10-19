@@ -21,8 +21,8 @@ use near_chain_configs::{
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
+use near_network::config::NetworkConfig;
 use near_network::test_utils::open_port;
-use near_network_primitives::types::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 #[cfg(test)]
@@ -107,8 +107,8 @@ pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 /// Initial gas limit.
 pub const INITIAL_GAS_LIMIT: Gas = 1_000_000_000_000_000;
 
-/// Initial gas price.
-pub const MIN_GAS_PRICE: Balance = 1_000_000_000;
+/// Initial and minimum gas price.
+pub const MIN_GAS_PRICE: Balance = 100_000_000;
 
 /// Protocol treasury account
 pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
@@ -183,6 +183,10 @@ fn default_sync_step_period() -> Duration {
     Duration::from_millis(10)
 }
 
+fn default_sync_height_threshold() -> u64 {
+    1
+}
+
 fn default_view_client_threads() -> usize {
     4
 }
@@ -197,10 +201,6 @@ fn default_view_client_throttle_period() -> Duration {
 
 fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
-}
-
-fn default_use_checkpoints_for_db_migration() -> bool {
-    true
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -254,6 +254,8 @@ pub struct Consensus {
     /// Time between running doomslug timer.
     #[serde(default = "default_doomslug_step_period")]
     pub doomslug_step_period: Duration,
+    #[serde(default = "default_sync_height_threshold")]
+    pub sync_height_threshold: u64,
 }
 
 impl Default for Consensus {
@@ -280,6 +282,7 @@ impl Default for Consensus {
             sync_check_period: default_sync_check_period(),
             sync_step_period: default_sync_step_period(),
             doomslug_step_period: default_doomslug_step_period(),
+            sync_height_threshold: default_sync_height_threshold(),
         }
     }
 }
@@ -298,10 +301,11 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rosetta_rpc: Option<RosettaRpcConfig>,
     pub telemetry: TelemetryConfig,
-    pub network: near_network_primitives::types::ConfigJSON,
+    pub network: near_network::config_json::Config,
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
+    #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
     pub log_summary_style: LogSummaryStyle,
     /// Garbage collection configuration.
@@ -317,17 +321,24 @@ pub struct Config {
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gas_burnt_view: Option<Gas>,
-    /// Checkpoints let the user recover from interrupted DB migrations.
-    #[serde(default = "default_use_checkpoints_for_db_migration")]
-    pub use_db_migration_snapshot: bool,
-    /// Location of the DB checkpoint for the DB migrations. This can be one of the following:
-    /// * Empty, the checkpoint will be created in the database location, i.e. '$home/data'.
-    /// * Absolute path that points to an existing directory. The checkpoint will be a sub-directory in that directory.
-    /// For example, setting "use_db_migration_snapshot" to "/tmp/" will create a directory "/tmp/db_migration_snapshot" and populate it with the database files.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub db_migration_snapshot_path: Option<PathBuf>,
     /// Different parameters to configure/optimize underlying storage.
     pub store: near_store::StoreConfig,
+
+    // TODO(mina86): Remove those two altogether at some point.  We need to be
+    // somewhat careful though and make sure that we don’t start silently
+    // ignoring this option without users setting corresponding store option.
+    // For the time being, we’re failing inside of create_db_checkpoint if this
+    // option is set.
+    /// Deprecated; use `store.migration_snapshot` instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub use_db_migration_snapshot: Option<bool>,
+    /// Deprecated; use `store.migration_snapshot` instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub db_migration_snapshot_path: Option<PathBuf>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl Default for Config {
@@ -355,7 +366,7 @@ impl Default for Config {
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
             db_migration_snapshot_path: None,
-            use_db_migration_snapshot: true,
+            use_db_migration_snapshot: None,
             store: near_store::StoreConfig::default(),
         }
     }
@@ -363,19 +374,36 @@ impl Default for Config {
 
 impl Config {
     pub fn from_file(path: &Path) -> anyhow::Result<Self> {
-        let mut unrecognised_fields = Vec::new();
-        let s = std::fs::read_to_string(path)
+        let contents = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
-        let config =
-            serde_ignored::deserialize(&mut serde_json::Deserializer::from_str(&s), |path| {
-                unrecognised_fields.push(path.to_string());
-            })
-            .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
-
+        let mut unrecognised_fields = Vec::new();
+        let config = serde_ignored::deserialize(
+            &mut serde_json::Deserializer::from_str(&contents),
+            |field| {
+                let field = field.to_string();
+                // TODO(mina86): Remove this deprecation notice some time by the
+                // end of 2022.
+                if field == "network.external_address" {
+                    warn!(
+                        target: "neard",
+                        "{}: {field} is deprecated; please remove it from the config file",
+                        path.display(),
+                    );
+                } else {
+                    unrecognised_fields.push(field);
+                }
+            },
+        )
+        .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
         if !unrecognised_fields.is_empty() {
-            warn!("{}: encountered unrecognised fields: {:?}", path.display(), unrecognised_fields);
+            let s = if unrecognised_fields.len() > 1 { "s" } else { "" };
+            let fields = unrecognised_fields.join(", ");
+            warn!(
+                target: "neard",
+                "{}: encountered unrecognised field{s}: {fields}",
+                path.display(),
+            );
         }
-
         Ok(config)
     }
 
@@ -523,8 +551,8 @@ impl NearConfig {
         genesis: Genesis,
         network_key_pair: KeyFile,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
-    ) -> Self {
-        NearConfig {
+    ) -> anyhow::Result<Self> {
+        Ok(NearConfig {
             config: config.clone(),
             client_config: ClientConfig {
                 version: Default::default(),
@@ -538,7 +566,7 @@ impl NearConfig {
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: config.consensus.sync_check_period,
                 sync_step_period: config.consensus.sync_step_period,
-                sync_height_threshold: 1,
+                sync_height_threshold: config.consensus.sync_height_threshold,
                 header_sync_initial_timeout: config.consensus.header_sync_initial_timeout,
                 header_sync_progress_timeout: config.consensus.header_sync_progress_timeout,
                 header_sync_stall_ban_timeout: config.consensus.header_sync_stall_ban_timeout,
@@ -577,7 +605,9 @@ impl NearConfig {
                 network_key_pair.secret_key,
                 validator_signer.clone(),
                 config.archive,
-            ),
+                // Enable tier1 (currently tier1 discovery only).
+                near_network::config::Features { enable_tier1: true },
+            )?,
             telemetry_config: config.telemetry,
             #[cfg(feature = "json_rpc")]
             rpc_config: config.rpc,
@@ -585,7 +615,7 @@ impl NearConfig {
             rosetta_rpc_config: config.rosetta_rpc,
             genesis,
             validator_signer,
-        }
+        })
     }
 
     pub fn rpc_addr(&self) -> Option<&str> {
@@ -827,8 +857,13 @@ pub fn init_configs(
     match chain_id.as_ref() {
         "mainnet" => {
             if test_seed.is_some() {
-                bail!("Test seed is not supported for MainNet");
+                bail!("Test seed is not supported for {chain_id}");
             }
+
+            // Make sure node tracks all shards, see
+            // https://github.com/near/nearcore/issues/7388
+            config.tracked_shards = vec![0];
+
             config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
             config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
@@ -844,8 +879,13 @@ pub fn init_configs(
         }
         "testnet" | "betanet" | "shardnet" => {
             if test_seed.is_some() {
-                bail!("Test seed is not supported for official testnet");
+                bail!("Test seed is not supported for {chain_id}");
             }
+
+            // Make sure node tracks all shards, see
+            // https://github.com/near/nearcore/issues/7388
+            config.tracked_shards = vec![0];
+
             config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
             config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
@@ -1193,7 +1233,7 @@ impl From<NodeKeyFile> for KeyFile {
 pub fn load_config(
     dir: &Path,
     genesis_validation: GenesisValidationMode,
-) -> Result<NearConfig, anyhow::Error> {
+) -> anyhow::Result<NearConfig> {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     let genesis_file = dir.join(&config.genesis_file);
     let validator_file = dir.join(&config.validator_key_file);
@@ -1210,20 +1250,21 @@ pub fn load_config(
         format!("Failed reading node key file from {}", node_key_path.display())
     })?;
 
-    let genesis_records_file = config.genesis_records_file.clone();
-    Ok(NearConfig::new(
-        config,
-        match genesis_records_file {
-            Some(genesis_records_file) => Genesis::from_files(
-                &genesis_file,
-                &dir.join(genesis_records_file),
-                genesis_validation,
-            ),
-            None => Genesis::from_file(&genesis_file, genesis_validation),
-        },
-        network_signer.into(),
-        validator_signer,
-    ))
+    let genesis = match &config.genesis_records_file {
+        Some(records_file) => {
+            Genesis::from_files(&genesis_file, &dir.join(records_file), genesis_validation)
+        }
+        None => Genesis::from_file(&genesis_file, genesis_validation),
+    };
+
+    if matches!(genesis.config.chain_id.as_ref(), "mainnet" | "testnet" | "betanet" | "shardnet") {
+        // Make sure validators tracks all shards, see
+        // https://github.com/near/nearcore/issues/7388
+        anyhow::ensure!(!config.tracked_shards.is_empty(),
+                        "Validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
+    }
+
+    NearConfig::new(config, genesis, network_signer.into(), validator_signer)
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
@@ -1248,7 +1289,7 @@ pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
         )) as Arc<dyn ValidatorSigner>;
         (signer, Some(validator_signer))
     };
-    NearConfig::new(config, genesis, signer.into(), validator_signer)
+    NearConfig::new(config, genesis, signer.into(), validator_signer).unwrap()
 }
 
 #[test]

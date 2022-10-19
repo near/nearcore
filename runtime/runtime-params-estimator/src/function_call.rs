@@ -8,7 +8,6 @@ use near_store::StoreCompiledContractCache;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::internal::VMKind;
 use std::fmt::Write;
-use std::sync::Arc;
 
 /// Estimates linear cost curve for a function call execution cost per byte of
 /// total contract code. The contract size is increased by adding more methods
@@ -32,7 +31,7 @@ pub(crate) fn contract_loading_cost(config: &Config) -> (GasCost, GasCost) {
     }
 
     let tolerance = LeastSquaresTolerance::default();
-    GasCost::least_squares_method_gas_cost(&xs, &ys, &tolerance, false)
+    GasCost::least_squares_method_gas_cost(&xs, &ys, &tolerance, config.debug)
 }
 
 fn make_many_methods_contract(method_count: i32) -> ContractCode {
@@ -40,26 +39,19 @@ fn make_many_methods_contract(method_count: i32) -> ContractCode {
     for i in 0..method_count {
         write!(
             &mut methods,
-            "
-            (export \"hello{}\" (func {i}))
-              (func (;{i};)
+            r#"
+            (export "hello{i}" (func {i}))
+              (func
                 i32.const {i}
                 drop
                 return
               )
-            ",
-            i = i
+            "#,
         )
         .unwrap();
     }
 
-    let code = format!(
-        "
-        (module
-            {}
-            )",
-        methods
-    );
+    let code = format!("(module {methods})");
     ContractCode::new(wat::parse_str(code).unwrap(), None)
 }
 
@@ -71,8 +63,8 @@ fn compute_function_call_cost(
     contract: &ContractCode,
 ) -> GasCost {
     let store = near_store::test_utils::create_test_store();
-    let cache_store = Arc::new(StoreCompiledContractCache { store });
-    let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
+    let cache_store = StoreCompiledContractCache::new(&store);
+    let cache: Option<&dyn CompiledContractCache> = Some(&cache_store);
     let protocol_version = ProtocolVersion::MAX;
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(protocol_version).as_ref();
@@ -85,32 +77,36 @@ fn compute_function_call_cost(
 
     // Warmup.
     for _ in 0..warmup_repeats {
-        let result = runtime.run(
-            contract,
-            "hello0",
-            &mut fake_external,
-            fake_context.clone(),
-            &fees,
-            &promise_results,
-            protocol_version,
-            cache,
-        );
-        assert!(result.error().is_none());
+        let result = runtime
+            .run(
+                contract,
+                "hello0",
+                &mut fake_external,
+                fake_context.clone(),
+                &fees,
+                &promise_results,
+                protocol_version,
+                cache,
+            )
+            .expect("fatal error");
+        assert!(result.aborted.is_none());
     }
     // Run with gas metering.
     let start = GasCost::measure(gas_metric);
     for _ in 0..repeats {
-        let result = runtime.run(
-            contract,
-            "hello0",
-            &mut fake_external,
-            fake_context.clone(),
-            &fees,
-            &promise_results,
-            protocol_version,
-            cache,
-        );
-        assert!(result.error().is_none());
+        let result = runtime
+            .run(
+                contract,
+                "hello0",
+                &mut fake_external,
+                fake_context.clone(),
+                &fees,
+                &promise_results,
+                protocol_version,
+                cache,
+            )
+            .expect("fatal_error");
+        assert!(result.aborted.is_none());
     }
     start.elapsed()
 }

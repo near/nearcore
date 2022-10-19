@@ -1,4 +1,5 @@
 <html>
+
 <head>
     <style>
         table {
@@ -28,72 +29,241 @@
         tr.active {
             background-color: #eff8bf;
         }
+
+        .peer_in_sync {
+            background-color: green;
+        }
+
+        .peer_ahead {
+            background-color: lightblue;
+        }
+
+        .peer_ahead_alot {
+            background-color: blueviolet;
+        }
+
+        .peer_behind_a_little {
+            background-color: yellowgreen;
+        }
+
+        .peer_behind {
+            background-color: yellow;
+        }
+
+        .peer_far_behind {
+            background-color: red;
+        }
     </style>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script>
+        function convertTime(millis) {
+            if (millis == null) {
+                return '(null)';
+            }
+            let total_seconds = Math.floor(millis / 1000);
+            let hours = Math.floor(total_seconds / 3600)
+            let minutes = Math.floor((total_seconds - (hours * 3600)) / 60)
+            let seconds = total_seconds - (hours * 3600) - (minutes * 60)
+            if (hours > 0) {
+                if (minutes > 0) {
+                    return `${hours}h ${minutes}m ${seconds}s`
+                } else {
+                    return `${hours}h ${seconds}s`
+                }
+            }
+            if (minutes > 0) {
+                return `${minutes}m ${seconds}s`
+            }
+            return `${seconds}s`
+        }
+
+        function convertBps(bytes_per_second) {
+            if (bytes_per_second == null) {
+                return '-'
+            }
+            if (bytes_per_second < 3000) {
+                return `${bytes_per_second} bps`
+            } []
+            let kilobytes_per_second = bytes_per_second / 1024;
+            if (kilobytes_per_second < 3000) {
+                return `${kilobytes_per_second.toFixed(1)} Kbps`
+            }
+            let megabytes_per_second = kilobytes_per_second / 1024;
+            return `${megabytes_per_second.toFixed(1)} Mbps`
+        }
+
+        function computeTraffic(bytes_received, bytes_sent) {
+            return "⬇ " + convertBps(bytes_received) + "<br>⬆ " + convertBps(bytes_sent);
+        }
+
+        function add_debug_port_link(peer_addr) {
+            return $('<a>', {
+                href: "http://" + peer_addr.replace(/:.*/, ":3030/debug"),
+                text: peer_addr
+            });
+        }
+
+        function peerClass(current_height, peer_height) {
+            if (peer_height > current_height + 5) {
+                return 'peer_ahead_alot';
+            }
+            if (peer_height > current_height + 2) {
+                return 'peer_ahead';
+            }
+
+            if (peer_height < current_height - 100) {
+                return 'peer_far_behind';
+            }
+            if (peer_height < current_height - 10) {
+                return 'peer_behind';
+            }
+            if (peer_height < current_height - 3) {
+                return 'peer_behind_a_little';
+            }
+            return 'peer_in_sync';
+        }
+
+        function fetchProducers(epoch_id, producers_callback) {
+            $.ajax({
+                type: "GET",
+                url: "/debug/api/epoch_info",
+                success: data => {
+                    data.status_response.EpochInfo.forEach(element => {
+                        if (element.epoch_id == epoch_id) {
+                            producers_callback(element.block_producers, element.chunk_only_producers);
+                        }
+                    });
+                },
+                dataType: "json",
+                error: function (errMsg, textStatus, errorThrown) {
+                    alert("Failed: " + textStatus + " :" + errorThrown);
+                },
+                contentType: "application/json; charset=utf-8",
+            })
+        }
+        function getIntersection(setA, setB) {
+            const intersection = new Set(
+                [...setA].filter(element => setB.has(element))
+            );
+
+            return intersection;
+        }
+        function getDifference(setA, setB) {
+            return new Set(
+                [...setA].filter(element => !setB.has(element))
+            );
+        }
+
         $(document).ready(() => {
             $('span').text("Loading...");
             $.ajax({
                 type: "GET",
                 url: "/debug/api/status",
                 success: data => {
-                    let validatorSet = new Set();
-                    data.validators.forEach(element => {
-                        validatorSet.add(element.account_id);
-                    });
-                    let knownSet = new Set();
-                    data.detailed_debug_status.network_info.known_producers.forEach(element => {
-                        if (validatorSet.has(element.account_id)) {
-                            knownSet.add(element.account_id);
-                        }
-                    });
-                    let reachableSet = new Set();
-                    data.detailed_debug_status.network_info.known_producers.forEach(element => {
-                        if (validatorSet.has(element.account_id)) {
-                            if (element.next_hops != null && element.next_hops.length > 0) {
-                                reachableSet.add(element.account_id);
-                            }
-                        }
-                    });
 
-                    $('.js-num-validators').text(data.validators.length);
-                    $('.js-num-known-validators').text(knownSet.size);
-                    $('.js-num-reachable-validators').text(reachableSet.size);
+                    fetchProducers(data.sync_info.epoch_id, (block_producers, chunk_producers) => {
+                        let block_producer_set = new Set();
+                        block_producers.forEach(element => {
+                            block_producer_set.add(element.account_id);
+                        });
+                        let chunk_producer_set = new Set();
+                        chunk_producers.forEach(element => {
+                            chunk_producer_set.add(element);
+                        });
 
-                    let sync_status = data.detailed_debug_status.sync_status;
-                    let network_info = data.detailed_debug_status.network_info;
-                    $('.js-sync-status').text(sync_status);
-                    $('.js-max-peers').text(network_info.peer_max_count);
-                    $('.js-num-peers').text(network_info.num_connected_peers);
-                    network_info.connected_peers.forEach(function (peer, index) {
-                        let peer_id = peer.peer_id;
-                        let validator = new Array();
-                        let routedValidator = new Array();
+                        let known_set = new Set();
                         data.detailed_debug_status.network_info.known_producers.forEach(element => {
-                            if (validatorSet.has(element.account_id)) {
-                                if (element.peer_id == peer_id) {
-                                    // This means that the peer that we're connected to is a validator.
-                                    validator.push(element.account_id);
-                                } else {
-                                    if (element.next_hops != null) {
-                                        if (element.next_hops.includes(peer_id)) {
-                                            // This means that the peer that we're connected to is on the shortest path
-                                            // to this validator.
-                                            routedValidator.push(element.account_id);
+                            known_set.add(element.account_id);
+                        });
+
+                        let reachable_set = new Set();
+                        data.detailed_debug_status.network_info.known_producers.forEach(element => {
+                            if (element.next_hops != null && element.next_hops.length > 0) {
+                                reachable_set.add(element.account_id);
+                            }
+                        });
+
+                        $('.js-num-block-producers').text(block_producers.length);
+                        $('.js-num-known-block-producers').text(getIntersection(block_producer_set, known_set).size);
+                        $('.js-num-reachable-block-producers').text(getIntersection(block_producer_set, reachable_set).size);
+                        let uknown_set = getDifference(block_producer_set, known_set);
+                        let known_but_unreachable = getIntersection(block_producer_set, getDifference(known_set, reachable_set));
+                        $('.js-unknown-block-producers').text(Array.from(uknown_set).join(","));
+                        $('.js-unreachable-block-producers').text(Array.from(known_but_unreachable).join(","));
+
+
+
+                        $('.js-num-chunk-producers').text(chunk_producers.length);
+                        $('.js-num-known-chunk-producers').text(getIntersection(chunk_producer_set, known_set).size);
+                        $('.js-num-reachable-chunk-producers').text(getIntersection(chunk_producer_set, reachable_set).size);
+                        let chunk_uknown_set = getDifference(chunk_producer_set, known_set);
+                        let chunk_known_but_unreachable = getIntersection(chunk_producer_set, getDifference(known_set, reachable_set));
+                        $('.js-unknown-chunk-producers').text(Array.from(chunk_uknown_set).join(","));
+                        $('.js-unreachable-chunk-producers').text(Array.from(chunk_known_but_unreachable).join(","));
+
+                        let sync_status = data.detailed_debug_status.sync_status;
+                        let network_info = data.detailed_debug_status.network_info;
+                        $('.js-sync-status').text(sync_status);
+                        $('.js-max-peers').text(network_info.peer_max_count);
+                        $('.js-num-peers').text(network_info.num_connected_peers);
+                        let current_height = data.sync_info.latest_block_height;
+                        let peer_status_map = new Map();
+                        network_info.connected_peers.forEach(function (peer, index) {
+                            let peer_id = peer.peer_id;
+                            let validator = new Array();
+                            let routedValidator = new Array();
+                            data.detailed_debug_status.network_info.known_producers.forEach(element => {
+                                if (block_producer_set.has(element.account_id) || chunk_producer_set.has(element.account_id)) {
+                                    if (element.peer_id == peer_id) {
+                                        // This means that the peer that we're connected to is a validator.
+                                        validator.push(element.account_id);
+                                    } else {
+                                        if (element.next_hops != null) {
+                                            if (element.next_hops.includes(peer_id)) {
+                                                // This means that the peer that we're connected to is on the shortest path
+                                                // to this validator.
+                                                routedValidator.push(element.account_id);
+                                            }
                                         }
                                     }
                                 }
+                            });
+                            let peer_class = peerClass(current_height, peer.height)
+                            if (peer_status_map.has(peer_class)) {
+                                peer_status_map.set(peer_class, peer_status_map.get(peer_class) + 1);
+                            } else {
+                                peer_status_map.set(peer_class, 1);
                             }
+
+                            let last_ping_class = ""
+                            if (peer.last_time_received_message_millis > 60 * 1000) {
+                                last_ping_class = "peer_far_behind";
+                            }
+
+
+                            let row = $('.js-tbody-peers').append($('<tr>')
+                                .append($('<td>').append(add_debug_port_link(peer.addr)))
+                                .append($('<td>').append(validator.join(",")))
+                                .append($('<td>').append(peer.peer_id.substr(9, 5) + "..."))
+                                .append($('<td>').append(convertTime(peer.last_time_received_message_millis)).addClass(last_ping_class))
+                                .append($('<td>').append(JSON.stringify(peer.height)).addClass(peer_class))
+                                .append($('<td>').append(JSON.stringify(peer.tracked_shards)))
+                                .append($('<td>').append(JSON.stringify(peer.archival)))
+                                .append($('<td>').append(((peer.is_outbound_peer) ? 'OUT' : 'IN')))
+                                .append($('<td>').append(convertTime(peer.connection_established_time_millis)))
+                                .append($('<td>').append(computeTraffic(peer.received_bytes_per_sec, peer.sent_bytes_per_sec)))
+                                .append($('<td>').append(routedValidator.join(",")))
+                            )
                         });
-                        let row = $('.js-tbody-peers').append($('<tr>')
-                            .append($('<td>').append(peer.addr))
-                            .append($('<td>').append(validator.join(",")))
-                            .append($('<td>').append(peer.peer_id.substr(9, 5) + "..."))
-                            .append($('<td>').append(JSON.stringify(peer.height)))
-                            .append($('<td>').append(JSON.stringify(peer.tracked_shards)))
-                            .append($('<td>').append(JSON.stringify(peer.archival)))
-                            .append($('<td>').append(routedValidator.join(",")))
-                        )
+                        let legend = [["peer_ahead_alot", "Peer ahead a lot"],
+                        ["peer_ahead", "Peer ahead"],
+                        ["peer_in_sync", "Peer in sync"],
+                        ["peer_behind_a_little", "Peer behind a little"],
+                        ["peer_behind", "Peer behind"],
+                        ["peer_far_behind", "Peer far behind"]]
+                        legend.forEach(function (elem) {
+                            $('.legend').append($('<td>').addClass(elem[0]).text(elem[1] + " " + (peer_status_map.get(elem[0]) || 0)));
+                        });
                     });
                 },
                 dataType: "json",
@@ -106,6 +276,7 @@
         });
     </script>
 </head>
+
 <body>
     <h1>
         Welcome to the Network Info page!
@@ -115,14 +286,49 @@
             Current Sync Status:
             <span class="js-sync-status"></span>
         </p>
+
         <p>
             Number of peers: <span class="js-num-peers"></span>/<span class="js-max-peers"></span>
         </p>
         <p>
-            Validators: <span class="js-num-validators"></span> Known: <span class="js-num-known-validators"></span>
-            Reachable: <span class="js-num-reachable-validators"></span>
+            Block Producers: <span class="js-num-block-producers"></span> Known: <span
+                class="js-num-known-block-producers"></span>
+            Reachable: <span class="js-num-reachable-block-producers"></span>
         </p>
     </h2>
+
+    <pre>
+Uknown: <span class="js-unknown-block-producers"></span>
+Unreachable: <span class="js-unreachable-block-producers"></span>
+    </pre>
+    <h2>
+        <p>
+            Chunk Producers: <span class="js-num-chunk-producers"></span> Known: <span
+                class="js-num-known-chunk-producers"></span>
+            Reachable: <span class="js-num-reachable-chunk-producers"></span>
+        </p>
+    </h2>
+    <pre>
+Uknown: <span class="js-unknown-chunk-producers"></span>
+Unreachable: <span class="js-unreachable-chunk-producers"></span>
+    </pre>
+
+    <b>Unknown</b> means that we didn't receive 'announce' information about this validator (so we don't know on which
+    peer it
+    is). This usually means that the validator didn't connect to the network
+    during current epoch.
+
+    <br>
+
+    <b>Unreachable</b> means, that we know the peer_id of this validator, but we cannot find it in our routing table.
+    This
+    usually means that validator did connect
+    to the network in the past, but now it is gone for at least 1 hour.
+    <br>
+    <br>
+
+    <table class="legend">
+    </table>
 
     <table>
         <thead>
@@ -130,9 +336,13 @@
                 <th>Address</th>
                 <th>Validator?</th>
                 <th>Account ID</th>
+                <th>Last ping</th>
                 <th>Height</th>
                 <th>Tracked Shards</th>
                 <th>Archival</th>
+                <th>Connection type</th>
+                <th>First connection</th>
+                <th>Traffic (last minute)</th>
                 <th>Route to validators</th>
             </tr>
         </thead>
