@@ -136,6 +136,9 @@ impl Peer {
         loop {
             match self.stream.try_read_buf(&mut self.buf) {
                 Ok(n) => {
+                    if n == 0 {
+                        anyhow::bail!("no more bytes available, but expected to receive a message");
+                    }
                     let timestamp = Instant::now();
                     tracing::trace!(target: "ping", "Read {} bytes from {:?} non-blocking", n, self.stream.peer_addr());
                     loop {
