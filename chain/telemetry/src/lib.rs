@@ -3,7 +3,7 @@ mod metrics;
 use actix::{Actor, Addr, Context, Handler, Message};
 use awc::{Client, Connector};
 use futures::FutureExt;
-use near_o11y::{handler_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::time::{Clock, Instant};
 use serde::{Deserialize, Serialize};
@@ -84,7 +84,8 @@ impl Handler<WithSpanContext<TelemetryEvent>> for TelemetryActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<TelemetryEvent>, _ctx: &mut Context<Self>) {
-        let (_span, msg) = handler_span!("telemetry", msg);
+        // let (_span, msg) = handler_span!(target: "telemetry", tracing::Level::DEBUG, msg, );
+        let (_span, msg) = handler_debug_span!(target: "telemetry", msg);
         let now = Clock::instant();
         if now.duration_since(self.last_telemetry_update) < self.config.reporting_interval {
             // Throttle requests to the telemetry endpoints, to at most one
