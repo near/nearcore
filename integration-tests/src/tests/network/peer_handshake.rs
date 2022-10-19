@@ -97,7 +97,8 @@ fn peers_connect_all() {
             Box::new(move |_| {
                 for i in 0..num_peers {
                     let flags1 = flags.clone();
-                    actix::spawn(peers[i].send(GetInfo {}.with_span_context()).then(move |res| {
+                    let actor = peers[i].send(GetInfo {}.with_span_context());
+                    let actor = actor.then(move |res| {
                         let info = res.unwrap();
                         if info.num_connected_peers > num_peers - 1
                             && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0
@@ -105,7 +106,8 @@ fn peers_connect_all() {
                             flags1.fetch_add(1 << i, Ordering::Relaxed);
                         }
                         future::ready(())
-                    }));
+                    });
+                    actix::spawn(actor);
                 }
                 // Stop if all connected to all after exchanging peers.
                 if flags.load(Ordering::Relaxed) == (1 << num_peers) - 1 {
@@ -147,14 +149,16 @@ fn peer_recover() {
                     // Wait until node0 removes node2 from active validators.
                     if !flag.load(Ordering::Relaxed) {
                         let flag1 = flag.clone();
-                        actix::spawn(pm0.send(GetInfo {}.with_span_context()).then(move |res| {
+                        let actor = pm0.send(GetInfo {}.with_span_context());
+                        let actor = actor.then(move |res| {
                             if let Ok(info) = res {
                                 if info.connected_peers.len() == 1 {
                                     flag1.store(true, Ordering::Relaxed);
                                 }
                             }
                             future::ready(())
-                        }));
+                        });
+                        actix::spawn(actor);
                     } else {
                         state.store(3, Ordering::Relaxed);
                     }
@@ -170,14 +174,16 @@ fn peer_recover() {
                     state.store(4, Ordering::Relaxed);
                 } else if state.load(Ordering::Relaxed) == 4 {
                     // Wait until node2 is connected with node0
-                    actix::spawn(pm2.send(GetInfo {}.with_span_context()).then(|res| {
+                    let actor = pm2.send(GetInfo {}.with_span_context());
+                    let actor = actor.then(|res| {
                         if let Ok(info) = res {
                             if info.connected_peers.len() == 1 {
                                 System::current().stop();
                             }
                         }
                         future::ready(())
-                    }));
+                    });
+                    actix::spawn(actor);
                 }
             }),
             100,

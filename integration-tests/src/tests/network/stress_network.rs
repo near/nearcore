@@ -110,7 +110,8 @@ fn stress_test() {
                         if !flag.load(Ordering::Relaxed) {
                             let flag1 = flag.clone();
 
-                            actix::spawn(pms[ix].send(GetInfo {}.with_span_context()).then(
+                            let actor = pms[ix].send(GetInfo {}.with_span_context());
+                            let actor = actor.then(
                                 move |info| {
                                     if let Ok(info) = info {
                                         if info.num_connected_peers == num_nodes - 2 {
@@ -122,8 +123,8 @@ fn stress_test() {
                                     }
 
                                     futures::future::ready(())
-                                },
-                            ));
+                                });
+                            actix::spawn(actor);
                         }
                     }
 
