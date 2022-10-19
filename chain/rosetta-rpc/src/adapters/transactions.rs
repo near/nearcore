@@ -1,13 +1,11 @@
-use std::collections::HashMap;
-use std::string::ToString;
-
+use crate::models::AccountIdentifier;
 use actix::Addr;
-
 use near_account_id::AccountId;
+use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::views::SignedTransactionView;
-
-use crate::models::AccountIdentifier;
+use std::collections::HashMap;
+use std::string::ToString;
 
 pub(crate) struct ExecutionToReceipts {
     /// A mapping from NEAR transaction or receipt hash to list of receipts hashes
@@ -30,7 +28,10 @@ impl ExecutionToReceipts {
         block_hash: CryptoHash,
     ) -> crate::errors::Result<Self> {
         let block = view_client_addr
-            .send(near_client::GetBlock(near_primitives::types::BlockId::Hash(block_hash).into()))
+            .send(
+                near_client::GetBlock(near_primitives::types::BlockId::Hash(block_hash).into())
+                    .with_span_context(),
+            )
             .await?
             .map_err(|e| crate::errors::ErrorKind::InternalError(e.to_string()))?;
         let mut transactions = HashMap::new();
@@ -38,9 +39,12 @@ impl ExecutionToReceipts {
         for (shard_id, contained) in block.header.chunk_mask.iter().enumerate() {
             if *contained {
                 let chunk = view_client_addr
-                    .send(near_client::GetChunk::ChunkHash(near_primitives::sharding::ChunkHash(
-                        block.chunks[shard_id].chunk_hash,
-                    )))
+                    .send(
+                        near_client::GetChunk::ChunkHash(near_primitives::sharding::ChunkHash(
+                            block.chunks[shard_id].chunk_hash,
+                        ))
+                        .with_span_context(),
+                    )
                     .await?
                     .map_err(|e| crate::errors::ErrorKind::InternalInvariantError(e.to_string()))?;
                 transactions.extend(chunk.transactions.into_iter().map(|t| (t.hash, t)));
@@ -49,7 +53,7 @@ impl ExecutionToReceipts {
             }
         }
         let map = view_client_addr
-            .send(near_client::GetExecutionOutcomesForBlock { block_hash })
+            .send(near_client::GetExecutionOutcomesForBlock { block_hash }.with_span_context())
             .await?
             .map_err(crate::errors::ErrorKind::InternalInvariantError)?
             .into_values()

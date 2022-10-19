@@ -1003,12 +1003,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "conqueue"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eac4306c796b95d3964b94fa65018a57daee08b45a54b86a4f64910426427b66"
-
-[[package]]
 name = "console"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2776,6 +2770,7 @@ dependencies = [
 name = "near-account-id"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "bolero",
  "borsh",
  "serde",
@@ -3053,6 +3048,7 @@ dependencies = [
  "actix",
  "actix-cors",
  "actix-web",
+ "bs58",
  "easy-ext",
  "futures",
  "near-chain-configs",
@@ -3104,6 +3100,7 @@ dependencies = [
  "awc",
  "libfuzzer-sys",
  "near-jsonrpc",
+ "near-jsonrpc-primitives",
  "near-jsonrpc-tests",
  "near-primitives",
  "once_cell",
@@ -3116,6 +3113,7 @@ dependencies = [
 name = "near-jsonrpc-primitives"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "near-chain-configs",
  "near-client-primitives",
  "near-crypto",
@@ -3171,7 +3169,6 @@ dependencies = [
  "bytes",
  "bytesize",
  "chrono",
- "conqueue",
  "criterion",
  "crossbeam-channel 0.5.4",
  "delay-detector",
@@ -3279,6 +3276,7 @@ dependencies = [
 name = "near-primitives"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "assert_matches",
  "bencher",
  "borsh",
@@ -3310,6 +3308,7 @@ dependencies = [
 name = "near-primitives-core"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "base64",
  "borsh",
  "bs58",
@@ -4770,6 +4769,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "borsh",
+ "bs58",
  "bytesize",
  "cfg-if 1.0.0",
  "chrono",
@@ -4777,6 +4777,7 @@ dependencies = [
  "genesis-populate",
  "hex",
  "indicatif",
+ "insta",
  "libc",
  "near-chain-configs",
  "near-crypto",

@@ -1,9 +1,10 @@
 use crate::broadcast;
+use crate::client;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerInfo, PeerMessage, RawRoutedMessage, RoutedMessageBody,
-    RoutedMessageV2, RoutingTableUpdate,
+    RoutedMessageV2,
 };
 use crate::peer::peer_actor::{ClosingReason, PeerActor};
 use crate::peer_manager::network_state::NetworkState;
@@ -56,14 +57,12 @@ impl PeerConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Event {
-    RoutingTable(RoutingTableUpdate),
     Client(fake_client::Event),
     Network(peer_manager_actor::Event),
 }
 
 struct FakePeerManagerActor {
     cfg: Arc<PeerConfig>,
-    event_sink: crate::sink::Sink<Event>,
 }
 
 impl Actor for FakePeerManagerActor {
@@ -78,10 +77,6 @@ impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
         match msg {
             PeerToManagerMsg::RegisterPeer(..) => {
                 PeerToManagerMsgResp::RegisterPeer(RegisterPeerResponse::Accept)
-            }
-            PeerToManagerMsg::SyncRoutingTable { routing_table_update, .. } => {
-                self.event_sink.push(Event::RoutingTable(routing_table_update));
-                PeerToManagerMsgResp::Empty
             }
             PeerToManagerMsg::RequestUpdateNonce(..) => PeerToManagerMsgResp::Empty,
             PeerToManagerMsg::ResponseUpdateNonce(..) => PeerToManagerMsgResp::Empty,
@@ -160,7 +155,7 @@ impl PeerHandle {
         let cfg_ = cfg.clone();
         let (send, recv) = broadcast::unbounded_channel();
         let actix = ActixSystem::spawn(move || {
-            let fpm = FakePeerManagerActor { cfg: cfg.clone(), event_sink: send.sink() }.start();
+            let fpm = FakePeerManagerActor { cfg: cfg.clone() }.start();
             let fc = fake_client::start(send.sink().compose(Event::Client));
             let store = store::Store::from(near_store::db::TestDB::new());
             let routing_table_view = RoutingTableView::new(store.clone(), cfg.id());
@@ -185,8 +180,7 @@ impl PeerHandle {
             let network_state = Arc::new(NetworkState::new(
                 Arc::new(network_cfg.verify().unwrap()),
                 cfg.chain.genesis_id.clone(),
-                fc.clone().recipient(),
-                fc.clone().recipient(),
+                client::Client::new(fc.clone().recipient(), fc.clone().recipient()),
                 fpm.recipient(),
                 routing_table_addr,
                 routing_table_view,

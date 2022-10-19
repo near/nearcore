@@ -308,6 +308,7 @@ impl MockPeerManagerAdapter {
 }
 
 pub mod test_features {
+    use crate::client;
     use crate::config;
     use crate::test_utils::convert_boot_nodes;
     use crate::time;
@@ -360,8 +361,7 @@ pub mod test_features {
             time::Clock::real(),
             store,
             config,
-            client_addr.recipient(),
-            view_client_addr.recipient(),
+            client::Client::new(client_addr.recipient(), view_client_addr.recipient()),
             GenesisId::default(),
         )
         .unwrap()

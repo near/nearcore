@@ -1,22 +1,20 @@
-use crate::cache::into_vm_result;
-use crate::errors::IntoVMError;
+use crate::errors::{ContractPrecompilatonResult, IntoVMError};
+use crate::internal::VMKind;
 use crate::memory::WasmerMemory;
-use crate::prepare::WASM_FEATURES;
-use crate::{cache, imports};
+use crate::prepare;
+use crate::runner::VMResult;
+use crate::{get_contract_cache_key, imports};
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::types::CompiledContractCache;
+use near_primitives::types::{CompiledContract, CompiledContractCache};
 use near_primitives::version::ProtocolVersion;
 use near_vm_errors::{
-    CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
+    CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
 use wasmer_runtime::{ImportObject, Module};
-
-const WASMER_FEATURES: wasmer_runtime::Features =
-    wasmer_runtime::Features { threads: WASM_FEATURES.threads, simd: WASM_FEATURES.simd };
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), FunctionCallError> {
     let info = module.info();
@@ -242,6 +240,125 @@ impl Wasmer0VM {
     pub(crate) fn new(config: VMConfig) -> Self {
         Self { config }
     }
+
+    pub(crate) fn compile_uncached(
+        &self,
+        code: &ContractCode,
+    ) -> Result<wasmer_runtime::Module, CompilationError> {
+        let _span = tracing::debug_span!(target: "vm", "Wasmer0VM::compile_uncached").entered();
+        let prepared_code = prepare::prepare_contract(code.code(), &self.config)
+            .map_err(CompilationError::PrepareError)?;
+        wasmer_runtime::compile(&prepared_code).map_err(|err| match err {
+            wasmer_runtime::error::CompileError::ValidationError { .. } => {
+                CompilationError::WasmerCompileError { msg: err.to_string() }
+            }
+            // NOTE: Despite the `InternalError` name, this failure occurs if
+            // the input `code` is invalid wasm.
+            wasmer_runtime::error::CompileError::InternalError { .. } => {
+                CompilationError::WasmerCompileError { msg: err.to_string() }
+            }
+        })
+    }
+
+    pub(crate) fn compile_and_cache(
+        &self,
+        code: &ContractCode,
+        cache: Option<&dyn CompiledContractCache>,
+    ) -> Result<Result<wasmer_runtime::Module, CompilationError>, CacheError> {
+        let module_or_error = self.compile_uncached(code);
+        let key = get_contract_cache_key(code, VMKind::Wasmer0, &self.config);
+
+        if let Some(cache) = cache {
+            let record = match &module_or_error {
+                Ok(module) => {
+                    let code = module
+                        .cache()
+                        .and_then(|it| it.serialize())
+                        .map_err(|_e| CacheError::SerializationError { hash: key.0 })?;
+                    CompiledContract::Code(code)
+                }
+                Err(err) => CompiledContract::CompileModuleError(err.clone()),
+            };
+            cache.put(&key, record).map_err(CacheError::WriteError)?;
+        }
+
+        Ok(module_or_error)
+    }
+
+    pub(crate) fn compile_and_load(
+        &self,
+        code: &ContractCode,
+        cache: Option<&dyn CompiledContractCache>,
+    ) -> VMResult<Result<wasmer_runtime::Module, CompilationError>> {
+        let _span = tracing::debug_span!(target: "vm", "Wasmer0VM::compile_and_load").entered();
+
+        let key = get_contract_cache_key(code, VMKind::Wasmer0, &self.config);
+
+        let compile_or_read_from_cache =
+            || -> VMResult<Result<wasmer_runtime::Module, CompilationError>> {
+                let _span =
+                    tracing::debug_span!(target: "vm", "Wasmer0VM::compile_or_read_from_cache")
+                        .entered();
+
+                let cache_record = cache
+                    .map(|cache| cache.get(&key))
+                    .transpose()
+                    .map_err(CacheError::ReadError)?
+                    .flatten();
+
+                let stored_module: Option<wasmer_runtime::Module> = match cache_record {
+                    None => None,
+                    Some(CompiledContract::CompileModuleError(err)) => return Ok(Err(err)),
+                    Some(CompiledContract::Code(serialized_module)) => {
+                        let _span =
+                            tracing::debug_span!(target: "vm", "Wasmer0VM::read_from_cache")
+                                .entered();
+                        let artifact = wasmer_runtime_core::cache::Artifact::deserialize(
+                            serialized_module.as_slice(),
+                        )
+                        .map_err(|_e| CacheError::DeserializationError)?;
+                        unsafe {
+                            let compiler = wasmer_runtime::compiler_for_backend(
+                                wasmer_runtime::Backend::Singlepass,
+                            )
+                            .unwrap();
+                            let module = wasmer_runtime_core::load_cache_with(
+                                artifact,
+                                compiler.as_ref(),
+                            )
+                            .map_err(|err| VMRunnerError::LoadingError(format!("{err:?}")))?;
+                            Some(module)
+                        }
+                    }
+                };
+
+                let module = match stored_module {
+                    Some(it) => it,
+                    None => match self.compile_and_cache(code, cache)? {
+                        Ok(it) => it,
+                        Err(it) => return Ok(Err(it)),
+                    },
+                };
+
+                Ok(Ok(module))
+            };
+
+        #[cfg(feature = "no_cache")]
+        return compile_or_read_from_cache();
+
+        #[cfg(not(feature = "no_cache"))]
+        return {
+            static MEM_CACHE: once_cell::sync::Lazy<
+                near_cache::SyncLruCache<
+                    near_primitives::hash::CryptoHash,
+                    Result<wasmer_runtime::Module, CompilationError>,
+                >,
+            > = once_cell::sync::Lazy::new(|| {
+                near_cache::SyncLruCache::new(crate::cache::CACHE_SIZE)
+            });
+            MEM_CACHE.get_or_try_put(key, |_key| compile_or_read_from_cache())
+        };
+    }
 }
 
 impl crate::runner::VM for Wasmer0VM {
@@ -295,8 +412,8 @@ impl crate::runner::VM for Wasmer0VM {
         }
 
         // TODO: consider using get_module() here, once we'll go via deployment path.
-        let module = cache::wasmer0_cache::compile_module_cached_wasmer0(code, &self.config, cache);
-        let module = match into_vm_result(module)? {
+        let module = self.compile_and_load(code, cache)?;
+        let module = match module {
             Ok(x) => x,
             // Note on backwards-compatibility: This error used to be an error
             // without result, later refactored to NOP outcome. Now this returns
@@ -305,7 +422,9 @@ impl crate::runner::VM for Wasmer0VM {
             // version do not have gas costs before reaching this code. (Also
             // see `test_old_fn_loading_behavior_preserved` for a test that
             // verifies future changes do not counteract this assumption.)
-            Err(guest_err) => return Ok(VMOutcome::abort(logic, guest_err)),
+            Err(err) => {
+                return Ok(VMOutcome::abort(logic, FunctionCallError::CompilationError(err)))
+            }
         };
 
         let result = logic.after_loading_executable(current_protocol_version, code.code().len());
@@ -332,25 +451,12 @@ impl crate::runner::VM for Wasmer0VM {
 
     fn precompile(
         &self,
-        code: &[u8],
-        code_hash: &near_primitives::hash::CryptoHash,
+        code: &ContractCode,
         cache: &dyn CompiledContractCache,
-    ) -> Result<Option<FunctionCallError>, VMRunnerError> {
-        let result = crate::cache::wasmer0_cache::compile_and_serialize_wasmer(
-            code,
-            &self.config,
-            code_hash,
-            cache,
-        );
-        let outcome = into_vm_result(result)?;
-        Ok(outcome.err())
-    }
-
-    fn check_compile(&self, code: &[u8]) -> bool {
-        wasmer_runtime::compile_with_config(
-            code,
-            wasmer_runtime::CompilerConfig { features: WASMER_FEATURES, ..Default::default() },
-        )
-        .is_ok()
+    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, near_vm_errors::CacheError>
+    {
+        Ok(self
+            .compile_and_cache(code, Some(cache))?
+            .map(|_| ContractPrecompilatonResult::ContractCompiled))
     }
 }
