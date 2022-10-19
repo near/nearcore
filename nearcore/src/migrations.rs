@@ -139,7 +139,7 @@ pub fn do_migrate_34_to_35(
         let memory_usage = root_node.memory_usage;
 
         let sub_trie_size = memory_usage / 1024; //5_000_000;
-        info!(target: "chain", %shard_id, "Start flat state shard migration, mem_usage = {} gb, sub_trie_size = {} gb", memory_usage as f64 / 10u64.pow(9), sub_trie_size as f64 / 10u64.pow(9));
+        info!(target: "chain", %shard_id, "Start flat state shard migration, mem_usage = {} gb, sub_trie_size = {} gb", memory_usage as f64 / 10f64.pow(9), sub_trie_size as f64 / 10f64.pow(9));
 
         let max_threads = 1024;
         let thread_slots = Arc::new(std::sync::atomic::AtomicU32::new(max_threads));
