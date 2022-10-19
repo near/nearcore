@@ -195,13 +195,19 @@ pub fn do_migrate_34_to_35(
                 let current_memory_usage = trail.last().unwrap().node.memory_usage();
                 let inner_iter = TrieIterator { trie: &trie, trail, key_nibbles, visited_nodes };
                 let mut store_update = BatchedStoreUpdate::new(&inner_store, 10_000_000);
+                let mut first_state_record: StateRecord;
                 let n = inner_iter
-                    .map(|item| {
+                    .enumerate()
+                    .map(|(i, item)| {
                         let item = item.unwrap();
                         let value_ref = ValueRef::new(&item.1);
                         store_update
                             .set_ser(DBCol::FlatState, &item.0, &value_ref)
                             .expect("Failed to put value in FlatState");
+                        if i == 0 {
+                            first_state_record =
+                                StateRecord::from_raw_key_value(item.0, item.1).unwrap();
+                        }
                     })
                     .count();
                 store_update.finish().unwrap();
@@ -219,6 +225,7 @@ pub fn do_migrate_34_to_35(
                     "Preload subtrie at {hex_prefix} done, \
                     loaded {n:<8} state items, \
                     {slots} slots remain, \
+                    {first_state_record} is the first state record, \
                     mem progress gb: {mem_progress_gb} / {mem_usage_gb}"
                 );
                 n
