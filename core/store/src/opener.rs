@@ -273,7 +273,7 @@ impl<'a> StoreOpener<'a> {
         mode: Mode,
         metadata: DbMetadata,
     ) -> Result<crate::NodeStorage, StoreOpenerError> {
-        let snapshot = self.apply_migrations(mode, metadata)?;
+        let snapshots = self.apply_migrations(mode, metadata)?;
         tracing::info!(target: "near", path=%self.path().display(),
                        "Opening an existing RocksDB database");
         let (storage, hot_meta, cold_meta) = self.open_storage(mode, DB_VERSION)?;
@@ -287,7 +287,8 @@ impl<'a> StoreOpener<'a> {
         } else {
             self.ensure_kind(&storage, hot_meta)?;
         }
-        snapshot.remove()?;
+        snapshots.0.remove()?;
+        snapshots.1.remove()?;
         Ok(storage)
     }
 
@@ -339,9 +340,9 @@ impl<'a> StoreOpener<'a> {
         &self,
         mode: Mode,
         metadata: DbMetadata,
-    ) -> Result<Snapshot, StoreOpenerError> {
+    ) -> Result<(Snapshot, Snapshot), StoreOpenerError> {
         if metadata.version == DB_VERSION {
-            return Ok(Snapshot::none());
+            return Ok((Snapshot::none(), Snapshot::none()));
         } else if metadata.version > DB_VERSION {
             return Err(StoreOpenerError::DbVersionTooNew {
                 got: metadata.version,
@@ -372,7 +373,11 @@ impl<'a> StoreOpener<'a> {
             });
         }
 
-        let snapshot = Snapshot::new(&self.hot.path, &self.hot.config)?;
+        let hot_snapshot = self.hot.snapshot()?;
+        let cold_snapshot = match self.cold {
+            None => Snapshot::none(),
+            Some(ref opener) => opener.snapshot()?,
+        };
 
         for version in metadata.version..DB_VERSION {
             tracing::info!(target: "near", path=%self.path().display(),
@@ -390,7 +395,7 @@ impl<'a> StoreOpener<'a> {
             set_store_version(&storage, 10000)?;
         }
 
-        Ok(snapshot)
+        Ok((hot_snapshot, cold_snapshot))
     }
 
     fn open_storage(
@@ -489,6 +494,11 @@ impl<'a> DBOpener<'a> {
     fn create(&self) -> std::io::Result<RocksDB> {
         RocksDB::open(&self.path, &self.config, Mode::Create)
     }
+
+    /// Creates a new snapshot for the database.
+    fn snapshot(&self) -> Result<Snapshot, SnapshotError> {
+        Snapshot::new(&self.path, &self.config)
+    }
 }
 
 pub trait StoreMigrator {
@@ -553,6 +563,10 @@ mod cold_db_opener {
 
         pub(super) fn create(&self) -> std::io::Result<std::convert::Infallible> {
             unreachable!()
+        }
+
+        pub(super) fn snapshot(&self) -> Result<Snapshot, SnapshotError> {
+            Ok(Snapshot::none())
         }
     }
 
