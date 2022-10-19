@@ -1003,12 +1003,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "conqueue"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eac4306c796b95d3964b94fa65018a57daee08b45a54b86a4f64910426427b66"
-
-[[package]]
 name = "console"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3054,6 +3048,7 @@ dependencies = [
  "actix",
  "actix-cors",
  "actix-web",
+ "bs58",
  "easy-ext",
  "futures",
  "near-chain-configs",
@@ -3174,7 +3169,6 @@ dependencies = [
  "bytes",
  "bytesize",
  "chrono",
- "conqueue",
  "criterion",
  "crossbeam-channel 0.5.4",
  "delay-detector",

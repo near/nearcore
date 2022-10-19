@@ -211,8 +211,10 @@ pub fn start_with_config_and_synchronization(
         time::Clock::real(),
         store.into_inner(near_store::Temperature::Hot),
         config.network_config,
-        client_actor.clone().recipient(),
-        view_client.clone().recipient(),
+        near_network::client::Client::new(
+            client_actor.clone().recipient(),
+            view_client.clone().recipient(),
+        ),
         genesis_id,
     )
     .context("PeerManager::spawn()")?;

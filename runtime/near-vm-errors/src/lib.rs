@@ -56,9 +56,6 @@ pub enum FunctionCallError {
     /// A trap happened during execution of a binary
     WasmTrap(WasmTrap),
     HostError(HostError),
-    // Unused, can be reused by a future error but must be exactly one error to keep Nondeterministic
-    // error borsh serialized at correct index
-    _EVMError,
 }
 
 /// Serializable version of `FunctionCallError`. Must never reorder/remove elements, can only
@@ -371,7 +368,6 @@ impl fmt::Display for FunctionCallError {
             FunctionCallError::HostError(e) => e.fmt(f),
             FunctionCallError::LinkError { msg } => write!(f, "{}", msg),
             FunctionCallError::WasmTrap(trap) => write!(f, "WebAssembly trap: {}", trap),
-            FunctionCallError::_EVMError => unreachable!(),
         }
     }
 }

@@ -12,10 +12,10 @@ mod store;
 
 pub mod actix;
 pub mod blacklist;
+pub mod client;
 pub mod config;
 pub mod config_json;
 pub mod routing;
-
 pub mod tcp;
 pub mod test_utils;
 pub mod time;
