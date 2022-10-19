@@ -485,14 +485,6 @@ impl Runner {
         self
     }
 
-    /// Set routed message ttl.
-    pub fn routed_message_ttl(mut self, routed_message_ttl: u8) -> Self {
-        self.apply_all(move |test_config| {
-            test_config.routed_message_ttl = routed_message_ttl;
-        });
-        self
-    }
-
     /// Allow message to connect among themselves without triggering new connections.
     pub fn enable_outbound(mut self) -> Self {
         self.apply_all(|test_config| {
