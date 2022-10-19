@@ -278,13 +278,13 @@ impl super::NetworkState {
                     });
                 }
             }
-            tracing::debug!(target:"dupa","{}: establishing {} new connections",self.config.node_id(),handles.len());
+            tracing::debug!(target:"network","{}: establishing {} new connections",self.config.node_id(),handles.len());
             for res in futures_util::future::join_all(handles).await {
                 if let Err(err) = res {
-                    tracing::info!(target:"network", ?err, "failed to establish a TIER1 connection");
+                    tracing::info!(target:"network", ?err, "{}: failed to establish a TIER1 connection",self.config.node_id());
                 }
             }
-            tracing::debug!(target:"dupa","{}: establishing new connections DONE",self.config.node_id());
+            tracing::debug!(target:"network","{}: establishing new connections DONE",self.config.node_id());
         }
     }
 

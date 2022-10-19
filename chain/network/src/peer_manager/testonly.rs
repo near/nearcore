@@ -14,7 +14,7 @@ use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
 use crate::types::{
-    ChainInfo, GetNetworkInfo, KnownPeerStatus, PeerManagerMessageRequest, SetChainInfo,
+    ChainInfo, KnownPeerStatus, PeerManagerMessageRequest, SetChainInfo,
 };
 use crate::PeerManagerActor;
 use near_primitives::network::PeerId;
@@ -285,8 +285,12 @@ impl ActorHandler {
     pub async fn wait_for_accounts_data(&self, want: &HashSet<Arc<SignedAccountData>>) {
         let mut events = self.events.from_now();
         loop {
-            let info = self.actix.addr.send(GetNetworkInfo).await.unwrap();
-            if &info.tier1_accounts.into_iter().collect::<HashSet<_>>() == want {
+            let got = self.with_state(move |s| async move {
+                s.accounts_data.load().data.values().cloned().collect::<HashSet<_>>()
+            }).await;
+            tracing::debug!(target:"dupa","got = {:?}",got);
+            tracing::debug!(target:"dupa","want = {:?}",want);
+            if &got == want {
                 break;
             }
             // It is important that we wait for the next PeerMessage::SyncAccountsData to get
