@@ -16,6 +16,7 @@ use crate::types::{
     ChainInfo, GetNetworkInfo, KnownPeerStatus, PeerManagerMessageRequest, SetChainInfo,
 };
 use crate::PeerManagerActor;
+use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::network::PeerId;
 use near_primitives::types::{AccountId, EpochId};
 use std::collections::HashSet;
@@ -25,12 +26,12 @@ use std::sync::Arc;
 #[rtype("()")]
 struct CheckConsistency;
 
-impl actix::Handler<CheckConsistency> for PeerManagerActor {
+impl actix::Handler<WithSpanContext<CheckConsistency>> for PeerManagerActor {
     type Result = ();
     /// Checks internal consistency of the PeerManagerActor.
     /// This is a partial implementation, add more invariant checks
     /// if needed.
-    fn handle(&mut self, _: CheckConsistency, _: &mut actix::Context<Self>) {
+    fn handle(&mut self, _: WithSpanContext<CheckConsistency>, _: &mut actix::Context<Self>) {
         // Check that the set of ready connections matches the PeerStore state.
         let tier2: HashSet<_> = self.state.tier2.load().ready.keys().cloned().collect();
         let store: HashSet<_> = self
@@ -149,7 +150,9 @@ impl ActorHandler {
         let stream = tcp::Stream::connect(peer_info).await.unwrap();
         let mut events = self.events.from_now();
         let stream_id = stream.id();
-        self.actix.addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream));
+        self.actix
+            .addr
+            .do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream).with_span_context());
         events
             .recv_until(|ev| match &ev {
                 Event::PeerManager(PME::HandshakeCompleted(ev)) if ev.stream_id == stream_id => {
@@ -212,7 +215,9 @@ impl ActorHandler {
         let (outbound_stream, inbound_stream) = tcp::Stream::loopback(network_cfg.node_id()).await;
         let stream_id = outbound_stream.id();
         let events = self.events.from_now();
-        self.actix.addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(outbound_stream));
+        self.actix.addr.do_send(
+            PeerManagerMessageRequest::OutboundTcpConnect(outbound_stream).with_span_context(),
+        );
         let conn = RawConnection {
             events,
             stream: inbound_stream,
@@ -242,11 +247,11 @@ impl ActorHandler {
     }
 
     pub async fn check_consistency(&self) {
-        self.actix.addr.send(CheckConsistency).await.unwrap();
+        self.actix.addr.send(CheckConsistency.with_span_context()).await.unwrap();
     }
 
     pub async fn set_chain_info(&mut self, chain_info: ChainInfo) {
-        self.actix.addr.send(SetChainInfo(chain_info)).await.unwrap();
+        self.actix.addr.send(SetChainInfo(chain_info).with_span_context()).await.unwrap();
         self.events
             .recv_until(|ev| match ev {
                 Event::PeerManager(PME::SetChainInfo) => Some(()),
@@ -258,7 +263,7 @@ impl ActorHandler {
     // Awaits until the accounts_data state matches `want`.
     pub async fn wait_for_accounts_data(&mut self, want: &HashSet<NormalAccountData>) {
         loop {
-            let info = self.actix.addr.send(GetNetworkInfo).await.unwrap();
+            let info = self.actix.addr.send(GetNetworkInfo.with_span_context()).await.unwrap();
             let got: HashSet<_> = info.tier1_accounts.iter().map(|d| d.into()).collect();
             if &got == want {
                 break;
@@ -298,6 +303,6 @@ pub(crate) async fn start(
     let mut h = ActorHandler { cfg, actix, events: recv };
     // Wait for the server to start.
     assert_eq!(Event::PeerManager(PME::ServerStarted), h.events.recv().await);
-    h.actix.addr.send(SetChainInfo(chain.get_chain_info())).await.unwrap();
+    h.actix.addr.send(SetChainInfo(chain.get_chain_info()).with_span_context()).await.unwrap();
     h
 }
