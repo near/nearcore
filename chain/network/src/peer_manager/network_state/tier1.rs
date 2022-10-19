@@ -1,6 +1,8 @@
 use crate::accounts_data;
 use crate::config;
-use crate::network_protocol::{SignedAccountData, AccountData, PeerAddr, PeerInfo, PeerMessage, SyncAccountsData};
+use crate::network_protocol::{
+    AccountData, PeerAddr, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
+};
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::tcp;
@@ -31,7 +33,10 @@ impl super::NetworkState {
     /// Tries to connect to ALL trusted proxies from the config, then broadcasts AccountData with
     /// the set of proxies it managed to connect to. This way other TIER1 nodes can just connect
     /// to ANY proxy of this node.
-    pub async fn tier1_advertise_proxies(self: &Arc<Self>, clock: &time::Clock) -> Vec<Arc<SignedAccountData>> {
+    pub async fn tier1_advertise_proxies(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+    ) -> Vec<Arc<SignedAccountData>> {
         let accounts_data = self.accounts_data.load();
         let tier1 = self.tier1.load();
         let vc = match self.tier1_validator_config(&accounts_data) {
@@ -67,7 +72,10 @@ impl super::NetworkState {
                 )
                 .await?;
                 tracing::debug!(target:"test","spawning connection to {proxy:?}");
-                anyhow::Ok(PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone()).await?)
+                anyhow::Ok(
+                    PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone())
+                        .await?,
+                )
             });
         }
         for res in futures_util::future::join_all(handles).await {
@@ -75,24 +83,22 @@ impl super::NetworkState {
                 tracing::info!(target:"network", ?err, "failed to establish a TIER1 proxy");
             }
         }
-        
+
         // Snapshot tier1 connections again before broadcasting.
         let tier1 = self.tier1.load();
-        
+
         let my_proxies = match &vc.proxies {
-            config::ValidatorProxies::Dynamic(_) => {
-                match tier1.ready.get(&self.config.node_id()) {
-                    Some(conn) => {
-                        log_assert!(PeerType::Outbound == conn.peer_type);
-                        log_assert!(conn.peer_info.addr.is_some());
-                        match conn.peer_info.addr {
-                            Some(addr) => vec![PeerAddr { peer_id: self.config.node_id(), addr }],
-                            None => vec![],
-                        }
+            config::ValidatorProxies::Dynamic(_) => match tier1.ready.get(&self.config.node_id()) {
+                Some(conn) => {
+                    log_assert!(PeerType::Outbound == conn.peer_type);
+                    log_assert!(conn.peer_info.addr.is_some());
+                    match conn.peer_info.addr {
+                        Some(addr) => vec![PeerAddr { peer_id: self.config.node_id(), addr }],
+                        None => vec![],
                     }
-                    None => vec![],
                 }
-            }
+                None => vec![],
+            },
             config::ValidatorProxies::Static(proxies) => {
                 let mut connected_proxies = vec![];
                 for proxy in proxies {
@@ -162,7 +168,7 @@ impl super::NetworkState {
         new_data
     }
 
-    /// Closes TIER1 connections from nodes which are not TIER1 any more. 
+    /// Closes TIER1 connections from nodes which are not TIER1 any more.
     /// If this node is TIER1, it additionally connects to proxies of other TIER1 nodes.
     pub async fn tier1_connect(self: &Arc<Self>, clock: &time::Clock) {
         let tier1_cfg = match &self.config.features.tier1 {
@@ -181,7 +187,7 @@ impl super::NetworkState {
                 accounts_by_proxy.entry(&p.peer_id).or_default().push(&d.account_id);
             }
         }
-        
+
         // Browse the connections from newest to oldest.
         let tier1 = self.tier1.load();
         let mut ready: Vec<_> = tier1.ready.values().collect();
@@ -200,9 +206,9 @@ impl super::NetworkState {
             }
         }
         // Direct TIER1 connections have priority.
-        for ((_,account_id),key) in accounts_data.keys.iter() {
+        for ((_, account_id), key) in accounts_data.keys.iter() {
             if let Some(conn) = tier1.ready_by_account_key.get(&key) {
-                safe.insert(account_id,&conn.peer_info.id);
+                safe.insert(account_id, &conn.peer_info.id);
             }
         }
 
@@ -267,7 +273,8 @@ impl super::NetworkState {
                             tcp::Tier::T1,
                         )
                         .await?;
-                        PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone()).await
+                        PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone())
+                            .await
                     });
                 }
             }

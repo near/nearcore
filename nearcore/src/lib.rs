@@ -42,10 +42,22 @@ pub fn get_default_home() -> PathBuf {
 }
 
 /// Opens node’s storage performing migrations and checks when necessary.
-fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<NodeStorage> {
+///
+/// If opened storage is an RPC store and `near_config.config.archive` is true,
+/// converts the storage to archival node.  Otherwise, if opening archival node
+/// with that field being false, prints a warning and sets the field to `true`.
+/// In other words, once store is archival, the node will act as archival nod
+/// regardless of settings in `config.json`.
+///
+/// The end goal is to get rid of `archive` option in `config.json` file and
+/// have the type of the node be determined purely based on kind of database
+/// being opened.
+fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result<NodeStorage> {
     let migrator = migrations::Migrator::new(near_config);
-    let opener = NodeStorage::opener(home_dir, &near_config.config.store).with_migrator(&migrator);
-    let res = match opener.open() {
+    let opener = NodeStorage::opener(home_dir, &near_config.config.store)
+        .with_migrator(&migrator)
+        .expect_archive(near_config.client_config.archive);
+    let storage = match opener.open() {
         Ok(storage) => Ok(storage),
         Err(StoreOpenerError::IO(err)) => {
             Err(anyhow::anyhow!("{err}"))
@@ -105,27 +117,9 @@ fn open_storage(home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<Nod
         Err(StoreOpenerError::MigrationError(err)) => {
             Err(err)
         },
-    };
-    let storage =
-        res.with_context(|| format!("unable to open database at {}", opener.path().display()))?;
+    }.with_context(|| format!("unable to open database at {}", opener.path().display()))?;
 
-    // Check if the storage is an archive and if it is make sure we are too.
-    // If the store is not marked as archive but we are an archival node that is
-    // fine and we just need to mark the store as archival.
-    let hot = storage.get_store(Temperature::Hot);
-    let store_is_archive: bool =
-        hot.get_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY)?.unwrap_or_default();
-    let client_is_archive = near_config.client_config.archive;
-    anyhow::ensure!(
-        !store_is_archive || client_is_archive,
-        "The node is configured as non-archival but is using database of an archival node."
-    );
-    if !store_is_archive && client_is_archive {
-        let mut update = hot.store_update();
-        update.set_ser(DBCol::BlockMisc, near_store::db::IS_ARCHIVE_KEY, &true)?;
-        update.commit()?;
-    }
-
+    near_config.config.archive = storage.is_archive()?;
     Ok(storage)
 }
 
@@ -142,12 +136,12 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<
 
 pub fn start_with_config_and_synchronization(
     home_dir: &Path,
-    config: NearConfig,
+    mut config: NearConfig,
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
     shutdown_signal: Option<oneshot::Sender<()>>,
 ) -> anyhow::Result<NearNode> {
-    let store = open_storage(home_dir, &config)?;
+    let store = open_storage(home_dir, &mut config)?;
 
     let runtime = Arc::new(NightshadeRuntime::from_config(
         home_dir,
@@ -193,10 +187,10 @@ pub fn start_with_config_and_synchronization(
         time::Clock::real(),
         store.into_inner(near_store::Temperature::Hot),
         config.network_config,
-        near_network::client::Client {
-            client_addr: client_actor.clone().recipient(),
-            view_client_addr: view_client.clone().recipient(),
-        },
+        near_network::client::Client::new(
+            client_actor.clone().recipient(),
+            view_client.clone().recipient(),
+        ),
         genesis_id,
     )
     .context("PeerManager::spawn()")?;

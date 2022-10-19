@@ -273,7 +273,10 @@ impl ActorHandler {
         self.actix.addr.send(SetChainInfo(chain_info)).await.unwrap();
     }
 
-    pub async fn tier1_advertise_proxies(&self, clock: &time::Clock) -> Vec<Arc<SignedAccountData>> {
+    pub async fn tier1_advertise_proxies(
+        &self,
+        clock: &time::Clock,
+    ) -> Vec<Arc<SignedAccountData>> {
         let clock = clock.clone();
         self.with_state(move |s| async move { s.tier1_advertise_proxies(&clock).await }).await
     }
@@ -296,7 +299,8 @@ impl ActorHandler {
         let clock = clock.clone();
         self.with_state(move |s| async move {
             s.tier1_connect(&clock).await;
-        }).await;
+        })
+        .await;
     }
 }
 
@@ -318,10 +322,7 @@ pub(crate) async fn start(
                 clock,
                 store,
                 cfg,
-                client::Client {
-                    client_addr: fc.clone().recipient(),
-                    view_client_addr: fc.clone().recipient(),
-                },
+                client::Client::new(fc.clone().recipient(), fc.clone().recipient()),
                 genesis_id,
             )
             .unwrap()

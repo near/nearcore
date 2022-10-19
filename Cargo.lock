@@ -2770,6 +2770,7 @@ dependencies = [
 name = "near-account-id"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "bolero",
  "borsh",
  "serde",
@@ -3098,6 +3099,7 @@ dependencies = [
  "awc",
  "libfuzzer-sys",
  "near-jsonrpc",
+ "near-jsonrpc-primitives",
  "near-jsonrpc-tests",
  "near-primitives",
  "once_cell",
@@ -3110,6 +3112,7 @@ dependencies = [
 name = "near-jsonrpc-primitives"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "near-chain-configs",
  "near-client-primitives",
  "near-crypto",
@@ -3273,6 +3276,7 @@ dependencies = [
 name = "near-primitives"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "assert_matches",
  "bencher",
  "borsh",
@@ -3304,6 +3308,7 @@ dependencies = [
 name = "near-primitives-core"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "base64",
  "borsh",
  "bs58",
@@ -3455,6 +3460,7 @@ dependencies = [
  "near-rpc-error-macro",
  "serde",
  "strum",
+ "thiserror",
 ]
 
 [[package]]
@@ -4762,6 +4768,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "borsh",
+ "bs58",
  "bytesize",
  "cfg-if 1.0.0",
  "chrono",
@@ -4769,6 +4776,7 @@ dependencies = [
  "genesis-populate",
  "hex",
  "indicatif",
+ "insta",
  "libc",
  "near-chain-configs",
  "near-crypto",

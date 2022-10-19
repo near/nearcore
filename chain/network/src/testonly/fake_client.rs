@@ -38,9 +38,14 @@ pub fn start(event_sink: Sink<Event>) -> actix::Addr<Actor> {
     Actor { event_sink }.start()
 }
 
-impl actix::Handler<NetworkViewClientMessages> for Actor {
+impl actix::Handler<WithSpanContext<NetworkViewClientMessages>> for Actor {
     type Result = NetworkViewClientResponses;
-    fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<NetworkViewClientMessages>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let msg = msg.msg;
         match msg {
             NetworkViewClientMessages::BlockRequest(block_hash) => {
                 self.event_sink.push(Event::BlockRequest(block_hash));

@@ -27,6 +27,7 @@ use tracing_subscriber::{fmt, reload, EnvFilter, Layer, Registry};
 /// Custom tracing subscriber implementation that produces IO traces.
 pub mod context;
 mod io_tracer;
+pub mod macros;
 pub mod metrics;
 pub mod pretty;
 pub mod testonly;
@@ -55,6 +56,15 @@ type LogLayer<Inner> = Layered<
     Filtered<
         fmt::Layer<Inner, fmt::format::DefaultFields, fmt::format::Format, NonBlocking>,
         reload::Layer<EnvFilter, Inner>,
+        Inner,
+    >,
+    Inner,
+>;
+
+type SimpleLogLayer<Inner, W> = Layered<
+    Filtered<
+        fmt::Layer<Inner, fmt::format::DefaultFields, fmt::format::Format, W>,
+        EnvFilter,
         Inner,
     >,
     Inner,
@@ -186,15 +196,17 @@ fn is_terminal() -> bool {
     atty::is(atty::Stream::Stderr)
 }
 
-fn add_simple_log_layer<S>(
+fn add_simple_log_layer<S, W>(
     filter: EnvFilter,
+    writer: W,
     ansi: bool,
     subscriber: S,
-) -> Layered<Filtered<fmt::Layer<S>, EnvFilter, S>, S>
+) -> SimpleLogLayer<S, W>
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
+    W: for<'writer> fmt::MakeWriter<'writer> + 'static,
 {
-    let layer = fmt::layer().with_ansi(ansi).with_filter(filter);
+    let layer = fmt::layer().with_ansi(ansi).with_writer(writer).with_filter(filter);
 
     subscriber.with(layer)
 }
@@ -322,8 +334,13 @@ pub fn default_subscriber(
 ) -> DefaultSubscriberGuard<impl tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync> {
     let color_output = use_color_output(options);
 
+    let make_writer = || {
+        let stderr = std::io::stderr();
+        std::io::LineWriter::new(stderr)
+    };
+
     let subscriber = tracing_subscriber::registry();
-    let subscriber = add_simple_log_layer(env_filter, color_output, subscriber);
+    let subscriber = add_simple_log_layer(env_filter, make_writer, color_output, subscriber);
 
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),
@@ -525,6 +542,7 @@ impl<'a> EnvFilterBuilder<'a> {
             env_filter = env_filter
                 .add_directive("cranelift_codegen=warn".parse().expect("parse directive"))
                 .add_directive("h2=warn".parse().expect("parse directive"))
+                .add_directive("tower=warn".parse().expect("parse directive"))
                 .add_directive("trust_dns_resolver=warn".parse().expect("parse directive"))
                 .add_directive("trust_dns_proto=warn".parse().expect("parse directive"));
             env_filter = if module.is_empty() {

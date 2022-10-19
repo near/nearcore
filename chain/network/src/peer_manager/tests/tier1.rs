@@ -12,8 +12,8 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::block_header::{Approval, ApprovalInner, ApprovalMessage};
 use near_primitives::validator_signer::ValidatorSigner;
 use rand::Rng as _;
-use std::sync::Arc;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 /// Constructs a random TIER1 message.
 fn make_block_approval(rng: &mut Rng, signer: &dyn ValidatorSigner) -> Approval {
@@ -47,7 +47,7 @@ async fn set_chain_info(
     // Send it to all peers.
     for pm in all {
         pm.set_chain_info(chain_info.clone()).await;
-    } 
+    }
 }
 
 async fn establish_connections(clock: &time::Clock, pms: &[&peer_manager::testonly::ActorHandler]) {
@@ -63,10 +63,7 @@ async fn establish_connections(clock: &time::Clock, pms: &[&peer_manager::teston
     }
 }
 
-async fn test_clique(
-    rng: &mut Rng,
-    pms: &[&peer_manager::testonly::ActorHandler],
-) {
+async fn test_clique(rng: &mut Rng, pms: &[&peer_manager::testonly::ActorHandler]) {
     // Send a message over each connection.
     for from in pms {
         let from_signer = from.cfg.validator.as_ref().unwrap().signer.clone();
@@ -131,7 +128,7 @@ async fn direct_connections() {
     // Connect peers serially.
     let peer_infos: Vec<_> = pms.iter().map(|pm| pm.peer_info()).collect();
     for i in 1..pms.len() {
-        pms[i-1].connect_to(&peer_infos[i]).await;
+        pms[i - 1].connect_to(&peer_infos[i]).await;
     }
 
     set_chain_info(rng, &chain, &pms[..], &pms[..]).await;
@@ -234,7 +231,7 @@ async fn proxy_change() {
     // validator[1].await_data;
     // validator[1].connect();
     // validator[1].send();
-    // Turn down proxy[1]; 
+    // Turn down proxy[1];
     // Turn up proxy[0]; + set_chain
     // validator[0].advertise()
     // validator[1].await_data;
@@ -251,6 +248,6 @@ async fn proxy_change() {
     let v0 = peer_manager::testonly::start(clock.clock(), near_store::db::TestDB::new(),cfg,chain.clone()).await;
     let v1 = peer_manager::testonly::start(clock.clock(), near_store::db::TestDB::new(),chain_make_config(rng),chain.clone()).await;
 
-    
+
 
 }*/

@@ -4,8 +4,8 @@ use crate::concurrency::demux;
 use crate::concurrency::rate;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
-    PeerChainInfoV2, PeerIdOrHash, PeerInfo, RoutedMessageBody, RoutingTableUpdate,
-    SyncAccountsData,
+    PeerChainInfoV2, PeerIdOrHash, PeerInfo, RawRoutedMessage, RoutedMessageBody,
+    RoutingTableUpdate, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::stream::Scope;
@@ -26,8 +26,9 @@ use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
 use lru::LruCache;
 use near_crypto::Signature;
-use near_o11y::{log_assert, OpenTelemetrySpanExt, WithSpanContext};
+use near_o11y::{handler_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
+use near_primitives::hash::CryptoHash;
 use near_primitives::logging;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::EpochId;
@@ -166,7 +167,7 @@ type HandshakeSignalSender = tokio::sync::oneshot::Sender<std::convert::Infallib
 pub type HandshakeSignal = tokio::sync::oneshot::Receiver<std::convert::Infallible>;
 
 impl PeerActor {
-    /// Spawns a PeerActor on a separate actix::Arbiter and awaits for the 
+    /// Spawns a PeerActor on a separate actix::Arbiter and awaits for the
     /// handshake to succeed/fail. The actual result is not returned because
     /// actix makes everything complicated.
     pub(crate) async fn spawn_and_handshake(
@@ -175,7 +176,7 @@ impl PeerActor {
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
     ) -> anyhow::Result<actix::Addr<Self>> {
-        let (addr,handshake_signal) = Self::spawn(clock,stream,force_encoding,network_state)?;
+        let (addr, handshake_signal) = Self::spawn(clock, stream, force_encoding, network_state)?;
         // This is a receiver of Infallible, so it only completes when the channel is closed.
         handshake_signal.await.err().unwrap();
         Ok(addr)
@@ -186,7 +187,7 @@ impl PeerActor {
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
-    ) -> anyhow::Result<(actix::Addr<Self>,HandshakeSignal)> {
+    ) -> anyhow::Result<(actix::Addr<Self>, HandshakeSignal)> {
         let stream_id = stream.id();
         match Self::spawn_inner(clock, stream, force_encoding, network_state.clone()) {
             Ok(it) => Ok(it),
@@ -204,7 +205,7 @@ impl PeerActor {
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
-    ) -> Result<(actix::Addr<Self>,HandshakeSignal),ClosingReason> {
+    ) -> Result<(actix::Addr<Self>, HandshakeSignal), ClosingReason> {
         let connecting_status = match &stream.type_ {
             tcp::StreamType::Inbound => ConnectingStatus::Inbound(
                 network_state
@@ -255,83 +256,87 @@ impl PeerActor {
             addr: network_state.config.node_addr.clone(),
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
-        let (send,recv) = tokio::sync::oneshot::channel();
+        let (send, recv) = tokio::sync::oneshot::channel();
         // Start PeerActor on separate thread.
-        Ok((Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| {
-            let stream_id = stream.id();
-            let peer_addr = stream.peer_addr;
-            let stream_type = stream.type_.clone();
-            let scope = Scope { arbiter: actix::Arbiter::current(), addr: ctx.address() };
-            let stats = Arc::new(connection::Stats::default());
-            let (writer, mut reader) = stream::FramedWriter::spawn(&scope, stream, stats.clone());
+        Ok((
+            Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| {
+                let stream_id = stream.id();
+                let peer_addr = stream.peer_addr;
+                let stream_type = stream.type_.clone();
+                let scope = Scope { arbiter: actix::Arbiter::current(), addr: ctx.address() };
+                let stats = Arc::new(connection::Stats::default());
+                let (writer, mut reader) =
+                    stream::FramedWriter::spawn(&scope, stream, stats.clone());
 
-            scope.arbiter.spawn({
-                let clock = clock.clone();
-                let network_state = network_state.clone();
-                async move {
-                    let tier2_limiter = rate::Limiter::new(
-                        &clock,
-                        rate::Limit {
-                            qps: NETWORK_MESSAGE_MAX_SIZE_BYTES as f64,
-                            burst: NETWORK_MESSAGE_MAX_SIZE_BYTES as u64,
-                        },
-                    );
-                    let mut conn = None;
-                    loop {
-                        if conn.is_none() {
-                            conn = scope.addr.send(GetConnection).await.ok().flatten();
-                        }
-                        let limiter = match &conn {
-                            Some(conn) if conn.tier == tcp::Tier::T1 => {
-                                &network_state.tier1_recv_limiter
+                scope.arbiter.spawn({
+                    let clock = clock.clone();
+                    let network_state = network_state.clone();
+                    async move {
+                        let tier2_limiter = rate::Limiter::new(
+                            &clock,
+                            rate::Limit {
+                                qps: NETWORK_MESSAGE_MAX_SIZE_BYTES as f64,
+                                burst: NETWORK_MESSAGE_MAX_SIZE_BYTES as u64,
+                            },
+                        );
+                        let mut conn = None;
+                        loop {
+                            if conn.is_none() {
+                                conn = scope.addr.send(GetConnection).await.ok().flatten();
                             }
-                            _ => &tier2_limiter,
-                        };
-                        match reader.recv(&clock, limiter).await {
-                            Ok(frame) => {
-                                if let Err(err) = scope.addr.send(frame).await {
-                                    tracing::debug!("err: {err:?}");
+                            let limiter = match &conn {
+                                Some(conn) if conn.tier == tcp::Tier::T1 => {
+                                    &network_state.tier1_recv_limiter
+                                }
+                                _ => &tier2_limiter,
+                            };
+                            match reader.recv(&clock, limiter).await {
+                                Ok(frame) => {
+                                    if let Err(err) = scope.addr.send(frame).await {
+                                        tracing::debug!("err: {err:?}");
+                                        return;
+                                    }
+                                }
+                                Err(err) => {
+                                    scope.addr.do_send(stream::Error::Recv(err));
                                     return;
                                 }
                             }
-                            Err(err) => {
-                                scope.addr.do_send(stream::Error::Recv(err));
-                                return;
-                            }
                         }
                     }
-                }
-            });
-            Self {
-                closing_reason: None,
+                });
+                Self {
+                    closing_reason: None,
 
-                clock,
-                my_node_info,
-                stream_id,
-                peer_addr,
-                peer_type: match &stream_type {
-                    tcp::StreamType::Inbound => PeerType::Inbound,
-                    tcp::StreamType::Outbound { .. } => PeerType::Outbound,
-                },
-                peer_status: PeerStatus::Connecting(send,connecting_status),
-                framed: writer,
-                tracker: Default::default(),
-                stats,
-                routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
-                protocol_buffers_supported: false,
-                force_encoding,
-                peer_info: match &stream_type {
-                    tcp::StreamType::Inbound => None,
-                    tcp::StreamType::Outbound { peer_id, .. } => Some(PeerInfo {
-                        id: peer_id.clone(),
-                        addr: Some(peer_addr),
-                        account_id: None,
-                    }),
+                    clock,
+                    my_node_info,
+                    stream_id,
+                    peer_addr,
+                    peer_type: match &stream_type {
+                        tcp::StreamType::Inbound => PeerType::Inbound,
+                        tcp::StreamType::Outbound { .. } => PeerType::Outbound,
+                    },
+                    peer_status: PeerStatus::Connecting(send, connecting_status),
+                    framed: writer,
+                    tracker: Default::default(),
+                    stats,
+                    routed_message_cache: LruCache::new(ROUTED_MESSAGE_CACHE_SIZE),
+                    protocol_buffers_supported: false,
+                    force_encoding,
+                    peer_info: match &stream_type {
+                        tcp::StreamType::Inbound => None,
+                        tcp::StreamType::Outbound { peer_id, .. } => Some(PeerInfo {
+                            id: peer_id.clone(),
+                            addr: Some(peer_addr),
+                            account_id: None,
+                        }),
+                    }
+                    .into(),
+                    network_state,
                 }
-                .into(),
-                network_state,
-            }
-        }),recv))
+            }),
+            recv,
+        ))
     }
 
     // Determines the encoding to use for communication with the peer.
@@ -783,7 +788,7 @@ impl PeerActor {
     fn handle_msg_connecting(&mut self, ctx: &mut actix::Context<Self>, msg: PeerMessage) {
         match (&mut self.peer_status, msg) {
             (
-                PeerStatus::Connecting(_,ConnectingStatus::Outbound { handshake_spec, .. }),
+                PeerStatus::Connecting(_, ConnectingStatus::Outbound { handshake_spec, .. }),
                 PeerMessage::HandshakeFailure(peer_info, reason),
             ) => {
                 match reason {
@@ -823,7 +828,7 @@ impl PeerActor {
             // TODO(gprusak): LastEdge should rather be a variant of HandshakeFailure.
             // Clean this up (you don't have to modify the proto, just the translation layer).
             (
-                PeerStatus::Connecting(_,ConnectingStatus::Outbound { handshake_spec, .. }),
+                PeerStatus::Connecting(_, ConnectingStatus::Outbound { handshake_spec, .. }),
                 PeerMessage::LastEdge(edge),
             ) => {
                 // Check that the edge provided:
@@ -874,6 +879,75 @@ impl PeerActor {
         }
     }
 
+    async fn receive_routed_message(
+        clock: &time::Clock,
+        network_state: &NetworkState,
+        peer_id: PeerId,
+        msg_hash: CryptoHash,
+        body: RoutedMessageBody,
+    ) -> Result<Option<RoutedMessageBody>, ReasonForBan> {
+        Ok(match body {
+            RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => network_state
+                .client
+                .tx_status_request(account_id, tx_hash)
+                .await?
+                .map(RoutedMessageBody::TxStatusResponse),
+            RoutedMessageBody::TxStatusResponse(tx_result) => {
+                network_state.client.tx_status_response(tx_result).await?;
+                None
+            }
+            RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => network_state
+                .client
+                .state_request_header(shard_id, sync_hash)
+                .await?
+                .map(RoutedMessageBody::VersionedStateResponse),
+            RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id) => network_state
+                .client
+                .state_request_part(shard_id, sync_hash, part_id)
+                .await?
+                .map(RoutedMessageBody::VersionedStateResponse),
+            RoutedMessageBody::VersionedStateResponse(info) => {
+                network_state.client.state_response(info).await?;
+                None
+            }
+            RoutedMessageBody::BlockApproval(approval) => {
+                network_state.client.block_approval(approval, peer_id).await?;
+                None
+            }
+            RoutedMessageBody::ForwardTx(transaction) => {
+                network_state.client.transaction(transaction, /*is_forwarded=*/ true).await?;
+                None
+            }
+            RoutedMessageBody::PartialEncodedChunkRequest(request) => {
+                network_state.client.partial_encoded_chunk_request(request, msg_hash).await?;
+                None
+            }
+            RoutedMessageBody::PartialEncodedChunkResponse(response) => {
+                network_state.client.partial_encoded_chunk_response(response, clock.now()).await?;
+                None
+            }
+            RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
+                network_state.client.partial_encoded_chunk(chunk).await?;
+                None
+            }
+            RoutedMessageBody::PartialEncodedChunkForward(msg) => {
+                network_state.client.partial_encoded_chunk_forward(msg).await?;
+                None
+            }
+            RoutedMessageBody::ReceiptOutcomeRequest(_) => {
+                // Silently ignore for the time being.  We’ve been still
+                // sending those messages at protocol version 56 so we
+                // need to wait until 59 before we can remove the
+                // variant completely.
+                None
+            }
+            body => {
+                tracing::error!(target: "network", "Peer received unexpected message type: {:?}", body);
+                None
+            }
+        })
+    }
+
     fn receive_message(
         &self,
         ctx: &mut actix::Context<Self>,
@@ -891,19 +965,56 @@ impl PeerActor {
             PeerMessage::Block(block) => {
                 let hash = *block.hash();
                 conn.chain_height.fetch_max(block.header().height(), Ordering::Relaxed);
-                self.tracker.lock().push_received(hash);
-                self.tracker.lock().has_request(&hash)
+                let mut tracker = self.tracker.lock();
+                tracker.push_received(hash);
+                tracker.has_request(&hash)
             }
             _ => false,
         };
         let clock = self.clock.clone();
         let network_state = self.network_state.clone();
         let peer_id = conn.peer_info.id.clone();
-        ctx.spawn(
-            wrap_future(async move {
-                network_state.receive_message(&clock, peer_id, msg, was_requested).await
-            })
-            .then(|res, act: &mut PeerActor, ctx| {
+        ctx.spawn(wrap_future(async move {
+            Ok(match msg {
+                PeerMessage::Routed(msg) => {
+                    let msg_hash = msg.hash();
+                    Self::receive_routed_message(&clock, &network_state, peer_id, msg_hash, msg.msg.body).await?.map(
+                        |body| {
+                            PeerMessage::Routed(network_state.sign_message(
+                                &clock,
+                                RawRoutedMessage { target: PeerIdOrHash::Hash(msg_hash), body },
+                            ))
+                        },
+                    )
+                }
+                PeerMessage::BlockRequest(hash) => {
+                    network_state.client.block_request(hash).await?.map(PeerMessage::Block)
+                }
+                PeerMessage::BlockHeadersRequest(hashes) => {
+                    network_state.client.block_headers_request(hashes).await?.map(PeerMessage::BlockHeaders)
+                }
+                PeerMessage::Block(block) => {
+                    network_state.client.block(block, peer_id, was_requested).await?;
+                    None
+                }
+                PeerMessage::Transaction(transaction) => {
+                    network_state.client.transaction(transaction, /*is_forwarded=*/ false).await?;
+                    None
+                }
+                PeerMessage::BlockHeaders(headers) => {
+                    network_state.client.block_headers(headers, peer_id).await?;
+                    None
+                }
+                PeerMessage::Challenge(challenge) => {
+                    network_state.client.challenge(challenge).await?;
+                    None
+                }
+                msg => {
+                    tracing::error!(target: "network", "Peer received unexpected type: {:?}", msg);
+                    None
+                }
+            })})
+            .map(|res, act: &mut PeerActor, ctx| {
                 match res {
                     // TODO(gprusak): make sure that for routed messages we drop routeback info correctly.
                     Ok(Some(resp)) => act.send_message_or_log(&resp),
@@ -911,7 +1022,6 @@ impl PeerActor {
                     Err(ban_reason) => act.stop(ctx, ClosingReason::Ban(ban_reason)),
                 }
                 message_processed_event();
-                wrap_future(async {})
             }),
         );
     }
@@ -1200,7 +1310,7 @@ impl actix::Actor for PeerActor {
         );
 
         // If outbound peer, initiate handshake.
-        if let PeerStatus::Connecting(_,ConnectingStatus::Outbound { handshake_spec, .. }) =
+        if let PeerStatus::Connecting(_, ConnectingStatus::Outbound { handshake_spec, .. }) =
             &self.peer_status
         {
             self.send_handshake(handshake_spec.clone());
@@ -1396,15 +1506,9 @@ impl actix::Handler<WithSpanContext<SendMessage>> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<SendMessage>, _: &mut Self::Context) {
-        let span = tracing::debug_span!(
-                target: "network",
-                "handle",
-                handler = "SendMessage",
-                actor = "PeerActor")
-        .entered();
-        span.set_parent(msg.context);
+        let (_span, msg) = handler_span!("network", msg);
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
-        self.send_message_or_log(&msg.msg.message);
+        self.send_message_or_log(&msg.message);
     }
 }
 
@@ -1420,13 +1524,10 @@ impl actix::Handler<WithSpanContext<Stop>> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<Stop>, ctx: &mut Self::Context) -> Self::Result {
-        let span =
-            tracing::trace_span!(target: "network", "handle", handler = "Stop", actor="PeerActor")
-                .entered();
-        span.set_parent(msg.context);
+        let (_span, msg) = handler_span!("network", msg);
         self.stop(
             ctx,
-            match msg.msg.ban_reason {
+            match msg.ban_reason {
                 Some(reason) => ClosingReason::Ban(reason),
                 None => ClosingReason::PeerManager,
             },
@@ -1457,7 +1558,7 @@ enum ConnectingStatus {
 #[derive(Debug)]
 enum PeerStatus {
     /// Handshake in progress.
-    Connecting(HandshakeSignalSender,ConnectingStatus),
+    Connecting(HandshakeSignalSender, ConnectingStatus),
     /// Ready to go.
     Ready(Arc<connection::Connection>),
 }

@@ -1,8 +1,7 @@
 use actix::Addr;
-
 use near_chain_configs::Genesis;
 use near_client::ViewClientActor;
-
+use near_o11y::WithSpanContextExt;
 use validated_operations::ValidatedOperation;
 
 mod transactions;
@@ -117,7 +116,10 @@ pub(crate) async fn convert_block_to_transactions(
     block: &near_primitives::views::BlockView,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     let state_changes = view_client_addr
-        .send(near_client::GetStateChangesInBlock { block_hash: block.header.hash })
+        .send(
+            near_client::GetStateChangesInBlock { block_hash: block.header.hash }
+                .with_span_context(),
+        )
         .await?
         .unwrap();
 
@@ -149,13 +151,16 @@ pub(crate) async fn convert_block_to_transactions(
             .await?;
 
     let accounts_changes = view_client_addr
-        .send(near_client::GetStateChanges {
-            block_hash: block.header.hash,
-            state_changes_request:
-                near_primitives::views::StateChangesRequestView::AccountChanges {
-                    account_ids: touched_account_ids,
-                },
-        })
+        .send(
+            near_client::GetStateChanges {
+                block_hash: block.header.hash,
+                state_changes_request:
+                    near_primitives::views::StateChangesRequestView::AccountChanges {
+                        account_ids: touched_account_ids,
+                    },
+            }
+            .with_span_context(),
+        )
         .await??;
 
     let runtime_config = crate::utils::query_protocol_config(block.header.hash, &view_client_addr)

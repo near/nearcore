@@ -118,7 +118,6 @@ pub struct PeerManagerActor {
     max_num_peers: u32,
     /// Peer information for this node.
     my_peer_id: PeerId,
-
     /// Flag that track whether we started attempts to establish outbound connections.
     started_connect_attempts: bool,
     /// Connected peers we have sent new edge update, but we haven't received response so far.
@@ -203,8 +202,7 @@ impl actix::Actor for PeerManagerActor {
             let clock = self.clock.clone();
             let state = self.state.clone();
             ctx.spawn(wrap_future(async move {
-                let mut interval =
-                    tokio::time::interval(cfg.connect_interval.try_into().unwrap());
+                let mut interval = tokio::time::interval(cfg.connect_interval.try_into().unwrap());
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
                     state.tier1_connect(&clock).await;

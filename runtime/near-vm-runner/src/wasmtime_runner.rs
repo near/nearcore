@@ -1,9 +1,8 @@
-use crate::errors::IntoVMError;
+use crate::errors::{ContractPrecompilatonResult, IntoVMError};
 use crate::prepare::WASM_FEATURES;
 use crate::{imports, prepare};
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
-use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
@@ -291,18 +290,10 @@ impl crate::runner::VM for WasmtimeVM {
 
     fn precompile(
         &self,
-        _code: &[u8],
-        _code_hash: &CryptoHash,
+        _code: &ContractCode,
         _cache: &dyn CompiledContractCache,
-    ) -> Result<Option<near_vm_errors::FunctionCallError>, VMRunnerError> {
-        Ok(Some(FunctionCallError::CompilationError(CompilationError::UnsupportedCompiler {
-            msg: "Precompilation not supported in Wasmtime yet".to_string(),
-        })))
-    }
-
-    fn check_compile(&self, code: &[u8]) -> bool {
-        let mut config = default_config();
-        let engine = get_engine(&mut config);
-        Module::new(&engine, code).is_ok()
+    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, near_vm_errors::CacheError>
+    {
+        Ok(Ok(ContractPrecompilatonResult::CacheNotAvailable))
     }
 }

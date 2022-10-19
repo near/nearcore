@@ -164,10 +164,7 @@ impl PeerHandle {
                     .unwrap(),
                 Arc::new(network_cfg.verify().unwrap()),
                 cfg.chain.genesis_id.clone(),
-                client::Client {
-                    client_addr: fc.clone().recipient(),
-                    view_client_addr: fc.clone().recipient(),
-                },
+                client::Client::new(fc.clone().recipient(), fc.clone().recipient()),
                 fpm.recipient(),
             ));
             // WARNING: this is a hack to make PeerActor use a specific nonce

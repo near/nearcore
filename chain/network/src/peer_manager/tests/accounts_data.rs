@@ -12,8 +12,8 @@ use itertools::Itertools;
 use near_o11y::testonly::init_test_logger;
 use pretty_assertions::assert_eq;
 use rand::seq::SliceRandom as _;
-use std::sync::Arc;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 #[tokio::test]
 async fn accounts_data_broadcast() {
@@ -55,7 +55,7 @@ async fn accounts_data_broadcast() {
         incremental: true,
         requesting_full_sync: false,
     };
-    let want : HashSet<_> = msg.accounts_data.iter().cloned().collect();
+    let want: HashSet<_> = msg.accounts_data.iter().cloned().collect();
     peer1.send(PeerMessage::SyncAccountsData(msg)).await;
     pm.wait_for_accounts_data(&want).await;
 
@@ -141,7 +141,7 @@ async fn accounts_data_gradual_epoch_change() {
             pms[id].set_chain_info(chain_info.clone()).await;
             // In this tests each node is its own proxy, so it can immediately
             // connect to itself (to verify the public addr) and advertise it.
-            // If some other node B was a proxy for a node A, then first both 
+            // If some other node B was a proxy for a node A, then first both
             // A and B would have to update their chain_info, and only then A
             // would be able to connect to B and advertise B as proxy afterwards.
             want.extend(pms[id].tier1_advertise_proxies(&clock.clock()).await);

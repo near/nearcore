@@ -41,12 +41,12 @@ mod columns;
 pub mod config;
 pub mod db;
 pub mod flat_state;
+pub mod metadata;
 mod metrics;
 pub mod migrations;
 mod opener;
 pub mod test_utils;
 mod trie;
-pub mod version;
 
 pub use crate::config::{Mode, StoreConfig};
 pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
@@ -165,6 +165,14 @@ impl NodeStorage {
         match temp {
             Temperature::Hot => self.storage,
         }
+    }
+
+    /// Reads database metadata and returns whether the storage is archival.
+    pub fn is_archive(&self) -> io::Result<bool> {
+        Ok(match metadata::DbMetadata::read(self.storage.as_ref())?.kind.unwrap() {
+            metadata::DbKind::RPC => false,
+            metadata::DbKind::Archive => true,
+        })
     }
 }
 
