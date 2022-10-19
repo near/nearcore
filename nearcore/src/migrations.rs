@@ -182,6 +182,7 @@ pub fn do_migrate_34_to_35(
                     std::thread::sleep(std::time::Duration::from_micros(10));
                 }
             }
+            let inner_mem_progress = mem_progress.clone();
             let inner_thread_slots = thread_slots.clone();
             let inner_store = store.clone();
             let handle = std::thread::spawn(move || {
@@ -205,10 +206,11 @@ pub fn do_migrate_34_to_35(
                     .count();
                 store_update.finish().unwrap();
                 inner_thread_slots.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                mem_progress.fetch_add(current_memory_usage, std::sync::atomic::Ordering::Relaxed);
+                inner_mem_progress
+                    .fetch_add(current_memory_usage, std::sync::atomic::Ordering::Relaxed);
 
                 let slots = inner_thread_slots.load(std::sync::atomic::Ordering::Relaxed);
-                let mem_progress_gb = mem_progress.load(std::sync::atomic::Ordering::Relaxed)
+                let mem_progress_gb = inner_mem_progress.load(std::sync::atomic::Ordering::Relaxed)
                     as f64
                     / 10f64.powf(9.0);
                 let mem_usage_gb = memory_usage as f64 / 10f64.powf(9.0);
