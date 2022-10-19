@@ -176,15 +176,15 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protoco
 
 /// The points in time after which the voting for the latest protocol version
 /// should start.
-#[allow(dead_code)]
-const PROTOCOL_UPGRADE_SCHEDULE: Lazy<Option<ProtocolUpgradeVotingSchedule>> = Lazy::new(|| {
-    if cfg!(feature = "shardnet") {
-        Some(ProtocolUpgradeVotingSchedule::from_str("2022-09-05 15:00:00").unwrap())
-    } else {
-        // Update to latest protocol version on release.
-        None
-    }
-});
+pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<Option<ProtocolUpgradeVotingSchedule>> =
+    Lazy::new(|| {
+        if cfg!(feature = "shardnet") {
+            Some(ProtocolUpgradeVotingSchedule::from_str("2022-09-05 15:00:00").unwrap())
+        } else {
+            // Update to latest protocol version on release.
+            None
+        }
+    });
 
 /// Gives new clients an option to upgrade without announcing that they support
 /// the new version.  This gives non-validator nodes time to upgrade.  See
