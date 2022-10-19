@@ -144,7 +144,7 @@ pub fn do_migrate_34_to_35(
         let max_threads = 1024;
         let thread_slots = Arc::new(std::sync::atomic::AtomicU32::new(max_threads));
         let mem_progress = Arc::new(std::sync::atomic::AtomicU64::new(0));
-
+        let global_nodes_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let mut state_iter = trie.iter()?;
         // let x = String::from("09626173656c696e655f73776561742");
         // let x_nibbles: Vec<_> = x.chars().map(|c| char::to_digit(c, 16).unwrap() as u8).collect();
@@ -155,7 +155,7 @@ pub fn do_migrate_34_to_35(
 
         let mut handles = vec![];
         for sub_trie in state_iter.heavy_sub_tries(sub_trie_size)? {
-            let TrieIterator { trie, trail, key_nibbles, visited_nodes } = sub_trie?;
+            let TrieIterator { trie, trail, key_nibbles, .. } = sub_trie?;
             if key_nibbles.len() > 2000 {
                 panic!("Too long nibbles vec");
             }
@@ -184,6 +184,8 @@ pub fn do_migrate_34_to_35(
             }
             let inner_mem_progress = mem_progress.clone();
             let inner_thread_slots = thread_slots.clone();
+            let inner_nodes_count = global_nodes_count.clone();
+
             let inner_store = store.clone();
             let handle = std::thread::spawn(move || {
                 let hex_prefix: String = key_nibbles
@@ -193,7 +195,14 @@ pub fn do_migrate_34_to_35(
                 debug!(target: "store", "Preload subtrie at {hex_prefix}");
                 let trie = Trie::new(Box::new(storage), root, None);
                 let current_memory_usage = trail.last().unwrap().node.memory_usage();
-                let inner_iter = TrieIterator { trie: &trie, trail, key_nibbles, visited_nodes };
+                let inner_iter = TrieIterator {
+                    trie: &trie,
+                    trail,
+                    key_nibbles,
+                    visited_nodes: None,
+                    nodes_count: 0,
+                    global_nodes_count: inner_nodes_count,
+                };
                 let mut store_update = BatchedStoreUpdate::new(&inner_store, 10_000_000);
                 let mut first_state_record: Option<StateRecord> = None;
                 let n = inner_iter
@@ -214,6 +223,7 @@ pub fn do_migrate_34_to_35(
                 inner_mem_progress
                     .fetch_add(current_memory_usage, std::sync::atomic::Ordering::Relaxed);
 
+                let nodes_count = inner_iter.nodes_count;
                 let slots = inner_thread_slots.load(std::sync::atomic::Ordering::Relaxed);
                 let mem_progress_gb = inner_mem_progress.load(std::sync::atomic::Ordering::Relaxed)
                     as f64
@@ -226,6 +236,7 @@ pub fn do_migrate_34_to_35(
                 debug!(target: "store",
                     "Preload subtrie at {hex_prefix} done, \
                     loaded {n:<8} state items, \
+                    visited {nodes_count} nodes, \
                     {slots} slots remain, \
                     {first_record_to_display} is the first state record, \
                     mem progress gb: {mem_progress_gb} / {mem_usage_gb}"
