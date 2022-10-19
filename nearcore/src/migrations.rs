@@ -221,7 +221,7 @@ pub fn do_migrate_34_to_35(
                 let mem_usage_gb = memory_usage as f64 / 10f64.powf(9.0);
                 let first_record_to_display = match first_state_record {
                     Some(state_record) => format!("{}", state_record),
-                    None => "",
+                    None => String::from(""),
                 };
                 debug!(target: "store",
                     "Preload subtrie at {hex_prefix} done, \
