@@ -670,7 +670,8 @@ pub fn setup_mock_all_validators(
                             known_producers: vec![],
                             tier1_accounts: vec![],
                         };
-                        client_addr.do_send(NetworkClientMessages::NetworkInfo(info).with_span_context());
+                        client_addr
+                            .do_send(NetworkClientMessages::NetworkInfo(info).with_span_context());
                     }
 
                     match msg.as_network_requests_ref() {
@@ -682,7 +683,14 @@ pub fn setup_mock_all_validators(
                             }
 
                             for (client, _) in connectors1 {
-                                client.do_send(NetworkClientMessages::Block( block.clone(), PeerInfo::random().id, false, ).with_span_context());
+                                client.do_send(
+                                    NetworkClientMessages::Block(
+                                        block.clone(),
+                                        PeerInfo::random().id,
+                                        false,
+                                    )
+                                    .with_span_context(),
+                                );
                             }
 
                             let mut last_height1 = last_height1.write().unwrap();
@@ -698,7 +706,11 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
                             let create_msg = || {
-                                NetworkClientMessages::PartialEncodedChunkRequest(request.clone(), my_address).with_span_context()
+                                NetworkClientMessages::PartialEncodedChunkRequest(
+                                    request.clone(),
+                                    my_address,
+                                )
+                                .with_span_context()
                             };
                             send_chunks(
                                 connectors1,
@@ -713,7 +725,8 @@ pub fn setup_mock_all_validators(
                                 NetworkClientMessages::PartialEncodedChunkResponse(
                                     response.clone(),
                                     Clock::instant(),
-                                ).with_span_context()
+                                )
+                                .with_span_context()
                             };
                             send_chunks(
                                 connectors1,
@@ -728,7 +741,10 @@ pub fn setup_mock_all_validators(
                             partial_encoded_chunk,
                         } => {
                             let create_msg = || {
-                                NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk.clone().into()).with_span_context()
+                                NetworkClientMessages::PartialEncodedChunk(
+                                    partial_encoded_chunk.clone().into(),
+                                )
+                                .with_span_context()
                             };
                             send_chunks(
                                 connectors1,
@@ -740,7 +756,8 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                             let create_msg = || {
-                                NetworkClientMessages::PartialEncodedChunkForward(forward.clone()).with_span_context()
+                                NetworkClientMessages::PartialEncodedChunkForward(forward.clone())
+                                    .with_span_context()
                             };
                             send_chunks(
                                 connectors1,
@@ -758,14 +775,20 @@ pub fn setup_mock_all_validators(
                                     actix::spawn(
                                         connectors1[i]
                                             .1
-                                            .send(NetworkViewClientMessages::BlockRequest(*hash).with_span_context())
+                                            .send(
+                                                NetworkViewClientMessages::BlockRequest(*hash)
+                                                    .with_span_context(),
+                                            )
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
                                                     NetworkViewClientResponses::Block(block) => {
-                                                        me.do_send(NetworkClientMessages::Block(
-                                                            *block, peer_id, true,
-                                                        ).with_span_context());
+                                                        me.do_send(
+                                                            NetworkClientMessages::Block(
+                                                                *block, peer_id, true,
+                                                            )
+                                                            .with_span_context(),
+                                                        );
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),
@@ -784,9 +807,12 @@ pub fn setup_mock_all_validators(
                                     actix::spawn(
                                         connectors1[i]
                                             .1
-                                            .send(NetworkViewClientMessages::BlockHeadersRequest(
-                                                hashes.clone(),
-                                            ).with_span_context())
+                                            .send(
+                                                NetworkViewClientMessages::BlockHeadersRequest(
+                                                    hashes.clone(),
+                                                )
+                                                .with_span_context(),
+                                            )
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -796,7 +822,8 @@ pub fn setup_mock_all_validators(
                                                         me.do_send(
                                                             NetworkClientMessages::BlockHeaders(
                                                                 headers, peer_id,
-                                                            ).with_span_context()
+                                                            )
+                                                            .with_span_context(),
                                                         );
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
@@ -823,10 +850,13 @@ pub fn setup_mock_all_validators(
                                     actix::spawn(
                                         connectors1[i]
                                             .1
-                                            .send(NetworkViewClientMessages::StateRequestHeader {
-                                                shard_id: *shard_id,
-                                                sync_hash: *sync_hash,
-                                            }.with_span_context())
+                                            .send(
+                                                NetworkViewClientMessages::StateRequestHeader {
+                                                    shard_id: *shard_id,
+                                                    sync_hash: *sync_hash,
+                                                }
+                                                .with_span_context(),
+                                            )
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -836,7 +866,8 @@ pub fn setup_mock_all_validators(
                                                         me.do_send(
                                                             NetworkClientMessages::StateResponse(
                                                                 *response,
-                                                            ).with_span_context()
+                                                            )
+                                                            .with_span_context(),
                                                         );
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
@@ -864,11 +895,14 @@ pub fn setup_mock_all_validators(
                                     actix::spawn(
                                         connectors1[i]
                                             .1
-                                            .send(NetworkViewClientMessages::StateRequestPart {
-                                                shard_id: *shard_id,
-                                                sync_hash: *sync_hash,
-                                                part_id: *part_id,
-                                            }.with_span_context())
+                                            .send(
+                                                NetworkViewClientMessages::StateRequestPart {
+                                                    shard_id: *shard_id,
+                                                    sync_hash: *sync_hash,
+                                                    part_id: *part_id,
+                                                }
+                                                .with_span_context(),
+                                            )
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -878,7 +912,8 @@ pub fn setup_mock_all_validators(
                                                         me.do_send(
                                                             NetworkClientMessages::StateResponse(
                                                                 *response,
-                                                            ).with_span_context()
+                                                            )
+                                                            .with_span_context(),
                                                         );
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
@@ -893,7 +928,10 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::StateResponse { route_back, response } => {
                             for (i, address) in addresses.iter().enumerate() {
                                 if route_back == address {
-                                    connectors1[i].0.do_send(NetworkClientMessages::StateResponse(response.clone()).with_span_context());
+                                    connectors1[i].0.do_send(
+                                        NetworkClientMessages::StateResponse(response.clone())
+                                            .with_span_context(),
+                                    );
                                 }
                             }
                         }
@@ -906,9 +944,13 @@ pub fn setup_mock_all_validators(
                             if aa.get(&key).is_none() {
                                 aa.insert(key);
                                 for (_, view_client) in connectors1 {
-                                    view_client.do_send(NetworkViewClientMessages::AnnounceAccount(
-                                        vec![(announce_account.clone(), None)],
-                                    ).with_span_context())
+                                    view_client.do_send(
+                                        NetworkViewClientMessages::AnnounceAccount(vec![(
+                                            announce_account.clone(),
+                                            None,
+                                        )])
+                                        .with_span_context(),
+                                    )
                                 }
                             }
                         }
@@ -937,7 +979,8 @@ pub fn setup_mock_all_validators(
                                             NetworkClientMessages::BlockApproval(
                                                 approval.clone(),
                                                 my_key_pair.id.clone(),
-                                            ).with_span_context(),
+                                            )
+                                            .with_span_context(),
                                         );
                                     }
                                 }

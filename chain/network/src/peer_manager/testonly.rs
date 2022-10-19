@@ -13,9 +13,7 @@ use crate::tcp;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
-use crate::types::{
-    ChainInfo, KnownPeerStatus, PeerManagerMessageRequest, SetChainInfo,
-};
+use crate::types::{ChainInfo, KnownPeerStatus, PeerManagerMessageRequest, SetChainInfo};
 use crate::PeerManagerActor;
 use near_primitives::network::PeerId;
 use std::collections::HashSet;
@@ -285,9 +283,11 @@ impl ActorHandler {
     pub async fn wait_for_accounts_data(&self, want: &HashSet<Arc<SignedAccountData>>) {
         let mut events = self.events.from_now();
         loop {
-            let got = self.with_state(move |s| async move {
-                s.accounts_data.load().data.values().cloned().collect::<HashSet<_>>()
-            }).await;
+            let got = self
+                .with_state(move |s| async move {
+                    s.accounts_data.load().data.values().cloned().collect::<HashSet<_>>()
+                })
+                .await;
             tracing::debug!(target:"dupa","got = {:?}",got);
             tracing::debug!(target:"dupa","want = {:?}",want);
             if &got == want {

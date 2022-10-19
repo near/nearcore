@@ -3,6 +3,7 @@ use crate::network_protocol::testonly as data;
 use crate::network_protocol::{PeerAddr, PeerMessage, RoutedMessageBody};
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
+use crate::peer_manager::testonly::start as start_pm;
 use crate::peer_manager::testonly::Event;
 use crate::tcp;
 use crate::testonly::{make_rng, Rng};
@@ -10,13 +11,12 @@ use crate::time;
 use crate::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block_header::{Approval, ApprovalInner, ApprovalMessage};
+use near_primitives::types::EpochId;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::types::{EpochId};
+use near_store::db::TestDB;
 use rand::Rng as _;
 use std::collections::HashSet;
 use std::sync::Arc;
-use crate::peer_manager::testonly::start as start_pm;
-use near_store::db::TestDB;
 
 /// Constructs a random TIER1 message.
 fn make_block_approval(rng: &mut Rng, signer: &dyn ValidatorSigner) -> Approval {
@@ -83,19 +83,13 @@ async fn send_tier1_message(
         approval_message: ApprovalMessage { approval: want.clone(), target },
     };
     let mut events = to.events.from_now();
-    let resp = from
-        .actix
-        .addr
-        .send(PeerManagerMessageRequest::NetworkRequests(req))
-        .await
-        .unwrap();
+    let resp = from.actix.addr.send(PeerManagerMessageRequest::NetworkRequests(req)).await.unwrap();
     assert_eq!(NetworkResponses::NoResponse, resp.as_network_response());
     let got = events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::MessageProcessed(
-                tcp::Tier::T1,
-                PeerMessage::Routed(got),
-            )) => Some(got),
+            Event::PeerManager(PME::MessageProcessed(tcp::Tier::T1, PeerMessage::Routed(got))) => {
+                Some(got)
+            }
             _ => None,
         })
         .await;
@@ -110,7 +104,7 @@ async fn test_clique(rng: &mut Rng, pms: &[&peer_manager::testonly::ActorHandler
             if from.cfg.node_id() == to.cfg.node_id() {
                 continue;
             }
-            send_tier1_message(rng,from,to).await;
+            send_tier1_message(rng, from, to).await;
         }
     }
 }
@@ -212,7 +206,7 @@ async fn proxy_connections() {
     all.extend(validators.clone());
     all.extend(proxies.clone());
     all.push(&hub);
-    
+
     let epoch = data::make_epoch_id(rng);
     set_chain_info(&epoch, &chain, &validators[..], &all[..]).await;
     establish_connections(&clock.clock(), &all[..]).await;
@@ -234,16 +228,16 @@ async fn account_keys_change() {
     hub.connect_to(&v0.peer_info()).await;
     hub.connect_to(&v1.peer_info()).await;
     hub.connect_to(&v2.peer_info()).await;
-    
+
     // TIER1 nodes in 1st epoch are {v0,v1}.
-    set_chain_info(&data::make_epoch_id(rng),&chain,&[&v0,&v1],&[&v0,&v1,&v2,&hub]).await;
-    establish_connections(&clock.clock(), &[&v0,&v1,&v2,&hub]).await;
-    test_clique(rng, &[&v0,&v1]).await;
+    set_chain_info(&data::make_epoch_id(rng), &chain, &[&v0, &v1], &[&v0, &v1, &v2, &hub]).await;
+    establish_connections(&clock.clock(), &[&v0, &v1, &v2, &hub]).await;
+    test_clique(rng, &[&v0, &v1]).await;
 
     // TIER1 nodes in 2nd epoch are {v0,v2}.
-    set_chain_info(&data::make_epoch_id(rng),&chain,&[&v0,&v2],&[&v0,&v1,&v2,&hub]).await;
-    establish_connections(&clock.clock(), &[&v0,&v1,&v2,&hub]).await;
-    test_clique(rng, &[&v0,&v2]).await;
+    set_chain_info(&data::make_epoch_id(rng), &chain, &[&v0, &v2], &[&v0, &v1, &v2, &hub]).await;
+    establish_connections(&clock.clock(), &[&v0, &v1, &v2, &hub]).await;
+    test_clique(rng, &[&v0, &v2]).await;
 
     drop(v0);
     drop(v1);
@@ -269,14 +263,8 @@ async fn proxy_change() {
     let p1cfg = chain.make_config(rng);
     let mut v0cfg = chain.make_config(rng);
     v0cfg.validator.as_mut().unwrap().proxies = config::ValidatorProxies::Static(vec![
-        PeerAddr {
-            peer_id: p0cfg.node_id(),
-            addr: p0cfg.node_addr.unwrap(),
-        },
-        PeerAddr {
-            peer_id: p1cfg.node_id(),
-            addr: p1cfg.node_addr.unwrap(),
-        },
+        PeerAddr { peer_id: p0cfg.node_id(), addr: p0cfg.node_addr.unwrap() },
+        PeerAddr { peer_id: p1cfg.node_id(), addr: p1cfg.node_addr.unwrap() },
     ]);
     let mut v1cfg = chain.make_config(rng);
     v1cfg.validator.as_mut().unwrap().proxies = config::ValidatorProxies::Static(vec![]);
@@ -296,26 +284,26 @@ async fn proxy_change() {
     tracing::info!(target:"test", "p0 goes down");
     drop(p0);
     tracing::info!(target:"test", "remaining nodes learn that [v0,v1] are TIER1 nodes");
-    set_chain_info(&epoch,&chain,&[&v0,&v1],&[&v0,&v1,&p1,&hub]).await;
+    set_chain_info(&epoch, &chain, &[&v0, &v1], &[&v0, &v1, &p1, &hub]).await;
     tracing::info!(target:"test", "TIER1 connections get established: v0 -> p1 <- v1.");
-    establish_connections(&clock.clock(), &[&v0,&v1,&p1,&hub]).await;
+    establish_connections(&clock.clock(), &[&v0, &v1, &p1, &hub]).await;
     tracing::info!(target:"test", "Send message v1 -> v0 over TIER1.");
-    send_tier1_message(rng,&v1,&v0).await;
+    send_tier1_message(rng, &v1, &v0).await;
 
     // Advance time, so that the new AccountsData has newer timestamp.
     clock.advance(time::Duration::hours(1));
-    
+
     tracing::info!(target:"test", "p1 goes down.");
     drop(p1);
     tracing::info!(target:"test", "p0 goes up and learns that [v0,v1] are TIER1 nodes.");
     let p0 = start_pm(clock.clock(), TestDB::new(), p0cfg.clone(), chain.clone()).await;
-    set_chain_info(&epoch,&chain,&[&v0,&v1],&[&p0]).await;
+    set_chain_info(&epoch, &chain, &[&v0, &v1], &[&p0]).await;
     hub.connect_to(&p0.peer_info()).await;
     tracing::info!(target:"test", "TIER1 connections get established: v0 -> p0 <- v1.");
-    establish_connections(&clock.clock(), &[&v0,&v1,&p0,&hub]).await;
+    establish_connections(&clock.clock(), &[&v0, &v1, &p0, &hub]).await;
     tracing::info!(target:"test", "Send message v1 -> v0 over TIER1.");
-    send_tier1_message(rng,&v1,&v0).await;
-    
+    send_tier1_message(rng, &v1, &v0).await;
+
     drop(hub);
     drop(v0);
     drop(v1);

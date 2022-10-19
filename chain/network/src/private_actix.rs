@@ -57,6 +57,7 @@ pub(crate) enum RegisterPeerError {
     PoolError(connection::PoolError),
     ConnectionLimitExceeded,
     NotTier1Peer,
+    Tier1InboundDisabled,
 }
 
 #[derive(actix::MessageResponse, Debug)]

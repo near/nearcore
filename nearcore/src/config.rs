@@ -609,8 +609,11 @@ impl NearConfig {
                 near_network::config::Features {
                     // Enable tier1.
                     tier1: Some(near_network::config::Tier1 {
-                        daemon_tick_interval: time::Duration::seconds(20),
-                        new_connections_per_tick: 5,
+                        connect_interval: time::Duration::seconds(20),
+                        new_connections_per_attempt: 10,
+                        advertise_proxies_interval: time::Duration::minutes(15),
+                        enable_inbound: true,
+                        enable_outbound: false,
                     }),
                 },
             )?,

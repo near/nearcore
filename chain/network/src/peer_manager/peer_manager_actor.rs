@@ -1190,6 +1190,9 @@ impl PeerManagerActor {
 
         match msg.connection.tier {
             tcp::Tier::T1 => {
+                if !self.state.config.features.tier1.as_ref().map_or(false, |c| c.enable_inbound) {
+                    return RegisterPeerResponse::Reject(RegisterPeerError::Tier1InboundDisabled);
+                }
                 if msg.connection.peer_type == PeerType::Inbound {
                     // Allow for inbound TIER1 connections only directly from a TIER1 peers.
                     let owned_account = match &msg.connection.owned_account {

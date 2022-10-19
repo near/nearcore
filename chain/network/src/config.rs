@@ -80,6 +80,14 @@ pub struct Tier1 {
     /// Interval between broacasts of the list of validator's proxies.
     /// Before the broadcast, validator tries to establish all the missing connections to proxies.
     pub advertise_proxies_interval: time::Duration,
+    /// Support for gradual TIER1 feature rollout:
+    /// - establishing connection to node's own proxies is always enabled (it is a part of peer
+    ///   discovery mechanism). Note that unless the proxy has enable_inbound set, establishing
+    ///   those connections will fail anyway.
+    /// - a node will start accepting TIER1 inbound connections iff `enable_inbound` is true.
+    /// - a node will try to start outbound TIER1 connections iff `enable_outbound` is true.
+    pub enable_inbound: bool,
+    pub enable_outbound: bool,
     /*
     /// Max rate at which TIER1 messages will be read from TCP sockets.
     /// Above that rate reading will block, which will cause extra data
@@ -327,6 +335,8 @@ impl NetworkConfig {
                     connect_interval: time::Duration::hours(1000),
                     new_connections_per_attempt: 10000,
                     advertise_proxies_interval: time::Duration::hours(1000),
+                    enable_inbound: true,
+                    enable_outbound: true,
                 }),
             },
             skip_tombstones: None,

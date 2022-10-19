@@ -175,6 +175,9 @@ impl super::NetworkState {
             Some(it) => it,
             None => return,
         };
+        if !tier1_cfg.enable_outbound {
+            return;
+        }
         let accounts_data = self.accounts_data.load();
         let validator_cfg = self.tier1_validator_config(&accounts_data);
 
