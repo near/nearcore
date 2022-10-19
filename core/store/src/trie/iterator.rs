@@ -500,6 +500,7 @@ impl<'a> Iterator for HeavySubTrieIterator<'a> {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::iter;
 
     use rand::seq::SliceRandom;
     use rand::Rng;
@@ -670,7 +671,7 @@ mod tests {
 
         // Select subtrie with weight 8.
         let key = vec![n2b(0, 0)];
-        iterator.seek(key).unwrap();
+        iterator.seek_prefix(key).unwrap();
 
         // Allow two children per sub trie.
         // (1000b per child + key length + some extra per entry)
