@@ -259,13 +259,14 @@ impl NetworkState {
         if edges.is_empty() {
             return;
         }
-        self.routing_table_addr.do_send(routing::actor::Message::ValidateEdgeList(
-            ValidateEdgeList {
+        self.routing_table_addr.do_send(
+            routing::actor::Message::ValidateEdgeList(ValidateEdgeList {
                 source_peer_id: peer_id,
                 edges,
                 edges_info_shared: self.routing_table_exchange_helper.edges_info_shared.clone(),
                 sender: self.routing_table_exchange_helper.edges_to_add_sender.clone(),
-            },
-        ));
+            })
+            .with_span_context(),
+        );
     }
 }

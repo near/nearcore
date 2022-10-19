@@ -25,7 +25,7 @@ use actix::fut::future::wrap_future;
 use actix::{Actor, ActorContext, ActorFutureExt, AsyncContext, Context, Handler, Running};
 use lru::LruCache;
 use near_crypto::Signature;
-use near_o11y::{handler_span, OpenTelemetrySpanExt};
+use near_o11y::{handler_span, OpenTelemetrySpanExt, WithSpanContextExt};
 use near_o11y::{log_assert, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;

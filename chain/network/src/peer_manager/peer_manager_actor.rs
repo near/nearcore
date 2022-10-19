@@ -31,9 +31,7 @@ use actix::{
 };
 use anyhow::bail;
 use anyhow::Context as _;
-use near_o11y::{
-    handler_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt,
-};
+use near_o11y::{handler_trace_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
