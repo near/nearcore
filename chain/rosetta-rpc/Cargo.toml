@@ -34,5 +34,7 @@ near-client-primitives = { path = "../client-primitives" }
 near-network = { path = "../network" }
 near-o11y = { path = "../../core/o11y" }
 
+
 [dev-dependencies]
-insta.workspace = true
+insta = "1"
+near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
