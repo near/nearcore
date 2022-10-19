@@ -408,18 +408,28 @@ impl<'a> StoreOpener<'a> {
         // Those are mostly sanity checks.  If any of those conditions fails
         // than either there’s bug in code or someone does something weird on
         // the file system and tries to switch databases under us.
-        match (hot_meta.kind, cold_meta.map(|meta| meta.kind)) {
-            (Some(DbKind::RPC | DbKind::Archive), None) => Ok(()),
-            (kind, None) => Err(format!("unexpected DbKind {kind:?}; expected RPC or Archive")),
+        if let Some(_cold_meta) = cold_meta {
             #[cfg(feature = "cold_store")]
-            (Some(DbKind::Hot), Some(Some(DbKind::Cold))) => Ok(()),
-            #[cfg(feature = "cold_store")]
-            (Some(DbKind::Hot), Some(kind)) => {
-                Err(format!("unexpected DbKind {kind:?}; expected Cold"))
+            if hot_meta.kind != Some(DbKind::Hot) {
+                Err((hot_meta.kind, "Hot"))
+            } else if _cold_meta.kind != Some(DbKind::Cold) {
+                Err((_cold_meta.kind, "Cold"))
+            } else {
+                Ok(())
             }
-            (kind, Some(_)) => Err(format!("unexpected DbKind {kind:?}; expected Hot")),
+            #[cfg(not(feature = "cold_store"))]
+            Ok(())
+        } else if matches!(hot_meta.kind, None | Some(DbKind::RPC | DbKind::Archive)) {
+            Ok(())
+        } else {
+            Err((hot_meta.kind, "RPC or Archive"))
         }
-        .map_err(|msg| std::io::Error::new(std::io::ErrorKind::Other, msg))?;
+        .map_err(|(got, want)| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("unexpected DbKind {got:?}; expected {want}"),
+            )
+        })?;
 
         Ok((NodeStorage::from_rocksdb(hot, cold), hot_meta, cold_meta))
     }
