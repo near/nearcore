@@ -258,7 +258,6 @@ pub(crate) fn action_function_call(
                     .into());
                     false
                 }
-                FunctionCallError::_EVMError => unreachable!(),
             }
         }
         None => true,
