@@ -120,25 +120,28 @@ pub fn do_migrate_34_to_35(
     // });
     // panic!("Test finished");
 
-    for shard_id in 0..num_shards {
-        info!(target: "chain", %shard_id, "Start flat state shard migration");
+    // for shard_id in 0..num_shards {
+    //     info!(target: "chain", %shard_id, "Start flat state shard migration");
+    //     let shard_uid = runtime.shard_id_to_uid(shard_id, &epoch_id)?;
+    //     let state_root = chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root().clone();
+    //     let trie = runtime.get_trie_for_shard(shard_id, &block_hash, state_root, false)?;
+    //     let root_node = trie.retrieve_root_node().unwrap();
+    //     info!(target: "store", %shard_id, "{} gb", root_node.memory_usage / 10u64.pow(9));
+    // }
+    //
+    // panic!("");
+
+    for shard_id in 2..num_shards {
         let shard_uid = runtime.shard_id_to_uid(shard_id, &epoch_id)?;
         let state_root = chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root().clone();
         let trie = runtime.get_trie_for_shard(shard_id, &block_hash, state_root, false)?;
         let root_node = trie.retrieve_root_node().unwrap();
-        info!(target: "store", %shard_id, "{} gb", root_node.memory_usage / 10u64.pow(9));
-    }
+        let memory_usage = root_node.memory_usage;
 
-    panic!("");
+        let sub_trie_size = memory_usage / 1024; //5_000_000;
+        info!(target: "chain", %shard_id, "Start flat state shard migration, mem_usage = {} gb, sub_trie_size = {} gb", memory_usage as f64 / 10u64.pow(9), sub_trie_size as f64 / 10u64.pow(9));
 
-    for shard_id in 2..num_shards {
-        info!(target: "chain", %shard_id, "Start flat state shard migration");
-        let shard_uid = runtime.shard_id_to_uid(shard_id, &epoch_id)?;
-        let state_root = chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root().clone();
-        let trie = runtime.get_trie_for_shard(shard_id, &block_hash, state_root, false)?;
-
-        let sub_trie_size = 5_000_000;
-        let max_threads = 64;
+        let max_threads = 1024;
         let thread_slots = Arc::new(std::sync::atomic::AtomicU32::new(max_threads));
 
         let mut state_iter = trie.iter()?;
@@ -188,7 +191,7 @@ pub fn do_migrate_34_to_35(
                 debug!(target: "store", "Preload subtrie at {hex_prefix}");
                 let trie = Trie::new(Box::new(storage), root, None);
                 let inner_iter = TrieIterator { trie: &trie, trail, key_nibbles, visited_nodes };
-                let mut store_update = inner_store.store_update();
+                let mut store_update = BatchedStoreUpdate::new(&inner_store, 10_000_000);
                 let n = inner_iter
                     .map(|item| {
                         let item = item.unwrap();
@@ -198,7 +201,7 @@ pub fn do_migrate_34_to_35(
                             .expect("Failed to put value in FlatState");
                     })
                     .count();
-                store_update.commit().unwrap();
+                store_update.finish().unwrap();
                 debug!(target: "store", "Preload subtrie at {hex_prefix} done, loaded {n:<8} state items");
                 inner_thread_slots.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 n
