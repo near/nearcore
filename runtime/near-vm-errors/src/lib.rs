@@ -59,8 +59,7 @@ pub enum FunctionCallError {
 }
 
 /// Serializable version of `FunctionCallError`. Must never reorder/remove elements, can only
-/// add new variants at the end (but do that very carefully). This type must be never used
-/// directly, and must be converted to `ContractCallError` instead using `into()` converter.
+/// add new variants at the end (but do that very carefully).
 /// It describes stable serialization format, and only used by serialization logic.
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 pub enum FunctionCallErrorSer {
@@ -296,6 +295,27 @@ impl std::error::Error for VMLogicError {}
 pub enum InconsistentStateError {
     /// Math operation with a value from the state resulted in a integer overflow.
     IntegerOverflow,
+}
+
+impl From<FunctionCallError> for FunctionCallErrorSer {
+    fn from(outer_err: FunctionCallError) -> Self {
+        match outer_err {
+            FunctionCallError::CompilationError(e) => FunctionCallErrorSer::CompilationError(e),
+            FunctionCallError::MethodResolveError(e) => FunctionCallErrorSer::MethodResolveError(e),
+            // TODO: consider using FunctionCallErrorSer::HostError
+            FunctionCallError::HostError(ref _e) => {
+                FunctionCallErrorSer::ExecutionError(outer_err.to_string())
+            }
+            // TODO: consider using FunctionCallErrorSer::LinkError
+            FunctionCallError::LinkError { msg } => {
+                FunctionCallErrorSer::ExecutionError(format!("Link Error: {}", msg))
+            }
+            // TODO: consider using FunctionCallErrorSer::WasmTrap
+            FunctionCallError::WasmTrap(ref _e) => {
+                FunctionCallErrorSer::ExecutionError(outer_err.to_string())
+            }
+        }
+    }
 }
 
 impl From<HostError> for VMLogicError {
