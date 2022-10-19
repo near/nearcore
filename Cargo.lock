@@ -1003,12 +1003,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "conqueue"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eac4306c796b95d3964b94fa65018a57daee08b45a54b86a4f64910426427b66"
-
-[[package]]
 name = "console"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3054,6 +3048,7 @@ dependencies = [
  "actix",
  "actix-cors",
  "actix-web",
+ "bs58",
  "easy-ext",
  "futures",
  "near-chain-configs",
@@ -3174,7 +3169,6 @@ dependencies = [
  "bytes",
  "bytesize",
  "chrono",
- "conqueue",
  "criterion",
  "crossbeam-channel 0.5.4",
  "delay-detector",
@@ -3342,6 +3336,7 @@ dependencies = [
  "hex",
  "insta",
  "near-account-id",
+ "near-actix-test-utils",
  "near-chain-configs",
  "near-client",
  "near-client-primitives",
@@ -5885,9 +5880,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-core"
-version = "0.1.29"
+version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5aeea4303076558a00714b823f9ad67d58a3bbda1df83d8827d21193156e22f7"
+checksum = "24eb03ba0eab1fd845050058ce5e616558e8f8d8fca633e6b163fe25c797213a"
 dependencies = [
  "once_cell",
  "valuable",

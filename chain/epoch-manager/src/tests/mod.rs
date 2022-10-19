@@ -2612,7 +2612,7 @@ fn test_max_kickout_stake_ratio() {
         kickouts,
         // We would have kicked out test0, test1, test2 and test4, but
         // test1, test2, and test4 are exempted. Note that test3 can't be exempted because it
-        // is in prev_valdiator_kickout.
+        // is in prev_validator_kickout.
         HashMap::from([(
             "test0".parse().unwrap(),
             NotEnoughBlocks { produced: 50, expected: 100 }
