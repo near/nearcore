@@ -111,19 +111,18 @@ fn stress_test() {
                             let flag1 = flag.clone();
 
                             let actor = pms[ix].send(GetInfo {}.with_span_context());
-                            let actor = actor.then(
-                                move |info| {
-                                    if let Ok(info) = info {
-                                        if info.num_connected_peers == num_nodes - 2 {
-                                            flag1.store(true, Ordering::Relaxed);
-                                        }
-                                    } else {
-                                        info!(target: "test", "Node {} have failed", ix);
-                                        System::current().stop();
+                            let actor = actor.then(move |info| {
+                                if let Ok(info) = info {
+                                    if info.num_connected_peers == num_nodes - 2 {
+                                        flag1.store(true, Ordering::Relaxed);
                                     }
+                                } else {
+                                    info!(target: "test", "Node {} have failed", ix);
+                                    System::current().stop();
+                                }
 
-                                    futures::future::ready(())
-                                });
+                                futures::future::ready(())
+                            });
                             actix::spawn(actor);
                         }
                     }
