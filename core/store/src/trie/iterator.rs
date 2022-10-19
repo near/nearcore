@@ -47,7 +47,7 @@ pub struct TrieIterator<'a> {
 
     /// If not `None`, a list of all nodes that the iterator has visited.
     pub visited_nodes: Option<Vec<std::sync::Arc<[u8]>>>,
-    pub nodes_count: u64,
+    pub nodes_count: Arc<AtomicU64>,
     pub global_nodes_count: Arc<AtomicU64>,
 }
 
@@ -78,7 +78,7 @@ impl<'a> TrieIterator<'a> {
             trail: Vec::with_capacity(8),
             key_nibbles: Vec::with_capacity(64),
             visited_nodes: None,
-            nodes_count: 0,
+            nodes_count: Arc::new(Default::default()),
             global_nodes_count: Arc::new(Default::default()),
         };
         r.descend_into_node(&trie.root)?;
@@ -194,7 +194,7 @@ impl<'a> TrieIterator<'a> {
         if let Some(ref mut visited) = self.visited_nodes {
             visited.push(bytes.ok_or(StorageError::TrieNodeMissing)?);
         }
-        self.nodes_count += 1;
+        self.nodes_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let global_count = self.global_nodes_count.load(std::sync::atomic::Ordering::Relaxed);
         if global_count % 10_000 == 0 {
             debug!(target: "store", global_count);
@@ -383,7 +383,7 @@ impl<'a> TrieIterator<'a> {
             trail: fused_trail,
             key_nibbles: self.key_nibbles,
             visited_nodes: self.visited_nodes,
-            nodes_count: 0,
+            nodes_count: Arc::new(Default::default()),
             global_nodes_count: Arc::new(Default::default()),
         };
         HeavySubTrieIterator::new(fused_self, max_memory_usage)
@@ -443,7 +443,7 @@ impl<'a> HeavySubTrieIterator<'a> {
             trail: vec![crumb],
             key_nibbles,
             visited_nodes: self.trie_iterator.visited_nodes.clone(),
-            nodes_count: 0,
+            nodes_count: Arc::new(Default::default()),
             global_nodes_count: Arc::new(Default::default()),
         };
     }

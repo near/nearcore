@@ -195,12 +195,13 @@ pub fn do_migrate_34_to_35(
                 debug!(target: "store", "Preload subtrie at {hex_prefix}");
                 let trie = Trie::new(Box::new(storage), root, None);
                 let current_memory_usage = trail.last().unwrap().node.memory_usage();
+                let nodes_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
                 let inner_iter = TrieIterator {
                     trie: &trie,
                     trail,
                     key_nibbles,
                     visited_nodes: None,
-                    nodes_count: 0,
+                    nodes_count: nodes_count.clone(),
                     global_nodes_count: inner_nodes_count,
                 };
                 let mut store_update = BatchedStoreUpdate::new(&inner_store, 10_000_000);
@@ -223,7 +224,7 @@ pub fn do_migrate_34_to_35(
                 inner_mem_progress
                     .fetch_add(current_memory_usage, std::sync::atomic::Ordering::Relaxed);
 
-                let nodes_count = inner_iter.nodes_count;
+                let nodes_count = nodes_count.load(std::sync::atomic::Ordering::Relaxed);
                 let slots = inner_thread_slots.load(std::sync::atomic::Ordering::Relaxed);
                 let mem_progress_gb = inner_mem_progress.load(std::sync::atomic::Ordering::Relaxed)
                     as f64
