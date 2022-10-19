@@ -25,7 +25,7 @@ use actix::fut::future::wrap_future;
 use actix::{Actor, ActorContext, ActorFutureExt, AsyncContext, Context, Handler, Running};
 use lru::LruCache;
 use near_crypto::Signature;
-use near_o11y::{handler_span, OpenTelemetrySpanExt, WithSpanContextExt};
+use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContextExt};
 use near_o11y::{log_assert, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
@@ -1285,7 +1285,7 @@ impl Handler<WithSpanContext<SendMessage>> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<SendMessage>, _: &mut Self::Context) {
-        let (_span, msg) = handler_span!("network", msg);
+        let (_span, msg) = handler_debug_span!(target: "network", msg);
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
         self.send_message_or_log(&msg.message);
     }
@@ -1303,7 +1303,7 @@ impl actix::Handler<WithSpanContext<Stop>> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<Stop>, ctx: &mut Self::Context) -> Self::Result {
-        let (_span, msg) = handler_span!("network", msg);
+        let (_span, msg) = handler_debug_span!(target: "network", msg);
         self.stop(
             ctx,
             match msg.ban_reason {

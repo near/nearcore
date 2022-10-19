@@ -10,7 +10,8 @@ use actix::{
     Running, WrapFuture as _,
 };
 use near_o11y::{
-    handler_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt,
+    handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext,
+    WithSpanContextExt,
 };
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
@@ -238,7 +239,7 @@ impl actix::Actor for Actor {
 impl actix::Handler<WithSpanContext<StopMsg>> for Actor {
     type Result = ();
     fn handle(&mut self, msg: WithSpanContext<StopMsg>, ctx: &mut Self::Context) -> Self::Result {
-        let (_span, _msg) = handler_span!("network", msg);
+        let (_span, _msg) = handler_debug_span!(target: "network", msg);
         self.edge_validator_pool.do_send(StopMsg {}.with_span_context());
         ctx.stop();
     }
@@ -285,7 +286,7 @@ impl actix::Handler<WithSpanContext<Message>> for Actor {
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<Message>, ctx: &mut Self::Context) -> Self::Result {
         let msg_type: &str = (&msg.msg).into();
-        let (_span, msg) = handler_trace_span!("network", msg, msg_type);
+        let (_span, msg) = handler_trace_span!(target: "network", msg, msg_type);
         let _timer =
             metrics::ROUTING_TABLE_MESSAGES_TIME.with_label_values(&[msg_type]).start_timer();
         match msg {

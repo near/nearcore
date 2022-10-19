@@ -13,7 +13,7 @@ use near_network::types::{
 use near_network::types::{
     PartialEdgeInfo, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
 };
-use near_o11y::{handler_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics::actix::run_later;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -359,7 +359,7 @@ impl Handler<WithSpanContext<PeerManagerMessageRequest>> for MockPeerManagerActo
         msg: WithSpanContext<PeerManagerMessageRequest>,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = handler_span!("mock-node", msg);
+        let (_span, msg) = handler_debug_span!(target: "mock-node", msg);
         match msg {
             PeerManagerMessageRequest::NetworkRequests(request) => match request {
                 NetworkRequests::BlockRequest { hash, peer_id } => {

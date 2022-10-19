@@ -1454,7 +1454,7 @@ impl Handler<WithSpanContext<GetNetworkInfo>> for PeerManagerActor {
         msg: WithSpanContext<GetNetworkInfo>,
         _ctx: &mut Self::Context,
     ) -> NetworkInfo {
-        let (_span, _msg) = handler_trace_span!("network", msg);
+        let (_span, _msg) = handler_trace_span!(target: "network", msg);
         let _timer = metrics::PEER_MANAGER_MESSAGES_TIME
             .with_label_values(&["GetNetworkInfo"])
             .start_timer();
@@ -1465,7 +1465,7 @@ impl Handler<WithSpanContext<GetNetworkInfo>> for PeerManagerActor {
 impl Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
     type Result = ();
     fn handle(&mut self, msg: WithSpanContext<SetChainInfo>, ctx: &mut Self::Context) {
-        let (_span, info) = handler_trace_span!("network", msg);
+        let (_span, info) = handler_trace_span!(target: "network", msg);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&["SetChainInfo"]).start_timer();
         let now = self.clock.now_utc();
@@ -1560,7 +1560,7 @@ impl Handler<WithSpanContext<PeerToManagerMsg>> for PeerManagerActor {
         ctx: &mut Self::Context,
     ) -> Self::Result {
         let msg_type: &str = (&msg.msg).into();
-        let (_span, msg) = handler_trace_span!("network", msg, msg_type);
+        let (_span, msg) = handler_trace_span!(target: "network", msg, msg_type);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[msg_type]).start_timer();
         self.handle_peer_to_manager_msg(msg, ctx)
@@ -1575,7 +1575,7 @@ impl Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerActor {
         ctx: &mut Self::Context,
     ) -> Self::Result {
         let msg_type: &str = (&msg.msg).into();
-        let (_span, msg) = handler_trace_span!("network", msg, msg_type);
+        let (_span, msg) = handler_trace_span!(target: "network", msg, msg_type);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         self.handle_peer_manager_message(msg, ctx)

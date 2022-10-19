@@ -9,7 +9,7 @@ use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::future::BoxFuture;
 use futures::{future, Future, FutureExt};
 use near_crypto::{KeyType, SecretKey};
-use near_o11y::{handler_span, OpenTelemetrySpanExt, WithSpanContext};
+use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
@@ -216,7 +216,7 @@ impl Handler<WithSpanContext<GetInfo>> for PeerManagerActor {
     type Result = crate::types::NetworkInfo;
 
     fn handle(&mut self, msg: WithSpanContext<GetInfo>, _ctx: &mut Context<Self>) -> Self::Result {
-        let (_span, _msg) = handler_span!("network", msg);
+        let (_span, _msg) = handler_debug_span!(target: "network", msg);
         self.get_network_info()
     }
 }
@@ -242,7 +242,7 @@ impl Handler<WithSpanContext<StopSignal>> for PeerManagerActor {
         msg: WithSpanContext<StopSignal>,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = handler_span!("network", msg);
+        let (_span, msg) = handler_debug_span!(target: "network", msg);
         debug!(target: "network", "Receive Stop Signal.");
 
         if msg.should_panic {
@@ -276,7 +276,7 @@ impl Handler<WithSpanContext<BanPeerSignal>> for PeerManagerActor {
         msg: WithSpanContext<BanPeerSignal>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = handler_span!("network", msg);
+        let (_span, msg) = handler_debug_span!(target: "network", msg);
         debug!(target: "network", "Ban peer: {:?}", msg.peer_id);
         self.try_ban_peer(&msg.peer_id, msg.ban_reason);
     }
