@@ -2121,6 +2121,8 @@ fn test_sync_hash_validity() {
 }
 
 /// Only process one block per height
+/// Temporarily disable this test because the is_height_processed check is moved to client actor
+/// TODO (Min): refactor client actor receive_block code to move it to client
 #[ignore]
 #[test]
 fn test_not_process_height_twice() {

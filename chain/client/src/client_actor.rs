@@ -1413,6 +1413,9 @@ impl ClientActor {
             return;
         }
         // drop the block if a) it is not requested, b) we already processed this height, c) it is not building on top of current head
+        // Note that this check must happen before process_block where we try to validate block
+        // header and rebroadcast blocks, otherwise blocks that failed processing could be
+        // processed and rebroadcasted again and again.
         if !was_requested
             && block.header().prev_hash()
                 != &self
