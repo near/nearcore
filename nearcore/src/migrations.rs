@@ -219,12 +219,15 @@ pub fn do_migrate_34_to_35(
                     as f64
                     / 10f64.powf(9.0);
                 let mem_usage_gb = memory_usage as f64 / 10f64.powf(9.0);
-
+                let first_record_to_display = match first_state_record {
+                    Some(state_record) => format!("{}", state_record),
+                    None => "",
+                };
                 debug!(target: "store",
                     "Preload subtrie at {hex_prefix} done, \
                     loaded {n:<8} state items, \
                     {slots} slots remain, \
-                    {first_state_record} is the first state record, \
+                    {first_record_to_display} is the first state record, \
                     mem progress gb: {mem_progress_gb} / {mem_usage_gb}"
                 );
                 n
