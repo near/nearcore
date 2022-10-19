@@ -24,12 +24,19 @@
                 type: "GET",
                 url: "/status",
                 success: data => {
-                    let binaryText = $('<span>')
-                        .text(`version "${data.version.version}" built with rustc "${data.version.rustc_version}" at `);
-                    binaryText.append(
-                        $('<a>')
-                            .text(data.version.build)
-                            .attr('href', `https://github.com/near/nearcore/tree/${data.version.build}`));
+                    let binaryText = $('<span>');
+                    let version = data.version;
+                    let githubLink = $('<a>')
+                        .text(version.build)
+                        .attr('href', `https://github.com/near/nearcore/tree/${data.version.build}`);
+                    if (version.version == 'trunk') {
+                        binaryText.append('Nightly build ').append(githubLink);
+                    } else if (version.version == version.build) {
+                        binaryText.append('Release ').append(githubLink);
+                    } else {
+                        binaryText.append(`Release ${version.version} (build `).append(githubLink).append(')');
+                    }
+                    binaryText.append(` compiled with rustc ${version.rustc_version}`);
                     $('.js-chain').text(data.chain_id);
                     $('.js-protocol').text(data.protocol_version);
                     $('.js-binary').children().remove();
