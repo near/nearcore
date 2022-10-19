@@ -1,8 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use actix::Addr;
@@ -36,8 +34,6 @@ use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
 
 mod api;
-#[macro_use]
-mod macros;
 mod metrics;
 
 use api::RpcRequest;
@@ -91,7 +87,7 @@ pub struct RpcConfig {
     // For node developers only: if specified, the HTML files used to serve the debug pages will
     // be read from this directory, instead of the contents compiled into the binary. This allows
     // for quick iterative development.
-    pub debug_pages_src_path: Option<String>,
+    pub experimental_debug_pages_src_path: Option<String>,
 }
 
 impl Default for RpcConfig {
@@ -103,7 +99,7 @@ impl Default for RpcConfig {
             polling_config: Default::default(),
             limits_config: Default::default(),
             enable_debug_rpc: false,
-            debug_pages_src_path: None,
+            experimental_debug_pages_src_path: None,
         }
     }
 }
@@ -227,7 +223,7 @@ struct JsonRpcHandler {
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
     enable_debug_rpc: bool,
-    debug_pages_src_path: Option<String>,
+    debug_pages_src_path: Option<PathBuf>,
 }
 
 impl JsonRpcHandler {
@@ -998,15 +994,14 @@ impl JsonRpcHandler {
         Ok(validators)
     }
 
+    /// If experimental_debug_pages_src_path config is set, reads the html file from that
+    /// directory. Otherwise, returns None.
     fn read_html_file_override(&self, html_file: &'static str) -> Option<String> {
         if let Some(directory) = &self.debug_pages_src_path {
-            let path = Path::new(directory).join(html_file);
-            if let Ok(mut file) = File::open(path) {
-                let mut contents = String::new();
-                if let Ok(_) = file.read_to_string(&mut contents) {
-                    return Some(contents);
-                }
-            }
+            let path = directory.join(html_file);
+            return Some(std::fs::read_to_string(path.clone()).unwrap_or_else(|err| {
+                format!("Could not load path {}: {:?}", path.display(), err)
+            }));
         }
         None
     }
@@ -1353,6 +1348,14 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
         .max_age(3600)
 }
 
+macro_rules! debug_page_string {
+    ($html_file: literal, $handler: expr) => {
+        $handler
+            .read_html_file_override($html_file)
+            .unwrap_or_else(|| include_str!(concat!("../res/", $html_file)).to_string())
+    };
+}
+
 #[get("/debug")]
 async fn debug_html(
     handler: web::Data<JsonRpcHandler>,
@@ -1409,7 +1412,7 @@ pub fn start_http(
         polling_config,
         limits_config,
         enable_debug_rpc,
-        debug_pages_src_path,
+        experimental_debug_pages_src_path: debug_pages_src_path,
     } = config;
     let prometheus_addr = prometheus_addr.filter(|it| it != &addr);
     let cors_allowed_origins_clone = cors_allowed_origins.clone();
@@ -1424,7 +1427,7 @@ pub fn start_http(
                 polling_config,
                 genesis_config: genesis_config.clone(),
                 enable_debug_rpc,
-                debug_pages_src_path: debug_pages_src_path.clone(),
+                debug_pages_src_path: debug_pages_src_path.clone().map(Into::into),
             }))
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())
