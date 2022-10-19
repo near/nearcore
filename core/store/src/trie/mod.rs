@@ -128,7 +128,7 @@ impl TrieNodeWithSize {
         TrieNodeWithSize { node, memory_usage }
     }
 
-    fn memory_usage(&self) -> u64 {
+    pub fn memory_usage(&self) -> u64 {
         self.memory_usage
     }
 

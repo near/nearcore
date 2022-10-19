@@ -143,6 +143,7 @@ pub fn do_migrate_34_to_35(
 
         let max_threads = 1024;
         let thread_slots = Arc::new(std::sync::atomic::AtomicU32::new(max_threads));
+        let mem_progress = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
         let mut state_iter = trie.iter()?;
         // let x = String::from("09626173656c696e655f73776561742");
@@ -190,6 +191,7 @@ pub fn do_migrate_34_to_35(
                     .collect();
                 debug!(target: "store", "Preload subtrie at {hex_prefix}");
                 let trie = Trie::new(Box::new(storage), root, None);
+                let current_memory_usage = trail.last().unwrap().node.memory_usage();
                 let inner_iter = TrieIterator { trie: &trie, trail, key_nibbles, visited_nodes };
                 let mut store_update = BatchedStoreUpdate::new(&inner_store, 10_000_000);
                 let n = inner_iter
@@ -202,8 +204,20 @@ pub fn do_migrate_34_to_35(
                     })
                     .count();
                 store_update.finish().unwrap();
-                debug!(target: "store", "Preload subtrie at {hex_prefix} done, loaded {n:<8} state items");
                 inner_thread_slots.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                mem_progress.fetch_add(current_memory_usage, std::sync::atomic::Ordering::Relaxed);
+
+                let mem_progress_gb = mem_progress.load(std::sync::atomic::Ordering::Relaxed)
+                    as f64
+                    / 10f64.powf(9.0);
+                let mem_usage_gb = memory_usage as f64 / 10f64.powf(9.0);
+
+                debug!(target: "store",
+                    "Preload subtrie at {hex_prefix} done, \
+                    loaded {n:<8} state items, \
+                    {inner_thread_slots} slots remain, \
+                    mem progress gb: {mem_progress_gb} / {mem_usage_gb}"
+                );
                 n
             });
             handles.push(handle);

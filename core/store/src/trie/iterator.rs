@@ -7,7 +7,7 @@ use crate::{StorageError, Trie};
 
 #[derive(Debug, Clone)]
 pub struct Crumb {
-    node: TrieNodeWithSize,
+    pub node: TrieNodeWithSize,
     status: CrumbStatus,
     prefix_boundary: bool,
 }
