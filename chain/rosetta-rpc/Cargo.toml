@@ -36,5 +36,7 @@ near-client = { path = "../client" }
 near-client-primitives = { path = "../client-primitives" }
 near-network = { path = "../network" }
 
+
 [dev-dependencies]
 insta = "1"
+near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
