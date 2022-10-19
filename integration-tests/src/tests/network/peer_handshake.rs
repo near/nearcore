@@ -33,7 +33,7 @@ fn make_peer_manager(
     peer_max_count: u32,
 ) -> actix::Addr<PeerManagerActor> {
     let mut config = config::NetworkConfig::from_seed(seed, port);
-    config.boot_nodes = convert_boot_nodes(boot_nodes);
+    config.peer_store.boot_nodes = convert_boot_nodes(boot_nodes);
     config.max_num_peers = peer_max_count;
     config.ideal_connections_hi = peer_max_count;
     config.ideal_connections_lo = peer_max_count;

@@ -15,7 +15,6 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{PartialEncodedChunk, PartialEncodedChunkWithArcReceipts};
-use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
 use near_primitives::types::{AccountId, EpochId, ShardId};
@@ -70,9 +69,6 @@ pub enum ReasonForBan {
     InvalidPeerId = 8,
     InvalidHash = 9,
     InvalidEdge = 10,
-    EpochSyncNoResponse = 11,
-    EpochSyncInvalidResponse = 12,
-    EpochSyncInvalidFinalizationResponse = 13,
     Blacklisted = 14,
 }
 
@@ -170,22 +166,6 @@ pub enum PeerManagerMessageRequest {
     },
 }
 
-/// Messages from PeerManager to Peer
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-pub enum PeerManagerRequest {
-    BanPeer(ReasonForBan),
-    UnregisterPeer,
-}
-
-/// Messages from PeerManager to Peer with a tracing Context.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-pub struct PeerManagerRequestWithContext {
-    pub msg: PeerManagerRequest,
-    pub context: opentelemetry::Context,
-}
-
 impl PeerManagerMessageRequest {
     pub fn as_network_requests(self) -> NetworkRequests {
         if let PeerManagerMessageRequest::NetworkRequests(item) = self {
@@ -270,14 +250,6 @@ pub enum NetworkRequests {
     StateResponse {
         route_back: CryptoHash,
         response: StateResponseInfo,
-    },
-    EpochSyncRequest {
-        peer_id: PeerId,
-        epoch_id: EpochId,
-    },
-    EpochSyncFinalizationRequest {
-        peer_id: PeerId,
-        epoch_id: EpochId,
     },
     /// Ban given peer.
     BanPeer {
@@ -459,10 +431,6 @@ pub enum NetworkClientMessages {
     BlockApproval(Approval, PeerId),
     /// State response.
     StateResponse(StateResponseInfo),
-    /// Epoch Sync response for light client block request
-    EpochSyncResponse(PeerId, Box<EpochSyncResponse>),
-    /// Epoch Sync response for finalization request
-    EpochSyncFinalizationResponse(PeerId, Box<EpochSyncFinalizationResponse>),
 
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
@@ -697,10 +665,6 @@ pub enum NetworkViewClientMessages {
     StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash },
     /// State request part.
     StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64 },
-    /// A request for a light client info during Epoch Sync
-    EpochSyncRequest { epoch_id: EpochId },
-    /// A request for headers and proofs during Epoch Sync
-    EpochSyncFinalizationRequest { epoch_id: EpochId },
     /// Account announcements that needs to be validated before being processed.
     /// They are paired with last epoch id known to this announcement, in order to accept only
     /// newer announcements.
@@ -719,10 +683,6 @@ pub enum NetworkViewClientResponses {
     StateResponse(Box<StateResponseInfo>),
     /// Valid announce accounts.
     AnnounceAccount(Vec<AnnounceAccount>),
-    /// A response to a request for a light client block during Epoch Sync
-    EpochSyncResponse(Box<EpochSyncResponse>),
-    /// A response to a request for headers and proofs during Epoch Sync
-    EpochSyncFinalizationResponse(Box<EpochSyncFinalizationResponse>),
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
     /// Response not needed

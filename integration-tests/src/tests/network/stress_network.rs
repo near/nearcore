@@ -31,7 +31,7 @@ fn make_peer_manager(
     boot_nodes: Vec<(&str, u16)>,
 ) -> actix::Addr<PeerManagerActor> {
     let mut config = config::NetworkConfig::from_seed(seed, port);
-    config.boot_nodes = convert_boot_nodes(boot_nodes);
+    config.peer_store.boot_nodes = convert_boot_nodes(boot_nodes);
     let client_addr = ClientMock::mock(Box::new(move |_msg, _ctx| {
         Box::new(Some(NetworkClientResponses::NoResponse))
     }))

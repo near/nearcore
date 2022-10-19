@@ -2,7 +2,7 @@
 /// They are not meant to be used outside.
 use crate::network_protocol::{Edge, PartialEdgeInfo, PeerInfo, PeerMessage};
 use crate::peer_manager::connection;
-use crate::types::{Ban, ReasonForBan};
+use crate::types::ReasonForBan;
 use near_primitives::network::PeerId;
 use std::collections::HashMap;
 use std::fmt;
@@ -21,8 +21,6 @@ pub(crate) enum PeerToManagerMsg {
     RegisterPeer(RegisterPeer),
     PeersRequest(PeersRequest),
     PeersResponse(PeersResponse),
-    Unregister(Unregister),
-    Ban(Ban),
     RequestUpdateNonce(PeerId, PartialEdgeInfo),
     ResponseUpdateNonce(Edge),
     // PeerRequest

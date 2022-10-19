@@ -12,14 +12,14 @@ use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::private_actix::{
     PeerToManagerMsg, PeerToManagerMsgResp, PeersRequest, PeersResponse, RegisterPeer,
-    RegisterPeerError, RegisterPeerResponse, SendMessage, Unregister,
+    RegisterPeerError, RegisterPeerResponse, SendMessage,
 };
 use crate::routing::edge::verify_nonce;
 use crate::stats::metrics;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    Ban, Handshake, HandshakeFailureReason, PeerIdOrHash, PeerMessage, PeerType, ReasonForBan,
+    Handshake, HandshakeFailureReason, PeerIdOrHash, PeerMessage, PeerType, ReasonForBan,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor, ActorContext, ActorFutureExt, AsyncContext, Context, Handler, Running};
@@ -587,6 +587,21 @@ impl PeerActor {
                                 requesting_full_sync: true,
                             }));
                         }
+                        {
+                            // Sync the RoutingTable.
+                            act.sync_routing_table();
+                            // Exchange peers periodically.
+                            let conn = conn.clone();
+                            ctx.spawn(wrap_future(async move {
+                                let mut interval =
+                                    tokio::time::interval(REQUEST_PEERS_INTERVAL.try_into().unwrap());
+                                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                                loop {
+                                    conn.send_message(Arc::new(PeerMessage::PeersRequest));
+                                    interval.tick().await;
+                                }
+                            }));
+                        }
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
                             edge: conn.edge.clone(),
@@ -605,6 +620,21 @@ impl PeerActor {
                 actix::fut::ready(())
             })
         );
+    }
+
+    // Send full RoutingTable.
+    fn sync_routing_table(&self) {
+        let mut known_edges: Vec<Edge> =
+            self.network_state.graph.read().edges().values().cloned().collect();
+        if self.network_state.config.skip_tombstones.is_some() {
+            known_edges.retain(|edge| edge.removal_info().is_none());
+            metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
+        }
+        let known_accounts = self.network_state.routing_table_view.get_announce_accounts();
+        self.send_message_or_log(&PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
+            known_edges,
+            known_accounts,
+        )));
     }
 
     fn handle_msg_connecting(&mut self, ctx: &mut actix::Context<Self>, msg: PeerMessage) {
@@ -1020,9 +1050,7 @@ impl PeerActor {
                                 .event_sink
                                 .push(Event::MessageProcessed(PeerMessage::Routed(msg)));
                         }
-                        _ => {
-                            self.receive_message(ctx, conn, PeerMessage::Routed(msg.clone()));
-                        }
+                        _ => self.receive_message(ctx, conn, PeerMessage::Routed(msg.clone())),
                     }
                 } else {
                     if msg.decrease_ttl() {
@@ -1122,28 +1150,14 @@ impl Actor for PeerActor {
             // so there is nothing to be done.
             PeerStatus::Connecting(..) => {}
             // Clean up the Connection from the NetworkState.
-            PeerStatus::Ready(conn) => {
-                self.network_state.unregister(conn);
-                // Save the fact that we are disconnecting to the PeerStore.
-                match &self.closing_reason {
-                    Some(ClosingReason::Ban(ban_reason)) => {
-                        warn!(target: "network", "Banning peer {} for {:?}", self.peer_info, ban_reason);
-                        self.network_state.peer_manager_addr.do_send(
-                            PeerToManagerMsg::Ban(Ban {
-                                peer_id: conn.peer_info.id.clone(),
-                                ban_reason: *ban_reason,
-                            })
-                            .with_span_context(),
-                        );
-                    }
-                    _ => self.network_state.peer_manager_addr.do_send(
-                        PeerToManagerMsg::Unregister(Unregister {
-                            peer_id: conn.peer_info.id.clone(),
-                        })
-                        .with_span_context(),
-                    ),
-                }
-            }
+            PeerStatus::Ready(conn) => self.network_state.unregister(
+                &self.clock,
+                conn,
+                match self.closing_reason {
+                    Some(ClosingReason::Ban(reason)) => Some(reason),
+                    _ => None,
+                },
+            ),
         }
         Running::Stop
     }

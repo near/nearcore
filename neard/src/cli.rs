@@ -352,7 +352,7 @@ impl RunCmd {
         }
         if let Some(boot_nodes) = self.boot_nodes {
             if !boot_nodes.is_empty() {
-                near_config.network_config.boot_nodes = boot_nodes
+                near_config.network_config.peer_store.boot_nodes = boot_nodes
                     .split(',')
                     .map(|chunk| chunk.parse().expect("Failed to parse PeerInfo"))
                     .collect();

@@ -278,7 +278,7 @@ impl Handler<WithSpanContext<BanPeerSignal>> for PeerManagerActor {
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "network", msg);
         debug!(target: "network", "Ban peer: {:?}", msg.peer_id);
-        self.try_ban_peer(&msg.peer_id, msg.ban_reason);
+        self.state.disconnect_and_ban(&self.clock, &msg.peer_id, msg.ban_reason);
     }
 }
 
@@ -348,7 +348,7 @@ pub mod test_features {
         boot_nodes: Vec<(&str, u16)>,
         peer_max_count: u32,
     ) -> actix::Addr<PeerManagerActor> {
-        config.boot_nodes = convert_boot_nodes(boot_nodes);
+        config.peer_store.boot_nodes = convert_boot_nodes(boot_nodes);
         config.max_num_peers = peer_max_count;
         let counter = Arc::new(AtomicUsize::new(0));
         let counter1 = counter.clone();
