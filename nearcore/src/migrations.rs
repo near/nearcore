@@ -195,7 +195,7 @@ pub fn do_migrate_34_to_35(
                 let current_memory_usage = trail.last().unwrap().node.memory_usage();
                 let inner_iter = TrieIterator { trie: &trie, trail, key_nibbles, visited_nodes };
                 let mut store_update = BatchedStoreUpdate::new(&inner_store, 10_000_000);
-                let mut first_state_record: StateRecord;
+                let mut first_state_record: Option<StateRecord> = None;
                 let n = inner_iter
                     .enumerate()
                     .map(|(i, item)| {
@@ -205,8 +205,7 @@ pub fn do_migrate_34_to_35(
                             .set_ser(DBCol::FlatState, &item.0, &value_ref)
                             .expect("Failed to put value in FlatState");
                         if i == 0 {
-                            first_state_record =
-                                StateRecord::from_raw_key_value(item.0, item.1).unwrap();
+                            first_state_record = StateRecord::from_raw_key_value(item.0, item.1);
                         }
                     })
                     .count();
