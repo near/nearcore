@@ -269,32 +269,4 @@ impl NetworkState {
             .with_span_context(),
         );
     }
-
-    pub fn broadcast_accounts(&self, accounts: Vec<AnnounceAccount>) {
-        let new_accounts = self.routing_table_view.add_accounts(accounts);
-        tracing::debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
-        if new_accounts.len() > 0 {
-            self.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-                RoutingTableUpdate::from_accounts(new_accounts),
-            )));
-        }
-    }
-
-    /// Sends list of edges, from peer `peer_id` to check their signatures to `EdgeValidatorActor`.
-    /// Bans peer `peer_id` if an invalid edge is found.
-    /// `PeerManagerActor` periodically runs `broadcast_validated_edges_trigger`, which gets edges
-    /// from `EdgeValidatorActor` concurrent queue and sends edges to be added to `RoutingTableActor`.
-    pub fn validate_edges_and_add_to_routing_table(&self, peer_id: PeerId, edges: Vec<Edge>) {
-        if edges.is_empty() {
-            return;
-        }
-        self.routing_table_addr.do_send(routing::actor::Message::ValidateEdgeList(
-            ValidateEdgeList {
-                source_peer_id: peer_id,
-                edges,
-                edges_info_shared: self.routing_table_exchange_helper.edges_info_shared.clone(),
-                sender: self.routing_table_exchange_helper.edges_to_add_sender.clone(),
-            },
-        ));
-    }
 }
