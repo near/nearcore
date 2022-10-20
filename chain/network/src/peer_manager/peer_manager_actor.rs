@@ -36,7 +36,7 @@ use near_o11y::{handler_trace_span, OpenTelemetrySpanExt, WithSpanContext, WithS
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::{AccountId, EpochId};
+use near_primitives::types::AccountId;
 use near_primitives::views::{KnownPeerStateView, PeerStoreView};
 use parking_lot::RwLock;
 use rand::seq::IteratorRandom;
@@ -146,6 +146,7 @@ pub struct PeerManagerActor {
 
     pub(crate) state: Arc<NetworkState>,
 
+    /// Last time when we tried to establish connection to this peer.
     last_peer_outbound_attempt: HashMap<PeerId, time::Utc>,
 }
 

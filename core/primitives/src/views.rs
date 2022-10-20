@@ -385,13 +385,11 @@ pub enum SyncStatusView {
     BodySync { start_height: BlockHeight, current_height: BlockHeight, highest_height: BlockHeight },
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct PeerStoreView {
     pub peer_states: Vec<KnownPeerStateView>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct ShardSyncDownloadView {
     pub downloads: Vec<DownloadStatusView>,
