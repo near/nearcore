@@ -245,7 +245,7 @@ pub fn do_migrate_34_to_35(
         }
 
         let mut n = 0;
-        for _ in threads {
+        for _ in 0..threads {
             n += receiver.recv().unwrap();
         }
         // for handle in handles {
