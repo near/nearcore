@@ -72,10 +72,20 @@ fn copy_from_store(
 
     let mut transaction = DBTransaction::new();
     for key in keys {
+        // TODO: Look into using RocksDB’s multi_key function.  It
+        // might speed things up.  Currently our Database abstraction
+        // doesn’t offer interface for it so that would need to be
+        // added.
         let data = hot_store.get(col, &key)?;
         if let Some(value) = data {
             // Database checks col.is_rc() on read and write
             // And in every way expects rc columns to be written with rc
+            //
+            // TODO: As an optimisation, we might consider breaking the
+            // abstraction layer.  Since we’re always writing to cold database,
+            // rather than using `cold_db: &dyn Database` argument we cloud have
+            // `cold_db: &ColdDB` and then some custom function which lets us
+            // write raw bytes.
             if col.is_rc() {
                 transaction.update_refcount(
                     col,
