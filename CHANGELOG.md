@@ -47,6 +47,7 @@
   [#7590](https://github.com/near/nearcore/pull/7590) and enabled by default
   with [#7661](https://github.com/near/nearcore/pull/7661).
   Configurable in `config.json` using `store.enable_receipt_prefetching`.
+* neard cmd can now verify proofs from JSON files.
 * Tracing of work across actix workers within a process:
   [#7866](https://github.com/near/nearcore/pull/7866),
   [#7819](https://github.com/near/nearcore/pull/7819),
