@@ -19,7 +19,7 @@ mod testonly;
 mod tests;
 
 /// Level of trust we have about a new (PeerId, Addr) pair.
-#[derive(Eq, PartialEq, Debug, Clone)]
+#[derive(Eq, PartialEq, Debug, Clone, Copy)]
 enum TrustLevel {
     /// We learn about it from other peers.
     Indirect,
@@ -106,18 +106,15 @@ impl Inner {
                     // If this peer already exists with a signed connection ignore this update.
                     // Warning: This is a problem for nodes that changes its address without changing peer_id.
                     //          It is recommended to change peer_id if address is changed.
-                    let is_peer_trusted =
-                        self.peer_states.get(&peer_info.id).map_or(false, |peer_state| {
-                            peer_state.peer_info.addr.map_or(false, |current_addr| {
-                                self.addr_peers.get(&current_addr).map_or(false, |verified_peer| {
-                                    verified_peer.trust_level == TrustLevel::Signed
-                                })
-                            })
-                        });
-                    if is_peer_trusted {
+                    let trust_level = (|| {
+                        let state = self.peer_states.get(&peer_info.id)?;
+                        let addr = state.peer_info.addr?;
+                        let verified_peer = self.addr_peers.get(&addr)?;
+                        Some(verified_peer.trust_level)
+                    })();
+                    if trust_level == Some(TrustLevel::Signed) {
                         return Ok(());
                     }
-
                     self.update_peer_info(clock, peer_info, peer_addr, TrustLevel::Direct)?;
                 }
                 TrustLevel::Indirect => {
@@ -133,10 +130,9 @@ impl Inner {
         } else {
             // If doesn't have the address attached it is not verified and we add it
             // only if it is unknown to us.
-            if !self.peer_states.contains_key(&peer_info.id) {
-                self.peer_states
-                    .insert(peer_info.id.clone(), KnownPeerState::new(peer_info, clock.now_utc()));
-            }
+            self.peer_states
+                .entry(peer_info.id.clone())
+                .or_insert_with(|| KnownPeerState::new(peer_info, clock.now_utc()));
         }
         Ok(())
     }
