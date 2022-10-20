@@ -1,4 +1,4 @@
-use crate::{External, ValuePtr};
+use crate::{External, StorageGetMode, ValuePtr};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::TrieNodesCount;
 use near_primitives_core::types::{AccountId, Balance};
@@ -49,7 +49,7 @@ impl External for MockedExternal {
         Ok(())
     }
 
-    fn storage_get(&self, key: &[u8]) -> Result<Option<Box<dyn ValuePtr>>> {
+    fn storage_get(&self, key: &[u8], _mode: StorageGetMode) -> Result<Option<Box<dyn ValuePtr>>> {
         Ok(self
             .fake_trie
             .get(key)
