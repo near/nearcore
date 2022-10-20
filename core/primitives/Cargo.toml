@@ -13,6 +13,7 @@ This crate provides the base set of primitives used by other nearcore crates
 """
 
 [dependencies]
+arbitrary.workspace = true
 borsh.workspace = true
 byteorder.workspace = true
 bytesize.workspace = true
@@ -32,10 +33,11 @@ smart-default.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 
-near-primitives-core = { path = "../primitives-core"}
 near-crypto = { path = "../crypto" }
-near-vm-errors = { path = "../../runtime/near-vm-errors" }
+near-o11y = { path = "../o11y" }
+near-primitives-core = { path = "../primitives-core"}
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
+near-vm-errors = { path = "../../runtime/near-vm-errors" }
 
 [features]
 sandbox = []

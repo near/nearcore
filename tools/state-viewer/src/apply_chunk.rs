@@ -197,7 +197,7 @@ fn apply_tx_in_block(
             }
         },
         None => {
-            Err(anyhow!("Could not find tx with hash {} in block {}, even though `DBCol::TransactionResult` says it should be there", tx_hash, block_hash))
+            Err(anyhow!("Could not find tx with hash {} in block {}, even though `DBCol::TransactionResultForBlock` says it should be there", tx_hash, block_hash))
         }
     }
 }

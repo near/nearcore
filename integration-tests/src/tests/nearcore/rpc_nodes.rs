@@ -12,6 +12,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_network::test_utils::WaitOrTimeoutActor;
 use near_o11y::testonly::init_integration_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{compute_root_from_path_and_item, verify_path};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -42,7 +43,8 @@ fn test_get_validator_info_rpc() {
                 let rpc_addrs_copy = rpc_addrs.clone();
                 let view_client = clients[0].1.clone();
                 spawn_interruptible(async move {
-                    let block_view = view_client.send(GetBlock::latest()).await.unwrap();
+                    let block_view =
+                        view_client.send(GetBlock::latest().with_span_context()).await.unwrap();
                     if let Err(err) = block_view {
                         println!("Failed to get the latest block: {:?}", err);
                         return;
@@ -78,7 +80,7 @@ fn outcome_view_to_hashes(outcome: &ExecutionOutcomeView) -> Vec<CryptoHash> {
         ExecutionStatusView::Failure(_) => PartialExecutionStatus::Failure,
         ExecutionStatusView::SuccessReceiptId(id) => PartialExecutionStatus::SuccessReceiptId(*id),
     };
-    let mut result = vec![CryptoHash::hash_borsh(&(
+    let mut result = vec![CryptoHash::hash_borsh((
         outcome.receipt_ids.clone(),
         outcome.gas_burnt,
         outcome.tokens_burnt,
@@ -155,41 +157,37 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                                 }),
                             ) {
                                 let view_client2 = view_client1.clone();
-                                let fut = view_client1.send(GetExecutionOutcome { id }).then(
-                                    move |res| {
-                                        let execution_outcome_response = res.unwrap().unwrap();
-                                        view_client2
-                                            .send(GetBlock(BlockReference::BlockId(BlockId::Hash(
+                                let fut = view_client1
+                                    .send(GetExecutionOutcome { id }.with_span_context());
+                                let fut = fut.then(move |res| {
+                                    let execution_outcome_response = res.unwrap().unwrap();
+                                    view_client2
+                                        .send(
+                                            GetBlock(BlockReference::BlockId(BlockId::Hash(
                                                 execution_outcome_response.outcome_proof.block_hash,
-                                            ))))
-                                            .then(move |res| {
-                                                let res = res.unwrap().unwrap();
-                                                let mut outcome_with_id_to_hash = vec![
-                                                    execution_outcome_response.outcome_proof.id,
-                                                ];
-                                                outcome_with_id_to_hash.extend(
-                                                    outcome_view_to_hashes(
-                                                        &execution_outcome_response
-                                                            .outcome_proof
-                                                            .outcome,
-                                                    ),
+                                            )))
+                                            .with_span_context(),
+                                        )
+                                        .then(move |res| {
+                                            let res = res.unwrap().unwrap();
+                                            let mut outcome_with_id_to_hash =
+                                                vec![execution_outcome_response.outcome_proof.id];
+                                            outcome_with_id_to_hash.extend(outcome_view_to_hashes(
+                                                &execution_outcome_response.outcome_proof.outcome,
+                                            ));
+                                            let chunk_outcome_root =
+                                                compute_root_from_path_and_item(
+                                                    &execution_outcome_response.outcome_proof.proof,
+                                                    &outcome_with_id_to_hash,
                                                 );
-                                                let chunk_outcome_root =
-                                                    compute_root_from_path_and_item(
-                                                        &execution_outcome_response
-                                                            .outcome_proof
-                                                            .proof,
-                                                        &outcome_with_id_to_hash,
-                                                    );
-                                                assert!(verify_path(
-                                                    res.header.outcome_root,
-                                                    &execution_outcome_response.outcome_root_proof,
-                                                    &chunk_outcome_root
-                                                ));
-                                                future::ready(())
-                                            })
-                                    },
-                                );
+                                            assert!(verify_path(
+                                                res.header.outcome_root,
+                                                &execution_outcome_response.outcome_root_proof,
+                                                &chunk_outcome_root
+                                            ));
+                                            future::ready(())
+                                        })
+                                });
                                 futures.push(fut);
                             }
                             spawn_interruptible(join_all(futures).then(|_| {
@@ -383,7 +381,7 @@ fn test_tx_not_enough_balance_must_return_error() {
 
         spawn_interruptible(async move {
             loop {
-                let res = view_client.send(GetBlock::latest()).await;
+                let res = view_client.send(GetBlock::latest().with_span_context()).await;
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
                         break;
@@ -448,7 +446,7 @@ fn test_send_tx_sync_returns_transaction_hash() {
 
         spawn_interruptible(async move {
             loop {
-                let res = view_client.send(GetBlock::latest()).await;
+                let res = view_client.send(GetBlock::latest().with_span_context()).await;
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
                         let response =
@@ -497,7 +495,7 @@ fn test_send_tx_sync_to_lightclient_must_be_routed() {
 
         spawn_interruptible(async move {
             loop {
-                let res = view_client.send(GetBlock::latest()).await;
+                let res = view_client.send(GetBlock::latest().with_span_context()).await;
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
                         let _ = client
@@ -557,7 +555,7 @@ fn test_check_unknown_tx_must_return_error() {
 
         spawn_interruptible(async move {
             loop {
-                let res = view_client.send(GetBlock::latest()).await;
+                let res = view_client.send(GetBlock::latest().with_span_context()).await;
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
                         let _ = client
@@ -614,7 +612,7 @@ fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
 
         spawn_interruptible(async move {
             loop {
-                let res = view_client.send(GetBlock::latest()).await;
+                let res = view_client.send(GetBlock::latest().with_span_context()).await;
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
                         let _ = client
@@ -654,7 +652,7 @@ fn test_validators_by_epoch_id_current_epoch_not_fails() {
 
         spawn_interruptible(async move {
             let final_block = loop {
-                let res = view_client.send(GetBlock::latest()).await;
+                let res = view_client.send(GetBlock::latest().with_span_context()).await;
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 1 {
                         break block;
@@ -663,9 +661,14 @@ fn test_validators_by_epoch_id_current_epoch_not_fails() {
             };
 
             let res = view_client
-                .send(GetValidatorInfo {
-                    epoch_reference: EpochReference::EpochId(EpochId(final_block.header.epoch_id)),
-                })
+                .send(
+                    GetValidatorInfo {
+                        epoch_reference: EpochReference::EpochId(EpochId(
+                            final_block.header.epoch_id,
+                        )),
+                    }
+                    .with_span_context(),
+                )
                 .await;
 
             match res {

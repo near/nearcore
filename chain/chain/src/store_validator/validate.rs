@@ -11,10 +11,10 @@ use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
 use near_primitives::syncing::{
     get_num_state_parts, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
 };
-use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
+use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId};
-use near_primitives::utils::{get_block_shard_id, index_to_bytes};
+use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_store::{
     DBCol, TrieChanges, CHUNK_TAIL_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, TAIL_KEY,
 };
@@ -657,17 +657,15 @@ pub(crate) fn outcome_by_outcome_id_exists(
     outcome_ids: &[CryptoHash],
 ) -> Result<(), StoreValidatorError> {
     for outcome_id in outcome_ids {
-        let outcomes = unwrap_or_err_db!(
-            sv.store.get_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(
-                DBCol::TransactionResult,
-                outcome_id.as_ref()
+        let _outcome = unwrap_or_err_db!(
+            sv.store.get_ser::<ExecutionOutcomeWithProof>(
+                DBCol::TransactionResultForBlock,
+                &get_outcome_id_block_hash(outcome_id, block_hash)
             ),
-            "Can't get TransactionResult from storage with Outcome id {:?}",
-            outcome_id
+            "Can't get TransactionResultForBlock from storage with Outcome id {:?} block hash {:?}",
+            outcome_id,
+            block_hash
         );
-        if outcomes.iter().find(|outcome| &outcome.block_hash == block_hash).is_none() {
-            panic!("Invalid TransactionResult {:?} stored", outcomes);
-        }
     }
     Ok(())
 }
@@ -686,37 +684,35 @@ pub(crate) fn outcome_id_block_exists(
 
 pub(crate) fn outcome_indexed_by_block_hash(
     sv: &mut StoreValidator,
-    outcome_id: &CryptoHash,
-    outcomes: &[ExecutionOutcomeWithIdAndProof],
+    (outcome_id, block_hash): &(CryptoHash, CryptoHash),
+    _outcome: &ExecutionOutcomeWithProof,
 ) -> Result<(), StoreValidatorError> {
-    for outcome in outcomes {
-        let block = unwrap_or_err_db!(
-            sv.store.get_ser::<Block>(DBCol::Block, outcome.block_hash.as_ref()),
-            "Can't get Block {} from DB",
-            outcome.block_hash
-        );
-        let mut outcome_ids = vec![];
-        for chunk_header in block.chunks().iter() {
-            if chunk_header.height_included() == block.header().height() {
-                let shard_uid = sv
-                    .runtime_adapter
-                    .shard_id_to_uid(chunk_header.shard_id(), block.header().epoch_id())
-                    .map_err(|err| StoreValidatorError::DBNotFound {
-                        func_name: "get_shard_layout",
-                        reason: err.to_string(),
-                    })?;
-                if let Ok(Some(_)) = sv.store.get_ser::<ChunkExtra>(
-                    DBCol::ChunkExtra,
-                    &get_block_shard_uid(block.hash(), &shard_uid),
-                ) {
-                    outcome_ids.extend(unwrap_or_err_db!(
-                        sv.store.get_ser::<Vec<CryptoHash>>(
-                            DBCol::OutcomeIds,
-                            &get_block_shard_id(block.hash(), chunk_header.shard_id())
-                        ),
-                        "Can't get Outcome ids by Block Hash"
-                    ));
-                }
+    let block = unwrap_or_err_db!(
+        sv.store.get_ser::<Block>(DBCol::Block, block_hash.as_ref()),
+        "Can't get Block {} from DB",
+        block_hash
+    );
+    let mut outcome_ids = vec![];
+    for chunk_header in block.chunks().iter() {
+        if chunk_header.height_included() == block.header().height() {
+            let shard_uid = sv
+                .runtime_adapter
+                .shard_id_to_uid(chunk_header.shard_id(), block.header().epoch_id())
+                .map_err(|err| StoreValidatorError::DBNotFound {
+                    func_name: "get_shard_layout",
+                    reason: err.to_string(),
+                })?;
+            if let Ok(Some(_)) = sv.store.get_ser::<ChunkExtra>(
+                DBCol::ChunkExtra,
+                &get_block_shard_uid(block.hash(), &shard_uid),
+            ) {
+                outcome_ids.extend(unwrap_or_err_db!(
+                    sv.store.get_ser::<Vec<CryptoHash>>(
+                        DBCol::OutcomeIds,
+                        &get_block_shard_id(block.hash(), chunk_header.shard_id())
+                    ),
+                    "Can't get Outcome ids by Block Hash"
+                ));
             }
         }
         if !outcome_ids.contains(outcome_id) {

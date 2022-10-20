@@ -6,9 +6,17 @@ use borsh::BorshSerialize;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::Digest;
 
-use crate::logging::pretty_hash;
-
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, derive_more::AsRef, derive_more::AsMut)]
+#[derive(
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    derive_more::AsRef,
+    derive_more::AsMut,
+    arbitrary::Arbitrary,
+)]
 #[as_ref(forward)]
 #[as_mut(forward)]
 pub struct CryptoHash(pub [u8; 32]);
@@ -29,9 +37,9 @@ impl CryptoHash {
     /// results.  For example, `CryptoHash::hash_borsh(&[1u32, 2, 3])` hashes
     /// a representation of a `[u32; 3]` array rather than a slice.  It may be
     /// cleaner to use [`Self::hash_borsh_iter`] instead.
-    pub fn hash_borsh<T: BorshSerialize>(value: &T) -> CryptoHash {
+    pub fn hash_borsh<T: BorshSerialize>(value: T) -> CryptoHash {
         let mut hasher = sha2::Sha256::default();
-        BorshSerialize::serialize(value, &mut hasher).unwrap();
+        value.serialize(&mut hasher).unwrap();
         CryptoHash(hasher.finalize().into())
     }
 
@@ -203,7 +211,7 @@ impl From<CryptoHash> for [u8; 32] {
 
 impl fmt::Debug for CryptoHash {
     fn fmt(&self, fmtr: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.to_base58_impl(|encoded| write!(fmtr, "{}", pretty_hash(encoded)))
+        fmt::Display::fmt(self, fmtr)
     }
 }
 

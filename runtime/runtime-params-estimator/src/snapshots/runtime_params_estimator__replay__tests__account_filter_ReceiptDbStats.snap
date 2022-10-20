@@ -1,0 +1,13 @@
+---
+source: runtime/runtime-params-estimator/src/replay.rs
+expression: output
+---
+            process_receipt receiver=alice.near receipt_id=id0
+              GET   2 State  
+
+            process_receipt receiver=alice.near receipt_id=id2
+              GET   2 State  
+
+            process_receipt receiver=alice.near receipt_id=id3
+
+

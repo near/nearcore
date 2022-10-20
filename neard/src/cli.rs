@@ -1,15 +1,22 @@
 use crate::log_config_watcher::{LogConfigWatcher, UpdateBehavior};
+use anyhow::Context;
 use clap::{Args, Parser};
 use near_chain_configs::GenesisValidationMode;
+use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
     default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
     EnvFilterBuilder, OpenTelemetryLevel,
 };
+use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use near_store::Mode;
+use serde_json::Value;
+use std::fs::File;
+use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use tokio::sync::oneshot;
@@ -82,6 +89,9 @@ impl NeardCmd {
 
             NeardSubCommand::RecompressStorage(cmd) => {
                 cmd.run(&home_dir);
+            }
+            NeardSubCommand::VerifyProof(cmd) => {
+                cmd.run();
             }
         };
         Ok(())
@@ -175,6 +185,10 @@ pub(super) enum NeardSubCommand {
     /// tool, it is planned to be removed by the end of 2022.
     #[clap(alias = "recompress_storage")]
     RecompressStorage(RecompressStorageSubCommand),
+
+    /// Verify proofs
+    #[clap(alias = "verify_proof")]
+    VerifyProof(VerifyProofSubCommand),
 }
 
 #[derive(Parser)]
@@ -287,7 +301,9 @@ impl InitCmd {
 
 #[derive(Parser)]
 pub(super) struct RunCmd {
-    /// Keep old blocks in the storage (default false).
+    /// Configure node to run as archival node which prevents deletion of old
+    /// blocks.  This is a persistent setting; once client is started as
+    /// archival node, it cannot be run in non-archival mode.
     #[clap(long)]
     archive: bool,
     /// Set the boot nodes to bootstrap network from.
@@ -551,6 +567,110 @@ impl RecompressStorageSubCommand {
     }
 }
 
+#[derive(thiserror::Error, Debug, PartialEq)]
+pub enum VerifyProofError {
+    #[error("invalid outcome root proof")]
+    InvalidOutcomeRootProof,
+    #[error("invalid block hash proof")]
+    InvalidBlockHashProof,
+}
+
+#[derive(Parser)]
+pub struct VerifyProofSubCommand {
+    #[clap(long)]
+    json_file_path: String,
+}
+
+impl VerifyProofSubCommand {
+    /// Verifies light client transaction proof (result of the EXPERIMENTAL_light_client_proof RPC call).
+    /// Returns the Hash and height of the block that transaction belongs to, and root of the light block merkle tree.
+    pub fn run(self) -> ((CryptoHash, u64), CryptoHash) {
+        let file = File::open(Path::new(self.json_file_path.as_str()))
+            .with_context(|| "Could not open proof file.")
+            .unwrap();
+        let reader = BufReader::new(file);
+        let light_client_rpc_response: Value =
+            serde_json::from_reader(reader).with_context(|| "Failed to deserialize JSON.").unwrap();
+        Self::verify_json(light_client_rpc_response).unwrap()
+    }
+
+    pub fn verify_json(
+        light_client_rpc_response: Value,
+    ) -> Result<((CryptoHash, u64), CryptoHash), VerifyProofError> {
+        let light_client_proof: RpcLightClientExecutionProofResponse =
+            serde_json::from_value(light_client_rpc_response["result"].clone()).unwrap();
+
+        println!(
+            "Verifying light client proof for txn id: {:?}",
+            light_client_proof.outcome_proof.id
+        );
+        let outcome_hashes = light_client_proof.outcome_proof.clone().to_hashes();
+        println!("Hashes of the outcome are: {:?}", outcome_hashes);
+
+        let outcome_hash = CryptoHash::hash_borsh(&outcome_hashes);
+        println!("Hash of the outcome is: {:?}", outcome_hash);
+
+        let outcome_shard_root =
+            compute_root_from_path(&light_client_proof.outcome_proof.proof, outcome_hash);
+        println!("Shard outcome root is: {:?}", outcome_shard_root);
+        let block_outcome_root = compute_root_from_path(
+            &light_client_proof.outcome_root_proof,
+            CryptoHash::hash_borsh(&outcome_shard_root),
+        );
+        println!("Block outcome root is: {:?}", block_outcome_root);
+
+        if light_client_proof.block_header_lite.inner_lite.outcome_root != block_outcome_root {
+            println!(
+                "{}",
+                ansi_term::Colour::Red.bold().paint(format!(
+                    "ERROR: computed outcome root: {:?} doesn't match the block one {:?}.",
+                    block_outcome_root,
+                    light_client_proof.block_header_lite.inner_lite.outcome_root
+                ))
+            );
+            return Err(VerifyProofError::InvalidOutcomeRootProof);
+        }
+        let block_hash = light_client_proof.outcome_proof.block_hash;
+
+        if light_client_proof.block_header_lite.hash()
+            != light_client_proof.outcome_proof.block_hash
+        {
+            println!("{}",
+            ansi_term::Colour::Red.bold().paint(format!(
+                "ERROR: block hash from header lite {:?} doesn't match the one from outcome proof {:?}",
+                light_client_proof.block_header_lite.hash(),
+                light_client_proof.outcome_proof.block_hash
+            )));
+            return Err(VerifyProofError::InvalidBlockHashProof);
+        } else {
+            println!(
+                "{}",
+                ansi_term::Colour::Green
+                    .bold()
+                    .paint(format!("Block hash matches {:?}", block_hash))
+            );
+        }
+
+        // And now check that block exists in the light client.
+
+        let light_block_merkle_root =
+            compute_root_from_path(&light_client_proof.block_proof, block_hash);
+
+        println!(
+            "Please verify that your light block has the following block merkle root: {:?}",
+            light_block_merkle_root
+        );
+        println!(
+            "OR verify that block with this hash {:?} is in the chain at this heigth {:?}",
+            block_hash, light_client_proof.block_header_lite.inner_lite.height
+        );
+        Ok((
+            (block_hash, light_client_proof.block_header_lite.inner_lite.height),
+            light_block_merkle_root,
+        ))
+    }
+}
+
 fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, RunError> {
     let env_filter =
         EnvFilterBuilder::from_env().verbose(verbose).finish().map_err(RunError::EnvFilter)?;
@@ -567,6 +687,7 @@ fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, RunError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn optional_values() {
@@ -591,5 +712,31 @@ mod tests {
             "--fast"
         ])
         .is_err());
+    }
+
+    #[test]
+    fn verify_proof_test() {
+        assert_eq!(
+            VerifyProofSubCommand::verify_json(
+                serde_json::from_slice(include_bytes!("../res/proof_example.json")).unwrap()
+            )
+            .unwrap(),
+            (
+                (
+                    CryptoHash::from_str("HqZHDTHSqH6Az22SZgFUjodGFDtfC2qSt4v9uYFpLuFC").unwrap(),
+                    38 as u64
+                ),
+                CryptoHash::from_str("BWwZdhAhjAgKxZ5ycqn1CvXads5DjPMfj4kRdc1rWit8").unwrap()
+            )
+        );
+
+        // Proof with a wroing outcome (as user specified wrong shard).
+        assert_eq!(
+            VerifyProofSubCommand::verify_json(
+                serde_json::from_slice(include_bytes!("../res/invalid_proof.json")).unwrap()
+            )
+            .unwrap_err(),
+            VerifyProofError::InvalidOutcomeRootProof
+        );
     }
 }

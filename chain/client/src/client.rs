@@ -51,7 +51,7 @@ use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
-use near_o11y::log_assert;
+use near_o11y::{log_assert, WithSpanContextExt};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -269,9 +269,10 @@ impl Client {
             && !self.sync_status.is_syncing()
         {
             let block = self.chain.get_block(&self.chain.head()?.last_block_hash)?;
-            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::Block { block: block },
-            ));
+            self.network_adapter.do_send(
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Block { block: block })
+                    .with_span_context(),
+            );
             self.last_time_head_progress_made = Clock::instant();
         }
         Ok(())
@@ -796,9 +797,12 @@ impl Client {
             for body in challenges {
                 let challenge = Challenge::produce(body, &**validator_signer);
                 self.challenges.insert(challenge.hash, challenge.clone());
-                self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::Challenge(challenge),
-                ));
+                self.network_adapter.do_send(
+                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Challenge(
+                        challenge,
+                    ))
+                    .with_span_context(),
+                );
             }
         }
     }
@@ -854,20 +858,26 @@ impl Client {
             if let Err(e) = &result {
                 match e {
                     near_chain::Error::InvalidChunkProofs(chunk_proofs) => {
-                        self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::Challenge(Challenge::produce(
-                                ChallengeBody::ChunkProofs(*chunk_proofs.clone()),
-                                &**validator_signer,
-                            )),
-                        ));
+                        self.network_adapter.do_send(
+                            PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Challenge(
+                                Challenge::produce(
+                                    ChallengeBody::ChunkProofs(*chunk_proofs.clone()),
+                                    &**validator_signer,
+                                ),
+                            ))
+                            .with_span_context(),
+                        );
                     }
                     near_chain::Error::InvalidChunkState(chunk_state) => {
-                        self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::Challenge(Challenge::produce(
-                                ChallengeBody::ChunkState(*chunk_state.clone()),
-                                &**validator_signer,
-                            )),
-                        ));
+                        self.network_adapter.do_send(
+                            PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Challenge(
+                                Challenge::produce(
+                                    ChallengeBody::ChunkState(*chunk_state.clone()),
+                                    &**validator_signer,
+                                ),
+                            ))
+                            .with_span_context(),
+                        );
                     }
                     _ => {}
                 }
@@ -942,9 +952,12 @@ impl Client {
 
     pub fn rebroadcast_block(&mut self, block: &Block) {
         if self.rebroadcasted_blocks.get(block.hash()).is_none() {
-            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::Block { block: block.clone() },
-            ));
+            self.network_adapter.do_send(
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Block {
+                    block: block.clone(),
+                })
+                .with_span_context(),
+            );
             self.rebroadcasted_blocks.put(*block.hash(), ());
         }
     }
@@ -1055,9 +1068,12 @@ impl Client {
         } else {
             debug!(target: "client", "Sending an approval {:?} from {} to {} for {}", approval.inner, approval.account_id, next_block_producer, approval.target_height);
             let approval_message = ApprovalMessage::new(approval, next_block_producer);
-            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::Approval { approval_message },
-            ));
+            self.network_adapter.do_send(
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Approval {
+                    approval_message,
+                })
+                .with_span_context(),
+            );
         }
 
         Ok(())
@@ -1272,8 +1288,13 @@ impl Client {
             self.me.as_ref(),
             self.runtime_adapter.as_ref(),
         )?;
-        persist_chunk(partial_chunk, Some(shard_chunk), self.chain.mut_store())?;
-        self.shards_mgr.distribute_encoded_chunk(encoded_chunk, &merkle_paths, receipts)?;
+        persist_chunk(partial_chunk.clone(), Some(shard_chunk), self.chain.mut_store())?;
+        self.shards_mgr.distribute_encoded_chunk(
+            partial_chunk,
+            encoded_chunk,
+            &merkle_paths,
+            receipts,
+        )?;
         Ok(())
     }
 
@@ -1536,9 +1557,13 @@ impl Client {
             );
 
             // Send message to network to actually forward transaction.
-            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::ForwardTx(validator, tx.clone()),
-            ));
+            self.network_adapter.do_send(
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::ForwardTx(
+                    validator,
+                    tx.clone(),
+                ))
+                .with_span_context(),
+            );
         }
 
         Ok(())
@@ -1957,11 +1982,9 @@ impl Client {
         let height = tip.height;
         #[cfg(feature = "test_features")]
         let height = self.adv_sync_height.unwrap_or(height);
-        self.network_adapter.do_send(SetChainInfo(ChainInfo {
-            height,
-            tracked_shards,
-            tier1_accounts,
-        }));
+        self.network_adapter.do_send(
+            SetChainInfo(ChainInfo { height, tracked_shards, tier1_accounts }).with_span_context(),
+        );
         Ok(())
     }
 }

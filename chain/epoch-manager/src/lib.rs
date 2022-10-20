@@ -392,7 +392,7 @@ impl EpochManager {
     /// (set of validators to kickout, set of validators to reward with stats)
     ///
     /// - Slashed validators are ignored (they are handled separately)
-    /// - The total stake of valdiators that will be kicked out will not exceed
+    /// - The total stake of validators that will be kicked out will not exceed
     ///   config.validator_max_kickout_stake_perc of total stake of all validators. This is
     ///   to ensure we don't kick out too many validators in case of network instability.
     /// - A validator is kicked out if he produced too few blocks or chunks

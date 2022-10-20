@@ -17,6 +17,9 @@
   deprecated.  If they are set in `config.json` the node will fail if migration
   needs to be performed.  Use `store.migration_snapshot` instead to configure
   the behaviour [#7486](https://github.com/near/nearcore/pull/7486)
+* `/status` response has now two more fields: `node_public_key` and
+  `validator_public_key`.  The `node_key` field is now deprecated and should not
+  be used since it confusingly holds validator key.
 * Added `near_peer_message_sent_by_type_bytes` and
   `near_peer_message_sent_by_type_total` Prometheus metrics measuring
   size and number of messages sent to peers.
@@ -24,6 +27,8 @@
   Instead of it aggregate `near_peer_message_received_by_type_total` metric.
   For example, to get total rate of received messages use
   `sum(rate(near_peer_message_received_by_type_total{...}[5m]))`.
+* Added `near_node_protocol_upgrade_voting_start` Prometheus metric whose value
+  is timestamp when voting for the next protocol version starts.
 * Few changes to `view_state` JSON RPC query:
   - The requset has now an optional `include_proof` argument.  When set to
     `true`, response’s `proof` will be populated.
@@ -42,6 +47,7 @@
   [#7590](https://github.com/near/nearcore/pull/7590) and enabled by default
   with [#7661](https://github.com/near/nearcore/pull/7661).
   Configurable in `config.json` using `store.enable_receipt_prefetching`.
+* neard cmd can now verify proofs from JSON files.
 
 ## 1.29.0 [2022-08-15]
 

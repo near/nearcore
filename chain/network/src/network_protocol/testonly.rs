@@ -5,7 +5,6 @@ use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
 };
 use crate::time;
-use crate::types::AccountOrPeerIdOrHash;
 use crate::types::{AccountKeys, ChainInfo, Handshake, RoutingTableUpdate};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_primitives::block::{genesis_chunks, Block, BlockHeader, GenesisId};
@@ -355,7 +354,7 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
 pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> RoutedMessageV2 {
     let signer = make_signer(rng);
     let peer_id = PeerId::new(signer.public_key);
-    RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(peer_id.clone()), body }.sign(
+    RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id.clone()), body }.sign(
         &signer.secret_key,
         /*ttl=*/ 1,
         None,

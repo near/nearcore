@@ -6,6 +6,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
+use near_o11y::pretty;
+use near_primitives_core::profile::ProfileData;
 
 use crate::account::AccessKey;
 use crate::errors::TxExecutionError;
@@ -14,7 +16,6 @@ use crate::logging;
 use crate::merkle::MerklePath;
 use crate::serialize::{base64_format, dec_format};
 use crate::types::{AccountId, Balance, Gas, Nonce};
-use near_primitives_core::profile::ProfileData;
 
 pub type LogEntry = String;
 
@@ -113,7 +114,7 @@ impl From<DeployContractAction> for Action {
 impl fmt::Debug for DeployContractAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DeployContractAction")
-            .field("code", &format_args!("{}", logging::pretty_utf8(&self.code)))
+            .field("code", &format_args!("{}", pretty::AbbrBytes(&self.code)))
             .finish()
     }
 }
@@ -138,7 +139,7 @@ impl fmt::Debug for FunctionCallAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FunctionCallAction")
             .field("method_name", &format_args!("{}", &self.method_name))
-            .field("args", &format_args!("{}", logging::pretty_utf8(&self.args)))
+            .field("args", &format_args!("{}", pretty::AbbrBytes(&self.args)))
             .field("gas", &format_args!("{}", &self.gas))
             .field("deposit", &format_args!("{}", &self.deposit))
             .finish()
@@ -282,7 +283,7 @@ impl fmt::Debug for ExecutionStatus {
             ExecutionStatus::Unknown => f.write_str("Unknown"),
             ExecutionStatus::Failure(e) => f.write_fmt(format_args!("Failure({})", e)),
             ExecutionStatus::SuccessValue(v) => {
-                f.write_fmt(format_args!("SuccessValue({})", logging::pretty_utf8(v)))
+                f.write_fmt(format_args!("SuccessValue({})", pretty::AbbrBytes(v)))
             }
             ExecutionStatus::SuccessReceiptId(receipt_id) => {
                 f.write_fmt(format_args!("SuccessReceiptId({})", receipt_id))
@@ -299,7 +300,7 @@ impl Default for ExecutionStatus {
 
 /// ExecutionOutcome for proof. Excludes logs and metadata
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone)]
-struct PartialExecutionOutcome {
+pub struct PartialExecutionOutcome {
     pub receipt_ids: Vec<CryptoHash>,
     pub gas_burnt: Gas,
     pub tokens_burnt: Balance,
@@ -407,7 +408,7 @@ impl ExecutionOutcomeWithId {
     pub fn to_hashes(&self) -> Vec<CryptoHash> {
         let mut result = Vec::with_capacity(2 + self.outcome.logs.len());
         result.push(self.id);
-        result.push(CryptoHash::hash_borsh(&PartialExecutionOutcome::from(&self.outcome)));
+        result.push(CryptoHash::hash_borsh(PartialExecutionOutcome::from(&self.outcome)));
         result.extend(self.outcome.logs.iter().map(|log| hash(log.as_bytes())));
         result
     }
@@ -437,6 +438,12 @@ pub fn verify_transaction_signature(
     public_keys.iter().any(|key| transaction.signature.verify(hash, key))
 }
 
+/// A more compact struct, just for storage.
+#[derive(Clone, BorshSerialize, BorshDeserialize)]
+pub struct ExecutionOutcomeWithProof {
+    pub proof: MerklePath,
+    pub outcome: ExecutionOutcome,
+}
 #[cfg(test)]
 mod tests {
     use borsh::BorshDeserialize;

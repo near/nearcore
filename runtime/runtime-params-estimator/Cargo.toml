@@ -14,6 +14,7 @@ required-features = ["costs_counting"]
 [dependencies]
 anyhow.workspace = true
 borsh.workspace = true
+bs58.workspace = true
 bytesize.workspace = true
 cfg-if.workspace = true
 chrono.workspace = true
@@ -44,6 +45,9 @@ near-vm-logic = {path = "../../runtime/near-vm-logic"  }
 near-vm-runner = {path = "../../runtime/near-vm-runner" }
 nearcore = { path = "../../nearcore" }
 node-runtime = { path = "../../runtime/runtime" }
+
+[dev-dependencies]
+insta.workspace = true
 
 [features]
 default = ["costs_counting"]
