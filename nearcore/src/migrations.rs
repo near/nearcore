@@ -105,6 +105,20 @@ pub fn do_migrate_34_to_35(
     store_update.finish()?;
 
     let rt = tokio::runtime::Handle::current();
+    let mut handles = vec![];
+    for i in 0..100 {
+        let handle = rt.spawn_blocking(move || {
+            std::thread::sleep(std::time::Duration::from_micros(10));
+            i
+        });
+        handles.push(handle);
+    }
+    let mut n = 0;
+    for handle in handles {
+        n += rt.block_on(handle).expect("task failed");
+    }
+    info!(target: "store", "Sum = {n}");
+    panic!("okay");
     // let _guard = rt.enter();
 
     // DEBUG SPECIFIC KEY
