@@ -1,6 +1,8 @@
 #[cfg(feature = "protocol_feature_flat_state")]
 use crate::NightshadeRuntime;
 use borsh::BorshSerialize;
+use crossbeam_channel::unbounded;
+use futures::SinkExt;
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::receipt::ReceiptResult;
@@ -104,23 +106,6 @@ pub fn do_migrate_34_to_35(
     }
     store_update.finish()?;
 
-    let rt = tokio::runtime::Handle::current();
-    let mut handles = vec![];
-    for i in 0..100 {
-        let handle = rt.spawn_blocking(move || {
-            std::thread::sleep(std::time::Duration::from_micros(10));
-            i
-        });
-        handles.push(handle);
-    }
-    let mut n = 0;
-    for handle in handles {
-        n += rt.block_on(handle).expect("task failed");
-    }
-    info!(target: "store", "Sum = {n}");
-    panic!("okay");
-    // let _guard = rt.enter();
-
     // DEBUG SPECIFIC KEY
     // let x = String::from("01302e636c69656e742e726");
     // let x_nibbles: Vec<_> = x.chars().map(|c| char::to_digit(c, 16).unwrap() as u8).collect();
@@ -148,6 +133,8 @@ pub fn do_migrate_34_to_35(
     //
     // panic!("");
 
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(512).build().unwrap();
+
     for shard_id in 0..4 {
         let shard_uid = runtime.shard_id_to_uid(shard_id, &epoch_id)?;
         let state_root = chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root().clone();
@@ -157,6 +144,8 @@ pub fn do_migrate_34_to_35(
 
         let sub_trie_size = memory_usage / 1024; //5_000_000;
         info!(target: "chain", %shard_id, "Start flat state shard migration, mem_usage = {} gb, sub_trie_size = {} gb", memory_usage as f64 / 10f64.powf(9.0), sub_trie_size as f64 / 10f64.powf(9.0));
+
+        let (sender, receiver) = unbounded();
 
         // let max_threads = 1024;
         let thread_usage = Arc::new(std::sync::atomic::AtomicU32::new(0));
@@ -195,7 +184,7 @@ pub fn do_migrate_34_to_35(
             let inner_nodes_count = global_nodes_count.clone();
 
             let inner_store = store.clone();
-            let handle = rt.spawn_blocking(move || {
+            let handle = pool.spawn(move || {
                 let hex_prefix: String = key_nibbles
                     .iter()
                     .map(|&n| char::from_digit(n as u32, 16).expect("nibble should be <16"))
@@ -250,15 +239,15 @@ pub fn do_migrate_34_to_35(
                     {first_record_to_display} is the first state record, \
                     mem progress gb: {mem_progress_gb} / {mem_usage_gb}"
                 );
-                n
+                // sender.send(n).unwrap();
             });
-            handles.push(handle);
+            // handles.push(handle);
         }
 
         let mut n = 0;
-        for handle in handles {
-            n += rt.block_on(handle).expect("task failed");
-        }
+        // for handle in handles {
+        //     n += rt.block_on(handle).expect("task failed");
+        // }
         info!(target: "store", "Wrote {n} state items");
     }
 

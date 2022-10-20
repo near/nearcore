@@ -16,6 +16,7 @@ awc.workspace = true
 borsh.workspace = true
 byteorder.workspace = true
 chrono.workspace = true
+crossbeam-channel.workspace = true
 dirs.workspace = true
 easy-ext.workspace = true
 futures.workspace = true
