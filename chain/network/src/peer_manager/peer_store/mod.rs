@@ -46,9 +46,19 @@ impl VerifiedPeer {
 
 #[derive(Clone)]
 pub struct Config {
-    pub blacklist: blacklist::Blacklist,
-    /// Nodes will not accept or try to establish connection to such peers.
+    /// A list of nodes to connect to on the first run of the neard server.
+    /// Once it connects to some of them, the server will learn about other
+    /// nodes in the network and will try to connect to them as well.
+    /// Sever will also store in DB the info about the nodes it learned about,
+    /// so that on the next run it has a larger choice of nodes to connect
+    /// to (rather than just the boot nodes).
+    ///
+    /// The recommended boot nodes are distributed together with the config.json
+    /// file, but you can modify the boot_nodes field to contain any nodes that
+    /// you trust.
     pub boot_nodes: Vec<PeerInfo>,
+    /// Nodes will not accept or try to establish connection to such peers.
+    pub blacklist: blacklist::Blacklist,
     /// If true - connect only to the bootnodes.
     pub connect_only_to_boot_nodes: bool,
     /// Remove expired peers.
@@ -81,7 +91,6 @@ impl Inner {
     }
 
     /// Adds a peer into the store with given trust level.
-    #[inline(always)]
     fn add_peer(
         &mut self,
         clock: &time::Clock,
