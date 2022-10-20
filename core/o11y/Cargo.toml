@@ -12,7 +12,7 @@ description = "Observability helpers for the near codebase"
 
 [dependencies]
 near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
+near-primitives-core = { path = "../../core/primitives-core" }
 
 actix.workspace = true
 atty.workspace = true
