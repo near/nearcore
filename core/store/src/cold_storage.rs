@@ -17,6 +17,24 @@ struct StoreWithCache<'a> {
     cache: StoreCache,
 }
 
+/// Updates provided cold database from provided hot store with information about block at `height`.
+/// Wraps hot store in `StoreWithCache` for optimizing reads.
+///
+/// First, we read from hot store information necessary
+/// to determine all the keys that need to be updated in cold db.
+/// Then we write updates to cold db column by column.
+///
+/// This approach is used, because a key for db often combines several parts,
+/// and many of those parts are reused across several cold columns (block hash, shard id, chunk hash, tx hash, ...).
+/// Rather than manually combining those parts in the right order for every cold column,
+/// we define `DBCol::key_type` to determine how a key for the column is formed,
+/// `get_keys_from_store` to determine all possible keys only for needed key parts,
+/// and `combine_keys` to generated all possible whole keys for the column based on order of those parts.
+///
+/// To add a new column to cold storage, we need to
+/// 1. add it to `DBCol::is_cold` list
+/// 2. define `DBCol::key_type` for it (if it isn't already defined)
+/// 3. add new clause in `get_keys_from_store` for new key types used for this column (if there are any)
 pub fn update_cold_db(
     cold_db: &dyn Database,
     hot_store: &Store,
@@ -88,6 +106,12 @@ pub fn test_cold_genesis_update(cold_db: &dyn Database, hot_store: &Store) -> io
     Ok(())
 }
 
+/// Returns HashMap from DBKeyType to possible keys of that type for provided height.
+/// Only constructs keys for key types that are used in cold columns.
+/// The goal is to capture all changes to db made during production of the block at provided height.
+/// So, for every KeyType we need to capture all the keys that are related to that block.
+/// For BlockHash it is just one key -- block hash of that height.
+/// But for TransactionHash, for example, it is all of the tx hashes in that block.
 fn get_keys_from_store(
     store: &mut StoreWithCache,
     height: &BlockHeight,
@@ -112,6 +136,10 @@ fn get_keys_from_store(
     Ok(key_type_to_keys)
 }
 
+/// Returns all possible keys for a column with key represented by a specific sequence of key types.
+/// `key_type_to_value` -- result of `get_keys_from_store`, mapping from KeyType to all possible keys of that type.
+/// `key_types` -- description of a final key, what sequence of key types forms a key, result of `DBCol::key_type`.
+/// Basically, returns all possible combinations of keys from `key_type_to_value` for given order of key types.
 pub fn combine_keys(
     key_type_to_value: &HashMap<DBKeyType, Vec<StoreKey>>,
     key_types: &[DBKeyType],
