@@ -243,7 +243,7 @@ pub fn do_migrate_34_to_35(
 
         let mut n = 0;
         for handle in handles {
-            n += rt.block_on(handle).expect("task failed");
+            n += rt.block_on(handle.await.unwrap()).expect("task failed");
         }
         info!(target: "store", "Wrote {n} state items");
     }
