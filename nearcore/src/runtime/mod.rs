@@ -1421,7 +1421,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             Trie::apply_state_part(state_root, part_id, part);
         let tries = self.get_tries();
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
-        let (store_update, _) = tries.apply_all(&trie_changes, shard_uid);
+        let mut store_update = tries.store_update();
+        tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
     }
