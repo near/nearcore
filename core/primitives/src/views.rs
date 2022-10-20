@@ -26,6 +26,7 @@ use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::{combine_hash, MerklePath};
+use crate::network::PeerId;
 use crate::profile::Cost;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::serialize::{base64_format, dec_format, option_base64_format};
@@ -244,6 +245,18 @@ impl FromIterator<AccessKeyInfoView> for AccessKeyList {
     }
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct KnownPeerStateView {
+    pub peer_id: PeerId,
+    pub status: String,
+    pub addr: String,
+    pub first_seen: i64,
+    pub last_seen: i64,
+    pub last_attempt: Option<i64>,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum QueryResponseKind {
     ViewAccount(AccountView),
@@ -372,6 +385,11 @@ pub enum SyncStatusView {
     StateSyncDone,
     /// Catch up on blocks.
     BodySync { start_height: BlockHeight, current_height: BlockHeight, highest_height: BlockHeight },
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct PeerStoreView {
+    pub peer_states: Vec<KnownPeerStateView>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
