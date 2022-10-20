@@ -1006,7 +1006,8 @@ mod tests {
             changes.iter().map(|(key, _)| (key.clone(), None)).collect();
         let trie_changes =
             tries.get_trie_for_shard(shard_uid, root.clone()).update(delete_changes).unwrap();
-        let (store_update, root) = tries.apply_all(&trie_changes, shard_uid);
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         let trie = tries.get_trie_for_shard(shard_uid, root.clone());
         store_update.commit().unwrap();
         for (key, _) in changes {

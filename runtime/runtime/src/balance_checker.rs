@@ -329,7 +329,8 @@ mod tests {
             set_initial_state(&mut trie_update);
             trie_update.commit(StateChangeCause::NotWritableToDisk);
             let trie_changes = trie_update.finalize().unwrap().0;
-            let (store_update, root) = tries.apply_all(&trie_changes, shard_uid);
+            let mut store_update = tries.store_update();
+            let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
             store_update.commit().unwrap();
             root
         };
