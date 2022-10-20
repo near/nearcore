@@ -13,6 +13,7 @@ pub mod actix;
 pub mod config;
 pub mod config_json;
 pub(crate) mod private_actix;
+pub mod raw;
 pub mod routing;
 pub(crate) mod stats;
 pub(crate) mod store;

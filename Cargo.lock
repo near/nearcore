@@ -4168,21 +4168,13 @@ name = "ping"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "bytes",
  "chrono",
  "clap 3.1.18",
- "futures",
- "near-chain",
- "near-chain-configs",
- "near-crypto",
  "near-network",
  "near-network-primitives",
  "near-o11y",
  "near-primitives",
- "near-primitives-core",
- "near-store",
  "nearcore",
- "thiserror",
  "tokio",
  "tracing",
 ]
