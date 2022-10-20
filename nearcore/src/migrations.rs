@@ -104,8 +104,8 @@ pub fn do_migrate_34_to_35(
     }
     store_update.finish()?;
 
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let _guard = rt.enter();
+    let rt = tokio::runtime::Handle::current();
+    // let _guard = rt.enter();
 
     // DEBUG SPECIFIC KEY
     // let x = String::from("01302e636c69656e742e726");
@@ -243,7 +243,7 @@ pub fn do_migrate_34_to_35(
 
         let mut n = 0;
         for handle in handles {
-            n += rt.block_on(handle.await.unwrap()).expect("task failed");
+            n += rt.block_on(handle).expect("task failed");
         }
         info!(target: "store", "Wrote {n} state items");
     }
