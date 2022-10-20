@@ -6,11 +6,9 @@ use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::{ReceiptMetadata, ValuePtr};
 use byteorder::ByteOrder;
-use near_chain::ChainStoreAccess;
 use near_crypto::Secp256K1Signature;
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
-use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
@@ -35,7 +33,7 @@ pub struct VMLogic<'a> {
     /// receipts creation.
     ext: &'a mut dyn External,
     /// Part of Context API and Economics API that was extracted from the receipt.
-    context: VMContext<'a>,
+    context: VMContext,
     /// Parameters of Wasm and economic parameters.
     config: &'a VMConfig,
     /// Fees for creating (async) actions on runtime.
@@ -108,7 +106,7 @@ macro_rules! memory_set {
 impl<'a> VMLogic<'a> {
     pub fn new_with_protocol_version(
         ext: &'a mut dyn External,
-        context: VMContext<'a>,
+        context: VMContext,
         config: &'a VMConfig,
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
@@ -653,49 +651,15 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
-        let chain_store = self.context.chain_store;
-        let tip = chain_store.header_head().expect("handle this properly");
-        // requested height isn't available
-        if tip.height < height_number {
-            return Ok(0);
-        }
-
-        if tip.height == height_number {
-            self.internal_write_register(register_id, tip.last_block_hash.as_bytes().to_vec())?;
-            return Ok(1);
-        }
-        let mut previous_block_hash = tip.prev_block_hash;
-        if previous_block_hash == CryptoHash::default() {
-            // this indicates it's the genesis block
-            return Ok(3);
-        }
-        // iterate up to 255 times more
-        for _ in 0..255 {
-            let block_header =
-                chain_store.get_block_header(&previous_block_hash).expect("handle this properly");
-
-            match block_header.height().cmp(&height_number) {
-                std::cmp::Ordering::Less => {
-                    // User requested block height which does not exist, i.e. a block height
-                    // has been skipped
-                    return Ok(2);
-                }
-                std::cmp::Ordering::Equal => {
-                    // TODO: return the hash to the user
-                    self.internal_write_register(
-                        register_id,
-                        block_header.hash().as_bytes().to_vec(),
-                    )?;
-                    return Ok(1);
-                }
-                std::cmp::Ordering::Greater => {
-                    // Still need to continue going back.
-                    previous_block_hash = *(block_header.prev_hash());
-                }
+        let (_iterations, block_hash) = self.ext.get_block_hash_by_height(height_number);
+        // TODO(blas): use iteration to pay for the variable access cost to storage
+        match block_hash {
+            None => Ok(0),
+            Some(block_hash) => {
+                self.internal_write_register(register_id, block_hash.as_bytes().to_vec())?;
+                Ok(1)
             }
         }
-
-        Ok(0)
     }
 
     /// Returns the current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).

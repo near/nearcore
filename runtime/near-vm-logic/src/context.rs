@@ -1,5 +1,4 @@
 use crate::types::PublicKey;
-use near_chain::ChainStore;
 use near_primitives_core::config::ViewConfig;
 use near_primitives_core::types::{
     AccountId, Balance, BlockHeight, EpochHeight, Gas, StorageUsage,
@@ -7,7 +6,7 @@ use near_primitives_core::types::{
 
 #[derive(Clone)]
 /// Context for the contract execution.
-pub struct VMContext<'a> {
+pub struct VMContext {
     /// The account id of the current contract that we are executing.
     pub current_account_id: AccountId,
     /// The account id of that signed the original transaction that led to this
@@ -52,11 +51,9 @@ pub struct VMContext<'a> {
     /// How many `DataReceipt`'s should receive this execution result. This should be empty if
     /// this function call is a part of a batch and it is not the last action.
     pub output_data_receivers: Vec<AccountId>,
-    /// ChainStore TODO(blas) document better
-    pub chain_store: &'a ChainStore,
 }
 
-impl<'a> VMContext<'a> {
+impl VMContext {
     pub fn is_view(&self) -> bool {
         self.view_config.is_some()
     }

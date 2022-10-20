@@ -1,7 +1,7 @@
 use crate::{VMContext, VMLimitConfig};
 use near_primitives_core::config::ViewConfig;
 
-pub fn get_context<'a>(input: Vec<u8>, is_view: bool) -> VMContext<'a> {
+pub fn get_context(input: Vec<u8>, is_view: bool) -> VMContext {
     VMContext {
         current_account_id: "alice.near".parse().unwrap(),
         signer_account_id: "bob.near".parse().unwrap(),
@@ -22,6 +22,5 @@ pub fn get_context<'a>(input: Vec<u8>, is_view: bool) -> VMContext<'a> {
             false => None,
         },
         output_data_receivers: vec![],
-        chain_store: todo!(), // TODO: create a dummy chain store object
     }
 }

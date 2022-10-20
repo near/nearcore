@@ -1,7 +1,7 @@
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::VMContext;
 
-pub fn create_context<'a>() -> VMContext<'a> {
+pub fn create_context() -> VMContext {
     VMContext {
         current_account_id: "alice".parse().unwrap(),
         signer_account_id: "bob".parse().unwrap(),
@@ -19,7 +19,6 @@ pub fn create_context<'a>() -> VMContext<'a> {
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],
-        chain_store: todo!(), // TODO: how to create a dummy chain_store object?
     }
 }
 

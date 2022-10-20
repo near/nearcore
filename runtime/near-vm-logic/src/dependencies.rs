@@ -1,7 +1,7 @@
 //! External dependencies of the near-vm-logic.
 
-use near_primitives::hash::CryptoHash;
 use near_primitives::types::TrieNodesCount;
+use near_primitives::{hash::CryptoHash, types::BlockHeight};
 use near_primitives_core::types::{AccountId, Balance};
 use near_vm_errors::VMLogicError;
 
@@ -174,4 +174,8 @@ pub trait External {
 
     /// Returns total stake of validators in the current epoch.
     fn validator_total_stake(&self) -> Result<Balance>;
+
+    /// Returns the BlockHash given a block height if the block is available
+    /// within the latest 256 produced blocks.
+    fn get_block_hash_by_height(&self, height_number: BlockHeight) -> (usize, Option<CryptoHash>);
 }

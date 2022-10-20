@@ -31,7 +31,7 @@ impl Default for VMLogicBuilder {
 }
 
 impl VMLogicBuilder {
-    pub fn build<'a>(&'a mut self, context: VMContext<'a>) -> VMLogic<'a> {
+    pub fn build(&mut self, context: VMContext) -> VMLogic {
         VMLogic::new_with_protocol_version(
             &mut self.ext,
             context,

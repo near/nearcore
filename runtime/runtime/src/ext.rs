@@ -1,9 +1,10 @@
+use near_chain::{ChainStore, ChainStoreAccess};
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{
-    AccountId, Balance, EpochId, EpochInfoProvider, TrieCacheMode, TrieNodesCount,
+    AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, TrieCacheMode, TrieNodesCount,
 };
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
@@ -20,6 +21,7 @@ pub struct RuntimeExt<'a> {
     prev_block_hash: &'a CryptoHash,
     last_block_hash: &'a CryptoHash,
     epoch_info_provider: &'a dyn EpochInfoProvider,
+    chain_store: &'a ChainStore,
     current_protocol_version: ProtocolVersion,
 }
 
@@ -60,6 +62,7 @@ impl<'a> RuntimeExt<'a> {
         prev_block_hash: &'a CryptoHash,
         last_block_hash: &'a CryptoHash,
         epoch_info_provider: &'a dyn EpochInfoProvider,
+        chain_store: &'a ChainStore,
         current_protocol_version: ProtocolVersion,
     ) -> Self {
         RuntimeExt {
@@ -71,6 +74,7 @@ impl<'a> RuntimeExt<'a> {
             prev_block_hash,
             last_block_hash,
             epoch_info_provider,
+            chain_store,
             current_protocol_version,
         }
     }
@@ -179,5 +183,44 @@ impl<'a> External for RuntimeExt<'a> {
         self.epoch_info_provider
             .validator_total_stake(self.epoch_id, self.prev_block_hash)
             .map_err(|e| ExternalError::ValidatorError(e).into())
+    }
+
+    fn get_block_hash_by_height(&self, height_number: BlockHeight) -> (usize, Option<CryptoHash>) {
+        let chain_store = self.chain_store;
+        let tip = chain_store.header_head().expect("handle this properly");
+        // requested height isn't available
+        if tip.height < height_number {
+            return (0, None);
+        }
+
+        if tip.height == height_number {
+            return (0, Some(tip.last_block_hash));
+        }
+        let mut previous_block_hash = tip.prev_block_hash;
+        if previous_block_hash == CryptoHash::default() {
+            // this indicates it's the genesis block
+            return (0, None);
+        }
+        // iterate up to 255 times more
+        for iteration in 0..255 {
+            let block_header =
+                chain_store.get_block_header(&previous_block_hash).expect("handle this properly");
+
+            match block_header.height().cmp(&height_number) {
+                std::cmp::Ordering::Less => {
+                    // User requested block height which does not exist, i.e. a block height
+                    // has been skipped
+                    return (iteration, None);
+                }
+                std::cmp::Ordering::Equal => {
+                    return (iteration, Some(*block_header.hash()));
+                }
+                std::cmp::Ordering::Greater => {
+                    // Still need to continue going back.
+                    previous_block_hash = *(block_header.prev_hash());
+                }
+            }
+        }
+        (256, None)
     }
 }

@@ -89,4 +89,11 @@ impl External for MockedExternal {
     fn validator_total_stake(&self) -> Result<Balance> {
         Ok(self.validators.values().sum())
     }
+
+    fn get_block_hash_by_height(
+        &self,
+        _height_number: near_primitives::types::BlockHeight,
+    ) -> (usize, Option<CryptoHash>) {
+        (12, Some(CryptoHash::default()))
+    }
 }

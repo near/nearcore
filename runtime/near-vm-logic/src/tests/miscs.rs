@@ -3,6 +3,7 @@ use crate::tests::helpers::*;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::{map, ExtCosts};
 use hex::FromHex;
+use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
 use near_vm_errors::HostError;
 use serde::{de::Error, Deserialize, Deserializer};
@@ -949,5 +950,8 @@ fn test_ed25519_verify() {
 fn test_get_block_hash_by_height() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
-    logic.get_block_hash_by_height(BlockHeight::default(), 1).unwrap();
+    assert_eq!(logic.get_block_hash_by_height(BlockHeight::default(), 0).unwrap(), 1);
+    let mut res = [0u8; 32];
+    logic.read_register(0, (&mut res[..]).as_ptr() as _).expect("OK");
+    assert_eq!(res.as_ref(), CryptoHash::default().as_bytes());
 }
