@@ -15,6 +15,7 @@ pub mod blacklist;
 pub mod client;
 pub mod config;
 pub mod config_json;
+pub mod debug;
 pub mod routing;
 pub mod tcp;
 pub mod test_utils;
