@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Overview - Guide to Nearcore Development</title>
+        <title>Documentation - Guide to Nearcore Development</title>
         <!-- Custom HTML head -->
         <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
         <meta name="description" content="">
@@ -75,7 +75,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../architecture/how/index.html"><strong aria-hidden="true">2.</strong> How neard works</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/how/sync.html"><strong aria-hidden="true">2.1.</strong> How Sync Works</a></li><li class="chapter-item expanded "><a href="../architecture/how/gc.html"><strong aria-hidden="true">2.2.</strong> Garbage Collection</a></li><li class="chapter-item expanded "><a href="../architecture/how/epoch.html"><strong aria-hidden="true">2.3.</strong> How Epoch Works</a></li><li class="chapter-item expanded "><a href="../architecture/how/tx_routing.html"><strong aria-hidden="true">2.4.</strong> Transaction Routing</a></li></ol></li><li class="chapter-item expanded "><a href="../architecture/trie.html"><strong aria-hidden="true">3.</strong> Trie</a></li><li class="chapter-item expanded "><a href="../architecture/network.html"><strong aria-hidden="true">4.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html" class="active"><strong aria-hidden="true">5.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../practices/style.html"><strong aria-hidden="true">6.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../practices/docs.html"><strong aria-hidden="true">7.</strong> Documentation</a></li><li class="chapter-item expanded "><a href="../practices/tracking_issues.html"><strong aria-hidden="true">8.</strong> Tracking Issues</a></li><li class="chapter-item expanded "><a href="../practices/fast_builds.html"><strong aria-hidden="true">9.</strong> Fast Builds</a></li><li class="chapter-item expanded "><a href="../practices/testing/index.html"><strong aria-hidden="true">10.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/testing/python_tests.html"><strong aria-hidden="true">10.1.</strong> Python Tests</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/protocol_upgrade.html"><strong aria-hidden="true">11.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html"><strong aria-hidden="true">12.</strong> Misc</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../architecture/how/index.html"><strong aria-hidden="true">2.</strong> How neard works</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../architecture/how/sync.html"><strong aria-hidden="true">2.1.</strong> How Sync Works</a></li><li class="chapter-item expanded "><a href="../architecture/how/gc.html"><strong aria-hidden="true">2.2.</strong> Garbage Collection</a></li><li class="chapter-item expanded "><a href="../architecture/how/epoch.html"><strong aria-hidden="true">2.3.</strong> How Epoch Works</a></li><li class="chapter-item expanded "><a href="../architecture/how/tx_routing.html"><strong aria-hidden="true">2.4.</strong> Transaction Routing</a></li></ol></li><li class="chapter-item expanded "><a href="../architecture/trie.html"><strong aria-hidden="true">3.</strong> Trie</a></li><li class="chapter-item expanded "><a href="../architecture/network.html"><strong aria-hidden="true">4.</strong> Network</a></li><li class="chapter-item expanded affix "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../practices/index.html"><strong aria-hidden="true">5.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../practices/style.html"><strong aria-hidden="true">6.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../practices/docs.html" class="active"><strong aria-hidden="true">7.</strong> Documentation</a></li><li class="chapter-item expanded "><a href="../practices/tracking_issues.html"><strong aria-hidden="true">8.</strong> Tracking Issues</a></li><li class="chapter-item expanded "><a href="../practices/fast_builds.html"><strong aria-hidden="true">9.</strong> Fast Builds</a></li><li class="chapter-item expanded "><a href="../practices/testing/index.html"><strong aria-hidden="true">10.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../practices/testing/python_tests.html"><strong aria-hidden="true">10.1.</strong> Python Tests</a></li></ol></li><li class="chapter-item expanded "><a href="../practices/protocol_upgrade.html"><strong aria-hidden="true">11.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../misc/index.html"><strong aria-hidden="true">12.</strong> Misc</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -113,7 +113,7 @@
                         <a href="https://github.com/near/nearcore/tree/master/docs" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/near/nearcore/edit/master/docs/./practices/README.md" title="Suggest an edit" aria-label="Suggest an edit">
+                        <a href="https://github.com/near/nearcore/edit/master/docs/./practices/docs.md" title="Suggest an edit" aria-label="Suggest an edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
                     </div>
@@ -140,18 +140,100 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="overview"><a class="header" href="#overview">Overview</a></h1>
-<p>This chapter describes various development processes and best practices employed
-at nearcore.</p>
+                        <h1 id="documentation"><a class="header" href="#documentation">Documentation</a></h1>
+<p>This chapter describes nearcore's approach to documentation. In general,
+there are three primary types of documentations to keep in mind:</p>
+<ul>
+<li><strong>Protocol specification</strong> (<a href="https://github.com/near/NEPs">source</a>,
+<a href="https://nomicon.io">rendered</a>) is a formal description of the NEAR protocol.
+It can be used to implement alternative NEAR clients.</li>
+<li><strong>User docs</strong> (<a href="https://docs.near.org">rendered</a>) explain how to use the near
+network. User docs are also split into documentation for validators (that is,
+how to run your own near node) and documentation for smart contract
+developers.</li>
+<li><strong>Internal development docs</strong> (<a href="https://near.github.io/nearcore/">rendered</a>,
+<a href="https://github.com/near/nearcore/tree/master/docs">source</a>) is the book you
+are reading right now! The target audience here are nearcore contributors.</li>
+</ul>
+<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
+<p>The bulk of the internal docs is this book. If you want to write some kind of a
+document, add it here! The <a href="../architecture/">architecture</a> and
+<a href="../practices/">practices</a> chapter are intended for somewhat up-to-date
+normative documents, but in the <a href="../misc/">misc</a> anything goes.</p>
+<p>These are internal docs, not user-facing ones, so don't worry about proper
+English, typos, or beautiful diagrams -- just write stuff! It can easily be
+improved over time with pull requests. For docs, we use a light-weight review
+process and try to merge any improvement as quickly as possible. Rather than
+blocking a PR on some stylistic changes, just merge it and submit a follow up.</p>
+<p>Note the &quot;edit&quot; button at the top-right corner -- super useful for fixing any
+typos you spot!</p>
+<p>In addition to the book, we also have some &quot;inline&quot; documentation in the code.
+For Rust, it is customary to have a per-crate <code>README.md</code> file and include it as
+a doc comment via <code>#![doc = include_str!(&quot;../README.md&quot;)]</code> in <code>lib.rs</code>. We don't
+<em>require</em> every <code>struct</code> and <code>function</code> to be documented, but we certainly
+encourage documenting as much as possible. If you spend some time refactoring or
+fixing a function, consider adding a doc comment (<code>///</code>) to it as a drive-by
+improvement.</p>
+<p>We currently don't render <code>rustdoc</code>, see
+<a href="https://github.com/near/nearcore/issues/7836">#7836</a>.</p>
+<h2 id="book-how-to"><a class="header" href="#book-how-to">Book How To</a></h2>
+<p>We use mdBook to render a bunch of markdown files as a nice doc with table of
+contents, search and themes. Full docs are
+<a href="https://rust-lang.github.io/mdBook/">here</a>, but the basics are very simple.</p>
+<p>To add a new page:</p>
+<ol>
+<li>Add an <code>.md</code> file somewhere in the
+<a href="https://github.com/near/nearcore/tree/master/docs"><code>./docs</code></a> folder.</li>
+<li>Add an entry to
+<a href="https://github.com/near/nearcore/blob/master/docs/SUMMARY.md"><code>SUMMARY.md</code></a>
+file.</li>
+<li>Submit a PR (again, we promise to merge it without much ceremony).</li>
+</ol>
+<p>The doc itself is vanilla markdown.</p>
+<p>To render documentation locally:</p>
+<pre><code class="language-console"># Install mdBook
+$ cargo install mdbook
+$ mdbook serve --open ./docs
+</code></pre>
+<p>This will convert <code>.md</code> file from the docs folder to <code>.html</code>, open a browser,
+and start a file watcher to rebuild and reload on change.</p>
+<p>Note that GitHub's default rendering mostly just works as well, so you don't
+need special preview when reviewing pull requests to docs.</p>
+<p>The book deployed via this GitHub Action:
+<a href="https://github.com/near/nearcore/blob/master/.github/workflows/book.yml">.github/workflows/book.yml</a>.
+It just runs mdBook and then deploys the result to
+https://near.github.io/nearcore/.</p>
+<p>For internal docs, you often want to have pretty pictures. We don't currently
+have a recommended workflow, but here are some tips:</p>
+<ul>
+<li>
+<p>Don't add binary media files to Git to avoid inflating repository size. 
+Rather, upload images as comments to this super-secret issue 
+<a href="https://github.com/near/nearcore/issues/7821">#7821</a>, and then link to 
+the images as</p>
+<pre><code>![image](https://user-images.githubusercontent.com/1711539/195626792-7697129b-7f9c-4953-b939-0b9bcacaf72c.png)
+</code></pre>
+<p>Use single comment per page with multiple images.</p>
+</li>
+<li>
+<p>Google Doc is an OK way to create technical drawings, you can add a link to
+the doc with source to that secret issue as well.</p>
+</li>
+<li>
+<p>There's some momentum around using mermaid.js for diagramming, and there's
+appropriate plugin for that: https://github.com/badboy/mdbook-mermaid.
+Consider if that's something you might want to use.</p>
+</li>
+</ul>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../architecture/network.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../practices/style.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
-                            <a rel="next" href="../practices/style.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next" href="../practices/tracking_issues.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
                         <div style="clear: both"></div>
@@ -160,10 +242,10 @@ at nearcore.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../architecture/network.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../practices/style.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
-                    <a rel="next" href="../practices/style.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next" href="../practices/tracking_issues.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>
