@@ -9,6 +9,7 @@ use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
 use futures::future::BoxFuture;
 use futures::{future, Future, FutureExt};
 use near_crypto::{KeyType, SecretKey};
+use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
@@ -211,10 +212,11 @@ pub fn expected_routing_tables(
 #[rtype(result = "NetworkInfo")]
 pub struct GetInfo {}
 
-impl Handler<GetInfo> for PeerManagerActor {
+impl Handler<WithSpanContext<GetInfo>> for PeerManagerActor {
     type Result = crate::types::NetworkInfo;
 
-    fn handle(&mut self, _msg: GetInfo, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: WithSpanContext<GetInfo>, _ctx: &mut Context<Self>) -> Self::Result {
+        let (_span, _msg) = handler_debug_span!(target: "network", msg);
         self.get_network_info()
     }
 }
@@ -232,10 +234,15 @@ impl StopSignal {
     }
 }
 
-impl Handler<StopSignal> for PeerManagerActor {
+impl Handler<WithSpanContext<StopSignal>> for PeerManagerActor {
     type Result = ();
 
-    fn handle(&mut self, msg: StopSignal, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<StopSignal>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "network", msg);
         debug!(target: "network", "Receive Stop Signal.");
 
         if msg.should_panic {
@@ -261,10 +268,15 @@ impl BanPeerSignal {
     }
 }
 
-impl Handler<BanPeerSignal> for PeerManagerActor {
+impl Handler<WithSpanContext<BanPeerSignal>> for PeerManagerActor {
     type Result = ();
 
-    fn handle(&mut self, msg: BanPeerSignal, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<BanPeerSignal>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "network", msg);
         debug!(target: "network", "Ban peer: {:?}", msg.peer_id);
         self.try_ban_peer(&msg.peer_id, msg.ban_reason);
     }
@@ -276,26 +288,29 @@ pub struct MockPeerManagerAdapter {
     pub requests: Arc<RwLock<VecDeque<PeerManagerMessageRequest>>>,
 }
 
-impl MsgRecipient<PeerManagerMessageRequest> for MockPeerManagerAdapter {
+impl MsgRecipient<WithSpanContext<PeerManagerMessageRequest>> for MockPeerManagerAdapter {
     fn send(
         &self,
-        msg: PeerManagerMessageRequest,
+        msg: WithSpanContext<PeerManagerMessageRequest>,
     ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, MailboxError>> {
         self.do_send(msg);
         future::ok(PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse))
             .boxed()
     }
 
-    fn do_send(&self, msg: PeerManagerMessageRequest) {
-        self.requests.write().unwrap().push_back(msg);
+    fn do_send(&self, msg: WithSpanContext<PeerManagerMessageRequest>) {
+        self.requests.write().unwrap().push_back(msg.msg);
     }
 }
 
-impl MsgRecipient<SetChainInfo> for MockPeerManagerAdapter {
-    fn send(&self, _msg: SetChainInfo) -> BoxFuture<'static, Result<(), MailboxError>> {
+impl MsgRecipient<WithSpanContext<SetChainInfo>> for MockPeerManagerAdapter {
+    fn send(
+        &self,
+        _msg: WithSpanContext<SetChainInfo>,
+    ) -> BoxFuture<'static, Result<(), MailboxError>> {
         async { Ok(()) }.boxed()
     }
-    fn do_send(&self, _msg: SetChainInfo) {}
+    fn do_send(&self, _msg: WithSpanContext<SetChainInfo>) {}
 }
 
 impl MockPeerManagerAdapter {
@@ -308,6 +323,7 @@ impl MockPeerManagerAdapter {
 }
 
 pub mod test_features {
+    use crate::client;
     use crate::config;
     use crate::test_utils::convert_boot_nodes;
     use crate::time;
@@ -360,8 +376,7 @@ pub mod test_features {
             time::Clock::real(),
             store,
             config,
-            client_addr.recipient(),
-            view_client_addr.recipient(),
+            client::Client::new(client_addr.recipient(), view_client_addr.recipient()),
             GenesisId::default(),
         )
         .unwrap()

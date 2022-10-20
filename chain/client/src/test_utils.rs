@@ -72,7 +72,7 @@ use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor}
 pub struct PeerManagerMock {
     handle: Box<
         dyn FnMut(
-            PeerManagerMessageRequest,
+            WithSpanContext<PeerManagerMessageRequest>,
             &mut actix::Context<Self>,
         ) -> PeerManagerMessageResponse,
     >,
@@ -82,7 +82,7 @@ impl PeerManagerMock {
     fn new(
         f: impl 'static
             + FnMut(
-                PeerManagerMessageRequest,
+                WithSpanContext<PeerManagerMessageRequest>,
                 &mut actix::Context<Self>,
             ) -> PeerManagerMessageResponse,
     ) -> Self {
@@ -94,16 +94,20 @@ impl actix::Actor for PeerManagerMock {
     type Context = actix::Context<Self>;
 }
 
-impl actix::Handler<PeerManagerMessageRequest> for PeerManagerMock {
+impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerMock {
     type Result = PeerManagerMessageResponse;
-    fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<PeerManagerMessageRequest>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
         (self.handle)(msg, ctx)
     }
 }
 
-impl actix::Handler<SetChainInfo> for PeerManagerMock {
+impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerMock {
     type Result = ();
-    fn handle(&mut self, _msg: SetChainInfo, _ctx: &mut Self::Context) {}
+    fn handle(&mut self, _msg: WithSpanContext<SetChainInfo>, _ctx: &mut Self::Context) {}
 }
 
 /// min block production time in milliseconds
@@ -386,7 +390,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     let client_addr1 = client_addr.clone();
 
     let network_actor =
-        PeerManagerMock::new(move |msg, ctx| peermanager_mock(&msg, ctx, client_addr1.clone()))
+        PeerManagerMock::new(move |msg, ctx| peermanager_mock(&msg.msg, ctx, client_addr1.clone()))
             .start();
 
     network_adapter.set_recipient(network_actor);
@@ -619,6 +623,7 @@ pub fn setup_mock_all_validators(
             let client_addr = ctx.address();
             let _account_id = account_id.clone();
             let pm = PeerManagerMock::new(move |msg, _ctx| {
+                let msg = msg.msg;
                 // Note: this `.wait` will block until all `ClientActors` are created.
                 let connectors1 = connectors1.wait();
                 let mut guard = network_mock1.write().unwrap();
@@ -753,7 +758,7 @@ pub fn setup_mock_all_validators(
                                     actix::spawn(
                                         connectors1[i]
                                             .1
-                                            .send(NetworkViewClientMessages::BlockRequest(*hash))
+                                            .send(NetworkViewClientMessages::BlockRequest(*hash).with_span_context())
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -779,7 +784,7 @@ pub fn setup_mock_all_validators(
                                             .1
                                             .send(NetworkViewClientMessages::EpochSyncRequest {
                                                 epoch_id: epoch_id.clone(),
-                                            })
+                                            }.with_span_context())
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -805,7 +810,7 @@ pub fn setup_mock_all_validators(
                                             .1
                                             .send(NetworkViewClientMessages::EpochSyncFinalizationRequest {
                                                 epoch_id: epoch_id.clone(),
-                                            })
+                                            }.with_span_context())
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -831,7 +836,7 @@ pub fn setup_mock_all_validators(
                                             .1
                                             .send(NetworkViewClientMessages::BlockHeadersRequest(
                                                 hashes.clone(),
-                                            ))
+                                            ).with_span_context())
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -867,7 +872,7 @@ pub fn setup_mock_all_validators(
                                             .send(NetworkViewClientMessages::StateRequestHeader {
                                                 shard_id: *shard_id,
                                                 sync_hash: *sync_hash,
-                                            })
+                                            }.with_span_context())
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -905,7 +910,7 @@ pub fn setup_mock_all_validators(
                                                 shard_id: *shard_id,
                                                 sync_hash: *sync_hash,
                                                 part_id: *part_id,
-                                            })
+                                            }.with_span_context())
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
@@ -941,7 +946,7 @@ pub fn setup_mock_all_validators(
                                 for (_, view_client) in connectors1 {
                                     view_client.do_send(NetworkViewClientMessages::AnnounceAccount(
                                         vec![(announce_account.clone(), None)],
-                                    ))
+                                    ).with_span_context())
                                 }
                             }
                         }

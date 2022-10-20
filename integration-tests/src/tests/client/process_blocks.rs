@@ -322,7 +322,8 @@ fn produce_blocks_with_tx() {
             }),
         );
         near_network::test_utils::wait_or_panic(5000);
-        actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
+        let actor = view_client.send(GetBlock::latest().with_span_context());
+        let actor = actor.then(move |res| {
             let block_hash = res.unwrap().unwrap().header.hash;
             client.do_send(
                 NetworkClientMessages::Transaction {
@@ -333,7 +334,8 @@ fn produce_blocks_with_tx() {
                 .with_span_context(),
             );
             future::ready(())
-        }))
+        });
+        actix::spawn(actor);
     });
 }
 
@@ -363,7 +365,8 @@ fn receive_network_block() {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
+        let actor = view_client.send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             block_merkle_tree.insert(last_block.header.hash);
@@ -404,7 +407,8 @@ fn receive_network_block() {
                     .with_span_context(),
             );
             future::ready(())
-        }));
+        });
+        actix::spawn(actor);
         near_network::test_utils::wait_or_panic(5000);
     });
 }
@@ -444,7 +448,8 @@ fn produce_block_with_approvals() {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
+        let actor = view_client.send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             block_merkle_tree.insert(last_block.header.hash);
@@ -507,7 +512,8 @@ fn produce_block_with_approvals() {
             }
 
             future::ready(())
-        }));
+        });
+        actix::spawn(actor);
         near_network::test_utils::wait_or_panic(5000);
     });
 }
@@ -654,7 +660,8 @@ fn invalid_blocks_common(is_requested: bool) {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
+        let actor = view_client.send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             block_merkle_tree.insert(last_block.header.hash);
@@ -757,7 +764,8 @@ fn invalid_blocks_common(is_requested: bool) {
                 );
             }
             future::ready(())
-        }));
+        });
+        actix::spawn(actor);
         near_network::test_utils::wait_or_panic(5000);
     });
 }

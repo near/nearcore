@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, arbitrary::Arbitrary)]
 #[serde(untagged)]
 pub enum ChunkReference {
     BlockShardId {
@@ -13,7 +13,7 @@ pub enum ChunkReference {
     },
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, arbitrary::Arbitrary)]
 pub struct RpcChunkRequest {
     #[serde(flatten)]
     pub chunk_reference: ChunkReference,
