@@ -54,7 +54,7 @@ fn test_storage_after_commit_of_cold_update() {
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
-    test_cold_genesis_update(&*cold_db, &env.clients[0].runtime_adapter.get_store()).unwrap();
+    test_cold_genesis_update(&*cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
 
     for h in 1..max_height {
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -104,14 +104,14 @@ fn test_storage_after_commit_of_cold_update() {
 
         last_hash = block.hash().clone();
 
-        update_cold_db(&*cold_db, &env.clients[0].runtime_adapter.get_store(), &h).unwrap();
+        update_cold_db(&*cold_db, &env.clients[0].runtime_adapter.store(), &h).unwrap();
     }
 
     let cold_store = NodeStorage::new(cold_db).get_store(Temperature::Hot);
 
     for col in DBCol::iter() {
         if col.is_cold() {
-            check_iter(&env.clients[0].runtime_adapter.get_store(), &cold_store, col);
+            check_iter(&env.clients[0].runtime_adapter.store(), &cold_store, col);
         }
     }
 }

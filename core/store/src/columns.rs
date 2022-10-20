@@ -383,7 +383,7 @@ impl DBCol {
             DBCol::BlockHeight => &[DBKeyType::BlockHeight],
             DBCol::State => &[DBKeyType::ShardUId, DBKeyType::TrieNodeOrValueHash],
             DBCol::ChunkExtra => &[DBKeyType::BlockHash, DBKeyType::ShardUId],
-            DBCol::TransactionResult => &[DBKeyType::OutcomeId],
+            DBCol::_TransactionResult => &[DBKeyType::OutcomeId],
             DBCol::OutgoingReceipts => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::IncomingReceipts => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::Peers => &[DBKeyType::PeerId],
@@ -426,6 +426,7 @@ impl DBCol {
             DBCol::EpochValidatorInfo => &[DBKeyType::EpochId],
             DBCol::HeaderHashesByHeight => &[DBKeyType::BlockHeight],
             DBCol::StateChangesForSplitStates => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            DBCol::TransactionResultForBlock => &[DBKeyType::OutcomeId, DBKeyType::BlockHash],
             #[cfg(feature = "protocol_feature_flat_state")]
             DBCol::FlatState => &[DBKeyType::TrieKey],
             #[cfg(feature = "protocol_feature_flat_state")]
