@@ -139,7 +139,6 @@ opentelemetry = { version = "0.17.0", features = ["rt-tokio", "trace"] }
 opentelemetry-otlp = "0.10.0"
 opentelemetry-semantic-conventions = "0.9.0"
 paperclip = { version = "0.7.0", features = ["actix4"] }
-parity-secp256k1 = "0.7"
 parity-wasm = { version = "0.42", default-features = false }
 parity-wasm_41 = { package = "parity-wasm", version = "0.41" }
 parking_lot = "0.12.1"
