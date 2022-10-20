@@ -4182,6 +4182,7 @@ dependencies = [
  "near-primitives-core",
  "near-store",
  "nearcore",
+ "thiserror",
  "tokio",
  "tracing",
 ]

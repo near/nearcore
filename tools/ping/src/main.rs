@@ -193,8 +193,6 @@ async fn main() -> anyhow::Result<()> {
             ),
         }
     };
-    let protocol_version =
-        args.protocol_version.unwrap_or(near_primitives::version::PROTOCOL_VERSION);
 
     let peer = match PeerInfo::from_str(&args.peer) {
         Ok(p) => p,
@@ -220,7 +218,7 @@ async fn main() -> anyhow::Result<()> {
         &args.chain_id,
         genesis_hash,
         head_height,
-        protocol_version,
+        args.protocol_version,
         peer.id.clone(),
         peer.addr.clone().unwrap(),
         args.ttl,
