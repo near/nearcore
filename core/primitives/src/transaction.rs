@@ -299,7 +299,7 @@ impl Default for ExecutionStatus {
 
 /// ExecutionOutcome for proof. Excludes logs and metadata
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone)]
-struct PartialExecutionOutcome {
+pub struct PartialExecutionOutcome {
     pub receipt_ids: Vec<CryptoHash>,
     pub gas_burnt: Gas,
     pub tokens_burnt: Balance,
