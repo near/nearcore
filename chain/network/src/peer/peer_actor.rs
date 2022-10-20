@@ -277,14 +277,8 @@ impl PeerActor {
     }
 
     fn send_message(&self, msg: &PeerMessage) {
-        // Rate limit PeersRequest messages.
-        // TODO(gprusak): upgrade it to a more general rate limiting.
         if let (PeerStatus::Ready(conn), PeerMessage::PeersRequest) = (&self.peer_status, msg) {
-            let now = self.clock.now();
-            match conn.last_time_peer_requested.load() {
-                Some(last) if now < last + REQUEST_PEERS_INTERVAL => return,
-                _ => conn.last_time_peer_requested.store(Some(now)),
-            }
+            conn.last_time_peer_requested.store(Some(self.clock.now()));
         }
         if let Some(enc) = self.encoding() {
             return self.send_message_with_encoding(msg, enc);

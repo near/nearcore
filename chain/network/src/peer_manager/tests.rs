@@ -159,6 +159,7 @@ async fn no_edge_broadcast_after_restart() {
         // Receive the initial sync, which will consist just of the current edge:
         // - the disconnected edges from the previous iterations are not loaded yet.
         // - the local edges weren't stored at all.
+        tracing::info!(target: "test", "wait_for_edges(<first edge>)");
         wait_for_edges(&mut peer, &[edge.clone()].into()).await;
 
         // Create a bunch of fresh unreachable edges, then send all the edges created so far.
@@ -179,9 +180,11 @@ async fn no_edge_broadcast_after_restart() {
         .await;
 
         // Wait for the fresh edges to be broadcasted back.
+        tracing::info!(target: "test", "wait_for_edges(<fresh edges>)");
         wait_for_edges(&mut peer, &fresh_edges).await;
 
         // Wait for all the disconnected edges created so far to be saved to storage.
+        tracing::info!(target: "test", "wait for pruning");
         let mut pruned = HashSet::new();
         while pruned != total_edges {
             match events.recv().await {

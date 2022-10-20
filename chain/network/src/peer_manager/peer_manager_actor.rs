@@ -19,9 +19,9 @@ use crate::store;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownProducer, NetworkInfo,
-    NetworkRequests, NetworkResponses, PeerIdOrHash, PeerManagerMessageRequest,
-    PeerManagerMessageResponse, PeerType, ReasonForBan, SetChainInfo,
+    ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownProducer, NetworkInfo, NetworkRequests,
+    NetworkResponses, PeerIdOrHash, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerType, ReasonForBan, SetChainInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{
@@ -1136,10 +1136,7 @@ impl PeerManagerActor {
     }
 
     #[perf]
-    fn handle_msg_register_peer(
-        &mut self,
-        msg: RegisterPeer,
-    ) -> RegisterPeerResponse {
+    fn handle_msg_register_peer(&mut self, msg: RegisterPeer) -> RegisterPeerResponse {
         let _d = delay_detector::DelayDetector::new(|| "consolidate".into());
 
         let peer_info = &msg.connection.peer_info;

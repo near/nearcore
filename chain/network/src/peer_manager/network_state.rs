@@ -22,7 +22,7 @@ use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
-use parking_lot::{RwLock};
+use parking_lot::RwLock;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tracing::{debug, trace};
@@ -275,7 +275,7 @@ impl NetworkState {
         }
         self.routing_table_view.add_local_edges(&edges);
         self.routing_table_addr
-            .do_send(routing::actor::Message::AddVerifiedEdges { edges }.with_span_context());
+            .send(routing::actor::Message::AddVerifiedEdges { edges }.with_span_context());
     }
 
     pub fn broadcast_accounts(&self, accounts: Vec<AnnounceAccount>) {
