@@ -1,4 +1,5 @@
 use crate::config;
+use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
     AccountData, AccountOrPeerIdOrHash, Edge, EdgeState, PartialEdgeInfo, PeerInfo, PeerMessage,
     Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo,
@@ -30,8 +31,6 @@ use actix::{
 };
 use anyhow::bail;
 use anyhow::Context as _;
-use near_client_primitives::debug::{DebugStatusResponse, NetworkDebugStatus};
-use near_client_primitives::types::StatusError;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -1728,11 +1727,11 @@ impl Handler<PeerManagerMessageRequest> for PeerManagerActor {
     }
 }
 
-impl Handler<NetworkDebugStatus> for PeerManagerActor {
-    type Result = Result<DebugStatusResponse, StatusError>;
-    fn handle(&mut self, msg: NetworkDebugStatus, _ctx: &mut Context<Self>) -> Self::Result {
+impl Handler<GetDebugStatus> for PeerManagerActor {
+    type Result = DebugStatus;
+    fn handle(&mut self, msg: GetDebugStatus, _ctx: &mut Context<Self>) -> Self::Result {
         match msg {
-            NetworkDebugStatus::PeerStore => {
+            GetDebugStatus::PeerStore => {
                 let mut peer_states_view = self
                     .peer_store
                     .iter()
@@ -1749,11 +1748,8 @@ impl Handler<NetworkDebugStatus> for PeerManagerActor {
                     })
                     .collect::<Vec<_>>();
 
-                peer_states_view.sort_by(|a, b| {
-                    (-a.last_attempt.unwrap_or(0), -a.last_seen)
-                        .cmp(&(-b.last_attempt.unwrap_or(0), -b.last_seen))
-                });
-                Ok(DebugStatusResponse::PeerStore(PeerStoreView { peer_states: peer_states_view }))
+                peer_states_view.sort_by_key(|a| (-a.last_attempt.unwrap_or(0), -a.last_seen));
+                DebugStatus::PeerStore(PeerStoreView { peer_states: peer_states_view })
             }
         }
     }

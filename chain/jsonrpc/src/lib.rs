@@ -9,7 +9,6 @@ use actix_web::HttpRequest;
 use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use futures::Future;
 use futures::FutureExt;
-use near_client_primitives::debug::NetworkDebugStatus;
 use near_network::PeerManagerActor;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -406,20 +405,15 @@ impl JsonRpcHandler {
         self.view_client_addr.send(msg).await.map_err(RpcFrom::rpc_from)?.map_err(RpcFrom::rpc_from)
     }
 
-    async fn peer_manager_send<M, T, E, F>(&self, msg: M) -> Result<T, E>
+    async fn peer_manager_send<M, T, E>(&self, msg: M) -> Result<T, E>
     where
         PeerManagerActor: actix::Handler<M>,
-        M: actix::Message<Result = Result<T, F>> + Send + 'static,
+        M: actix::Message<Result = T> + Send + 'static,
         M::Result: Send,
-        E: RpcFrom<F>,
         E: RpcFrom<actix::MailboxError>,
     {
         match &self.peer_manager_addr {
-            Some(peer_manager_addr) => peer_manager_addr
-                .send(msg)
-                .await
-                .map_err(RpcFrom::rpc_from)?
-                .map_err(RpcFrom::rpc_from),
+            Some(peer_manager_addr) => peer_manager_addr.send(msg).await.map_err(RpcFrom::rpc_from),
             None => Err(RpcFrom::rpc_from(MailboxError::Closed)),
         }
     }
@@ -757,21 +751,35 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
         if self.enable_debug_rpc {
-            let debug_status = match path {
-                "/debug/api/tracked_shards" => self.client_send(DebugStatus::TrackedShards).await?,
-                "/debug/api/sync_status" => self.client_send(DebugStatus::SyncStatus).await?,
-                "/debug/api/catchup_status" => self.client_send(DebugStatus::CatchupStatus).await?,
-                "/debug/api/epoch_info" => self.client_send(DebugStatus::EpochInfo).await?,
-                "/debug/api/block_status" => self.client_send(DebugStatus::BlockStatus).await?,
-                "/debug/api/validator_status" => {
-                    self.client_send(DebugStatus::ValidatorStatus).await?
-                }
-                "/debug/api/peer_store" => {
-                    self.peer_manager_send(NetworkDebugStatus::PeerStore).await?
-                }
-                _ => return Ok(None),
-            };
-            return Ok(Some(debug_status.rpc_into()));
+            let debug_status: near_jsonrpc_primitives::types::status::DebugStatusResponse =
+                match path {
+                    "/debug/api/tracked_shards" => {
+                        self.client_send(DebugStatus::TrackedShards).await?.rpc_into()
+                    }
+                    "/debug/api/sync_status" => {
+                        self.client_send(DebugStatus::SyncStatus).await?.rpc_into()
+                    }
+                    "/debug/api/catchup_status" => {
+                        self.client_send(DebugStatus::CatchupStatus).await?.rpc_into()
+                    }
+                    "/debug/api/epoch_info" => {
+                        self.client_send(DebugStatus::EpochInfo).await?.rpc_into()
+                    }
+                    "/debug/api/block_status" => {
+                        self.client_send(DebugStatus::BlockStatus).await?.rpc_into()
+                    }
+                    "/debug/api/validator_status" => {
+                        self.client_send(DebugStatus::ValidatorStatus).await?.rpc_into()
+                    }
+                    "/debug/api/peer_store" => self
+                        .peer_manager_send(near_network::debug::GetDebugStatus::PeerStore)
+                        .await?
+                        .rpc_into(),
+                    _ => return Ok(None),
+                };
+            return Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
+                status_response: debug_status,
+            }));
         } else {
             return Ok(None);
         }

@@ -13,6 +13,7 @@ pub mod actix;
 pub mod blacklist;
 pub mod config;
 pub mod config_json;
+pub mod debug;
 pub(crate) mod private_actix;
 pub mod routing;
 pub(crate) mod stats;

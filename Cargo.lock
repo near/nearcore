@@ -3211,7 +3211,6 @@ dependencies = [
  "im",
  "itertools",
  "lru",
- "near-client-primitives",
  "near-crypto",
  "near-o11y",
  "near-performance-metrics",
