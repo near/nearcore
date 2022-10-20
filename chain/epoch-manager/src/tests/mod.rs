@@ -560,7 +560,7 @@ fn test_double_sign_slashing1() {
     );
     assert_eq!(
         epoch_info.validator_kickout(),
-        &vec![("test1".parse().unwrap(), ValidatorKickoutReason::Slashed)]
+        &[("test1".parse().unwrap(), ValidatorKickoutReason::Slashed)]
             .into_iter()
             .collect::<HashMap<_, _>>()
     );
@@ -1083,7 +1083,7 @@ fn test_expected_chunks() {
         .unwrap();
     assert_eq!(
         epoch_info.validator_kickout(),
-        &vec![(
+        &[(
             "test1".parse().unwrap(),
             ValidatorKickoutReason::NotEnoughBlocks { produced: 0, expected }
         )]
@@ -1164,7 +1164,7 @@ fn test_expected_chunks_prev_block_not_produced() {
         .unwrap();
     assert_eq!(
         epoch_info.validator_kickout(),
-        &vec![(
+        &[(
             "test1".parse().unwrap(),
             ValidatorKickoutReason::NotEnoughBlocks { produced: 0, expected }
         )]
@@ -1514,7 +1514,7 @@ fn test_chunk_validator_kickout() {
     let last_epoch_info = hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).last();
     assert_eq!(
         last_epoch_info.unwrap().validator_kickout(),
-        &vec![(
+        &[(
             "test1".parse().unwrap(),
             ValidatorKickoutReason::NotEnoughChunks { produced: 0, expected }
         )]
@@ -2612,7 +2612,7 @@ fn test_max_kickout_stake_ratio() {
         kickouts,
         // We would have kicked out test0, test1, test2 and test4, but
         // test1, test2, and test4 are exempted. Note that test3 can't be exempted because it
-        // is in prev_valdiator_kickout.
+        // is in prev_validator_kickout.
         HashMap::from([(
             "test0".parse().unwrap(),
             NotEnoughBlocks { produced: 50, expected: 100 }

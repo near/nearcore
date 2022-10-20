@@ -5,42 +5,116 @@ is on the implementation of the blockchain protocol, not the protocol itself.
 For reference documentation of the protocol, please refer to
 [nomicon](https://nomicon.io/)
 
+Some parts of our architecture are also covered in this [video series on YouTube](https://www.youtube.com/playlist?list=PL9tzQn_TEuFV4qlts0tVgndnytFs4QSYo).
+
 ## Bird's Eye View
 
-![](/images/architecture.svg)
+If we put the entirety of nearcore onto one picture, we get something like this:
 
-Since nearcore is an implementation of NEAR blockchain protocol, its goal is to
-produce a binary that runs as a blockchain client. More specifically, the
-`neard` binary can do the following:
+![](../images/architecture.svg)
 
-- generate files necessary to start a node
-- start a node with a given folder that contains required data
+Don't worry if this doesn't yet make a lot of sense: hopefully, by the end of
+this document the above picture would become much clearer!
 
-There are three major components of nearcore:
+## Overall Operation
 
-* Network. We implement a peer-to-peer network that powers communications
-  between blockchain nodes. This includes initiating connections with other
-  nodes, maintaining a view of the entire network, routing messages to the right
-  nodes, etc. Network is a somewhat standalone module, though it uses
-  information about validators to propagate and validate certain messages.
+`nearcore` is a blockchain node -- it's a single binary (`neard`) which runs on
+some machine and talks to other similar binaries running elsewhere. Together,
+the nodes agree (using a distributed consensus algorithm) on a particular
+sequence of transactions. Once transaction sequence is established, each node
+applies transactions to the current state. Because transactions are fully
+deterministic, each node in the network ends up with identical state. To allow
+greater scalability, NEAR protocol uses sharding, which allows a node to hold
+only a small subset (shard) of the whole state.
 
-* Chain. Chain is responsible for building and maintaining the blockchain data
-  structure. This includes block and chunk production and processing, consensus,
-  and validator selection. However, chain is not responsible for actually
-  applying transactions and receipts.
+`neard` is a stateful, restartable process. When `neard` starts, the node
+connects to the network and starts processing blocks (block is a batch of
+transactions, processed together; transactions are batched into blocks for
+greater efficiency). The results of processing are persisted in the database.
+RocksDB is used for storage. Usually, the node's data is found in the `~/.near`
+directory. The node can be stopped at any moment and be restarted later. While
+the node is offline it misses the block, so, after a restart, the sync process
+kicks in which brings the node up-to-speed with the network by downloading the
+missing bits of history from more up-to-date peer nodes.
 
-* Runtime. Runtime is the execution engine that actually applies transactions
-  and receipts and performs state transitions. This also includes compilation of
-  contracts (wasm binaries) and execution of contract calls.
+Major components of nearcore:
+
+* JSON RPC. This HTTP RPC interface is how `neard` communicates with
+  non-blockchain outside world. For example, to submit a transaction, some
+  client sends an RPC request with it to some node in the network. From that
+  node, the transaction propagates through the network, until it is included in
+  some block. Similarly, a client can send an HTTP request to a node to learn
+  about current state of the blockchain. The JSON RPC interface is documented
+  [here](https://docs.near.org/api/rpc/introduction).
+
+* Network. If RPC is aimed "outside" the blockchain, "network" is how peer
+  `neard` nodes communicate with each other within blockchain. RPC carries
+  requests from users of the blockchain, while network carries various messages
+  needed to implement consensus. Two directly connected nodes communicate by
+  sending protobuf-encoded messages over TCP. A node also includes logic to
+  route messages for indirect peers through intermediaries. Oversimplifying a
+  lot, it's enough for a new node to know an IP address of just one other
+  network participant. From this bootstrap connection, the node learns how to
+  communicate with any other node in the network.
+
+* Client. Somewhat confusingly named, client is the logical state of the
+  blockchain. After receiving and decoding a request, both RPC and network
+  usually forward it in the parsed form to the client. Internally, client is
+  split in two somewhat independent components: chain and runtime.
+
+* Chain. The job of chain, in a nutshell, is to determine a global order of
+  transactions. Chain builds and maintains the blockchain data structure. This
+  includes block and chunk production and processing, consensus, and validator
+  selection. However, chain is not responsible for actually applying
+  transactions and receipts.
+
+* Runtime. If chain selects the _order_ of transactions, Runtime applies
+  transaction to the state. Chain guarantees that everyone agrees on the order
+  and content of transactions, and Runtime guarantees that each transaction is
+  fully deterministic. It follows that everyone agrees on the "current state" of
+  the blockchain. Some transactions are as simple as "transfer X tokens from
+  Alice to Bob". But a much more powerful class of transactions is supported:
+  "run this arbitrary WebAssembly code in the context of the current state of
+  the chain". Running such "smart contract" transactions securely and
+  efficiently is a major part of what runtime does. Today, runtime uses a JIT
+  compiler to do that.
+
+* Storage. Storage is more of a cross-cutting concern, than an isolated
+  component. Many parts of a node want to durably persist various bits of state
+  to disk. One notable case is the logical state of the blockchain, and, in
+  particular, data associated with each account. Logically, the state of account
+  on a chain is a key-value map: `HashMap<Vec<u8>, Vec<u8>>`. But there is a
+  twist: it should be possible to provide a succinct proof that a particular key
+  indeed holds a particular value. To allow that internally the state is
+  implemented as a persistent (in both senses, "functional" and "on disk")
+  merkle-patricia trie.
+
+* Parameter Estimator. One kind of transaction we support is "run this
+  arbitrary, Turing-complete computation". To protect from a `loop {}`
+  transaction halting the whole network, runtime implements resource limiting:
+  each transaction runs with a certain finite amount of "gas", and each
+  operation costs a certain amount of gas to perform. Parameter estimator is
+  essentially a set of benchmark used to estimate relative gas costs of
+  various operations.
 
 ## Entry Points
 
 `neard/src/main.rs` contains the main function that starts a blockchain node.
 However, this file mostly only contains the logic to parse arguments and
-dispatch different commands.
+dispatch different commands. `start_with_config` in `nearcore/src/lib.rs` is the
+actual entry point and it starts all the actors.
 
-`start_with_config` in `nearcore/src/lib.rs` is the actual entry point and it
-starts all the actors.
+`JsonRpcHandler::process` in the `jsonrpc` crate is the RPC entry point. It
+implements the public API of a node, which is documented
+[here](https://docs.near.org/api/rpc/introduction).
+
+`PeerManagerActor::spawn` in the `network` is an entry for the other point of
+contract with the outside world -- the peer-to-peer network.
+
+`Runtime::apply` in the `runtime` crate is the entry point for transaction
+processing logic. This is where state transitions actually happen, after chain
+decided that, according to distributed consensus, which transitions need  to
+happen.
 
 ## Code Map
 

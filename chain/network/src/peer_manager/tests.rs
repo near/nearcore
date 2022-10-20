@@ -1,25 +1,31 @@
 use crate::concurrency::demux;
 use crate::config;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Encoding, PeerAddr, SyncAccountsData};
+use crate::network_protocol::{
+    Edge, Encoding, Handshake, PartialEdgeInfo, PeerAddr, SyncAccountsData,
+};
 use crate::network_protocol::{Ping, RoutedMessageBody, EDGE_MIN_TIMESTAMP_NONCE};
 use crate::peer;
+use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;
+use crate::peer_manager::connection;
 use crate::peer_manager::network_state::LIMIT_PENDING_PEERS;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::{Event, NormalAccountData};
-use crate::testonly::{assert_is_superset, make_rng, AsSet as _};
+use crate::private_actix::RegisterPeerError;
+use crate::tcp;
+use crate::testonly::stream::Stream;
+use crate::testonly::{make_rng, AsSet as _};
 use crate::time;
 use crate::types::{PeerMessage, RoutingTableUpdate};
 use itertools::Itertools;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::network::PeerId;
+use near_primitives::version::PROTOCOL_VERSION;
 use pretty_assertions::assert_eq;
 use rand::seq::SliceRandom as _;
 use rand::Rng as _;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::net::TcpStream;
 
 // After the initial exchange, all subsequent SyncRoutingTable messages are
 // expected to contain only the diff of the known data.
@@ -41,11 +47,10 @@ async fn repeated_data_in_sync_routing_table() {
         network: chain.make_config(rng),
         chain,
         peers: vec![],
-        start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
         force_encoding: Some(Encoding::Proto),
         nonce: None,
     };
-    let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
+    let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
     let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
     let edge = peer.complete_handshake().await;
 
@@ -66,7 +71,9 @@ async fn repeated_data_in_sync_routing_table() {
         // internal clock with a fake clock.
         while edges_got != edges_want || accounts_got != accounts_want {
             match peer.events.recv().await {
-                peer::testonly::Event::RoutingTable(got) => {
+                peer::testonly::Event::Network(PME::MessageProcessed(
+                    PeerMessage::SyncRoutingTable(got),
+                )) => {
                     for a in got.accounts {
                         assert!(!accounts_got.contains(&a), "repeated broadcast: {a:?}");
                         assert!(accounts_want.contains(&a), "unexpected broadcast: {a:?}");
@@ -95,6 +102,24 @@ async fn repeated_data_in_sync_routing_table() {
     }
 }
 
+/// Awaits for SyncRoutingTable messages until all edges from `want` arrive.
+/// Panics if any other edges arrive.
+async fn wait_for_edges(peer: &mut peer::testonly::PeerHandle, want: &HashSet<Edge>) {
+    let mut got = HashSet::new();
+    while &got != want {
+        match peer.events.recv().await {
+            peer::testonly::Event::Network(PME::MessageProcessed(
+                PeerMessage::SyncRoutingTable(msg),
+            )) => {
+                got.extend(msg.edges);
+                assert!(want.is_superset(&got));
+            }
+            // Ignore other messages.
+            _ => {}
+        }
+    }
+}
+
 // After each handshake a full sync of routing table is performed with the peer.
 // After a restart, all the edges reside in storage. The node shouldn't broadcast
 // edges which it learned about before the restart.
@@ -107,7 +132,7 @@ async fn no_edge_broadcast_after_restart() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    let mut total_edges = vec![];
+    let mut total_edges = HashSet::new();
     let store = near_store::db::TestDB::new();
 
     for i in 0..3 {
@@ -124,39 +149,45 @@ async fn no_edge_broadcast_after_restart() {
             network: chain.make_config(rng),
             chain: chain.clone(),
             peers: vec![],
-            start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
             force_encoding: Some(Encoding::Proto),
             nonce: None,
         };
-        let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
+        let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
         let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
         let edge = peer.complete_handshake().await;
 
+        // Receive the initial sync, which will consist just of the current edge:
+        // - the disconnected edges from the previous iterations are not loaded yet.
+        // - the local edges weren't stored at all.
+        wait_for_edges(&mut peer, &[edge.clone()].into()).await;
+
         // Create a bunch of fresh unreachable edges, then send all the edges created so far.
-        let fresh_edges = vec![
+        let fresh_edges: HashSet<_> = [
             data::make_edge(&data::make_signer(rng), &data::make_signer(rng)),
             data::make_edge(&data::make_signer(rng), &data::make_signer(rng)),
             data::make_edge_tombstone(&data::make_signer(rng), &data::make_signer(rng)),
-        ];
+        ]
+        .into();
         total_edges.extend(fresh_edges.clone());
+        // We capture the events starting here to record all the edge prunnings after the
+        // SyncRoutingTable below is processed.
+        let mut events = pm.events.from_now();
         peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
-            edges: total_edges.clone(),
+            edges: total_edges.iter().cloned().collect::<Vec<_>>(),
             accounts: vec![],
         }))
         .await;
 
-        // Expect just the fresh edges (and the pm <-> peer edge) to be broadcasted back.
-        let mut edges_want = fresh_edges.clone();
-        edges_want.push(edge);
-        let mut edges_got = vec![];
+        // Wait for the fresh edges to be broadcasted back.
+        wait_for_edges(&mut peer, &fresh_edges).await;
 
-        while edges_got != edges_want {
-            match peer.events.recv().await {
-                peer::testonly::Event::RoutingTable(got) => {
-                    edges_got.extend(got.edges);
-                    assert_is_superset(&edges_want.as_set(), &edges_got.as_set());
+        // Wait for all the disconnected edges created so far to be saved to storage.
+        let mut pruned = HashSet::new();
+        while pruned != total_edges {
+            match events.recv().await {
+                Event::PeerManager(PME::RoutingTableUpdate { pruned_edges, .. }) => {
+                    pruned.extend(pruned_edges)
                 }
-                // Ignore other messages.
                 _ => {}
             }
         }
@@ -217,12 +248,11 @@ async fn test_nonces() {
             network: chain.make_config(rng),
             chain: chain.clone(),
             peers: vec![],
-            start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
             force_encoding: Some(Encoding::Proto),
             // Connect with nonce equal to unix timestamp
             nonce: test.0,
         };
-        let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
+        let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
         let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
         if test.1 {
             peer.complete_handshake().await;
@@ -251,11 +281,10 @@ async fn ttl() {
         network: chain.make_config(rng),
         chain,
         peers: vec![],
-        start_handshake_with: Some(PeerId::new(pm.cfg.node_key.public_key())),
         force_encoding: Some(Encoding::Proto),
         nonce: None,
     };
-    let stream = TcpStream::connect(pm.cfg.node_addr.unwrap()).await.unwrap();
+    let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
     let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
     peer.complete_handshake().await;
     // await for peer manager to compute the routing table.
@@ -263,8 +292,8 @@ async fn ttl() {
     // integration-tests to near_network.
     pm.events
         .recv_until(|ev| match ev {
-            Event::PeerManager(PME::RoutingTableUpdate(rt)) => {
-                if rt.get(&peer.cfg.id()).map_or(false, |v| v.len() > 0) {
+            Event::PeerManager(PME::RoutingTableUpdate { next_hops, .. }) => {
+                if next_hops.get(&peer.cfg.id()).map_or(false, |v| v.len() > 0) {
                     Some(())
                 } else {
                     None
@@ -576,13 +605,80 @@ async fn connection_spam_security_test() {
     }
     // Try to establish additional connections. Should fail.
     for _ in 0..10 {
-        pm.start_inbound(chain.clone(), chain.make_config(rng))
-            .await
-            .fail_handshake(&clock.clock())
-            .await;
+        let conn = pm.start_inbound(chain.clone(), chain.make_config(rng)).await;
+        assert_eq!(
+            ClosingReason::TooManyInbound,
+            conn.manager_fail_handshake(&clock.clock()).await
+        );
     }
     // Terminate the pending connections. Should succeed.
     for c in conns {
         c.handshake(&clock.clock()).await;
     }
+}
+
+#[tokio::test]
+async fn loop_connection() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+    let mut cfg = chain.make_config(rng);
+    cfg.node_key = pm.cfg.node_key.clone();
+
+    // Starting an outbound loop connection should be stopped without sending the handshake.
+    let conn = pm.start_outbound(chain.clone(), cfg).await;
+    assert_eq!(
+        ClosingReason::OutboundNotAllowed(connection::PoolError::LoopConnection),
+        conn.manager_fail_handshake(&clock.clock()).await
+    );
+
+    // An inbound connection pretending to be a loop should be rejected.
+    let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
+    let stream_id = stream.id();
+    let port = stream.local_addr.port();
+    let mut events = pm.events.from_now();
+    let mut stream = Stream::new(Some(Encoding::Proto), stream);
+    stream
+        .write(&PeerMessage::Handshake(Handshake {
+            protocol_version: PROTOCOL_VERSION,
+            oldest_supported_version: PROTOCOL_VERSION,
+            sender_peer_id: pm.cfg.node_id(),
+            target_peer_id: pm.cfg.node_id(),
+            sender_listen_port: Some(port),
+            sender_chain_info: chain.get_peer_chain_info(),
+            partial_edge_info: PartialEdgeInfo::new(
+                &pm.cfg.node_id(),
+                &pm.cfg.node_id(),
+                1,
+                &pm.cfg.node_key,
+            ),
+        }))
+        .await;
+    let reason = events
+        .recv_until(|ev| match ev {
+            Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
+                Some(ev.reason)
+            }
+            Event::PeerManager(PME::HandshakeCompleted(ev)) if ev.stream_id == stream_id => {
+                panic!("PeerManager accepted the handshake")
+            }
+            _ => None,
+        })
+        .await;
+    assert_eq!(
+        ClosingReason::RejectedByPeerManager(RegisterPeerError::PoolError(
+            connection::PoolError::LoopConnection
+        )),
+        reason
+    );
 }

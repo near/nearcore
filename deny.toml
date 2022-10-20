@@ -48,9 +48,6 @@ skip = [
     { name = "pwasm-utils", version = "=0.12.0" },
     { name = "parity-wasm", version = "=0.41.0" },
 
-    # param estimator uses newer imports, but it's not part of neard
-    { name = "wasmparser", version = "=0.59.0" },
-
     # wasmer and wasmtime
     { name = "target-lexicon", version = "=0.10.0" },
 
@@ -100,4 +97,7 @@ skip = [
 
     # opentelemetry-otlp depends on an old version of tonic which depends on an old version of tokio-util
     { name = "tokio-util", version = "=0.6.10" },
+
+    # redis we’re using uses ancient sha
+    { name = "sha1", version = "=0.6.1" },
 ]

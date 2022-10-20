@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use actix::{Addr, MailboxError};
@@ -38,6 +39,7 @@ mod metrics;
 
 use api::RpcRequest;
 pub use api::{RpcFrom, RpcInto};
+use near_o11y::{WithSpanContext, WithSpanContextExt};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -83,6 +85,10 @@ pub struct RpcConfig {
     // We disable it by default, as some of those endpoints might be quite CPU heavy.
     #[serde(default = "default_enable_debug_rpc")]
     pub enable_debug_rpc: bool,
+    // For node developers only: if specified, the HTML files used to serve the debug pages will
+    // be read from this directory, instead of the contents compiled into the binary. This allows
+    // for quick iterative development.
+    pub experimental_debug_pages_src_path: Option<String>,
 }
 
 impl Default for RpcConfig {
@@ -94,6 +100,7 @@ impl Default for RpcConfig {
             polling_config: Default::default(),
             limits_config: Default::default(),
             enable_debug_rpc: false,
+            experimental_debug_pages_src_path: None,
         }
     }
 }
@@ -218,6 +225,7 @@ struct JsonRpcHandler {
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
     enable_debug_rpc: bool,
+    debug_pages_src_path: Option<PathBuf>,
 }
 
 impl JsonRpcHandler {
@@ -385,24 +393,32 @@ impl JsonRpcHandler {
 
     async fn client_send<M, T, E, F>(&self, msg: M) -> Result<T, E>
     where
-        ClientActor: actix::Handler<M>,
+        ClientActor: actix::Handler<WithSpanContext<M>>,
         M: actix::Message<Result = Result<T, F>> + Send + 'static,
         M::Result: Send,
         E: RpcFrom<F>,
         E: RpcFrom<actix::MailboxError>,
     {
-        self.client_addr.send(msg).await.map_err(RpcFrom::rpc_from)?.map_err(RpcFrom::rpc_from)
+        self.client_addr
+            .send(msg.with_span_context())
+            .await
+            .map_err(RpcFrom::rpc_from)?
+            .map_err(RpcFrom::rpc_from)
     }
 
     async fn view_client_send<M, T, E, F>(&self, msg: M) -> Result<T, E>
     where
-        ViewClientActor: actix::Handler<M>,
+        ViewClientActor: actix::Handler<WithSpanContext<M>>,
         M: actix::Message<Result = Result<T, F>> + Send + 'static,
         M::Result: Send,
         E: RpcFrom<F>,
         E: RpcFrom<actix::MailboxError>,
     {
-        self.view_client_addr.send(msg).await.map_err(RpcFrom::rpc_from)?.map_err(RpcFrom::rpc_from)
+        self.view_client_addr
+            .send(msg.with_span_context())
+            .await
+            .map_err(RpcFrom::rpc_from)?
+            .map_err(RpcFrom::rpc_from)
     }
 
     async fn peer_manager_send<M, T, E>(&self, msg: M) -> Result<T, E>
@@ -424,11 +440,14 @@ impl JsonRpcHandler {
     ) -> CryptoHash {
         let tx = request_data.signed_transaction;
         let hash = tx.get_hash().clone();
-        self.client_addr.do_send(NetworkClientMessages::Transaction {
-            transaction: tx,
-            is_forwarded: false,
-            check_only: false, // if we set true here it will not actually send the transaction
-        });
+        self.client_addr.do_send(
+            NetworkClientMessages::Transaction {
+                transaction: tx,
+                is_forwarded: false,
+                check_only: false, // if we set true here it will not actually send the transaction
+            }
+            .with_span_context(),
+        );
         hash
     }
 
@@ -590,11 +609,14 @@ impl JsonRpcHandler {
         let signer_account_id = tx.transaction.signer_id.clone();
         let response = self
             .client_addr
-            .send(NetworkClientMessages::Transaction {
-                transaction: tx,
-                is_forwarded: false,
-                check_only,
-            })
+            .send(
+                NetworkClientMessages::Transaction {
+                    transaction: tx,
+                    is_forwarded: false,
+                    check_only,
+                }
+                .with_span_context(),
+            )
             .await
             .map_err(RpcFrom::rpc_from)?;
 
@@ -1003,6 +1025,18 @@ impl JsonRpcHandler {
         let validators = self.view_client_send(GetValidatorOrdered { block_id }).await?;
         Ok(validators)
     }
+
+    /// If experimental_debug_pages_src_path config is set, reads the html file from that
+    /// directory. Otherwise, returns None.
+    fn read_html_file_override(&self, html_file: &'static str) -> Option<String> {
+        if let Some(directory) = &self.debug_pages_src_path {
+            let path = directory.join(html_file);
+            return Some(std::fs::read_to_string(path.clone()).unwrap_or_else(|err| {
+                format!("Could not load path {}: {:?}", path.display(), err)
+            }));
+        }
+        None
+    }
 }
 
 #[cfg(feature = "sandbox")]
@@ -1015,9 +1049,12 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateError,
     > {
         self.client_addr
-            .send(near_client_primitives::types::SandboxMessage::SandboxPatchState(
-                patch_state_request.records,
-            ))
+            .send(
+                near_client_primitives::types::SandboxMessage::SandboxPatchState(
+                    patch_state_request.records,
+                )
+                .with_span_context(),
+            )
             .await
             .map_err(RpcFrom::rpc_from)?;
 
@@ -1025,7 +1062,10 @@ impl JsonRpcHandler {
             loop {
                 let patch_state_finished = self
                     .client_addr
-                    .send(near_client_primitives::types::SandboxMessage::SandboxPatchStateStatus {})
+                    .send(
+                        near_client_primitives::types::SandboxMessage::SandboxPatchStateStatus {}
+                            .with_span_context(),
+                    )
                     .await;
                 if let Ok(
                     near_client_primitives::types::SandboxResponse::SandboxPatchStateFinished(true),
@@ -1052,9 +1092,12 @@ impl JsonRpcHandler {
         use near_client_primitives::types::SandboxResponse;
 
         self.client_addr
-            .send(near_client_primitives::types::SandboxMessage::SandboxFastForward(
-                fast_forward_request.delta_height,
-            ))
+            .send(
+                near_client_primitives::types::SandboxMessage::SandboxFastForward(
+                    fast_forward_request.delta_height,
+                )
+                .with_span_context(),
+            )
             .await
             .map_err(RpcFrom::rpc_from)?;
 
@@ -1065,7 +1108,8 @@ impl JsonRpcHandler {
                 let fast_forward_finished = self
                     .client_addr
                     .send(
-                        near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus {},
+                        near_client_primitives::types::SandboxMessage::SandboxFastForwardStatus {}
+                            .with_span_context(),
                     )
                     .await;
 
@@ -1102,9 +1146,12 @@ impl JsonRpcHandler {
         let height = crate::api::parse_params::<u64>(params)?;
         actix::spawn(
             self.client_addr
-                .send(near_network::types::NetworkClientMessages::Adversarial(
-                    near_network::types::NetworkAdversarialMessage::AdvSetSyncInfo(height),
-                ))
+                .send(
+                    near_network::types::NetworkClientMessages::Adversarial(
+                        near_network::types::NetworkAdversarialMessage::AdvSetSyncInfo(height),
+                    )
+                    .with_span_context(),
+                )
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -1113,16 +1160,22 @@ impl JsonRpcHandler {
     async fn adv_disable_header_sync(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr
-                .send(near_network::types::NetworkClientMessages::Adversarial(
-                    near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync,
-                ))
+                .send(
+                    near_network::types::NetworkClientMessages::Adversarial(
+                        near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync,
+                    )
+                    .with_span_context(),
+                )
                 .map(|_| ()),
         );
         actix::spawn(
             self.view_client_addr
-                .send(near_network::types::NetworkViewClientMessages::Adversarial(
-                    near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync,
-                ))
+                .send(
+                    near_network::types::NetworkViewClientMessages::Adversarial(
+                        near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync,
+                    )
+                    .with_span_context(),
+                )
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -1131,16 +1184,22 @@ impl JsonRpcHandler {
     async fn adv_disable_doomslug(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr
-                .send(NetworkClientMessages::Adversarial(
-                    near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug,
-                ))
+                .send(
+                    NetworkClientMessages::Adversarial(
+                        near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug,
+                    )
+                    .with_span_context(),
+                )
                 .map(|_| ()),
         );
         actix::spawn(
             self.view_client_addr
-                .send(near_network::types::NetworkViewClientMessages::Adversarial(
-                    near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug,
-                ))
+                .send(
+                    near_network::types::NetworkViewClientMessages::Adversarial(
+                        near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug,
+                    )
+                    .with_span_context(),
+                )
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -1150,11 +1209,14 @@ impl JsonRpcHandler {
         let (num_blocks, only_valid) = crate::api::parse_params::<(u64, bool)>(params)?;
         actix::spawn(
             self.client_addr
-                .send(NetworkClientMessages::Adversarial(
-                    near_network::types::NetworkAdversarialMessage::AdvProduceBlocks(
-                        num_blocks, only_valid,
-                    ),
-                ))
+                .send(
+                    NetworkClientMessages::Adversarial(
+                        near_network::types::NetworkAdversarialMessage::AdvProduceBlocks(
+                            num_blocks, only_valid,
+                        ),
+                    )
+                    .with_span_context(),
+                )
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -1164,16 +1226,22 @@ impl JsonRpcHandler {
         let (height,) = crate::api::parse_params::<(u64,)>(params)?;
         actix::spawn(
             self.client_addr
-                .send(NetworkClientMessages::Adversarial(
-                    near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height),
-                ))
+                .send(
+                    NetworkClientMessages::Adversarial(
+                        near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height),
+                    )
+                    .with_span_context(),
+                )
                 .map(|_| ()),
         );
         actix::spawn(
             self.view_client_addr
-                .send(near_network::types::NetworkViewClientMessages::Adversarial(
-                    near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height),
-                ))
+                .send(
+                    near_network::types::NetworkViewClientMessages::Adversarial(
+                        near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height),
+                    )
+                    .with_span_context(),
+                )
                 .map(|_| ()),
         );
         Ok(Value::String("".to_string()))
@@ -1182,9 +1250,12 @@ impl JsonRpcHandler {
     async fn adv_get_saved_blocks(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         match self
             .client_addr
-            .send(NetworkClientMessages::Adversarial(
-                near_network::types::NetworkAdversarialMessage::AdvGetSavedBlocks,
-            ))
+            .send(
+                NetworkClientMessages::Adversarial(
+                    near_network::types::NetworkAdversarialMessage::AdvGetSavedBlocks,
+                )
+                .with_span_context(),
+            )
             .await
         {
             Ok(result) => match result {
@@ -1198,9 +1269,12 @@ impl JsonRpcHandler {
     async fn adv_check_store(&self, _params: Option<Value>) -> Result<Value, RpcError> {
         match self
             .client_addr
-            .send(NetworkClientMessages::Adversarial(
-                near_network::types::NetworkAdversarialMessage::AdvCheckStorageConsistency,
-            ))
+            .send(
+                NetworkClientMessages::Adversarial(
+                    near_network::types::NetworkAdversarialMessage::AdvCheckStorageConsistency,
+                )
+                .with_span_context(),
+            )
             .await
         {
             Ok(result) => match result {
@@ -1306,24 +1380,35 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
         .max_age(3600)
 }
 
+macro_rules! debug_page_string {
+    ($html_file: literal, $handler: expr) => {
+        $handler
+            .read_html_file_override($html_file)
+            .unwrap_or_else(|| include_str!(concat!("../res/", $html_file)).to_string())
+    };
+}
+
 #[get("/debug")]
-async fn debug_html() -> actix_web::Result<impl actix_web::Responder> {
-    Ok(HttpResponse::Ok().body(include_str!("../res/debug.html")))
+async fn debug_html(
+    handler: web::Data<JsonRpcHandler>,
+) -> actix_web::Result<impl actix_web::Responder> {
+    Ok(HttpResponse::Ok().body(debug_page_string!("debug.html", handler)))
 }
 
 #[get("/debug/pages/{page}")]
 async fn display_debug_html(
     path: web::Path<(String,)>,
+    handler: web::Data<JsonRpcHandler>,
 ) -> actix_web::Result<impl actix_web::Responder> {
     let page_name = path.into_inner().0;
 
     let content = match page_name.as_str() {
-        "last_blocks" => Some(include_str!("../res/last_blocks.html")),
-        "network_info" => Some(include_str!("../res/network_info.html")),
-        "epoch_info" => Some(include_str!("../res/epoch_info.html")),
-        "chain_n_chunk_info" => Some(include_str!("../res/chain_n_chunk_info.html")),
-        "sync" => Some(include_str!("../res/sync.html")),
-        "validator" => Some(include_str!("../res/validator.html")),
+        "last_blocks" => Some(debug_page_string!("last_blocks.html", handler)),
+        "network_info" => Some(debug_page_string!("network_info.html", handler)),
+        "epoch_info" => Some(debug_page_string!("epoch_info.html", handler)),
+        "chain_n_chunk_info" => Some(debug_page_string!("chain_n_chunk_info.html", handler)),
+        "sync" => Some(debug_page_string!("sync.html", handler)),
+        "validator" => Some(debug_page_string!("validator.html", handler)),
         _ => None,
     };
 
@@ -1360,6 +1445,7 @@ pub fn start_http(
         polling_config,
         limits_config,
         enable_debug_rpc,
+        experimental_debug_pages_src_path: debug_pages_src_path,
     } = config;
     let prometheus_addr = prometheus_addr.filter(|it| it != &addr);
     let cors_allowed_origins_clone = cors_allowed_origins.clone();
@@ -1375,6 +1461,7 @@ pub fn start_http(
                 polling_config,
                 genesis_config: genesis_config.clone(),
                 enable_debug_rpc,
+                debug_pages_src_path: debug_pages_src_path.clone().map(Into::into),
             }))
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())

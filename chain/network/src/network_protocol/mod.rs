@@ -316,47 +316,6 @@ impl PeerMessage {
             _ => self.into(),
         }
     }
-
-    pub(crate) fn is_client_message(&self) -> bool {
-        match self {
-            PeerMessage::Block(_)
-            | PeerMessage::BlockHeaders(_)
-            | PeerMessage::Challenge(_)
-            | PeerMessage::EpochSyncFinalizationResponse(_)
-            | PeerMessage::EpochSyncResponse(_)
-            | PeerMessage::Transaction(_) => true,
-            PeerMessage::Routed(r) => matches!(
-                r.msg.body,
-                RoutedMessageBody::BlockApproval(_)
-                    | RoutedMessageBody::ForwardTx(_)
-                    | RoutedMessageBody::PartialEncodedChunkForward(_)
-                    | RoutedMessageBody::PartialEncodedChunkRequest(_)
-                    | RoutedMessageBody::PartialEncodedChunkResponse(_)
-                    | RoutedMessageBody::StateResponse(_)
-                    | RoutedMessageBody::VersionedPartialEncodedChunk(_)
-                    | RoutedMessageBody::VersionedStateResponse(_)
-            ),
-            _ => false,
-        }
-    }
-
-    pub(crate) fn is_view_client_message(&self) -> bool {
-        match self {
-            PeerMessage::BlockHeadersRequest(_)
-            | PeerMessage::BlockRequest(_)
-            | PeerMessage::EpochSyncFinalizationRequest(_)
-            | PeerMessage::EpochSyncRequest(_) => true,
-            PeerMessage::Routed(r) => matches!(
-                r.msg.body,
-                RoutedMessageBody::ReceiptOutcomeRequest(_)
-                    | RoutedMessageBody::StateRequestHeader(_, _)
-                    | RoutedMessageBody::StateRequestPart(_, _, _)
-                    | RoutedMessageBody::TxStatusRequest(_, _)
-                    | RoutedMessageBody::TxStatusResponse(_)
-            ),
-            _ => false,
-        }
-    }
 }
 
 // TODO(#1313): Use Box
@@ -534,7 +493,7 @@ impl RoutedMessage {
         source: &PeerId,
         body: &RoutedMessageBody,
     ) -> CryptoHash {
-        CryptoHash::hash_borsh(&RoutedMessageNoSignature { target, author: source, body })
+        CryptoHash::hash_borsh(RoutedMessageNoSignature { target, author: source, body })
     }
 
     pub fn hash(&self) -> CryptoHash {
@@ -699,8 +658,8 @@ pub enum AccountOrPeerIdOrHash {
     Hash(CryptoHash),
 }
 
-pub struct RawRoutedMessage {
-    pub target: AccountOrPeerIdOrHash,
+pub(crate) struct RawRoutedMessage {
+    pub target: PeerIdOrHash,
     pub body: RoutedMessageBody,
 }
 
@@ -714,12 +673,11 @@ impl RawRoutedMessage {
         now: Option<time::Utc>,
     ) -> RoutedMessageV2 {
         let author = PeerId::new(node_key.public_key());
-        let target = self.target.peer_id_or_hash().unwrap();
-        let hash = RoutedMessage::build_hash(&target, &author, &self.body);
+        let hash = RoutedMessage::build_hash(&self.target, &author, &self.body);
         let signature = node_key.sign(hash.as_ref());
         RoutedMessageV2 {
             msg: RoutedMessage {
-                target,
+                target: self.target,
                 author,
                 signature,
                 ttl: routed_message_ttl,

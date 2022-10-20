@@ -20,9 +20,7 @@ borsh.workspace = true
 bytes.workspace = true
 bytesize.workspace = true
 chrono.workspace = true
-conqueue.workspace = true
 crossbeam-channel.workspace = true
-deepsize = { workspace = true, optional = true }
 futures-util.workspace = true
 futures.workspace = true
 im.workspace = true
@@ -43,7 +41,6 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tokio-util.workspace = true
-tracing-opentelemetry.workspace = true
 tracing.workspace = true
 time.workspace = true
 
@@ -62,11 +59,6 @@ pretty_assertions.workspace = true
 tempfile.workspace = true
 
 [features]
-deepsize_feature = [
-    "deepsize",
-    "near-crypto/deepsize_feature",
-    "near-primitives/deepsize_feature",
-]
 delay_detector = ["delay-detector/delay_detector"]
 performance_stats = [
     "near-performance-metrics/performance_stats",
