@@ -253,7 +253,7 @@ impl PeerManagerActor {
         let store = store::Store::from(store);
         let peer_store =
             peer_store::PeerStore::new(&clock, config.peer_store.clone(), store.clone())
-                .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+                .context("PeerStore::new")?;
         tracing::debug!(target: "network",
                len = peer_store.len(),
                boot_nodes = config.peer_store.boot_nodes.len(),

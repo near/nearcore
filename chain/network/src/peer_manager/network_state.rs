@@ -55,11 +55,7 @@ pub(crate) struct NetworkState {
     pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
     /// Peer store that provides read/write access to peers.
     pub peer_store: peer_store::PeerStore,
-    /// A graph of the whole NEAR network, shared between routing::Actor
-    /// and PeerManagerActor. PeerManagerActor should have read-only access to the graph.
-    /// TODO: this is an intermediate step towards replacing actix runtime with a
-    /// generic threadpool (or multiple pools) in the near-network crate.
-    /// It the threadpool setup, inevitably some of the state will be shared.
+    /// A graph of the whole NEAR network.
     pub graph: Arc<RwLock<routing::GraphWithCache>>,
 
     /// View of the Routing table. It keeps:
@@ -155,10 +151,11 @@ impl NetworkState {
         }
 
         // Save the fact that we are disconnecting to the PeerStore.
-        if let Err(err) = match ban_reason {
+        let res = match ban_reason {
             Some(ban_reason) => self.peer_store.peer_ban(&clock, &conn.peer_info.id, ban_reason),
             None => self.peer_store.peer_disconnected(clock, &conn.peer_info.id),
-        } {
+        };
+        if let Err(err) = res {
             tracing::error!(target: "network", ?err, "Failed to save peer data");
         }
     }

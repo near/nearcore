@@ -585,21 +585,19 @@ impl PeerActor {
                                 RoutingTableUpdate::from_edges(vec![conn.edge.clone()]),
                             )));
                         }
-                        {
-                            // Sync the RoutingTable.
-                            act.sync_routing_table();
-                            // Exchange peers periodically.
-                            let conn = conn.clone();
-                            ctx.spawn(wrap_future(async move {
-                                let mut interval =
-                                    tokio::time::interval(REQUEST_PEERS_INTERVAL.try_into().unwrap());
-                                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                                loop {
-                                    conn.send_message(Arc::new(PeerMessage::PeersRequest));
-                                    interval.tick().await;
-                                }
-                            }));
-                        }
+                        // Sync the RoutingTable.
+                        act.sync_routing_table();
+                        // Exchange peers periodically.
+                        let conn = conn.clone();
+                        ctx.spawn(wrap_future(async move {
+                            let mut interval =
+                                tokio::time::interval(REQUEST_PEERS_INTERVAL.try_into().unwrap());
+                            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                            loop {
+                                interval.tick().await;
+                                conn.send_message(Arc::new(PeerMessage::PeersRequest));
+                            }
+                        }));
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
                             edge: conn.edge.clone(),
