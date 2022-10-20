@@ -25,7 +25,6 @@ sha2.workspace = true
 sha3.workspace = true
 tracing = { workspace = true, optional = true }
 
-near-chain = { path = "../../chain/chain" }
 near-crypto = { path = "../../core/crypto" }
 near-account-id = { path = "../../core/account-id", features = [ "internal_unstable" ] }
 near-o11y = { path = "../../core/o11y" }

@@ -3473,7 +3473,6 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "near-account-id",
- "near-chain",
  "near-crypto",
  "near-o11y",
  "near-primitives",

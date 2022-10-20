@@ -202,7 +202,7 @@ impl<'a> External for RuntimeExt<'a> {
             return (0, None);
         }
         // iterate up to 255 times more
-        for iteration in 0..255 {
+        for iteration in 1..256 {
             let block_header =
                 chain_store.get_block_header(&previous_block_hash).expect("handle this properly");
 
