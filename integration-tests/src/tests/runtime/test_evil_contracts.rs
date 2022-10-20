@@ -1,6 +1,7 @@
 use crate::node::{Node, RuntimeNode};
-use near_primitives::errors::{ActionError, ActionErrorKind, ContractCallError};
+use near_primitives::errors::{ActionError, ActionErrorKind};
 use near_primitives::views::FinalExecutionStatus;
+use near_vm_errors::FunctionCallErrorSer;
 use std::mem::size_of;
 
 use assert_matches::assert_matches;
@@ -128,12 +129,9 @@ fn test_evil_abort() {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(
-                    ContractCallError::ExecutionError {
-                        msg: "String encoding is bad UTF-16 sequence.".to_string()
-                    }
-                    .into()
-                )
+                kind: ActionErrorKind::FunctionCallError(FunctionCallErrorSer::ExecutionError(
+                    "String encoding is bad UTF-16 sequence.".to_string()
+                ))
             }
             .into()
         ),

@@ -5,7 +5,7 @@ pub use {backtrace, tracing, tracing_appender, tracing_subscriber};
 use clap::Parser;
 pub use context::*;
 use near_crypto::PublicKey;
-use near_primitives::types::AccountId;
+use near_primitives_core::types::AccountId;
 use once_cell::sync::OnceCell;
 use opentelemetry::sdk::trace::{self, IdGenerator, Sampler, Tracer};
 use opentelemetry::sdk::Resource;
