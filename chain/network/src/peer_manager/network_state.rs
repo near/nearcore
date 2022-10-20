@@ -275,7 +275,7 @@ impl NetworkState {
         }
         self.routing_table_view.add_local_edges(&edges);
         self.routing_table_addr
-            .send(routing::actor::Message::AddVerifiedEdges { edges }.with_span_context());
+            .do_send(routing::actor::Message::AddVerifiedEdges { edges }.with_span_context());
     }
 
     pub fn broadcast_accounts(&self, accounts: Vec<AnnounceAccount>) {
