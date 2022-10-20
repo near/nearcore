@@ -9,8 +9,8 @@ use tracing::info;
 
 use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
-use near_logger_utils::init_test_logger_allow_panic;
-use near_network_primitives::time;
+use near_network::time;
+use near_o11y::testonly::init_test_logger_allow_panic;
 use near_primitives::block::GenesisId;
 
 use near_network::config;
@@ -18,8 +18,9 @@ use near_network::test_utils::{
     convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeoutActor,
 };
 use near_network::types::NetworkClientResponses;
+use near_network::types::NetworkViewClientResponses;
 use near_network::PeerManagerActor;
-use near_network_primitives::types::NetworkViewClientResponses;
+use near_o11y::WithSpanContextExt;
 
 type ClientMock = Mocker<ClientActor>;
 type ViewClientMock = Mocker<ViewClientActor>;
@@ -43,8 +44,7 @@ fn make_peer_manager(
         time::Clock::real(),
         near_store::db::TestDB::new(),
         config,
-        client_addr.recipient(),
-        view_client_addr.recipient(),
+        near_network::client::Client::new(client_addr.recipient(), view_client_addr.recipient()),
         GenesisId::default(),
     )
     .unwrap()
@@ -90,7 +90,7 @@ fn stress_test() {
             })
             .collect();
 
-        pms[0].do_send(StopSignal::should_panic());
+        pms[0].do_send(StopSignal::should_panic().with_span_context());
 
         // States:
         // 0 -> Check other nodes health.
@@ -110,7 +110,8 @@ fn stress_test() {
                         if !flag.load(Ordering::Relaxed) {
                             let flag1 = flag.clone();
 
-                            actix::spawn(pms[ix].send(GetInfo {}).then(move |info| {
+                            let actor = pms[ix].send(GetInfo {}.with_span_context());
+                            let actor = actor.then(move |info| {
                                 if let Ok(info) = info {
                                     if info.num_connected_peers == num_nodes - 2 {
                                         flag1.store(true, Ordering::Relaxed);
@@ -121,7 +122,8 @@ fn stress_test() {
                                 }
 
                                 futures::future::ready(())
-                            }));
+                            });
+                            actix::spawn(actor);
                         }
                     }
 
@@ -144,7 +146,7 @@ fn stress_test() {
                     let pm0 = pms[0].clone();
 
                     ctx.run_later(Duration::from_millis(10), move |_, _| {
-                        pm0.do_send(StopSignal::should_panic());
+                        pm0.do_send(StopSignal::should_panic().with_span_context());
                     });
 
                     let state1 = state.clone();

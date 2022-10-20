@@ -1,6 +1,6 @@
 use anyhow::Context;
 use clap::Parser;
-use near_network_primitives::types::PeerInfo;
+use near_network::types::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
@@ -155,7 +155,6 @@ async fn main() -> anyhow::Result<()> {
             .unwrap(),
         &Default::default(),
     )
-    .await
     .global();
 
     let mut chain_info = None;

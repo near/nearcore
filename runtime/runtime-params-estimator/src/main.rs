@@ -6,6 +6,7 @@ use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::internal::VMKind;
+use replay::ReplayCmd;
 use runtime_params_estimator::config::{Config, GasMetric};
 use runtime_params_estimator::{
     costs_to_runtime_config, CostTable, QemuCommandBuilder, RocksDBTestConfig,
@@ -18,6 +19,8 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time;
 use tracing_subscriber::Layer;
+
+mod replay;
 
 #[derive(Parser)]
 struct CliArgs {
@@ -88,15 +91,31 @@ struct CliArgs {
     /// Records IO events in JSON format and stores it in a given file.
     #[clap(long)]
     record_io_trace: Option<PathBuf>,
+    /// Use in-memory test DB, useful to avoid variance caused by DB.
+    #[clap(long)]
+    pub in_memory_db: bool,
     /// Extra configuration parameters for RocksDB specific estimations
     #[clap(flatten)]
     db_test_config: RocksDBTestConfig,
+    #[clap(subcommand)]
+    sub_cmd: Option<CliSubCmd>,
+}
+
+#[derive(clap::Subcommand)]
+enum CliSubCmd {
+    Replay(ReplayCmd),
 }
 
 fn main() -> anyhow::Result<()> {
     let start = time::Instant::now();
 
     let cli_args = CliArgs::parse();
+
+    if let Some(cmd) = cli_args.sub_cmd {
+        return match cmd {
+            CliSubCmd::Replay(inner) => inner.run(&mut std::io::stdout()),
+        };
+    }
 
     let temp_dir;
     let state_dump_path = match cli_args.home {
@@ -250,6 +269,7 @@ fn main() -> anyhow::Result<()> {
         debug: cli_args.debug,
         json_output: cli_args.json_output,
         drop_os_cache: cli_args.drop_os_cache,
+        in_memory_db: cli_args.in_memory_db,
     };
     let cost_table = runtime_params_estimator::run(config);
 
@@ -271,7 +291,13 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Spawns another instance of this binary but inside docker. Most command line args are passed through but `--docker` is removed.
+/// Spawns another instance of this binary but inside docker.
+///
+/// Most command line args are passed through but `--docker` is removed.
+/// We are now also running with an in-memory database to increase turn-around
+/// time and make the results more consistent. Note that this means qemu based
+/// IO estimations are inaccurate. They never really have been very accurate
+/// anyway and qemu is just not the right tool to measure IO costs.
 fn main_docker(
     state_dump_path: &Path,
     full: bool,
@@ -343,8 +369,17 @@ fn main_docker(
             }
         }
 
+        // test contract has been built by host
         write!(buf, " --skip-build-test-contract").unwrap();
+        // accounts have been inserted to state dump by host
         write!(buf, " --additional-accounts-num 0").unwrap();
+        // We are now always running qemu based estimations with an in-memory DB
+        // because it cannot account for the multi-threaded nature of RocksDB, or
+        // the different latencies for disk and memory. Using in-memory DB at
+        // least gives consistent and quick results.
+        // Note that this still reads all values from the state dump and creates
+        // a new testbed for each estimation, we only switch out the storage backend.
+        write!(buf, " --in-memory-db").unwrap();
 
         buf
     };

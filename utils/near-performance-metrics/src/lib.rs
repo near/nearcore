@@ -1,7 +1,6 @@
 pub mod actix_disabled;
 #[cfg(feature = "performance_stats")]
 pub mod actix_enabled;
-pub mod framed_write;
 pub mod process;
 pub mod stats_disabled;
 #[cfg(feature = "performance_stats")]

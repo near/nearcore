@@ -141,7 +141,7 @@ impl<'a> AutoXzDecoder<'a> {
 
     /// Writes data from the chunk to the output file automatically
     /// decompressing it if the stream is XZ-compressed.  Note that once all the
-    /// data has been written [`finish`] function must be called to flush
+    /// data has been written [`Self::finish`] function must be called to flush
     /// internal buffers.
     async fn write_all(&mut self, chunk: &[u8]) -> Result<(), FileDownloadError> {
         if let Some(len) = self.probe(chunk) {
@@ -220,9 +220,9 @@ impl<'a> AutoXzDecoder<'a> {
             .map_err(|e| FileDownloadError::WriteError(self.path.to_path_buf(), e))
     }
 
-    /// Internal implementation for [`write_all`] and [`finish`] methods used
-    /// when performing decompression.  Calling it with an empty `chunk`
-    /// indicates the end of the compressed data.
+    /// Internal implementation for [`Self::write_all`] and [`Self::finish`]
+    /// methods used when performing decompression.  Calling it with an empty
+    /// `chunk` indicates the end of the compressed data.
     async fn decompress(
         path: &std::path::Path,
         file: &mut tokio::fs::File,

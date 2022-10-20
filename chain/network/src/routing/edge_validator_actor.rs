@@ -1,7 +1,7 @@
+use crate::network_protocol::Edge;
 use crate::private_actix::{StopMsg, ValidateEdgeList};
 use actix::{Actor, ActorContext, Handler, SyncContext};
-use conqueue::{QueueReceiver, QueueSender};
-use near_network_primitives::types::Edge;
+use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::borsh::maybestd::collections::HashMap;
 use near_primitives::borsh::maybestd::sync::{Arc, Mutex};
@@ -20,18 +20,24 @@ impl Actor for EdgeValidatorActor {
     type Context = SyncContext<Self>;
 }
 
-impl Handler<StopMsg> for EdgeValidatorActor {
+impl Handler<WithSpanContext<StopMsg>> for EdgeValidatorActor {
     type Result = ();
-    fn handle(&mut self, _: StopMsg, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: WithSpanContext<StopMsg>, ctx: &mut Self::Context) -> Self::Result {
+        let (_span, _msg) = handler_debug_span!(target: "network", msg);
         ctx.stop();
     }
 }
 
-impl Handler<ValidateEdgeList> for EdgeValidatorActor {
+impl Handler<WithSpanContext<ValidateEdgeList>> for EdgeValidatorActor {
     type Result = bool;
 
     #[perf]
-    fn handle(&mut self, msg: ValidateEdgeList, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<ValidateEdgeList>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_trace_span!(target: "network", msg);
         for edge in msg.edges {
             let key = edge.key();
             if msg.edges_info_shared.lock().unwrap().get(key).cloned().unwrap_or(0u64)
@@ -50,7 +56,8 @@ impl Handler<ValidateEdgeList> for EdgeValidatorActor {
                 let cur_nonce = entry.or_insert_with(|| edge.nonce());
                 *cur_nonce = max(*cur_nonce, edge.nonce());
             }
-            msg.sender.push(edge);
+            // Ignore sending error, which can happen only if the channel is closed.
+            let _ = msg.sender.send(edge);
         }
         true
     }
@@ -59,14 +66,14 @@ impl Handler<ValidateEdgeList> for EdgeValidatorActor {
 pub struct EdgeValidatorHelper {
     /// Shared version of `edges_info` used by multiple threads.
     pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
-    /// Queue of edges verified, but not added yes.
-    pub edges_to_add_receiver: QueueReceiver<Edge>,
-    pub edges_to_add_sender: QueueSender<Edge>,
+    /// Queue of edges verified, but not added yet.
+    pub edges_to_add_receiver: crossbeam_channel::Receiver<Edge>,
+    pub edges_to_add_sender: crossbeam_channel::Sender<Edge>,
 }
 
 impl Default for EdgeValidatorHelper {
     fn default() -> Self {
-        let (tx, rx) = conqueue::Queue::unbounded::<Edge>();
+        let (tx, rx) = crossbeam_channel::unbounded();
         Self {
             edges_info_shared: Default::default(),
             edges_to_add_sender: tx,

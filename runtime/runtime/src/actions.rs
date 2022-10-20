@@ -1,13 +1,13 @@
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::{ExternalError, RuntimeExt};
-use crate::{ActionResult, ApplyState};
+use crate::{metrics, ActionResult, ApplyState};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::contract::ContractCode;
-use near_primitives::errors::{ActionError, ActionErrorKind, ContractCallError, RuntimeError};
+use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::runtime::config::AccountCreationConfig;
@@ -28,11 +28,12 @@ use near_store::{
     StorageError, TrieUpdate,
 };
 use near_vm_errors::{
-    AnyError, CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMError,
+    CompilationError, FunctionCallError, FunctionCallErrorSer, InconsistentStateError,
+    VMRunnerError,
 };
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::VMContext;
-use near_vm_runner::{precompile_contract, VMResult};
+use near_vm_logic::{VMContext, VMOutcome};
+use near_vm_runner::precompile_contract;
 
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
@@ -47,7 +48,7 @@ pub(crate) fn execute_function_call(
     config: &RuntimeConfig,
     is_last_action: bool,
     view_config: Option<ViewConfig>,
-) -> VMResult {
+) -> Result<VMOutcome, RuntimeError> {
     let account_id = runtime_ext.account_id();
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
     let code = match runtime_ext.get_code(account.code_hash()) {
@@ -56,12 +57,10 @@ pub(crate) fn execute_function_call(
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
                 account_id: account_id.clone(),
             });
-            return VMResult::nop_outcome(VMError::FunctionCallError(error));
+            return Ok(VMOutcome::nop_outcome(error));
         }
         Err(e) => {
-            return VMResult::nop_outcome(VMError::ExternalError(AnyError::new(
-                ExternalError::StorageError(e),
-            )));
+            return Err(RuntimeError::StorageError(e));
         }
     };
     // Output data receipts are ignored if the function call is not the last action in the batch.
@@ -84,7 +83,7 @@ pub(crate) fn execute_function_call(
             .expect("Failed to serialize"),
         predecessor_account_id: predecessor_id.clone(),
         input: function_call.args.clone(),
-        block_index: apply_state.block_index,
+        block_height: apply_state.block_height,
         block_timestamp: apply_state.block_timestamp,
         epoch_height: apply_state.epoch_height,
         account_balance: account.amount(),
@@ -120,7 +119,38 @@ pub(crate) fn execute_function_call(
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
     }
 
-    result
+    // There are many specific errors that the runtime can encounter.
+    // Some can be translated to the more general `RuntimeError`, which allows to pass
+    // the error up to the caller. For all other cases, panicking here is better
+    // than leaking the exact details further up.
+    // Note that this does not include errors caused by user code / input, those are
+    // stored in outcome.aborted.
+    result.map_err(|e| match e {
+        VMRunnerError::ExternalError(any_err) => {
+            let err: ExternalError =
+                any_err.downcast().expect("Downcasting AnyError should not fail");
+            match err {
+                ExternalError::StorageError(err) => err.into(),
+                ExternalError::ValidatorError(err) => RuntimeError::ValidatorError(err),
+            }
+        }
+        VMRunnerError::InconsistentStateError(err @ InconsistentStateError::IntegerOverflow) => {
+            StorageError::StorageInconsistentState(err.to_string()).into()
+        }
+        VMRunnerError::CacheError(err) => {
+            metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS.with_label_values(&[(&err).into()]).inc();
+            StorageError::StorageInconsistentState(err.to_string()).into()
+        }
+        VMRunnerError::LoadingError(msg) => {
+            panic!("Contract runtime failed to load a contrct: {msg}")
+        }
+        VMRunnerError::Nondeterministic(msg) => {
+            panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
+        }
+        VMRunnerError::WasmUnknownError { debug_message } => {
+            panic!("Wasmer returned unknown message: {}", debug_message)
+        }
+    })
 }
 
 pub(crate) fn action_function_call(
@@ -154,7 +184,7 @@ pub(crate) fn action_function_call(
         epoch_info_provider,
         apply_state.current_protocol_version,
     );
-    let (outcome, err) = execute_function_call(
+    let outcome = execute_function_call(
         apply_state,
         &mut runtime_ext,
         account,
@@ -166,70 +196,52 @@ pub(crate) fn action_function_call(
         config,
         is_last_action,
         None,
-    )
-    .outcome_error();
-    let execution_succeeded = match err {
-        Some(VMError::FunctionCallError(err)) => match err {
-            FunctionCallError::Nondeterministic(msg) => {
-                panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
-            }
-            FunctionCallError::WasmUnknownError { debug_message } => {
-                panic!("Wasmer returned unknown message: {}", debug_message)
-            }
-            FunctionCallError::CompilationError(err) => {
-                result.result = Err(ActionErrorKind::FunctionCallError(
-                    ContractCallError::CompilationError(err).into(),
-                )
-                .into());
-                false
-            }
-            FunctionCallError::LinkError { msg } => {
-                result.result = Err(ActionErrorKind::FunctionCallError(
-                    ContractCallError::ExecutionError { msg: format!("Link Error: {}", msg) }
-                        .into(),
-                )
-                .into());
-                false
-            }
-            FunctionCallError::MethodResolveError(err) => {
-                result.result = Err(ActionErrorKind::FunctionCallError(
-                    ContractCallError::MethodResolveError(err).into(),
-                )
-                .into());
-                false
-            }
-            FunctionCallError::WasmTrap(_) | FunctionCallError::HostError(_) => {
-                result.result = Err(ActionErrorKind::FunctionCallError(
-                    ContractCallError::ExecutionError { msg: err.to_string() }.into(),
-                )
-                .into());
-                false
-            }
-            FunctionCallError::_EVMError => unreachable!(),
-        },
-        Some(VMError::ExternalError(any_err)) => {
-            let err: ExternalError =
-                any_err.downcast().expect("Downcasting AnyError should not fail");
-            return match err {
-                ExternalError::StorageError(err) => Err(err.into()),
-                ExternalError::ValidatorError(err) => Err(RuntimeError::ValidatorError(err)),
-            };
-        }
-        Some(VMError::InconsistentStateError(err @ InconsistentStateError::IntegerOverflow)) => {
-            return Err(StorageError::StorageInconsistentState(err.to_string()).into());
-        }
-        Some(VMError::CacheError(err)) => {
-            let message = match err {
-                CacheError::DeserializationError => "Cache deserialization error",
-                CacheError::SerializationError { hash: _hash } => "Cache serialization error",
-                CacheError::ReadError => "Cache read error",
-                CacheError::WriteError => "Cache write error",
-            };
-            return Err(StorageError::StorageInconsistentState(message.to_string()).into());
-        }
-        None => true,
-    };
+    )?;
 
+    match &outcome.aborted {
+        None => {
+            metrics::FUNCTION_CALL_PROCESSED.with_label_values(&["ok"]).inc();
+        }
+        Some(err) => {
+            metrics::FUNCTION_CALL_PROCESSED.with_label_values(&[err.into()]).inc();
+        }
+    }
+
+    let execution_succeeded = outcome.aborted.is_none();
+    if let Some(err) = outcome.aborted {
+        // collect metrics for failed function calls
+        metrics::FUNCTION_CALL_PROCESSED_FUNCTION_CALL_ERRORS
+            .with_label_values(&[(&err).into()])
+            .inc();
+        match &err {
+            FunctionCallError::CompilationError(err) => {
+                metrics::FUNCTION_CALL_PROCESSED_COMPILATION_ERRORS
+                    .with_label_values(&[err.into()])
+                    .inc();
+            }
+            FunctionCallError::LinkError { .. } => (),
+            FunctionCallError::MethodResolveError(err) => {
+                metrics::FUNCTION_CALL_PROCESSED_METHOD_RESOLVE_ERRORS
+                    .with_label_values(&[err.into()])
+                    .inc();
+            }
+            FunctionCallError::WasmTrap(ref inner_err) => {
+                metrics::FUNCTION_CALL_PROCESSED_WASM_TRAP_ERRORS
+                    .with_label_values(&[inner_err.into()])
+                    .inc();
+            }
+            FunctionCallError::HostError(ref inner_err) => {
+                metrics::FUNCTION_CALL_PROCESSED_HOST_ERRORS
+                    .with_label_values(&[inner_err.into()])
+                    .inc();
+            }
+        }
+        // Update action result with the abort error converted to the
+        // transaction runtime's format of errors.
+        let ser: FunctionCallErrorSer = err.into();
+        let action_err: ActionError = ActionErrorKind::FunctionCallError(ser).into();
+        result.result = Err(action_err);
+    }
     result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
     result.gas_burnt_for_function_call =
         safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;
@@ -582,7 +594,7 @@ pub(crate) fn action_add_key(
     }
     if checked_feature!("stable", AccessKeyNonceRange, apply_state.current_protocol_version) {
         let mut access_key = add_key.access_key.clone();
-        access_key.nonce = (apply_state.block_index - 1)
+        access_key.nonce = (apply_state.block_height - 1)
             * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
         set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
     } else {

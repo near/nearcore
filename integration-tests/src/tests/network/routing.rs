@@ -1,5 +1,5 @@
 use crate::tests::network::runner::*;
-use near_network_primitives::time;
+use near_network::time;
 
 #[test]
 fn simple() -> anyhow::Result<()> {

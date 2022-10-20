@@ -2,7 +2,7 @@ use borsh::BorshDeserialize;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
-use near_logger_utils::init_test_logger;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::{trie_key::TrieKey, types::AccountId};
 use near_store::{ShardUId, TrieUpdate};
@@ -46,7 +46,7 @@ fn process_blocks_with_storage_usage_fix(
         let trie = Rc::new(
             env.clients[0]
                 .runtime_adapter
-                .get_trie_for_shard(0, block.header().prev_hash(), root)
+                .get_trie_for_shard(0, block.header().prev_hash(), root, true)
                 .unwrap(),
         );
         let state_update = TrieUpdate::new(trie.clone());

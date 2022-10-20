@@ -200,6 +200,9 @@ pub enum Error {
     /// A challenged block is on the chain that was attempted to become the head
     #[error("Challenged block on chain")]
     ChallengedBlockOnChain,
+    /// Block cannot be finalized.
+    #[error("Block cannot be finalized")]
+    CannotBeFinalized,
     /// IO Error.
     #[error("IO Error: {0}")]
     IOErr(#[from] io::Error),
@@ -246,6 +249,7 @@ impl Error {
             | Error::ValidatorError(_)
             | Error::EpochOutOfBounds(_)
             | Error::ChallengedBlockOnChain
+            | Error::CannotBeFinalized
             | Error::StorageError(_)
             | Error::GCError(_)
             | Error::DBNotFoundErr(_) => false,
@@ -302,7 +306,7 @@ impl From<EpochError> for Error {
     fn from(error: EpochError) -> Self {
         match error {
             EpochError::EpochOutOfBounds(epoch_id) => Error::EpochOutOfBounds(epoch_id),
-            EpochError::MissingBlock(h) => Error::DBNotFoundErr(h.to_string()),
+            EpochError::MissingBlock(h) => Error::DBNotFoundErr(format!("epoch block: {h}")),
             EpochError::NotAValidator(_account_id, _epoch_id) => Error::NotAValidator,
             err => Error::ValidatorError(err.to_string()),
         }

@@ -118,12 +118,13 @@ impl RuntimeUser {
                     .borrow_mut()
                     .insert(outcome_with_id.id, outcome_with_id.outcome.into());
             }
-            client
-                .tries
-                .apply_all(&apply_result.trie_changes, ShardUId::single_shard())
-                .0
-                .commit()
-                .unwrap();
+            let mut update = client.tries.store_update();
+            client.tries.apply_all(
+                &apply_result.trie_changes,
+                ShardUId::single_shard(),
+                &mut update,
+            );
+            update.commit().unwrap();
             client.state_root = apply_result.state_root;
             if apply_result.outgoing_receipts.is_empty() {
                 return Ok(());
@@ -138,7 +139,7 @@ impl RuntimeUser {
 
     fn apply_state(&self) -> ApplyState {
         ApplyState {
-            block_index: 1,
+            block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
             block_timestamp: 0,
@@ -234,7 +235,7 @@ impl User for RuntimeUser {
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
         self.trie_viewer
-            .view_state(&state_update, account_id, prefix)
+            .view_state(&state_update, account_id, prefix, false)
             .map_err(|err| err.to_string())
     }
 
@@ -249,7 +250,7 @@ impl User for RuntimeUser {
         let state_update = client.get_state_update();
         let mut result = CallResult::default();
         let view_state = ViewApplyState {
-            block_height: apply_state.block_index,
+            block_height: apply_state.block_height,
             prev_block_hash: apply_state.prev_block_hash,
             block_hash: apply_state.block_hash,
             epoch_id: apply_state.epoch_id,

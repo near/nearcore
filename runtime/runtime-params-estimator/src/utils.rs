@@ -386,9 +386,10 @@ pub(crate) fn generate_fn_name(index: usize, len: usize) -> Vec<u8> {
 pub(crate) fn generate_data_only_contract(data_size: usize, config: &VMConfig) -> Vec<u8> {
     // Using pseudo-random stream with fixed seed to create deterministic, incompressable payload.
     let prng: XorShiftRng = rand::SeedableRng::seed_from_u64(0xdeadbeef);
-    let payload = prng.sample_iter(&Alphanumeric).take(data_size).collect::<String>();
+    let payload = prng.sample_iter(&Alphanumeric).take(data_size).collect();
+    let payload = String::from_utf8(payload).unwrap();
     let wat_code = format!(
-        r#"(module 
+        r#"(module
             (memory 1)
             (func (export "main"))
             (data (i32.const 0) "{payload}")

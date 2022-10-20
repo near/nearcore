@@ -202,6 +202,22 @@ pub fn get_block_shard_id_rev(
     Ok((block_hash, shard_id))
 }
 
+pub fn get_outcome_id_block_hash(outcome_id: &CryptoHash, block_hash: &CryptoHash) -> Vec<u8> {
+    let mut res = Vec::with_capacity(64);
+    res.extend_from_slice(outcome_id.as_ref());
+    res.extend_from_slice(block_hash.as_ref());
+    res
+}
+
+pub fn get_outcome_id_block_hash_rev(key: &[u8]) -> std::io::Result<(CryptoHash, CryptoHash)> {
+    if key.len() != 64 {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid key length"));
+    }
+    let outcome_id = CryptoHash::try_from(&key[..32]).unwrap();
+    let block_hash = CryptoHash::try_from(&key[32..]).unwrap();
+    Ok((outcome_id, block_hash))
+}
+
 /// Creates a new Receipt ID from a given signed transaction and a block hash.
 /// This method is backward compatible, so it takes the current protocol version.
 pub fn create_receipt_id_from_transaction(
@@ -424,7 +440,8 @@ pub fn get_num_seats_per_shard(num_shards: NumShards, num_seats: NumSeats) -> Ve
 
 /// Generate random string of given length
 pub fn generate_random_string(len: usize) -> String {
-    thread_rng().sample_iter(&Alphanumeric).take(len).collect::<String>()
+    let bytes = thread_rng().sample_iter(&Alphanumeric).take(len).collect();
+    String::from_utf8(bytes).unwrap()
 }
 
 pub struct Serializable<'a, T>(&'a T);

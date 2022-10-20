@@ -5,7 +5,7 @@ use criterion::{black_box, Criterion};
 use near_crypto::{KeyType, SecretKey, Signature};
 use near_network::routing;
 use near_network::test_utils::random_peer_id;
-use near_network_primitives::types::Edge;
+use near_network::types::Edge;
 use near_primitives::network::PeerId;
 use std::collections::HashMap;
 use std::sync::Arc;

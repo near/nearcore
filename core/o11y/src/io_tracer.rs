@@ -302,7 +302,7 @@ impl tracing::field::Visit for SpanInfo {
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
         // "count" is a special field, everything else are key values pairs.
         if field.name() == "counter" {
-            *self.counts.entry(format!("{value}")).or_default() += 1;
+            *self.counts.entry(value.to_string()).or_default() += 1;
         } else {
             self.record_debug(field, &value);
         }

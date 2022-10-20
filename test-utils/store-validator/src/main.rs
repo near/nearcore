@@ -8,7 +8,7 @@ use clap::{Arg, Command};
 use near_chain::store_validator::StoreValidator;
 use near_chain::RuntimeAdapter;
 use near_chain_configs::GenesisValidationMode;
-use near_logger_utils::init_integration_logger;
+use near_o11y::testonly::init_integration_logger;
 use nearcore::{get_default_home, load_config};
 
 fn main() {
@@ -68,9 +68,5 @@ fn main() {
         process::exit(1);
     } else {
         println!("{}", Green.bold().paint("No errors found"));
-    }
-    let gc_counters = store_validator.get_gc_counters();
-    for (col, count) in gc_counters {
-        println!("{} {}", White.bold().paint(col), count);
     }
 }

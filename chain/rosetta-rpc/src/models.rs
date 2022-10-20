@@ -751,8 +751,18 @@ impl OperationStatusKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum OperationMetadataTransferFeeType {
+    GasPrepayment,
+    GasRefund,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct OperationMetadata {
+    /// Has to be specified for TRANSFER operations which represent gas prepayments or gas refunds
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transfer_fee_type: Option<OperationMetadataTransferFeeType>,
     /// Has to be specified for ADD_KEY, REMOVE_KEY, and STAKE operations
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_key: Option<PublicKey>,
@@ -781,10 +791,18 @@ impl OperationMetadata {
     pub(crate) fn from_predecessor(
         predecessor_id: Option<AccountIdentifier>,
     ) -> Option<OperationMetadata> {
-        return predecessor_id.map(|predecessor_id| crate::models::OperationMetadata {
+        predecessor_id.map(|predecessor_id| crate::models::OperationMetadata {
             predecessor_id: Some(predecessor_id),
             ..Default::default()
-        });
+        })
+    }
+
+    pub(crate) fn with_transfer_fee_type(
+        mut self,
+        transfer_fee_type: OperationMetadataTransferFeeType,
+    ) -> Self {
+        self.transfer_fee_type = Some(transfer_fee_type);
+        self
     }
 }
 
@@ -1064,7 +1082,7 @@ impl TransactionIdentifier {
     /// Returns an identifier for block events constructed as <prefix>:<hash>.
     ///
     /// Note: If constructing identifiers for transactions or receipts, use
-    /// [`transaction`] or [`receipt`] methods instead.
+    /// [`Self::transaction`] or [`Self::receipt`] methods instead.
     pub(crate) fn block_event(
         prefix: &'static str,
         block_hash: &near_primitives::hash::CryptoHash,
@@ -1142,9 +1160,9 @@ impl TryFrom<&PublicKey> for near_crypto::PublicKey {
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum CurveType {
-    /// `y (255-bits) || x-sign-bit (1-bit)` - `32 bytes` (https://ed25519.cr.yp.to/ed25519-20110926.pdf)
+    /// `y (255-bits) || x-sign-bit (1-bit)` - 32 bytes (<https://ed25519.cr.yp.to/ed25519-20110926.pdf>)
     Edwards25519,
-    /// SEC compressed - `33 bytes` (https://secg.org/sec1-v2.pdf#subsubsection.2.3.3)
+    /// SEC compressed - 33 bytes (<https://secg.org/sec1-v2.pdf#subsubsection.2.3.3>)
     Secp256k1,
 }
 

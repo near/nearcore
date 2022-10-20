@@ -1,6 +1,5 @@
-use std::collections::HashSet;
-
 use near_primitives::types::{AccountId, NumShards};
+use std::collections::HashSet;
 
 /// Validator schedule describes how block and chunk producers are selected by
 /// the KeyValue runtime.
@@ -52,6 +51,14 @@ impl ValidatorSchedule {
     }
 
     /// Controls how chunk_producers are selected from the block producers.
+    ///
+    /// This parameter splits the validators in each shard into that many
+    /// groups, and assigns a separate set of shards to each group. E.g. if
+    /// there are 8 validators in a particular epoch, and 4 shards, and 2
+    /// validator groups, 4 validators will be assigned to two shards, and 4
+    /// remaining validators will be assigned to 2 remaining shards. With 8
+    /// validators, 4 shards and 4 validator groups each shard will be assigned
+    /// to two validators.
     ///
     /// See how `EpochValidatorSet` is constructed for details.
     pub fn validator_groups(mut self, validator_groups: u64) -> Self {

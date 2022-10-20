@@ -1,12 +1,11 @@
-use crate::types::{Encoding, Handshake, HandshakeFailureReason, PeerMessage};
+use crate::network_protocol::{
+    Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash,
+    PeerMessage, Ping, RawRoutedMessage, RoutedMessageBody,
+};
+use crate::time::Utc;
 use bytes::buf::{Buf, BufMut};
 use bytes::BytesMut;
 use near_crypto::{KeyType, SecretKey};
-use near_network_primitives::time::Utc;
-use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, PartialEdgeInfo, PeerChainInfoV2, Ping, RawRoutedMessage,
-    RoutedMessageBody,
-};
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -107,21 +106,27 @@ impl Peer {
         genesis_hash: CryptoHash,
         head_height: BlockHeight,
     ) -> Result<(), ConnectError> {
-        let handshake = PeerMessage::Handshake(Handshake::new(
+        let handshake = PeerMessage::Handshake(Handshake {
             protocol_version,
-            self.my_peer_id.clone(),
-            self.peer_id.clone(),
+            oldest_supported_version: protocol_version - 2,
+            sender_peer_id: self.my_peer_id.clone(),
+            target_peer_id: self.peer_id.clone(),
             // we have to set this even if we have no intention of listening since otherwise
             // the peer will drop our connection
-            Some(24567),
-            PeerChainInfoV2 {
+            sender_listen_port: Some(24567),
+            sender_chain_info: PeerChainInfoV2 {
                 genesis_id: GenesisId { chain_id: chain_id.to_string(), hash: genesis_hash },
                 height: head_height,
                 tracked_shards: vec![0],
                 archival: false,
             },
-            PartialEdgeInfo::new(&self.my_peer_id, &self.peer_id, 1, &self.secret_key),
-        ));
+            partial_edge_info: PartialEdgeInfo::new(
+                &self.my_peer_id,
+                &self.peer_id,
+                1,
+                &self.secret_key,
+            ),
+        });
 
         self.write_message(&handshake).await?;
 
@@ -295,9 +300,10 @@ impl Peer {
     }
 
     pub async fn recv(&mut self) -> io::Result<Vec<(Message, Instant)>> {
+        let mut ret = Vec::new();
+
         loop {
             let msgs = self.recv_messages().await?;
-            let mut ret = Vec::new();
 
             for (msg, timestamp) in msgs {
                 if let Some(m) = Message::from_peer_message(msg) {
@@ -312,8 +318,11 @@ impl Peer {
 
     pub async fn send_ping(&mut self, target: &PeerId, nonce: u64, ttl: u8) -> anyhow::Result<()> {
         let body = RoutedMessageBody::Ping(Ping { nonce, source: self.my_peer_id.clone() });
-        let msg = RawRoutedMessage { target: AccountOrPeerIdOrHash::PeerId(target.clone()), body }
-            .sign(self.my_peer_id.clone(), &self.secret_key, ttl, Some(Utc::now_utc()));
+        let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target.clone()), body }.sign(
+            &self.secret_key,
+            ttl,
+            Some(Utc::now_utc()),
+        );
 
         self.write_message(&PeerMessage::Routed(Box::new(msg))).await?;
 

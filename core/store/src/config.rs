@@ -1,9 +1,4 @@
-use std::io;
-
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::version::DbVersion;
-
-const STORE_PATH: &str = "data";
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -46,7 +41,17 @@ pub struct StoreConfig {
     /// Default value: ShardUId {version: 1, shard_id: 3} -> 45_000_000
     /// We're still experimenting with this parameter and it seems decreasing its value can improve
     /// the performance of the storage
-    pub trie_cache_capacities: Vec<(ShardUId, usize)>,
+    pub trie_cache_capacities: Vec<(ShardUId, u64)>,
+
+    /// Enable fetching account and access key data ahead of time to avoid IO latency.
+    pub enable_receipt_prefetching: bool,
+
+    /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as receiver.
+    /// This config option is temporary and will be removed once flat storage is implemented.
+    pub sweat_prefetch_receivers: Vec<String>,
+    /// List of allowed predecessor accounts for SWEAT prefetching.
+    /// This config option is temporary and will be removed once flat storage is implemented.
+    pub sweat_prefetch_senders: Vec<String>,
 
     /// Path where to create RocksDB checkpoints during database migrations or
     /// `false` to disable that feature.
@@ -81,7 +86,7 @@ pub enum MigrationSnapshot {
 }
 
 /// Mode in which to open the storage.
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy)]
 pub enum Mode {
     /// Open an existing database in read-only mode.  Fail if it doesn’t exist.
     ReadOnly,
@@ -89,6 +94,33 @@ pub enum Mode {
     ReadWriteExisting,
     /// Open a database in read-write mode.  create if it doesn’t exist.
     ReadWrite,
+    /// Creates a new database in read-write mode.  Fails if it exists.
+    Create,
+}
+
+impl Mode {
+    pub const fn read_only(self) -> bool {
+        matches!(self, Mode::ReadOnly)
+    }
+    pub const fn read_write(self) -> bool {
+        !self.read_only()
+    }
+    pub const fn can_create(self) -> bool {
+        matches!(self, Mode::ReadWrite | Mode::Create)
+    }
+    pub const fn must_create(self) -> bool {
+        matches!(self, Mode::Create)
+    }
+
+    /// Returns variant of the mode which prohibits creation of the database or
+    /// `None` if the mode requires creation of a new database.
+    pub const fn but_cannot_create(self) -> Option<Self> {
+        match self {
+            Self::ReadOnly | Self::ReadWriteExisting => Some(self),
+            Self::ReadWrite => Some(Self::ReadWriteExisting),
+            Self::Create => None,
+        }
+    }
 }
 
 impl StoreConfig {
@@ -140,6 +172,15 @@ impl Default for StoreConfig {
             block_size: bytesize::ByteSize::kib(16),
 
             trie_cache_capacities: vec![(ShardUId { version: 1, shard_id: 3 }, 45_000_000)],
+            enable_receipt_prefetching: true,
+            sweat_prefetch_receivers: vec![
+                "token.sweat".to_owned(),
+                "vfinal.token.sweat.testnet".to_owned(),
+            ],
+            sweat_prefetch_senders: vec![
+                "oracle.sweat".to_owned(),
+                "sweat_the_oracle.testnet".to_owned(),
+            ],
 
             migration_snapshot: Default::default(),
         }
@@ -179,105 +220,5 @@ impl MigrationSnapshot {
 impl Default for MigrationSnapshot {
     fn default() -> Self {
         Self::Enabled(true)
-    }
-}
-
-/// Builder for opening a RocksDB database.
-///
-/// Typical usage:
-///
-/// ```ignore
-/// let store = NodeStorage::opener(&near_config.config.store)
-///     .home(neard_home_dir)
-///     .open();
-/// ```
-pub struct StoreOpener<'a> {
-    /// Path to the database.
-    ///
-    /// This is resolved from nearcore home directory and store configuration
-    /// passed to [`NodeStorage::opener`].
-    path: std::path::PathBuf,
-
-    /// Configuration as provided by the user.
-    config: &'a StoreConfig,
-
-    /// Which mode to open storeg in.
-    mode: Mode,
-}
-
-impl<'a> StoreOpener<'a> {
-    /// Initialises a new opener with given home directory and store config.
-    pub(crate) fn new(home_dir: &std::path::Path, config: &'a StoreConfig) -> Self {
-        let path =
-            home_dir.join(config.path.as_deref().unwrap_or(std::path::Path::new(STORE_PATH)));
-        Self { path, config, mode: Mode::ReadWrite }
-    }
-
-    /// Configure which mode the database should be opened in.
-    pub fn mode(mut self, mode: Mode) -> Self {
-        self.mode = mode;
-        self
-    }
-
-    /// Returns whether database exists.
-    ///
-    /// It performs only basic file-system-level checks and may result in false
-    /// positives if some but not all database files exist.  In particular, this
-    /// is not a guarantee that the database can be opened without an error.
-    pub fn check_if_exists(&self) -> bool {
-        self.path.join("CURRENT").is_file()
-    }
-
-    /// Returns path to the underlying RocksDB database.
-    ///
-    /// Does not check whether the database actually exists.
-    pub fn path(&self) -> &std::path::Path {
-        &self.path
-    }
-
-    #[cfg(test)]
-    pub(crate) fn config(&self) -> &StoreConfig {
-        self.config
-    }
-
-    /// Returns version of the database; or `None` if it does not exist.
-    pub fn get_version_if_exists(&self) -> io::Result<Option<DbVersion>> {
-        if self.check_if_exists() {
-            Some(crate::RocksDB::get_version(&self.path, &self.config)).transpose()
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Opens the RocksDB database.
-    pub fn open(&self) -> io::Result<crate::NodeStorage> {
-        let exists = self.check_if_exists();
-        if !exists && matches!(self.mode, Mode::ReadOnly) {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "Cannot open non-existent database for reading",
-            ));
-        }
-
-        tracing::info!(target: "near", path=%self.path.display(),
-                       "{} RocksDB database",
-                       if exists { "Opening" } else { "Creating a new" });
-        crate::RocksDB::open(&self.path, &self.config, self.mode)
-            .map(|db| crate::NodeStorage::new(std::sync::Arc::new(db)))
-    }
-
-    /// Creates a new snapshot which can be used to recover the database state.
-    ///
-    /// The snapshot is used during database migration to allow users to roll
-    /// back failed migrations.
-    ///
-    /// Note that due to RocksDB being weird, this will create an empty database
-    /// if it does not already exist.  This might not be what you want so make
-    /// sure the database already exists.
-    pub fn new_migration_snapshot(&self) -> Result<crate::Snapshot, crate::SnapshotError> {
-        match self.config.migration_snapshot.get_path(&self.path) {
-            Some(path) => crate::Snapshot::new(&self.path, self.config, path),
-            None => Ok(crate::Snapshot::no_snapshot()),
-        }
     }
 }
