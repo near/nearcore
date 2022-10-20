@@ -3,7 +3,7 @@
 This chapter describes how neard works with a focus on implementation details
 and practical scenarios. To get a better understanding of how the protocol
 works, please refer to [nomicon](https://nomicon.io). For a high-level code map
-of nearcore, please refer to this [document](../index.html).
+of nearcore, please refer to this [document](../).
 
 ## High level overview
 
