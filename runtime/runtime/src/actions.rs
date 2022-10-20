@@ -28,9 +28,7 @@ use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
     StorageError, TrieUpdate,
 };
-use near_vm_errors::{
-    CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
-};
+use near_vm_errors::{CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
@@ -141,22 +139,16 @@ pub(crate) fn execute_function_call(
         }
         VMRunnerError::CacheError(err) => {
             metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS.with_label_values(&[(&err).into()]).inc();
-            let message = match err {
-                CacheError::DeserializationError => "Cache deserialization error",
-                CacheError::SerializationError { hash: _hash } => "Cache serialization error",
-                CacheError::ReadError => "Cache read error",
-                CacheError::WriteError => "Cache write error",
-            };
-            StorageError::StorageInconsistentState(message.to_string()).into()
+            StorageError::StorageInconsistentState(err.to_string()).into()
+        }
+        VMRunnerError::LoadingError(msg) => {
+            panic!("Contract runtime failed to load a contrct: {msg}")
         }
         VMRunnerError::Nondeterministic(msg) => {
             panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
         }
         VMRunnerError::WasmUnknownError { debug_message } => {
             panic!("Wasmer returned unknown message: {}", debug_message)
-        }
-        VMRunnerError::UnsupportedCompiler { debug_message } => {
-            panic!("Unsupported compiler error: {}", debug_message)
         }
     })
 }
@@ -271,7 +263,6 @@ pub(crate) fn action_function_call(
                     .into());
                     false
                 }
-                FunctionCallError::_EVMError => unreachable!(),
             }
         }
         None => true,

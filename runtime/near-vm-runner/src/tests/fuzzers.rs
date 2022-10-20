@@ -181,11 +181,7 @@ fn wasmer2_is_reproducible() {
             let mut first_hash = None;
             for _ in 0..3 {
                 let vm = Wasmer2VM::new(config.clone());
-                let prepared_code = match crate::prepare::prepare_contract(code.code(), &config) {
-                    Ok(c) => c,
-                    Err(_) => return,
-                };
-                let exec = match vm.compile_uncached(&prepared_code) {
+                let exec = match vm.compile_uncached(&code) {
                     Ok(e) => e,
                     Err(_) => return,
                 };
