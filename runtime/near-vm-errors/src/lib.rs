@@ -66,14 +66,19 @@ pub enum FunctionCallErrorSer {
     /// Wasm compilation error
     CompilationError(CompilationError),
     /// Wasm binary env link error
+    ///
+    /// Note: this is only to deserialize old data, use execution error for new data
     LinkError {
         msg: String,
     },
     /// Import/export resolve error
     MethodResolveError(MethodResolveError),
     /// A trap happened during execution of a binary
+    ///
+    /// Note: this is only to deserialize old data, use execution error for new data
     WasmTrap(WasmTrap),
     WasmUnknownError,
+    /// Note: this is only to deserialize old data, use execution error for new data
     HostError(HostError),
     // Unused, can be reused by a future error but must be exactly one error to keep ExecutionError
     // error borsh serialized at correct index
@@ -302,15 +307,15 @@ impl From<FunctionCallError> for FunctionCallErrorSer {
         match outer_err {
             FunctionCallError::CompilationError(e) => FunctionCallErrorSer::CompilationError(e),
             FunctionCallError::MethodResolveError(e) => FunctionCallErrorSer::MethodResolveError(e),
-            // TODO: consider using FunctionCallErrorSer::HostError
+            // Note: We deliberately collapse all execution errors for
+            // serialization to make the DB representation less dependent
+            // on specific types in Rust code.
             FunctionCallError::HostError(ref _e) => {
                 FunctionCallErrorSer::ExecutionError(outer_err.to_string())
             }
-            // TODO: consider using FunctionCallErrorSer::LinkError
             FunctionCallError::LinkError { msg } => {
                 FunctionCallErrorSer::ExecutionError(format!("Link Error: {}", msg))
             }
-            // TODO: consider using FunctionCallErrorSer::WasmTrap
             FunctionCallError::WasmTrap(ref _e) => {
                 FunctionCallErrorSer::ExecutionError(outer_err.to_string())
             }
