@@ -37,8 +37,6 @@ pub(crate) struct Actor {
     store: store::Store,
     /// Last time a peer was reachable.
     peer_reachable_at: HashMap<PeerId, time::Instant>,
-    /// List of Peers to ban
-    peers_to_ban: Vec<PeerId>,
     /// EdgeValidatorActor, which is responsible for validating edges.
     edge_validator_pool: Addr<EdgeValidatorActor>,
     /// Number of edge validations in progress; We will not update routing table as long as
@@ -59,9 +57,6 @@ impl Actor {
             graph,
             store,
             peer_reachable_at: Default::default(),
-            peers_to_ban: Default::default(),
-            edge_validator_requests_in_progress: 0,
-            edge_validator_pool: actix::SyncArbiter::start(4, || EdgeValidatorActor {}),
         }
     }
 
@@ -245,10 +240,6 @@ impl actix::Handler<StopMsg> for Actor {
 #[derive(actix::Message, Debug, strum::IntoStaticStr)]
 #[rtype(result = "Response")]
 pub(crate) enum Message {
-    /// Gets list of edges to validate from another peer.
-    /// Those edges will be filtered, by removing existing edges, and then
-    /// those edges will be sent to `EdgeValidatorActor`.
-    ValidateEdgeList(ValidateEdgeList),
     /// Add verified edges to routing table actor and update stats.
     /// Each edge contains signature of both peers.
     /// We say that the edge is "verified" if and only if we checked that the `signature0` and
@@ -271,8 +262,6 @@ pub enum Response {
         pruned_edges: Vec<Edge>,
         /// Active PeerId that are part of the shortest path to each PeerId.
         next_hops: Arc<routing::NextHopTable>,
-        /// List of peers to ban for sending invalid edges.
-        peers_to_ban: Vec<PeerId>,
     },
 }
 
@@ -284,23 +273,6 @@ impl actix::Handler<Message> for Actor {
         let _timer =
             metrics::ROUTING_TABLE_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         match msg {
-            // Schedules edges for validation.
-            Message::ValidateEdgeList(mut msg) => {
-                self.edge_validator_requests_in_progress += 1;
-                msg.edges.retain(|x| !self.graph.read().has(x));
-                let peer_id = msg.source_peer_id.clone();
-                self.edge_validator_pool
-                    .send(msg)
-                    .into_actor(self)
-                    .map(move |res, act, _| {
-                        act.edge_validator_requests_in_progress -= 1;
-                        if let Ok(false) = res {
-                            act.peers_to_ban.push(peer_id);
-                        }
-                    })
-                    .spawn(ctx);
-                Response::Empty
-            }
             // Adds verified edges to the graph. Accesses DB.
             Message::AddVerifiedEdges { edges } => {
                 Response::AddVerifiedEdgesResponse(self.add_verified_edges(edges))
@@ -312,7 +284,6 @@ impl actix::Handler<Message> for Actor {
                 Response::RoutingTableUpdateResponse {
                     pruned_edges,
                     next_hops,
-                    peers_to_ban: std::mem::take(&mut self.peers_to_ban),
                 }
             }
         }

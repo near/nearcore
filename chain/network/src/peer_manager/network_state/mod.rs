@@ -326,14 +326,6 @@ impl NetworkState {
         }
     }
 
-    pub fn add_verified_edges_to_routing_table(&self, edges: Vec<Edge>) {
-        if edges.is_empty() {
-            return;
-        }
-        self.routing_table_view.add_local_edges(&edges);
-        self.routing_table_addr.do_send(routing::actor::Message::AddVerifiedEdges { edges });
-    }
-
     pub fn broadcast_accounts(&self, accounts: Vec<AnnounceAccount>) {
         let new_accounts = self.routing_table_view.add_accounts(accounts);
         tracing::debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
@@ -348,17 +340,114 @@ impl NetworkState {
     /// Bans peer `peer_id` if an invalid edge is found.
     /// `PeerManagerActor` periodically runs `broadcast_validated_edges_trigger`, which gets edges
     /// from `EdgeValidatorActor` concurrent queue and sends edges to be added to `RoutingTableActor`.
-    pub fn validate_edges_and_add_to_routing_table(&self, peer_id: PeerId, edges: Vec<Edge>) {
-        if edges.is_empty() {
-            return;
+    pub async fn add_edges_to_routing_table(&self, edges: Vec<Edge>) -> Result<(),ReasonForBan> {
+        let graph = self.graph.read();
+        edges.retain(|x| !graph.has(x));
+        drop(graph);
+        if edges.is_empty() { return; }
+        // Verify the edges in parallel on rayon.
+        let (edges, ok) = rayon_spawn(move || {
+            try_map(edges.into_iter().par_bridge(), |e| if e.verify() { Some(e) } else { None })
+        }).await;
+        self.routing_table_view.add_local_edges(&edges);
+        let edges = self.routing_table_addr.send(routing::actor::Message::AddVerifiedEdges { edges }).await;
+        // Don't send tombstones during the initial time.
+        // Most of the network is created during this time, which results
+        // in us sending a lot of tombstones to peers.
+        // Later, the amount of new edges is a lot smaller.
+        let skip_tombstones = self.config.skip_tombstones.map(|it| /*TODO: node start + it*/ self.clock.now() + it);
+        if let Some(skip_tombstones_until) = skip_tombstones_until {
+            if clock.now() < skip_tombstones_until {
+                edges.retain(|edge| edge.edge_type() == EdgeState::Active);
+                metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
+            }
         }
-        self.routing_table_addr.do_send(routing::actor::Message::ValidateEdgeList(
-            ValidateEdgeList {
-                source_peer_id: peer_id,
-                edges,
-                edges_info_shared: self.routing_table_exchange_helper.edges_info_shared.clone(),
-                sender: self.routing_table_exchange_helper.edges_to_add_sender.clone(),
-            },
+        // Broadcast new edges to all other peers.
+        // TODO: demux
+        self.tier2.broadcast_message(Arc::new(
+            PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(
+                filtered_edges,
+            )),
         ));
+        if !ok {
+            return Err(ReasonForBan::InvalidEdge);
+        }
+        Ok(())
+    }    
+
+    pub async fn update_routing_table(
+        &self,
+        prune_unreachable_since: Option<time::Instant>,
+        prune_edges_older_than: Option<time::Utc>,
+    ) {
+        let resp = self.state.routing_table_addr.send(
+            routing::actor::Message::RoutingTableUpdate {
+                prune_unreachable_since,
+                prune_edges_older_than,
+            },
+        ).await.unwrap();
+        match resp {
+            routing::actor::Response::RoutingTableUpdateResponse {
+                pruned_edges,
+                next_hops,
+            } => {
+                self.routing_table_view.update(&pruned_edges, next_hops.clone());
+                self.config
+                    .event_sink
+                    .push(Event::RoutingTableUpdate { next_hops, pruned_edges });
+            }
+            _ => panic!("expected RoutingTableUpdateResponse"),
+        }
+    }
+
+    /// Check for edges indicating that
+    /// a) there is a peer we should be connected to, but we aren't
+    /// b) there is an edge indicating that we should be disconnected from a peer, but we are connected.
+    /// Try to resolve the inconsistency.
+    pub async fn update_local_edges() {
+        let local_edges = self.routing.table_view.get_local_edges(); 
+        let tier2 = self.tier2.load();
+        for edge in local_edges {
+            let other_peer = edge.other(&self.my_peer_id).unwrap();
+            match (tier2.ready.contains_key(other_peer), edge.edge_type()) {
+                // This is an active connection, while the edge indicates it shouldn't.
+                (true, EdgeState::Removed) => {
+                    let nonce = edge.next();
+                    state.tier2.send_message(
+                        other.clone(),
+                        Arc::new(PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
+                            &self.my_peer_id,
+                            other,
+                            nonce,
+                            &self.config.node_key,
+                        ))),
+                    );
+                    // wait for update with timeout. 
+                    if let Some(peer) = state.tier2.load().ready.get(&other) {
+                        // Send disconnect signal to this peer if we haven't edge update.
+                        peer.stop(None);
+                    }
+                }
+                // We are not connected to this peer, but routing table contains
+                // information that we do. We should wait and remove that peer
+                // from routing table
+                (false, EdgeState::Active) => {
+                    // This edge says this is an connected peer, which is currently not in the set of connected peers.
+                    // Wait for some time to let the connection begin or broadcast edge removal instead.
+                    wait(WAIT_PEER_BEFORE_REMOVE.try_into().unwrap());
+                    let other = edge.other(&act.my_peer_id).unwrap();
+                    if state.tier2.load().ready.contains_key(other) {
+                        return;
+                    }
+                    // Peer is still not connected after waiting a timeout.
+                    let new_edge = edge.remove_edge(act.my_peer_id.clone(), &act.config.node_key);
+                    act.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                        RoutingTableUpdate::from_edges(vec![new_edge]),
+                    )));
+                }
+                // OK
+                _ => {}
+            }
+        }
     }
 }
