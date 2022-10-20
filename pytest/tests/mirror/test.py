@@ -27,6 +27,7 @@ import key
 TIMEOUT = 240
 NUM_VALIDATORS = 4
 TARGET_VALIDATORS = ['foo0', 'foo1', 'foo2']
+MIRROR_DIR = 'test-mirror'
 
 
 def mkdir_clean(dirname):
@@ -91,7 +92,7 @@ def init_target_dirs(neard):
         init_target_dir(neard, home, ordinal, validator_account=account_id)
         ordinal += 1
 
-    observer = dot_near() / 'mirror/target'
+    observer = dot_near() / f'{MIRROR_DIR}/target'
     init_target_dir(neard, observer, ordinal, validator_account=None)
     shutil.copy(dot_near() / 'test0/output/mirror-secret.json',
                 observer / 'mirror-secret.json')
@@ -145,15 +146,15 @@ def create_forked_chain(config, near_root):
 
 
 def init_mirror_dir(home, source_boot_node):
-    mkdir_clean(dot_near() / 'mirror')
-    os.rename(home, dot_near() / 'mirror/source')
+    mkdir_clean(dot_near() / MIRROR_DIR)
+    os.rename(home, dot_near() / f'{MIRROR_DIR}/source')
     ordinal = NUM_VALIDATORS
-    with open(dot_near() / 'mirror/source/config.json', 'r') as f:
+    with open(dot_near() / f'{MIRROR_DIR}/source/config.json', 'r') as f:
         config = json.load(f)
         config['network']['boot_nodes'] = source_boot_node.addr_with_pk()
         config['network']['addr'] = ordinal_to_port(24567, ordinal)
         config['rpc']['addr'] = ordinal_to_port(3030, ordinal)
-    with open(dot_near() / 'mirror/source/config.json', 'w') as f:
+    with open(dot_near() / f'{MIRROR_DIR}/source/config.json', 'w') as f:
         json.dump(config, f)
 
 
@@ -166,16 +167,16 @@ def mirror_cleanup(process):
         logger.error('can\'t kill mirror process')
 
 
-def start_mirror(near_root, target_home, boot_node):
+def start_mirror(near_root, source_home, target_home, boot_node):
     env = os.environ.copy()
     env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get(
         "RUST_LOG", "debug")
-    with open(dot_near() / 'mirror/stdout', 'ab') as stdout, \
-        open(dot_near() / 'mirror/stderr', 'ab') as stderr:
+    with open(dot_near() / f'{MIRROR_DIR}/stdout', 'ab') as stdout, \
+        open(dot_near() / f'{MIRROR_DIR}/stderr', 'ab') as stderr:
         process = subprocess.Popen([
             os.path.join(near_root, 'mirror'), 'run', "--source-home",
-            dot_near() / 'mirror/source/', "--target-home", target_home,
-            '--secret-file', target_home / 'mirror-secret.json'
+            source_home, "--target-home", target_home, '--secret-file',
+            target_home / 'mirror-secret.json'
         ],
                                    stdin=subprocess.DEVNULL,
                                    stdout=stdout,
@@ -377,7 +378,9 @@ def main():
                          ordinal,
                          boot_node=target_nodes[0]))
 
-    p = start_mirror(near_root, target_observer_dir, target_nodes[0])
+    p = start_mirror(near_root,
+                     dot_near() / f'{MIRROR_DIR}/source/', target_observer_dir,
+                     target_nodes[0])
     start_time = time.time()
     start_source_height = nodes[0].get_latest_block().height
     restarted = False
@@ -437,7 +440,7 @@ def main():
             logger.info('stopping mirror process')
             p.terminate()
             p.wait()
-            with open(dot_near() / 'mirror/stderr', 'ab') as stderr:
+            with open(dot_near() / f'{MIRROR_DIR}/stderr', 'ab') as stderr:
                 stderr.write(
                     b'<><><><><><><><><><><><> restarting <><><><><><><><><><><><><><><><><><><><>\n'
                 )
@@ -447,7 +450,9 @@ def main():
                 stderr.write(
                     b'<><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>\n'
                 )
-            p = start_mirror(near_root, target_observer_dir, target_nodes[0])
+            p = start_mirror(near_root,
+                             dot_near() / f'{MIRROR_DIR}/source/',
+                             target_observer_dir, target_nodes[0])
             restarted = True
 
         if height - start_source_height >= 100:
