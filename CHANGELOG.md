@@ -56,8 +56,8 @@
   [#7701](https://github.com/near/nearcore/pull/7701).
 * Attach node's `chain_id`, `node_id`, and `account_id` values to tracing
   information: [#7711](https://github.com/near/nearcore/pull/7711).
-* Change exporter of tracing information from `opentelemetry-jaeger` to `opentelemetry-otlp`: 
-  information: [#7563](https://github.com/near/nearcore/pull/7563).
+* Change exporter of tracing information from `opentelemetry-jaeger` to
+  `opentelemetry-otlp`: [#7563](https://github.com/near/nearcore/pull/7563).
 
 ## 1.29.0 [2022-08-15]
 
