@@ -7,7 +7,7 @@ use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::contract::ContractCode;
-use near_primitives::errors::{ActionError, ActionErrorKind, ContractCallError, RuntimeError};
+use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::runtime::config::AccountCreationConfig;
@@ -28,7 +28,8 @@ use near_store::{
     StorageError, TrieUpdate,
 };
 use near_vm_errors::{
-    CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
+    CompilationError, FunctionCallError, FunctionCallErrorSer, InconsistentStateError,
+    VMRunnerError,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{VMContext, VMOutcome};
@@ -138,22 +139,16 @@ pub(crate) fn execute_function_call(
         }
         VMRunnerError::CacheError(err) => {
             metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS.with_label_values(&[(&err).into()]).inc();
-            let message = match err {
-                CacheError::DeserializationError => "Cache deserialization error",
-                CacheError::SerializationError { hash: _hash } => "Cache serialization error",
-                CacheError::ReadError => "Cache read error",
-                CacheError::WriteError => "Cache write error",
-            };
-            StorageError::StorageInconsistentState(message.to_string()).into()
+            StorageError::StorageInconsistentState(err.to_string()).into()
+        }
+        VMRunnerError::LoadingError(msg) => {
+            panic!("Contract runtime failed to load a contrct: {msg}")
         }
         VMRunnerError::Nondeterministic(msg) => {
             panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
         }
         VMRunnerError::WasmUnknownError { debug_message } => {
             panic!("Wasmer returned unknown message: {}", debug_message)
-        }
-        VMRunnerError::UnsupportedCompiler { debug_message } => {
-            panic!("Unsupported compiler error: {}", debug_message)
         }
     })
 }
@@ -212,66 +207,41 @@ pub(crate) fn action_function_call(
         }
     }
 
-    let execution_succeeded = match outcome.aborted {
-        Some(err) => {
-            metrics::FUNCTION_CALL_PROCESSED_FUNCTION_CALL_ERRORS
-                .with_label_values(&[(&err).into()])
-                .inc();
-            match err {
-                FunctionCallError::CompilationError(err) => {
-                    metrics::FUNCTION_CALL_PROCESSED_COMPILATION_ERRORS
-                        .with_label_values(&[(&err).into()])
-                        .inc();
-                    result.result = Err(ActionErrorKind::FunctionCallError(
-                        ContractCallError::CompilationError(err).into(),
-                    )
-                    .into());
-                    false
-                }
-                FunctionCallError::LinkError { msg } => {
-                    result.result = Err(ActionErrorKind::FunctionCallError(
-                        ContractCallError::ExecutionError { msg: format!("Link Error: {}", msg) }
-                            .into(),
-                    )
-                    .into());
-                    false
-                }
-                FunctionCallError::MethodResolveError(err) => {
-                    metrics::FUNCTION_CALL_PROCESSED_METHOD_RESOLVE_ERRORS
-                        .with_label_values(&[(&err).into()])
-                        .inc();
-                    result.result = Err(ActionErrorKind::FunctionCallError(
-                        ContractCallError::MethodResolveError(err).into(),
-                    )
-                    .into());
-                    false
-                }
-                FunctionCallError::WasmTrap(ref inner_err) => {
-                    metrics::FUNCTION_CALL_PROCESSED_WASM_TRAP_ERRORS
-                        .with_label_values(&[inner_err.into()])
-                        .inc();
-                    result.result = Err(ActionErrorKind::FunctionCallError(
-                        ContractCallError::ExecutionError { msg: err.to_string() }.into(),
-                    )
-                    .into());
-                    false
-                }
-                FunctionCallError::HostError(ref inner_err) => {
-                    metrics::FUNCTION_CALL_PROCESSED_HOST_ERRORS
-                        .with_label_values(&[inner_err.into()])
-                        .inc();
-                    result.result = Err(ActionErrorKind::FunctionCallError(
-                        ContractCallError::ExecutionError { msg: err.to_string() }.into(),
-                    )
-                    .into());
-                    false
-                }
-                FunctionCallError::_EVMError => unreachable!(),
+    let execution_succeeded = outcome.aborted.is_none();
+    if let Some(err) = outcome.aborted {
+        // collect metrics for failed function calls
+        metrics::FUNCTION_CALL_PROCESSED_FUNCTION_CALL_ERRORS
+            .with_label_values(&[(&err).into()])
+            .inc();
+        match &err {
+            FunctionCallError::CompilationError(err) => {
+                metrics::FUNCTION_CALL_PROCESSED_COMPILATION_ERRORS
+                    .with_label_values(&[err.into()])
+                    .inc();
+            }
+            FunctionCallError::LinkError { .. } => (),
+            FunctionCallError::MethodResolveError(err) => {
+                metrics::FUNCTION_CALL_PROCESSED_METHOD_RESOLVE_ERRORS
+                    .with_label_values(&[err.into()])
+                    .inc();
+            }
+            FunctionCallError::WasmTrap(ref inner_err) => {
+                metrics::FUNCTION_CALL_PROCESSED_WASM_TRAP_ERRORS
+                    .with_label_values(&[inner_err.into()])
+                    .inc();
+            }
+            FunctionCallError::HostError(ref inner_err) => {
+                metrics::FUNCTION_CALL_PROCESSED_HOST_ERRORS
+                    .with_label_values(&[inner_err.into()])
+                    .inc();
             }
         }
-        None => true,
-    };
-
+        // Update action result with the abort error converted to the
+        // transaction runtime's format of errors.
+        let ser: FunctionCallErrorSer = err.into();
+        let action_err: ActionError = ActionErrorKind::FunctionCallError(ser).into();
+        result.result = Err(action_err);
+    }
     result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
     result.gas_burnt_for_function_call =
         safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;

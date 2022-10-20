@@ -23,7 +23,7 @@ pub use near_primitives_core::types::*;
 pub type StateRoot = CryptoHash;
 
 /// Different types of finality.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, arbitrary::Arbitrary)]
 pub enum Finality {
     #[serde(rename = "optimistic")]
     None,
@@ -455,6 +455,7 @@ impl StateRootNode {
     BorshDeserialize,
     Serialize,
     Deserialize,
+    arbitrary::Arbitrary,
 )]
 #[as_ref(forward)]
 pub struct EpochId(pub CryptoHash);
@@ -774,7 +775,7 @@ pub struct ChunkExtraV1 {
     pub balance_burnt: Balance,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, arbitrary::Arbitrary)]
 #[serde(untagged)]
 pub enum BlockId {
     Height(BlockHeight),
@@ -783,14 +784,14 @@ pub enum BlockId {
 
 pub type MaybeBlockId = Option<BlockId>;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, arbitrary::Arbitrary)]
 #[serde(rename_all = "snake_case")]
 pub enum SyncCheckpoint {
     Genesis,
     EarliestAvailable,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, arbitrary::Arbitrary)]
 #[serde(rename_all = "snake_case")]
 pub enum BlockReference {
     BlockId(BlockId),
@@ -828,7 +829,7 @@ pub struct BlockChunkValidatorStats {
     pub chunk_stats: ValidatorStats,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, arbitrary::Arbitrary)]
 #[serde(rename_all = "snake_case")]
 pub enum EpochReference {
     EpochId(EpochId),
