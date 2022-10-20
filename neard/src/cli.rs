@@ -19,7 +19,6 @@ use std::fs::File;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
 use tracing::{debug, error, info, warn};
@@ -588,9 +587,8 @@ impl VerifyProofSubCommand {
             .with_context(|| "Could not open proof file.")
             .unwrap();
         let reader = BufReader::new(file);
-        let light_client_rpc_response: Value = serde_json::from_reader(reader)
-            .with_context(|| "Failed to deserialize the genesis records.")
-            .unwrap();
+        let light_client_rpc_response: Value =
+            serde_json::from_reader(reader).with_context(|| "Failed to deserialize JSON.").unwrap();
         Self::verify_json(light_client_rpc_response).unwrap()
     }
 
@@ -607,7 +605,6 @@ impl VerifyProofSubCommand {
         let outcome_hashes = light_client_proof.outcome_proof.clone().to_hashes();
         println!("Hashes of the outcome are: {:?}", outcome_hashes);
 
-        //let outcome = light_client_proof.outcome_proof.outcome;
         let outcome_hash = CryptoHash::hash_borsh(&outcome_hashes);
         println!("Hash of the outcome is: {:?}", outcome_hash);
 
@@ -688,6 +685,7 @@ fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, RunError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn optional_values() {
