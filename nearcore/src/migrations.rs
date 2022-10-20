@@ -2,7 +2,6 @@
 use crate::NightshadeRuntime;
 use borsh::BorshSerialize;
 use crossbeam_channel::unbounded;
-use futures::SinkExt;
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::receipt::ReceiptResult;
@@ -159,7 +158,7 @@ pub fn do_migrate_34_to_35(
         // let path_begin_encoded = NibbleSlice::encode_nibbles(&[0], false);
         // state_iter.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, true)?;
 
-        let mut handles = vec![];
+        let mut threads = 0u64;
         for sub_trie in state_iter.heavy_sub_tries(sub_trie_size)? {
             let TrieIterator { trie, trail, key_nibbles, .. } = sub_trie?;
             if key_nibbles.len() > 2000 {
@@ -184,7 +183,8 @@ pub fn do_migrate_34_to_35(
             let inner_nodes_count = global_nodes_count.clone();
 
             let inner_store = store.clone();
-            let handle = pool.spawn(move || {
+            threads += 1;
+            pool.spawn(move || {
                 let hex_prefix: String = key_nibbles
                     .iter()
                     .map(|&n| char::from_digit(n as u32, 16).expect("nibble should be <16"))
@@ -245,6 +245,9 @@ pub fn do_migrate_34_to_35(
         }
 
         let mut n = 0;
+        for _ in threads {
+            n += receiver.recv().unwrap();
+        }
         // for handle in handles {
         //     n += rt.block_on(handle).expect("task failed");
         // }
