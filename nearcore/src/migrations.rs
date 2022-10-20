@@ -144,8 +144,8 @@ pub fn do_migrate_34_to_35(
         let sub_trie_size = memory_usage / 1024; //5_000_000;
         info!(target: "chain", %shard_id, "Start flat state shard migration, mem_usage = {} gb, sub_trie_size = {} gb", memory_usage as f64 / 10f64.powf(9.0), sub_trie_size as f64 / 10f64.powf(9.0));
 
-        let max_threads = 1024;
-        let thread_slots = Arc::new(std::sync::atomic::AtomicU32::new(max_threads));
+        // let max_threads = 1024;
+        let thread_usage = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let mem_progress = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let global_nodes_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let mut state_iter = trie.iter()?;
@@ -175,18 +175,9 @@ pub fn do_migrate_34_to_35(
                 .expect("preload called without caching storage")
                 .clone();
             let root = trie.get_root().clone();
-            loop {
-                if thread_slots.load(std::sync::atomic::Ordering::Relaxed) > 0 {
-                    // guaranteed to not wrap because only the main thread subtracts
-                    thread_slots.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-                    break;
-                } else {
-                    // TODO: consider using conditional variable
-                    std::thread::sleep(std::time::Duration::from_micros(10));
-                }
-            }
+            thread_usage.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let inner_mem_progress = mem_progress.clone();
-            let inner_thread_slots = thread_slots.clone();
+            let inner_thread_usage = thread_usage.clone();
             let inner_nodes_count = global_nodes_count.clone();
 
             let inner_store = store.clone();
@@ -223,12 +214,12 @@ pub fn do_migrate_34_to_35(
                     })
                     .count();
                 store_update.finish().unwrap();
-                inner_thread_slots.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                inner_thread_usage.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                 inner_mem_progress
                     .fetch_add(current_memory_usage, std::sync::atomic::Ordering::Relaxed);
 
                 let nodes_count = nodes_count.load(std::sync::atomic::Ordering::Relaxed);
-                let slots = inner_thread_slots.load(std::sync::atomic::Ordering::Relaxed);
+                let threads_usage = inner_thread_usage.load(std::sync::atomic::Ordering::Relaxed);
                 let mem_progress_gb = inner_mem_progress.load(std::sync::atomic::Ordering::Relaxed)
                     as f64
                     / 10f64.powf(9.0);
@@ -241,7 +232,7 @@ pub fn do_migrate_34_to_35(
                     "Preload subtrie at {hex_prefix} done, \
                     loaded {n:<8} state items, \
                     visited {nodes_count} nodes, \
-                    {slots} slots remain, \
+                    {threads_usage} threads used, \
                     {first_record_to_display} is the first state record, \
                     mem progress gb: {mem_progress_gb} / {mem_usage_gb}"
                 );
