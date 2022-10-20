@@ -6,8 +6,6 @@ use borsh::BorshSerialize;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::Digest;
 
-use crate::logging::pretty_hash;
-
 #[derive(
     Copy,
     Clone,
@@ -213,7 +211,7 @@ impl From<CryptoHash> for [u8; 32] {
 
 impl fmt::Debug for CryptoHash {
     fn fmt(&self, fmtr: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.to_base58_impl(|encoded| write!(fmtr, "{}", pretty_hash(encoded)))
+        fmt::Display::fmt(self, fmtr)
     }
 }
 

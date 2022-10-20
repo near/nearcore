@@ -25,11 +25,12 @@ use actix::fut::future::wrap_future;
 use actix::{Actor, ActorContext, ActorFutureExt, AsyncContext, Context, Handler, Running};
 use lru::LruCache;
 use near_crypto::Signature;
-use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContextExt};
-use near_o11y::{log_assert, WithSpanContext};
+use near_o11y::{
+    handler_debug_span, log_assert, pretty, OpenTelemetrySpanExt, WithSpanContext,
+    WithSpanContextExt,
+};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
-use near_primitives::logging;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::EpochId;
 use near_primitives::utils::DisplayOption;
@@ -1208,7 +1209,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
         let mut peer_msg = match self.parse_message(&msg) {
             Ok(msg) => msg,
             Err(err) => {
-                debug!(target: "network", "Received invalid data {:?} from {}: {}", logging::pretty_vec(&msg), self.peer_info, err);
+                debug!(target: "network", "Received invalid data {} from {}: {}", pretty::AbbrBytes(&msg), self.peer_info, err);
                 return;
             }
         };
