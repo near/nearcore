@@ -219,7 +219,8 @@ mod caching_storage_tests {
                 rc: std::num::NonZeroU32::new(1).unwrap(),
             })
             .collect();
-        let (store_update, _) = tries.apply_all(&trie_changes, shard_uid);
+        let mut store_update = tries.store_update();
+        tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
         tries.get_store()
     }

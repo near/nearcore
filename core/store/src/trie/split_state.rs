@@ -149,14 +149,13 @@ impl ShardTries {
             }
         }
         let mut new_state_roots = state_roots.clone();
-        let mut store_update = StoreUpdate::new_with_tries(self.clone());
+        let mut store_update = self.store_update();
         for (shard_uid, changes) in changes_by_shard {
             // Here we assume that state_roots contains shard_uid, the caller of this method will guarantee that.
             let trie_changes =
                 self.get_trie_for_shard(shard_uid, state_roots[&shard_uid]).update(changes)?;
-            let (update, state_root) = self.apply_all(&trie_changes, shard_uid);
+            let state_root = self.apply_all(&trie_changes, shard_uid, &mut store_update);
             new_state_roots.insert(shard_uid, state_root);
-            store_update.merge(update);
         }
         Ok((store_update, new_state_roots))
     }
@@ -194,14 +193,13 @@ impl ShardTries {
         updates: HashMap<ShardUId, TrieUpdate>,
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
         let mut new_state_roots = HashMap::new();
-        let mut merged_store_update = StoreUpdate::new_with_tries(self.clone());
+        let mut store_update = self.store_update();
         for (shard_uid, update) in updates {
             let (trie_changes, _) = update.finalize()?;
-            let (store_update, state_root) = self.apply_all(&trie_changes, shard_uid);
+            let state_root = self.apply_all(&trie_changes, shard_uid, &mut store_update);
             new_state_roots.insert(shard_uid, state_root);
-            merged_store_update.merge(store_update);
         }
-        Ok((merged_store_update, new_state_roots))
+        Ok((store_update, new_state_roots))
     }
 }
 
@@ -523,8 +521,9 @@ mod tests {
             set(&mut trie_update, TrieKey::DelayedReceiptIndices, &delayed_receipt_indices);
             trie_update.commit(StateChangeCause::Resharding);
             let (trie_changes, _) = trie_update.finalize().unwrap();
-            let (store_update, state_root) =
-                tries.apply_all(&trie_changes, ShardUId::single_shard());
+            let mut store_update = tries.store_update();
+            let state_root =
+                tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
             store_update.commit().unwrap();
 
             assert_eq!(
@@ -658,8 +657,9 @@ mod tests {
             );
             trie_update.commit(StateChangeCause::Resharding);
             let (trie_changes, _) = trie_update.finalize().unwrap();
-            let (store_update, state_root) =
-                tries.apply_all(&trie_changes, ShardUId::single_shard());
+            let mut store_update = tries.store_update();
+            let state_root =
+                tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
             store_update.commit().unwrap();
             state_root
         };
@@ -761,8 +761,9 @@ mod tests {
             set(&mut trie_update, TrieKey::DelayedReceiptIndices, &delayed_receipt_indices);
             trie_update.commit(StateChangeCause::Resharding);
             let (trie_changes, state_changes) = trie_update.finalize().unwrap();
-            let (store_update, new_state_root) =
-                tries.apply_all(&trie_changes, ShardUId::single_shard());
+            let mut store_update = tries.store_update();
+            let new_state_root =
+                tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
             store_update.commit().unwrap();
             state_root = new_state_root;
 
@@ -780,7 +781,8 @@ mod tests {
             split_state_roots = trie_changes
                 .iter()
                 .map(|(shard_uid, trie_changes)| {
-                    let (state_update, state_root) = tries.apply_all(trie_changes, *shard_uid);
+                    let mut state_update = tries.store_update();
+                    let state_root = tries.apply_all(trie_changes, *shard_uid, &mut state_update);
                     state_update.commit().unwrap();
                     (*shard_uid, state_root)
                 })
