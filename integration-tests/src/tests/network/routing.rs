@@ -135,6 +135,7 @@ fn test_dont_drop_after_ttl() -> anyhow::Result<()> {
     runner.push(Action::AddEdge { from: 0, to: 1, force: true });
     runner.push(Action::AddEdge { from: 1, to: 2, force: true });
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
+    runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
     runner.push(Action::PingTo { source: 0, nonce: 0, target: 2 });
     runner.push(Action::CheckPingPong(2, vec![Ping { nonce: 0, source: 0 }], vec![]));
     runner.push(Action::CheckPingPong(0, vec![], vec![Pong { nonce: 0, source: 2 }]));
