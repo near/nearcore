@@ -3609,10 +3609,12 @@ name = "neard"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "ansi_term",
  "anyhow",
  "clap 3.1.18",
  "futures",
  "near-chain-configs",
+ "near-jsonrpc-primitives",
  "near-o11y",
  "near-performance-metrics",
  "near-primitives",
