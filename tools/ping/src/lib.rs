@@ -12,18 +12,21 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::time::{Duration, Instant};
 
-pub mod csv;
+pub mod cli;
+mod csv;
+
+pub use cli::PingCommand;
 
 // TODO: also log number of bytes/other messages (like Blocks) received?
 #[derive(Debug, Default)]
-pub struct PingStats {
-    pub pings_sent: usize,
-    pub pongs_received: usize,
+struct PingStats {
+    pings_sent: usize,
+    pongs_received: usize,
     // TODO: these latency stats could be separated into time to first byte
     // + time to last byte, etc.
-    pub min_latency: Duration,
-    pub max_latency: Duration,
-    pub average_latency: Duration,
+    min_latency: Duration,
+    max_latency: Duration,
+    average_latency: Duration,
 }
 
 impl PingStats {
@@ -333,9 +336,9 @@ fn handle_message(
 }
 
 #[derive(Debug)]
-pub struct PeerIdentifier {
-    pub account_id: Option<AccountId>,
-    pub peer_id: PeerId,
+struct PeerIdentifier {
+    account_id: Option<AccountId>,
+    peer_id: PeerId,
 }
 
 impl std::fmt::Display for PeerIdentifier {
@@ -347,13 +350,11 @@ impl std::fmt::Display for PeerIdentifier {
     }
 }
 
-fn collect_stats(app_info: AppInfo) -> Vec<(PeerIdentifier, PingStats)> {
-    let mut ret = Vec::new();
+fn collect_stats(app_info: AppInfo, ping_stats: &mut Vec<(PeerIdentifier, PingStats)>) {
     for (peer_id, state) in app_info.stats {
         let PingState { stats, account_id, .. } = state;
-        ret.push((PeerIdentifier { peer_id, account_id }, stats));
+        ping_stats.push((PeerIdentifier { peer_id, account_id }, stats));
     }
-    ret
 }
 
 fn prepare_timeout(sleep: Pin<&mut tokio::time::Sleep>, app_info: &AppInfo) -> Option<PingTimeout> {
@@ -365,7 +366,7 @@ fn prepare_timeout(sleep: Pin<&mut tokio::time::Sleep>, app_info: &AppInfo) -> O
     }
 }
 
-pub async fn ping_via_node(
+async fn ping_via_node(
     chain_id: &str,
     genesis_hash: CryptoHash,
     head_height: BlockHeight,
@@ -376,7 +377,8 @@ pub async fn ping_via_node(
     ping_frequency_millis: u64,
     account_filter: Option<HashSet<AccountId>>,
     mut latencies_csv: Option<crate::csv::LatenciesCsv>,
-) -> Vec<(PeerIdentifier, PingStats)> {
+    ping_stats: &mut Vec<(PeerIdentifier, PingStats)>,
+) -> anyhow::Result<()> {
     let mut app_info = AppInfo::new(account_filter);
 
     app_info.add_peer(&peer_id, None);
@@ -393,28 +395,27 @@ pub async fn ping_via_node(
     {
         Ok(p) => p,
         Err(ConnectError::IO(e)) => {
-            tracing::error!(target: "ping", "Error connecting to {:?}: {}", peer_addr, e);
-            return vec![];
+            anyhow::bail!("Error connecting to {:?}: {}", peer_addr, e);
         }
         Err(ConnectError::HandshakeFailure(reason)) => {
             match reason {
-                HandshakeFailureReason::ProtocolVersionMismatch { version, oldest_supported_version } => tracing::error!(
+                HandshakeFailureReason::ProtocolVersionMismatch { version, oldest_supported_version } => anyhow::bail!(
                     "Received Handshake Failure: {:?}. Try running again with --protocol-version between {} and {}",
                     reason, oldest_supported_version, version
                 ),
-                HandshakeFailureReason::GenesisMismatch(_) => tracing::error!(
+                HandshakeFailureReason::GenesisMismatch(_) => anyhow::bail!(
                     "Received Handshake Failure: {:?}. Try running again with --chain-id and --genesis-hash set to these values.",
                     reason,
                 ),
-                HandshakeFailureReason::InvalidTarget => tracing::error!(
+                HandshakeFailureReason::InvalidTarget => anyhow::bail!(
                     "Received Handshake Failure: {:?}. Is the public key given with --peer correct?",
                     reason,
                 ),
             }
-            return vec![];
         }
     };
 
+    let mut result = Ok(());
     let mut nonce = 1;
     let next_ping = tokio::time::sleep(Duration::ZERO);
     tokio::pin!(next_ping);
@@ -428,8 +429,8 @@ pub async fn ping_via_node(
         tokio::select! {
             _ = &mut next_ping, if target.is_some() => {
                 let target = target.unwrap();
-                if let Err(e) = peer.send_ping(&target, nonce, ttl).await {
-                    tracing::error!(target: "ping", "Failed sending ping to {:?}: {:#}", &target, e);
+                result = peer.send_ping(&target, nonce, ttl).await.with_context(|| format!("Failed sending ping to {:?}", &target));
+                if result.is_err() {
                     break;
                 }
                 app_info.ping_sent(&target, nonce);
@@ -440,13 +441,13 @@ pub async fn ping_via_node(
                 let messages = match res {
                     Ok(x) => x,
                     Err(e) => {
-                        tracing::error!(target: "ping", "Failed receiving messages: {:#}", e);
+                        result = Err(e).context("Failed receiving messages");
                         break;
                     }
                 };
                 for (msg, first_byte_time) in messages {
-                    if let Err(e) = handle_message(&mut app_info, &msg, first_byte_time, latencies_csv.as_mut()) {
-                        tracing::error!(target: "ping", "{:#}", e);
+                    result = handle_message(&mut app_info, &msg, first_byte_time, latencies_csv.as_mut());
+                    if result.is_err() {
                         break;
                     }
                 }
@@ -455,9 +456,12 @@ pub async fn ping_via_node(
                 let t = pending_timeout.unwrap();
                 app_info.pop_timeout(&t);
                 if let Some(csv) = latencies_csv.as_mut() {
-                    if let Err(e) =
-                    csv.write_timeout(&t.peer_id, app_info.peer_id_to_account_id(&t.peer_id)) {
-                        tracing::error!("Failed writing to CSV file: {}", e);
+                    result = csv.write_timeout(
+                        &t.peer_id,
+                        app_info.peer_id_to_account_id(&t.peer_id)
+                    )
+                    .context("Failed writing to CSV file");
+                    if result.is_err() {
                         break;
                     }
                 }
@@ -467,5 +471,6 @@ pub async fn ping_via_node(
             }
         }
     }
-    collect_stats(app_info)
+    collect_stats(app_info, ping_stats);
+    result
 }

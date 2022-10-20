@@ -1,5 +1,5 @@
 [package]
-name = "ping"
+name = "near-ping"
 version = "0.0.0"
 authors.workspace = true
 publish = false
@@ -13,7 +13,6 @@ clap.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-nearcore = { path = "../../nearcore" }
 near-network = { path = "../../chain/network" }
 near-o11y = { path = "../../core/o11y" }
 near-primitives = { path = "../../core/primitives" }

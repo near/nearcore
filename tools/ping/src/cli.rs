@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 #[derive(Parser)]
-struct Cli {
+pub struct PingCommand {
     #[clap(long)]
     chain_id: String,
     #[clap(long)]
@@ -47,7 +47,7 @@ struct Cli {
     latencies_csv_file: Option<PathBuf>,
 }
 
-fn display_stats(stats: &mut [(ping::PeerIdentifier, ping::PingStats)], peer_id: &PeerId) {
+fn display_stats(stats: &mut [(crate::PeerIdentifier, crate::PingStats)], peer_id: &PeerId) {
     let mut acc_width = "account".len();
     for (peer, _) in stats.iter() {
         acc_width = std::cmp::max(acc_width, format!("{}", peer).len());
@@ -145,87 +145,85 @@ fn parse_account_filter<P: AsRef<Path>>(filename: P) -> std::io::Result<HashSet<
     Ok(filter)
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let args = Cli::parse();
+impl PingCommand {
+    pub fn run(&self) -> anyhow::Result<()> {
+        tracing::warn!(target: "ping", "the ping command is not stable, and may be removed or changed arbitrarily at any time");
 
-    let _subscriber = near_o11y::default_subscriber(
-        near_o11y::EnvFilterBuilder::new(std::env::var("RUST_LOG").unwrap_or("info".to_string()))
-            .finish()
-            .unwrap(),
-        &Default::default(),
-    )
-    .global();
-
-    let mut chain_info = None;
-    for info in CHAIN_INFO.iter() {
-        if &info.chain_id == &args.chain_id {
-            chain_info = Some(info);
-            break;
-        }
-    }
-
-    let genesis_hash = if let Some(h) = &args.genesis_hash {
-        match CryptoHash::from_str(&h) {
-            Ok(h) => h,
-            Err(e) => {
-                anyhow::bail!("Could not parse --genesis-hash {}: {:?}", &h, e)
+        let mut chain_info = None;
+        for info in CHAIN_INFO.iter() {
+            if &info.chain_id == &self.chain_id {
+                chain_info = Some(info);
+                break;
             }
         }
-    } else {
-        match chain_info {
-            Some(chain_info) => chain_info.genesis_hash,
-            None => anyhow::bail!(
-                "--genesis-hash not given, and genesis hash for --chain-id {} not known",
-                &args.chain_id
-            ),
-        }
-    };
-    let head_height = if let Some(h) = &args.head_height {
-        *h
-    } else {
-        match chain_info {
-            Some(chain_info) => chain_info.head_height,
-            None => anyhow::bail!(
-                "--head-height not given, and genesis hash for --chain-id {} not known",
-                &args.chain_id
-            ),
-        }
-    };
 
-    let peer = match PeerInfo::from_str(&args.peer) {
-        Ok(p) => p,
-        Err(e) => anyhow::bail!("Could not parse --peer {}: {:?}", &args.peer, e),
-    };
-    if peer.addr.is_none() {
-        anyhow::bail!("--peer should be in the form [public key]@[socket addr]");
+        let genesis_hash = if let Some(h) = &self.genesis_hash {
+            match CryptoHash::from_str(&h) {
+                Ok(h) => h,
+                Err(e) => {
+                    anyhow::bail!("Could not parse --genesis-hash {}: {:?}", &h, e)
+                }
+            }
+        } else {
+            match chain_info {
+                Some(chain_info) => chain_info.genesis_hash,
+                None => anyhow::bail!(
+                    "--genesis-hash not given, and genesis hash for --chain-id {} not known",
+                    &self.chain_id
+                ),
+            }
+        };
+        let head_height = if let Some(h) = &self.head_height {
+            *h
+        } else {
+            match chain_info {
+                Some(chain_info) => chain_info.head_height,
+                None => anyhow::bail!(
+                    "--head-height not given, and genesis hash for --chain-id {} not known",
+                    &self.chain_id
+                ),
+            }
+        };
+
+        let peer = match PeerInfo::from_str(&self.peer) {
+            Ok(p) => p,
+            Err(e) => anyhow::bail!("Could not parse --peer {}: {:?}", &self.peer, e),
+        };
+        if peer.addr.is_none() {
+            anyhow::bail!("--peer should be in the form [public key]@[socket addr]");
+        }
+        let filter = if let Some(filename) = &self.account_filter_file {
+            Some(parse_account_filter(filename)?)
+        } else {
+            None
+        };
+        let csv =
+            if let Some(filename) = &self.latencies_csv_file {
+                Some(crate::csv::LatenciesCsv::open(filename).with_context(|| {
+                    format!("Couldn't open latencies CSV file at {:?}", filename)
+                })?)
+            } else {
+                None
+            };
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async move {
+            let mut stats = Vec::new();
+            crate::ping_via_node(
+                &self.chain_id,
+                genesis_hash,
+                head_height,
+                self.protocol_version,
+                peer.id.clone(),
+                peer.addr.clone().unwrap(),
+                self.ttl,
+                self.ping_frequency_millis,
+                filter,
+                csv,
+                &mut stats,
+            )
+            .await?;
+            display_stats(&mut stats, &peer.id);
+            Ok(())
+        })
     }
-    let filter = if let Some(filename) = &args.account_filter_file {
-        Some(parse_account_filter(filename)?)
-    } else {
-        None
-    };
-    let csv = if let Some(filename) = &args.latencies_csv_file {
-        Some(
-            ping::csv::LatenciesCsv::open(filename)
-                .with_context(|| format!("Couldn't open latencies CSV file at {:?}", filename))?,
-        )
-    } else {
-        None
-    };
-    let mut stats = ping::ping_via_node(
-        &args.chain_id,
-        genesis_hash,
-        head_height,
-        args.protocol_version,
-        peer.id.clone(),
-        peer.addr.clone().unwrap(),
-        args.ttl,
-        args.ping_frequency_millis,
-        filter,
-        csv,
-    )
-    .await;
-    display_stats(&mut stats, &peer.id);
-    Ok(())
 }

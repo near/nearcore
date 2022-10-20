@@ -3261,6 +3261,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-ping"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap 3.1.18",
+ "near-network",
+ "near-o11y",
+ "near-primitives",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "near-pool"
 version = "0.0.0"
 dependencies = [
@@ -3617,6 +3631,7 @@ dependencies = [
  "near-jsonrpc-primitives",
  "near-o11y",
  "near-performance-metrics",
+ "near-ping",
  "near-primitives",
  "near-rust-allocator-proxy",
  "near-store",
@@ -4120,21 +4135,6 @@ name = "pin-utils"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
-
-[[package]]
-name = "ping"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap 3.1.18",
- "near-network",
- "near-o11y",
- "near-primitives",
- "nearcore",
- "tokio",
- "tracing",
-]
 
 [[package]]
 name = "pkg-config"
