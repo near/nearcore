@@ -3,13 +3,14 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use actix::Addr;
+use actix::{Addr, MailboxError};
 use actix_cors::Cors;
 use actix_web::http::header;
 use actix_web::HttpRequest;
 use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use futures::Future;
 use futures::FutureExt;
+use near_network::PeerManagerActor;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::time::{sleep, timeout};
@@ -220,6 +221,7 @@ fn process_query_response(
 struct JsonRpcHandler {
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
+    peer_manager_addr: Option<Addr<PeerManagerActor>>,
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
     enable_debug_rpc: bool,
@@ -417,6 +419,19 @@ impl JsonRpcHandler {
             .await
             .map_err(RpcFrom::rpc_from)?
             .map_err(RpcFrom::rpc_from)
+    }
+
+    async fn peer_manager_send<M, T, E>(&self, msg: M) -> Result<T, E>
+    where
+        PeerManagerActor: actix::Handler<M>,
+        M: actix::Message<Result = T> + Send + 'static,
+        M::Result: Send,
+        E: RpcFrom<actix::MailboxError>,
+    {
+        match &self.peer_manager_addr {
+            Some(peer_manager_addr) => peer_manager_addr.send(msg).await.map_err(RpcFrom::rpc_from),
+            None => Err(RpcFrom::rpc_from(MailboxError::Closed)),
+        }
     }
 
     async fn send_tx_async(
@@ -758,18 +773,35 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
         if self.enable_debug_rpc {
-            let debug_status = match path {
-                "/debug/api/tracked_shards" => self.client_send(DebugStatus::TrackedShards).await?,
-                "/debug/api/sync_status" => self.client_send(DebugStatus::SyncStatus).await?,
-                "/debug/api/catchup_status" => self.client_send(DebugStatus::CatchupStatus).await?,
-                "/debug/api/epoch_info" => self.client_send(DebugStatus::EpochInfo).await?,
-                "/debug/api/block_status" => self.client_send(DebugStatus::BlockStatus).await?,
-                "/debug/api/validator_status" => {
-                    self.client_send(DebugStatus::ValidatorStatus).await?
-                }
-                _ => return Ok(None),
-            };
-            return Ok(Some(debug_status.rpc_into()));
+            let debug_status: near_jsonrpc_primitives::types::status::DebugStatusResponse =
+                match path {
+                    "/debug/api/tracked_shards" => {
+                        self.client_send(DebugStatus::TrackedShards).await?.rpc_into()
+                    }
+                    "/debug/api/sync_status" => {
+                        self.client_send(DebugStatus::SyncStatus).await?.rpc_into()
+                    }
+                    "/debug/api/catchup_status" => {
+                        self.client_send(DebugStatus::CatchupStatus).await?.rpc_into()
+                    }
+                    "/debug/api/epoch_info" => {
+                        self.client_send(DebugStatus::EpochInfo).await?.rpc_into()
+                    }
+                    "/debug/api/block_status" => {
+                        self.client_send(DebugStatus::BlockStatus).await?.rpc_into()
+                    }
+                    "/debug/api/validator_status" => {
+                        self.client_send(DebugStatus::ValidatorStatus).await?.rpc_into()
+                    }
+                    "/debug/api/peer_store" => self
+                        .peer_manager_send(near_network::debug::GetDebugStatus::PeerStore)
+                        .await?
+                        .rpc_into(),
+                    _ => return Ok(None),
+                };
+            return Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
+                status_response: debug_status,
+            }));
         } else {
             return Ok(None);
         }
@@ -1404,6 +1436,7 @@ pub fn start_http(
     genesis_config: GenesisConfig,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
+    peer_manager_addr: Option<Addr<PeerManagerActor>>,
 ) -> Vec<(&'static str, actix_web::dev::ServerHandle)> {
     let RpcConfig {
         addr,
@@ -1424,6 +1457,7 @@ pub fn start_http(
             .app_data(web::Data::new(JsonRpcHandler {
                 client_addr: client_addr.clone(),
                 view_client_addr: view_client_addr.clone(),
+                peer_manager_addr: peer_manager_addr.clone(),
                 polling_config,
                 genesis_config: genesis_config.clone(),
                 enable_debug_rpc,
