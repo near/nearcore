@@ -1,20 +1,19 @@
 # Documentation
 
-This chapter describes nearcore approach to develope documentation. In general,
-there are three primary types of documentation to keep in mind:
+This chapter describes nearcore's approach to documentation. In general,
+there are three primary types of documentations to keep in mind:
 
 * **Protocol specification** ([source](https://github.com/near/NEPs),
   [rendered](https://nomicon.io)) is a formal description of the NEAR protocol.
   It can be used to implement alternative NEAR clients.
-* **User Docs** ([rendered](https://docs.near.org)) explain how to use the near
+* **User docs** ([rendered](https://docs.near.org)) explain how to use the near
   network. User docs are also split into documentation for validators (that is,
   how to run your own near node) and documentation for smart contract
   developers.
-* **Internal Development Docs** ([rendered](https://near.github.io/nearcore/),
+* **Internal development docs** ([rendered](https://near.github.io/nearcore/),
   [source](https://github.com/near/nearcore/tree/master/docs)) is the book you
-  are reading right now! The target audience here are developers of nearcore.
+  are reading right now! The target audience here are nearcore contributors.
 
-Here, we focus on the last sort -- internal docs.
 
 ## Overview
 
@@ -82,9 +81,10 @@ https://near.github.io/nearcore/.
 For internal docs, you often want to have pretty pictures. We don't currently
 have a recommended workflow, but here are some tips:
 
-* Don't add binary media files to Git. Rather, upload images as comments to this
-  super-secret issue [#7821](https://github.com/near/nearcore/issues/7821), and
-  then link to the images as
+* Don't add binary media files to Git to avoid inflating repository size. 
+  Rather, upload images as comments to this super-secret issue 
+  [#7821](https://github.com/near/nearcore/issues/7821), and then link to 
+  the images as
 
   ```
   ![image](https://user-images.githubusercontent.com/1711539/195626792-7697129b-7f9c-4953-b939-0b9bcacaf72c.png)
