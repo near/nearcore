@@ -17,6 +17,11 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+/// Represents a connection to a peer, and provides only minimal functionality.
+/// Almost none of the usual NEAR network logic is implemented, and the caller
+/// will receive messages via the recv() function. Currently the only message
+/// you can send is a Ping message, but in the future we can add more stuff there
+/// (e.g. sending blocks/chunk parts/etc)
 pub struct Peer {
     my_peer_id: PeerId,
     peer_id: PeerId,
@@ -25,6 +30,8 @@ pub struct Peer {
     buf: BytesMut,
 }
 
+/// The types of messages it's possible to receive from a `Peer`. Any PeerMessage
+/// we receive that doesn't fit one of these will just be logged and dropped.
 pub enum Message {
     AnnounceAccounts(Vec<(AccountId, PeerId, EpochId)>),
     Pong { nonce: u64, source: PeerId },
@@ -66,6 +73,8 @@ pub enum ConnectError {
 }
 
 impl Peer {
+    /// Connect to the NEAR node at `peer_id`@`addr`. The inputs are used to build out handshake,
+    /// and this function will return a `Peer` when a handshake has been received successfully.
     pub async fn connect(
         addr: SocketAddr,
         peer_id: PeerId,
@@ -299,6 +308,10 @@ impl Peer {
         Ok((self.extract_msg(msg_length)?, first_byte_time))
     }
 
+    /// Reads from the socket until we receive some message that we care to pass to the caller
+    /// (that is, represented in `Message`). After receiving the first such message, we will
+    /// continue to read any messages available to be read without blocking. The `Instant`s
+    /// in the returned `Vec` are timestamps taken when the corresponding messages were read
     pub async fn recv(&mut self) -> io::Result<Vec<(Message, Instant)>> {
         let mut ret = Vec::new();
 
@@ -316,6 +329,7 @@ impl Peer {
         }
     }
 
+    /// Try to send a Ping message to the given target, with the given nonce and ttl
     pub async fn send_ping(&mut self, target: &PeerId, nonce: u64, ttl: u8) -> anyhow::Result<()> {
         let body = RoutedMessageBody::Ping(Ping { nonce, source: self.my_peer_id.clone() });
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target.clone()), body }.sign(
