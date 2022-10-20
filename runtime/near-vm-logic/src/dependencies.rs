@@ -88,8 +88,8 @@ pub trait External {
     /// # use near_vm_logic::{External, StorageGetMode, ValuePtr};
     ///
     /// # let mut external = MockedExternal::new();
-    /// external.storage_set(b"key42", b"value1337", StorageGetMode::Trie).unwrap();
-    /// assert_eq!(external.storage_get(b"key42").unwrap().map(|ptr| ptr.deref().unwrap()), Some(b"value1337".to_vec()));
+    /// external.storage_set(b"key42", b"value1337").unwrap();
+    /// assert_eq!(external.storage_get(b"key42", StorageGetMode::Trie).unwrap().map(|ptr| ptr.deref().unwrap()), Some(b"value1337".to_vec()));
     /// // Returns Ok(None) if there is no value for a key
     /// assert_eq!(external.storage_get(b"no_key", StorageGetMode::Trie).unwrap().map(|ptr| ptr.deref().unwrap()), None);
     /// ```
