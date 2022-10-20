@@ -580,6 +580,10 @@ impl PeerActor {
                                 incremental: false,
                                 requesting_full_sync: true,
                             }));
+                            // Only broadcast the new edge from the outbound endpoint.
+                            act.network_state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                                RoutingTableUpdate::from_edges(vec![conn.edge.clone()]),
+                            )));
                         }
                         {
                             // Sync the RoutingTable.

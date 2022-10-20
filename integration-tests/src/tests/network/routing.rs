@@ -181,23 +181,6 @@ fn simple_remove() -> anyhow::Result<()> {
 }
 
 #[test]
-fn square() -> anyhow::Result<()> {
-    let mut runner = Runner::new(4, 4);
-
-    runner.push(Action::AddEdge { from: 0, to: 1, force: true });
-    runner.push(Action::AddEdge { from: 1, to: 2, force: true });
-    runner.push(Action::AddEdge { from: 2, to: 3, force: true });
-    runner.push(Action::AddEdge { from: 3, to: 0, force: true });
-    runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (3, vec![3]), (2, vec![1, 3])]));
-    runner.push(Action::Stop(1));
-    runner.push(Action::CheckRoutingTable(0, vec![(3, vec![3]), (2, vec![3])]));
-    runner.push(Action::CheckRoutingTable(2, vec![(3, vec![3]), (0, vec![3])]));
-    runner.push(Action::CheckRoutingTable(3, vec![(2, vec![2]), (0, vec![0])]));
-
-    start_test(runner)
-}
-
-#[test]
 fn blacklist_01() -> anyhow::Result<()> {
     let mut runner = Runner::new(2, 2).add_to_blacklist(0, Some(1)).use_boot_nodes(vec![0]);
 

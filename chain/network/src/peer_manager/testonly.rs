@@ -9,11 +9,13 @@ use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::tcp;
+use crate::test_utils;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
 use crate::types::{
-    ChainInfo, GetNetworkInfo, KnownPeerStatus, PeerManagerMessageRequest, SetChainInfo,
+    ChainInfo, GetNetworkInfo, KnownPeerStatus, PeerManagerMessageRequest,
+    PeerManagerMessageResponse, SetChainInfo,
 };
 use crate::PeerManagerActor;
 use near_o11y::{WithSpanContext, WithSpanContextExt};
@@ -273,6 +275,32 @@ impl ActorHandler {
             // It is important that we wait for the next PeerMessage::SyncAccountsData to get
             // PROCESSED, not just RECEIVED. Otherwise we would get a race condition.
             self.events.recv_until(unwrap_sync_accounts_data_processed).await;
+        }
+    }
+
+    // Awaits until the routing_table matches `want`.
+    pub async fn wait_for_routing_table(&self, want: &[(PeerId, Vec<PeerId>)]) {
+        let mut events = self.events.from_now();
+        loop {
+            let resp = self
+                .actix
+                .addr
+                .send(PeerManagerMessageRequest::FetchRoutingTable.with_span_context())
+                .await
+                .unwrap();
+            let got = match resp {
+                PeerManagerMessageResponse::FetchRoutingTable(rt) => rt.next_hops,
+                _ => panic!("bad response"),
+            };
+            if test_utils::expected_routing_tables(&got, want) {
+                return;
+            }
+            events
+                .recv_until(|ev| match ev {
+                    Event::PeerManager(PME::RoutingTableUpdate { .. }) => Some(()),
+                    _ => None,
+                })
+                .await;
         }
     }
 }
