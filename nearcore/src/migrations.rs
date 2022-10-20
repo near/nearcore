@@ -104,6 +104,9 @@ pub fn do_migrate_34_to_35(
     }
     store_update.finish()?;
 
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let _guard = rt.enter();
+
     // DEBUG SPECIFIC KEY
     // let x = String::from("01302e636c69656e742e726");
     // let x_nibbles: Vec<_> = x.chars().map(|c| char::to_digit(c, 16).unwrap() as u8).collect();
@@ -187,7 +190,7 @@ pub fn do_migrate_34_to_35(
             let inner_nodes_count = global_nodes_count.clone();
 
             let inner_store = store.clone();
-            let handle = std::thread::spawn(move || {
+            let handle = tokio::task::spawn_blocking(move || {
                 let hex_prefix: String = key_nibbles
                     .iter()
                     .map(|&n| char::from_digit(n as u32, 16).expect("nibble should be <16"))
@@ -249,7 +252,7 @@ pub fn do_migrate_34_to_35(
 
         let mut n = 0;
         for handle in handles {
-            n += handle.join().expect("thread failed");
+            n += rt.block_on(handle).expect("task failed");
         }
         info!(target: "store", "Wrote {n} state items");
     }
