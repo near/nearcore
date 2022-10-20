@@ -181,6 +181,7 @@ pub fn do_migrate_34_to_35(
             let inner_mem_progress = mem_progress.clone();
             let inner_thread_usage = thread_usage.clone();
             let inner_nodes_count = global_nodes_count.clone();
+            let inner_sender = sender.clone();
 
             let inner_store = store.clone();
             threads += 1;
@@ -239,7 +240,7 @@ pub fn do_migrate_34_to_35(
                     {first_record_to_display} is the first state record, \
                     mem progress gb: {mem_progress_gb} / {mem_usage_gb}"
                 );
-                sender.send(n).unwrap();
+                inner_sender.send(n).unwrap();
             });
             // handles.push(handle);
         }
