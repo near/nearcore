@@ -239,7 +239,7 @@ pub fn do_migrate_34_to_35(
                     {first_record_to_display} is the first state record, \
                     mem progress gb: {mem_progress_gb} / {mem_usage_gb}"
                 );
-                // sender.send(n).unwrap();
+                sender.send(n).unwrap();
             });
             // handles.push(handle);
         }
