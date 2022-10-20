@@ -134,7 +134,7 @@ pub fn do_migrate_34_to_35(
     //
     // panic!("");
 
-    for shard_id in 3..4 {
+    for shard_id in 0..4 {
         let shard_uid = runtime.shard_id_to_uid(shard_id, &epoch_id)?;
         let state_root = chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root().clone();
         let trie = runtime.get_trie_for_shard(shard_id, &block_hash, state_root, false)?;
@@ -181,7 +181,7 @@ pub fn do_migrate_34_to_35(
             let inner_nodes_count = global_nodes_count.clone();
 
             let inner_store = store.clone();
-            let handle = tokio::task::spawn_blocking(move || {
+            let handle = rt.spawn_blocking(move || {
                 let hex_prefix: String = key_nibbles
                     .iter()
                     .map(|&n| char::from_digit(n as u32, 16).expect("nibble should be <16"))
