@@ -2490,7 +2490,7 @@ impl<'a> VMLogic<'a> {
         let nodes_before = self.ext.get_trie_nodes_count();
         #[cfg(feature = "protocol_feature_flat_state")]
         let read = self.ext.storage_get(&key, StorageGetMode::FlatStorage);
-        #[cfg(not(feature = "protocol_feautre_flat_state"))]
+        #[cfg(not(feature = "protocol_feature_flat_state"))]
         let read = self.ext.storage_get(&key, StorageGetMode::Trie);
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
         self.gas_counter.add_trie_fees(&nodes_delta)?;
