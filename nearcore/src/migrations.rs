@@ -105,33 +105,6 @@ pub fn do_migrate_34_to_35(
     }
     store_update.finish()?;
 
-    // DEBUG SPECIFIC KEY
-    // let x = String::from("01302e636c69656e742e726");
-    // let x_nibbles: Vec<_> = x.chars().map(|c| char::to_digit(c, 16).unwrap() as u8).collect();
-    // let shard_uid = runtime.shard_id_to_uid(0, &epoch_id)?;
-    // let state_root = chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root().clone();
-    // let trie = runtime.get_trie_for_shard(0, &block_hash, state_root, false)?;
-    // let mut trie_iter = trie.iter()?;
-    // let path_begin_encoded = NibbleSlice::encode_nibbles(&x_nibbles, false);
-    // trie_iter.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, true)?;
-    // trie_iter.for_each(|item| {
-    //     let item = item.unwrap();
-    //     let sr = StateRecord::from_raw_key_value(item.0, item.1).unwrap();
-    //     debug!(target: "store", %sr);
-    // });
-    // panic!("Test finished");
-
-    // for shard_id in 0..num_shards {
-    //     info!(target: "chain", %shard_id, "Start flat state shard migration");
-    //     let shard_uid = runtime.shard_id_to_uid(shard_id, &epoch_id)?;
-    //     let state_root = chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root().clone();
-    //     let trie = runtime.get_trie_for_shard(shard_id, &block_hash, state_root, false)?;
-    //     let root_node = trie.retrieve_root_node().unwrap();
-    //     info!(target: "store", %shard_id, "{} gb", root_node.memory_usage / 10u64.pow(9));
-    // }
-    //
-    // panic!("");
-
     let pool = rayon::ThreadPoolBuilder::new().num_threads(512).build().unwrap();
 
     for shard_id in 0..num_shards {
@@ -152,12 +125,6 @@ pub fn do_migrate_34_to_35(
         let mem_progress = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let global_nodes_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let mut state_iter = trie.iter()?;
-        // let x = String::from("09626173656c696e655f73776561742");
-        // let x_nibbles: Vec<_> = x.chars().map(|c| char::to_digit(c, 16).unwrap() as u8).collect();
-        // let path_begin_encoded = NibbleSlice::encode_nibbles(&x_nibbles, false);
-        // state_iter.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, true)?;
-        // let path_begin_encoded = NibbleSlice::encode_nibbles(&[0], false);
-        // state_iter.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, true)?;
 
         let mut threads = 0u64;
         for sub_trie in state_iter.heavy_sub_tries(sub_trie_size, inner_items.clone())? {
@@ -165,12 +132,6 @@ pub fn do_migrate_34_to_35(
             if key_nibbles.len() > 2000 {
                 panic!("Too long nibbles vec");
             }
-            // DEBUG HEX PREFIXES
-            // let hex_prefix: String = key_nibbles
-            //     .iter()
-            //     .map(|&n| char::from_digit(n as u32, 16).expect("nibble should be <16"))
-            //     .collect();
-            // debug!(target: "store", "Preload subtrie at {hex_prefix}");
 
             let storage = trie
                 .storage
