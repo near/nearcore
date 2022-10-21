@@ -316,7 +316,7 @@ impl PeerManagerActor {
                 routing_table_addr,
                 RoutingTableView::new(store, my_peer_id.clone()),
             )),
-            failed_connections: Arc::new(Mutex::new(VecDeque::default())),
+            failed_connections: Arc::new(std::sync::Mutex::new(VecDeque::default())),
             clock,
         }))
     }
