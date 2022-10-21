@@ -750,8 +750,7 @@ async fn construction_submit(
         )
         .await?;
     match transaction_submittion {
-        near_client::ProcessTxResponse::ValidTx
-        | near_client::ProcessTxResponse::RequestRouted => {
+        near_client::ProcessTxResponse::ValidTx | near_client::ProcessTxResponse::RequestRouted => {
             Ok(Json(models::TransactionIdentifierResponse {
                 transaction_identifier: models::TransactionIdentifier::transaction(
                     &transaction_hash,

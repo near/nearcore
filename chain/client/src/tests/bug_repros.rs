@@ -9,7 +9,7 @@ use actix::{Addr, System};
 use futures::FutureExt;
 use rand::{thread_rng, Rng};
 
-use crate::adapter::{BlockApproval,RecvPartialEncodedChunk,ProcessTxRequest, BlockResponse};
+use crate::adapter::{BlockApproval, BlockResponse, ProcessTxRequest, RecvPartialEncodedChunk};
 use crate::test_utils::setup_mock_all_validators;
 use crate::{ClientActor, GetBlock, ViewClientActor};
 use near_actix_test_utils::run_actix;
@@ -18,8 +18,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
 use near_network::types::PeerInfo;
 use near_network::types::{
-    NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
-    PeerManagerMessageResponse,
+    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
@@ -73,7 +72,7 @@ fn repro_1183() {
                     if let Some(last_block) = last_block.clone() {
                         for (client, _) in connectors1.write().unwrap().iter() {
                             client.do_send(
-                                BlockResponse{
+                                BlockResponse {
                                     block: last_block.clone(),
                                     peer_id: PeerInfo::random().id,
                                     was_requested: false,
@@ -248,8 +247,12 @@ fn test_sync_from_archival_node() {
                         }
                         for (_, block) in blocks.write().unwrap().drain() {
                             conns[3].0.do_send(
-                                BlockResponse{block, peer_id:PeerInfo::random().id, was_requested: false}
-                                    .with_span_context(),
+                                BlockResponse {
+                                    block,
+                                    peer_id: PeerInfo::random().id,
+                                    was_requested: false,
+                                }
+                                .with_span_context(),
                             );
                         }
                         match msg {

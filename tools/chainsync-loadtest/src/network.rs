@@ -280,40 +280,30 @@ impl near_network::client::Client for Network {
         Ok(None)
     }
 
-    async fn state_response(&self, _info: StateResponseInfo){}
+    async fn state_response(&self, _info: StateResponseInfo) {}
 
-    async fn block_approval(
-        &self,
-        _approval: Approval,
-        _peer_id: PeerId,
-    ) {}
+    async fn block_approval(&self, _approval: Approval, _peer_id: PeerId) {}
 
-    async fn transaction(
-        &self,
-        _transaction: SignedTransaction,
-        _is_forwarded: bool,
-    ){}
+    async fn transaction(&self, _transaction: SignedTransaction, _is_forwarded: bool) {}
 
     async fn partial_encoded_chunk_request(
         &self,
         _req: PartialEncodedChunkRequestMsg,
         _msg_hash: CryptoHash,
-    ){}
+    ) {
+    }
 
     async fn partial_encoded_chunk_response(
         &self,
         resp: PartialEncodedChunkResponseMsg,
         _timestamp: time::Instant,
-    ){
+    ) {
         self.chunks.get(&resp.chunk_hash.clone()).map(|p| p.set(resp));
     }
 
-    async fn partial_encoded_chunk(&self, _chunk: PartialEncodedChunk){}
+    async fn partial_encoded_chunk(&self, _chunk: PartialEncodedChunk) {}
 
-    async fn partial_encoded_chunk_forward(
-        &self,
-        _msg: PartialEncodedChunkForwardMsg,
-    ){}
+    async fn partial_encoded_chunk_forward(&self, _msg: PartialEncodedChunkForwardMsg) {}
 
     async fn block_request(&self, _hash: CryptoHash) -> Option<Box<Block>> {
         None
@@ -323,12 +313,7 @@ impl near_network::client::Client for Network {
         None
     }
 
-    async fn block(
-        &self,
-        block: Block,
-        _peer_id: PeerId,
-        _was_requested: bool,
-    ) {
+    async fn block(&self, block: Block, _peer_id: PeerId, _was_requested: bool) {
         self.blocks.get(&block.hash().clone()).map(|p| p.set(block));
     }
 
@@ -344,7 +329,7 @@ impl near_network::client::Client for Network {
         Ok(())
     }
 
-    async fn challenge(&self, _challenge: Challenge){}
+    async fn challenge(&self, _challenge: Challenge) {}
 
     async fn network_info(&self, info: NetworkInfo) {
         let mut n = self.data.lock().unwrap();

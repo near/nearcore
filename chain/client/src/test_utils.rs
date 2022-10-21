@@ -33,8 +33,8 @@ use near_network::types::{
     PeerChainInfoV2, PeerInfo, PeerType,
 };
 use near_network::types::{
-    ConnectedPeerInfo, FullPeerInfo,
-    NetworkRecipient, NetworkRequests, NetworkResponses, PeerManagerAdapter,
+    ConnectedPeerInfo, FullPeerInfo, NetworkRecipient, NetworkRequests, NetworkResponses,
+    PeerManagerAdapter,
 };
 use near_network::types::{
     NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
@@ -67,13 +67,10 @@ use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::adapter::{
-    BlockApproval,
-    BlockHeadersResponse,
-    RecvPartialEncodedChunkForward,
-    SetNetworkInfo, BlockResponse, RecvPartialEncodedChunk,
-    RecvPartialEncodedChunkRequest, RecvPartialEncodedChunkResponse,
-    AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, StateRequestHeader,
-    StateRequestPart, StateResponse, ProcessTxResponse,
+    AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
+    BlockResponse, ProcessTxResponse, RecvPartialEncodedChunk, RecvPartialEncodedChunkForward,
+    RecvPartialEncodedChunkRequest, RecvPartialEncodedChunkResponse, SetNetworkInfo,
+    StateRequestHeader, StateRequestPart, StateResponse,
 };
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 
@@ -683,8 +680,7 @@ pub fn setup_mock_all_validators(
                             known_producers: vec![],
                             tier1_accounts: vec![],
                         };
-                        client_addr
-                            .do_send(SetNetworkInfo(info).with_span_context());
+                        client_addr.do_send(SetNetworkInfo(info).with_span_context());
                     }
 
                     match msg.as_network_requests_ref() {
@@ -697,7 +693,7 @@ pub fn setup_mock_all_validators(
 
                             for (client, _) in connectors1 {
                                 client.do_send(
-                                    BlockResponse{
+                                    BlockResponse {
                                         block: block.clone(),
                                         peer_id: PeerInfo::random().id,
                                         was_requested: false,
@@ -719,11 +715,8 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
                             let create_msg = || {
-                                RecvPartialEncodedChunkRequest(
-                                    request.clone(),
-                                    my_address,
-                                )
-                                .with_span_context()
+                                RecvPartialEncodedChunkRequest(request.clone(), my_address)
+                                    .with_span_context()
                             };
                             send_chunks(
                                 connectors1,
@@ -735,11 +728,8 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
                             let create_msg = || {
-                                RecvPartialEncodedChunkResponse(
-                                    response.clone(),
-                                    Clock::instant(),
-                                )
-                                .with_span_context()
+                                RecvPartialEncodedChunkResponse(response.clone(), Clock::instant())
+                                    .with_span_context()
                             };
                             send_chunks(
                                 connectors1,
@@ -754,10 +744,8 @@ pub fn setup_mock_all_validators(
                             partial_encoded_chunk,
                         } => {
                             let create_msg = || {
-                                RecvPartialEncodedChunk(
-                                    partial_encoded_chunk.clone().into(),
-                                )
-                                .with_span_context()
+                                RecvPartialEncodedChunk(partial_encoded_chunk.clone().into())
+                                    .with_span_context()
                             };
                             send_chunks(
                                 connectors1,
@@ -769,15 +757,14 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                             let create_msg = || {
-                                RecvPartialEncodedChunkForward(forward.clone())
-                                    .with_span_context()
+                                RecvPartialEncodedChunkForward(forward.clone()).with_span_context()
                             };
                             send_chunks(
                                 connectors1,
                                 validators_clone2.iter().cloned().enumerate(),
                                 account_id.clone(),
                                 drop_chunks,
-                                |c|c.do_send(create_msg()),
+                                |c| c.do_send(create_msg()),
                             );
                         }
                         NetworkRequests::BlockRequest { hash, peer_id } => {
@@ -794,8 +781,10 @@ pub fn setup_mock_all_validators(
                                                 match response {
                                                     Some(block) => {
                                                         me.do_send(
-                                                            BlockResponse{
-                                                                block: *block, peer_id, was_requested: true,
+                                                            BlockResponse {
+                                                                block: *block,
+                                                                peer_id,
+                                                                was_requested: true,
                                                             }
                                                             .with_span_context(),
                                                         );
@@ -825,10 +814,8 @@ pub fn setup_mock_all_validators(
                                                 match response {
                                                     Some(headers) => {
                                                         me.do_send(
-                                                            BlockHeadersResponse(
-                                                                headers, peer_id,
-                                                            )
-                                                            .with_span_context(),
+                                                            BlockHeadersResponse(headers, peer_id)
+                                                                .with_span_context(),
                                                         );
                                                     }
                                                     None => {}
@@ -865,9 +852,7 @@ pub fn setup_mock_all_validators(
                                                 let response = response.unwrap();
                                                 match response {
                                                     Some(response) => {
-                                                        me.do_send(response
-                                                            .with_span_context()
-                                                        );
+                                                        me.do_send(response.with_span_context());
                                                     }
                                                     None => {}
                                                 }
@@ -905,9 +890,7 @@ pub fn setup_mock_all_validators(
                                                 let response = response.unwrap();
                                                 match response {
                                                     Some(response) => {
-                                                        me.do_send(response
-                                                            .with_span_context()
-                                                        );
+                                                        me.do_send(response.with_span_context());
                                                     }
                                                     None => {}
                                                 }
@@ -968,11 +951,8 @@ pub fn setup_mock_all_validators(
                                 for (i, name) in validators_clone2.iter().enumerate() {
                                     if name == &approval_message.target {
                                         connectors1[i].0.do_send(
-                                            BlockApproval(
-                                                approval.clone(),
-                                                my_key_pair.id.clone(),
-                                            )
-                                            .with_span_context(),
+                                            BlockApproval(approval.clone(), my_key_pair.id.clone())
+                                                .with_span_context(),
                                         );
                                     }
                                 }

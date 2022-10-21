@@ -42,11 +42,7 @@ pub trait Client: Send + Sync + 'static {
 
     async fn block_approval(&self, approval: Approval, peer_id: PeerId);
 
-    async fn transaction(
-        &self,
-        transaction: SignedTransaction,
-        is_forwarded: bool,
-    );
+    async fn transaction(&self, transaction: SignedTransaction, is_forwarded: bool);
 
     async fn partial_encoded_chunk_request(
         &self,
@@ -62,21 +58,13 @@ pub trait Client: Send + Sync + 'static {
 
     async fn partial_encoded_chunk(&self, chunk: PartialEncodedChunk);
 
-    async fn partial_encoded_chunk_forward(
-        &self,
-        msg: PartialEncodedChunkForwardMsg,
-    );
+    async fn partial_encoded_chunk_forward(&self, msg: PartialEncodedChunkForwardMsg);
 
     async fn block_request(&self, hash: CryptoHash) -> Option<Box<Block>>;
 
     async fn block_headers_request(&self, hashes: Vec<CryptoHash>) -> Option<Vec<BlockHeader>>;
 
-    async fn block(
-        &self,
-        block: Block,
-        peer_id: PeerId,
-        was_requested: bool,
-    );
+    async fn block(&self, block: Block, peer_id: PeerId, was_requested: bool);
 
     async fn block_headers(
         &self,
@@ -126,37 +114,28 @@ impl Client for Noop {
         Ok(None)
     }
 
-    async fn state_response(&self, _info: StateResponseInfo){}
-    async fn block_approval(
-        &self,
-        _approval: Approval,
-        _peer_id: PeerId,
-    ){}
+    async fn state_response(&self, _info: StateResponseInfo) {}
+    async fn block_approval(&self, _approval: Approval, _peer_id: PeerId) {}
 
-    async fn transaction(
-        &self,
-        _transaction: SignedTransaction,
-        _is_forwarded: bool,
-    ){}
+    async fn transaction(&self, _transaction: SignedTransaction, _is_forwarded: bool) {}
 
     async fn partial_encoded_chunk_request(
         &self,
         _req: PartialEncodedChunkRequestMsg,
         _msg_hash: CryptoHash,
-    ){}
+    ) {
+    }
 
     async fn partial_encoded_chunk_response(
         &self,
         _resp: PartialEncodedChunkResponseMsg,
         _timestamp: time::Instant,
-    ) {}
+    ) {
+    }
 
     async fn partial_encoded_chunk(&self, _chunk: PartialEncodedChunk) {}
 
-    async fn partial_encoded_chunk_forward(
-        &self,
-        _msg: PartialEncodedChunkForwardMsg,
-    ) {}
+    async fn partial_encoded_chunk_forward(&self, _msg: PartialEncodedChunkForwardMsg) {}
 
     async fn block_request(&self, _hash: CryptoHash) -> Option<Box<Block>> {
         None
@@ -166,12 +145,7 @@ impl Client for Noop {
         None
     }
 
-    async fn block(
-        &self,
-        _block: Block,
-        _peer_id: PeerId,
-        _was_requested: bool,
-    ) { }
+    async fn block(&self, _block: Block, _peer_id: PeerId, _was_requested: bool) {}
 
     async fn block_headers(
         &self,

@@ -7,8 +7,8 @@ use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::GenesisConfig;
 use near_client::sync;
 use near_network::types::{
-    FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
+    FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
+    PeerManagerMessageResponse, SetChainInfo,
 };
 use near_network::types::{
     PartialEdgeInfo, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
@@ -23,8 +23,8 @@ use near_primitives::types::{BlockHeight, ShardId};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::time::Duration;
 use std::sync::Arc;
+use std::time::Duration;
 
 pub mod setup;
 
@@ -302,8 +302,9 @@ impl MockPeerManagerActor {
             actix::spawn({
                 let client = self.client.clone();
                 let block = block.clone();
-                let peer_id = self.network_info.connected_peers[0].full_peer_info.peer_info.id.clone();
-                async move { client.block(block,peer_id,false).await }
+                let peer_id =
+                    self.network_info.connected_peers[0].full_peer_info.peer_info.id.clone();
+                async move { client.block(block, peer_id, false).await }
             });
 
             run_later(ctx, *interval, move |act, ctx| {
@@ -317,13 +318,17 @@ impl MockPeerManagerActor {
             actix::spawn({
                 let client = self.client.clone();
                 let request = request.clone();
-                async move { client.partial_encoded_chunk_request(
-                    request.clone(),
-                    // this can just be nonsense since the PeerManager is mocked out anyway. If/when we update the mock node
-                    // to exercise the PeerManager code as well, then this won't matter anyway since the mock code won't be
-                    // responsible for it.
-                    CryptoHash::default(),
-                ).await }
+                async move {
+                    client
+                        .partial_encoded_chunk_request(
+                            request.clone(),
+                            // this can just be nonsense since the PeerManager is mocked out anyway. If/when we update the mock node
+                            // to exercise the PeerManager code as well, then this won't matter anyway since the mock code won't be
+                            // responsible for it.
+                            CryptoHash::default(),
+                        )
+                        .await
+                }
             });
 
             run_later(ctx, *interval, move |act, ctx| {
@@ -394,10 +399,14 @@ impl Handler<WithSpanContext<PeerManagerMessageRequest>> for MockPeerManagerActo
                             .unwrap();
                         actix::spawn({
                             let client = act.client.clone();
-                            async move { client.partial_encoded_chunk_response(
-                                response,
-                                Clock::instant().into(),
-                            ).await }
+                            async move {
+                                client
+                                    .partial_encoded_chunk_response(
+                                        response,
+                                        Clock::instant().into(),
+                                    )
+                                    .await
+                            }
                         });
                     });
                 }

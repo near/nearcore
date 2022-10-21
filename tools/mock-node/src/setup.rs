@@ -10,7 +10,7 @@ use near_chain::{
 use near_chain_configs::GenesisConfig;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_network::types::{NetworkRecipient};
+use near_network::types::NetworkRecipient;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::BlockHeight;
@@ -278,7 +278,7 @@ pub fn setup_mock_node(
         MockPeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
             setup_mock_peer_manager_actor(
                 chain,
-                Arc::new(near_client::adapter::Adapter::new(client1,view_client1)),
+                Arc::new(near_client::adapter::Adapter::new(client1, view_client1)),
                 &genesis_config,
                 block_production_delay,
                 client_start_height,
@@ -310,7 +310,7 @@ mod tests {
     use futures::{future, FutureExt};
     use near_actix_test_utils::{run_actix, spawn_interruptible};
     use near_chain_configs::Genesis;
-    use near_client::{GetBlock,ProcessTxRequest};
+    use near_client::{GetBlock, ProcessTxRequest};
     use near_crypto::{InMemorySigner, KeyType};
     use near_network::test_utils::{open_port, WaitOrTimeoutActor};
     use near_o11y::testonly::init_integration_logger;

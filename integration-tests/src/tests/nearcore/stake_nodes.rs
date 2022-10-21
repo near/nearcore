@@ -11,7 +11,7 @@ use crate::genesis_helpers::genesis_hash;
 use crate::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::Genesis;
-use near_client::{ProcessTxRequest, ClientActor, GetBlock, Query, Status, ViewClientActor};
+use near_client::{ClientActor, GetBlock, ProcessTxRequest, Query, Status, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
 use near_o11y::testonly::init_integration_logger;

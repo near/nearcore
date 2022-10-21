@@ -1,6 +1,10 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
-use crate::adapter::{SetNetworkInfo, RecvPartialEncodedChunkRequest, RecvPartialEncodedChunkForward, RecvChallenge, RecvPartialEncodedChunkResponse, RecvPartialEncodedChunk, StateResponse, ProcessTxRequest,ProcessTxResponse,BlockResponse,BlockHeadersResponse,BlockApproval};
+use crate::adapter::{
+    BlockApproval, BlockHeadersResponse, BlockResponse, ProcessTxRequest, ProcessTxResponse,
+    RecvChallenge, RecvPartialEncodedChunk, RecvPartialEncodedChunkForward,
+    RecvPartialEncodedChunkRequest, RecvPartialEncodedChunkResponse, SetNetworkInfo, StateResponse,
+};
 use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::info::{
     display_sync_status, get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper,
@@ -20,8 +24,6 @@ use near_chain::chain::{
 use near_chain::test_utils::format_hash;
 #[cfg(feature = "test_features")]
 use near_chain::ChainStoreAccess;
-#[cfg(feature = "test_features")]
-use near_network::types::NetworkAdversarialMessage;
 use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
     ChainGenesis, DoneApplyChunkCallback, Provenance, RuntimeAdapter,
@@ -33,10 +35,11 @@ use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
     StatusError, StatusSyncInfo, SyncStatus,
 };
+#[cfg(feature = "test_features")]
+use near_network::types::NetworkAdversarialMessage;
 use near_network::types::ReasonForBan;
 use near_network::types::{
-    NetworkInfo, NetworkRequests,
-    PeerManagerAdapter, PeerManagerMessageRequest,
+    NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics;
@@ -261,7 +264,7 @@ impl Actor for ClientActor {
 }
 
 impl ClientActor {
-    fn wrap<Req:std::fmt::Debug + actix::Message,Res>(
+    fn wrap<Req: std::fmt::Debug + actix::Message, Res>(
         &mut self,
         msg: WithSpanContext<Req>,
         ctx: &mut Context<Self>,
@@ -270,14 +273,12 @@ impl ClientActor {
     ) -> Res {
         let (_span, msg) = handler_debug_span!(target: "client", msg, msg_type);
         self.check_triggers(ctx);
-        let _d = delay_detector::DelayDetector::new(|| {
-            format!("NetworkClientMessage {:?}", msg).into()
-        });
+        let _d =
+            delay_detector::DelayDetector::new(|| format!("NetworkClientMessage {:?}", msg).into());
         metrics::CLIENT_MESSAGES_COUNT.with_label_values(&[msg_type]).inc();
-        let timer = metrics::CLIENT_MESSAGES_PROCESSING_TIME
-            .with_label_values(&[msg_type])
-            .start_timer();
-        let res = f(self,msg);
+        let timer =
+            metrics::CLIENT_MESSAGES_PROCESSING_TIME.with_label_values(&[msg_type]).start_timer();
+        let res = f(self, msg);
         timer.observe_duration();
         res
     }
@@ -286,7 +287,7 @@ impl ClientActor {
 #[cfg(feature = "test_features")]
 impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
     type Result = Option<u64>;
-    
+
     fn handle(
         &mut self,
         msg: WithSpanContext<NetworkAdversarialMessage>,
@@ -402,22 +403,17 @@ impl Handler<WithSpanContext<ProcessTxRequest>> for ClientActor {
         msg: WithSpanContext<ProcessTxRequest>,
         ctx: &mut Context<Self>,
     ) -> Self::Result {
-        self.wrap(msg,ctx,"ProcessTxRequest",|this:&mut Self,msg|{
+        self.wrap(msg, ctx, "ProcessTxRequest", |this: &mut Self, msg| {
             let ProcessTxRequest { transaction, is_forwarded, check_only } = msg;
             this.client.process_tx(transaction, is_forwarded, check_only)
         })
     }
 }
 
-
 impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<BlockResponse>,
-        ctx: &mut Context<Self>,
-    ) {
+    fn handle(&mut self, msg: WithSpanContext<BlockResponse>, ctx: &mut Context<Self>) {
         self.wrap(msg,ctx,"BlockResponse",|this:&mut Self,msg|{
             let BlockResponse{ block, peer_id, was_requested } = msg;
             let blocks_at_height = this
@@ -464,14 +460,14 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
 }
 
 impl Handler<WithSpanContext<BlockHeadersResponse>> for ClientActor {
-    type Result = Result<(),ReasonForBan>;
+    type Result = Result<(), ReasonForBan>;
 
     fn handle(
         &mut self,
         msg: WithSpanContext<BlockHeadersResponse>,
         ctx: &mut Context<Self>,
     ) -> Self::Result {
-        self.wrap(msg,ctx,"BlockHeadersResponse",|this,msg| {
+        self.wrap(msg, ctx, "BlockHeadersResponse", |this, msg| {
             let BlockHeadersResponse(headers, peer_id) = msg;
             if this.receive_headers(headers, peer_id) {
                 Ok(())
@@ -486,12 +482,8 @@ impl Handler<WithSpanContext<BlockHeadersResponse>> for ClientActor {
 impl Handler<WithSpanContext<BlockApproval>> for ClientActor {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<BlockApproval>,
-        ctx: &mut Context<Self>,
-    ) {
-        self.wrap(msg,ctx,"BlockApproval",|this,msg| {
+    fn handle(&mut self, msg: WithSpanContext<BlockApproval>, ctx: &mut Context<Self>) {
+        self.wrap(msg, ctx, "BlockApproval", |this, msg| {
             let BlockApproval(approval, peer_id) = msg;
             debug!(target: "client", "Receive approval {:?} from peer {:?}", approval, peer_id);
             this.client.collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
@@ -502,11 +494,7 @@ impl Handler<WithSpanContext<BlockApproval>> for ClientActor {
 impl Handler<WithSpanContext<StateResponse>> for ClientActor {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<StateResponse>,
-        ctx: &mut Context<Self>,
-    ) {
+    fn handle(&mut self, msg: WithSpanContext<StateResponse>, ctx: &mut Context<Self>) {
         self.wrap(msg,ctx,"StateResponse",|this,msg| {
             let StateResponse(state_response_info) = msg;
             let shard_id = state_response_info.shard_id();
@@ -636,7 +624,7 @@ impl Handler<WithSpanContext<RecvPartialEncodedChunkRequest>> for ClientActor {
         msg: WithSpanContext<RecvPartialEncodedChunkRequest>,
         ctx: &mut Context<Self>,
     ) {
-        self.wrap(msg,ctx,"RecvPartialEncodedChunkRequest", |this,msg| {
+        self.wrap(msg, ctx, "RecvPartialEncodedChunkRequest", |this, msg| {
             let RecvPartialEncodedChunkRequest(part_request_msg, route_back) = msg;
             let _ = this
                 .client
@@ -646,7 +634,6 @@ impl Handler<WithSpanContext<RecvPartialEncodedChunkRequest>> for ClientActor {
     }
 }
 
-
 impl Handler<WithSpanContext<RecvPartialEncodedChunkResponse>> for ClientActor {
     type Result = ();
 
@@ -655,7 +642,7 @@ impl Handler<WithSpanContext<RecvPartialEncodedChunkResponse>> for ClientActor {
         msg: WithSpanContext<RecvPartialEncodedChunkResponse>,
         ctx: &mut Context<Self>,
     ) {
-        self.wrap(msg,ctx,"RecvPartialEncodedChunkResponse",|this,msg| {
+        self.wrap(msg, ctx, "RecvPartialEncodedChunkResponse", |this, msg| {
             let RecvPartialEncodedChunkResponse(response, time) = msg;
             PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(time.elapsed().as_secs_f64());
             let _ = this.client.shards_mgr.process_partial_encoded_chunk_response(response);
@@ -666,25 +653,18 @@ impl Handler<WithSpanContext<RecvPartialEncodedChunkResponse>> for ClientActor {
 impl Handler<WithSpanContext<RecvPartialEncodedChunk>> for ClientActor {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<RecvPartialEncodedChunk>,
-        ctx: &mut Context<Self>,
-    ) {
-        self.wrap(msg,ctx,"RecvPartialEncodedChunk",|this,msg| {
+    fn handle(&mut self, msg: WithSpanContext<RecvPartialEncodedChunk>, ctx: &mut Context<Self>) {
+        self.wrap(msg, ctx, "RecvPartialEncodedChunk", |this, msg| {
             let RecvPartialEncodedChunk(partial_encoded_chunk) = msg;
             this.client.block_production_info.record_chunk_collected(
                 partial_encoded_chunk.height_created(),
                 partial_encoded_chunk.shard_id(),
             );
-            let _ = this
-                .client
-                .shards_mgr
-                .process_partial_encoded_chunk(partial_encoded_chunk.into());
+            let _ =
+                this.client.shards_mgr.process_partial_encoded_chunk(partial_encoded_chunk.into());
         })
     }
 }
-
 
 impl Handler<WithSpanContext<RecvPartialEncodedChunkForward>> for ClientActor {
     type Result = ();
@@ -694,7 +674,7 @@ impl Handler<WithSpanContext<RecvPartialEncodedChunkForward>> for ClientActor {
         msg: WithSpanContext<RecvPartialEncodedChunkForward>,
         ctx: &mut Context<Self>,
     ) {
-        self.wrap(msg,ctx,"RectPartialEncodedChunkForward",|this,msg| {
+        self.wrap(msg, ctx, "RectPartialEncodedChunkForward", |this, msg| {
             let RecvPartialEncodedChunkForward(forward) = msg;
             match this.client.shards_mgr.process_partial_encoded_chunk_forward(forward) {
                 Ok(_) => {}
@@ -706,16 +686,11 @@ impl Handler<WithSpanContext<RecvPartialEncodedChunkForward>> for ClientActor {
     }
 }
 
-
 impl Handler<WithSpanContext<RecvChallenge>> for ClientActor {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<RecvChallenge>,
-        ctx: &mut Context<Self>,
-    ) {
-        self.wrap(msg,ctx,"RecvChallenge",|this,msg| {
+    fn handle(&mut self, msg: WithSpanContext<RecvChallenge>, ctx: &mut Context<Self>) {
+        self.wrap(msg, ctx, "RecvChallenge", |this, msg| {
             let RecvChallenge(challenge) = msg;
             match this.client.process_challenge(challenge) {
                 Ok(_) => {}
@@ -728,18 +703,13 @@ impl Handler<WithSpanContext<RecvChallenge>> for ClientActor {
 impl Handler<WithSpanContext<SetNetworkInfo>> for ClientActor {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<SetNetworkInfo>,
-        ctx: &mut Context<Self>,
-    ) {
-        self.wrap(msg,ctx,"SetNetworkInfo",|this,msg| {
+    fn handle(&mut self, msg: WithSpanContext<SetNetworkInfo>, ctx: &mut Context<Self>) {
+        self.wrap(msg, ctx, "SetNetworkInfo", |this, msg| {
             let SetNetworkInfo(network_info) = msg;
             this.network_info = network_info;
         })
     }
 }
-
 
 #[cfg(feature = "sandbox")]
 impl Handler<WithSpanContext<near_client_primitives::types::SandboxMessage>> for ClientActor {

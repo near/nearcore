@@ -64,19 +64,11 @@ impl client::Client for Fake {
         panic!("unimplemented");
     }
 
-    async fn block_approval(
-        &self,
-        _approval: Approval,
-        _peer_id: PeerId,
-    ) {
+    async fn block_approval(&self, _approval: Approval, _peer_id: PeerId) {
         panic!("unimplemented");
     }
 
-    async fn transaction(
-        &self,
-        transaction: SignedTransaction,
-        _is_forwarded: bool,
-    ) {
+    async fn transaction(&self, transaction: SignedTransaction, _is_forwarded: bool) {
         self.event_sink.push(Event::Transaction(transaction));
     }
 
@@ -100,10 +92,7 @@ impl client::Client for Fake {
         panic!("unimplemented");
     }
 
-    async fn partial_encoded_chunk_forward(
-        &self,
-        _msg: PartialEncodedChunkForwardMsg,
-    ) {
+    async fn partial_encoded_chunk_forward(&self, _msg: PartialEncodedChunkForwardMsg) {
         panic!("unimplemented");
     }
 
@@ -117,12 +106,7 @@ impl client::Client for Fake {
         None
     }
 
-    async fn block(
-        &self,
-        block: Block,
-        _peer_id: PeerId,
-        _was_requested: bool,
-    ) {
+    async fn block(&self, block: Block, _peer_id: PeerId, _was_requested: bool) {
         self.event_sink.push(Event::Block(block));
     }
 

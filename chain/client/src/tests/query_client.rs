@@ -5,7 +5,7 @@ use near_primitives::merkle::PartialMerkleTree;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::adapter::{StateRequestHeader,BlockResponse,ProcessTxRequest,ProcessTxResponse};
+use crate::adapter::{BlockResponse, ProcessTxRequest, ProcessTxResponse, StateRequestHeader};
 use crate::test_utils::{setup_mock_all_validators, setup_no_network, setup_only_view};
 use crate::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, QueryError, Status,
@@ -17,8 +17,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::PeerInfo;
 use near_network::types::{
-    NetworkRequests, NetworkResponses,
-    PeerManagerMessageRequest, PeerManagerMessageResponse,
+    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
 
 use near_o11y::testonly::init_test_logger;
@@ -104,8 +103,12 @@ fn query_status_not_crash() {
             actix::spawn(
                 client
                     .send(
-                        BlockResponse{block:next_block, peer_id:PeerInfo::random().id, was_requested:false}
-                            .with_span_context(),
+                        BlockResponse {
+                            block: next_block,
+                            peer_id: PeerInfo::random().id,
+                            was_requested: false,
+                        }
+                        .with_span_context(),
                     )
                     .then(move |_| {
                         actix::spawn(
@@ -157,12 +160,8 @@ fn test_execution_outcome_for_chunk() {
             let tx_hash = transaction.get_hash();
             let res = client
                 .send(
-                    ProcessTxRequest {
-                        transaction,
-                        is_forwarded: false,
-                        check_only: false,
-                    }
-                    .with_span_context(),
+                    ProcessTxRequest { transaction, is_forwarded: false, check_only: false }
+                        .with_span_context(),
                 )
                 .await
                 .unwrap();

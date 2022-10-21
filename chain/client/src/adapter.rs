@@ -1,21 +1,21 @@
 use crate::client_actor::ClientActor;
 use crate::view_client::ViewClientActor;
 use near_network::types::{
-    NetworkInfo, PartialEncodedChunkForwardMsg,
-    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, ReasonForBan, StateResponseInfo,
+    NetworkInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
+    PartialEncodedChunkResponseMsg, ReasonForBan, StateResponseInfo,
 };
 //use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_network::time;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
-use near_primitives::errors::InvalidTxError;
 
 /// Transaction status query
 #[derive(actix::Message)]
@@ -36,15 +36,15 @@ pub(crate) struct TxStatusResponse(pub Box<FinalExecutionOutcomeView>);
 pub(crate) struct BlockRequest(pub CryptoHash);
 
 /// Block response.
-#[derive(actix::Message,Debug)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-pub struct BlockResponse{
+pub struct BlockResponse {
     pub block: Block,
     pub peer_id: PeerId,
     pub was_requested: bool,
 }
 
-#[derive(actix::Message,Debug)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct BlockApproval(pub Approval, pub PeerId);
 
@@ -54,7 +54,7 @@ pub struct BlockApproval(pub Approval, pub PeerId);
 pub(crate) struct BlockHeadersRequest(pub Vec<CryptoHash>);
 
 /// Headers response.
-#[derive(actix::Message,Debug)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "Result<(),ReasonForBan>")]
 pub(crate) struct BlockHeadersResponse(pub Vec<BlockHeader>, pub PeerId);
 
@@ -76,7 +76,7 @@ pub(crate) struct StateRequestPart {
 }
 
 /// Response to state request.
-#[derive(actix::Message,Debug)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub(crate) struct StateResponse(pub Box<StateResponseInfo>);
 
@@ -87,23 +87,23 @@ pub(crate) struct StateResponse(pub Box<StateResponseInfo>);
 #[rtype(result = "Result<Vec<AnnounceAccount>,ReasonForBan>")]
 pub(crate) struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
 
-#[derive(actix::Message,Debug)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct SetNetworkInfo(pub NetworkInfo);
 
-#[derive(actix::Message,Debug)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub(crate) struct RecvChallenge(pub Challenge);
 
-#[derive(actix::Message,Debug)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub(crate) struct RecvPartialEncodedChunkForward(pub PartialEncodedChunkForwardMsg);
 
-#[derive(actix::Message,Debug)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub(crate) struct RecvPartialEncodedChunk(pub PartialEncodedChunk);
 
-#[derive(actix::Message,Debug)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub(crate) struct RecvPartialEncodedChunkResponse(
     pub PartialEncodedChunkResponseMsg,
@@ -112,20 +112,17 @@ pub(crate) struct RecvPartialEncodedChunkResponse(
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-pub(crate) struct RecvPartialEncodedChunkRequest(
-    pub PartialEncodedChunkRequestMsg,
-    pub CryptoHash,
-);
+pub(crate) struct RecvPartialEncodedChunkRequest(pub PartialEncodedChunkRequestMsg, pub CryptoHash);
 
-#[derive(actix::Message,Debug)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "ProcessTxResponse")]
 pub struct ProcessTxRequest {
-    pub transaction : SignedTransaction,
-    pub is_forwarded : bool,
+    pub transaction: SignedTransaction,
+    pub is_forwarded: bool,
     pub check_only: bool,
 }
 
-#[derive(actix::MessageResponse,Debug,PartialEq,Eq)]
+#[derive(actix::MessageResponse, Debug, PartialEq, Eq)]
 pub enum ProcessTxResponse {
     /// No response.
     NoResponse,
@@ -237,36 +234,20 @@ impl near_network::client::Client for Adapter {
     }
 
     async fn state_response(&self, info: StateResponseInfo) {
-        match self
-            .client_addr
-            .send(StateResponse(Box::new(info)).with_span_context())
-            .await
-        {
+        match self.client_addr.send(StateResponse(Box::new(info)).with_span_context()).await {
             Ok(()) => {}
             Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }
 
-    async fn block_approval(
-        &self,
-        approval: Approval,
-        peer_id: PeerId,
-    ) {
-        match self
-            .client_addr
-            .send(BlockApproval(approval, peer_id).with_span_context())
-            .await
-        {
-            Ok(()) => {} 
+    async fn block_approval(&self, approval: Approval, peer_id: PeerId) {
+        match self.client_addr.send(BlockApproval(approval, peer_id).with_span_context()).await {
+            Ok(()) => {}
             Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }
 
-    async fn transaction(
-        &self,
-        transaction: SignedTransaction,
-        is_forwarded: bool,
-    ) {
+    async fn transaction(&self, transaction: SignedTransaction, is_forwarded: bool) {
         match self
             .client_addr
             .send(
@@ -293,13 +274,10 @@ impl near_network::client::Client for Adapter {
     ) {
         match self
             .client_addr
-            .send(
-                RecvPartialEncodedChunkRequest(req, msg_hash)
-                    .with_span_context(),
-            )
+            .send(RecvPartialEncodedChunkRequest(req, msg_hash).with_span_context())
             .await
         {
-            Ok(()) => {},
+            Ok(()) => {}
             Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }
@@ -311,10 +289,7 @@ impl near_network::client::Client for Adapter {
     ) {
         match self
             .client_addr
-            .send(
-                RecvPartialEncodedChunkResponse(resp, timestamp.into())
-                    .with_span_context(),
-            )
+            .send(RecvPartialEncodedChunkResponse(resp, timestamp.into()).with_span_context())
             .await
         {
             Ok(()) => {}
@@ -323,25 +298,14 @@ impl near_network::client::Client for Adapter {
     }
 
     async fn partial_encoded_chunk(&self, chunk: PartialEncodedChunk) {
-        match self
-            .client_addr
-            .send(RecvPartialEncodedChunk(chunk).with_span_context())
-            .await
-        {
+        match self.client_addr.send(RecvPartialEncodedChunk(chunk).with_span_context()).await {
             Ok(()) => {}
             Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }
 
-    async fn partial_encoded_chunk_forward(
-        &self,
-        msg: PartialEncodedChunkForwardMsg,
-    ) {
-        match self
-            .client_addr
-            .send(RecvPartialEncodedChunkForward(msg).with_span_context())
-            .await
-        {
+    async fn partial_encoded_chunk_forward(&self, msg: PartialEncodedChunkForwardMsg) {
+        match self.client_addr.send(RecvPartialEncodedChunkForward(msg).with_span_context()).await {
             Ok(()) => {}
             Err(err) => tracing::error!("mailbox error: {err}"),
         }
@@ -367,15 +331,10 @@ impl near_network::client::Client for Adapter {
         }
     }
 
-    async fn block(
-        &self,
-        block: Block,
-        peer_id: PeerId,
-        was_requested: bool,
-    ) {
+    async fn block(&self, block: Block, peer_id: PeerId, was_requested: bool) {
         match self
             .client_addr
-            .send(BlockResponse{block, peer_id, was_requested}.with_span_context())
+            .send(BlockResponse { block, peer_id, was_requested }.with_span_context())
             .await
         {
             Ok(()) => {}
@@ -402,23 +361,15 @@ impl near_network::client::Client for Adapter {
     }
 
     async fn challenge(&self, challenge: Challenge) {
-        match self
-            .client_addr
-            .send(RecvChallenge(challenge).with_span_context())
-            .await
-        {
+        match self.client_addr.send(RecvChallenge(challenge).with_span_context()).await {
             Ok(()) => {}
             Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }
 
     async fn network_info(&self, info: NetworkInfo) {
-        match self
-            .client_addr
-            .send(SetNetworkInfo(info).with_span_context())
-            .await
-        {
-            Ok(()) => {},
+        match self.client_addr.send(SetNetworkInfo(info).with_span_context()).await {
+            Ok(()) => {}
             Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }

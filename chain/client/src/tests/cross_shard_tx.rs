@@ -23,7 +23,7 @@ use near_primitives::types::{AccountId, BlockReference};
 use near_primitives::views::QueryResponseKind::ViewAccount;
 use near_primitives::views::{QueryRequest, QueryResponse};
 
-use crate::adapter::{ProcessTxRequest,ProcessTxResponse};
+use crate::adapter::{ProcessTxRequest, ProcessTxResponse};
 use crate::test_utils::{setup_mock_all_validators, BlockStats};
 use crate::{ClientActor, Query, ViewClientActor};
 

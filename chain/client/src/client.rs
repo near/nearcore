@@ -26,9 +26,7 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::ShardsManager;
-use near_network::types::{
-    FullPeerInfo, NetworkRequests, PeerManagerAdapter,
-};
+use near_network::types::{FullPeerInfo, NetworkRequests, PeerManagerAdapter};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
@@ -45,7 +43,7 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 
-use crate::adapter::{ProcessTxResponse};
+use crate::adapter::ProcessTxResponse;
 use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};

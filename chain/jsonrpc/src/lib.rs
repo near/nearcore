@@ -18,11 +18,10 @@ use tracing::info;
 
 use near_chain_configs::GenesisConfig;
 use near_client::{
-    ProcessTxRequest, ProcessTxResponse,
     ClientActor, DebugStatus, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
     GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
-    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus,
-    ViewClientActor,
+    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, ProcessTxRequest,
+    ProcessTxResponse, Query, Status, TxStatus, ViewClientActor,
 };
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
@@ -601,21 +600,15 @@ impl JsonRpcHandler {
         &self,
         tx: SignedTransaction,
         check_only: bool,
-    ) -> Result<
-        ProcessTxResponse,
-        near_jsonrpc_primitives::types::transactions::RpcTransactionError,
-    > {
+    ) -> Result<ProcessTxResponse, near_jsonrpc_primitives::types::transactions::RpcTransactionError>
+    {
         let tx_hash = tx.get_hash();
         let signer_account_id = tx.transaction.signer_id.clone();
         let response = self
             .client_addr
             .send(
-                ProcessTxRequest {
-                    transaction: tx,
-                    is_forwarded: false,
-                    check_only,
-                }
-                .with_span_context(),
+                ProcessTxRequest { transaction: tx, is_forwarded: false, check_only }
+                    .with_span_context(),
             )
             .await
             .map_err(RpcFrom::rpc_from)?;
@@ -1148,7 +1141,7 @@ impl JsonRpcHandler {
             self.client_addr
                 .send(
                     near_network::types::NetworkAdversarialMessage::AdvSetSyncInfo(height)
-                    .with_span_context(),
+                        .with_span_context(),
                 )
                 .map(|_| ()),
         );
@@ -1160,7 +1153,7 @@ impl JsonRpcHandler {
             self.client_addr
                 .send(
                     near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync
-                    .with_span_context(),
+                        .with_span_context(),
                 )
                 .map(|_| ()),
         );
@@ -1180,7 +1173,7 @@ impl JsonRpcHandler {
             self.client_addr
                 .send(
                     near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug
-                    .with_span_context(),
+                        .with_span_context(),
                 )
                 .map(|_| ()),
         );
@@ -1216,7 +1209,7 @@ impl JsonRpcHandler {
             self.client_addr
                 .send(
                     near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height)
-                    .with_span_context(),
+                        .with_span_context(),
                 )
                 .map(|_| ()),
         );
@@ -1236,7 +1229,7 @@ impl JsonRpcHandler {
             .client_addr
             .send(
                 near_network::types::NetworkAdversarialMessage::AdvGetSavedBlocks
-                .with_span_context(),
+                    .with_span_context(),
             )
             .await
         {
@@ -1253,7 +1246,7 @@ impl JsonRpcHandler {
             .client_addr
             .send(
                 near_network::types::NetworkAdversarialMessage::AdvCheckStorageConsistency
-                .with_span_context(),
+                    .with_span_context(),
             )
             .await
         {
