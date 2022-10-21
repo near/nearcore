@@ -55,6 +55,7 @@ rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
 protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
+protocol_feature_flat_state_migration = ["nearcore/protocol_feature_flat_state_migration"]
 
 nightly = [
   "nightly_protocol",

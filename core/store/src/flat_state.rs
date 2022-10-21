@@ -389,6 +389,7 @@ impl FlatStateDelta {
 
 use near_primitives::errors::StorageError;
 use std::sync::{Arc, RwLock};
+use tracing::debug;
 
 /// FlatStorageState stores information on which blocks flat storage current supports key lookups on.
 /// Note that this struct is shared by multiple threads, the chain thread, threads that apply chunks,
@@ -404,7 +405,7 @@ pub struct FlatStorageState(Arc<RwLock<FlatStorageStateInner>>);
 #[allow(unused)]
 const FLAT_STORAGE_MAX_BLOCKS: u64 = 16;
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 pub struct BlockInfo {
     pub hash: CryptoHash,
     pub height: BlockHeight,
@@ -444,7 +445,10 @@ struct FlatStorageStateInner {
     deltas: HashMap<CryptoHash, Arc<FlatStateDelta>>,
 }
 
-#[cfg(feature = "protocol_feature_flat_state")]
+#[cfg(any(
+    feature = "protocol_feature_flat_state",
+    feature = "protocol_feature_flat_state_migration"
+))]
 pub mod store_helper {
     use crate::flat_state::{FlatStorageError, KeyForFlatStateDelta};
     use crate::{FlatStateDelta, Store, StoreUpdate};
@@ -593,6 +597,7 @@ impl FlatStorageState {
     ) -> Self {
         let flat_head = store_helper::get_flat_head(&store, shard_id);
         let flat_head_info = chain_access.get_block_info(&flat_head);
+        debug!(target: "store", "flat head info: {:?}", flat_head_info);
         let flat_head_height = flat_head_info.height;
         let mut blocks = HashMap::from([(
             flat_head,
@@ -603,9 +608,11 @@ impl FlatStorageState {
             },
         )]);
         let mut deltas = HashMap::new();
+        debug!(target: "store", "latest height: {}", latest_block_height);
         for height in flat_head_height + 1..=latest_block_height {
             for hash in chain_access.get_block_hashes_at_height(height) {
                 let block_info = chain_access.get_block_info(&hash);
+                debug!(target: "store", "getting delta for block with info: {:?}", block_info);
                 assert!(
                     blocks.contains_key(&block_info.prev_hash),
                     "Can't find a path from the current flat head {:?}@{} to block {:?}@{}",
@@ -674,6 +681,8 @@ impl FlatStorageState {
         // Update flat state on disk.
         guard.flat_head = *new_head;
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
+        let shard_id = guard.shard_id;
+        tracing::info!(target: "chain", %shard_id, %new_head, "Moving FS head");
         store_helper::set_flat_head(&mut store_update, guard.shard_id, new_head);
         merged_delta.apply_to_flat_state(&mut store_update);
 

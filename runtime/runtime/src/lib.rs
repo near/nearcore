@@ -1389,6 +1389,8 @@ impl Runtime {
 
         let state_root = trie_changes.new_root;
         let proof = trie.recorded_storage();
+        debug!(target: "store", "fs-trie checks: {}", trie.flat_state_trie_checks.load(std::sync::atomic::Ordering::Relaxed));
+
         Ok(ApplyResult {
             state_root,
             trie_changes,

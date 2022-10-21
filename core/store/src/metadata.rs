@@ -4,6 +4,9 @@ use crate::{DBCol, NodeStorage, Temperature};
 pub type DbVersion = u32;
 
 /// Current version of the database.
+#[cfg(feature = "protocol_feature_flat_state")]
+pub const DB_VERSION: DbVersion = 35;
+#[cfg(not(feature = "protocol_feature_flat_state"))]
 pub const DB_VERSION: DbVersion = 34;
 
 /// Database version at which point DbKind was introduced.

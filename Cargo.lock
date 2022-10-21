@@ -3554,6 +3554,7 @@ dependencies = [
  "borsh",
  "byteorder",
  "chrono",
+ "crossbeam-channel 0.5.4",
  "delay-detector",
  "dirs",
  "easy-ext",

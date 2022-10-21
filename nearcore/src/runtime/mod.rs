@@ -501,6 +501,7 @@ impl NightshadeRuntime {
         };
 
         let instant = Instant::now();
+
         let apply_result = self
             .runtime
             .apply(

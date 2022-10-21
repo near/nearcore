@@ -1,11 +1,21 @@
-use near_chain::{ChainStore, ChainStoreAccess};
+#[cfg(feature = "protocol_feature_flat_state")]
+use crate::NightshadeRuntime;
+use borsh::BorshSerialize;
+use crossbeam_channel::unbounded;
+use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::receipt::ReceiptResult;
 use near_primitives::runtime::migration_data::MigrationData;
+use near_primitives::state::ValueRef;
+use near_primitives::state_record::StateRecord;
 use near_primitives::types::Gas;
 use near_primitives::utils::index_to_bytes;
 use near_store::metadata::{DbVersion, DB_VERSION};
 use near_store::migrations::BatchedStoreUpdate;
-use near_store::{DBCol, NodeStorage, Temperature};
+use near_store::{DBCol, NibbleSlice, NodeStorage, Store, Temperature, Trie, TrieIterator};
+use std::sync::{Arc, Mutex};
+#[cfg(feature = "protocol_feature_flat_state")]
+use tracing::{debug, info};
 
 /// Fix an issue with block ordinal (#5761)
 // This migration takes at least 3 hours to complete on mainnet
@@ -52,6 +62,187 @@ pub fn do_migrate_30_to_31(
     }
     println!("total inconsistency count: {}", count);
     store_update.finish()?;
+    Ok(())
+}
+
+/// Migrates database from version 34 to 35.
+///
+/// It is expected to run against a node without flat storage and should fill the flat storage
+/// columns with state data related to last final head. In other words, previously used binary
+/// should be built without `protocol_feature_flat_state` feature and new binary should include it.
+/// Don't use in production, currently used for testing and estimation purposes.
+#[cfg(feature = "protocol_feature_flat_state")]
+pub fn migrate_34_to_35(
+    storage: &NodeStorage,
+    near_config: &crate::NearConfig,
+) -> anyhow::Result<()> {
+    let store = storage.get_store(Temperature::Hot);
+    // just needed for NightshadeRuntime initialization and is used only for trying to retrieve state dump which is
+    // not present. we should consider making this parameter optional or pass homedir to migrator
+    let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
+    let runtime = NightshadeRuntime::from_config(tmpdir.path(), store.clone(), &near_config);
+    do_migrate_34_to_35(runtime, &near_config.genesis.config)?;
+    Ok(())
+}
+
+#[cfg(feature = "protocol_feature_flat_state")]
+pub fn do_migrate_34_to_35(
+    runtime: NightshadeRuntime,
+    genesis_config: &near_chain_configs::GenesisConfig,
+) -> anyhow::Result<()> {
+    let store = runtime.store();
+    let mut chain_store = ChainStore::new(store.clone(), genesis_config.genesis_height, false);
+    let final_head = chain_store.final_head()?;
+    let block_hash = final_head.last_block_hash;
+    let epoch_id = runtime.get_epoch_id(&block_hash)?;
+    let num_shards = runtime.num_shards(&epoch_id)?;
+    let mut store_update = BatchedStoreUpdate::new(&store, 1_000);
+    info!(target: "chain", "Writing flat state heads");
+    for shard_id in 0..num_shards {
+        store_update
+            .set_ser(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap(), &block_hash)
+            .expect("Error writing flat head from storage");
+    }
+    store_update.finish()?;
+
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(512).build().unwrap();
+
+    for shard_id in 0..num_shards {
+        let shard_uid = runtime.shard_id_to_uid(shard_id, &epoch_id)?;
+        let state_root = chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root().clone();
+        let trie = runtime.get_trie_for_shard(shard_id, &block_hash, state_root, false)?;
+        let root_node = trie.retrieve_root_node().unwrap();
+        let memory_usage = root_node.memory_usage;
+
+        let sub_trie_size = memory_usage / 1024; //5_000_000;
+        info!(target: "chain", %shard_id, "Start flat state shard migration, mem_usage = {} gb, sub_trie_size = {} gb", memory_usage as f64 / 10f64.powf(9.0), sub_trie_size as f64 / 10f64.powf(9.0));
+
+        let (sender, receiver) = unbounded();
+        let inner_items = Arc::new(Mutex::new(vec![]));
+
+        // let max_threads = 1024;
+        let thread_usage = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let mem_progress = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let global_nodes_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let mut state_iter = trie.iter()?;
+
+        let mut threads = 0u64;
+        for sub_trie in state_iter.heavy_sub_tries(sub_trie_size, inner_items.clone())? {
+            let TrieIterator { trie, trail, key_nibbles, .. } = sub_trie?;
+            if key_nibbles.len() > 2000 {
+                panic!("Too long nibbles vec");
+            }
+
+            let storage = trie
+                .storage
+                .as_caching_storage()
+                .expect("preload called without caching storage")
+                .clone();
+            let root = trie.get_root().clone();
+            let inner_mem_progress = mem_progress.clone();
+            let inner_thread_usage = thread_usage.clone();
+            let inner_nodes_count = global_nodes_count.clone();
+            let inner_sender = sender.clone();
+
+            let inner_store = store.clone();
+            threads += 1;
+            pool.spawn(move || {
+                inner_thread_usage.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let hex_prefix: String = key_nibbles
+                    .iter()
+                    .map(|&n| char::from_digit(n as u32, 16).expect("nibble should be <16"))
+                    .collect();
+                debug!(target: "store", "Preload subtrie at {hex_prefix}");
+                let trie = Trie::new(Box::new(storage), root, None);
+                let current_memory_usage = trail.last().unwrap().node.memory_usage();
+                let nodes_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
+                let inner_iter = TrieIterator {
+                    trie: &trie,
+                    trail,
+                    key_nibbles,
+                    visited_nodes: None,
+                    nodes_count: nodes_count.clone(),
+                    global_nodes_count: inner_nodes_count,
+                };
+                let mut store_update = BatchedStoreUpdate::new(&inner_store, 10_000_000);
+                let mut first_state_record: Option<StateRecord> = None;
+                let n = inner_iter
+                    .enumerate()
+                    .map(|(i, item)| {
+                        let item = item.unwrap();
+                        let value_ref = ValueRef::new(&item.1);
+                        store_update
+                            .set_ser(DBCol::FlatState, &item.0, &value_ref)
+                            .expect("Failed to put value in FlatState");
+                        if i == 0 {
+                            first_state_record = StateRecord::from_raw_key_value(item.0, item.1);
+                        }
+                    })
+                    .count();
+                store_update.finish().unwrap();
+                inner_thread_usage.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                inner_mem_progress
+                    .fetch_add(current_memory_usage, std::sync::atomic::Ordering::Relaxed);
+
+                let nodes_count = nodes_count.load(std::sync::atomic::Ordering::Relaxed);
+                let threads_usage = inner_thread_usage.load(std::sync::atomic::Ordering::Relaxed);
+                let mem_progress_gb = inner_mem_progress.load(std::sync::atomic::Ordering::Relaxed)
+                    as f64
+                    / 10f64.powf(9.0);
+                let mem_usage_gb = memory_usage as f64 / 10f64.powf(9.0);
+                let first_record_to_display = match first_state_record {
+                    Some(state_record) => format!("{}", state_record),
+                    None => String::from(""),
+                };
+                debug!(target: "store",
+                    "Preload subtrie at {hex_prefix} done, \
+                    loaded {n:<8} state items, \
+                    visited {nodes_count} nodes, \
+                    {threads_usage} threads used, \
+                    {first_record_to_display} is the first state record, \
+                    mem progress gb: {mem_progress_gb} / {mem_usage_gb}"
+                );
+                inner_sender.send(n).unwrap();
+            });
+
+            let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
+            let mut items = inner_items.lock().unwrap();
+            let len = items.len();
+            debug!(target: "store", "inner items: {len}");
+            for item in items.drain(..) {
+                let value_ref = ValueRef::new(&item.1);
+                store_update
+                    .set_ser(DBCol::FlatState, &item.0, &value_ref)
+                    .expect("Failed to put value in FlatState");
+            }
+            store_update.finish().unwrap();
+            // handles.push(handle);
+        }
+
+        let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
+        let mut items = inner_items.lock().unwrap();
+        let len = items.len();
+        debug!(target: "store", "remaining inner items: {len}");
+        for item in items.drain(..) {
+            let value_ref = ValueRef::new(&item.1);
+            store_update
+                .set_ser(DBCol::FlatState, &item.0, &value_ref)
+                .expect("Failed to put value in FlatState");
+        }
+        store_update.finish().unwrap();
+
+        let mut n = 0;
+        for _ in 0..threads {
+            n += receiver.recv().unwrap();
+        }
+        // for handle in handles {
+        //     n += rt.block_on(handle).expect("task failed");
+        // }
+        info!(target: "store", "Wrote {n} state items");
+    }
+
+    // panic!("Migration succeeded. Still, don't start the node yet.");
+
     Ok(())
 }
 
@@ -157,6 +348,8 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
             33 => {
                 near_store::migrations::migrate_33_to_34(storage, self.config.client_config.archive)
             }
+            #[cfg(feature = "protocol_feature_flat_state")]
+            34 => migrate_34_to_35(storage, &self.config),
             DB_VERSION.. => unreachable!(),
         }
     }
