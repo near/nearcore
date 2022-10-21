@@ -32,3 +32,4 @@ serde_json.workspace = true
 [features]
 default = []
 protocol_feature_ed25519_verify = []
+protocol_feature_get_block_by_hash = []

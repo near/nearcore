@@ -256,6 +256,10 @@ impl Cost {
         Cost::ExtCost { ext_cost_kind: ExtCosts::ed25519_verify_base },
         #[cfg(feature = "protocol_feature_ed25519_verify")]
         Cost::ExtCost { ext_cost_kind: ExtCosts::ed25519_verify_byte },
+        #[cfg(feature = "protocol_feature_get_block_by_hash")]
+        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_block_hash_base },
+        #[cfg(feature = "protocol_feature_get_block_by_hash")]
+        Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_next_block_hash },
     ];
 
     pub fn index(self) -> usize {
@@ -334,6 +338,11 @@ impl Cost {
             Cost::ExtCost { ext_cost_kind: ExtCosts::ed25519_verify_base } => 70,
             #[cfg(feature = "protocol_feature_ed25519_verify")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::ed25519_verify_byte } => 71,
+            #[cfg(feature = "protocol_feature_get_block_by_hash")]
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_block_hash_base } => 72,
+            #[cfg(feature = "protocol_feature_get_block_by_hash")]
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_next_block_hash } => 73,
+    
         }
     }
 }
