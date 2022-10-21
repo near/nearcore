@@ -18,6 +18,13 @@ class Key:
         self.sk = sk
 
     @classmethod
+    def from_random(cls, account_id: str) -> 'Key':
+        keys = ed25519.create_keypair(entropy=os.urandom)
+        sk = 'ed25519:' + base58.b58encode(keys[0].to_bytes()).decode('ascii')
+        pk = 'ed25519:' + base58.b58encode(keys[1].to_bytes()).decode('ascii')
+        return cls(account_id, pk, sk)
+
+    @classmethod
     def implicit_account(cls) -> 'Key':
         keys = ed25519.create_keypair(entropy=os.urandom)
         account_id = keys[1].to_bytes().hex()
