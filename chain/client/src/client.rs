@@ -812,7 +812,7 @@ impl Client {
 
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
     // This function is just a wrapper for process_block_impl that makes error propagation easier.
-    pub fn process_block(
+    pub fn receive_block(
         &mut self,
         block: Block,
         peer_id: PeerId,
@@ -832,7 +832,7 @@ impl Client {
             was_requested)
         .entered();
 
-        match self.process_block_impl(
+        match self.receive_block_impl(
             block,
             peer_id.clone(),
             was_requested,
@@ -862,8 +862,12 @@ impl Client {
         }
     }
 
-    /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
-    pub(crate) fn process_block_impl(
+    /// Processes received block.
+    /// This function first does some pre-check based on block height to avoid processing
+    /// blocks multiple times.
+    /// Then it process the block header. If the header if valid, broadcast the block to its peers
+    /// Then it starts the block processing process to process the full block.
+    pub(crate) fn receive_block_impl(
         &mut self,
         block: Block,
         peer_id: PeerId,

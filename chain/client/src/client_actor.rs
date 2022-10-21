@@ -1,4 +1,9 @@
 //! Client actor orchestrates Client and facilitates network connection.
+//! It should just serve as a coordinator class to handle messages and check triggers but immediately
+//! pass the control to Client. This means, any real block processing or production logic should
+//! be put in Client.
+//! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
+//! https://github.com/near/nearcore/issues/7899
 
 use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::info::{
@@ -413,7 +418,7 @@ impl ClientActor {
                             return NetworkClientResponses::NoResponse;
                         }
                     }
-                    self.client.process_block(
+                    self.client.receive_block(
                         block,
                         peer_id.clone(),
                         was_requested,

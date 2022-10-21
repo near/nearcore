@@ -27,7 +27,7 @@ fn test_not_process_height_twice() {
     let dup_block_hash = *duplicate_block.hash();
     // we should have dropped the block before we even tried to process it, so the result should be ok
     env.clients[0]
-        .process_block_impl(
+        .receive_block_impl(
             duplicate_block,
             PeerId::new(PublicKey::empty(KeyType::ED25519)),
             false,
