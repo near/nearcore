@@ -13,7 +13,7 @@ use near_primitives::utils::index_to_bytes;
 use near_store::metadata::{DbVersion, DB_VERSION};
 use near_store::migrations::BatchedStoreUpdate;
 use near_store::{DBCol, NibbleSlice, NodeStorage, Store, Temperature, Trie, TrieIterator};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 #[cfg(feature = "protocol_feature_flat_state")]
 use tracing::{debug, info};
 
@@ -76,7 +76,6 @@ pub fn migrate_34_to_35(
     storage: &NodeStorage,
     near_config: &crate::NearConfig,
 ) -> anyhow::Result<()> {
-    return Ok(());
     let store = storage.get_store(Temperature::Hot);
     // just needed for NightshadeRuntime initialization and is used only for trying to retrieve state dump which is
     // not present. we should consider making this parameter optional or pass homedir to migrator
@@ -134,6 +133,7 @@ pub fn do_migrate_34_to_35(
     // panic!("");
 
     let pool = rayon::ThreadPoolBuilder::new().num_threads(512).build().unwrap();
+    let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
 
     for shard_id in 1..4 {
         let shard_uid = runtime.shard_id_to_uid(shard_id, &epoch_id)?;
@@ -146,6 +146,7 @@ pub fn do_migrate_34_to_35(
         info!(target: "chain", %shard_id, "Start flat state shard migration, mem_usage = {} gb, sub_trie_size = {} gb", memory_usage as f64 / 10f64.powf(9.0), sub_trie_size as f64 / 10f64.powf(9.0));
 
         let (sender, receiver) = unbounded();
+        let inner_items = Arc::new(Mutex::new(vec![]));
 
         // let max_threads = 1024;
         let thread_usage = Arc::new(std::sync::atomic::AtomicU32::new(0));
@@ -160,7 +161,7 @@ pub fn do_migrate_34_to_35(
         // state_iter.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, true)?;
 
         let mut threads = 0u64;
-        for sub_trie in state_iter.heavy_sub_tries(sub_trie_size)? {
+        for sub_trie in state_iter.heavy_sub_tries(sub_trie_size, inner_items.clone())? {
             let TrieIterator { trie, trail, key_nibbles, .. } = sub_trie?;
             if key_nibbles.len() > 2000 {
                 panic!("Too long nibbles vec");
@@ -243,8 +244,27 @@ pub fn do_migrate_34_to_35(
                 );
                 inner_sender.send(n).unwrap();
             });
+
+            let mut items = inner_items.lock().unwrap();
+            debug!(target: "store", "inner items: {items.len()}");
+            for item in items.drain(..) {
+                let value_ref = ValueRef::new(&item.1);
+                store_update
+                    .set_ser(DBCol::FlatState, &item.0, &value_ref)
+                    .expect("Failed to put value in FlatState");
+            }
             // handles.push(handle);
         }
+
+        let mut items = inner_items.lock().unwrap();
+        debug!(target: "store", "inner items: {items.len()}");
+        for item in items.drain(..) {
+            let value_ref = ValueRef::new(&item.1);
+            store_update
+                .set_ser(DBCol::FlatState, &item.0, &value_ref)
+                .expect("Failed to put value in FlatState");
+        }
+        store_update.finish().unwrap();
 
         let mut n = 0;
         for _ in 0..threads {

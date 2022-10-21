@@ -1,11 +1,12 @@
 use near_primitives::hash::CryptoHash;
+use near_primitives::state::ValueRef;
 use std::sync::atomic::AtomicU64;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tracing::debug;
 
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{TrieNode, TrieNodeWithSize, ValueHandle};
-use crate::{StorageError, Trie};
+use crate::{DBCol, StorageError, Store, StoreUpdate, Trie};
 
 #[derive(Debug, Clone)]
 pub struct Crumb {
@@ -57,6 +58,7 @@ pub struct TrieIterator<'a> {
 pub struct HeavySubTrieIterator<'a> {
     trie_iterator: TrieIterator<'a>,
     target_size_bytes: u64,
+    inner_items: Arc<Mutex<Vec<TrieItem>>>,
 }
 
 pub type TrieItem = (Vec<u8>, Vec<u8>);
@@ -374,6 +376,7 @@ impl<'a> TrieIterator<'a> {
     pub fn heavy_sub_tries(
         mut self,
         max_memory_usage: u64,
+        inner_items: Arc<Mutex<Vec<TrieItem>>>,
     ) -> Result<HeavySubTrieIterator<'a>, StorageError> {
         // fuse the trail to stop iterator to go up from current position.
         let fused_trail =
@@ -386,7 +389,7 @@ impl<'a> TrieIterator<'a> {
             nodes_count: Arc::new(Default::default()),
             global_nodes_count: Arc::new(Default::default()),
         };
-        HeavySubTrieIterator::new(fused_self, max_memory_usage)
+        HeavySubTrieIterator::new(fused_self, max_memory_usage, inner_items)
     }
 }
 
@@ -429,8 +432,9 @@ impl<'a> HeavySubTrieIterator<'a> {
     pub(super) fn new(
         trie_iterator: TrieIterator<'a>,
         target_size_bytes: u64,
+        inner_items: Arc<Mutex<Vec<TrieItem>>>,
     ) -> Result<Self, StorageError> {
-        Ok(HeavySubTrieIterator { target_size_bytes, trie_iterator })
+        Ok(HeavySubTrieIterator { target_size_bytes, trie_iterator, inner_items })
     }
 
     // TODO: Instead return `SendTrieIterator` that contains only Send fields and has an into_iter() -> TrieIterator method.
@@ -476,7 +480,7 @@ impl<'a> Iterator for HeavySubTrieIterator<'a> {
                     Err(err) => return Some(Err(err)),
                 },
                 IterStep::Continue => {}
-                IterStep::Value(_hash) => {
+                IterStep::Value(hash) => {
                     match &self.trie_iterator.trail.last().unwrap().node.node {
                         TrieNode::Leaf(_, _) => {
                             // Leaf alone is heavy enough to be its own subtrie.
@@ -488,7 +492,7 @@ impl<'a> Iterator for HeavySubTrieIterator<'a> {
                             sub_trie.trail.last_mut().unwrap().status = CrumbStatus::Entering;
                             return Some(Ok(sub_trie));
                         }
-                        // values in other places are ignored but iterator must be updated
+                        // move iterator, save value if we just entered branch
                         TrieNode::Branch(_, _) => {
                             match self.trie_iterator.trail.last().unwrap().status {
                                 CrumbStatus::AtChild(15) => {
@@ -501,12 +505,23 @@ impl<'a> Iterator for HeavySubTrieIterator<'a> {
                                     self.trie_iterator.trail.last_mut().unwrap().status =
                                         CrumbStatus::AtChild(i + 1);
                                 }
-                                CrumbStatus::At => (),
+                                CrumbStatus::At => {
+                                    let mut values = self.inner_items.lock().unwrap();
+                                    values.push(
+                                        self.trie_iterator
+                                            .trie
+                                            .storage
+                                            .retrieve_raw_bytes(&hash)
+                                            .map(|value| (self.trie_iterator.key(), value.to_vec()))
+                                            .unwrap(),
+                                    );
+                                }
                                 CrumbStatus::Entering | CrumbStatus::Exiting => unreachable!(),
                             }
                         }
-                        TrieNode::Empty | TrieNode::Extension(_, _) => (),
-                    }
+                        // unreachable?
+                        TrieNode::Empty | TrieNode::Extension(_, _) => unreachable!(),
+                    };
                 }
             }
         }
