@@ -5,7 +5,7 @@ use near_primitives::merkle::PartialMerkleTree;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::adapter::StateRequestHeader;
+use crate::adapter::{StateRequestHeader,BlockResponse,ProcessTxRequest,ProcessTxResponse};
 use crate::test_utils::{setup_mock_all_validators, setup_no_network, setup_only_view};
 use crate::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, QueryError, Status,
@@ -17,7 +17,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::PeerInfo;
 use near_network::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
+    NetworkRequests, NetworkResponses,
     PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
 
@@ -104,7 +104,7 @@ fn query_status_not_crash() {
             actix::spawn(
                 client
                     .send(
-                        NetworkClientMessages::Block(next_block, PeerInfo::random().id, false)
+                        BlockResponse{block:next_block, peer_id:PeerInfo::random().id, was_requested:false}
                             .with_span_context(),
                     )
                     .then(move |_| {
@@ -157,7 +157,7 @@ fn test_execution_outcome_for_chunk() {
             let tx_hash = transaction.get_hash();
             let res = client
                 .send(
-                    NetworkClientMessages::Transaction {
+                    ProcessTxRequest {
                         transaction,
                         is_forwarded: false,
                         check_only: false,
@@ -166,7 +166,7 @@ fn test_execution_outcome_for_chunk() {
                 )
                 .await
                 .unwrap();
-            assert!(matches!(res, NetworkClientResponses::ValidTx));
+            assert!(matches!(res, ProcessTxResponse::ValidTx));
 
             actix::clock::sleep(Duration::from_millis(500)).await;
             let block_hash = view_client

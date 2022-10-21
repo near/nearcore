@@ -408,9 +408,9 @@ mod test {
     use near_chain::{ChainGenesis, ChainStore, ChainStoreAccess, Provenance};
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
+    use near_client::ProcessTxResponse;
     use near_crypto::{InMemorySigner, KeyType};
     use near_epoch_manager::EpochManagerAdapter;
-    use near_network::types::NetworkClientResponses;
     use near_primitives::hash::CryptoHash;
     use near_primitives::runtime::config_store::RuntimeConfigStore;
     use near_primitives::shard_layout;
@@ -438,7 +438,7 @@ mod test {
                 hash,
             );
             let response = env.clients[0].process_tx(tx, false, false);
-            assert_eq!(response, NetworkClientResponses::ValidTx);
+            assert_eq!(response, ProcessTxResponse::ValidTx);
         }
     }
 

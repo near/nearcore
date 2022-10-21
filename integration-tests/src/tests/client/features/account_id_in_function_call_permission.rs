@@ -1,8 +1,8 @@
 use near_chain::{ChainGenesis, RuntimeAdapter};
 use near_chain_configs::Genesis;
+use near_client::{ProcessTxResponse};
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_network::types::NetworkClientResponses;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::errors::{ActionsValidationError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
@@ -69,7 +69,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
         let signed_transaction =
             Transaction { nonce: 10, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
         let res = env.clients[0].process_tx(signed_transaction, false, false);
-        assert_eq!(res, NetworkClientResponses::ValidTx);
+        assert_eq!(res, ProcessTxResponse::ValidTx);
         for i in 0..3 {
             env.produce_block(0, tip.height + i + 1);
         }
@@ -85,7 +85,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
         let res = env.clients[0].process_tx(signed_transaction, false, false);
         assert_eq!(
             res,
-            NetworkClientResponses::InvalidTx(InvalidTxError::ActionsValidation(
+            ProcessTxResponse::InvalidTx(InvalidTxError::ActionsValidation(
                 ActionsValidationError::InvalidAccountId { account_id: "#".to_string() }
             ))
         )
@@ -135,7 +135,7 @@ fn test_very_long_account_id() {
     let res = env.clients[0].process_tx(tx, false, false);
     assert_eq!(
         res,
-        NetworkClientResponses::InvalidTx(InvalidTxError::ActionsValidation(
+        ProcessTxResponse::InvalidTx(InvalidTxError::ActionsValidation(
             ActionsValidationError::InvalidAccountId { account_id: "A".repeat(128) }
         ))
     )

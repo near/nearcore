@@ -6,6 +6,7 @@ use actix::{Addr, System};
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::{future, FutureExt};
 
+use crate::adapter::{ProcessTxRequest};
 use crate::test_utils::setup_mock_all_validators;
 use crate::{ClientActor, Query, ViewClientActor};
 use near_actix_test_utils::run_actix;
@@ -14,7 +15,7 @@ use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::{AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, PeerInfo};
 use near_network::types::{
-    NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
+    NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
 };
 use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
@@ -72,7 +73,7 @@ fn send_tx(
 ) {
     let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     connector.do_send(
-        NetworkClientMessages::Transaction {
+        ProcessTxRequest {
             transaction: SignedTransaction::send_money(
                 nonce, from, to, &signer, amount, block_hash,
             ),

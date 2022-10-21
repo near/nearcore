@@ -38,35 +38,34 @@ pub trait Client: Send + Sync + 'static {
         part_id: u64,
     ) -> Result<Option<StateResponseInfo>, ReasonForBan>;
 
-    async fn state_response(&self, info: StateResponseInfo) -> Result<(), ReasonForBan>;
+    async fn state_response(&self, info: StateResponseInfo);
 
-    async fn block_approval(&self, approval: Approval, peer_id: PeerId)
-        -> Result<(), ReasonForBan>;
+    async fn block_approval(&self, approval: Approval, peer_id: PeerId);
 
     async fn transaction(
         &self,
         transaction: SignedTransaction,
         is_forwarded: bool,
-    ) -> Result<(), ReasonForBan>;
+    );
 
     async fn partial_encoded_chunk_request(
         &self,
         req: PartialEncodedChunkRequestMsg,
         msg_hash: CryptoHash,
-    ) -> Result<(), ReasonForBan>;
+    );
 
     async fn partial_encoded_chunk_response(
         &self,
         resp: PartialEncodedChunkResponseMsg,
         timestamp: time::Instant,
-    ) -> Result<(), ReasonForBan>;
+    );
 
-    async fn partial_encoded_chunk(&self, chunk: PartialEncodedChunk) -> Result<(), ReasonForBan>;
+    async fn partial_encoded_chunk(&self, chunk: PartialEncodedChunk);
 
     async fn partial_encoded_chunk_forward(
         &self,
         msg: PartialEncodedChunkForwardMsg,
-    ) -> Result<(), ReasonForBan>;
+    );
 
     async fn block_request(&self, hash: CryptoHash) -> Option<Box<Block>>;
 
@@ -77,7 +76,7 @@ pub trait Client: Send + Sync + 'static {
         block: Block,
         peer_id: PeerId,
         was_requested: bool,
-    ) -> Result<(), ReasonForBan>;
+    );
 
     async fn block_headers(
         &self,
@@ -85,7 +84,7 @@ pub trait Client: Send + Sync + 'static {
         peer_id: PeerId,
     ) -> Result<(), ReasonForBan>;
 
-    async fn challenge(&self, challenge: Challenge) -> Result<(), ReasonForBan>;
+    async fn challenge(&self, challenge: Challenge);
 
     async fn network_info(&self, info: NetworkInfo);
 
@@ -127,52 +126,37 @@ impl Client for Noop {
         Ok(None)
     }
 
-    async fn state_response(&self, _info: StateResponseInfo) -> Result<(), ReasonForBan> {
-        Ok(())
-    }
-
+    async fn state_response(&self, _info: StateResponseInfo){}
     async fn block_approval(
         &self,
         _approval: Approval,
         _peer_id: PeerId,
-    ) -> Result<(), ReasonForBan> {
-        Ok(())
-    }
+    ){}
 
     async fn transaction(
         &self,
         _transaction: SignedTransaction,
         _is_forwarded: bool,
-    ) -> Result<(), ReasonForBan> {
-        Ok(())
-    }
+    ){}
 
     async fn partial_encoded_chunk_request(
         &self,
         _req: PartialEncodedChunkRequestMsg,
         _msg_hash: CryptoHash,
-    ) -> Result<(), ReasonForBan> {
-        Ok(())
-    }
+    ){}
 
     async fn partial_encoded_chunk_response(
         &self,
         _resp: PartialEncodedChunkResponseMsg,
         _timestamp: time::Instant,
-    ) -> Result<(), ReasonForBan> {
-        Ok(())
-    }
+    ) {}
 
-    async fn partial_encoded_chunk(&self, _chunk: PartialEncodedChunk) -> Result<(), ReasonForBan> {
-        Ok(())
-    }
+    async fn partial_encoded_chunk(&self, _chunk: PartialEncodedChunk) {}
 
     async fn partial_encoded_chunk_forward(
         &self,
         _msg: PartialEncodedChunkForwardMsg,
-    ) -> Result<(), ReasonForBan> {
-        Ok(())
-    }
+    ) {}
 
     async fn block_request(&self, _hash: CryptoHash) -> Option<Box<Block>> {
         None
@@ -187,9 +171,7 @@ impl Client for Noop {
         _block: Block,
         _peer_id: PeerId,
         _was_requested: bool,
-    ) -> Result<(), ReasonForBan> {
-        Ok(())
-    }
+    ) { }
 
     async fn block_headers(
         &self,
@@ -199,9 +181,7 @@ impl Client for Noop {
         Ok(())
     }
 
-    async fn challenge(&self, _challenge: Challenge) -> Result<(), ReasonForBan> {
-        Ok(())
-    }
+    async fn challenge(&self, _challenge: Challenge) {}
 
     async fn network_info(&self, _info: NetworkInfo) {}
 

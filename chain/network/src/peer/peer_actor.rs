@@ -721,31 +721,31 @@ impl PeerActor {
                 .await?
                 .map(RoutedMessageBody::VersionedStateResponse),
             RoutedMessageBody::VersionedStateResponse(info) => {
-                network_state.client.state_response(info).await?;
+                network_state.client.state_response(info).await;
                 None
             }
             RoutedMessageBody::BlockApproval(approval) => {
-                network_state.client.block_approval(approval, peer_id).await?;
+                network_state.client.block_approval(approval, peer_id).await;
                 None
             }
             RoutedMessageBody::ForwardTx(transaction) => {
-                network_state.client.transaction(transaction, /*is_forwarded=*/ true).await?;
+                network_state.client.transaction(transaction, /*is_forwarded=*/ true).await;
                 None
             }
             RoutedMessageBody::PartialEncodedChunkRequest(request) => {
-                network_state.client.partial_encoded_chunk_request(request, msg_hash).await?;
+                network_state.client.partial_encoded_chunk_request(request, msg_hash).await;
                 None
             }
             RoutedMessageBody::PartialEncodedChunkResponse(response) => {
-                network_state.client.partial_encoded_chunk_response(response, clock.now()).await?;
+                network_state.client.partial_encoded_chunk_response(response, clock.now()).await;
                 None
             }
             RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
-                network_state.client.partial_encoded_chunk(chunk).await?;
+                network_state.client.partial_encoded_chunk(chunk).await;
                 None
             }
             RoutedMessageBody::PartialEncodedChunkForward(msg) => {
-                network_state.client.partial_encoded_chunk_forward(msg).await?;
+                network_state.client.partial_encoded_chunk_forward(msg).await;
                 None
             }
             RoutedMessageBody::ReceiptOutcomeRequest(_) => {
@@ -808,11 +808,11 @@ impl PeerActor {
                     network_state.client.block_headers_request(hashes).await.map(PeerMessage::BlockHeaders)
                 }
                 PeerMessage::Block(block) => {
-                    network_state.client.block(block, peer_id, was_requested).await?;
+                    network_state.client.block(block, peer_id, was_requested).await;
                     None
                 }
                 PeerMessage::Transaction(transaction) => {
-                    network_state.client.transaction(transaction, /*is_forwarded=*/ false).await?;
+                    network_state.client.transaction(transaction, /*is_forwarded=*/ false).await;
                     None
                 }
                 PeerMessage::BlockHeaders(headers) => {
@@ -820,7 +820,7 @@ impl PeerActor {
                     None
                 }
                 PeerMessage::Challenge(challenge) => {
-                    network_state.client.challenge(challenge).await?;
+                    network_state.client.challenge(challenge).await;
                     None
                 }
                 msg => {

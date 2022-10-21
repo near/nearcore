@@ -5,10 +5,11 @@ use assert_matches::assert_matches;
 use near_chain::chain::NUM_ORPHAN_ANCESTORS_CHECK;
 use near_chain::{ChainGenesis, Error, Provenance, RuntimeAdapter};
 use near_chain_configs::Genesis;
+use near_client::{ProcessTxResponse};
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_network::types::{
-    MsgRecipient, NetworkClientResponses, NetworkRequests, PeerManagerMessageRequest,
+    MsgRecipient, NetworkRequests, PeerManagerMessageRequest,
 };
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
@@ -94,13 +95,13 @@ fn test_transaction_hash_collision() {
         *genesis_block.hash(),
     );
     let res = env.clients[0].process_tx(create_account_tx, false, false);
-    assert_matches!(res, NetworkClientResponses::ValidTx);
+    assert_matches!(res, ProcessTxResponse::ValidTx);
     for i in 4..8 {
         env.produce_block(0, i);
     }
 
     let res = env.clients[0].process_tx(send_money_tx, false, false);
-    assert_matches!(res, NetworkClientResponses::InvalidTx(_));
+    assert_matches!(res, ProcessTxResponse::InvalidTx(_));
 }
 
 /// Helper for checking that duplicate transactions from implicit accounts are properly rejected.
@@ -109,7 +110,7 @@ fn test_transaction_hash_collision() {
 /// should fail since the protocol upgrade.
 fn get_status_of_tx_hash_collision_for_implicit_account(
     protocol_version: ProtocolVersion,
-) -> NetworkClientResponses {
+) -> ProcessTxResponse {
     let epoch_length = 100;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
@@ -198,7 +199,7 @@ fn test_transaction_hash_collision_for_implicit_account_fail() {
     let protocol_version = ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version();
     assert_matches!(
         get_status_of_tx_hash_collision_for_implicit_account(protocol_version),
-        NetworkClientResponses::InvalidTx(InvalidTxError::InvalidNonce { .. })
+        ProcessTxResponse::InvalidTx(InvalidTxError::InvalidNonce { .. })
     );
 }
 
@@ -209,7 +210,7 @@ fn test_transaction_hash_collision_for_implicit_account_ok() {
         ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
     assert_matches!(
         get_status_of_tx_hash_collision_for_implicit_account(protocol_version),
-        NetworkClientResponses::ValidTx
+        ProcessTxResponse::ValidTx
     );
 }
 
@@ -266,7 +267,7 @@ fn test_transaction_nonce_too_large() {
     let res = env.clients[0].process_tx(tx, false, false);
     assert_matches!(
         res,
-        NetworkClientResponses::InvalidTx(InvalidTxError::InvalidAccessKeyError(_))
+        ProcessTxResponse::InvalidTx(InvalidTxError::InvalidAccessKeyError(_))
     );
 }
 

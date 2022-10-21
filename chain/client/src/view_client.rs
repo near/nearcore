@@ -1023,7 +1023,7 @@ impl Handler<WithSpanContext<GetProtocolConfig>> for ViewClientActor {
 
 #[cfg(feature = "test_features")]
 impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ViewClientActor {
-    type Result = ();
+    type Result = Option<u64>;
 
     #[perf]
     fn handle(
@@ -1055,6 +1055,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ViewClientActor {
             }
             _ => panic!("invalid adversary message"),
         }
+        None
     }
 }
 

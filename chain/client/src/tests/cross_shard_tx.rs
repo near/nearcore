@@ -23,6 +23,7 @@ use near_primitives::types::{AccountId, BlockReference};
 use near_primitives::views::QueryResponseKind::ViewAccount;
 use near_primitives::views::{QueryRequest, QueryResponse};
 
+use crate::adapter::{ProcessTxRequest,ProcessTxResponse};
 use crate::test_utils::{setup_mock_all_validators, BlockStats};
 use crate::{ClientActor, Query, ViewClientActor};
 
@@ -111,7 +112,7 @@ fn send_tx(
         connectors.write().unwrap()[connector_ordinal]
             .0
             .send(
-                NetworkClientMessages::Transaction {
+                ProcessTxRequest {
                     transaction: SignedTransaction::send_money(
                         nonce,
                         from.clone(),
@@ -127,7 +128,7 @@ fn send_tx(
             )
             .then(move |x| {
                 match x.unwrap() {
-                    NetworkClientResponses::NoResponse | NetworkClientResponses::RequestRouted => {
+                    ProcessTxResponse::NoResponse | ProcessTxResponse::RequestRouted => {
                         assert_eq!(num_validators, 24);
                         send_tx(
                             num_validators,
@@ -140,7 +141,7 @@ fn send_tx(
                             block_hash,
                         );
                     }
-                    NetworkClientResponses::ValidTx => {
+                    ProcessTxResponse::ValidTx => {
                         println!("Transaction was received by validator {:?}", connector_ordinal);
                     }
                     other @ _ => {

@@ -60,7 +60,7 @@ impl client::Client for Fake {
         panic!("unimplemented");
     }
 
-    async fn state_response(&self, _info: StateResponseInfo) -> Result<(), ReasonForBan> {
+    async fn state_response(&self, _info: StateResponseInfo) {
         panic!("unimplemented");
     }
 
@@ -68,7 +68,7 @@ impl client::Client for Fake {
         &self,
         _approval: Approval,
         _peer_id: PeerId,
-    ) -> Result<(), ReasonForBan> {
+    ) {
         panic!("unimplemented");
     }
 
@@ -76,37 +76,34 @@ impl client::Client for Fake {
         &self,
         transaction: SignedTransaction,
         _is_forwarded: bool,
-    ) -> Result<(), ReasonForBan> {
+    ) {
         self.event_sink.push(Event::Transaction(transaction));
-        Ok(())
     }
 
     async fn partial_encoded_chunk_request(
         &self,
         req: PartialEncodedChunkRequestMsg,
         _msg_hash: CryptoHash,
-    ) -> Result<(), ReasonForBan> {
+    ) {
         self.event_sink.push(Event::ChunkRequest(req.chunk_hash));
-        Ok(())
     }
 
     async fn partial_encoded_chunk_response(
         &self,
         resp: PartialEncodedChunkResponseMsg,
         _timestamp: time::Instant,
-    ) -> Result<(), ReasonForBan> {
+    ) {
         self.event_sink.push(Event::Chunk(resp.parts));
-        Ok(())
     }
 
-    async fn partial_encoded_chunk(&self, _chunk: PartialEncodedChunk) -> Result<(), ReasonForBan> {
+    async fn partial_encoded_chunk(&self, _chunk: PartialEncodedChunk) {
         panic!("unimplemented");
     }
 
     async fn partial_encoded_chunk_forward(
         &self,
         _msg: PartialEncodedChunkForwardMsg,
-    ) -> Result<(), ReasonForBan> {
+    ) {
         panic!("unimplemented");
     }
 
@@ -125,9 +122,8 @@ impl client::Client for Fake {
         block: Block,
         _peer_id: PeerId,
         _was_requested: bool,
-    ) -> Result<(), ReasonForBan> {
+    ) {
         self.event_sink.push(Event::Block(block));
-        Ok(())
     }
 
     async fn block_headers(
@@ -139,9 +135,8 @@ impl client::Client for Fake {
         Ok(())
     }
 
-    async fn challenge(&self, challenge: Challenge) -> Result<(), ReasonForBan> {
+    async fn challenge(&self, challenge: Challenge) {
         self.event_sink.push(Event::Challenge(challenge));
-        Ok(())
     }
 
     async fn network_info(&self, _info: NetworkInfo) {}

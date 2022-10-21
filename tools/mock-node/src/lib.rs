@@ -1,19 +1,19 @@
 //! Implements `ChainHistoryAccess` and `MockPeerManagerActor`, which is the main
 //! components of the mock network.
 
-use actix::{Actor, Context, Handler, Recipient};
+use actix::{Actor, Context, Handler};
 use anyhow::{anyhow, Context as AnyhowContext};
 use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::GenesisConfig;
 use near_client::sync;
 use near_network::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
+    FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses,
     PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
 };
 use near_network::types::{
     PartialEdgeInfo, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
 };
-use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics::actix::run_later;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -24,6 +24,7 @@ use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Duration;
+use std::sync::Arc;
 
 pub mod setup;
 
@@ -193,7 +194,7 @@ impl IncomingRequests {
 /// - Simulates block production and sends the most "recent" block to ClientActor
 pub struct MockPeerManagerActor {
     /// Client address for the node that we are testing
-    client_addr: Recipient<WithSpanContext<NetworkClientMessages>>,
+    client: Arc<dyn near_network::client::Client>,
     /// Access a pre-generated chain history from storage
     chain_history_access: ChainHistoryAccess,
     /// Current network state for the simulated network
@@ -209,7 +210,7 @@ pub struct MockPeerManagerActor {
 
 impl MockPeerManagerActor {
     fn new(
-        client_addr: Recipient<WithSpanContext<NetworkClientMessages>>,
+        client: Arc<dyn near_network::client::Client>,
         genesis_config: &GenesisConfig,
         mut chain: Chain,
         client_start_height: BlockHeight,
@@ -250,7 +251,7 @@ impl MockPeerManagerActor {
             target_height,
         );
         Self {
-            client_addr,
+            client,
             chain_history_access: ChainHistoryAccess { chain, target_height },
             network_info,
             block_production_delay,
@@ -264,9 +265,11 @@ impl MockPeerManagerActor {
     /// When it is called, it increments peer heights by 1 and sends the block at that height
     /// to ClientActor. In a way, it simulates peers that broadcast new blocks
     fn update_peers(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
-        let _response = self.client_addr.do_send(
-            NetworkClientMessages::NetworkInfo(self.network_info.clone()).with_span_context(),
-        );
+        actix::spawn({
+            let client = self.client.clone();
+            let info = self.network_info.clone();
+            async move { client.network_info(info).await }
+        });
         for connected_peer in self.network_info.connected_peers.iter_mut() {
             let peer = &mut connected_peer.full_peer_info;
             let current_height = peer.chain_info.height;
@@ -274,10 +277,11 @@ impl MockPeerManagerActor {
                 if let Ok(block) =
                     self.chain_history_access.retrieve_block_by_height(current_height)
                 {
-                    let _response = self.client_addr.do_send(
-                        NetworkClientMessages::Block(block, peer.peer_info.id.clone(), false)
-                            .with_span_context(),
-                    );
+                    actix::spawn({
+                        let client = self.client.clone();
+                        let peer_id = peer.peer_info.id.clone();
+                        async move { client.block(block, peer_id, false).await }
+                    });
                 }
                 peer.chain_info.height = current_height + 1;
             }
@@ -295,14 +299,12 @@ impl MockPeerManagerActor {
 
     fn send_unrequested_block(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
         if let Some((interval, block)) = &self.incoming_requests.block {
-            let _response = self.client_addr.do_send(
-                NetworkClientMessages::Block(
-                    block.clone(),
-                    self.network_info.connected_peers[0].full_peer_info.peer_info.id.clone(),
-                    false,
-                )
-                .with_span_context(),
-            );
+            actix::spawn({
+                let client = self.client.clone();
+                let block = block.clone();
+                let peer_id = self.network_info.connected_peers[0].full_peer_info.peer_info.id.clone();
+                async move { client.block(block,peer_id,false).await }
+            });
 
             run_later(ctx, *interval, move |act, ctx| {
                 act.send_unrequested_block(ctx);
@@ -312,16 +314,17 @@ impl MockPeerManagerActor {
 
     fn send_chunk_request(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
         if let Some((interval, request)) = &self.incoming_requests.chunk_request {
-            let _response = self.client_addr.do_send(
-                NetworkClientMessages::PartialEncodedChunkRequest(
+            actix::spawn({
+                let client = self.client.clone();
+                let request = request.clone();
+                async move { client.partial_encoded_chunk_request(
                     request.clone(),
                     // this can just be nonsense since the PeerManager is mocked out anyway. If/when we update the mock node
                     // to exercise the PeerManager code as well, then this won't matter anyway since the mock code won't be
                     // responsible for it.
                     CryptoHash::default(),
-                )
-                .with_span_context(),
-            );
+                ).await }
+            });
 
             run_later(ctx, *interval, move |act, ctx| {
                 act.send_chunk_request(ctx);
@@ -365,9 +368,10 @@ impl Handler<WithSpanContext<PeerManagerMessageRequest>> for MockPeerManagerActo
                 NetworkRequests::BlockRequest { hash, peer_id } => {
                     run_later(ctx, self.network_delay, move |act, _ctx| {
                         let block = act.chain_history_access.retrieve_block(&hash).unwrap();
-                        let _response = act.client_addr.do_send(
-                            NetworkClientMessages::Block(block, peer_id, true).with_span_context(),
-                        );
+                        actix::spawn({
+                            let client = act.client.clone();
+                            async move { client.block(block, peer_id, true).await }
+                        });
                     });
                 }
                 NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
@@ -376,10 +380,10 @@ impl Handler<WithSpanContext<PeerManagerMessageRequest>> for MockPeerManagerActo
                             .chain_history_access
                             .retrieve_block_headers(hashes.clone())
                             .unwrap();
-                        let _response = act.client_addr.do_send(
-                            NetworkClientMessages::BlockHeaders(headers, peer_id)
-                                .with_span_context(),
-                        );
+                        actix::spawn({
+                            let client = act.client.clone();
+                            async move { client.block_headers(headers, peer_id).await }
+                        });
                     });
                 }
                 NetworkRequests::PartialEncodedChunkRequest { request, .. } => {
@@ -388,13 +392,13 @@ impl Handler<WithSpanContext<PeerManagerMessageRequest>> for MockPeerManagerActo
                             .chain_history_access
                             .retrieve_partial_encoded_chunk(&request)
                             .unwrap();
-                        let _response = act.client_addr.do_send(
-                            NetworkClientMessages::PartialEncodedChunkResponse(
+                        actix::spawn({
+                            let client = act.client.clone();
+                            async move { client.partial_encoded_chunk_response(
                                 response,
-                                Clock::instant(),
-                            )
-                            .with_span_context(),
-                        );
+                                Clock::instant().into(),
+                            ).await }
+                        });
                     });
                 }
                 NetworkRequests::PartialEncodedChunkResponse { .. } => {}

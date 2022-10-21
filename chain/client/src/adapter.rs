@@ -1,7 +1,7 @@
 use crate::client_actor::ClientActor;
 use crate::view_client::ViewClientActor;
 use near_network::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkInfo, PartialEncodedChunkForwardMsg,
+    NetworkInfo, PartialEncodedChunkForwardMsg,
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, ReasonForBan, StateResponseInfo,
 };
 //use near_o11y::{WithSpanContext, WithSpanContextExt};
@@ -15,6 +15,7 @@ use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
+use near_primitives::errors::InvalidTxError;
 
 /// Transaction status query
 #[derive(actix::Message)]
@@ -35,9 +36,17 @@ pub(crate) struct TxStatusResponse(pub Box<FinalExecutionOutcomeView>);
 pub(crate) struct BlockRequest(pub CryptoHash);
 
 /// Block response.
-#[derive(actix::Message)]
+#[derive(actix::Message,Debug)]
 #[rtype(result = "()")]
-pub(crate) struct BlockResponse(pub Box<Block>);
+pub struct BlockResponse{
+    pub block: Block,
+    pub peer_id: PeerId,
+    pub was_requested: bool,
+}
+
+#[derive(actix::Message,Debug)]
+#[rtype(result = "()")]
+pub struct BlockApproval(pub Approval, pub PeerId);
 
 /// Request headers.
 #[derive(actix::Message)]
@@ -45,9 +54,9 @@ pub(crate) struct BlockResponse(pub Box<Block>);
 pub(crate) struct BlockHeadersRequest(pub Vec<CryptoHash>);
 
 /// Headers response.
-#[derive(actix::Message)]
-#[rtype(result = "()")]
-pub(crate) struct BlockHeadersResponse(pub Vec<BlockHeader>);
+#[derive(actix::Message,Debug)]
+#[rtype(result = "Result<(),ReasonForBan>")]
+pub(crate) struct BlockHeadersResponse(pub Vec<BlockHeader>, pub PeerId);
 
 /// State request header.
 #[derive(actix::Message)]
@@ -67,7 +76,7 @@ pub(crate) struct StateRequestPart {
 }
 
 /// Response to state request.
-#[derive(actix::Message)]
+#[derive(actix::Message,Debug)]
 #[rtype(result = "()")]
 pub(crate) struct StateResponse(pub Box<StateResponseInfo>);
 
@@ -78,35 +87,58 @@ pub(crate) struct StateResponse(pub Box<StateResponseInfo>);
 #[rtype(result = "Result<Vec<AnnounceAccount>,ReasonForBan>")]
 pub(crate) struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
 
-#[derive(actix::Message)]
+#[derive(actix::Message,Debug)]
 #[rtype(result = "()")]
-pub(crate) struct SetNetworkInfo(NetworkInfo);
+pub struct SetNetworkInfo(pub NetworkInfo);
 
-#[derive(actix::Message)]
+#[derive(actix::Message,Debug)]
 #[rtype(result = "()")]
-pub(crate) struct RecvChallenge(Challenge);
+pub(crate) struct RecvChallenge(pub Challenge);
 
-#[derive(actix::Message)]
+#[derive(actix::Message,Debug)]
 #[rtype(result = "()")]
-pub(crate) struct RecvPartialEncodedChunkForward(PartialEncodedChunkForward);
+pub(crate) struct RecvPartialEncodedChunkForward(pub PartialEncodedChunkForwardMsg);
 
-#[derive(actix::Message)]
+#[derive(actix::Message,Debug)]
 #[rtype(result = "()")]
-pub(crate) struct RecvPartialEncodedChunk(PartialEncodedChunk);
+pub(crate) struct RecvPartialEncodedChunk(pub PartialEncodedChunk);
 
-#[derive(actix::Message)]
+#[derive(actix::Message,Debug)]
 #[rtype(result = "()")]
 pub(crate) struct RecvPartialEncodedChunkResponse(
-    PartialEncodedChunkResponseMsg,
-    std::time::Instant,
+    pub PartialEncodedChunkResponseMsg,
+    pub std::time::Instant,
 );
 
-#[derive(actix::Message)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub(crate) struct RecvPartialEncodedChunkRequest(
-    PartialEncodedChunkRequestMsg,
-    CryptoHash,
+    pub PartialEncodedChunkRequestMsg,
+    pub CryptoHash,
 );
+
+#[derive(actix::Message,Debug)]
+#[rtype(result = "ProcessTxResponse")]
+pub struct ProcessTxRequest {
+    pub transaction : SignedTransaction,
+    pub is_forwarded : bool,
+    pub check_only: bool,
+}
+
+#[derive(actix::MessageResponse,Debug,PartialEq,Eq)]
+pub enum ProcessTxResponse {
+    /// No response.
+    NoResponse,
+    /// Valid transaction inserted into mempool as response to Transaction.
+    ValidTx,
+    /// Invalid transaction inserted into mempool as response to Transaction.
+    InvalidTx(InvalidTxError),
+    /// The request is routed to other shards
+    RequestRouted,
+    /// The node being queried does not track the shard needed and therefore cannot provide userful
+    /// response.
+    DoesNotTrackShard,
+}
 
 pub struct Adapter {
     /// Address of the client actor.
@@ -204,19 +236,14 @@ impl near_network::client::Client for Adapter {
         }
     }
 
-    async fn state_response(&self, info: StateResponseInfo) -> Result<(), ReasonForBan> {
+    async fn state_response(&self, info: StateResponseInfo) {
         match self
             .client_addr
-            .send(NetworkClientMessages::StateResponse(info).with_span_context())
+            .send(StateResponse(Box::new(info)).with_span_context())
             .await
         {
-            Ok(NetworkClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(())
-            }
+            Ok(()) => {}
+            Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }
 
@@ -224,19 +251,14 @@ impl near_network::client::Client for Adapter {
         &self,
         approval: Approval,
         peer_id: PeerId,
-    ) -> Result<(), ReasonForBan> {
+    ) {
         match self
             .client_addr
-            .send(NetworkClientMessages::BlockApproval(approval, peer_id).with_span_context())
+            .send(BlockApproval(approval, peer_id).with_span_context())
             .await
         {
-            Ok(NetworkClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(())
-            }
+            Ok(()) => {} 
+            Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }
 
@@ -244,30 +266,22 @@ impl near_network::client::Client for Adapter {
         &self,
         transaction: SignedTransaction,
         is_forwarded: bool,
-    ) -> Result<(), ReasonForBan> {
+    ) {
         match self
             .client_addr
             .send(
-                NetworkClientMessages::Transaction { transaction, is_forwarded, check_only: false }
+                ProcessTxRequest { transaction, is_forwarded, check_only: false }
                     .with_span_context(),
             )
             .await
         {
-            Ok(NetworkClientResponses::ValidTx) => Ok(()),
-            Ok(NetworkClientResponses::InvalidTx(err)) => {
+            Ok(ProcessTxResponse::InvalidTx(err)) => {
                 tracing::warn!(target: "network", ?err, "Received invalid tx");
                 // TODO: count as malicious behavior?
-                Ok(())
             }
-            Ok(NetworkClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkClientResponses::RequestRouted) => Ok(()),
-            Ok(NetworkClientResponses::DoesNotTrackShard) => Ok(()),
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            #[allow(unreachable_patterns)]
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
+            Ok(_) => {}
             Err(err) => {
                 tracing::error!("mailbox error: {err}");
-                Ok(())
             }
         }
     }
@@ -276,22 +290,17 @@ impl near_network::client::Client for Adapter {
         &self,
         req: PartialEncodedChunkRequestMsg,
         msg_hash: CryptoHash,
-    ) -> Result<(), ReasonForBan> {
+    ) {
         match self
             .client_addr
             .send(
-                NetworkClientMessages::PartialEncodedChunkRequest(req, msg_hash)
+                RecvPartialEncodedChunkRequest(req, msg_hash)
                     .with_span_context(),
             )
             .await
         {
-            Ok(NetworkClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(())
-            }
+            Ok(()) => {},
+            Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }
 
@@ -299,57 +308,42 @@ impl near_network::client::Client for Adapter {
         &self,
         resp: PartialEncodedChunkResponseMsg,
         timestamp: time::Instant,
-    ) -> Result<(), ReasonForBan> {
+    ) {
         match self
             .client_addr
             .send(
-                NetworkClientMessages::PartialEncodedChunkResponse(resp, timestamp.into())
+                RecvPartialEncodedChunkResponse(resp, timestamp.into())
                     .with_span_context(),
             )
             .await
         {
-            Ok(NetworkClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(())
-            }
+            Ok(()) => {}
+            Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }
 
-    async fn partial_encoded_chunk(&self, chunk: PartialEncodedChunk) -> Result<(), ReasonForBan> {
+    async fn partial_encoded_chunk(&self, chunk: PartialEncodedChunk) {
         match self
             .client_addr
-            .send(NetworkClientMessages::PartialEncodedChunk(chunk).with_span_context())
+            .send(RecvPartialEncodedChunk(chunk).with_span_context())
             .await
         {
-            Ok(NetworkClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(())
-            }
+            Ok(()) => {}
+            Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }
 
     async fn partial_encoded_chunk_forward(
         &self,
         msg: PartialEncodedChunkForwardMsg,
-    ) -> Result<(), ReasonForBan> {
+    ) {
         match self
             .client_addr
-            .send(NetworkClientMessages::PartialEncodedChunkForward(msg).with_span_context())
+            .send(RecvPartialEncodedChunkForward(msg).with_span_context())
             .await
         {
-            Ok(NetworkClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(())
-            }
+            Ok(()) => {}
+            Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }
 
@@ -378,19 +372,14 @@ impl near_network::client::Client for Adapter {
         block: Block,
         peer_id: PeerId,
         was_requested: bool,
-    ) -> Result<(), ReasonForBan> {
+    ) {
         match self
             .client_addr
-            .send(NetworkClientMessages::Block(block, peer_id, was_requested).with_span_context())
+            .send(BlockResponse{block, peer_id, was_requested}.with_span_context())
             .await
         {
-            Ok(NetworkClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(())
-            }
+            Ok(()) => {}
+            Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }
 
@@ -401,12 +390,10 @@ impl near_network::client::Client for Adapter {
     ) -> Result<(), ReasonForBan> {
         match self
             .client_addr
-            .send(NetworkClientMessages::BlockHeaders(headers, peer_id).with_span_context())
+            .send(BlockHeadersResponse(headers, peer_id).with_span_context())
             .await
         {
-            Ok(NetworkClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
+            Ok(res) => res,
             Err(err) => {
                 tracing::error!("mailbox error: {err}");
                 Ok(())
@@ -414,30 +401,24 @@ impl near_network::client::Client for Adapter {
         }
     }
 
-    async fn challenge(&self, challenge: Challenge) -> Result<(), ReasonForBan> {
+    async fn challenge(&self, challenge: Challenge) {
         match self
             .client_addr
-            .send(NetworkClientMessages::Challenge(challenge).with_span_context())
+            .send(RecvChallenge(challenge).with_span_context())
             .await
         {
-            Ok(NetworkClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(())
-            }
+            Ok(()) => {}
+            Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }
 
     async fn network_info(&self, info: NetworkInfo) {
         match self
             .client_addr
-            .send(NetworkClientMessages::NetworkInfo(info).with_span_context())
+            .send(SetNetworkInfo(info).with_span_context())
             .await
         {
-            Ok(NetworkClientResponses::NoResponse) => {}
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
+            Ok(()) => {},
             Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }

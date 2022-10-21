@@ -280,53 +280,40 @@ impl near_network::client::Client for Network {
         Ok(None)
     }
 
-    async fn state_response(&self, _info: StateResponseInfo) -> Result<(), ReasonForBan> {
-        Ok(())
-    }
+    async fn state_response(&self, _info: StateResponseInfo){}
 
     async fn block_approval(
         &self,
         _approval: Approval,
         _peer_id: PeerId,
-    ) -> Result<(), ReasonForBan> {
-        Ok(())
-    }
+    ) {}
 
     async fn transaction(
         &self,
         _transaction: SignedTransaction,
         _is_forwarded: bool,
-    ) -> Result<(), ReasonForBan> {
-        Ok(())
-    }
+    ){}
 
     async fn partial_encoded_chunk_request(
         &self,
         _req: PartialEncodedChunkRequestMsg,
         _msg_hash: CryptoHash,
-    ) -> Result<(), ReasonForBan> {
-        Ok(())
-    }
+    ){}
 
     async fn partial_encoded_chunk_response(
         &self,
         resp: PartialEncodedChunkResponseMsg,
         _timestamp: time::Instant,
-    ) -> Result<(), ReasonForBan> {
+    ){
         self.chunks.get(&resp.chunk_hash.clone()).map(|p| p.set(resp));
-        Ok(())
     }
 
-    async fn partial_encoded_chunk(&self, _chunk: PartialEncodedChunk) -> Result<(), ReasonForBan> {
-        Ok(())
-    }
+    async fn partial_encoded_chunk(&self, _chunk: PartialEncodedChunk){}
 
     async fn partial_encoded_chunk_forward(
         &self,
         _msg: PartialEncodedChunkForwardMsg,
-    ) -> Result<(), ReasonForBan> {
-        Ok(())
-    }
+    ){}
 
     async fn block_request(&self, _hash: CryptoHash) -> Option<Box<Block>> {
         None
@@ -341,9 +328,8 @@ impl near_network::client::Client for Network {
         block: Block,
         _peer_id: PeerId,
         _was_requested: bool,
-    ) -> Result<(), ReasonForBan> {
+    ) {
         self.blocks.get(&block.hash().clone()).map(|p| p.set(block));
-        Ok(())
     }
 
     async fn block_headers(
@@ -358,9 +344,7 @@ impl near_network::client::Client for Network {
         Ok(())
     }
 
-    async fn challenge(&self, _challenge: Challenge) -> Result<(), ReasonForBan> {
-        Ok(())
-    }
+    async fn challenge(&self, _challenge: Challenge){}
 
     async fn network_info(&self, info: NetworkInfo) {
         let mut n = self.data.lock().unwrap();

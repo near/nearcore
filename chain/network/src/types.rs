@@ -398,7 +398,7 @@ pub enum NetworkResponses {
 
 #[cfg(feature = "test_features")]
 #[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
+#[rtype(result = "Option<u64>")]
 pub enum NetworkAdversarialMessage {
     AdvProduceBlocks(u64, bool),
     AdvSwitchToHeight(u64),
