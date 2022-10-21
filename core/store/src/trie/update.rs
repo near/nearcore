@@ -7,7 +7,7 @@ use near_primitives::types::{
 };
 
 pub use self::iterator::TrieUpdateIterator;
-use crate::trie::TrieChanges;
+use crate::trie::{KeyLookupMode, TrieChanges};
 use crate::StorageError;
 
 use super::Trie;
@@ -66,7 +66,11 @@ impl TrieUpdate {
         &self.trie
     }
 
-    pub fn get_ref(&self, key: &TrieKey) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
+    pub fn get_ref(
+        &self,
+        key: &TrieKey,
+        mode: KeyLookupMode,
+    ) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
         let key = key.to_vec();
         if let Some(key_value) = self.prospective.get(&key) {
             return Ok(key_value.value.as_deref().map(TrieUpdateValuePtr::MemoryRef));
@@ -76,7 +80,7 @@ impl TrieUpdate {
             }
         }
 
-        self.trie.get_ref(&key).map(|option| {
+        self.trie.get_ref(&key, mode).map(|option| {
             option.map(|ValueRef { length, hash }| {
                 TrieUpdateValuePtr::HashAndSize(&self.trie, length, hash)
             })
