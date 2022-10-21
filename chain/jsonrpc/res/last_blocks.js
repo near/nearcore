@@ -308,16 +308,16 @@ function Page() {
         </div>
         {error && <div className="error">{error.stack}</div>}
         <div className="missed-blocks">
-            Missing blocks: ${canonicalHeightCount - numCanonicalBlocks}
-            Produced: ${numCanonicalBlocks}
-            Missing Rate: ${((canonicalHeightCount - numCanonicalBlocks) / canonicalHeightCount * 100).toFixed(2)}%
+            Missing blocks: {canonicalHeightCount - numCanonicalBlocks} { }
+            Produced: {numCanonicalBlocks} { }
+            Missing Rate: {((canonicalHeightCount - numCanonicalBlocks) / canonicalHeightCount * 100).toFixed(2)}%
         </div>
         <div className="missed-chunks">
             {numChunksSkipped.map((numSkipped, shardId) =>
                 <div key={shardId}>
-                    Shard ${shardId}: Missing chunks: ${numSkipped}
-                    Produced: ${numCanonicalBlocks - numSkipped}
-                    Missing Rate: ${(numSkipped / numCanonicalBlocks * 100).toFixed(2)}%
+                    Shard {shardId}: Missing chunks: {numSkipped} { }
+                    Produced: {numCanonicalBlocks - numSkipped} { }
+                    Missing Rate: {(numSkipped / numCanonicalBlocks * 100).toFixed(2)}%
                 </div>)}
         </div>
         <button onClick={() => {
