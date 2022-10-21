@@ -43,6 +43,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{verify_hash, PartialMerkleTree};
+use near_primitives::network::PeerId;
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -2126,27 +2127,6 @@ fn test_sync_hash_validity() {
             _ => assert!(false),
         },
     }
-}
-
-/// Only process one block per height
-/// Temporarily disable this test because the is_height_processed check is moved to client actor
-/// TODO (Min): refactor client actor receive_block code to move it to client
-#[ignore]
-#[test]
-fn test_not_process_height_twice() {
-    let mut env = TestEnv::builder(ChainGenesis::test()).build();
-    let block = env.clients[0].produce_block(1).unwrap().unwrap();
-    let mut invalid_block = block.clone();
-    env.process_block(0, block, Provenance::PRODUCED);
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let proposals =
-        vec![ValidatorStake::new("test1".parse().unwrap(), PublicKey::empty(KeyType::ED25519), 0)];
-    invalid_block.mut_header().get_mut().inner_rest.validator_proposals = proposals;
-    invalid_block.mut_header().resign(&validator_signer);
-    let accepted_blocks =
-        env.clients[0].process_block_test(invalid_block.into(), Provenance::NONE).unwrap();
-    assert!(accepted_blocks.is_empty());
 }
 
 #[test]

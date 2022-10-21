@@ -863,7 +863,7 @@ impl Client {
     }
 
     /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
-    pub fn process_block_impl(
+    pub(crate) fn process_block_impl(
         &mut self,
         block: Block,
         peer_id: PeerId,
