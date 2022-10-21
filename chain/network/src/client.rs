@@ -55,7 +55,7 @@ impl Client {
             .await
         {
             Ok(NetworkViewClientResponses::TxStatus(tx_result)) => Ok(Some(*tx_result)),
-            Ok(NetworkViewClientResponses::Ban { ban_reason }) => Err(ban_reason),
+            Ok(NetworkViewClientResponses::NoResponse) => Ok(()),
             Ok(resp) => panic!("unexpected ViewClientResponse: {resp:?}"),
             Err(err) => {
                 tracing::error!("mailbox error: {err}");
