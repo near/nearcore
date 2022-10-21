@@ -78,6 +78,36 @@ pub(crate) struct StateResponse(pub Box<StateResponseInfo>);
 #[rtype(result = "Result<Vec<AnnounceAccount>,ReasonForBan>")]
 pub(crate) struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
 
+#[derive(actix::Message)]
+#[rtype(result = "()")]
+pub(crate) struct SetNetworkInfo(NetworkInfo);
+
+#[derive(actix::Message)]
+#[rtype(result = "()")]
+pub(crate) struct RecvChallenge(Challenge);
+
+#[derive(actix::Message)]
+#[rtype(result = "()")]
+pub(crate) struct RecvPartialEncodedChunkForward(PartialEncodedChunkForward);
+
+#[derive(actix::Message)]
+#[rtype(result = "()")]
+pub(crate) struct RecvPartialEncodedChunk(PartialEncodedChunk);
+
+#[derive(actix::Message)]
+#[rtype(result = "()")]
+pub(crate) struct RecvPartialEncodedChunkResponse(
+    PartialEncodedChunkResponseMsg,
+    std::time::Instant,
+);
+
+#[derive(actix::Message)]
+#[rtype(result = "()")]
+pub(crate) struct RecvPartialEncodedChunkRequest(
+    PartialEncodedChunkRequestMsg,
+    CryptoHash,
+);
+
 pub struct Adapter {
     /// Address of the client actor.
     client_addr: actix::Addr<ClientActor>,

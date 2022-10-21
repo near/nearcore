@@ -442,181 +442,258 @@ impl ClientActor {
                     warn!(target: "client", "Banning node for sending invalid block headers");
                     NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader }
                 }
-            }
-            NetworkClientMessages::BlockApproval(approval, peer_id) => {
-                debug!(target: "client", "Receive approval {:?} from peer {:?}", approval, peer_id);
-                self.client.collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
-                NetworkClientResponses::NoResponse
-            }
-            NetworkClientMessages::StateResponse(state_response_info) => {
-                let shard_id = state_response_info.shard_id();
-                let hash = state_response_info.sync_hash();
-                let state_response = state_response_info.take_state_response();
+            } 
+            // TODO
+    }
+}
 
-                trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
-                       shard_id,
-                       hash,
-                       state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
-                );
-                // Get the download that matches the shard_id and hash
-                let download = {
-                    let mut download: Option<&mut ShardSyncDownload> = None;
 
-                    // ... It could be that the state was requested by the state sync
-                    if let SyncStatus::StateSync(sync_hash, shards_to_download) =
-                        &mut self.client.sync_status
-                    {
-                        if hash == *sync_hash {
-                            if let Some(part_id) = state_response.part_id() {
-                                self.client
-                                    .state_sync
-                                    .received_requested_part(part_id, shard_id, hash);
-                            }
+impl Handler<WithSpanContext<BlockApproval>> for ClientActor {
+    type Result = ();
 
-                            if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
-                                assert!(
-                                    download.is_none(),
-                                    "Internal downloads set has duplicates"
-                                );
-                                download = Some(shard_download);
-                            } else {
-                                // This may happen because of sending too many StateRequests to different peers.
-                                // For example, we received StateResponse after StateSync completion.
-                            }
-                        }
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<BlockApproval>,
+        _ctx: &mut Context<Self>,
+    ) {
+        let BlockApproval(approval, peer_id) = msg;
+        debug!(target: "client", "Receive approval {:?} from peer {:?}", approval, peer_id);
+        self.client.collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
+    }
+}
+
+
+impl Handler<WithSpanContext<StateResponse>> for ClientActor {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<StateResponse>,
+        _ctx: &mut Context<Self>,
+    ) {
+        let StateResponse(state_response_info) = msg;
+        let shard_id = state_response_info.shard_id();
+        let hash = state_response_info.sync_hash();
+        let state_response = state_response_info.take_state_response();
+
+        trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
+               shard_id,
+               hash,
+               state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
+        );
+        // Get the download that matches the shard_id and hash
+        let download = {
+            let mut download: Option<&mut ShardSyncDownload> = None;
+
+            // ... It could be that the state was requested by the state sync
+            if let SyncStatus::StateSync(sync_hash, shards_to_download) =
+                &mut self.client.sync_status
+            {
+                if hash == *sync_hash {
+                    if let Some(part_id) = state_response.part_id() {
+                        self.client
+                            .state_sync
+                            .received_requested_part(part_id, shard_id, hash);
                     }
 
-                    // ... Or one of the catchups
-                    if let Some((_, shards_to_download, _)) =
-                        self.client.catchup_state_syncs.get_mut(&hash)
-                    {
-                        if let Some(part_id) = state_response.part_id() {
-                            self.client.state_sync.received_requested_part(part_id, shard_id, hash);
-                        }
-
-                        if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
-                            assert!(download.is_none(), "Internal downloads set has duplicates");
-                            download = Some(shard_download);
-                        } else {
-                            // This may happen because of sending too many StateRequests to different peers.
-                            // For example, we received StateResponse after StateSync completion.
-                        }
+                    if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
+                        assert!(
+                            download.is_none(),
+                            "Internal downloads set has duplicates"
+                        );
+                        download = Some(shard_download);
+                    } else {
+                        // This may happen because of sending too many StateRequests to different peers.
+                        // For example, we received StateResponse after StateSync completion.
                     }
-                    // We should not be requesting the same state twice.
-                    download
-                };
+                }
+            }
 
-                if let Some(shard_sync_download) = download {
-                    match shard_sync_download.status {
-                        ShardSyncStatus::StateDownloadHeader => {
-                            if let Some(header) = state_response.take_header() {
-                                if !shard_sync_download.downloads[0].done {
-                                    match self.client.chain.set_state_header(shard_id, hash, header)
-                                    {
-                                        Ok(()) => {
-                                            shard_sync_download.downloads[0].done = true;
-                                        }
-                                        Err(err) => {
-                                            error!(target: "sync", "State sync set_state_header error, shard = {}, hash = {}: {:?}", shard_id, hash, err);
-                                            shard_sync_download.downloads[0].error = true;
-                                        }
-                                    }
+            // ... Or one of the catchups
+            if let Some((_, shards_to_download, _)) =
+                self.client.catchup_state_syncs.get_mut(&hash)
+            {
+                if let Some(part_id) = state_response.part_id() {
+                    self.client.state_sync.received_requested_part(part_id, shard_id, hash);
+                }
+
+                if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
+                    assert!(download.is_none(), "Internal downloads set has duplicates");
+                    download = Some(shard_download);
+                } else {
+                    // This may happen because of sending too many StateRequests to different peers.
+                    // For example, we received StateResponse after StateSync completion.
+                }
+            }
+            // We should not be requesting the same state twice.
+            download
+        };
+
+        if let Some(shard_sync_download) = download {
+            match shard_sync_download.status {
+                ShardSyncStatus::StateDownloadHeader => {
+                    if let Some(header) = state_response.take_header() {
+                        if !shard_sync_download.downloads[0].done {
+                            match self.client.chain.set_state_header(shard_id, hash, header)
+                            {
+                                Ok(()) => {
+                                    shard_sync_download.downloads[0].done = true;
                                 }
-                            } else {
-                                // No header found.
-                                // It may happen because requested node couldn't build state response.
-                                if !shard_sync_download.downloads[0].done {
-                                    info!(target: "sync", "state_response doesn't have header, should be re-requested, shard = {}, hash = {}", shard_id, hash);
+                                Err(err) => {
+                                    error!(target: "sync", "State sync set_state_header error, shard = {}, hash = {}: {:?}", shard_id, hash, err);
                                     shard_sync_download.downloads[0].error = true;
                                 }
                             }
                         }
-                        ShardSyncStatus::StateDownloadParts => {
-                            if let Some(part) = state_response.take_part() {
-                                let num_parts = shard_sync_download.downloads.len() as u64;
-                                let (part_id, data) = part;
-                                if part_id >= num_parts {
-                                    error!(target: "sync", "State sync received incorrect part_id # {:?} for hash {:?}, potential malicious peer", part_id, hash);
-                                    return NetworkClientResponses::NoResponse;
+                    } else {
+                        // No header found.
+                        // It may happen because requested node couldn't build state response.
+                        if !shard_sync_download.downloads[0].done {
+                            info!(target: "sync", "state_response doesn't have header, should be re-requested, shard = {}, hash = {}", shard_id, hash);
+                            shard_sync_download.downloads[0].error = true;
+                        }
+                    }
+                }
+                ShardSyncStatus::StateDownloadParts => {
+                    if let Some(part) = state_response.take_part() {
+                        let num_parts = shard_sync_download.downloads.len() as u64;
+                        let (part_id, data) = part;
+                        if part_id >= num_parts {
+                            error!(target: "sync", "State sync received incorrect part_id # {:?} for hash {:?}, potential malicious peer", part_id, hash);
+                            return;
+                        }
+                        if !shard_sync_download.downloads[part_id as usize].done {
+                            match self.client.chain.set_state_part(
+                                shard_id,
+                                hash,
+                                PartId::new(part_id, num_parts),
+                                &data,
+                            ) {
+                                Ok(()) => {
+                                    shard_sync_download.downloads[part_id as usize].done =
+                                        true;
                                 }
-                                if !shard_sync_download.downloads[part_id as usize].done {
-                                    match self.client.chain.set_state_part(
-                                        shard_id,
-                                        hash,
-                                        PartId::new(part_id, num_parts),
-                                        &data,
-                                    ) {
-                                        Ok(()) => {
-                                            shard_sync_download.downloads[part_id as usize].done =
-                                                true;
-                                        }
-                                        Err(err) => {
-                                            error!(target: "sync", "State sync set_state_part error, shard = {}, part = {}, hash = {}: {:?}", shard_id, part_id, hash, err);
-                                            shard_sync_download.downloads[part_id as usize].error =
-                                                true;
-                                        }
-                                    }
+                                Err(err) => {
+                                    error!(target: "sync", "State sync set_state_part error, shard = {}, part = {}, hash = {}: {:?}", shard_id, part_id, hash, err);
+                                    shard_sync_download.downloads[part_id as usize].error =
+                                        true;
                                 }
                             }
                         }
-                        _ => {}
                     }
-                } else {
-                    error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer", hash);
                 }
+                _ => {}
+            }
+        } else {
+            error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer", hash);
+        }
+    }
+}
 
-                NetworkClientResponses::NoResponse
-            }
-            NetworkClientMessages::PartialEncodedChunkRequest(part_request_msg, route_back) => {
-                let _ = self
-                    .client
-                    .shards_mgr
-                    .process_partial_encoded_chunk_request(part_request_msg, route_back);
-                NetworkClientResponses::NoResponse
-            }
-            NetworkClientMessages::PartialEncodedChunkResponse(response, time) => {
-                PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(time.elapsed().as_secs_f64());
-                let _ = self.client.shards_mgr.process_partial_encoded_chunk_response(response);
-                NetworkClientResponses::NoResponse
-            }
-            NetworkClientMessages::PartialEncodedChunk(partial_encoded_chunk) => {
-                self.client.block_production_info.record_chunk_collected(
-                    partial_encoded_chunk.height_created(),
-                    partial_encoded_chunk.shard_id(),
-                );
-                let _ = self
-                    .client
-                    .shards_mgr
-                    .process_partial_encoded_chunk(partial_encoded_chunk.into());
-                NetworkClientResponses::NoResponse
-            }
-            NetworkClientMessages::PartialEncodedChunkForward(forward) => {
-                match self.client.shards_mgr.process_partial_encoded_chunk_forward(forward) {
-                    Ok(_) => {}
-                    // Unknown chunk is normal if we get parts before the header
-                    Err(near_chunks::Error::UnknownChunk) => (),
-                    Err(err) => {
-                        error!(target: "client", "Error processing forwarded chunk: {}", err)
-                    }
-                }
-                NetworkClientResponses::NoResponse
-            }
-            NetworkClientMessages::Challenge(challenge) => {
-                match self.client.process_challenge(challenge) {
-                    Ok(_) => {}
-                    Err(err) => {
-                        error!(target: "client", "Error processing challenge: {}", err);
-                    }
-                }
-                NetworkClientResponses::NoResponse
-            }
-            NetworkClientMessages::NetworkInfo(network_info) => {
-                self.network_info = network_info;
-                NetworkClientResponses::NoResponse
+impl Handler<WithSpanContext<RecvPartialEncodedChunkRequest>> for ClientActor {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<RecvPartialEncodedChunkRequest>,
+        _ctx: &mut Context<Self>,
+    ) {
+        let RecvPartialEncodedChunkRequest(part_request_msg, route_back) = msg;
+        let _ = self
+            .client
+            .shards_mgr
+            .process_partial_encoded_chunk_request(part_request_msg, route_back);
+    }
+}
+
+
+impl Handler<WithSpanContext<RecvPartialEncodedChunkResponse>> for ClientActor {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<RecvPartialEncodedChunkResponse>,
+        _ctx: &mut Context<Self>,
+    ) {
+        let RecvPartialEncodedChunkResponse(response, time) = msg;
+        PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(time.elapsed().as_secs_f64());
+        let _ = self.client.shards_mgr.process_partial_encoded_chunk_response(response);
+    }
+}
+
+impl Handler<WithSpanContext<RecvPartialEncodedChunk>> for ClientActor {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<RecvPartialEncodedChunk>,
+        _ctx: &mut Context<Self>,
+    ) {
+        let RecvPartialEncodedChunk(partial_encoded_chunk) = msg;
+        self.client.block_production_info.record_chunk_collected(
+            partial_encoded_chunk.height_created(),
+            partial_encoded_chunk.shard_id(),
+        );
+        let _ = self
+            .client
+            .shards_mgr
+            .process_partial_encoded_chunk(partial_encoded_chunk.into());
+    }
+}
+
+
+impl Handler<WithSpanContext<RecvPartialEncodedChunkForward>> for ClientActor {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<RecvPartialEncodedChunkForward>,
+        _ctx: &mut Context<Self>,
+    ) {
+        let RecvPartialEncodedChunkForward(forward) = msg;
+        match self.client.shards_mgr.process_partial_encoded_chunk_forward(forward) {
+            Ok(_) => {}
+            // Unknown chunk is normal if we get parts before the header
+            Err(near_chunks::Error::UnknownChunk) => (),
+            Err(err) => {
+                error!(target: "client", "Error processing forwarded chunk: {}", err)
             }
         }
     }
 }
+
+
+impl Handler<WithSpanContext<RecvChallenge>> for ClientActor {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<RecvChallenge>,
+        _ctx: &mut Context<Self>,
+    ) {
+        let Challenge(challenge) = msg;
+        match self.client.process_challenge(challenge) {
+            Ok(_) => {}
+            Err(err) => {
+                error!(target: "client", "Error processing challenge: {}", err);
+            }
+        }
+    }
+}
+
+impl Handler<WithSpanContext<SetNetworkInfo>> for ClientActor {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<SetNetworkInfo>,
+        _ctx: &mut Context<Self>,
+    ) {
+        let NetworkInfo(network_info) = msg;
+        self.network_info = network_info;
+    }
+}
+
 
 #[cfg(feature = "sandbox")]
 impl Handler<WithSpanContext<near_client_primitives::types::SandboxMessage>> for ClientActor {
