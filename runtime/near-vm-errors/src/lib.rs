@@ -282,7 +282,7 @@ pub enum HostError {
     Ed25519VerifyInvalidInput { msg: String },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum VMLogicError {
     /// Errors coming from native Wasm VM.
     HostError(HostError),
@@ -493,55 +493,21 @@ impl std::fmt::Display for HostError {
 /// through vm-logic.
 ///
 /// The caller is supposed to downcast this to a concrete error type they should
-/// know. This would be just `Box<dyn Any + Eq>` if the latter actually worked.
+/// know.
+#[derive(Debug)]
 pub struct AnyError {
-    any: Box<dyn AnyEq>,
+    any: Box<dyn Any + Send + Sync>,
 }
 
 impl AnyError {
-    pub fn new<E: Any + Eq + Send + Sync + 'static>(err: E) -> AnyError {
+    pub fn new<E: Any + Send + Sync + 'static>(err: E) -> AnyError {
         AnyError { any: Box::new(err) }
     }
-    pub fn downcast<E: Any + Eq + Send + Sync + 'static>(self) -> Result<E, ()> {
-        match self.any.into_any().downcast::<E>() {
+    pub fn downcast<E: Any + Send + Sync + 'static>(self) -> Result<E, ()> {
+        match self.any.downcast::<E>() {
             Ok(it) => Ok(*it),
             Err(_) => Err(()),
         }
-    }
-}
-
-impl PartialEq for AnyError {
-    fn eq(&self, other: &Self) -> bool {
-        self.any.any_eq(&*other.any)
-    }
-}
-
-impl Eq for AnyError {}
-
-impl fmt::Debug for AnyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(self.any.as_any(), f)
-    }
-}
-
-trait AnyEq: Any + Send + Sync {
-    fn any_eq(&self, rhs: &dyn AnyEq) -> bool;
-    fn as_any(&self) -> &dyn Any;
-    fn into_any(self: Box<Self>) -> Box<dyn Any>;
-}
-
-impl<T: Any + Eq + Sized + Send + Sync> AnyEq for T {
-    fn any_eq(&self, rhs: &dyn AnyEq) -> bool {
-        match rhs.as_any().downcast_ref::<Self>() {
-            Some(rhs) => self == rhs,
-            None => false,
-        }
-    }
-    fn as_any(&self) -> &dyn Any {
-        &*self
-    }
-    fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        self
     }
 }
 
