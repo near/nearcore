@@ -246,7 +246,8 @@ pub fn do_migrate_34_to_35(
             });
 
             let mut items = inner_items.lock().unwrap();
-            debug!(target: "store", "inner items: {items.len()}");
+            let len = items.len();
+            debug!(target: "store", "inner items: {len}");
             for item in items.drain(..) {
                 let value_ref = ValueRef::new(&item.1);
                 store_update
@@ -257,7 +258,8 @@ pub fn do_migrate_34_to_35(
         }
 
         let mut items = inner_items.lock().unwrap();
-        debug!(target: "store", "inner items: {items.len()}");
+        let len = items.len();
+        debug!(target: "store", "remaining inner items: {len}");
         for item in items.drain(..) {
             let value_ref = ValueRef::new(&item.1);
             store_update
