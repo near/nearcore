@@ -3,6 +3,7 @@ use anyhow::Context;
 use clap::{Args, Parser};
 use near_chain_configs::GenesisValidationMode;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
+use near_mirror::MirrorCommand;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
     default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
@@ -93,6 +94,9 @@ impl NeardCmd {
             NeardSubCommand::VerifyProof(cmd) => {
                 cmd.run();
             }
+            NeardSubCommand::Mirror(cmd) => {
+                cmd.run()?;
+            }
         };
         Ok(())
     }
@@ -104,6 +108,8 @@ pub(crate) enum RunError {
     EnvFilter(#[source] BuildEnvFilterError),
     #[error("could not install a rayon thread pool")]
     RayonInstall(#[source] rayon::ThreadPoolBuildError),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 #[derive(Parser)]
@@ -189,6 +195,10 @@ pub(super) enum NeardSubCommand {
     /// Verify proofs
     #[clap(alias = "verify_proof")]
     VerifyProof(VerifyProofSubCommand),
+
+    /// Mirror transactions from a source chain to a test chain with state forked
+    /// from it, reproducing traffic and state as closely as possible.
+    Mirror(MirrorCommand),
 }
 
 #[derive(Parser)]
