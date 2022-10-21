@@ -133,7 +133,6 @@ pub fn do_migrate_34_to_35(
     // panic!("");
 
     let pool = rayon::ThreadPoolBuilder::new().num_threads(512).build().unwrap();
-    let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
 
     for shard_id in 1..4 {
         let shard_uid = runtime.shard_id_to_uid(shard_id, &epoch_id)?;
@@ -245,6 +244,7 @@ pub fn do_migrate_34_to_35(
                 inner_sender.send(n).unwrap();
             });
 
+            let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
             let mut items = inner_items.lock().unwrap();
             let len = items.len();
             debug!(target: "store", "inner items: {len}");
@@ -254,9 +254,11 @@ pub fn do_migrate_34_to_35(
                     .set_ser(DBCol::FlatState, &item.0, &value_ref)
                     .expect("Failed to put value in FlatState");
             }
+            store_update.finish().unwrap();
             // handles.push(handle);
         }
 
+        let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
         let mut items = inner_items.lock().unwrap();
         let len = items.len();
         debug!(target: "store", "remaining inner items: {len}");
