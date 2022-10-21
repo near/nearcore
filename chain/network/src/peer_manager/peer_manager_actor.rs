@@ -42,6 +42,7 @@ use parking_lot::RwLock;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::cmp::min;
+use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
@@ -148,6 +149,8 @@ pub struct PeerManagerActor {
 
     /// Last time when we tried to establish connection to this peer.
     last_peer_outbound_attempt: HashMap<PeerId, time::Utc>,
+
+    failed_connections: Arc<std::sync::Mutex<VecDeque<PeerId>>>,
 }
 
 /// TEST-ONLY
@@ -869,6 +872,14 @@ impl PeerManagerActor {
                 error!(target: "network", ?err, "Failed to unban a peer");
             }
         }
+        if let Err(err) = self.peer_store.update_connected_peers_last_seen(&self.clock) {
+            error!(target: "network", ?err, "Failed to update peers last seen time.");
+        }
+
+        for failed_peer_id in self.failed_connections.lock().expect("Lock error").drain(..) {
+            error!(target: "network", ?failed_peer_id, "Marking peer as failed.");
+            self.peer_store.peer_connection_failed(&self.clock, &failed_peer_id);
+        }
 
         if self.is_outbound_bootstrap_needed() {
             let tier2 = self.state.tier2.load();
@@ -888,6 +899,7 @@ impl PeerManagerActor {
                 ctx.spawn(wrap_future({
                     let state = self.state.clone();
                     let clock = self.clock.clone();
+                    let failed_connections = self.failed_connections.clone();
                     async move {
                         if let Err(err) = async {
                             let stream = tcp::Stream::connect(&peer_info).await.context("tcp::Stream::connect()")?;
@@ -895,6 +907,7 @@ impl PeerManagerActor {
                             anyhow::Ok(())
                         }.await {
                             tracing::info!(target:"network", ?err, "failed to connect to {peer_info}");
+                            failed_connections.lock().expect("Lock error").push_back(peer_info.id);
                         }
                     }
                 }));

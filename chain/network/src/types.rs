@@ -88,9 +88,14 @@ pub struct Ban {
 /// Status of the known peers.
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum KnownPeerStatus {
+    /// We got information about this peer from someone, but we didn't
+    /// verify them yet. This peer might not exist, invalid IP etc.
     Unknown,
+    /// We know that this peer exists - we were connected to it, or it was provided as boot node.
     NotConnected,
+    /// We're currently connected to this peer.
     Connected,
+    /// We banned this peer for some reason. Once the ban time is over, it will move to 'NotConnected' state.
     Banned(ReasonForBan, time::Utc),
 }
 
