@@ -76,6 +76,7 @@ pub fn migrate_34_to_35(
     storage: &NodeStorage,
     near_config: &crate::NearConfig,
 ) -> anyhow::Result<()> {
+    Ok(())
     let store = storage.get_store(Temperature::Hot);
     // just needed for NightshadeRuntime initialization and is used only for trying to retrieve state dump which is
     // not present. we should consider making this parameter optional or pass homedir to migrator
