@@ -94,26 +94,14 @@ impl GenesisStateApplier {
         shard_uid: ShardUId,
     ) {
         state_update.commit(StateChangeCause::InitialState);
-
+        let (trie_changes, state_changes) =
+            state_update.finalize().expect("Genesis state update failed");
+        let mut store_update = tries.store_update();
+        *current_state_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         #[cfg(feature = "protocol_feature_flat_state")]
-        let (store_update, new_state_root) = {
-            let (trie_changes, state_changes) =
-                state_update.finalize().expect("Genesis state update failed");
-            let (mut store_update, new_state_root) = tries.apply_all(&trie_changes, shard_uid);
-            FlatStateDelta::from_state_changes(&state_changes)
-                .apply_to_flat_state(&mut store_update);
-            (store_update, new_state_root)
-        };
-
-        #[cfg(not(feature = "protocol_feature_flat_state"))]
-        let (store_update, new_state_root) = {
-            let (trie_changes, _) = state_update.finalize().expect("Genesis state update failed");
-            let (store_update, new_state_root) = tries.apply_all(&trie_changes, shard_uid);
-            (store_update, new_state_root)
-        };
-
+        FlatStateDelta::from_state_changes(&state_changes).apply_to_flat_state(&mut store_update);
+        drop(state_changes); // silence compiler when not protocol_feature_flat_state
         store_update.commit().expect("Store update failed on genesis initialization");
-        *current_state_root = new_state_root;
     }
 
     fn apply_batch(

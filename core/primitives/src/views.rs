@@ -12,6 +12,7 @@ use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
+use near_o11y::pretty;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader, Tip};
@@ -24,7 +25,8 @@ use crate::contract::ContractCode;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
-use crate::merkle::MerklePath;
+use crate::merkle::{combine_hash, MerklePath};
+use crate::network::PeerId;
 use crate::profile::Cost;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::serialize::{base64_format, dec_format, option_base64_format};
@@ -35,7 +37,8 @@ use crate::sharding::{
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
-    ExecutionStatus, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
+    ExecutionStatus, FunctionCallAction, PartialExecutionOutcome, PartialExecutionStatus,
+    SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
@@ -242,6 +245,18 @@ impl FromIterator<AccessKeyInfoView> for AccessKeyList {
     }
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct KnownPeerStateView {
+    pub peer_id: PeerId,
+    pub status: String,
+    pub addr: String,
+    pub first_seen: i64,
+    pub last_seen: i64,
+    pub last_attempt: Option<i64>,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum QueryResponseKind {
     ViewAccount(AccountView),
@@ -370,6 +385,11 @@ pub enum SyncStatusView {
     StateSyncDone,
     /// Catch up on blocks.
     BodySync { start_height: BlockHeight, current_height: BlockHeight, highest_height: BlockHeight },
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct PeerStoreView {
+    pub peer_states: Vec<KnownPeerStateView>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -1098,7 +1118,7 @@ impl fmt::Debug for FinalExecutionStatus {
             FinalExecutionStatus::Started => f.write_str("Started"),
             FinalExecutionStatus::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
             FinalExecutionStatus::SuccessValue(v) => {
-                f.write_fmt(format_args!("SuccessValue({})", logging::pretty_utf8(&v)))
+                f.write_fmt(format_args!("SuccessValue({})", pretty::AbbrBytes(v)))
             }
         }
     }
@@ -1136,7 +1156,7 @@ impl fmt::Debug for ExecutionStatusView {
             ExecutionStatusView::Unknown => f.write_str("Unknown"),
             ExecutionStatusView::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
             ExecutionStatusView::SuccessValue(v) => {
-                f.write_fmt(format_args!("SuccessValue({})", logging::pretty_utf8(&v)))
+                f.write_fmt(format_args!("SuccessValue({})", pretty::AbbrBytes(v)))
             }
             ExecutionStatusView::SuccessReceiptId(receipt_id) => {
                 f.write_fmt(format_args!("SuccessReceiptId({})", receipt_id))
@@ -1260,6 +1280,42 @@ impl From<ExecutionOutcome> for ExecutionOutcomeView {
     }
 }
 
+impl From<&ExecutionOutcomeView> for PartialExecutionOutcome {
+    fn from(outcome: &ExecutionOutcomeView) -> Self {
+        Self {
+            receipt_ids: outcome.receipt_ids.clone(),
+            gas_burnt: outcome.gas_burnt,
+            tokens_burnt: outcome.tokens_burnt,
+            executor_id: outcome.executor_id.clone(),
+            status: outcome.status.clone().into(),
+        }
+    }
+}
+impl From<ExecutionStatusView> for PartialExecutionStatus {
+    fn from(status: ExecutionStatusView) -> PartialExecutionStatus {
+        match status {
+            ExecutionStatusView::Unknown => PartialExecutionStatus::Unknown,
+            ExecutionStatusView::Failure(_) => PartialExecutionStatus::Failure,
+            ExecutionStatusView::SuccessValue(value) => PartialExecutionStatus::SuccessValue(value),
+            ExecutionStatusView::SuccessReceiptId(id) => {
+                PartialExecutionStatus::SuccessReceiptId(id)
+            }
+        }
+    }
+}
+
+impl ExecutionOutcomeView {
+    // Same behavior as ExecutionOutcomeWithId's to_hashes.
+    pub fn to_hashes(&self, id: CryptoHash) -> Vec<CryptoHash> {
+        let mut result = Vec::with_capacity(2 + self.logs.len());
+        result.push(id);
+        result.push(CryptoHash::hash_borsh(&PartialExecutionOutcome::from(self)));
+        result.extend(self.logs.iter().map(|log| hash(log.as_bytes())));
+        result
+    }
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ExecutionOutcomeWithIdView {
     pub proof: MerklePath,
@@ -1276,6 +1332,12 @@ impl From<ExecutionOutcomeWithIdAndProof> for ExecutionOutcomeWithIdView {
             id: outcome_with_id_and_proof.outcome_with_id.id,
             outcome: outcome_with_id_and_proof.outcome_with_id.outcome.into(),
         }
+    }
+}
+
+impl ExecutionOutcomeWithIdView {
+    pub fn to_hashes(&self) -> Vec<CryptoHash> {
+        self.outcome.to_hashes(self.id)
     }
 }
 
@@ -1597,6 +1659,18 @@ impl From<BlockHeader> for LightClientBlockLiteView {
             inner_rest_hash: hash(&header.inner_rest_bytes()),
             inner_lite: header.into(),
         }
+    }
+}
+impl LightClientBlockLiteView {
+    pub fn hash(&self) -> CryptoHash {
+        let block_header_inner_lite: BlockHeaderInnerLite = self.inner_lite.clone().into();
+        combine_hash(
+            &combine_hash(
+                &hash(&block_header_inner_lite.try_to_vec().unwrap()),
+                &self.inner_rest_hash,
+            ),
+            &self.prev_block_hash,
+        )
     }
 }
 

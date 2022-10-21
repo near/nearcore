@@ -1560,7 +1560,8 @@ mod tests {
         set_account(&mut state_update, account_id.clone(), &test_account);
         state_update.commit(StateChangeCause::InitialState);
         let trie_changes = state_update.finalize().unwrap().0;
-        let (store_update, new_root) = tries.apply_all(&trie_changes, ShardUId::single_shard());
+        let mut store_update = tries.store_update();
+        let new_root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
         let new_state_update = tries.new_trie_update(ShardUId::single_shard(), new_root);
         let get_res = get_account(&new_state_update, &account_id).unwrap().unwrap();
@@ -1601,7 +1602,8 @@ mod tests {
         );
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap().0;
-        let (store_update, root) = tries.apply_all(&trie_changes, ShardUId::single_shard());
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
@@ -1697,9 +1699,12 @@ mod tests {
                     Default::default(),
                 )
                 .unwrap();
-            let (store_update, new_root) =
-                tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard());
-            root = new_root;
+            let mut store_update = tries.store_update();
+            root = tries.apply_all(
+                &apply_result.trie_changes,
+                ShardUId::single_shard(),
+                &mut store_update,
+            );
             store_update.commit().unwrap();
             let state = tries.new_trie_update(ShardUId::single_shard(), root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
@@ -1739,9 +1744,12 @@ mod tests {
                     Default::default(),
                 )
                 .unwrap();
-            let (store_update, new_root) =
-                tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard());
-            root = new_root;
+            let mut store_update = tries.store_update();
+            root = tries.apply_all(
+                &apply_result.trie_changes,
+                ShardUId::single_shard(),
+                &mut store_update,
+            );
             store_update.commit().unwrap();
             let state = tries.new_trie_update(ShardUId::single_shard(), root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
@@ -1789,8 +1797,12 @@ mod tests {
                     Default::default(),
                 )
                 .unwrap();
-            let (store_update, new_root) =
-                tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard());
+            let mut store_update = tries.store_update();
+            let new_root = tries.apply_all(
+                &apply_result.trie_changes,
+                ShardUId::single_shard(),
+                &mut store_update,
+            );
             root = new_root;
             store_update.commit().unwrap();
             let state = tries.new_trie_update(ShardUId::single_shard(), root);
@@ -1848,9 +1860,12 @@ mod tests {
                     Default::default(),
                 )
                 .unwrap();
-            let (store_update, new_root) =
-                tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard());
-            root = new_root;
+            let mut store_update = tries.store_update();
+            root = tries.apply_all(
+                &apply_result.trie_changes,
+                ShardUId::single_shard(),
+                &mut store_update,
+            );
             store_update.commit().unwrap();
             let state = tries.new_trie_update(ShardUId::single_shard(), root);
             num_receipts_processed += apply_result.outcomes.len() as u64;
@@ -1950,8 +1965,12 @@ mod tests {
                 Default::default(),
             )
             .unwrap();
-        let (store_update, root) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard());
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(
+            &apply_result.trie_changes,
+            ShardUId::single_shard(),
+            &mut store_update,
+        );
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -1998,8 +2017,12 @@ mod tests {
                 Default::default(),
             )
             .unwrap();
-        let (store_update, root) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard());
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(
+            &apply_result.trie_changes,
+            ShardUId::single_shard(),
+            &mut store_update,
+        );
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -2038,8 +2061,12 @@ mod tests {
                 Default::default(),
             )
             .unwrap();
-        let (store_update, root) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard());
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(
+            &apply_result.trie_changes,
+            ShardUId::single_shard(),
+            &mut store_update,
+        );
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -2086,8 +2113,12 @@ mod tests {
                 Default::default(),
             )
             .unwrap();
-        let (store_update, root) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard());
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(
+            &apply_result.trie_changes,
+            ShardUId::single_shard(),
+            &mut store_update,
+        );
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -2321,8 +2352,12 @@ mod tests {
                 Default::default(),
             )
             .unwrap();
-        let (store_update, root) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard());
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(
+            &apply_result.trie_changes,
+            ShardUId::single_shard(),
+            &mut store_update,
+        );
         store_update.commit().unwrap();
 
         let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
@@ -2344,7 +2379,8 @@ mod tests {
         set_account(&mut state_update, alice_account(), &initial_account_state);
         state_update.commit(StateChangeCause::InitialState);
         let trie_changes = state_update.finalize().unwrap().0;
-        let (store_update, root) = tries.apply_all(&trie_changes, ShardUId::single_shard());
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
 
         let actions = vec![Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key() })];
@@ -2362,8 +2398,12 @@ mod tests {
                 Default::default(),
             )
             .unwrap();
-        let (store_update, root) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard());
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(
+            &apply_result.trie_changes,
+            ShardUId::single_shard(),
+            &mut store_update,
+        );
         store_update.commit().unwrap();
 
         let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
@@ -2397,8 +2437,8 @@ mod tests {
                 Default::default(),
             )
             .unwrap();
-        let (store_update, _) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard());
+        let mut store_update = tries.store_update();
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
 
         let contract_code = ContractCode::new(wasm_code, None);

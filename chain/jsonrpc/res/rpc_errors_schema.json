@@ -534,15 +534,6 @@
         "tx_burnt_amount": ""
       }
     },
-    "ContractCallError": {
-      "name": "ContractCallError",
-      "subtypes": [
-        "MethodResolveError",
-        "CompilationError",
-        "ExecutionError"
-      ],
-      "props": {}
-    },
     "CostOverflow": {
       "name": "CostOverflow",
       "subtypes": [],
@@ -596,13 +587,6 @@
       "name": "DepositWithFunctionCall",
       "subtypes": [],
       "props": {}
-    },
-    "ExecutionError": {
-      "name": "ExecutionError",
-      "subtypes": [],
-      "props": {
-        "msg": ""
-      }
     },
     "Expired": {
       "name": "Expired",
