@@ -56,28 +56,29 @@ pub enum FunctionCallError {
     /// A trap happened during execution of a binary
     WasmTrap(WasmTrap),
     HostError(HostError),
-    // Unused, can be reused by a future error but must be exactly one error to keep Nondeterministic
-    // error borsh serialized at correct index
-    _EVMError,
 }
 
 /// Serializable version of `FunctionCallError`. Must never reorder/remove elements, can only
-/// add new variants at the end (but do that very carefully). This type must be never used
-/// directly, and must be converted to `ContractCallError` instead using `into()` converter.
+/// add new variants at the end (but do that very carefully).
 /// It describes stable serialization format, and only used by serialization logic.
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 pub enum FunctionCallErrorSer {
     /// Wasm compilation error
     CompilationError(CompilationError),
     /// Wasm binary env link error
+    ///
+    /// Note: this is only to deserialize old data, use execution error for new data
     LinkError {
         msg: String,
     },
     /// Import/export resolve error
     MethodResolveError(MethodResolveError),
     /// A trap happened during execution of a binary
+    ///
+    /// Note: this is only to deserialize old data, use execution error for new data
     WasmTrap(WasmTrap),
     WasmUnknownError,
+    /// Note: this is only to deserialize old data, use execution error for new data
     HostError(HostError),
     // Unused, can be reused by a future error but must be exactly one error to keep ExecutionError
     // error borsh serialized at correct index
@@ -301,6 +302,27 @@ pub enum InconsistentStateError {
     IntegerOverflow,
 }
 
+impl From<FunctionCallError> for FunctionCallErrorSer {
+    fn from(outer_err: FunctionCallError) -> Self {
+        match outer_err {
+            FunctionCallError::CompilationError(e) => FunctionCallErrorSer::CompilationError(e),
+            FunctionCallError::MethodResolveError(e) => FunctionCallErrorSer::MethodResolveError(e),
+            // Note: We deliberately collapse all execution errors for
+            // serialization to make the DB representation less dependent
+            // on specific types in Rust code.
+            FunctionCallError::HostError(ref _e) => {
+                FunctionCallErrorSer::ExecutionError(outer_err.to_string())
+            }
+            FunctionCallError::LinkError { msg } => {
+                FunctionCallErrorSer::ExecutionError(format!("Link Error: {}", msg))
+            }
+            FunctionCallError::WasmTrap(ref _e) => {
+                FunctionCallErrorSer::ExecutionError(outer_err.to_string())
+            }
+        }
+    }
+}
+
 impl From<HostError> for VMLogicError {
     fn from(err: HostError) -> Self {
         VMLogicError::HostError(err)
@@ -371,7 +393,6 @@ impl fmt::Display for FunctionCallError {
             FunctionCallError::HostError(e) => e.fmt(f),
             FunctionCallError::LinkError { msg } => write!(f, "{}", msg),
             FunctionCallError::WasmTrap(trap) => write!(f, "WebAssembly trap: {}", trap),
-            FunctionCallError::_EVMError => unreachable!(),
         }
     }
 }

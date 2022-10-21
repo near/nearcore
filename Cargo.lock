@@ -3048,6 +3048,7 @@ dependencies = [
  "actix",
  "actix-cors",
  "actix-web",
+ "bs58",
  "easy-ext",
  "futures",
  "near-chain-configs",
@@ -3216,7 +3217,7 @@ dependencies = [
  "clap 3.1.18",
  "itoa 1.0.2",
  "near-crypto",
- "near-primitives",
+ "near-primitives-core",
  "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -3288,6 +3289,7 @@ dependencies = [
  "hex",
  "insta",
  "near-crypto",
+ "near-o11y",
  "near-primitives-core",
  "near-rpc-error-macro",
  "near-vm-errors",
@@ -3335,6 +3337,7 @@ dependencies = [
  "hex",
  "insta",
  "near-account-id",
+ "near-actix-test-utils",
  "near-chain-configs",
  "near-client",
  "near-client-primitives",
@@ -3606,10 +3609,12 @@ name = "neard"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "ansi_term",
  "anyhow",
  "clap 3.1.18",
  "futures",
  "near-chain-configs",
+ "near-jsonrpc-primitives",
  "near-o11y",
  "near-performance-metrics",
  "near-primitives",
@@ -5878,9 +5883,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-core"
-version = "0.1.29"
+version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5aeea4303076558a00714b823f9ad67d58a3bbda1df83d8827d21193156e22f7"
+checksum = "24eb03ba0eab1fd845050058ce5e616558e8f8d8fca633e6b163fe25c797213a"
 dependencies = [
  "once_cell",
  "valuable",

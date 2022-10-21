@@ -17,6 +17,7 @@
 
 - [Overview](./practices/README.md)
 - [Code Style](./practices/style.md)
+- [Documentation](./practices/docs.md)
 - [Tracking Issues](./practices/tracking_issues.md)
 - [Fast Builds](./practices/fast_builds.md)
 - [Testing](./practices/testing/README.md)

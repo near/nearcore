@@ -21,7 +21,7 @@ use crate::time;
 use crate::types::PeerIdOrHash;
 use actix::{Actor, Context, Handler};
 use near_crypto::{InMemorySigner, Signature};
-use near_o11y::WithSpanContextExt;
+use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_primitives::network::PeerId;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -69,10 +69,15 @@ impl Actor for FakePeerManagerActor {
     type Context = Context<Self>;
 }
 
-impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
+impl Handler<WithSpanContext<PeerToManagerMsg>> for FakePeerManagerActor {
     type Result = PeerToManagerMsgResp;
-    fn handle(&mut self, msg: PeerToManagerMsg, _ctx: &mut Self::Context) -> Self::Result {
-        let msg_type: &str = (&msg).into();
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<PeerToManagerMsg>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let msg_type: &str = (&msg.msg).into();
+        let (_span, msg) = handler_debug_span!(target: "network", msg, msg_type);
         println!("{}: PeerManager message {}", self.cfg.id(), msg_type);
         match msg {
             PeerToManagerMsg::RegisterPeer(..) => {

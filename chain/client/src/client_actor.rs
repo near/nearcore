@@ -35,7 +35,7 @@ use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_o11y::{handler_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::block_header::ApprovalType;
@@ -267,7 +267,7 @@ impl Handler<WithSpanContext<NetworkClientMessages>> for ClientActor {
         ctx: &mut Context<Self>,
     ) -> Self::Result {
         let msg_type: &'static str = (&msg.msg).into();
-        let (_span, msg) = handler_span!("client", msg, msg_type);
+        let (_span, msg) = handler_debug_span!(target: "client", msg, msg_type);
 
         self.check_triggers(ctx);
 
@@ -325,7 +325,8 @@ impl ClientActor {
                             self.network_adapter.do_send(
                                 PeerManagerMessageRequest::NetworkRequests(
                                     NetworkRequests::Block { block: block.clone() },
-                                ),
+                                )
+                                .with_span_context(),
                             );
                             let _ = self.client.start_process_block(
                                 block.into(),
@@ -634,7 +635,7 @@ impl Handler<WithSpanContext<near_client_primitives::types::SandboxMessage>> for
         msg: WithSpanContext<near_client_primitives::types::SandboxMessage>,
         _ctx: &mut Context<Self>,
     ) -> near_client_primitives::types::SandboxResponse {
-        let (_span, msg) = handler_span!("client", msg);
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         match msg {
             near_client_primitives::types::SandboxMessage::SandboxPatchState(state) => {
                 self.client.chain.patch_state(
@@ -670,7 +671,7 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<Status>, ctx: &mut Context<Self>) -> Self::Result {
-        let (_span, msg) = handler_span!("client", msg);
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _d = delay_detector::DelayDetector::new(|| "client status".into());
         self.check_triggers(ctx);
 
@@ -816,7 +817,7 @@ impl Handler<WithSpanContext<GetNetworkInfo>> for ClientActor {
         msg: WithSpanContext<GetNetworkInfo>,
         ctx: &mut Context<Self>,
     ) -> Self::Result {
-        let (_span, _msg) = handler_span!("client", msg);
+        let (_span, _msg) = handler_debug_span!(target: "client", msg);
         let _d = delay_detector::DelayDetector::new(|| "client get network info".into());
         self.check_triggers(ctx);
 
@@ -853,7 +854,7 @@ impl Handler<WithSpanContext<ApplyChunksDoneMessage>> for ClientActor {
         msg: WithSpanContext<ApplyChunksDoneMessage>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, _msg) = handler_span!("client", msg);
+        let (_span, _msg) = handler_debug_span!(target: "client", msg);
         self.try_process_unfinished_blocks();
     }
 }
@@ -902,14 +903,17 @@ impl ClientActor {
                 &self.node_id,
                 &next_epoch_id,
             );
-            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::AnnounceAccount(AnnounceAccount {
-                    account_id: validator_signer.validator_id().clone(),
-                    peer_id: self.node_id.clone(),
-                    epoch_id: next_epoch_id,
-                    signature,
-                }),
-            ));
+            self.network_adapter.do_send(
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::AnnounceAccount(
+                    AnnounceAccount {
+                        account_id: validator_signer.validator_id().clone(),
+                        peer_id: self.node_id.clone(),
+                        epoch_id: next_epoch_id,
+                        signature,
+                    },
+                ))
+                .with_span_context(),
+            );
         }
     }
 
@@ -1331,9 +1335,12 @@ impl ClientActor {
         // If we didn't produce the block and didn't request it, do basic validation
         // before sending it out.
         if provenance == Provenance::PRODUCED {
-            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::Block { block: block.as_ref().into_inner().clone() },
-            ));
+            self.network_adapter.do_send(
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Block {
+                    block: block.as_ref().into_inner().clone(),
+                })
+                .with_span_context(),
+            );
             // If we produced it, we don’t need to validate it.  Mark the block
             // as valid.
             block.mark_as_valid();
@@ -1357,12 +1364,13 @@ impl ClientActor {
                     }
                 }
                 Err(e) if e.is_bad_data() => {
-                    self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::BanPeer {
+                    self.network_adapter.do_send(
+                        PeerManagerMessageRequest::NetworkRequests(NetworkRequests::BanPeer {
                             peer_id: peer_id.clone(),
                             ban_reason: ReasonForBan::BadBlockHeader,
-                        },
-                    ));
+                        })
+                        .with_span_context(),
+                    );
                     return Err(e);
                 }
                 Err(_) => {
@@ -1410,6 +1418,23 @@ impl ClientActor {
         if block.header().height() < tail {
             debug!(target: "client", tail_height = tail, "Dropping a block that is too far behind.");
             return;
+        }
+        // drop the block if a) it is not requested, b) we already processed this height, c) it is not building on top of current head
+        // Note that this check must happen before process_block where we try to validate block
+        // header and rebroadcast blocks, otherwise blocks that failed processing could be
+        // processed and rebroadcasted again and again.
+        if !was_requested
+            && block.header().prev_hash()
+                != &self
+                    .client
+                    .chain
+                    .head()
+                    .map_or_else(|_| CryptoHash::default(), |tip| tip.last_block_hash)
+        {
+            if self.client.chain.is_height_processed(block.header().height()).unwrap_or_default() {
+                debug!(target: "client", height = block.header().height(), "Dropping a block because we've seen this height before and we didn't request it");
+                return;
+            }
         }
         let prev_hash = *block.header().prev_hash();
         let provenance =
@@ -1469,9 +1494,13 @@ impl ClientActor {
     fn request_block(&mut self, hash: CryptoHash, peer_id: PeerId) {
         match self.client.chain.block_exists(&hash) {
             Ok(false) => {
-                self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::BlockRequest { hash, peer_id },
-                ));
+                self.network_adapter.do_send(
+                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::BlockRequest {
+                        hash,
+                        peer_id,
+                    })
+                    .with_span_context(),
+                );
             }
             Ok(true) => {
                 debug!(target: "client", "send_block_request_to_peer: block {} already known", hash)
@@ -1915,7 +1944,7 @@ impl Handler<WithSpanContext<ApplyStatePartsRequest>> for SyncJobsActor {
         msg: WithSpanContext<ApplyStatePartsRequest>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = handler_span!("client", msg);
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let result = self.apply_parts(&msg);
 
         self.client_addr.do_send(
@@ -1937,7 +1966,7 @@ impl Handler<WithSpanContext<ApplyStatePartsResponse>> for ClientActor {
         msg: WithSpanContext<ApplyStatePartsResponse>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = handler_span!("client", msg);
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
             sync.set_apply_result(msg.shard_id, msg.apply_result);
@@ -1955,7 +1984,7 @@ impl Handler<WithSpanContext<BlockCatchUpRequest>> for SyncJobsActor {
         msg: WithSpanContext<BlockCatchUpRequest>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = handler_span!("client", msg);
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work);
 
         self.client_addr.do_send(
@@ -1973,7 +2002,7 @@ impl Handler<WithSpanContext<BlockCatchUpResponse>> for ClientActor {
         msg: WithSpanContext<BlockCatchUpResponse>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = handler_span!("client", msg);
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         if let Some((_, _, blocks_catch_up_state)) =
             self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
         {
@@ -1993,7 +2022,7 @@ impl Handler<WithSpanContext<StateSplitRequest>> for SyncJobsActor {
         msg: WithSpanContext<StateSplitRequest>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = handler_span!("client", msg);
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let results = msg.runtime.build_state_for_split_shards(
             msg.shard_uid,
             &msg.state_root,
@@ -2020,7 +2049,7 @@ impl Handler<WithSpanContext<StateSplitResponse>> for ClientActor {
         msg: WithSpanContext<StateSplitResponse>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = handler_span!("client", msg);
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
             sync.set_split_result(msg.shard_id, msg.new_state_roots);
@@ -2038,7 +2067,7 @@ impl Handler<WithSpanContext<ShardsManagerResponse>> for ClientActor {
         msg: WithSpanContext<ShardsManagerResponse>,
         _: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = handler_span!("client", msg);
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         match msg {
             ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
                 self.client.on_chunk_completed(

@@ -5,10 +5,10 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{KeyType, PublicKey};
+use near_o11y::pretty;
 
 use crate::borsh::maybestd::collections::HashMap;
 use crate::hash::CryptoHash;
-use crate::logging;
 use crate::serialize::{dec_format, option_base64_format};
 use crate::transaction::{Action, TransferAction};
 use crate::types::{AccountId, Balance, ShardId};
@@ -126,6 +126,15 @@ pub struct DataReceipt {
     pub data: Option<Vec<u8>>,
 }
 
+impl fmt::Debug for DataReceipt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DataReceipt")
+            .field("data_id", &self.data_id)
+            .field("data", &format_args!("{}", pretty::AbbrBytes(self.data.as_deref())))
+            .finish()
+    }
+}
+
 /// The outgoing (egress) data which will be transformed
 /// to a `DataReceipt` to be sent to a `receipt.receiver`
 #[derive(
@@ -134,15 +143,6 @@ pub struct DataReceipt {
 pub struct DataReceiver {
     pub data_id: CryptoHash,
     pub receiver_id: AccountId,
-}
-
-impl fmt::Debug for DataReceipt {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("DataReceipt")
-            .field("data_id", &self.data_id)
-            .field("data", &format_args!("{}", logging::pretty_result(&self.data)))
-            .finish()
-    }
 }
 
 /// A temporary data which is created by processing of DataReceipt
@@ -157,7 +157,7 @@ pub struct ReceivedData {
 impl fmt::Debug for ReceivedData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ReceivedData")
-            .field("data", &format_args!("{}", logging::pretty_result(&self.data)))
+            .field("data", &format_args!("{}", pretty::AbbrBytes(self.data.as_deref())))
             .finish()
     }
 }
