@@ -134,7 +134,7 @@ pub fn do_migrate_34_to_35(
 
     let pool = rayon::ThreadPoolBuilder::new().num_threads(512).build().unwrap();
 
-    for shard_id in 1..4 {
+    for shard_id in 0..num_shards {
         let shard_uid = runtime.shard_id_to_uid(shard_id, &epoch_id)?;
         let state_root = chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root().clone();
         let trie = runtime.get_trie_for_shard(shard_id, &block_hash, state_root, false)?;
@@ -280,7 +280,7 @@ pub fn do_migrate_34_to_35(
         info!(target: "store", "Wrote {n} state items");
     }
 
-    panic!("Migration succeeded. Still, don't start the node yet.");
+    // panic!("Migration succeeded. Still, don't start the node yet.");
 
     Ok(())
 }
