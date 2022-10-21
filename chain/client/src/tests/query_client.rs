@@ -5,6 +5,7 @@ use near_primitives::merkle::PartialMerkleTree;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::adapter::StateRequestHeader;
 use crate::test_utils::{setup_mock_all_validators, setup_no_network, setup_only_view};
 use crate::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, QueryError, Status,
@@ -14,11 +15,11 @@ use near_actix_test_utils::run_actix;
 use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::MockPeerManagerAdapter;
+use near_network::types::PeerInfo;
 use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
-use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo};
 
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
@@ -230,41 +231,26 @@ fn test_state_request() {
             for _ in 0..30 {
                 let res = view_client
                     .send(
-                        NetworkViewClientMessages::StateRequestHeader {
-                            shard_id: 0,
-                            sync_hash: block_hash,
-                        }
-                        .with_span_context(),
+                        StateRequestHeader { shard_id: 0, sync_hash: block_hash }
+                            .with_span_context(),
                     )
                     .await
                     .unwrap();
-                assert!(matches!(res, NetworkViewClientResponses::StateResponse(_)));
+                assert!(res.is_some());
             }
 
             // immediately query again, should be rejected
             let res = view_client
-                .send(
-                    NetworkViewClientMessages::StateRequestHeader {
-                        shard_id: 0,
-                        sync_hash: block_hash,
-                    }
-                    .with_span_context(),
-                )
+                .send(StateRequestHeader { shard_id: 0, sync_hash: block_hash }.with_span_context())
                 .await
                 .unwrap();
-            assert!(matches!(res, NetworkViewClientResponses::NoResponse));
+            assert!(res.is_none());
             actix::clock::sleep(Duration::from_secs(40)).await;
             let res = view_client
-                .send(
-                    NetworkViewClientMessages::StateRequestHeader {
-                        shard_id: 0,
-                        sync_hash: block_hash,
-                    }
-                    .with_span_context(),
-                )
+                .send(StateRequestHeader { shard_id: 0, sync_hash: block_hash }.with_span_context())
                 .await
                 .unwrap();
-            assert!(matches!(res, NetworkViewClientResponses::StateResponse(_)));
+            assert!(res.is_some());
             System::current().stop();
         });
         near_network::test_utils::wait_or_panic(50000);

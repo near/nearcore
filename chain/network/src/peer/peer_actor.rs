@@ -704,10 +704,10 @@ impl PeerActor {
             RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => network_state
                 .client
                 .tx_status_request(account_id, tx_hash)
-                .await?
-                .map(RoutedMessageBody::TxStatusResponse),
+                .await
+                .map(|v| RoutedMessageBody::TxStatusResponse(*v)),
             RoutedMessageBody::TxStatusResponse(tx_result) => {
-                network_state.client.tx_status_response(tx_result).await?;
+                network_state.client.tx_status_response(tx_result).await;
                 None
             }
             RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => network_state
@@ -802,10 +802,10 @@ impl PeerActor {
                     )
                 }
                 PeerMessage::BlockRequest(hash) => {
-                    network_state.client.block_request(hash).await?.map(PeerMessage::Block)
+                    network_state.client.block_request(hash).await.map(|b|PeerMessage::Block(*b))
                 }
                 PeerMessage::BlockHeadersRequest(hashes) => {
-                    network_state.client.block_headers_request(hashes).await?.map(PeerMessage::BlockHeaders)
+                    network_state.client.block_headers_request(hashes).await.map(PeerMessage::BlockHeaders)
                 }
                 PeerMessage::Block(block) => {
                     network_state.client.block(block, peer_id, was_requested).await?;

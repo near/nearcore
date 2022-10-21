@@ -15,11 +15,9 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{PartialEncodedChunk, PartialEncodedChunkWithArcReceipts};
-use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
 use near_primitives::types::{AccountId, EpochId, ShardId};
-use near_primitives::views::FinalExecutionOutcomeView;
 use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView};
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
@@ -70,9 +68,6 @@ pub enum ReasonForBan {
     InvalidPeerId = 8,
     InvalidHash = 9,
     InvalidEdge = 10,
-    EpochSyncNoResponse = 11,
-    EpochSyncInvalidResponse = 12,
-    EpochSyncInvalidFinalizationResponse = 13,
     Blacklisted = 14,
 }
 
@@ -236,29 +231,15 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkRequests {
     /// Sends block, either when block was just produced or when requested.
-    Block {
-        block: Block,
-    },
+    Block { block: Block },
     /// Sends approval.
-    Approval {
-        approval_message: ApprovalMessage,
-    },
+    Approval { approval_message: ApprovalMessage },
     /// Request block with given hash from given peer.
-    BlockRequest {
-        hash: CryptoHash,
-        peer_id: PeerId,
-    },
+    BlockRequest { hash: CryptoHash, peer_id: PeerId },
     /// Request given block headers.
-    BlockHeadersRequest {
-        hashes: Vec<CryptoHash>,
-        peer_id: PeerId,
-    },
+    BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
     /// Request state header for given shard at given state root.
-    StateRequestHeader {
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        target: AccountOrPeerIdOrHash,
-    },
+    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, target: AccountOrPeerIdOrHash },
     /// Request state part for given shard at given state root.
     StateRequestPart {
         shard_id: ShardId,
@@ -267,23 +248,9 @@ pub enum NetworkRequests {
         target: AccountOrPeerIdOrHash,
     },
     /// Response to state request.
-    StateResponse {
-        route_back: CryptoHash,
-        response: StateResponseInfo,
-    },
-    EpochSyncRequest {
-        peer_id: PeerId,
-        epoch_id: EpochId,
-    },
-    EpochSyncFinalizationRequest {
-        peer_id: PeerId,
-        epoch_id: EpochId,
-    },
+    StateResponse { route_back: CryptoHash, response: StateResponseInfo },
     /// Ban given peer.
-    BanPeer {
-        peer_id: PeerId,
-        ban_reason: ReasonForBan,
-    },
+    BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
     /// Announce account
     AnnounceAccount(AnnounceAccount),
 
@@ -294,20 +261,14 @@ pub enum NetworkRequests {
         create_time: time::Instant,
     },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
-    PartialEncodedChunkResponse {
-        route_back: CryptoHash,
-        response: PartialEncodedChunkResponseMsg,
-    },
+    PartialEncodedChunkResponse { route_back: CryptoHash, response: PartialEncodedChunkResponseMsg },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunkMessage {
         account_id: AccountId,
         partial_encoded_chunk: PartialEncodedChunkWithArcReceipts,
     },
     /// Forwarding a chunk part to a validator tracking the shard
-    PartialEncodedChunkForward {
-        account_id: AccountId,
-        forward: PartialEncodedChunkForwardMsg,
-    },
+    PartialEncodedChunkForward { account_id: AccountId, forward: PartialEncodedChunkForwardMsg },
 
     /// Valid transaction but since we are not validators we send this transaction to current validators.
     ForwardTx(AccountId, SignedTransaction),
@@ -435,6 +396,19 @@ pub enum NetworkResponses {
     RouteNotFound,
 }
 
+#[cfg(feature = "test_features")]
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub enum NetworkAdversarialMessage {
+    AdvProduceBlocks(u64, bool),
+    AdvSwitchToHeight(u64),
+    AdvDisableHeaderSync,
+    AdvDisableDoomslug,
+    AdvGetSavedBlocks,
+    AdvCheckStorageConsistency,
+    AdvSetSyncInfo(u64),
+}
+
 #[derive(actix::Message, Debug, strum::AsRefStr, strum::IntoStaticStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
@@ -459,10 +433,6 @@ pub enum NetworkClientMessages {
     BlockApproval(Approval, PeerId),
     /// State response.
     StateResponse(StateResponseInfo),
-    /// Epoch Sync response for light client block request
-    EpochSyncResponse(PeerId, Box<EpochSyncResponse>),
-    /// Epoch Sync response for finalization request
-    EpochSyncFinalizationResponse(PeerId, Box<EpochSyncFinalizationResponse>),
 
     /// Request chunk parts and/or receipts.
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
@@ -521,7 +491,6 @@ where
         actix::Addr::do_send(self, msg)
     }
 }
-
 pub trait PeerManagerAdapter:
     MsgRecipient<WithSpanContext<PeerManagerMessageRequest>>
     + MsgRecipient<WithSpanContext<SetChainInfo>>
@@ -677,66 +646,4 @@ pub struct AccountIdOrPeerTrackingShard {
     pub only_archival: bool,
     /// Only send messages to peers whose latest chain height is no less `min_height`
     pub min_height: BlockHeight,
-}
-
-#[derive(actix::Message, strum::IntoStaticStr)]
-#[rtype(result = "NetworkViewClientResponses")]
-pub enum NetworkViewClientMessages {
-    #[cfg(feature = "test_features")]
-    Adversarial(NetworkAdversarialMessage),
-
-    /// Transaction status query
-    TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
-    /// Transaction status response
-    TxStatusResponse(Box<FinalExecutionOutcomeView>),
-    /// Request a block.
-    BlockRequest(CryptoHash),
-    /// Request headers.
-    BlockHeadersRequest(Vec<CryptoHash>),
-    /// State request header.
-    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash },
-    /// State request part.
-    StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64 },
-    /// A request for a light client info during Epoch Sync
-    EpochSyncRequest { epoch_id: EpochId },
-    /// A request for headers and proofs during Epoch Sync
-    EpochSyncFinalizationRequest { epoch_id: EpochId },
-    /// Account announcements that needs to be validated before being processed.
-    /// They are paired with last epoch id known to this announcement, in order to accept only
-    /// newer announcements.
-    AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
-}
-
-#[derive(Debug, actix::MessageResponse)]
-pub enum NetworkViewClientResponses {
-    /// Transaction execution outcome
-    TxStatus(Box<FinalExecutionOutcomeView>),
-    /// Block response.
-    Block(Box<Block>),
-    /// Headers response.
-    BlockHeaders(Vec<BlockHeader>),
-    /// Response to state request.
-    StateResponse(Box<StateResponseInfo>),
-    /// Valid announce accounts.
-    AnnounceAccount(Vec<AnnounceAccount>),
-    /// A response to a request for a light client block during Epoch Sync
-    EpochSyncResponse(Box<EpochSyncResponse>),
-    /// A response to a request for headers and proofs during Epoch Sync
-    EpochSyncFinalizationResponse(Box<EpochSyncFinalizationResponse>),
-    /// Ban peer for malicious behavior.
-    Ban { ban_reason: ReasonForBan },
-    /// Response not needed
-    NoResponse,
-}
-
-#[cfg(feature = "test_features")]
-#[derive(Debug)]
-pub enum NetworkAdversarialMessage {
-    AdvProduceBlocks(u64, bool),
-    AdvSwitchToHeight(u64),
-    AdvDisableHeaderSync,
-    AdvDisableDoomslug,
-    AdvGetSavedBlocks,
-    AdvCheckStorageConsistency,
-    AdvSetSyncInfo(u64),
 }

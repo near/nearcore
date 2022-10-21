@@ -1171,10 +1171,8 @@ impl JsonRpcHandler {
         actix::spawn(
             self.view_client_addr
                 .send(
-                    near_network::types::NetworkViewClientMessages::Adversarial(
-                        near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync,
-                    )
-                    .with_span_context(),
+                    near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync
+                        .with_span_context(),
                 )
                 .map(|_| ()),
         );
@@ -1195,10 +1193,8 @@ impl JsonRpcHandler {
         actix::spawn(
             self.view_client_addr
                 .send(
-                    near_network::types::NetworkViewClientMessages::Adversarial(
-                        near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug,
-                    )
-                    .with_span_context(),
+                    near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug
+                        .with_span_context(),
                 )
                 .map(|_| ()),
         );
@@ -1237,10 +1233,8 @@ impl JsonRpcHandler {
         actix::spawn(
             self.view_client_addr
                 .send(
-                    near_network::types::NetworkViewClientMessages::Adversarial(
-                        near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height),
-                    )
-                    .with_span_context(),
+                    near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height)
+                        .with_span_context(),
                 )
                 .map(|_| ()),
         );

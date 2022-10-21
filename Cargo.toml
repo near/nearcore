@@ -73,6 +73,7 @@ arc-swap = "1.5"
 arrayref = "0.3"
 assert_matches = "1.5.0"
 async-recursion = "0.3.2"
+async-trait = "0.1.58"
 atty = "0.2"
 awc = { version = "3", features = ["openssl"] }
 backtrace = "0.3.64"
