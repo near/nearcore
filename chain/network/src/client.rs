@@ -197,7 +197,11 @@ impl Client {
                 // TODO: count as malicious behavior?
                 Ok(())
             }
+            Ok(NetworkClientResponses::NoResponse) => Ok(()),
+            Ok(NetworkClientResponses::RequestRouted) => Ok(()),
+            Ok(NetworkClientResponses::DoesNotTrackShard) => Ok(()),
             Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
+            #[allow(unreachable_patterns)]
             Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
             Err(err) => {
                 tracing::error!("mailbox error: {err}");
