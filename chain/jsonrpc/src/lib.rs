@@ -1433,6 +1433,7 @@ async fn display_debug_html(
 
     let content = match page_name.as_str() {
         "last_blocks" => Some(debug_page_string!("last_blocks.html", handler)),
+        "last_blocks.js" => Some(debug_page_string!("last_blocks.js", handler)),
         "network_info" => Some(debug_page_string!("network_info.html", handler)),
         "epoch_info" => Some(debug_page_string!("epoch_info.html", handler)),
         "chain_n_chunk_info" => Some(debug_page_string!("chain_n_chunk_info.html", handler)),
