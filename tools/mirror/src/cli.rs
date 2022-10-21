@@ -4,7 +4,7 @@ use std::cell::Cell;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-struct Cli {
+pub struct MirrorCommand {
     #[clap(subcommand)]
     subcmd: SubCommand,
 }
@@ -42,7 +42,7 @@ impl RunCmd {
         openssl_probe::init_ssl_cert_env_vars();
 
         let secret = if let Some(secret_file) = &self.secret_file {
-            let secret = mirror::secret::load(secret_file)
+            let secret = crate::secret::load(secret_file)
                 .with_context(|| format!("Failed to load secret from {:?}", secret_file))?;
             if secret.is_some() && self.no_secret {
                 anyhow::bail!(
@@ -60,7 +60,7 @@ impl RunCmd {
         let system = new_actix_system(runtime);
         system
             .block_on(async move {
-                actix::spawn(mirror::run(self.source_home, self.target_home, secret)).await
+                actix::spawn(crate::run(self.source_home, self.target_home, secret)).await
             })
             .unwrap()
     }
@@ -98,7 +98,7 @@ struct PrepareCmd {
 
 impl PrepareCmd {
     fn run(self) -> anyhow::Result<()> {
-        mirror::genesis::map_records(
+        crate::genesis::map_records(
             &self.records_file_in,
             &self.records_file_out,
             self.no_secret,
@@ -120,18 +120,15 @@ fn new_actix_system(runtime: tokio::runtime::Runtime) -> actix::SystemRunner {
     })
 }
 
-fn main() -> anyhow::Result<()> {
-    let args = Cli::parse();
+impl MirrorCommand {
+    pub fn run(self) -> anyhow::Result<()> {
+        tracing::warn!(target: "mirror", "the mirror command is not stable, and may be removed or changed arbitrarily at any time");
 
-    let runtime = tokio::runtime::Runtime::new().context("failed to start tokio runtime")?;
-    let _subscriber = near_o11y::default_subscriber(
-        near_o11y::EnvFilterBuilder::from_env().finish().unwrap(),
-        &Default::default(),
-    )
-    .global();
+        let runtime = tokio::runtime::Runtime::new().context("failed to start tokio runtime")?;
 
-    match args.subcmd {
-        SubCommand::Prepare(r) => r.run(),
-        SubCommand::Run(r) => r.run(runtime),
+        match self.subcmd {
+            SubCommand::Prepare(r) => r.run(),
+            SubCommand::Run(r) => r.run(runtime),
+        }
     }
 }

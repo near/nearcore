@@ -112,7 +112,8 @@ def create_forked_chain(config, near_root):
         sys.exit(f'"dump-state" command failed: output: {e.stdout}')
     try:
         subprocess.check_output([
-            os.path.join(near_root, 'mirror'),
+            neard,
+            'mirror',
             'prepare',
             '--records-file-in',
             dot_near() / 'test0/output/records.json',
@@ -174,7 +175,7 @@ def start_mirror(near_root, source_home, target_home, boot_node):
     with open(dot_near() / f'{MIRROR_DIR}/stdout', 'ab') as stdout, \
         open(dot_near() / f'{MIRROR_DIR}/stderr', 'ab') as stderr:
         process = subprocess.Popen([
-            os.path.join(near_root, 'mirror'), 'run', "--source-home",
+            os.path.join(near_root, 'neard'), 'mirror', 'run', "--source-home",
             source_home, "--target-home", target_home, '--secret-file',
             target_home / 'mirror-secret.json'
         ],

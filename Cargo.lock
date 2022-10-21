@@ -2720,44 +2720,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mirror"
-version = "0.0.0"
-dependencies = [
- "actix",
- "anyhow",
- "borsh",
- "bs58",
- "clap 3.1.18",
- "ed25519-dalek",
- "hex",
- "hkdf",
- "near-chain-configs",
- "near-client",
- "near-client-primitives",
- "near-crypto",
- "near-indexer",
- "near-indexer-primitives",
- "near-network",
- "near-o11y",
- "near-primitives",
- "near-primitives-core",
- "near-store",
- "nearcore",
- "once_cell",
- "openssl-probe",
- "rand_core 0.5.1",
- "rocksdb",
- "secp256k1",
- "serde",
- "serde_json",
- "sha2 0.10.2",
- "strum",
- "thiserror",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "mock-node"
 version = "0.0.0"
 dependencies = [
@@ -3212,6 +3174,44 @@ dependencies = [
  "near-chain-configs",
  "near-primitives",
  "serde_json",
+]
+
+[[package]]
+name = "near-mirror"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "anyhow",
+ "borsh",
+ "bs58",
+ "clap 3.1.18",
+ "ed25519-dalek",
+ "hex",
+ "hkdf",
+ "near-chain-configs",
+ "near-client",
+ "near-client-primitives",
+ "near-crypto",
+ "near-indexer",
+ "near-indexer-primitives",
+ "near-network",
+ "near-o11y",
+ "near-primitives",
+ "near-primitives-core",
+ "near-store",
+ "nearcore",
+ "once_cell",
+ "openssl-probe",
+ "rand_core 0.5.1",
+ "rocksdb",
+ "secp256k1",
+ "serde",
+ "serde_json",
+ "sha2 0.10.2",
+ "strum",
+ "thiserror",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -3672,6 +3672,7 @@ dependencies = [
  "futures",
  "near-chain-configs",
  "near-jsonrpc-primitives",
+ "near-mirror",
  "near-o11y",
  "near-performance-metrics",
  "near-primitives",

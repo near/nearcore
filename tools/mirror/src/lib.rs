@@ -31,10 +31,13 @@ use strum::IntoEnumIterator;
 use tokio::sync::mpsc;
 
 mod chain_tracker;
-pub mod genesis;
+pub mod cli;
+mod genesis;
 mod key_mapping;
 mod metrics;
-pub mod secret;
+mod secret;
+
+pub use cli::MirrorCommand;
 
 #[derive(strum::EnumIter)]
 enum DBCol {
@@ -1033,7 +1036,7 @@ impl TxMirror {
     }
 }
 
-pub async fn run<P: AsRef<Path>>(
+async fn run<P: AsRef<Path>>(
     source_home: P,
     target_home: P,
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
