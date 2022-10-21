@@ -47,6 +47,16 @@ pub struct StoreConfig {
     /// Trie cache configuration per shard for view caches.
     pub view_trie_cache: HashMap<ShardUId, TrieCacheConfig>,
 
+    /// Enable fetching account and access key data ahead of time to avoid IO latency.
+    pub enable_receipt_prefetching: bool,
+
+    /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as receiver.
+    /// This config option is temporary and will be removed once flat storage is implemented.
+    pub sweat_prefetch_receivers: Vec<String>,
+    /// List of allowed predecessor accounts for SWEAT prefetching.
+    /// This config option is temporary and will be removed once flat storage is implemented.
+    pub sweat_prefetch_senders: Vec<String>,
+
     /// Path where to create RocksDB checkpoints during database migrations or
     /// `false` to disable that feature.
     ///
@@ -80,7 +90,7 @@ pub enum MigrationSnapshot {
 }
 
 /// Mode in which to open the storage.
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy)]
 pub enum Mode {
     /// Open an existing database in read-only mode.  Fail if it doesn’t exist.
     ReadOnly,
@@ -88,6 +98,33 @@ pub enum Mode {
     ReadWriteExisting,
     /// Open a database in read-write mode.  create if it doesn’t exist.
     ReadWrite,
+    /// Creates a new database in read-write mode.  Fails if it exists.
+    Create,
+}
+
+impl Mode {
+    pub const fn read_only(self) -> bool {
+        matches!(self, Mode::ReadOnly)
+    }
+    pub const fn read_write(self) -> bool {
+        !self.read_only()
+    }
+    pub const fn can_create(self) -> bool {
+        matches!(self, Mode::ReadWrite | Mode::Create)
+    }
+    pub const fn must_create(self) -> bool {
+        matches!(self, Mode::Create)
+    }
+
+    /// Returns variant of the mode which prohibits creation of the database or
+    /// `None` if the mode requires creation of a new database.
+    pub const fn but_cannot_create(self) -> Option<Self> {
+        match self {
+            Self::ReadOnly | Self::ReadWriteExisting => Some(self),
+            Self::ReadWrite => Some(Self::ReadWriteExisting),
+            Self::Create => None,
+        }
+    }
 }
 
 impl StoreConfig {
@@ -149,6 +186,16 @@ impl Default for StoreConfig {
                 TrieCacheConfig { max_bytes: None },
             )]),
             view_trie_cache: HashMap::default(),
+
+            enable_receipt_prefetching: true,
+            sweat_prefetch_receivers: vec![
+                "token.sweat".to_owned(),
+                "vfinal.token.sweat.testnet".to_owned(),
+            ],
+            sweat_prefetch_senders: vec![
+                "oracle.sweat".to_owned(),
+                "sweat_the_oracle.testnet".to_owned(),
+            ],
 
             migration_snapshot: Default::default(),
         }

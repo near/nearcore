@@ -4,7 +4,7 @@ use crate::gas_counter::{FastGasCounter, GasCounter};
 use crate::receipt_manager::ReceiptManager;
 use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
-use crate::{ReceiptMetadata, ValuePtr};
+use crate::{ReceiptMetadata, StorageGetMode, ValuePtr};
 use byteorder::ByteOrder;
 use near_crypto::Secp256K1Signature;
 use near_primitives::checked_feature;
@@ -20,8 +20,8 @@ use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
 use near_primitives_core::types::{GasDistribution, GasWeight};
+use near_vm_errors::{FunctionCallError, InconsistentStateError};
 use near_vm_errors::{HostError, VMLogicError};
-use near_vm_errors::{InconsistentStateError, VMError};
 use std::collections::HashMap;
 use std::mem::size_of;
 
@@ -628,13 +628,15 @@ impl<'a> VMLogic<'a> {
 
     /// Returns the current block height.
     ///
+    /// It’s only due to historical reasons, this host function is called
+    /// `block_index` rather than `block_height`.
+    ///
     /// # Cost
     ///
     /// `base`
-    // TODO #1903 rename to `block_height`
     pub fn block_index(&mut self) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
-        Ok(self.context.block_index)
+        Ok(self.context.block_height)
     }
 
     /// Returns the current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
@@ -2393,14 +2395,16 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(storage_write_key_byte, key.len() as u64)?;
         self.gas_counter.pay_per(storage_write_value_byte, value.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        let evicted_ptr = self.ext.storage_get(&key)?;
+        // For storage write, we need to first perform a read on the key to calculate the TTN cost.
+        // This storage_get must be performed through trie instead of through FlatStorage
+        let evicted_ptr = self.ext.storage_get(&key, StorageGetMode::Trie)?;
         let evicted =
             Self::deref_value(&mut self.gas_counter, storage_write_evicted_byte, evicted_ptr)?;
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
 
         near_o11y::io_trace!(
             storage_op = "write",
-            key = %near_primitives::serialize::to_base58(&key),
+            key = %near_o11y::pretty::Bytes(&key),
             size = value_len,
             evicted_len = evicted.as_ref().map(Vec::len),
             tn_mem_reads = nodes_delta.mem_reads,
@@ -2484,14 +2488,17 @@ impl<'a> VMLogic<'a> {
         }
         self.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        let read = self.ext.storage_get(&key);
+        #[cfg(feature = "protocol_feature_flat_state")]
+        let read = self.ext.storage_get(&key, StorageGetMode::FlatStorage);
+        #[cfg(not(feature = "protocol_feature_flat_state"))]
+        let read = self.ext.storage_get(&key, StorageGetMode::Trie);
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
         self.gas_counter.add_trie_fees(&nodes_delta)?;
         let read = Self::deref_value(&mut self.gas_counter, storage_read_value_byte, read?)?;
 
         near_o11y::io_trace!(
             storage_op = "read",
-            key = %near_primitives::serialize::to_base58(&key),
+            key = %near_o11y::pretty::Bytes(&key),
             size = read.as_ref().map(Vec::len),
             tn_db_reads = nodes_delta.db_reads,
             tn_mem_reads = nodes_delta.mem_reads,
@@ -2542,7 +2549,9 @@ impl<'a> VMLogic<'a> {
         }
         self.gas_counter.pay_per(storage_remove_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        let removed_ptr = self.ext.storage_get(&key)?;
+        // To delete a key, we need to first perform a read on the key to calculate the TTN cost.
+        // This storage_get must be performed through trie instead of through FlatStorage
+        let removed_ptr = self.ext.storage_get(&key, StorageGetMode::Trie)?;
         let removed =
             Self::deref_value(&mut self.gas_counter, storage_remove_ret_value_byte, removed_ptr)?;
 
@@ -2551,7 +2560,7 @@ impl<'a> VMLogic<'a> {
 
         near_o11y::io_trace!(
             storage_op = "remove",
-            key = %near_primitives::serialize::to_base58(&key),
+            key = %near_o11y::pretty::Bytes(&key),
             evicted_len = removed.as_ref().map(Vec::len),
             tn_mem_reads = nodes_delta.mem_reads,
             tn_db_reads = nodes_delta.db_reads,
@@ -2607,7 +2616,7 @@ impl<'a> VMLogic<'a> {
 
         near_o11y::io_trace!(
             storage_op = "exists",
-            key = %near_primitives::serialize::to_base58(&key),
+            key = %near_o11y::pretty::Bytes(&key),
             tn_mem_reads = nodes_delta.mem_reads,
             tn_db_reads = nodes_delta.db_reads,
         );
@@ -2756,6 +2765,7 @@ impl<'a> VMLogic<'a> {
             logs: self.logs,
             profile,
             action_receipts: self.receipt_manager.action_receipts,
+            aborted: None,
         }
     }
 
@@ -2793,12 +2803,11 @@ impl<'a> VMLogic<'a> {
         method_name: &str,
         current_protocol_version: u32,
         wasm_code_bytes: usize,
-    ) -> std::result::Result<(), VMError> {
+    ) -> std::result::Result<(), near_vm_errors::FunctionCallError> {
         if method_name.is_empty() {
-            let error =
-                VMError::FunctionCallError(near_vm_errors::FunctionCallError::MethodResolveError(
-                    near_vm_errors::MethodResolveError::MethodEmptyName,
-                ));
+            let error = near_vm_errors::FunctionCallError::MethodResolveError(
+                near_vm_errors::MethodResolveError::MethodEmptyName,
+            );
             return Err(error);
         }
         if checked_feature!(
@@ -2807,10 +2816,9 @@ impl<'a> VMLogic<'a> {
             current_protocol_version
         ) {
             if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
-                let error =
-                    VMError::FunctionCallError(near_vm_errors::FunctionCallError::HostError(
-                        near_vm_errors::HostError::GasExceeded,
-                    ));
+                let error = near_vm_errors::FunctionCallError::HostError(
+                    near_vm_errors::HostError::GasExceeded,
+                );
                 return Err(error);
             }
         }
@@ -2822,17 +2830,15 @@ impl<'a> VMLogic<'a> {
         &mut self,
         current_protocol_version: u32,
         wasm_code_bytes: usize,
-    ) -> std::result::Result<(), VMError> {
+    ) -> std::result::Result<(), near_vm_errors::FunctionCallError> {
         if !checked_feature!(
             "protocol_feature_fix_contract_loading_cost",
             FixContractLoadingCost,
             current_protocol_version
         ) {
             if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
-                return Err(VMError::FunctionCallError(
-                    near_vm_errors::FunctionCallError::HostError(
-                        near_vm_errors::HostError::GasExceeded,
-                    ),
+                return Err(near_vm_errors::FunctionCallError::HostError(
+                    near_vm_errors::HostError::GasExceeded,
                 ));
             }
         }
@@ -2840,7 +2846,7 @@ impl<'a> VMLogic<'a> {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(PartialEq)]
 pub struct VMOutcome {
     pub balance: Balance,
     pub storage_usage: StorageUsage,
@@ -2851,6 +2857,59 @@ pub struct VMOutcome {
     /// Data collected from making a contract call
     pub profile: ProfileData,
     pub action_receipts: Vec<(AccountId, ReceiptMetadata)>,
+    pub aborted: Option<FunctionCallError>,
+}
+
+impl VMOutcome {
+    /// Consumes the `VMLogic` object and computes the final outcome with the
+    /// given error that stopped execution from finishing successfully.
+    pub fn abort(logic: VMLogic, error: FunctionCallError) -> VMOutcome {
+        let mut outcome = logic.compute_outcome_and_distribute_gas();
+        outcome.aborted = Some(error);
+        outcome
+    }
+
+    /// Consumes the `VMLogic` object and computes the final outcome for a
+    /// successful execution.
+    pub fn ok(logic: VMLogic) -> VMOutcome {
+        logic.compute_outcome_and_distribute_gas()
+    }
+
+    /// Creates an outcome with a no-op outcome.
+    pub fn nop_outcome(error: FunctionCallError) -> VMOutcome {
+        VMOutcome {
+            // Note: Balance and storage fields are ignored on a failed outcome.
+            balance: 0,
+            storage_usage: 0,
+            // Note: Fields below are added or merged when processing the
+            // outcome. With 0 or the empty set, those are no-ops.
+            return_data: ReturnData::None,
+            burnt_gas: 0,
+            used_gas: 0,
+            logs: Vec::new(),
+            profile: ProfileData::default(),
+            action_receipts: Vec::new(),
+            aborted: Some(error),
+        }
+    }
+
+    /// Like `Self::abort()` but without feature `FixContractLoadingCost` it
+    /// will return a NOP outcome. This is used for backwards-compatibility only.
+    pub fn abort_but_nop_outcome_in_old_protocol(
+        logic: VMLogic,
+        error: FunctionCallError,
+        current_protocol_version: u32,
+    ) -> VMOutcome {
+        if checked_feature!(
+            "protocol_feature_fix_contract_loading_cost",
+            FixContractLoadingCost,
+            current_protocol_version
+        ) {
+            Self::abort(logic, error)
+        } else {
+            Self::nop_outcome(error)
+        }
+    }
 }
 
 impl std::fmt::Debug for VMOutcome {
@@ -2864,6 +2923,10 @@ impl std::fmt::Debug for VMOutcome {
             f,
             "VMOutcome: balance {} storage_usage {} return data {} burnt gas {} used gas {}",
             self.balance, self.storage_usage, return_data_str, self.burnt_gas, self.used_gas
-        )
+        )?;
+        if let Some(err) = &self.aborted {
+            write!(f, " failed with {err}")?;
+        }
+        Ok(())
     }
 }

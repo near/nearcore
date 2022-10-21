@@ -18,10 +18,10 @@ use near_network::types::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
-use near_network_primitives::types::{
-    NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo,
-};
+use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo};
+
 use near_o11y::testonly::init_test_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::time::Utc;
 use near_primitives::transaction::SignedTransaction;
@@ -29,7 +29,7 @@ use near_primitives::types::{BlockId, BlockReference, EpochId};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{FinalExecutionOutcomeViewEnum, QueryRequest, QueryResponseKind};
+use near_primitives::views::{QueryRequest, QueryResponseKind};
 use num_rational::Ratio;
 
 /// Query account from view client
@@ -39,21 +39,22 @@ fn query_client() {
     run_actix(async {
         let (_, view_client) =
             setup_no_network(vec!["test".parse().unwrap()], "other".parse().unwrap(), true, true);
-        actix::spawn(
-            view_client
-                .send(Query::new(
-                    BlockReference::latest(),
-                    QueryRequest::ViewAccount { account_id: "test".parse().unwrap() },
-                ))
-                .then(|res| {
-                    match res.unwrap().unwrap().kind {
-                        QueryResponseKind::ViewAccount(_) => (),
-                        _ => panic!("Invalid response"),
-                    }
-                    System::current().stop();
-                    future::ready(())
-                }),
+        let actor = view_client.send(
+            Query::new(
+                BlockReference::latest(),
+                QueryRequest::ViewAccount { account_id: "test".parse().unwrap() },
+            )
+            .with_span_context(),
         );
+        let actor = actor.then(|res| {
+            match res.unwrap().unwrap().kind {
+                QueryResponseKind::ViewAccount(_) => (),
+                _ => panic!("Invalid response"),
+            }
+            System::current().stop();
+            future::ready(())
+        });
+        actix::spawn(actor);
     });
 }
 
@@ -67,7 +68,8 @@ fn query_status_not_crash() {
             setup_no_network(vec!["test".parse().unwrap()], "other".parse().unwrap(), true, false);
         let signer =
             InMemoryValidatorSigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
-        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
+        let actor = view_client.send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor.then(move |res| {
             let (block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             let header: BlockHeader = block.header.clone().into();
@@ -100,21 +102,28 @@ fn query_status_not_crash() {
 
             actix::spawn(
                 client
-                    .send(NetworkClientMessages::Block(next_block, PeerInfo::random().id, false))
+                    .send(
+                        NetworkClientMessages::Block(next_block, PeerInfo::random().id, false)
+                            .with_span_context(),
+                    )
                     .then(move |_| {
                         actix::spawn(
-                            client.send(Status { is_health_check: true, detailed: false }).then(
-                                move |_| {
+                            client
+                                .send(
+                                    Status { is_health_check: true, detailed: false }
+                                        .with_span_context(),
+                                )
+                                .then(move |_| {
                                     System::current().stop();
                                     future::ready(())
-                                },
-                            ),
+                                }),
                         );
                         future::ready(())
                     }),
             );
             future::ready(())
-        }));
+        });
+        actix::spawn(actor);
         near_network::test_utils::wait_or_panic(5000);
     });
 }
@@ -128,8 +137,13 @@ fn test_execution_outcome_for_chunk() {
         let signer = InMemorySigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
 
         actix::spawn(async move {
-            let block_hash =
-                view_client.send(GetBlock::latest()).await.unwrap().unwrap().header.hash;
+            let block_hash = view_client
+                .send(GetBlock::latest().with_span_context())
+                .await
+                .unwrap()
+                .unwrap()
+                .header
+                .hash;
 
             let transaction = SignedTransaction::send_money(
                 1,
@@ -141,37 +155,38 @@ fn test_execution_outcome_for_chunk() {
             );
             let tx_hash = transaction.get_hash();
             let res = client
-                .send(NetworkClientMessages::Transaction {
-                    transaction,
-                    is_forwarded: false,
-                    check_only: false,
-                })
+                .send(
+                    NetworkClientMessages::Transaction {
+                        transaction,
+                        is_forwarded: false,
+                        check_only: false,
+                    }
+                    .with_span_context(),
+                )
                 .await
                 .unwrap();
             assert!(matches!(res, NetworkClientResponses::ValidTx));
 
             actix::clock::sleep(Duration::from_millis(500)).await;
-            let execution_outcome = view_client
-                .send(TxStatus {
-                    tx_hash,
-                    signer_account_id: "test".parse().unwrap(),
-                    fetch_receipt: false,
-                })
+            let block_hash = view_client
+                .send(
+                    TxStatus {
+                        tx_hash,
+                        signer_account_id: "test".parse().unwrap(),
+                        fetch_receipt: false,
+                    }
+                    .with_span_context(),
+                )
                 .await
                 .unwrap()
                 .unwrap()
-                .unwrap();
-            let feo = match execution_outcome {
-                FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(outcome) => outcome,
-                FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(outcome) => {
-                    outcome.into()
-                }
-            };
+                .unwrap()
+                .into_outcome()
+                .transaction_outcome
+                .block_hash;
 
             let mut execution_outcomes_in_block = view_client
-                .send(GetExecutionOutcomesForBlock {
-                    block_hash: feo.transaction_outcome.block_hash,
-                })
+                .send(GetExecutionOutcomesForBlock { block_hash }.with_span_context())
                 .await
                 .unwrap()
                 .unwrap();
@@ -206,7 +221,7 @@ fn test_state_request() {
         actix::spawn(async move {
             actix::clock::sleep(Duration::from_millis(500)).await;
             let block_hash = view_client
-                .send(GetBlock(BlockReference::BlockId(BlockId::Height(0))))
+                .send(GetBlock(BlockReference::BlockId(BlockId::Height(0))).with_span_context())
                 .await
                 .unwrap()
                 .unwrap()
@@ -214,10 +229,13 @@ fn test_state_request() {
                 .hash;
             for _ in 0..30 {
                 let res = view_client
-                    .send(NetworkViewClientMessages::StateRequestHeader {
-                        shard_id: 0,
-                        sync_hash: block_hash,
-                    })
+                    .send(
+                        NetworkViewClientMessages::StateRequestHeader {
+                            shard_id: 0,
+                            sync_hash: block_hash,
+                        }
+                        .with_span_context(),
+                    )
                     .await
                     .unwrap();
                 assert!(matches!(res, NetworkViewClientResponses::StateResponse(_)));
@@ -225,19 +243,25 @@ fn test_state_request() {
 
             // immediately query again, should be rejected
             let res = view_client
-                .send(NetworkViewClientMessages::StateRequestHeader {
-                    shard_id: 0,
-                    sync_hash: block_hash,
-                })
+                .send(
+                    NetworkViewClientMessages::StateRequestHeader {
+                        shard_id: 0,
+                        sync_hash: block_hash,
+                    }
+                    .with_span_context(),
+                )
                 .await
                 .unwrap();
             assert!(matches!(res, NetworkViewClientResponses::NoResponse));
             actix::clock::sleep(Duration::from_secs(40)).await;
             let res = view_client
-                .send(NetworkViewClientMessages::StateRequestHeader {
-                    shard_id: 0,
-                    sync_hash: block_hash,
-                })
+                .send(
+                    NetworkViewClientMessages::StateRequestHeader {
+                        shard_id: 0,
+                        sync_hash: block_hash,
+                    }
+                    .with_span_context(),
+                )
                 .await
                 .unwrap();
             assert!(matches!(res, NetworkViewClientResponses::StateResponse(_)));
@@ -289,12 +313,17 @@ fn test_garbage_collection() {
                             for (_, view_client) in conns.iter() {
                                 tests.push(actix::spawn(
                                     view_client
-                                        .send(Query::new(
-                                            BlockReference::BlockId(BlockId::Height(prev_height)),
-                                            QueryRequest::ViewAccount {
-                                                account_id: "test1".parse().unwrap(),
-                                            },
-                                        ))
+                                        .send(
+                                            Query::new(
+                                                BlockReference::BlockId(BlockId::Height(
+                                                    prev_height,
+                                                )),
+                                                QueryRequest::ViewAccount {
+                                                    account_id: "test1".parse().unwrap(),
+                                                },
+                                            )
+                                            .with_span_context(),
+                                        )
                                         .then(move |res| {
                                             let res = res.unwrap().unwrap();
                                             match res.kind {
@@ -309,12 +338,15 @@ fn test_garbage_collection() {
                             // On non-archival node old data is garbage collected.
                             tests.push(actix::spawn(
                                 view_client_non_archival
-                                    .send(Query::new(
-                                        BlockReference::BlockId(BlockId::Height(1)),
-                                        QueryRequest::ViewAccount {
-                                            account_id: "test1".parse().unwrap(),
-                                        },
-                                    ))
+                                    .send(
+                                        Query::new(
+                                            BlockReference::BlockId(BlockId::Height(1)),
+                                            QueryRequest::ViewAccount {
+                                                account_id: "test1".parse().unwrap(),
+                                            },
+                                        )
+                                        .with_span_context(),
+                                    )
                                     .then(move |res| {
                                         let res = res.unwrap();
                                         match res {
@@ -331,12 +363,15 @@ fn test_garbage_collection() {
                             // On archival node old data is _not_ garbage collected.
                             tests.push(actix::spawn(
                                 view_client_archival
-                                    .send(Query::new(
-                                        BlockReference::BlockId(BlockId::Height(1)),
-                                        QueryRequest::ViewAccount {
-                                            account_id: "test1".parse().unwrap(),
-                                        },
-                                    ))
+                                    .send(
+                                        Query::new(
+                                            BlockReference::BlockId(BlockId::Height(1)),
+                                            QueryRequest::ViewAccount {
+                                                account_id: "test1".parse().unwrap(),
+                                            },
+                                        )
+                                        .with_span_context(),
+                                    )
                                     .then(move |res| {
                                         let res = res.unwrap().unwrap();
                                         match res.kind {

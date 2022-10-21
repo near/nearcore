@@ -171,7 +171,7 @@ pub struct GenesisConfig {
     /// Max stake percentage of the validators we will kick out.
     pub max_kickout_stake_perc: u8,
     /// The lowest ratio s/s_total any block producer can have.
-    /// See https://github.com/near/NEPs/pull/167 for details
+    /// See <https://github.com/near/NEPs/pull/167> for details
     #[serde(default = "default_minimum_stake_ratio")]
     #[default(Rational32::new(160, 1_000_000))]
     pub minimum_stake_ratio: Rational32,

@@ -1,4 +1,4 @@
-use near_network_primitives::time;
+use crate::time;
 /// The purpose of `TransferStats` is to keep track of transfer sizes in done in a period of 1 minute.
 /// And then; to provide a summary, the count and total size in bytes when requested.
 ///

@@ -254,7 +254,7 @@ pub fn decoded_to_parsed(res: JsonResult<WireMessage>) -> Parsed {
         Ok(WireMessage::Message(Message::UnmatchedSub(value))) => Err(Broken::Unmatched(value)),
         Ok(WireMessage::Message(m)) => Ok(m),
         Ok(WireMessage::Broken(b)) => Err(b),
-        Err(e) => Err(Broken::SyntaxError(format!("{}", e))),
+        Err(e) => Err(Broken::SyntaxError(e.to_string())),
     }
 }
 

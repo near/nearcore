@@ -2,15 +2,14 @@ use std::io;
 use std::path::Path;
 
 use ::rocksdb::{
-    BlockBasedOptions, Cache, ColumnFamily, Direction, Env, IteratorMode, Options, ReadOptions,
-    WriteBatch, DB,
+    BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
 };
 use strum::IntoEnumIterator;
 use tracing::warn;
 
 use crate::config::Mode;
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue};
-use crate::{metrics, DBCol, StoreConfig, StoreStatistics};
+use crate::{metadata, metrics, DBCol, StoreConfig, StoreStatistics};
 
 mod instance_tracker;
 pub(crate) mod snapshot;
@@ -18,7 +17,8 @@ pub(crate) mod snapshot;
 /// List of integer RocskDB properties we’re reading when collecting statistics.
 ///
 /// In the end, they are exported as Prometheus metrics.
-pub const CF_STAT_NAMES: [&'static str; 1] = [::rocksdb::properties::LIVE_SST_FILES_SIZE];
+const CF_PROPERTY_NAMES: [&'static std::ffi::CStr; 1] =
+    [::rocksdb::properties::LIVE_SST_FILES_SIZE];
 
 pub struct RocksDB {
     db: DB,
@@ -107,15 +107,10 @@ impl RocksDB {
                 )
             })
             .collect::<Vec<_>>();
-        let db = match mode {
-            Mode::ReadOnly => {
-                DB::open_cf_descriptors_read_only(&options, path, cf_descriptors, false)
-            }
-            Mode::ReadWriteExisting | Mode::ReadWrite => {
-                // Difference between the two read-write modes is captured in
-                // options.  See rocksdb_options.
-                DB::open_cf_descriptors(&options, path, cf_descriptors)
-            }
+        let db = if mode.read_only() {
+            DB::open_cf_descriptors_read_only(&options, path, cf_descriptors, false)
+        } else {
+            DB::open_cf_descriptors(&options, path, cf_descriptors)
         }
         .map_err(into_other)?;
         if cfg!(feature = "single_thread_rocksdb") {
@@ -200,58 +195,57 @@ impl RocksDB {
         })
     }
 
-    fn iter_raw_bytes_impl<'a>(
-        &'a self,
-        col: DBCol,
-        prefix: Option<&'a [u8]>,
-    ) -> RocksDBIterator<'a> {
+    fn iter_raw_bytes_prefix<'a>(&'a self, col: DBCol, prefix: &'a [u8]) -> RocksDBIterator<'a> {
         let cf_handle = self.cf_handle(col).unwrap();
         let mut read_options = rocksdb_read_options();
-        let mode = if let Some(prefix) = prefix {
-            // prefix_same_as_start doesn’t do anything for us.  It takes effect
-            // only if prefix extractor is configured for the column family
-            // which is something we’re not doing.  Setting this option is
-            // therefore pointless.
+        if !prefix.is_empty() {
+            read_options.set_iterate_range(::rocksdb::PrefixRange(prefix));
+            // Note: prefix_same_as_start doesn’t do anything for us.  It takes
+            // effect only if prefix extractor is configured for the column
+            // family which is something we’re not doing.  Setting this option
+            // is therefore pointless.
             //     read_options.set_prefix_same_as_start(true);
-
-            // We’re running the iterator in From mode so there’s no need to set
-            // the lower bound.
-            //    read_options.set_iterate_lower_bound(key_prefix);
-
-            // Upper bound is exclusive so if we set it to the next prefix
-            // iterator will stop once keys no longer start with our desired
-            // prefix.
-            if let Some(upper) = next_prefix(prefix) {
-                read_options.set_iterate_upper_bound(upper);
-            }
-
-            IteratorMode::From(prefix, Direction::Forward)
-        } else {
-            IteratorMode::Start
-        };
-        let iter = self.db.iterator_cf_opt(cf_handle, read_options, mode);
-        RocksDBIterator(Some(iter))
+        }
+        let iter = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
+        RocksDBIterator(iter)
     }
 }
 
-struct RocksDBIterator<'a>(Option<rocksdb::DBIteratorWithThreadMode<'a, DB>>);
+struct RocksDBIterator<'a>(rocksdb::DBIteratorWithThreadMode<'a, DB>);
 
 impl<'a> Iterator for RocksDBIterator<'a> {
     type Item = io::Result<(Box<[u8]>, Box<[u8]>)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let iter = self.0.as_mut()?;
-        if let Some(item) = iter.next() {
-            Some(Ok(item))
-        } else {
-            let status = iter.status();
-            self.0 = None;
-            status.err().map(into_other).map(Result::Err)
-        }
+        Some(self.0.next()?.map_err(into_other))
     }
 }
 
 impl<'a> std::iter::FusedIterator for RocksDBIterator<'a> {}
+
+impl RocksDB {
+    /// Returns ranges of keys in a given column family.
+    ///
+    /// In other words, returns the smallest and largest key in the column.  If
+    /// the column is empty, returns `None`.
+    fn get_cf_key_range(
+        &self,
+        cf_handle: &ColumnFamily,
+    ) -> Result<Option<std::ops::RangeInclusive<Box<[u8]>>>, ::rocksdb::Error> {
+        let range = {
+            let mut iter = self.db.iterator_cf(cf_handle, IteratorMode::Start);
+            let start = iter.next().transpose()?;
+            iter.set_mode(IteratorMode::End);
+            let end = iter.next().transpose()?;
+            (start, end)
+        };
+        match range {
+            (Some(start), Some(end)) => Ok(Some(start.0..=end.0)),
+            (None, None) => Ok(None),
+            _ => unreachable!(),
+        }
+    }
+}
 
 impl Database for RocksDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
@@ -268,15 +262,15 @@ impl Database for RocksDB {
     }
 
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        Box::new(self.iter_raw_bytes_impl(col, None))
+        Box::new(self.iter_raw_bytes_prefix(col, &[]))
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        refcount::iter_with_rc_logic(col, self.iter_raw_bytes_impl(col, None))
+        refcount::iter_with_rc_logic(col, self.iter_raw_bytes_prefix(col, &[]))
     }
 
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
-        let iter = self.iter_raw_bytes_impl(col, Some(key_prefix));
+        let iter = self.iter_raw_bytes_prefix(col, key_prefix);
         refcount::iter_with_rc_logic(col, iter)
     }
 
@@ -303,13 +297,11 @@ impl Database for RocksDB {
                 }
                 DBOp::DeleteAll { col } => {
                     let cf_handle = self.cf_handle(col)?;
-                    let opt_first = self.db.iterator_cf(cf_handle, IteratorMode::Start).next();
-                    let opt_last = self.db.iterator_cf(cf_handle, IteratorMode::End).next();
-                    assert_eq!(opt_first.is_some(), opt_last.is_some());
-                    if let (Some((min_key, _)), Some((max_key, _))) = (opt_first, opt_last) {
-                        batch.delete_range_cf(cf_handle, &min_key, &max_key);
+                    let range = self.get_cf_key_range(cf_handle).map_err(into_other)?;
+                    if let Some(range) = range {
+                        batch.delete_range_cf(cf_handle, range.start(), range.end());
                         // delete_range_cf deletes ["begin_key", "end_key"), so need one more delete
-                        batch.delete_cf(cf_handle, max_key)
+                        batch.delete_cf(cf_handle, range.end())
                     }
                 }
             }
@@ -353,39 +345,13 @@ impl Database for RocksDB {
     }
 }
 
-/// Returns lowest value following largest value with given prefix.
-///
-/// In other words, computes upper bound for a prefix scan over list of keys
-/// sorted in lexicographical order.  This means that a prefix scan can be
-/// expressed as range scan over a right-open `[prefix, next_prefix(prefix))`
-/// range.
-///
-/// For example, for prefix `foo` the function returns `fop`.
-///
-/// Returns `None` if there is no value which can follow value with given
-/// prefix.  This happens when prefix consists entirely of `'\xff'` bytes (or is
-/// empty).
-fn next_prefix(prefix: &[u8]) -> Option<Vec<u8>> {
-    let ffs = prefix.iter().rev().take_while(|&&byte| byte == u8::MAX).count();
-    let next = &prefix[..(prefix.len() - ffs)];
-    if next.is_empty() {
-        // Prefix consisted of \xff bytes.  There is no prefix that
-        // follows it.
-        None
-    } else {
-        let mut next = next.to_vec();
-        *next.last_mut().unwrap() += 1;
-        Some(next)
-    }
-}
-
 /// DB level options
 fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
     let mut opts = Options::default();
 
     set_compression_options(&mut opts);
-    opts.create_missing_column_families(mode != Mode::ReadOnly);
-    opts.create_if_missing(mode == Mode::ReadWrite);
+    opts.create_missing_column_families(mode.read_write());
+    opts.create_if_missing(mode.can_create());
     opts.set_use_fsync(false);
     opts.set_max_open_files(store_config.max_open_files.try_into().unwrap_or(i32::MAX));
     opts.set_keep_log_file_num(1);
@@ -407,7 +373,7 @@ fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
     }
 
     // TODO(mina86): Perhaps enable statistics even in read-only mode?
-    if mode != Mode::ReadOnly && store_config.enable_statistics {
+    if mode.read_write() && store_config.enable_statistics {
         // Rust API doesn't permit choosing stats level. The default stats level
         // is `kExceptDetailedTimers`, which is described as: "Collects all
         // stats except time inside mutex lock AND time spent on compression."
@@ -502,16 +468,14 @@ impl RocksDB {
         instance_tracker::block_until_all_instances_are_dropped();
     }
 
-    /// Returns version of the database state on disk.  Returns `None` if the
-    /// database does not exist.
-    pub(crate) fn get_version(
+    /// Returns metadata of the database or `None` if the db doesn’t exist.
+    pub(crate) fn get_metadata(
         path: &Path,
         config: &StoreConfig,
-    ) -> io::Result<Option<crate::version::DbVersion>> {
+    ) -> io::Result<Option<metadata::DbMetadata>> {
         if !path.join("CURRENT").is_file() {
             return Ok(None);
         }
-
         // Specify only DBCol::DbVersion.  It’s ok to open db in read-only mode
         // without specifying all column families but it’s an error to provide
         // a descriptor for a column family which doesn’t exist.  This allows us
@@ -519,27 +483,23 @@ impl RocksDB {
         // out if there are any necessary migrations to perform.
         let cols = [DBCol::DbVersion];
         let db = Self::open_with_columns(path, config, Mode::ReadOnly, &cols)?;
-        match crate::version::get_db_version(&db)? {
-            Some(db_version) => Ok(Some(db_version)),
-            None => Err(other_error(
-                "missing DbVersion; \
-                 it’s not a neard database or database is corrupted."
-                    .into(),
-            )),
-        }
+        Some(metadata::DbMetadata::read(&db)).transpose()
     }
 
-    /// Gets every int property in CF_STAT_NAMES for every column in DBCol.
+    /// Gets every int property in CF_PROPERTY_NAMES for every column in DBCol.
     fn get_cf_statistics(&self, result: &mut StoreStatistics) {
-        for stat_name in CF_STAT_NAMES {
+        for prop_name in CF_PROPERTY_NAMES {
             let values = self
                 .cf_handles()
                 .filter_map(|(col, handle)| {
-                    let property = self.db.property_int_value_cf(handle, stat_name);
-                    Some(StatsValue::ColumnValue(col, property.ok()?? as i64))
+                    let prop = self.db.property_int_value_cf(handle, prop_name);
+                    Some(StatsValue::ColumnValue(col, prop.ok()?? as i64))
                 })
                 .collect::<Vec<_>>();
             if !values.is_empty() {
+                // TODO(mina86): Once const_str_from_utf8 is stabilised we might
+                // be able convert this runtime UTF-8 validation into const.
+                let stat_name = prop_name.to_str().unwrap();
                 result.data.push((stat_name.to_string(), values));
             }
         }
@@ -615,7 +575,7 @@ fn col_name(col: DBCol) -> &'static str {
         DBCol::BlockHeight => "col4",
         DBCol::State => "col5",
         DBCol::ChunkExtra => "col6",
-        DBCol::TransactionResult => "col7",
+        DBCol::_TransactionResult => "col7",
         DBCol::OutgoingReceipts => "col8",
         DBCol::IncomingReceipts => "col9",
         DBCol::Peers => "col10",
@@ -642,14 +602,14 @@ fn col_name(col: DBCol) -> &'static str {
         DBCol::ComponentEdges => "col31",
         DBCol::LastComponentNonce => "col32",
         DBCol::Transactions => "col33",
-        DBCol::ChunkPerHeightShard => "col34",
+        DBCol::_ChunkPerHeightShard => "col34",
         DBCol::StateChanges => "col35",
         DBCol::BlockRefCount => "col36",
         DBCol::TrieChanges => "col37",
         DBCol::BlockMerkleTree => "col38",
         DBCol::ChunkHashesByHeight => "col39",
         DBCol::BlockOrdinal => "col40",
-        DBCol::GCCount => "col41",
+        DBCol::_GCCount => "col41",
         DBCol::OutcomeIds => "col42",
         DBCol::_TransactionRefCount => "col43",
         DBCol::ProcessedBlockHeights => "col44",
@@ -763,18 +723,5 @@ mod tests {
                 ]
             }
         );
-    }
-
-    #[test]
-    fn next_prefix() {
-        fn test(want: Option<&[u8]>, arg: &[u8]) {
-            assert_eq!(want, super::next_prefix(arg).as_ref().map(Vec::as_ref));
-        }
-
-        test(None, b"");
-        test(None, b"\xff");
-        test(None, b"\xff\xff\xff\xff");
-        test(Some(b"b"), b"a");
-        test(Some(b"b"), b"a\xff\xff\xff");
     }
 }

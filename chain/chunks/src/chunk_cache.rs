@@ -59,6 +59,9 @@ pub struct EncodedChunksCache {
     /// A map from a block height to chunk hashes at this height for all chunk stored in the cache
     /// This is used to gc chunks that are out of horizon
     height_map: HashMap<BlockHeight, HashSet<ChunkHash>>,
+    /// A map from block height to shard ID to the chunk hash we've received, so we only process
+    /// one chunk per shard per height.
+    height_to_shard_to_chunk: HashMap<BlockHeight, HashMap<ShardId, ChunkHash>>,
     /// A map from a block hash to a set of incomplete chunks (does not have all parts and receipts yet)
     /// whose previous block is the block hash.
     incomplete_chunks: HashMap<CryptoHash, HashSet<ChunkHash>>,
@@ -108,6 +111,7 @@ impl EncodedChunksCache {
             largest_seen_height: 0,
             encoded_chunks: HashMap::new(),
             height_map: HashMap::new(),
+            height_to_shard_to_chunk: HashMap::new(),
             incomplete_chunks: HashMap::new(),
             block_hash_to_chunk_headers: HashMap::new(),
         }
@@ -168,14 +172,9 @@ impl EncodedChunksCache {
         }
     }
 
-    /// Insert if entry does not exist already
-    pub fn try_insert(&mut self, header: &ShardChunkHeader) {
-        self.get_or_insert_from_header(header);
-    }
-
     // Create an empty entry from the header and insert it if there is no entry for the chunk already
     // Return a mutable reference to the entry
-    fn get_or_insert_from_header(
+    pub fn get_or_insert_from_header(
         &mut self,
         chunk_header: &ShardChunkHeader,
     ) -> &mut EncodedChunksCacheEntry {
@@ -185,6 +184,10 @@ impl EncodedChunksCache {
                 .entry(chunk_header.height_created())
                 .or_default()
                 .insert(chunk_hash.clone());
+            self.height_to_shard_to_chunk
+                .entry(chunk_header.height_created())
+                .or_default()
+                .insert(chunk_header.shard_id(), chunk_hash.clone());
             self.incomplete_chunks
                 .entry(chunk_header.prev_block_hash().clone())
                 .or_default()
@@ -203,6 +206,14 @@ impl EncodedChunksCache {
 
     pub fn height_within_horizon(&self, height: BlockHeight) -> bool {
         self.height_within_front_horizon(height) || self.height_within_rear_horizon(height)
+    }
+
+    pub fn get_chunk_hash_by_height_and_shard(
+        &self,
+        height: BlockHeight,
+        shard_id: ShardId,
+    ) -> Option<&ChunkHash> {
+        self.height_to_shard_to_chunk.get(&height)?.get(&shard_id)
     }
 
     /// Add parts and receipts stored in a partial encoded chunk to the corresponding chunk entry,
@@ -245,6 +256,7 @@ impl EncodedChunksCache {
                     }
                 }
             }
+            self.height_to_shard_to_chunk.remove(&height);
         }
     }
 
@@ -340,7 +352,7 @@ mod tests {
         let mut cache = EncodedChunksCache::new();
         let header0 = create_chunk_header(1, 0);
         let header1 = create_chunk_header(1, 1);
-        cache.try_insert(&header0);
+        cache.get_or_insert_from_header(&header0);
         cache.merge_in_partial_encoded_chunk(&PartialEncodedChunkV2 {
             header: header1.clone(),
             parts: vec![],
@@ -353,7 +365,7 @@ mod tests {
         cache.mark_entry_complete(&header0.chunk_hash());
         assert_eq!(
             cache.get_incomplete_chunks(&CryptoHash::default()).unwrap(),
-            &vec![header1.chunk_hash()].into_iter().collect::<HashSet<_>>()
+            &[header1.chunk_hash()].into_iter().collect::<HashSet<_>>()
         );
         cache.mark_entry_complete(&header1.chunk_hash());
         assert_eq!(cache.get_incomplete_chunks(&CryptoHash::default()), None);

@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::concurrency::{Ctx, Once, RateLimiter, Scope, WeakMap};
 
-use near_network_primitives::types::{
+use near_network::types::{
     AccountIdOrPeerTrackingShard, NetworkViewClientMessages, NetworkViewClientResponses,
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
 };
@@ -13,6 +13,7 @@ use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
 };
+use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
@@ -123,9 +124,12 @@ impl Network {
                 for peer in peers {
                     // TODO: rate limit per peer.
                     self_.rate_limiter.allow(&ctx).await?;
-                    self_.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                        new_req(peer.full_peer_info.clone()),
-                    ));
+                    self_.network_adapter.do_send(
+                        PeerManagerMessageRequest::NetworkRequests(new_req(
+                            peer.full_peer_info.clone(),
+                        ))
+                        .with_span_context(),
+                    );
                     self_.stats.msgs_sent.fetch_add(1, Ordering::Relaxed);
                     ctx.wait(self_.request_timeout).await?;
                 }
@@ -245,7 +249,8 @@ impl Network {
         .await
     }
 
-    fn notify(&self, msg: NetworkClientMessages) {
+    fn notify(&self, msg: WithSpanContext<NetworkClientMessages>) {
+        let msg = msg.msg;
         self.stats.msgs_recv.fetch_add(1, Ordering::Relaxed);
         match msg {
             NetworkClientMessages::NetworkInfo(info) => {
@@ -290,9 +295,14 @@ impl Actor for FakeClientActor {
     type Context = Context<Self>;
 }
 
-impl Handler<NetworkViewClientMessages> for FakeClientActor {
+impl Handler<WithSpanContext<NetworkViewClientMessages>> for FakeClientActor {
     type Result = NetworkViewClientResponses;
-    fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<NetworkViewClientMessages>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let msg = msg.msg;
         let name = match msg {
             NetworkViewClientMessages::TxStatus { .. } => "TxStatus",
             NetworkViewClientMessages::TxStatusResponse(_) => "TxStatusResponse",
@@ -315,9 +325,13 @@ impl Handler<NetworkViewClientMessages> for FakeClientActor {
     }
 }
 
-impl Handler<NetworkClientMessages> for FakeClientActor {
+impl Handler<WithSpanContext<NetworkClientMessages>> for FakeClientActor {
     type Result = NetworkClientResponses;
-    fn handle(&mut self, msg: NetworkClientMessages, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<NetworkClientMessages>,
+        _ctx: &mut Context<Self>,
+    ) -> Self::Result {
         self.network.notify(msg);
         return NetworkClientResponses::NoResponse;
     }

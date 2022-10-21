@@ -298,6 +298,7 @@ fn test_query_state() {
                 request: QueryRequest::ViewState {
                     account_id: "test".parse().unwrap(),
                     prefix: vec![].into(),
+                    include_proof: false,
                 },
             })
             .await

@@ -1,7 +1,10 @@
+use crate::trie::trie_storage::TrieCacheInner;
 use crate::StoreConfig;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::types::AccountId;
 use std::collections::HashMap;
-use tracing::log::warn;
+use std::str::FromStr;
+use tracing::{error, warn};
 
 /// Default number of cache entries.
 /// It was chosen to fit into RAM well. RAM spend on trie cache should not exceed 50_000 * 4 (number of shards) *
@@ -29,16 +32,18 @@ const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 1000;
 pub struct TrieConfig {
     pub shard_cache_config: ShardCacheConfig,
     pub view_shard_cache_config: ShardCacheConfig,
+    pub enable_receipt_prefetching: bool,
+
+    /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as sender.
+    pub sweat_prefetch_receivers: Vec<AccountId>,
+    /// List of allowed predecessor accounts for SWEAT prefetching.
+    pub sweat_prefetch_senders: Vec<AccountId>,
 }
 
 pub struct ShardCacheConfig {
     /// Shard cache capacity in number of trie nodes.
     pub default_max_entries: u64,
-    /// Limits the sum of all cached value sizes.
-    ///
-    /// This is useful to limit total memory consumption. However, crucially this
-    /// is not a hard limit. It only limits the sum of all cached values, not
-    /// factoring in the overhead for each entry.
+    /// Limits the memory consumption for the cache.
     pub default_max_total_bytes: u64,
     /// Overrides `default_max_entries` per shard.
     pub override_max_entries: HashMap<ShardUId, u64>,
@@ -48,41 +53,53 @@ pub struct ShardCacheConfig {
 
 impl TrieConfig {
     /// Create a new `TrieConfig` with default values or the values specified in `StoreConfig`.
-    pub fn from_store_config(store_config: &StoreConfig) -> Self {
-        let mut trie_config = TrieConfig::default();
+    pub fn from_store_config(config: &StoreConfig) -> Self {
+        let mut this = TrieConfig::default();
 
-        if !store_config.trie_cache_capacities.is_empty() {
+        if !config.trie_cache_capacities.is_empty() {
             warn!(target: "store", "`trie_cache_capacities` is deprecated, use `trie_cache` and `view_trie_cache` instead");
-            trie_config
-                .shard_cache_config
+            this.shard_cache_config
                 .override_max_entries
-                .extend(store_config.trie_cache_capacities.iter().cloned());
+                .extend(config.trie_cache_capacities.iter().cloned());
         } else {
             // old default behavior:
             // Temporary solution to make contracts with heavy trie access
             // patterns on shard 3 more stable. Can be removed after
             // implementing flat storage.
             //  can also be replaced with limit
-            trie_config
-                .shard_cache_config
+            this.shard_cache_config
                 .override_max_entries
                 .insert(ShardUId { version: 1, shard_id: 3 }, 45_000_000);
         }
 
-        for (shard, shard_config) in &store_config.trie_cache {
+        for (shard, shard_config) in &config.trie_cache {
             let shard = (*shard).into();
             if let Some(bytes) = shard_config.max_bytes {
-                trie_config.shard_cache_config.override_max_total_bytes.insert(shard, bytes);
+                this.shard_cache_config.override_max_total_bytes.insert(shard, bytes);
             }
         }
-        for (shard, shard_config) in &store_config.view_trie_cache {
+        for (shard, shard_config) in &config.view_trie_cache {
             let shard = (*shard).into();
             if let Some(bytes) = shard_config.max_bytes {
-                trie_config.view_shard_cache_config.override_max_total_bytes.insert(shard, bytes);
+                this.view_shard_cache_config.override_max_total_bytes.insert(shard, bytes);
             }
         }
 
-        trie_config
+        this.enable_receipt_prefetching = config.enable_receipt_prefetching;
+        for account in &config.sweat_prefetch_receivers {
+            match AccountId::from_str(account) {
+                Ok(account_id) => this.sweat_prefetch_receivers.push(account_id),
+                Err(e) => error!(target: "config", "invalid account id {account}: {e}"),
+            }
+        }
+        for account in &config.sweat_prefetch_senders {
+            match AccountId::from_str(account) {
+                Ok(account_id) => this.sweat_prefetch_senders.push(account_id),
+                Err(e) => error!(target: "config", "invalid account id {account}: {e}"),
+            }
+        }
+
+        this
     }
 
     /// Shard cache capacity in number of trie nodes.
@@ -118,15 +135,29 @@ impl TrieConfig {
 }
 
 impl ShardCacheConfig {
+    // TODO(#7894): Remove this when `trie_cache_capacities` is removed from config.
     fn capacity(&self, shard_uid: ShardUId) -> u64 {
         self.override_max_entries.get(&shard_uid).cloned().unwrap_or(self.default_max_entries)
     }
 
     fn total_size_limit(&self, shard_uid: ShardUId) -> u64 {
-        self.override_max_total_bytes
+        let explicit_limit = self
+            .override_max_total_bytes
             .get(&shard_uid)
-            .cloned()
-            .unwrap_or(self.default_max_total_bytes)
+            .copied()
+            .unwrap_or(self.default_max_total_bytes);
+        // As long as `trie_cache_capacities` is a config option, it should be respected.
+        // We no longer commit to a hard limit on this. But we make sure that the old
+        // worst-case assumption of how much memory would be consumed still works.
+        // Specifically, the old calculation ignored `PER_ENTRY_OVERHEAD` and used
+        // `max_cached_value_size()` only to figure out a good value for how many
+        // nodes we want in the cache at most.
+        // This implicit limit should result in the same may number of nodes and same max memory
+        // consumption as the old config.
+        // TODO(#7894): Remove this when `trie_cache_capacities` is removed from config.
+        let implicit_limit = self.capacity(shard_uid)
+            * (TrieCacheInner::PER_ENTRY_OVERHEAD + TrieConfig::max_cached_value_size() as u64);
+        explicit_limit.min(implicit_limit)
     }
 }
 

@@ -105,7 +105,7 @@ impl std::fmt::Display for ZulipReport {
             }
             writeln!(f, "```")?;
         }
-        writeln!(f, "### Gas estimator uncertain changes: {}", self.changes_uncertain.len())?;
+        writeln!(f, "### Gas estimator uncertain estimations: {}", self.changes_uncertain.len())?;
         if self.changes_uncertain.len() > 0 {
             writeln!(f, "```")?;
             for change in &self.changes_uncertain {

@@ -159,7 +159,7 @@ impl TestShardUpgradeEnv {
                 )
                 .unwrap();
             if should_catchup {
-                run_catchup(&mut env.clients[j], &vec![]).unwrap();
+                run_catchup(&mut env.clients[j], &[]).unwrap();
             }
             while wait_for_all_blocks_in_processing(&mut env.clients[j].chain) {
                 let (_, errors) =
@@ -167,7 +167,7 @@ impl TestShardUpgradeEnv {
                 assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
             }
             if should_catchup {
-                run_catchup(&mut env.clients[j], &vec![]).unwrap();
+                run_catchup(&mut env.clients[j], &[]).unwrap();
             }
         }
 
@@ -182,6 +182,9 @@ impl TestShardUpgradeEnv {
         );
 
         env.process_partial_encoded_chunks();
+        for j in 0..self.num_clients {
+            env.process_shards_manager_responses_and_finish_processing_blocks(j);
+        }
 
         // after state split, check chunk extra exists and the states are correct
         for account_id in self.initial_accounts.iter() {
@@ -472,7 +475,7 @@ fn test_shard_layout_upgrade_simple() {
     let initial_accounts = test_env.initial_accounts.clone();
     let generate_create_accounts_txs: &mut dyn FnMut(usize, bool) -> Vec<SignedTransaction> =
         &mut |max_size: usize, check_accounts: bool| -> Vec<SignedTransaction> {
-            let size = rng.gen_range(0, max_size) + 1;
+            let size = rng.gen_range(0..max_size) + 1;
             std::iter::repeat_with(|| loop {
                 let signer_account = initial_accounts.choose(&mut rng).unwrap();
                 let signer0 = InMemorySigner::from_seed(
@@ -567,7 +570,7 @@ fn gen_cross_contract_transaction(
                     "id": 0 },
                 {"action_transfer": {
                     "promise_index": 0,
-                    "amount": format!("{}", NEAR_BASE),
+                    "amount": NEAR_BASE.to_string(),
                 }, "id": 0 },
                 {"action_add_key_with_full_access": {
                     "promise_index": 0,
@@ -575,7 +578,7 @@ fn gen_cross_contract_transaction(
                     "nonce": 0,
                 }, "id": 0 }
             ],
-        "amount": format!("{}", NEAR_BASE),
+        "amount": NEAR_BASE.to_string(),
         "gas": GAS_2,
         }, "id": 1}
     ]);
@@ -607,8 +610,8 @@ fn setup_test_env_with_cross_contract_txs(
     let contract_accounts = vec![
         test_env.initial_accounts[0].clone(),
         test_env.initial_accounts[1].clone(),
-        test_env.initial_accounts[rng.gen_range(0, test_env.initial_accounts.len())].clone(),
-        test_env.initial_accounts[rng.gen_range(0, test_env.initial_accounts.len())].clone(),
+        test_env.initial_accounts[rng.gen_range(0..test_env.initial_accounts.len())].clone(),
+        test_env.initial_accounts[rng.gen_range(0..test_env.initial_accounts.len())].clone(),
     ];
     test_env.set_init_tx(
         contract_accounts
@@ -639,7 +642,7 @@ fn setup_test_env_with_cross_contract_txs(
     let generate_txs: &mut dyn FnMut(usize, usize) -> Vec<SignedTransaction> =
         &mut |min_size: usize, max_size: usize| -> Vec<SignedTransaction> {
             let mut rng = thread_rng();
-            let size = rng.gen_range(min_size, max_size + 1);
+            let size = rng.gen_range(min_size..max_size + 1);
             std::iter::repeat_with(|| loop {
                 let account_id = gen_account(&mut rng, b"abcdefghijkmn");
                 if all_accounts.insert(account_id.clone()) {

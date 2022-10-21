@@ -29,10 +29,12 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::{debug, warn};
 
+pub use crate::adapter::{EpochManagerAdapter, HasEpochMangerHandle};
 pub use crate::reward_calculator::RewardCalculator;
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::types::RngSeed;
 
+mod adapter;
 mod proposals;
 mod reward_calculator;
 mod shard_assignment;
@@ -232,7 +234,6 @@ impl EpochManager {
     /// Note that this function doesn't copy info stored in EpochInfoAggregator, so `block_hash` must be
     /// the last block in an epoch in order for the epoch manager to work properly after this function
     /// is called
-    #[cfg(feature = "mock_node")]
     pub fn copy_epoch_info_as_of_block(
         &mut self,
         block_hash: &CryptoHash,
@@ -391,7 +392,7 @@ impl EpochManager {
     /// (set of validators to kickout, set of validators to reward with stats)
     ///
     /// - Slashed validators are ignored (they are handled separately)
-    /// - The total stake of valdiators that will be kicked out will not exceed
+    /// - The total stake of validators that will be kicked out will not exceed
     ///   config.validator_max_kickout_stake_perc of total stake of all validators. This is
     ///   to ensure we don't kick out too many validators in case of network instability.
     /// - A validator is kicked out if he produced too few blocks or chunks

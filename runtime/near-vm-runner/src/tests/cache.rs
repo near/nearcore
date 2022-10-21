@@ -10,9 +10,9 @@ use assert_matches::assert_matches;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::types::CompiledContractCache;
+use near_primitives::types::{CompiledContract, CompiledContractCache};
 use near_stable_hasher::StableHasher;
-use near_vm_errors::VMError;
+use near_vm_errors::VMRunnerError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::VMConfig;
 use std::hash::{Hash, Hasher};
@@ -32,11 +32,15 @@ fn test_caches_compilation_error() {
         let code = [42; 1000];
         let terragas = 1000000000000u64;
         assert_eq!(cache.len(), 0);
-        let err1 = make_cached_contract_call_vm(&cache, &code, "method_name1", terragas, vm_kind);
+        let outcome1 =
+            make_cached_contract_call_vm(&cache, &code, "method_name1", terragas, vm_kind)
+                .expect("bad failure");
         println!("{:?}", cache);
         assert_eq!(cache.len(), 1);
-        let err2 = make_cached_contract_call_vm(&cache, &code, "method_name2", terragas, vm_kind);
-        assert_eq!(err1, err2);
+        let outcome2 =
+            make_cached_contract_call_vm(&cache, &code, "method_name2", terragas, vm_kind)
+                .expect("bad failure");
+        assert_eq!(outcome1.aborted.as_ref(), outcome2.aborted.as_ref());
     })
 }
 
@@ -54,19 +58,16 @@ fn test_does_not_cache_io_error() {
 
         cache.set_read_fault(true);
         let result = make_cached_contract_call_vm(&cache, &code, "main", prepaid_gas, vm_kind);
-        let expected_gas = crate::tests::prepaid_loading_gas(code.len());
-        assert_eq!(result.outcome().used_gas, expected_gas);
         assert_matches!(
-            result.error(),
-            Some(&VMError::CacheError(near_vm_errors::CacheError::ReadError))
+            result.err(),
+            Some(VMRunnerError::CacheError(near_vm_errors::CacheError::ReadError(_)))
         );
 
         cache.set_write_fault(true);
         let result = make_cached_contract_call_vm(&cache, &code, "main", prepaid_gas, vm_kind);
-        assert_eq!(result.outcome().used_gas, expected_gas);
         assert_matches!(
-            result.error(),
-            Some(&VMError::CacheError(near_vm_errors::CacheError::WriteError))
+            result.err(),
+            Some(VMRunnerError::CacheError(near_vm_errors::CacheError::WriteError(_)))
         );
     })
 }
@@ -127,12 +128,12 @@ fn test_wasmer2_artifact_output_stability() {
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {
-        let contract = near_test_contracts::arbitrary_contract(seed);
+        let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
 
         let config = VMConfig::test();
-        let prepared_code = prepare::prepare_contract(&contract, &config).unwrap();
+        let prepared_code = prepare::prepare_contract(contract.code(), &config).unwrap();
         let mut hasher = StableHasher::new();
-        (&contract, &prepared_code).hash(&mut hasher);
+        (&contract.code(), &prepared_code).hash(&mut hasher);
         got_prepared_hashes.push(hasher.finish());
 
         let mut features = CpuFeature::set();
@@ -140,7 +141,7 @@ fn test_wasmer2_artifact_output_stability() {
         let triple = "x86_64-unknown-linux-gnu".parse().unwrap();
         let target = Target::new(triple, features);
         let vm = Wasmer2VM::new_for_target(config, target);
-        let artifact = vm.compile_uncached(&prepared_code).unwrap();
+        let artifact = vm.compile_uncached(&contract).unwrap();
         let serialized = artifact.serialize().unwrap();
         let mut hasher = StableHasher::new();
         serialized.hash(&mut hasher);
@@ -189,14 +190,14 @@ impl FaultingCompiledContractCache {
 }
 
 impl CompiledContractCache for FaultingCompiledContractCache {
-    fn put(&self, key: &CryptoHash, value: Vec<u8>) -> Result<(), io::Error> {
+    fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()> {
         if self.write_fault.swap(false, Ordering::Relaxed) {
             return Err(io::ErrorKind::Other.into());
         }
         self.inner.put(key, value)
     }
 
-    fn get(&self, key: &CryptoHash) -> Result<Option<Vec<u8>>, io::Error> {
+    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
         if self.read_fault.swap(false, Ordering::Relaxed) {
             return Err(io::ErrorKind::Other.into());
         }

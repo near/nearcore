@@ -8,6 +8,7 @@ use actix::System;
 use assert_matches::assert_matches;
 use futures::{future, FutureExt};
 use near_chain::test_utils::ValidatorSchedule;
+use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_primitives::num_rational::{Ratio, Rational32};
 
 use near_actix_test_utils::run_actix;
@@ -32,8 +33,9 @@ use near_network::types::{
 use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
-use near_network_primitives::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
+use near_network::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::RngSeed;
@@ -320,15 +322,20 @@ fn produce_blocks_with_tx() {
             }),
         );
         near_network::test_utils::wait_or_panic(5000);
-        actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
+        let actor = view_client.send(GetBlock::latest().with_span_context());
+        let actor = actor.then(move |res| {
             let block_hash = res.unwrap().unwrap().header.hash;
-            client.do_send(NetworkClientMessages::Transaction {
-                transaction: SignedTransaction::empty(block_hash),
-                is_forwarded: false,
-                check_only: false,
-            });
+            client.do_send(
+                NetworkClientMessages::Transaction {
+                    transaction: SignedTransaction::empty(block_hash),
+                    is_forwarded: false,
+                    check_only: false,
+                }
+                .with_span_context(),
+            );
             future::ready(())
-        }))
+        });
+        actix::spawn(actor);
     });
 }
 
@@ -358,7 +365,8 @@ fn receive_network_block() {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
+        let actor = view_client.send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             block_merkle_tree.insert(last_block.header.hash);
@@ -394,9 +402,13 @@ fn receive_network_block() {
                 block_merkle_tree.root(),
                 None,
             );
-            client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
+            client.do_send(
+                NetworkClientMessages::Block(block, PeerInfo::random().id, false)
+                    .with_span_context(),
+            );
             future::ready(())
-        }));
+        });
+        actix::spawn(actor);
         near_network::test_utils::wait_or_panic(5000);
     });
 }
@@ -436,7 +448,8 @@ fn produce_block_with_approvals() {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
+        let actor = view_client.send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             block_merkle_tree.insert(last_block.header.hash);
@@ -472,11 +485,10 @@ fn produce_block_with_approvals() {
                 block_merkle_tree.root(),
                 None,
             );
-            client.do_send(NetworkClientMessages::Block(
-                block.clone(),
-                PeerInfo::random().id,
-                false,
-            ));
+            client.do_send(
+                NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, false)
+                    .with_span_context(),
+            );
 
             for i in 3..11 {
                 let s = AccountId::try_from(if i > 10 {
@@ -493,12 +505,15 @@ fn produce_block_with_approvals() {
                     10, // the height at which "test1" is producing
                     &signer,
                 );
-                client
-                    .do_send(NetworkClientMessages::BlockApproval(approval, PeerInfo::random().id));
+                client.do_send(
+                    NetworkClientMessages::BlockApproval(approval, PeerInfo::random().id)
+                        .with_span_context(),
+                );
             }
 
             future::ready(())
-        }));
+        });
+        actix::spawn(actor);
         near_network::test_utils::wait_or_panic(5000);
     });
 }
@@ -543,11 +558,14 @@ fn produce_block_with_approvals_arrived_early() {
                             if block.header().height() == 3 {
                                 for (i, (client, _)) in conns.iter().enumerate() {
                                     if i > 0 {
-                                        client.do_send(NetworkClientMessages::Block(
-                                            block.clone(),
-                                            PeerInfo::random().id,
-                                            false,
-                                        ))
+                                        client.do_send(
+                                            NetworkClientMessages::Block(
+                                                block.clone(),
+                                                PeerInfo::random().id,
+                                                false,
+                                            )
+                                            .with_span_context(),
+                                        )
                                     }
                                 }
                                 *block_holder.write().unwrap() = Some(block.clone());
@@ -565,11 +583,14 @@ fn produce_block_with_approvals_arrived_early() {
                             }
                             if approval_counter == 3 {
                                 let block = block_holder.read().unwrap().clone().unwrap();
-                                conns[0].0.do_send(NetworkClientMessages::Block(
-                                    block,
-                                    PeerInfo::random().id,
-                                    false,
-                                ));
+                                conns[0].0.do_send(
+                                    NetworkClientMessages::Block(
+                                        block,
+                                        PeerInfo::random().id,
+                                        false,
+                                    )
+                                    .with_span_context(),
+                                );
                             }
                             (NetworkResponses::NoResponse.into(), true)
                         }
@@ -639,7 +660,8 @@ fn invalid_blocks_common(is_requested: bool) {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
+        let actor = view_client.send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             block_merkle_tree.insert(last_block.header.hash);
@@ -679,11 +701,10 @@ fn invalid_blocks_common(is_requested: bool) {
             let mut block = valid_block.clone();
             block.mut_header().get_mut().inner_rest.chunk_mask = vec![];
             block.mut_header().get_mut().init();
-            client.do_send(NetworkClientMessages::Block(
-                block.clone(),
-                PeerInfo::random().id,
-                is_requested,
-            ));
+            client.do_send(
+                NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, is_requested)
+                    .with_span_context(),
+            );
 
             // Send blocks with invalid protocol version
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
@@ -692,11 +713,14 @@ fn invalid_blocks_common(is_requested: bool) {
                 block.mut_header().get_mut().inner_rest.latest_protocol_version =
                     PROTOCOL_VERSION - 1;
                 block.mut_header().get_mut().init();
-                client.do_send(NetworkClientMessages::Block(
-                    block.clone(),
-                    PeerInfo::random().id,
-                    is_requested,
-                ));
+                client.do_send(
+                    NetworkClientMessages::Block(
+                        block.clone(),
+                        PeerInfo::random().id,
+                        is_requested,
+                    )
+                    .with_span_context(),
+                );
             }
 
             // Send block with invalid chunk signature
@@ -715,31 +739,33 @@ fn invalid_blocks_common(is_requested: bool) {
                 }
             };
             block.set_chunks(chunks);
-            client.do_send(NetworkClientMessages::Block(
-                block.clone(),
-                PeerInfo::random().id,
-                is_requested,
-            ));
+            client.do_send(
+                NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, is_requested)
+                    .with_span_context(),
+            );
 
             // Send proper block.
             let block2 = valid_block;
-            client.do_send(NetworkClientMessages::Block(
-                block2.clone(),
-                PeerInfo::random().id,
-                is_requested,
-            ));
+            client.do_send(
+                NetworkClientMessages::Block(block2.clone(), PeerInfo::random().id, is_requested)
+                    .with_span_context(),
+            );
             if is_requested {
                 let mut block3 = block2;
                 block3.mut_header().get_mut().inner_rest.chunk_headers_root = hash(&[1]);
                 block3.mut_header().get_mut().init();
-                client.do_send(NetworkClientMessages::Block(
-                    block3.clone(),
-                    PeerInfo::random().id,
-                    is_requested,
-                ));
+                client.do_send(
+                    NetworkClientMessages::Block(
+                        block3.clone(),
+                        PeerInfo::random().id,
+                        is_requested,
+                    )
+                    .with_span_context(),
+                );
             }
             future::ready(())
-        }));
+        });
+        actix::spawn(actor);
         near_network::test_utils::wait_or_panic(5000);
     });
 }
@@ -845,11 +871,14 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
 
                                 for (i, (client, _)) in conns.clone().into_iter().enumerate() {
                                     if i != block_producer_idx {
-                                        client.do_send(NetworkClientMessages::Block(
-                                            block_mut.clone(),
-                                            PeerInfo::random().id,
-                                            false,
-                                        ))
+                                        client.do_send(
+                                            NetworkClientMessages::Block(
+                                                block_mut.clone(),
+                                                PeerInfo::random().id,
+                                                false,
+                                            )
+                                            .with_span_context(),
+                                        )
                                     }
                                 }
 
@@ -981,34 +1010,37 @@ fn client_sync_headers() {
                 _ => PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
             }),
         );
-        client.do_send(NetworkClientMessages::NetworkInfo(NetworkInfo {
-            connected_peers: vec![ConnectedPeerInfo::from(&FullPeerInfo {
-                peer_info: peer_info2.clone(),
-                chain_info: PeerChainInfoV2 {
-                    genesis_id: Default::default(),
-                    height: 5,
-                    tracked_shards: vec![],
-                    archival: false,
-                },
-                partial_edge_info: near_network_primitives::types::PartialEdgeInfo::default(),
-            })],
-            num_connected_peers: 1,
-            peer_max_count: 1,
-            highest_height_peers: vec![FullPeerInfo {
-                peer_info: peer_info2,
-                chain_info: PeerChainInfoV2 {
-                    genesis_id: Default::default(),
-                    height: 5,
-                    tracked_shards: vec![],
-                    archival: false,
-                },
-                partial_edge_info: near_network_primitives::types::PartialEdgeInfo::default(),
-            }],
-            sent_bytes_per_sec: 0,
-            received_bytes_per_sec: 0,
-            known_producers: vec![],
-            tier1_accounts: vec![],
-        }));
+        client.do_send(
+            NetworkClientMessages::NetworkInfo(NetworkInfo {
+                connected_peers: vec![ConnectedPeerInfo::from(&FullPeerInfo {
+                    peer_info: peer_info2.clone(),
+                    chain_info: PeerChainInfoV2 {
+                        genesis_id: Default::default(),
+                        height: 5,
+                        tracked_shards: vec![],
+                        archival: false,
+                    },
+                    partial_edge_info: near_network::types::PartialEdgeInfo::default(),
+                })],
+                num_connected_peers: 1,
+                peer_max_count: 1,
+                highest_height_peers: vec![FullPeerInfo {
+                    peer_info: peer_info2,
+                    chain_info: PeerChainInfoV2 {
+                        genesis_id: Default::default(),
+                        height: 5,
+                        tracked_shards: vec![],
+                        archival: false,
+                    },
+                    partial_edge_info: near_network::types::PartialEdgeInfo::default(),
+                }],
+                sent_bytes_per_sec: 0,
+                received_bytes_per_sec: 0,
+                known_producers: vec![],
+                tier1_accounts: vec![],
+            })
+            .with_span_context(),
+        );
         wait_or_panic(2000);
     });
 }
@@ -1064,6 +1096,7 @@ fn test_time_attack() {
     init_test_logger();
     let store = create_test_store();
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
+    let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
     let chain_genesis = ChainGenesis::test();
     let vs =
         ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
@@ -1073,6 +1106,7 @@ fn test_time_attack() {
         Some("test1".parse().unwrap()),
         false,
         network_adapter,
+        client_adapter,
         chain_genesis,
         TEST_SEED,
     );
@@ -1097,6 +1131,7 @@ fn test_invalid_approvals() {
     init_test_logger();
     let store = create_test_store();
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
+    let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
     let chain_genesis = ChainGenesis::test();
     let vs =
         ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
@@ -1106,6 +1141,7 @@ fn test_invalid_approvals() {
         Some("test1".parse().unwrap()),
         false,
         network_adapter,
+        client_adapter,
         chain_genesis,
         TEST_SEED,
     );
@@ -1145,6 +1181,7 @@ fn test_invalid_gas_price() {
     init_test_logger();
     let store = create_test_store();
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
+    let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.min_gas_price = 100;
     let vs =
@@ -1155,6 +1192,7 @@ fn test_invalid_gas_price() {
         Some("test1".parse().unwrap()),
         false,
         network_adapter,
+        client_adapter,
         chain_genesis,
         TEST_SEED,
     );
@@ -1181,6 +1219,7 @@ fn test_invalid_height_too_large() {
     assert_matches!(res.unwrap_err(), Error::InvalidBlockHeight(_));
 }
 
+/// Check that if block height is 5 epochs behind the head, it is not processed.
 #[test]
 fn test_invalid_height_too_old() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
@@ -1314,6 +1353,7 @@ fn test_bad_chunk_mask() {
                 Some(account_id.clone()),
                 false,
                 Arc::new(MockPeerManagerAdapter::default()),
+                Arc::new(MockClientAdapterForShardsManager::default()),
                 chain_genesis.clone(),
                 TEST_SEED,
             )
@@ -1326,16 +1366,11 @@ fn test_bad_chunk_mask() {
         let (encoded_chunk, merkle_paths, receipts) =
             create_chunk_on_height(&mut clients[chunk_producer], height);
         for client in clients.iter_mut() {
-            let mut chain_store =
-                ChainStore::new(client.chain.store().store().clone(), chain_genesis.height, true);
             client
-                .shards_mgr
-                .distribute_encoded_chunk(
+                .persist_and_distribute_encoded_chunk(
                     encoded_chunk.clone(),
                     merkle_paths.clone(),
                     receipts.clone(),
-                    &mut chain_store,
-                    0,
                 )
                 .unwrap();
         }
@@ -1920,6 +1955,7 @@ fn test_incorrect_validator_key_produce_block() {
         chain_genesis,
         runtime_adapter,
         Arc::new(MockPeerManagerAdapter::default()),
+        Arc::new(MockClientAdapterForShardsManager::default()),
         Some(signer),
         false,
         TEST_SEED,
@@ -2093,6 +2129,9 @@ fn test_sync_hash_validity() {
 }
 
 /// Only process one block per height
+/// Temporarily disable this test because the is_height_processed check is moved to client actor
+/// TODO (Min): refactor client actor receive_block code to move it to client
+#[ignore]
 #[test]
 fn test_not_process_height_twice() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
@@ -2224,8 +2263,7 @@ fn test_validate_chunk_extra() {
         ChainStore::new(env.clients[0].chain.store().store().clone(), genesis_height, true);
     let chunk_header = encoded_chunk.cloned_header();
     env.clients[0]
-        .shards_mgr
-        .distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, &mut chain_store, 0)
+        .persist_and_distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
     env.clients[0].process_blocks_with_missing_chunks(Arc::new(|_| {}));
@@ -2357,7 +2395,7 @@ fn test_catchup_gas_price_change() {
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
     let f = move |msg: ApplyStatePartsRequest| {
         use borsh::BorshSerialize;
-        let store = rt.get_store();
+        let store = rt.store();
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec().unwrap();
@@ -2385,6 +2423,8 @@ fn test_catchup_gas_price_change() {
 
 #[test]
 fn test_block_execution_outcomes() {
+    init_test_logger();
+
     let epoch_length = 5;
     let min_gas_price = 10000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -2671,7 +2711,6 @@ fn test_epoch_protocol_version_change() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = PROTOCOL_VERSION - 1;
-    let genesis_height = genesis.config.genesis_height;
     let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(2)
@@ -2691,16 +2730,11 @@ fn test_epoch_protocol_version_change() {
             create_chunk_on_height(&mut env.clients[index], i);
 
         for j in 0..2 {
-            let mut chain_store =
-                ChainStore::new(env.clients[j].chain.store().store().clone(), genesis_height, true);
             env.clients[j]
-                .shards_mgr
-                .distribute_encoded_chunk(
+                .persist_and_distribute_encoded_chunk(
                     encoded_chunk.clone(),
                     merkle_paths.clone(),
                     receipts.clone(),
-                    &mut chain_store,
-                    0,
                 )
                 .unwrap();
         }
@@ -2727,6 +2761,60 @@ fn test_epoch_protocol_version_change() {
         .get_epoch_protocol_version(last_block.header().epoch_id())
         .unwrap();
     assert_eq!(protocol_version, PROTOCOL_VERSION);
+}
+
+#[test]
+fn test_discard_non_finalizable_block() {
+    let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let chain_genesis = ChainGenesis::new(&genesis);
+    let mut env = TestEnv::builder(chain_genesis)
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .build();
+
+    let first_block = env.clients[0].produce_block(1).unwrap().unwrap();
+    env.process_block(0, first_block.clone(), Provenance::PRODUCED);
+    // Produce, but not process test block on top of block (1).
+    let non_finalizable_block = env.clients[0].produce_block(6).unwrap().unwrap();
+    env.clients[0]
+        .chain
+        .mut_store()
+        .save_latest_known(LatestKnown {
+            height: first_block.header().height(),
+            seen: first_block.header().raw_timestamp(),
+        })
+        .unwrap();
+
+    let second_block = env.clients[0].produce_block(2).unwrap().unwrap();
+    env.process_block(0, second_block.clone(), Provenance::PRODUCED);
+    // Produce, but not process test block on top of block (2).
+    let finalizable_block = env.clients[0].produce_block(7).unwrap().unwrap();
+    env.clients[0]
+        .chain
+        .mut_store()
+        .save_latest_known(LatestKnown {
+            height: second_block.header().height(),
+            seen: second_block.header().raw_timestamp(),
+        })
+        .unwrap();
+
+    // Produce and process two more blocks.
+    for i in 3..5 {
+        env.produce_block(0, i);
+    }
+
+    assert_eq!(env.clients[0].chain.final_head().unwrap().height, 2);
+    // Check that the first test block can't be finalized, because it is produced behind final head.
+    assert_matches!(
+        env.clients[0]
+            .process_block_test(non_finalizable_block.into(), Provenance::NONE)
+            .unwrap_err(),
+        Error::CannotBeFinalized
+    );
+    // Check that the second test block still can be finalized.
+    assert_matches!(
+        env.clients[0].process_block_test(finalizable_block.into(), Provenance::NONE),
+        Ok(_)
+    );
 }
 
 /// Final state should be consistent when a node switches between forks in the following scenario
@@ -2867,6 +2955,8 @@ fn test_fork_receipt_ids() {
 
 #[test]
 fn test_fork_execution_outcome() {
+    init_test_logger();
+
     let (mut env, tx_hash) = prepare_env_with_transaction();
 
     let mut last_height = 0;
@@ -3322,10 +3412,11 @@ mod contract_precompilation_tests {
         let state_root = *chunk_extra.state_root();
 
         let viewer = TrieViewer::default();
+        // TODO (#7327): set use_flat_storage to true when we implement support for state sync for FlatStorage
         let trie = Rc::new(
             env.clients[1]
                 .runtime_adapter
-                .get_trie_for_shard(0, block.header().prev_hash(), state_root)
+                .get_trie_for_shard(0, block.header().prev_hash(), state_root, false)
                 .unwrap(),
         );
         let state_update = TrieUpdate::new(trie);

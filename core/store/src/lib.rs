@@ -14,42 +14,42 @@ pub use db::{
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 use near_crypto::PublicKey;
+use near_o11y::pretty;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
-use near_primitives::serialize::to_base58;
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
+use near_primitives::types::{AccountId, CompiledContract, CompiledContractCache, StateRoot};
 
 use crate::db::{
-    refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, RocksDB, StoreStatistics,
+    refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics,
     GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::iterator::TrieIterator;
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
-    estimator, split_state, ApplyStatePartResult, KeyForStateChanges, PartialStorage, ShardTries,
-    Trie, TrieAccess, TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieStorage,
-    WrappedTrieChanges,
+    estimator, split_state, ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice,
+    PartialStorage, PrefetchApi, RawTrieNode, RawTrieNodeWithSize, ShardTries, Trie, TrieAccess,
+    TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieStorage, WrappedTrieChanges,
 };
+pub use flat_state::FlatStateDelta;
 
 mod columns;
 pub mod config;
 pub mod db;
 pub mod flat_state;
+pub mod metadata;
 mod metrics;
 pub mod migrations;
 mod opener;
 pub mod test_utils;
 mod trie;
-pub mod version;
 
 pub use crate::config::{Mode, StoreConfig};
-pub use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError};
-pub use crate::opener::StoreOpener;
+pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
 
 /// Specifies temperature of a storage.
 ///
@@ -101,7 +101,7 @@ impl NodeStorage {
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
         static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = Self::opener(dir.path(), &CONFIG);
+        let opener = StoreOpener::new(dir.path(), &CONFIG);
         (dir, opener)
     }
 
@@ -109,7 +109,7 @@ impl NodeStorage {
     ///
     /// Note that you most likely don’t want to use this method.  If you’re
     /// opening an on-disk storage, you want to use [`Self::opener`] instead
-    /// which takes scare of opening the on-disk database and applying all the
+    /// which takes care of opening the on-disk database and applying all the
     /// necessary configuration.  If you need an in-memory database for testing,
     /// you want either [`crate::test_utils::create_test_node_storage`] or
     /// possibly [`crate::test_utils::create_test_store`] (depending whether you
@@ -151,9 +151,9 @@ impl NodeStorage {
     /// well.  For example, garbage collection only ever touches hot storage but
     /// it should go through [`Store`] interface since data it manipulates
     /// (e.g. blocks) are live in both databases.
-    pub fn get_inner(&self, temp: Temperature) -> Arc<dyn Database> {
+    pub fn get_inner(&self, temp: Temperature) -> &Arc<dyn Database> {
         match temp {
-            Temperature::Hot => self.storage.clone(),
+            Temperature::Hot => &self.storage,
         }
     }
 
@@ -165,6 +165,14 @@ impl NodeStorage {
         match temp {
             Temperature::Hot => self.storage,
         }
+    }
+
+    /// Reads database metadata and returns whether the storage is archival.
+    pub fn is_archive(&self) -> io::Result<bool> {
+        Ok(match metadata::DbMetadata::read(self.storage.as_ref())?.kind.unwrap() {
+            metadata::DbKind::RPC => false,
+            metadata::DbKind::Archive => true,
+        })
     }
 }
 
@@ -185,7 +193,7 @@ impl Store {
             target: "store",
             db_op = "get",
             col = %column,
-            key = %to_base58(key),
+            key = %pretty::StorageKey(key),
             size = value.as_deref().map(<[u8]>::len)
         );
         Ok(value)
@@ -283,10 +291,13 @@ impl Store {
 
 /// Keeps track of current changes to the database and can commit all of them to the database.
 pub struct StoreUpdate {
-    storage: Arc<dyn Database>,
     transaction: DBTransaction,
-    /// Optionally has reference to the trie to clear cache on the commit.
-    shard_tries: Option<ShardTries>,
+    storage: StoreUpdateStorage,
+}
+
+enum StoreUpdateStorage {
+    DB(Arc<dyn Database>),
+    Tries(ShardTries),
 }
 
 impl StoreUpdate {
@@ -295,16 +306,12 @@ impl StoreUpdate {
         None => panic!(),
     };
 
-    pub(crate) fn new(storage: Arc<dyn Database>) -> Self {
-        StoreUpdate { storage, transaction: DBTransaction::new(), shard_tries: None }
+    pub(crate) fn new(db: Arc<dyn Database>) -> Self {
+        StoreUpdate { transaction: DBTransaction::new(), storage: StoreUpdateStorage::DB(db) }
     }
 
     pub fn new_with_tries(tries: ShardTries) -> Self {
-        StoreUpdate {
-            storage: Arc::clone(&tries.get_store().storage),
-            transaction: DBTransaction::new(),
-            shard_tries: Some(tries),
-        }
+        StoreUpdate { transaction: DBTransaction::new(), storage: StoreUpdateStorage::Tries(tries) }
     }
 
     /// Inserts a new value into the database.
@@ -380,7 +387,7 @@ impl StoreUpdate {
     /// Modifies a value in the database.
     ///
     /// Unlike `insert`, `increment_refcount` or `decrement_refcount`, arbitrary
-    /// modifications are allowed, and extra care must be taken to aviod
+    /// modifications are allowed, and extra care must be taken to avoid
     /// consistency anomalies.
     ///
     /// Must not be used for reference-counted columns; use
@@ -429,39 +436,52 @@ impl StoreUpdate {
         self.transaction.delete_all(column);
     }
 
-    /// Set shard_tries to given object.
+    /// Sets reference to the trie to clear cache on the commit.
     ///
     /// Panics if shard_tries are already set to a different object.
     fn set_shard_tries(&mut self, tries: &ShardTries) {
-        if let Some(our) = &self.shard_tries {
-            assert!(tries.is_same(our));
-        } else {
-            self.shard_tries = Some(tries.clone());
-        }
+        assert!(self.check_compatible_shard_tries(tries));
+        self.storage = StoreUpdateStorage::Tries(tries.clone())
     }
 
     /// Merge another store update into this one.
     ///
-    /// Panics if `self` and `other` both have shard_tries set to different
-    /// objects.
+    /// Panics if `self`’s and `other`’s storage are incompatible.
     pub fn merge(&mut self, other: StoreUpdate) {
-        match (&self.shard_tries, other.shard_tries) {
-            (Some(our), Some(other)) => assert!(our.is_same(&other)),
-            (None, other) => self.shard_tries = other,
-            _ => (),
+        match other.storage {
+            StoreUpdateStorage::Tries(tries) => {
+                assert!(self.check_compatible_shard_tries(&tries));
+                self.storage = StoreUpdateStorage::Tries(tries);
+            }
+            StoreUpdateStorage::DB(other_db) => {
+                let self_db = match &self.storage {
+                    StoreUpdateStorage::Tries(tries) => tries.get_db(),
+                    StoreUpdateStorage::DB(db) => &db,
+                };
+                assert!(same_db(self_db, &other_db));
+            }
         }
         self.transaction.merge(other.transaction)
     }
 
-    pub fn update_cache(&self) -> io::Result<()> {
-        if let Some(tries) = &self.shard_tries {
-            // Note: avoid comparing wide pointers here to work-around
-            // https://github.com/rust-lang/rust/issues/69757
-            let addr = |arc| Arc::as_ptr(arc) as *const u8;
-            assert_eq!(addr(&tries.get_store().storage), addr(&self.storage),);
-            tries.update_cache(&self.transaction)?;
+    /// Verifies that given shard tries are compatible with this object.
+    ///
+    /// The [`ShardTries`] object is compatible if a) this object’s storage is
+    /// a database which is the same as tries’ one or b) this object’s storage
+    /// is the given shard tries.
+    fn check_compatible_shard_tries(&self, tries: &ShardTries) -> bool {
+        match &self.storage {
+            StoreUpdateStorage::DB(db) => same_db(&db, tries.get_db()),
+            StoreUpdateStorage::Tries(our) => our.is_same(tries),
         }
-        Ok(())
+    }
+
+    pub fn update_cache(&self) -> io::Result<()> {
+        if let StoreUpdateStorage::Tries(tries) = &self.storage {
+            tries.update_cache(&self.transaction)
+        } else {
+            Ok(())
+        }
     }
 
     pub fn commit(self) -> io::Result<()> {
@@ -484,29 +504,42 @@ impl StoreUpdate {
             "Transaction overwrites itself: {:?}",
             self
         );
-        self.update_cache()?;
         let _span = tracing::trace_span!(target: "store", "commit").entered();
         for op in &self.transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %to_base58(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %pretty::StorageKey(key), size = value.len())
                 }
                 DBOp::Set { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %to_base58(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %pretty::StorageKey(key), size = value.len())
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %to_base58(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %pretty::StorageKey(key), size = value.len())
                 }
                 DBOp::Delete { col, key } => {
-                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %to_base58(key))
+                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %pretty::StorageKey(key))
                 }
                 DBOp::DeleteAll { col } => {
                     tracing::trace!(target: "store", db_op = "delete_all", col = %col)
                 }
             }
         }
-        self.storage.write(self.transaction)
+        let storage = match &self.storage {
+            StoreUpdateStorage::Tries(tries) => {
+                tries.update_cache(&self.transaction)?;
+                tries.get_db()
+            }
+            StoreUpdateStorage::DB(db) => &db,
+        };
+        storage.write(self.transaction)
     }
+}
+
+fn same_db(lhs: &Arc<dyn Database>, rhs: &Arc<dyn Database>) -> bool {
+    // Note: avoid comparing wide pointers here to work-around
+    // https://github.com/rust-lang/rust/issues/69757
+    let addr = |arc| Arc::as_ptr(arc) as *const u8;
+    return addr(lhs) == addr(rhs);
 }
 
 impl fmt::Debug for StoreUpdate {
@@ -514,12 +547,14 @@ impl fmt::Debug for StoreUpdate {
         writeln!(f, "Store Update {{")?;
         for op in self.transaction.ops.iter() {
             match op {
-                DBOp::Insert { col, key, .. } => writeln!(f, "  + {col} {}", to_base58(key))?,
-                DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", to_base58(key))?,
-                DBOp::UpdateRefcount { col, key, .. } => {
-                    writeln!(f, "  ± {col} {}", to_base58(key))?
+                DBOp::Insert { col, key, .. } => {
+                    writeln!(f, "  + {col} {}", pretty::StorageKey(key))?
                 }
-                DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", to_base58(key))?,
+                DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", pretty::StorageKey(key))?,
+                DBOp::UpdateRefcount { col, key, .. } => {
+                    writeln!(f, "  ± {col} {}", pretty::StorageKey(key))?
+                }
+                DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", pretty::StorageKey(key))?,
                 DBOp::DeleteAll { col } => writeln!(f, "  - {col} (all)")?,
             }
         }
@@ -740,18 +775,26 @@ impl StoreCompiledContractCache {
 /// Key must take into account VM being used and its configuration, so that
 /// we don't cache non-gas metered binaries, for example.
 impl CompiledContractCache for StoreCompiledContractCache {
-    fn put(&self, key: &CryptoHash, value: Vec<u8>) -> io::Result<()> {
+    fn put(&self, key: &CryptoHash, value: CompiledContract) -> io::Result<()> {
         let mut update = crate::db::DBTransaction::new();
         // We intentionally use `.set` here, rather than `.insert`. We don't yet
         // guarantee deterministic compilation, so, if we happen to compile the
         // same contract concurrently on two threads, the `value`s might differ,
         // but this doesn't matter.
-        update.set(DBCol::CachedContractCode, key.as_ref().to_vec(), value);
+        update.set(DBCol::CachedContractCode, key.as_ref().to_vec(), value.try_to_vec().unwrap());
         self.db.write(update)
     }
 
-    fn get(&self, key: &CryptoHash) -> io::Result<Option<Vec<u8>>> {
-        Ok(self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref())?.map(Vec::from))
+    fn get(&self, key: &CryptoHash) -> io::Result<Option<CompiledContract>> {
+        match self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref()) {
+            Ok(Some(bytes)) => Ok(Some(CompiledContract::try_from_slice(&bytes)?)),
+            Ok(None) => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn has(&self, key: &CryptoHash) -> io::Result<bool> {
+        self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref()).map(|entry| entry.is_some())
     }
 }
 
@@ -871,14 +914,19 @@ mod tests {
     /// Check StoreCompiledContractCache implementation.
     #[test]
     fn test_store_compiled_contract_cache() {
-        use near_primitives::types::CompiledContractCache;
+        use near_primitives::types::{CompiledContract, CompiledContractCache};
         use std::str::FromStr;
 
         let store = crate::test_utils::create_test_store();
         let cache = super::StoreCompiledContractCache::new(&store);
         let key = CryptoHash::from_str("75pAU4CJcp8Z9eoXcL6pSU8sRK5vn3NEpgvUrzZwQtr3").unwrap();
+
         assert_eq!(None, cache.get(&key).unwrap());
-        assert_eq!((), cache.put(&key, b"foo".to_vec()).unwrap());
-        assert_eq!(Some(&b"foo"[..]), cache.get(&key).unwrap().as_deref());
+        assert_eq!(false, cache.has(&key).unwrap());
+
+        let record = CompiledContract::Code(b"foo".to_vec());
+        assert_eq!((), cache.put(&key, record.clone()).unwrap());
+        assert_eq!(Some(record), cache.get(&key).unwrap());
+        assert_eq!(true, cache.has(&key).unwrap());
     }
 }

@@ -13,9 +13,9 @@ use concurrency::{Ctx, Scope};
 use network::{FakeClientActor, Network};
 
 use near_chain_configs::Genesis;
+use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
-use near_network_primitives::time;
 use near_o11y::tracing::{error, info};
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -47,8 +47,10 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
         time::Clock::real(),
         near_store::db::TestDB::new(),
         config.network_config,
-        client_actor.clone().recipient(),
-        client_actor.clone().recipient(),
+        near_network::client::Client::new(
+            client_actor.clone().recipient(),
+            client_actor.clone().recipient(),
+        ),
         GenesisId {
             chain_id: config.client_config.chain_id.clone(),
             hash: genesis_hash(&config.client_config.chain_id),
@@ -142,10 +144,7 @@ fn main() {
         .finish()
         .unwrap()
         .add_directive(near_o11y::tracing::Level::INFO.into());
-    let runtime = tokio::runtime::Runtime::new().unwrap();
-    let _subscriber = runtime.block_on(async {
-        near_o11y::default_subscriber(env_filter, &Default::default()).await.global();
-    });
+    let _subscriber = near_o11y::default_subscriber(env_filter, &Default::default()).global();
     let orig_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         orig_hook(panic_info);

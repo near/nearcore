@@ -75,13 +75,6 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::Pa
 #[derive(Clone)]
 pub struct Secp256K1PublicKey([u8; 64]);
 
-#[cfg(feature = "deepsize_feature")]
-impl deepsize::DeepSizeOf for Secp256K1PublicKey {
-    fn deep_size_of_children(&self, _context: &mut deepsize::Context) -> usize {
-        0
-    }
-}
-
 impl From<[u8; 64]> for Secp256K1PublicKey {
     fn from(data: [u8; 64]) -> Self {
         Self(data)
@@ -148,7 +141,6 @@ impl Ord for Secp256K1PublicKey {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Clone, derive_more::AsRef)]
 #[as_ref(forward)]
 pub struct ED25519PublicKey(pub [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]);
@@ -197,7 +189,6 @@ impl Ord for ED25519PublicKey {
 }
 
 /// Public key container supporting different curves.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq)]
 pub enum PublicKey {
     /// 256 bit elliptic curve based public-key.
@@ -676,16 +667,6 @@ pub enum Signature {
     SECP256K1(Secp256K1Signature),
 }
 
-#[cfg(feature = "deepsize_feature")]
-impl deepsize::DeepSizeOf for Signature {
-    fn deep_size_of_children(&self, _context: &mut deepsize::Context) -> usize {
-        match self {
-            Signature::ED25519(_) => ed25519_dalek::SIGNATURE_LENGTH,
-            Signature::SECP256K1(_) => SECP256K1_SIGNATURE_LENGTH,
-        }
-    }
-}
-
 impl Hash for Signature {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
@@ -831,7 +812,7 @@ impl serde::Serialize for Signature {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&format!("{}", self))
+        serializer.serialize_str(&self.to_string())
     }
 }
 
