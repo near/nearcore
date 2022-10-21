@@ -38,8 +38,9 @@ struct RunCmd {
 }
 
 impl RunCmd {
-    fn run(self, runtime: tokio::runtime::Runtime) -> anyhow::Result<()> {
+    fn run(self) -> anyhow::Result<()> {
         openssl_probe::init_ssl_cert_env_vars();
+        let runtime = tokio::runtime::Runtime::new().context("failed to start tokio runtime")?;
 
         let secret = if let Some(secret_file) = &self.secret_file {
             let secret = crate::secret::load(secret_file)
@@ -124,11 +125,9 @@ impl MirrorCommand {
     pub fn run(self) -> anyhow::Result<()> {
         tracing::warn!(target: "mirror", "the mirror command is not stable, and may be removed or changed arbitrarily at any time");
 
-        let runtime = tokio::runtime::Runtime::new().context("failed to start tokio runtime")?;
-
         match self.subcmd {
             SubCommand::Prepare(r) => r.run(),
-            SubCommand::Run(r) => r.run(runtime),
+            SubCommand::Run(r) => r.run(),
         }
     }
 }
