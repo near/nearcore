@@ -1,9 +1,7 @@
 use crate::test_utils::TestEnv;
 use near_chain::{test_utils, ChainGenesis, Provenance};
-use near_crypto::{InMemorySigner, KeyType, PublicKey};
-use near_o11y::testonly::init_test_logger;
+use near_crypto::{KeyType, PublicKey};
 use near_primitives::network::PeerId;
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use std::sync::Arc;
