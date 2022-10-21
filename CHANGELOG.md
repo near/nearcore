@@ -48,6 +48,10 @@
   with [#7661](https://github.com/near/nearcore/pull/7661).
   Configurable in `config.json` using `store.enable_receipt_prefetching`.
 * neard cmd can now verify proofs from JSON files.
+* In storage configuration, the value `trie_cache_capacities` now is no longer
+  a hard limit but instead sets a memory consumption limit. For large trie nodes,
+  the limits are close to equivalent. For small values, there can now fit more
+  in the cache than previously.
 
 ## 1.29.0 [2022-08-15]
 
