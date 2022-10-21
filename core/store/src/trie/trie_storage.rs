@@ -209,19 +209,21 @@ impl TrieCacheInner {
 
     /// Account consumed memory for a new entry in the cache.
     pub(crate) fn add_value_of_size(&mut self, len: usize) {
-        let memory_consumed = len as u64 + Self::PER_ENTRY_OVERHEAD;
-        self.total_size += memory_consumed;
+        self.total_size += Self::entry_size(len);
     }
 
     /// Remove consumed memory for an entry in the cache.
     pub(crate) fn remove_value_of_size(&mut self, len: usize) {
-        let memory_consumed = len as u64 + Self::PER_ENTRY_OVERHEAD;
-        self.total_size -= memory_consumed;
+        self.total_size -= Self::entry_size(len);
     }
 
     /// Approximate memory consumption of LRU cache.
     pub fn current_total_size(&self) -> u64 {
         self.total_size
+    }
+
+    fn entry_size(len: usize) -> u64 {
+        len as u64 + Self::PER_ENTRY_OVERHEAD
     }
 }
 
