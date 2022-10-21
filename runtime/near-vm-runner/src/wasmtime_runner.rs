@@ -1,19 +1,17 @@
-use crate::errors::IntoVMError;
+use crate::errors::{ContractPrecompilatonResult, IntoVMError};
 use crate::prepare::WASM_FEATURES;
-use crate::runner::VMResult;
 use crate::{imports, prepare};
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
-use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
 use near_vm_errors::{
-    CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMError, VMLogicError,
-    WasmTrap,
+    CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMLogicError,
+    VMRunnerError, WasmTrap,
 };
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, MemoryLike, VMContext, VMLogic};
+use near_vm_logic::{External, MemoryLike, VMContext, VMLogic, VMOutcome};
 use std::cell::RefCell;
 use std::ffi::c_void;
 use std::str;
@@ -30,7 +28,7 @@ impl WasmtimeMemory {
         store: &mut Store<()>,
         initial_memory_bytes: u32,
         max_memory_bytes: u32,
-    ) -> Result<Self, VMError> {
+    ) -> Result<Self, FunctionCallError> {
         Ok(WasmtimeMemory(
             Memory::new(store, MemoryType::new(initial_memory_bytes, Some(max_memory_bytes)))
                 .map_err(|_| PrepareError::Memory)?,
@@ -73,69 +71,67 @@ impl MemoryLike for WasmtimeMemory {
     }
 }
 
-fn trap_to_error(trap: &wasmtime::Trap) -> VMError {
+fn trap_to_error(trap: &wasmtime::Trap) -> Result<FunctionCallError, VMRunnerError> {
     if trap.i32_exit_status() == Some(239) {
         match imports::wasmtime::last_error() {
-            Some(VMLogicError::HostError(h)) => {
-                VMError::FunctionCallError(FunctionCallError::HostError(h))
+            Some(VMLogicError::HostError(h)) => Ok(FunctionCallError::HostError(h)),
+            Some(VMLogicError::ExternalError(s)) => Err(VMRunnerError::ExternalError(s)),
+            Some(VMLogicError::InconsistentStateError(e)) => {
+                Err(VMRunnerError::InconsistentStateError(e))
             }
-            Some(VMLogicError::ExternalError(s)) => VMError::ExternalError(s),
-            Some(VMLogicError::InconsistentStateError(e)) => VMError::InconsistentStateError(e),
             None => panic!("Error is not properly set"),
         }
     } else {
-        match trap.trap_code() {
-            Some(TrapCode::StackOverflow) => {
-                VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::StackOverflow))
-            }
+        Ok(match trap.trap_code() {
+            Some(TrapCode::StackOverflow) => FunctionCallError::WasmTrap(WasmTrap::StackOverflow),
             Some(TrapCode::MemoryOutOfBounds) => {
-                VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds))
+                FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
             }
             Some(TrapCode::TableOutOfBounds) => {
-                VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds))
+                FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
             }
-            Some(TrapCode::IndirectCallToNull) => VMError::FunctionCallError(
-                FunctionCallError::WasmTrap(WasmTrap::IndirectCallToNull),
-            ),
-            Some(TrapCode::BadSignature) => VMError::FunctionCallError(
-                FunctionCallError::WasmTrap(WasmTrap::IncorrectCallIndirectSignature),
-            ),
+            Some(TrapCode::IndirectCallToNull) => {
+                FunctionCallError::WasmTrap(WasmTrap::IndirectCallToNull)
+            }
+            Some(TrapCode::BadSignature) => {
+                FunctionCallError::WasmTrap(WasmTrap::IncorrectCallIndirectSignature)
+            }
             Some(TrapCode::IntegerOverflow) => {
-                VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic))
+                FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic)
             }
             Some(TrapCode::IntegerDivisionByZero) => {
-                VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic))
+                FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic)
             }
             Some(TrapCode::BadConversionToInteger) => {
-                VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic))
+                FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic)
             }
             Some(TrapCode::UnreachableCodeReached) => {
-                VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))
+                FunctionCallError::WasmTrap(WasmTrap::Unreachable)
             }
-            Some(TrapCode::Interrupt) => VMError::FunctionCallError(
-                FunctionCallError::Nondeterministic("interrupt".to_string()),
-            ),
-            _ => VMError::FunctionCallError(FunctionCallError::WasmUnknownError {
-                debug_message: "unknown trap".to_string(),
-            }),
-        }
+            Some(TrapCode::Interrupt) => {
+                return Err(VMRunnerError::Nondeterministic("interrupt".to_string()));
+            }
+            _ => {
+                return Err(VMRunnerError::WasmUnknownError {
+                    debug_message: "unknown trap".to_string(),
+                });
+            }
+        })
     }
 }
 
 impl IntoVMError for anyhow::Error {
-    fn into_vm_error(self) -> VMError {
+    fn into_vm_error(self) -> Result<FunctionCallError, VMRunnerError> {
         let cause = self.root_cause();
         match cause.downcast_ref::<wasmtime::Trap>() {
             Some(trap) => trap_to_error(trap),
-            None => VMError::FunctionCallError(FunctionCallError::LinkError {
-                msg: format!("{:#?}", cause),
-            }),
+            None => Ok(FunctionCallError::LinkError { msg: format!("{:#?}", cause) }),
         }
     }
 }
 
 impl IntoVMError for wasmtime::Trap {
-    fn into_vm_error(self) -> VMError {
+    fn into_vm_error(self) -> Result<FunctionCallError, VMRunnerError> {
         trap_to_error(&self)
     }
 }
@@ -192,7 +188,7 @@ impl crate::runner::VM for WasmtimeVM {
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
         _cache: Option<&dyn CompiledContractCache>,
-    ) -> VMResult {
+    ) -> Result<VMOutcome, VMRunnerError> {
         let mut config = default_config();
         let engine = get_engine(&mut config);
         let mut store = Store::new(&engine, ());
@@ -219,22 +215,22 @@ impl crate::runner::VM for WasmtimeVM {
             code.code().len(),
         );
         if let Err(e) = result {
-            return VMResult::abort(logic, e);
+            return Ok(VMOutcome::abort(logic, e));
         }
 
         let prepared_code = match prepare::prepare_contract(code.code(), &self.config) {
             Ok(code) => code,
-            Err(err) => return VMResult::abort(logic, VMError::from(err)),
+            Err(err) => return Ok(VMOutcome::abort(logic, FunctionCallError::from(err))),
         };
         let module = match Module::new(&engine, prepared_code) {
             Ok(module) => module,
-            Err(err) => return VMResult::abort(logic, err.into_vm_error()),
+            Err(err) => return Ok(VMOutcome::abort(logic, err.into_vm_error()?)),
         };
         let mut linker = Linker::new(&engine);
 
         let result = logic.after_loading_executable(current_protocol_version, code.code().len());
         if let Err(e) = result {
-            return VMResult::abort(logic, e);
+            return Ok(VMOutcome::abort(logic, e));
         }
 
         // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
@@ -245,79 +241,59 @@ impl crate::runner::VM for WasmtimeVM {
             Some(export) => match export {
                 Func(func_type) => {
                     if func_type.params().len() != 0 || func_type.results().len() != 0 {
-                        let err =
-                            VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                                MethodResolveError::MethodInvalidSignature,
-                            ));
-                        return VMResult::abort_but_nop_outcome_in_old_protocol(
+                        let err = FunctionCallError::MethodResolveError(
+                            MethodResolveError::MethodInvalidSignature,
+                        );
+                        return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
                             logic,
                             err,
                             current_protocol_version,
-                        );
+                        ));
                     }
                 }
                 _ => {
-                    let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                        MethodResolveError::MethodNotFound,
-                    ));
-                    return VMResult::abort_but_nop_outcome_in_old_protocol(
+                    return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
                         logic,
-                        err,
+                        FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound),
                         current_protocol_version,
-                    );
+                    ));
                 }
             },
             None => {
-                let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodNotFound,
-                ));
-                return VMResult::abort_but_nop_outcome_in_old_protocol(
+                return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
                     logic,
-                    err,
+                    FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound),
                     current_protocol_version,
-                );
+                ));
             }
         }
         match linker.instantiate(&mut store, &module) {
             Ok(instance) => match instance.get_func(&mut store, method_name) {
                 Some(func) => match func.typed::<(), (), _>(&mut store) {
                     Ok(run) => match run.call(&mut store, ()) {
-                        Ok(_) => VMResult::ok(logic),
-                        Err(err) => VMResult::abort(logic, err.into_vm_error()),
+                        Ok(_) => Ok(VMOutcome::ok(logic)),
+                        Err(err) => Ok(VMOutcome::abort(logic, err.into_vm_error()?)),
                     },
-                    Err(err) => VMResult::abort(logic, err.into_vm_error()),
+                    Err(err) => Ok(VMOutcome::abort(logic, err.into_vm_error()?)),
                 },
                 None => {
-                    let err = VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                        MethodResolveError::MethodNotFound,
-                    ));
-                    return VMResult::abort_but_nop_outcome_in_old_protocol(
+                    return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(
                         logic,
-                        err,
+                        FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound),
                         current_protocol_version,
-                    );
+                    ));
                 }
             },
-            Err(err) => VMResult::abort(logic, err.into_vm_error()),
+            Err(err) => Ok(VMOutcome::abort(logic, err.into_vm_error()?)),
         }
     }
 
     fn precompile(
         &self,
-        _code: &[u8],
-        _code_hash: &CryptoHash,
+        _code: &ContractCode,
         _cache: &dyn CompiledContractCache,
-    ) -> Option<VMError> {
-        Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-            CompilationError::UnsupportedCompiler {
-                msg: "Precompilation not supported in Wasmtime yet".to_string(),
-            },
-        )))
-    }
-
-    fn check_compile(&self, code: &[u8]) -> bool {
-        let mut config = default_config();
-        let engine = get_engine(&mut config);
-        Module::new(&engine, code).is_ok()
+    ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, near_vm_errors::CacheError>
+    {
+        Ok(Ok(ContractPrecompilatonResult::CacheNotAvailable))
     }
 }

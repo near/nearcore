@@ -95,7 +95,6 @@ pub fn smallest_rs_contract() -> &'static [u8] {
             (i32.add
               (local.get 1)
               (local.get 0)))
-            (memory 16)
             (memory (export "memory") 16)
             (global (mut i32) (i32.const 1048576))
             (global (export "__data_end") i32 (i32.const 1048576))

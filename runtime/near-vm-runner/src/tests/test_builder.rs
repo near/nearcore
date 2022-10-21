@@ -5,9 +5,8 @@ use near_primitives::{
     types::Gas,
     version::{ProtocolFeature, PROTOCOL_VERSION},
 };
-use near_vm_logic::{mocks::mock_external::MockedExternal, ProtocolVersion, VMContext};
-use std::collections::HashSet;
-use std::fmt::Write;
+use near_vm_logic::{mocks::mock_external::MockedExternal, ProtocolVersion, VMContext, VMOutcome};
+use std::{collections::HashSet, fmt::Write};
 
 pub(crate) fn test_builder() -> TestBuilder {
     let context = VMContext {
@@ -16,7 +15,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         signer_account_pk: vec![0, 1, 2],
         predecessor_account_id: "carol".parse().unwrap(),
         input: Vec::new(),
-        block_index: 10,
+        block_height: 10,
         block_timestamp: 42,
         epoch_height: 1,
         account_balance: 2u128,
@@ -162,30 +161,35 @@ impl TestBuilder {
                 let promise_results = vec![];
 
                 let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
-                let res = runtime.run(
-                    &self.code,
-                    &self.method,
-                    &mut fake_external,
-                    context,
-                    &fees,
-                    &promise_results,
-                    protocol_version,
-                    None,
-                );
+                let outcome = runtime
+                    .run(
+                        &self.code,
+                        &self.method,
+                        &mut fake_external,
+                        context,
+                        &fees,
+                        &promise_results,
+                        protocol_version,
+                        None,
+                    )
+                    .expect("execution failed");
 
-                let mut got = if self.opaque_outcome {
-                    String::new()
-                } else {
-                    format!("{:?}\n", res.outcome())
-                };
-                if let Some(err) = res.error() {
-                    let mut err = err.to_string();
-                    assert!(err.len() < 1000, "errors should be bounded in size to prevent abuse via exhausting the storage space");
-                    if self.opaque_error {
-                        err = "...".to_string();
-                    }
-                    writeln!(got, "Err: {err}").unwrap();
+                let mut got = String::new();
+
+                if !self.opaque_outcome {
+                    fmt_outcome_without_abort(&outcome, &mut got).unwrap();
+                    writeln!(&mut got).unwrap();
                 }
+
+                if let Some(err) = outcome.aborted {
+                    let err_str = err.to_string();
+                    assert!(err_str.len() < 1000, "errors should be bounded in size to prevent abuse via exhausting the storage space");
+                    if self.opaque_error {
+                        writeln!(&mut got, "Err: ...").unwrap();
+                    } else {
+                        writeln!(&mut got, "Err: {err_str}").unwrap();
+                    }
+                };
 
                 results.push((vm_kind, got));
             }
@@ -203,4 +207,25 @@ impl TestBuilder {
             }
         }
     }
+}
+
+fn fmt_outcome_without_abort(
+    outcome: &VMOutcome,
+    out: &mut dyn std::fmt::Write,
+) -> std::fmt::Result {
+    let return_data_str = match &outcome.return_data {
+        near_vm_logic::ReturnData::None => "None".to_string(),
+        near_vm_logic::ReturnData::ReceiptIndex(_) => "Receipt".to_string(),
+        near_vm_logic::ReturnData::Value(v) => format!("Value [{} bytes]", v.len()),
+    };
+    write!(
+        out,
+        "VMOutcome: balance {} storage_usage {} return data {} burnt gas {} used gas {}",
+        outcome.balance,
+        outcome.storage_usage,
+        return_data_str,
+        outcome.burnt_gas,
+        outcome.used_gas
+    )?;
+    Ok(())
 }

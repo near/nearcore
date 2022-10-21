@@ -11,6 +11,7 @@ use near_network::types::{
     MsgRecipient, NetworkClientResponses, NetworkRequests, PeerManagerMessageRequest,
 };
 use near_o11y::testonly::init_test_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::account::AccessKey;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -517,7 +518,7 @@ fn test_processing_chunks_sanity() {
                     env.process_partial_encoded_chunk_request(1, request);
                     num_requests += 1;
                 } else {
-                    env.network_adapters[1].do_send(request);
+                    env.network_adapters[1].do_send(request.with_span_context());
                 }
             }
         }
@@ -652,6 +653,7 @@ impl ChunkForwardingOptimizationTestData {
                     partial_encoded_chunk.parts.len();
                 self.env
                     .client(&account_id)
+                    .shards_mgr
                     .process_partial_encoded_chunk(
                         PartialEncodedChunk::from(partial_encoded_chunk).into(),
                     )
@@ -674,9 +676,14 @@ impl ChunkForwardingOptimizationTestData {
                     ));
                 }
                 self.num_part_ords_forwarded += forward.parts.len();
-                match self.env.client(&account_id).process_partial_encoded_chunk_forward(forward) {
+                match self
+                    .env
+                    .client(&account_id)
+                    .shards_mgr
+                    .process_partial_encoded_chunk_forward(forward)
+                {
                     Ok(_) => {}
-                    Err(near_client::Error::Chunk(near_chunks::Error::UnknownChunk)) => {
+                    Err(near_chunks::Error::UnknownChunk) => {
                         self.num_forwards_with_missing_chunk_header += 1;
                     }
                     Err(e) => {

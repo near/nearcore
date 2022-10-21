@@ -1,0 +1,9 @@
+---
+source: runtime/runtime-params-estimator/src/replay.rs
+expression: output
+---
+      30 free gets with total size of      140837
+       0 charged gets with total size of        0
+ 100.00% of gets uncharged
+ 100.00% of gets total size uncharged
+
