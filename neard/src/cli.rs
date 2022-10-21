@@ -36,7 +36,7 @@ pub(super) struct NeardCmd {
 }
 
 impl NeardCmd {
-    pub(super) fn parse_and_run() -> Result<(), RunError> {
+    pub(super) fn parse_and_run() -> anyhow::Result<()> {
         let neard_cmd = Self::parse();
 
         // Enable logging of the current thread.
@@ -100,16 +100,6 @@ impl NeardCmd {
         };
         Ok(())
     }
-}
-
-#[derive(thiserror::Error, Debug)]
-pub(crate) enum RunError {
-    #[error("invalid logging directives provided")]
-    EnvFilter(#[source] BuildEnvFilterError),
-    #[error("could not install a rayon thread pool")]
-    RayonInstall(#[source] rayon::ThreadPoolBuildError),
-    #[error(transparent)]
-    Other(#[from] anyhow::Error),
 }
 
 #[derive(Parser)]
@@ -681,9 +671,8 @@ impl VerifyProofSubCommand {
     }
 }
 
-fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, RunError> {
-    let env_filter =
-        EnvFilterBuilder::from_env().verbose(verbose).finish().map_err(RunError::EnvFilter)?;
+fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, BuildEnvFilterError> {
+    let env_filter = EnvFilterBuilder::from_env().verbose(verbose).finish()?;
     // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
     // This is hidden by default so we enable it for sandbox node.
     let env_filter = if cfg!(feature = "sandbox") {
