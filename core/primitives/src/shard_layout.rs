@@ -433,7 +433,7 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
         A: serde::de::MapAccess<'de>,
     {
         // custom struct deserialization for backwards compatibility
-        // TODO(version >=1.31): consider removing this code after checking
+        // TODO(#7894): consider removing this code after checking
         // `ShardUId` is nowhere serialized in the old format
         let mut version = None;
         let mut shard_id = None;

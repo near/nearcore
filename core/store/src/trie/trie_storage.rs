@@ -233,7 +233,12 @@ pub struct TrieCache(pub(crate) Arc<Mutex<TrieCacheInner>>);
 
 impl TrieCache {
     pub fn new(config: &TrieConfig, shard_uid: ShardUId, is_view: bool) -> Self {
-        let total_size_limit = config.shard_cache_total_size_limit(shard_uid, is_view);
+        let total_size_limit = config
+            .shard_cache_config
+            .per_shard_max_bytes
+            .get(&shard_uid)
+            .copied()
+            .unwrap_or(config.shard_cache_config.default_max_bytes);
         let queue_capacity = config.deletions_queue_capacity();
         Self(Arc::new(Mutex::new(TrieCacheInner::new(
             queue_capacity,

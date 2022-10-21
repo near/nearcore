@@ -1,6 +1,8 @@
 use near_primitives::shard_layout::ShardUId;
 use std::{collections::HashMap, iter::FromIterator};
 
+use crate::trie::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT;
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct StoreConfig {
@@ -39,13 +41,13 @@ pub struct StoreConfig {
     pub block_size: bytesize::ByteSize,
 
     /// DEPRECATED: use `trie_cache` instead.
-    /// TODO: Remove in version >=1.31
+    /// TODO(#7894): Remove in version >1.31
     pub trie_cache_capacities: Vec<(ShardUId, u64)>,
 
     /// Trie cache configuration per shard for normal (non-view) caches.
-    pub trie_cache: HashMap<ShardUId, TrieCacheConfig>,
+    pub trie_cache: TrieCacheConfig,
     /// Trie cache configuration per shard for view caches.
-    pub view_trie_cache: HashMap<ShardUId, TrieCacheConfig>,
+    pub view_trie_cache: TrieCacheConfig,
 
     /// Enable fetching account and access key data ahead of time to avoid IO latency.
     pub enable_receipt_prefetching: bool,
@@ -178,14 +180,18 @@ impl Default for StoreConfig {
             // deprecated
             trie_cache_capacities: vec![],
 
-            // Temporary solution to make contracts with heavy trie access
-            // patterns on shard 3 more stable. Can be removed after
-            // implementing flat storage.
-            trie_cache: HashMap::from_iter([(
-                ShardUId { version: 1, shard_id: 3 },
-                TrieCacheConfig { max_bytes: None },
-            )]),
-            view_trie_cache: HashMap::default(),
+            trie_cache: TrieCacheConfig {
+                default_max_bytes: DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
+                // Temporary solution to make contracts with heavy trie access
+                // patterns on shard 3 more stable. It was chosen by the estimation
+                // of the largest contract storage size we are aware as of 23/08/2022.
+                // Consider removing after implementing flat storage. (#7327)
+                per_shard_max_bytes: HashMap::from_iter([(
+                    ShardUId { version: 1, shard_id: 3 },
+                    3_000_000_000,
+                )]),
+            },
+            view_trie_cache: TrieCacheConfig::default(),
 
             enable_receipt_prefetching: true,
             sweat_prefetch_receivers: vec![
@@ -239,10 +245,22 @@ impl Default for MigrationSnapshot {
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct TrieCacheConfig {
-    /// Limit the memory consumption of the tire cache per shard.
+    /// Limit the memory consumption of the trie cache per shard.
     ///
     /// This is an approximate limit that attempts to factor in data structure
     /// overhead also. It is supposed to be fairly accurate in the limit.
-    pub max_bytes: Option<u64>,
+    pub default_max_bytes: u64,
+    /// Overwrites `default_max_bytes` for specific shards.
+    pub per_shard_max_bytes: HashMap<ShardUId, u64>,
+}
+
+impl Default for TrieCacheConfig {
+    fn default() -> Self {
+        Self {
+            default_max_bytes: DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
+            per_shard_max_bytes: Default::default(),
+        }
+    }
 }

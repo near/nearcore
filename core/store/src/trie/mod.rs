@@ -17,6 +17,7 @@ use near_primitives::types::{StateRoot, StateRootNode};
 
 use crate::flat_state::FlatState;
 pub use crate::trie::config::TrieConfig;
+pub(crate) use crate::trie::config::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT;
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 pub use crate::trie::nibble_slice::NibbleSlice;
