@@ -174,7 +174,7 @@ function BlocksTable({ rows, knownProducers, expandAll, hideMissingHeights }) {
                 className={`block-row ${row.block.is_on_canonical_chain ? '' : 'not-on-canonical-chain'}`}>
                 <td className="graph-node-cell">
                     <div id={`graph-node-${i}`}
-                        className={`graph-dot graph-dot-col${row.graphColumn} graph-dot-total-${numGraphColumns}`}>
+                        className={`graph-dot graph-dot-col-${row.graphColumn} graph-dot-total-${numGraphColumns}`}>
                     </div>
                 </td>
                 <td>
