@@ -25,6 +25,6 @@ More advanced example:
     d.snapshot("part2")
     part3();
     d.shapshot("part3")
-    // d_ goes out of scope and prints the total time infomation and time between each 'snapshot' call.
+    // d_ goes out of scope and prints the total time information and time between each 'snapshot' call.
 }
 ```
