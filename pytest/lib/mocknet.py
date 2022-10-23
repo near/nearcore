@@ -320,7 +320,7 @@ def send_transaction(node, tx, tx_hash, account_id, timeout=120):
         elif 'does not exist' in error_data:
             missing_count += 1
             logger.warning(
-                f'transaction {tx_hash} failed to be recieved by the node, checking again.'
+                f'transaction {tx_hash} failed to be received by the node, checking again.'
             )
             if missing_count < 20:
                 time.sleep(5)
