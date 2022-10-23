@@ -320,7 +320,7 @@ impl Display for ActionsValidationError {
 
 impl std::error::Error for ActionsValidationError {}
 
-/// An error happened during Acton execution
+/// An error happened during Action execution
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
