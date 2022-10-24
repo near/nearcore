@@ -322,67 +322,6 @@ impl MockPeerManagerAdapter {
     }
 }
 
-pub mod test_features {
-    use crate::client;
-    use crate::config;
-    use crate::test_utils::convert_boot_nodes;
-    use crate::time;
-    use crate::types::{NetworkClientMessages, NetworkClientResponses};
-    use crate::types::{NetworkViewClientMessages, NetworkViewClientResponses};
-    use crate::PeerManagerActor;
-    use actix::actors::mocker::Mocker;
-    use actix::Actor;
-    use near_primitives::block::GenesisId;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
-
-    /// Mock for `ClientActor`
-    type ClientMock = Mocker<NetworkClientMessages>;
-    /// Mock for `ViewClientActor`
-    type ViewClientMock = Mocker<NetworkViewClientMessages>;
-
-    // Make peer manager for unit tests
-    pub fn spawn_peer_manager(
-        store: Arc<dyn near_store::db::Database>,
-        mut config: config::NetworkConfig,
-        boot_nodes: Vec<(&str, u16)>,
-        peer_max_count: u32,
-    ) -> actix::Addr<PeerManagerActor> {
-        config.boot_nodes = convert_boot_nodes(boot_nodes);
-        config.max_num_peers = peer_max_count;
-        let counter = Arc::new(AtomicUsize::new(0));
-        let counter1 = counter.clone();
-        let client_addr = ClientMock::mock(Box::new(move |_msg, _ctx| {
-            Box::new(Some(NetworkClientResponses::NoResponse))
-        }))
-        .start();
-
-        let view_client_addr = ViewClientMock::mock(Box::new(move |msg, _ctx| {
-            let msg = msg.downcast_ref::<NetworkViewClientMessages>().unwrap();
-            match msg {
-                NetworkViewClientMessages::AnnounceAccount(accounts) => {
-                    if !accounts.is_empty() {
-                        counter1.fetch_add(1, Ordering::SeqCst);
-                    }
-                    Box::new(Some(NetworkViewClientResponses::AnnounceAccount(
-                        accounts.clone().into_iter().map(|obj| obj.0).collect(),
-                    )))
-                }
-                _ => Box::new(Some(NetworkViewClientResponses::NoResponse)),
-            }
-        }))
-        .start();
-        PeerManagerActor::spawn(
-            time::Clock::real(),
-            store,
-            config,
-            client::Client::new(client_addr.recipient(), view_client_addr.recipient()),
-            GenesisId::default(),
-        )
-        .unwrap()
-    }
-}
-
 #[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct SetAdvOptions {

@@ -36,7 +36,7 @@ pub(crate) struct NetworkState {
     pub config: Arc<config::VerifiedConfig>,
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
-    pub client: client::Client,
+    pub client: Arc<dyn client::Client>,
     /// Address of the peer manager actor.
     pub peer_manager_addr: Recipient<WithSpanContext<PeerToManagerMsg>>,
     /// RoutingTableActor, responsible for computing routing table, routing table exchange, etc.
@@ -69,7 +69,7 @@ impl NetworkState {
     pub fn new(
         config: Arc<config::VerifiedConfig>,
         genesis_id: GenesisId,
-        client: client::Client,
+        client: Arc<dyn client::Client>,
         peer_manager_addr: Recipient<WithSpanContext<PeerToManagerMsg>>,
         routing_table_addr: actix::Addr<routing::Actor>,
         routing_table_view: RoutingTableView,
