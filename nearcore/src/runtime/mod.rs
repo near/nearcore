@@ -72,6 +72,7 @@ use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
 pub mod errors;
+use std::str::FromStr;
 
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
@@ -1672,11 +1673,12 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 mod test {
     use std::collections::BTreeSet;
 
+    use near_chain::{Chain, ChainGenesis};
     use near_primitives::types::validator_stake::ValidatorStake;
     use num_rational::Ratio;
 
     use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-    use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
+    use near_chain_configs::{GenesisValidationMode, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_epoch_manager::EpochManagerAdapter;
     use near_o11y::testonly::init_test_logger;
@@ -3198,5 +3200,28 @@ mod test {
 
         let view_state_value = view_state.get(&key).unwrap().unwrap();
         assert_eq!(state_value, view_state_value);
+    }
+
+    /// Check that mainnet genesis hash still matches.
+    #[test]
+    fn test_genesis_hash() {
+        let genesis = Genesis::from_file("res/mainnet_genesis.json", GenesisValidationMode::Full);
+        let chain_genesis = ChainGenesis::new(&genesis);
+        let (tempdir, opener) = near_store::NodeStorage::test_opener();
+        let store = opener.open().unwrap();
+
+        let runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
+            tempdir.path(),
+            store.get_store(Temperature::Hot),
+            &genesis,
+            TrackedConfig::new_empty(),
+            RuntimeConfigStore::new(None),
+        ));
+
+        let block = Chain::make_genesis_block(&*runtime, &chain_genesis).unwrap();
+        assert_eq!(
+            block.header().hash(),
+            &CryptoHash::from_str("EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H").unwrap()
+        );
     }
 }
