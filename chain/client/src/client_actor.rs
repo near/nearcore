@@ -570,14 +570,6 @@ impl ClientActor {
 
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::EpochSyncResponse(_peer_id, _response) => {
-                // TODO #3488
-                NetworkClientResponses::NoResponse
-            }
-            NetworkClientMessages::EpochSyncFinalizationResponse(_peer_id, _response) => {
-                // TODO #3488
-                NetworkClientResponses::NoResponse
-            }
             NetworkClientMessages::PartialEncodedChunkRequest(part_request_msg, route_back) => {
                 let _ = self
                     .client

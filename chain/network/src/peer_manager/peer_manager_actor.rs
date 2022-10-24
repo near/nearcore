@@ -1103,29 +1103,6 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            // unused: epoch sync is not implemented
-            NetworkRequests::EpochSyncRequest { peer_id, epoch_id } => {
-                if self
-                    .state
-                    .tier2
-                    .send_message(peer_id, Arc::new(PeerMessage::EpochSyncRequest(epoch_id)))
-                {
-                    NetworkResponses::NoResponse
-                } else {
-                    NetworkResponses::RouteNotFound
-                }
-            }
-            // unused: epoch sync is not implemented
-            NetworkRequests::EpochSyncFinalizationRequest { peer_id, epoch_id } => {
-                if self.state.tier2.send_message(
-                    peer_id,
-                    Arc::new(PeerMessage::EpochSyncFinalizationRequest(epoch_id)),
-                ) {
-                    NetworkResponses::NoResponse
-                } else {
-                    NetworkResponses::RouteNotFound
-                }
-            }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
                 self.try_ban_peer(&peer_id, ban_reason);
                 NetworkResponses::NoResponse
