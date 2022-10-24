@@ -13,9 +13,7 @@ use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event;
-use crate::private_actix::{
-    RegisterPeerError, SendMessage,
-};
+use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::routing::edge::verify_nonce;
 use crate::stats::metrics;
 use crate::tcp;
@@ -700,11 +698,11 @@ impl PeerActor {
         // decides whether to accept the connection or not: ctx.wait makes
         // the actor event loop poll on the future until it completes before
         // processing any other events.
-        
+
         ctx.wait(wrap_future({
             let network_state = self.network_state.clone();
             let clock = self.clock.clone();
-            let conn = conn.clone();    
+            let conn = conn.clone();
             async move { network_state.register(&clock,conn).await }
         })
             .map(move |res, act: &mut PeerActor, ctx| {
@@ -1087,7 +1085,7 @@ impl PeerActor {
                                 edge_info.signature,
                             );
                             if let Err(ban_reason) = network_state
-                                .add_edges_to_routing_table(&clock,vec![new_edge.clone()])
+                                .add_edges_to_routing_table(&clock, vec![new_edge.clone()])
                                 .await
                             {
                                 conn.stop(Some(ban_reason));
@@ -1336,11 +1334,7 @@ impl actix::Actor for PeerActor {
                     _ => None,
                 };
                 ctx.wait(wrap_future(async move {
-                    network_state.unregister(
-                        &clock,
-                        &conn,
-                        ban_reason,
-                    ).await;
+                    network_state.unregister(&clock, &conn, ban_reason).await;
                 }));
             }
         }

@@ -11,7 +11,7 @@ use crate::network_protocol::{
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
-use crate::private_actix::{RegisterPeerError};
+use crate::private_actix::RegisterPeerError;
 use crate::routing;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::routing::routing_table_view::RoutingTableView;

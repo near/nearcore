@@ -10,7 +10,6 @@ async fn must_complete_should_panic() {
     let _ = rayon::must_complete(async move { 6 });
 }
 
-
 // run a trivial future until completion => OK
 #[tokio::test]
 async fn must_complete_ok() {

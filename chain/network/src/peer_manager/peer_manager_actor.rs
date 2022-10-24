@@ -1,14 +1,14 @@
 use crate::client;
 use crate::config;
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Edge, PeerIdOrHash, PeerMessage, Ping, Pong,
-    RawRoutedMessage, RoutedMessageBody, StateResponseInfo, SyncAccountsData,
+    AccountOrPeerIdOrHash, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage,
+    RoutedMessageBody, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_store;
-use crate::private_actix::{StopMsg};
+use crate::private_actix::StopMsg;
 use crate::routing;
 use crate::stats::metrics;
 use crate::store;
@@ -28,7 +28,7 @@ use near_primitives::network::PeerId;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::cmp::min;
-use std::collections::{HashSet};
+use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 

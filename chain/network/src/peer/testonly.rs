@@ -10,14 +10,13 @@ use crate::peer::peer_actor::{ClosingReason, PeerActor};
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_store;
-use crate::private_actix::{ SendMessage};
+use crate::private_actix::SendMessage;
 use crate::store;
 use crate::tcp;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
 use crate::types::PeerMessage;
-use actix::{Actor, Context, Handler};
 use near_crypto::{InMemorySigner, Signature};
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::PeerId;
@@ -56,14 +55,6 @@ impl PeerConfig {
 pub(crate) enum Event {
     Client(fake_client::Event),
     Network(peer_manager_actor::Event),
-}
-
-struct FakePeerManagerActor {
-    cfg: Arc<PeerConfig>,
-}
-
-impl Actor for FakePeerManagerActor {
-    type Context = Context<Self>;
 }
 
 pub(crate) struct PeerHandle {
@@ -127,7 +118,6 @@ impl PeerHandle {
         let cfg_ = cfg.clone();
         let (send, recv) = broadcast::unbounded_channel();
         let actix = ActixSystem::spawn(move || {
-            let fpm = FakePeerManagerActor { cfg: cfg.clone() }.start();
             let fc = fake_client::start(send.sink().compose(Event::Client));
             let store = store::Store::from(near_store::db::TestDB::new());
             let mut network_cfg = cfg.network.clone();
@@ -140,7 +130,7 @@ impl PeerHandle {
                 Arc::new(network_cfg.verify().unwrap()),
                 cfg.chain.genesis_id.clone(),
                 client::Client::new(fc.clone().recipient(), fc.clone().recipient()),
-                fpm.recipient(),
+                vec![],
             ));
             // WARNING: this is a hack to make PeerActor use a specific nonce
             if let (Some(nonce), tcp::StreamType::Outbound { peer_id, .. }) =
