@@ -208,6 +208,10 @@ impl RoutingTableView {
         self.0.lock().local_edges.get(other_peer).cloned()
     }
 
+    pub(crate) fn get_local_edges(&self) -> Vec<Edge> {
+        self.0.lock().local_edges.clone()
+    }
+
     /// Returns the diff: new local edges added.
     pub(crate) fn add_local_edges(&self, edges: &[Edge]) -> Vec<Edge> {
         let mut inner = self.0.lock();

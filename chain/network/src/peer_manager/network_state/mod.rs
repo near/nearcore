@@ -1,14 +1,19 @@
 use crate::accounts_data;
 use crate::client;
 use crate::concurrency::rate;
+use crate::concurrency::atomic_cell::AtomicCell;
+use crate::concurrency;
 use crate::config;
 use crate::network_protocol::{
+    PeerInfo,
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage,
     RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
 };
+use rayon::iter::{ParallelBridge};
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_store;
-use crate::private_actix::{PeerToManagerMsg, ValidateEdgeList};
+use crate::peer_manager::peer_manager_actor::{Event};
+use crate::private_actix::{RegisterPeerError, PeerToManagerMsg};
 use crate::routing;
 use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::route_back_cache::RouteBackCache;
@@ -17,7 +22,7 @@ use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::time;
-use crate::types::{ChainInfo, ReasonForBan};
+use crate::types::{PeerType, ChainInfo, ReasonForBan};
 use actix::Recipient;
 use arc_swap::ArcSwap;
 use near_primitives::block::GenesisId;
@@ -27,6 +32,7 @@ use near_primitives::types::AccountId;
 use parking_lot::{Mutex, RwLock};
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+use std::net::SocketAddr;
 
 mod tier1;
 
@@ -36,6 +42,28 @@ pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 /// Send important messages three times.
 /// We send these messages multiple times to reduce the chance that they are lost
 const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
+
+impl TryFrom<&PeerInfo> for WhitelistNode {
+    type Error = anyhow::Error;
+    fn try_from(pi: &PeerInfo) -> anyhow::Result<Self> {
+        Ok(Self {
+            id: pi.id.clone(),
+            addr: if let Some(addr) = pi.addr {
+                addr.clone()
+            } else {
+                anyhow::bail!("addess is missing");
+            },
+            account_id: pi.account_id.clone(),
+        })
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct WhitelistNode {
+    id: PeerId,
+    addr: SocketAddr,
+    account_id: Option<AccountId>,
+}
 
 pub(crate) struct NetworkState {
     /// PeerManager config.
@@ -83,6 +111,16 @@ pub(crate) struct NetworkState {
     pub txns_since_last_block: AtomicUsize,
 
     pub tier1_recv_limiter: rate::Limiter,
+
+    /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
+    /// reached.
+    whitelist_nodes: Vec<WhitelistNode>,
+    /// Maximal allowed number of peer connections.
+    /// It is initialized with config.max_num_peers and is mutable
+    /// only so that it can be changed in tests.
+    /// TODO(gprusak): determine why tests need to change that dynamically
+    /// in the first place.
+    pub max_num_peers: AtomicCell<u32>,
 }
 
 impl NetworkState {
@@ -94,8 +132,10 @@ impl NetworkState {
         genesis_id: GenesisId,
         client: client::Client,
         peer_manager_addr: Recipient<PeerToManagerMsg>,
+        whitelist_nodes: Vec<WhitelistNode>,
     ) -> Self {
         let graph = Arc::new(RwLock::new(routing::GraphWithCache::new(config.node_id())));
+        
         Self {
             routing_table_addr: routing::Actor::spawn(clock.clone(), store.clone(), graph.clone()),
             graph,
@@ -120,6 +160,8 @@ impl NetworkState {
             ),
             config,
             txns_since_last_block: AtomicUsize::new(0),
+            whitelist_nodes,
+            max_num_peers: AtomicCell::new(config.max_num_peers),
         }
     }
 
@@ -150,6 +192,106 @@ impl NetworkState {
         }
     }
 
+    /// is_peer_whitelisted checks whether a peer is a whitelisted node.
+    /// whitelisted nodes are allowed to connect, even if the inbound connections limit has
+    /// been reached. This predicate should be evaluated AFTER the Handshake.
+    pub fn is_peer_whitelisted(&self, peer_info: &PeerInfo) -> bool {
+        self.whitelist_nodes
+            .iter()
+            .filter(|wn| wn.id == peer_info.id)
+            .filter(|wn| Some(wn.addr) == peer_info.addr)
+            .any(|wn| wn.account_id.is_none() || wn.account_id == peer_info.account_id)
+    }
+    
+    /// predicate checking whether we should allow an inbound connection from peer_info.
+    fn is_inbound_allowed(&self, peer_info: &PeerInfo) -> bool {
+        // Check if we have spare inbound connections capacity.
+        let tier2 = self.tier2.load();
+        if tier2.ready.len() + tier2.outbound_handshakes.len() < self.max_num_peers.load() as usize
+            && !self.config.inbound_disabled
+        {
+            return true;
+        }
+        // Whitelisted nodes are allowed to connect, even if the inbound connections limit has
+        // been reached.
+        if self.is_peer_whitelisted(peer_info) {
+            return true;
+        }
+        false
+    }
+
+    /// Register a direct connection to a new peer. This will be called after successfully
+    /// establishing a connection with another peer. It become part of the connected peers.
+    ///
+    /// To build new edge between this pair of nodes both signatures are required.
+    /// Signature from this node is passed in `edge_info`
+    /// Signature from the other node is passed in `full_peer_info.edge_info`.
+    async fn register(&self, clock: &time::Clock, conn: Arc<connection::Connection>) -> Result<(),RegisterPeerError> {
+        let peer_info = &conn.peer_info;
+        // Check if this is a blacklisted peer.
+        if peer_info.addr.as_ref().map_or(true, |addr| self.peer_store.is_blacklisted(addr)) {
+            tracing::debug!(target: "network", peer_info = ?peer_info, "Dropping connection from blacklisted peer or unknown address");
+            return Err(RegisterPeerError::Blacklisted);
+        }
+
+        if self.peer_store.is_banned(&peer_info.id) {
+            tracing::debug!(target: "network", id = ?peer_info.id, "Dropping connection from banned peer");
+            return Err(RegisterPeerError::Banned);
+        }
+
+        match conn.tier {
+            tcp::Tier::T1 => {
+                if !self.config.features.tier1.as_ref().map_or(false, |c| c.enable_inbound) {
+                    return Err(RegisterPeerError::Tier1InboundDisabled);
+                }
+                if conn.peer_type == PeerType::Inbound {
+                    // Allow for inbound TIER1 connections only directly from a TIER1 peers.
+                    let owned_account = match &conn.owned_account {
+                        Some(it) => it,
+                        None => {
+                            return Err(RegisterPeerError::NotTier1Peer)
+                        }
+                    };
+                    if !self
+                        .accounts_data
+                        .load()
+                        .keys
+                        .values()
+                        .any(|key| key == &owned_account.account_key)
+                    {
+                        return Err(RegisterPeerError::NotTier1Peer);
+                    }
+                }
+            }
+            tcp::Tier::T2 => {
+                if conn.peer_type == PeerType::Inbound {
+                    if !self.is_inbound_allowed(&peer_info) {
+                        // TODO(1896): Gracefully drop inbound connection for other peer.
+                        let tier2 = self.tier2.load();
+                        tracing::debug!(target: "network",
+                            tier2 = tier2.ready.len(), outgoing_peers = tier2.outbound_handshakes.len(),
+                            max_num_peers = self.max_num_peers.load(),
+                            "Dropping handshake (network at max capacity)."
+                        );
+                        return Err(RegisterPeerError::ConnectionLimitExceeded);
+                    }
+                }
+            }
+        }
+        match conn.tier {
+            tcp::Tier::T1 => self.tier1.insert_ready(conn).map_err(RegisterPeerError::PoolError)?,
+            tcp::Tier::T2 => {
+                self.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
+                // Best effort write to DB.
+                if let Err(err) = self.peer_store.peer_connected(clock, peer_info) {
+                    tracing::error!(target: "network", ?err, "Failed to save peer data");
+                }
+                self.add_edges_to_routing_table(&clock,vec![conn.edge.clone()]).await.unwrap();
+            }
+        }
+        Ok(())
+    }
+
     /// Removes the connection from the state.
     pub fn unregister(
         &self,
@@ -171,7 +313,7 @@ impl NetworkState {
         if let Some(edge) = self.routing_table_view.get_local_edge(&peer_id) {
             if edge.edge_type() == EdgeState::Active {
                 let edge_update = edge.remove_edge(self.config.node_id(), &self.config.node_key);
-                self.add_verified_edges_to_routing_table(vec![edge_update.clone()]);
+                self.add_edges_to_routing_table(clock, vec![edge_update.clone()]);
                 self.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
                     RoutingTableUpdate::from_edges(vec![edge_update]),
                 )));
@@ -340,23 +482,28 @@ impl NetworkState {
     /// Bans peer `peer_id` if an invalid edge is found.
     /// `PeerManagerActor` periodically runs `broadcast_validated_edges_trigger`, which gets edges
     /// from `EdgeValidatorActor` concurrent queue and sends edges to be added to `RoutingTableActor`.
-    pub async fn add_edges_to_routing_table(&self, edges: Vec<Edge>) -> Result<(),ReasonForBan> {
+    pub async fn add_edges_to_routing_table(&self, clock: &time::Clock, mut edges: Vec<Edge>) -> Result<(),ReasonForBan> {
         let graph = self.graph.read();
         edges.retain(|x| !graph.has(x));
         drop(graph);
-        if edges.is_empty() { return; }
+        if edges.is_empty() { return Ok(()) }
         // Verify the edges in parallel on rayon.
-        let (edges, ok) = rayon_spawn(move || {
-            try_map(edges.into_iter().par_bridge(), |e| if e.verify() { Some(e) } else { None })
+        let (edges, ok) = concurrency::rayon::run(move || {
+            concurrency::rayon::try_map(edges.into_iter().par_bridge(), |e| if e.verify() { Some(e) } else { None })
         }).await;
         self.routing_table_view.add_local_edges(&edges);
-        let edges = self.routing_table_addr.send(routing::actor::Message::AddVerifiedEdges { edges }).await;
+        // TODO: this unwrap may panic in tests.
+        let resp = self.routing_table_addr.send(routing::actor::Message::AddVerifiedEdges { edges }).await.unwrap();
+        let mut edges = match resp {
+            routing::actor::Response::AddVerifiedEdges(edges) => edges,
+            _ => panic!("expected AddVerifiedEdges"),
+        };
         // Don't send tombstones during the initial time.
         // Most of the network is created during this time, which results
         // in us sending a lot of tombstones to peers.
         // Later, the amount of new edges is a lot smaller.
-        let skip_tombstones = self.config.skip_tombstones.map(|it| /*TODO: node start + it*/ self.clock.now() + it);
-        if let Some(skip_tombstones_until) = skip_tombstones_until {
+        let skip_tombstones = self.config.skip_tombstones.map(|it| /*TODO: node start + it*/ clock.now() + it);
+        if let Some(skip_tombstones_until) = skip_tombstones {
             if clock.now() < skip_tombstones_until {
                 edges.retain(|edge| edge.edge_type() == EdgeState::Active);
                 metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
@@ -366,7 +513,7 @@ impl NetworkState {
         // TODO: demux
         self.tier2.broadcast_message(Arc::new(
             PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(
-                filtered_edges,
+                edges,
             )),
         ));
         if !ok {
@@ -380,14 +527,14 @@ impl NetworkState {
         prune_unreachable_since: Option<time::Instant>,
         prune_edges_older_than: Option<time::Utc>,
     ) {
-        let resp = self.state.routing_table_addr.send(
+        let resp = self.routing_table_addr.send(
             routing::actor::Message::RoutingTableUpdate {
                 prune_unreachable_since,
                 prune_edges_older_than,
             },
         ).await.unwrap();
         match resp {
-            routing::actor::Response::RoutingTableUpdateResponse {
+            routing::actor::Response::RoutingTableUpdate {
                 pruned_edges,
                 next_hops,
             } => {
@@ -404,26 +551,28 @@ impl NetworkState {
     /// a) there is a peer we should be connected to, but we aren't
     /// b) there is an edge indicating that we should be disconnected from a peer, but we are connected.
     /// Try to resolve the inconsistency.
-    pub async fn update_local_edges() {
-        let local_edges = self.routing.table_view.get_local_edges(); 
+    pub async fn update_local_edges(&self) {
+        let local_edges = self.routing_table_view.get_local_edges(); 
         let tier2 = self.tier2.load();
+        let node_id = self.config.node_id();
         for edge in local_edges {
-            let other_peer = edge.other(&self.my_peer_id).unwrap();
+            let other_peer = edge.other(&node_id).unwrap();
             match (tier2.ready.contains_key(other_peer), edge.edge_type()) {
                 // This is an active connection, while the edge indicates it shouldn't.
                 (true, EdgeState::Removed) => {
                     let nonce = edge.next();
-                    state.tier2.send_message(
-                        other.clone(),
+                    self.tier2.send_message(
+                        other_peer.clone(),
                         Arc::new(PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
-                            &self.my_peer_id,
-                            other,
+                            &node_id,
+                            other_peer,
                             nonce,
                             &self.config.node_key,
                         ))),
                     );
-                    // wait for update with timeout. 
-                    if let Some(peer) = state.tier2.load().ready.get(&other) {
+                    // wait for update with timeout.
+                    // TODO: gprusak
+                    if let Some(peer) = self.tier2.load().ready.get(&other_peer) {
                         // Send disconnect signal to this peer if we haven't edge update.
                         peer.stop(None);
                     }
@@ -434,14 +583,14 @@ impl NetworkState {
                 (false, EdgeState::Active) => {
                     // This edge says this is an connected peer, which is currently not in the set of connected peers.
                     // Wait for some time to let the connection begin or broadcast edge removal instead.
-                    wait(WAIT_PEER_BEFORE_REMOVE.try_into().unwrap());
-                    let other = edge.other(&act.my_peer_id).unwrap();
-                    if state.tier2.load().ready.contains_key(other) {
+                    //TODO: wait(WAIT_PEER_BEFORE_REMOVE.try_into().unwrap());
+                    let other = edge.other(&node_id).unwrap();
+                    if self.tier2.load().ready.contains_key(other) {
                         return;
                     }
                     // Peer is still not connected after waiting a timeout.
-                    let new_edge = edge.remove_edge(act.my_peer_id.clone(), &act.config.node_key);
-                    act.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                    let new_edge = edge.remove_edge(self.config.node_id(), &self.config.node_key);
+                    self.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
                         RoutingTableUpdate::from_edges(vec![new_edge]),
                     )));
                 }

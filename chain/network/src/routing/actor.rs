@@ -1,13 +1,13 @@
 use crate::network_protocol::Edge;
-use crate::private_actix::{StopMsg, ValidateEdgeList};
+use crate::private_actix::{StopMsg};
 use crate::routing;
 use crate::routing::edge_validator_actor::EdgeValidatorActor;
 use crate::stats::metrics;
 use crate::store;
 use crate::time;
 use actix::{
-    Actor as _, ActorContext as _, ActorFutureExt, Addr, Context, ContextFutureSpawner as _,
-    Running, WrapFuture as _,
+    Actor as _, ActorContext as _, ActorFutureExt, Addr, Context, 
+    Running, 
 };
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
@@ -255,8 +255,8 @@ pub(crate) enum Message {
 #[derive(actix::MessageResponse, Debug)]
 pub enum Response {
     Empty,
-    AddVerifiedEdgesResponse(Vec<Edge>),
-    RoutingTableUpdateResponse {
+    AddVerifiedEdges(Vec<Edge>),
+    RoutingTableUpdate {
         /// PeerManager maintains list of local edges. We will notify `PeerManager`
         /// to remove those edges.
         pruned_edges: Vec<Edge>,

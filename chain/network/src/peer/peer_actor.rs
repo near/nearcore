@@ -1271,10 +1271,14 @@ impl PeerActor {
             })
             .collect();
 
+        let network_state = self.network_state.clone();
+        let clock = self.clock.clone();
+        ctx.spawn(wrap_future(async move {
+            network_state
+            .add_edges_to_routing_table(&clock, edges);
+        }));
         // Ask client to validate accounts before accepting them.
         let network_state = self.network_state.clone();
-        self.network_state
-            .validate_edges_and_add_to_routing_table(conn.peer_info.id.clone(), edges);
         ctx.spawn(
             wrap_future(async move { network_state.client.announce_account(accounts).await }).then(
                 move |res, act: &mut PeerActor, ctx| {
