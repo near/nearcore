@@ -32,7 +32,6 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
-use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId};
@@ -263,10 +262,6 @@ pub enum PeerMessage {
     /// Gracefully disconnect from other peer.
     Disconnect,
     Challenge(Challenge),
-    EpochSyncRequest(EpochId),
-    EpochSyncResponse(Box<EpochSyncResponse>),
-    EpochSyncFinalizationRequest(EpochId),
-    EpochSyncFinalizationResponse(Box<EpochSyncFinalizationResponse>),
 }
 
 /*

@@ -310,10 +310,6 @@ impl Handler<WithSpanContext<NetworkViewClientMessages>> for FakeClientActor {
             NetworkViewClientMessages::BlockHeadersRequest(_) => "BlockHeadersRequest",
             NetworkViewClientMessages::StateRequestHeader { .. } => "StateRequestHeader",
             NetworkViewClientMessages::StateRequestPart { .. } => "StateRequestPart",
-            NetworkViewClientMessages::EpochSyncRequest { .. } => "EpochSyncRequest",
-            NetworkViewClientMessages::EpochSyncFinalizationRequest { .. } => {
-                "EpochSyncFinalizationRequest"
-            }
             NetworkViewClientMessages::AnnounceAccount(_) => {
                 return NetworkViewClientResponses::NoResponse;
             }
