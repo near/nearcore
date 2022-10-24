@@ -358,6 +358,12 @@ impl fmt::Display for AccountId {
     }
 }
 
+impl From<AccountId> for String {
+    fn from(account_id: AccountId) -> Self {
+        account_id.0.into_string()
+    }
+}
+
 impl From<AccountId> for Box<str> {
     fn from(value: AccountId) -> Box<str> {
         value.0
