@@ -600,22 +600,6 @@ pub enum TxStatusError {
     TimeoutError,
 }
 
-impl From<TxStatusError> for String {
-    fn from(error: TxStatusError) -> Self {
-        match error {
-            TxStatusError::ChainError(err) => format!("Chain error: {}", err),
-            TxStatusError::MissingTransaction(tx_hash) => {
-                format!("Transaction {} doesn't exist", tx_hash)
-            }
-            TxStatusError::InternalError(debug_message) => {
-                format!("Internal error: {}", debug_message)
-            }
-            TxStatusError::TimeoutError => format!("Timeout error"),
-            TxStatusError::InvalidTx(e) => format!("Invalid transaction: {}", e),
-        }
-    }
-}
-
 impl Message for TxStatus {
     type Result = Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError>;
 }
