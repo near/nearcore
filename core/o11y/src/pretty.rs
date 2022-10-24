@@ -51,7 +51,7 @@ impl<'a> Bytes<'a> {
             Ok(hash.as_bytes().to_vec())
         } else if s.len() >= 2 && s.starts_with("'") && s.ends_with("'") {
             // plain string
-            Ok(s[1..s.len() - 1].as_bytes().to_vec()
+            Ok(s[1..s.len() - 1].as_bytes().to_vec())
         } else {
             // encoded with base64
             from_base64(s)
