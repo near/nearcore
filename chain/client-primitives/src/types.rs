@@ -8,7 +8,6 @@ use chrono::DateTime;
 use near_primitives::time::Utc;
 
 use near_chain_configs::ProtocolConfigView;
-use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
@@ -595,7 +594,6 @@ pub struct TxStatus {
 pub enum TxStatusError {
     ChainError(near_chain_primitives::Error),
     MissingTransaction(CryptoHash),
-    InvalidTx(InvalidTxError),
     InternalError(String),
     TimeoutError,
 }
