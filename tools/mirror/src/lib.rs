@@ -177,6 +177,9 @@ impl TxAwaitingNonce {
     }
 }
 
+// A transaction meant for the target chain that is complete/ready to send.
+// We keep some extra info about the transaction for the purposes of logging
+// later on when we find it on chain.
 #[derive(Debug)]
 struct MappedTx {
     source_signer_id: AccountId,

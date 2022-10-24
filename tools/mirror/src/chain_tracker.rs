@@ -13,6 +13,10 @@ use std::fmt::Write;
 use std::pin::Pin;
 use std::time::{Duration, Instant};
 
+// Information related to a single transaction that we sent in the past.
+// We could just forget it and not save any of this, but keeping this info
+// makes it easy to print out human-friendly info later on when we find this
+// transaction on chain.
 struct TxSendInfo {
     sent_at: Instant,
     source_height: BlockHeight,
