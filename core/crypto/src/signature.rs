@@ -260,7 +260,7 @@ impl Display for PublicKey {
             PublicKey::ED25519(public_key) => (KeyType::ED25519, &public_key.0[..]),
             PublicKey::SECP256K1(public_key) => (KeyType::SECP256K1, &public_key.0[..]),
         };
-        fmt.write_fmt(format_args!("{}:{}", key_type, bs58::encode(key_data).into_string()))
+        write!(fmt, "{}:{}", key_type, bs58::encode(key_data).into_string())
     }
 }
 
