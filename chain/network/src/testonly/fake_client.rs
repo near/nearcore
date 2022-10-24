@@ -1,18 +1,15 @@
-use crate::client;
-use crate::network_protocol::{
-    PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
-    StateResponseInfo,
-};
 use crate::sink::Sink;
-use crate::types::{NetworkInfo, ReasonForBan};
-use near_primitives::block::{Approval, Block, BlockHeader};
+use crate::types::{NetworkClientMessages, NetworkClientResponses};
+use crate::types::{NetworkViewClientMessages, NetworkViewClientResponses};
+use actix::Actor as _;
+use near_o11y::WithSpanContext;
+use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart};
+use near_primitives::network::AnnounceAccount;
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunkPart};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, EpochId, ShardId};
-use near_primitives::views::FinalExecutionOutcomeView;
+use near_primitives::types::EpochId;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Event {
@@ -27,109 +24,79 @@ pub enum Event {
     AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
 }
 
-pub(crate) struct Fake {
-    pub event_sink: Sink<Event>,
+pub struct Actor {
+    event_sink: Sink<Event>,
 }
 
-#[async_trait::async_trait]
-impl client::Client for Fake {
-    async fn tx_status_request(
-        &self,
-        _account_id: AccountId,
-        _tx_hash: CryptoHash,
-    ) -> Option<Box<FinalExecutionOutcomeView>> {
-        unimplemented!();
+impl actix::Actor for Actor {
+    type Context = actix::Context<Self>;
+}
+
+pub fn start(event_sink: Sink<Event>) -> actix::Addr<Actor> {
+    Actor { event_sink }.start()
+}
+
+impl actix::Handler<WithSpanContext<NetworkViewClientMessages>> for Actor {
+    type Result = NetworkViewClientResponses;
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<NetworkViewClientMessages>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let msg = msg.msg;
+        match msg {
+            NetworkViewClientMessages::BlockRequest(block_hash) => {
+                self.event_sink.push(Event::BlockRequest(block_hash));
+                NetworkViewClientResponses::NoResponse
+            }
+            NetworkViewClientMessages::BlockHeadersRequest(req) => {
+                self.event_sink.push(Event::BlockHeadersRequest(req));
+                NetworkViewClientResponses::NoResponse
+            }
+            NetworkViewClientMessages::AnnounceAccount(aas) => {
+                self.event_sink.push(Event::AnnounceAccount(aas.clone()));
+                NetworkViewClientResponses::AnnounceAccount(aas.into_iter().map(|a| a.0).collect())
+            }
+            msg => {
+                let msg_type: &'static str = msg.into();
+                panic!("unsupported message {msg_type}")
+            }
+        }
     }
+}
 
-    async fn tx_status_response(&self, _tx_result: FinalExecutionOutcomeView) {}
+impl actix::Handler<WithSpanContext<NetworkClientMessages>> for Actor {
+    type Result = NetworkClientResponses;
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<NetworkClientMessages>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let msg = msg.msg;
 
-    async fn state_request_header(
-        &self,
-        _shard_id: ShardId,
-        _sync_hash: CryptoHash,
-    ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
-        unimplemented!();
-    }
-
-    async fn state_request_part(
-        &self,
-        _shard_id: ShardId,
-        _sync_hash: CryptoHash,
-        _part_id: u64,
-    ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
-        unimplemented!();
-    }
-
-    async fn state_response(&self, _info: StateResponseInfo) {
-        unimplemented!();
-    }
-
-    async fn block_approval(&self, _approval: Approval, _peer_id: PeerId) {
-        unimplemented!();
-    }
-
-    async fn transaction(&self, transaction: SignedTransaction, _is_forwarded: bool) {
-        self.event_sink.push(Event::Transaction(transaction));
-    }
-
-    async fn partial_encoded_chunk_request(
-        &self,
-        req: PartialEncodedChunkRequestMsg,
-        _msg_hash: CryptoHash,
-    ) {
-        self.event_sink.push(Event::ChunkRequest(req.chunk_hash));
-    }
-
-    async fn partial_encoded_chunk_response(
-        &self,
-        resp: PartialEncodedChunkResponseMsg,
-        _timestamp: time::Instant,
-    ) {
-        self.event_sink.push(Event::Chunk(resp.parts));
-    }
-
-    async fn partial_encoded_chunk(&self, _chunk: PartialEncodedChunk) {
-        unimplemented!();
-    }
-
-    async fn partial_encoded_chunk_forward(&self, _msg: PartialEncodedChunkForwardMsg) {
-        unimplemented!();
-    }
-
-    async fn block_request(&self, hash: CryptoHash) -> Option<Box<Block>> {
-        self.event_sink.push(Event::BlockRequest(hash));
-        None
-    }
-
-    async fn block_headers_request(&self, hashes: Vec<CryptoHash>) -> Option<Vec<BlockHeader>> {
-        self.event_sink.push(Event::BlockHeadersRequest(hashes));
-        None
-    }
-
-    async fn block(&self, block: Block, _peer_id: PeerId, _was_requested: bool) {
-        self.event_sink.push(Event::Block(block));
-    }
-
-    async fn block_headers(
-        &self,
-        headers: Vec<BlockHeader>,
-        _peer_id: PeerId,
-    ) -> Result<(), ReasonForBan> {
-        self.event_sink.push(Event::BlockHeaders(headers));
-        Ok(())
-    }
-
-    async fn challenge(&self, challenge: Challenge) {
-        self.event_sink.push(Event::Challenge(challenge));
-    }
-
-    async fn network_info(&self, _info: NetworkInfo) {}
-
-    async fn announce_account(
-        &self,
-        accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
-    ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
-        self.event_sink.push(Event::AnnounceAccount(accounts.clone()));
-        Ok(accounts.into_iter().map(|a| a.0).collect())
+        let mut resp = NetworkClientResponses::NoResponse;
+        match msg {
+            NetworkClientMessages::Block(b, _, _) => self.event_sink.push(Event::Block(b)),
+            NetworkClientMessages::BlockHeaders(bhs, _) => {
+                self.event_sink.push(Event::BlockHeaders(bhs))
+            }
+            NetworkClientMessages::PartialEncodedChunkResponse(resp, _) => {
+                self.event_sink.push(Event::Chunk(resp.parts))
+            }
+            NetworkClientMessages::PartialEncodedChunkRequest(req, _) => {
+                self.event_sink.push(Event::ChunkRequest(req.chunk_hash))
+            }
+            NetworkClientMessages::Transaction { transaction, .. } => {
+                self.event_sink.push(Event::Transaction(transaction));
+                resp = NetworkClientResponses::ValidTx;
+            }
+            NetworkClientMessages::Challenge(c) => self.event_sink.push(Event::Challenge(c)),
+            NetworkClientMessages::NetworkInfo(_) => {}
+            msg => {
+                let msg_type: &'static str = msg.into();
+                panic!("unsupported message {msg_type}")
+            }
+        };
+        resp
     }
 }

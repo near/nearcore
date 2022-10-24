@@ -9,14 +9,16 @@ use futures::future::BoxFuture;
 use futures::FutureExt;
 use near_crypto::PublicKey;
 use near_o11y::WithSpanContext;
-use near_primitives::block::{ApprovalMessage, Block};
+use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
+use near_primitives::sharding::{PartialEncodedChunk, PartialEncodedChunkWithArcReceipts};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
 use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::views::FinalExecutionOutcomeView;
 use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView};
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
@@ -82,15 +84,9 @@ pub struct Ban {
 /// Status of the known peers.
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum KnownPeerStatus {
-    /// We got information about this peer from someone, but we didn't
-    /// verify them yet. This peer might not exist, invalid IP etc.
-    /// Also the peers that we failed to connect to, will be marked as 'Unknown'.
     Unknown,
-    /// We know that this peer exists - we were connected to it, or it was provided as boot node.
     NotConnected,
-    /// We're currently connected to this peer.
     Connected,
-    /// We banned this peer for some reason. Once the ban time is over, it will move to 'NotConnected' state.
     Banned(ReasonForBan, time::Utc),
 }
 
@@ -101,9 +97,6 @@ pub struct KnownPeerState {
     pub status: KnownPeerStatus,
     pub first_seen: time::Utc,
     pub last_seen: time::Utc,
-    // Last time we tried to connect to this peer.
-    // This data is not persisted in storage.
-    pub last_outbound_attempt: Option<(time::Utc, Result<(), String>)>,
 }
 
 impl KnownPeerState {
@@ -113,7 +106,6 @@ impl KnownPeerState {
             status: KnownPeerStatus::Unknown,
             first_seen: now,
             last_seen: now,
-            last_outbound_attempt: None,
         }
     }
 }
@@ -172,6 +164,22 @@ pub enum PeerManagerMessageRequest {
         nonce: u64,
         target: PeerId,
     },
+}
+
+/// Messages from PeerManager to Peer
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub enum PeerManagerRequest {
+    BanPeer(ReasonForBan),
+    UnregisterPeer,
+}
+
+/// Messages from PeerManager to Peer with a tracing Context.
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub struct PeerManagerRequestWithContext {
+    pub msg: PeerManagerRequest,
+    pub context: opentelemetry::Context,
 }
 
 impl PeerManagerMessageRequest {
@@ -389,17 +397,67 @@ pub enum NetworkResponses {
     RouteNotFound,
 }
 
-#[cfg(feature = "test_features")]
-#[derive(actix::Message, Debug)]
-#[rtype(result = "Option<u64>")]
-pub enum NetworkAdversarialMessage {
-    AdvProduceBlocks(u64, bool),
-    AdvSwitchToHeight(u64),
-    AdvDisableHeaderSync,
-    AdvDisableDoomslug,
-    AdvGetSavedBlocks,
-    AdvCheckStorageConsistency,
-    AdvSetSyncInfo(u64),
+#[derive(actix::Message, Debug, strum::AsRefStr, strum::IntoStaticStr)]
+// TODO(#1313): Use Box
+#[allow(clippy::large_enum_variant)]
+#[rtype(result = "NetworkClientResponses")]
+pub enum NetworkClientMessages {
+    #[cfg(feature = "test_features")]
+    Adversarial(crate::types::NetworkAdversarialMessage),
+
+    /// Received transaction.
+    Transaction {
+        transaction: SignedTransaction,
+        /// Whether the transaction is forwarded from other nodes.
+        is_forwarded: bool,
+        /// Whether the transaction needs to be submitted.
+        check_only: bool,
+    },
+    /// Received block, possibly requested.
+    Block(Block, PeerId, bool),
+    /// Received list of headers for syncing.
+    BlockHeaders(Vec<BlockHeader>, PeerId),
+    /// Block approval.
+    BlockApproval(Approval, PeerId),
+    /// State response.
+    StateResponse(StateResponseInfo),
+
+    /// Request chunk parts and/or receipts.
+    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
+    /// Response to a request for  chunk parts and/or receipts.
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg, std::time::Instant),
+    /// Information about chunk such as its header, some subset of parts and/or incoming receipts
+    PartialEncodedChunk(PartialEncodedChunk),
+    /// Forwarding parts to those tracking the shard (so they don't need to send requests)
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
+
+    /// A challenge to invalidate the block.
+    Challenge(Challenge),
+
+    NetworkInfo(NetworkInfo),
+}
+
+// TODO(#1313): Use Box
+#[derive(Eq, PartialEq, Debug, actix::MessageResponse)]
+#[allow(clippy::large_enum_variant)]
+pub enum NetworkClientResponses {
+    /// Adv controls.
+    #[cfg(feature = "test_features")]
+    AdvResult(u64),
+
+    /// No response.
+    NoResponse,
+    /// Valid transaction inserted into mempool as response to Transaction.
+    ValidTx,
+    /// Invalid transaction inserted into mempool as response to Transaction.
+    InvalidTx(InvalidTxError),
+    /// The request is routed to other shards
+    RequestRouted,
+    /// The node being queried does not track the shard needed and therefore cannot provide userful
+    /// response.
+    DoesNotTrackShard,
+    /// Ban peer for malicious behavior.
+    Ban { ban_reason: ReasonForBan },
 }
 
 pub trait MsgRecipient<M: actix::Message>: Send + Sync + 'static {
@@ -421,6 +479,7 @@ where
         actix::Addr::do_send(self, msg)
     }
 }
+
 pub trait PeerManagerAdapter:
     MsgRecipient<WithSpanContext<PeerManagerMessageRequest>>
     + MsgRecipient<WithSpanContext<SetChainInfo>>
@@ -483,6 +542,8 @@ mod tests {
         assert_size!(HandshakeFailureReason);
         assert_size!(NetworkRequests);
         assert_size!(NetworkResponses);
+        assert_size!(NetworkClientMessages);
+        assert_size!(NetworkClientResponses);
         assert_size!(Handshake);
         assert_size!(Ping);
         assert_size!(Pong);
@@ -574,4 +635,58 @@ pub struct AccountIdOrPeerTrackingShard {
     pub only_archival: bool,
     /// Only send messages to peers whose latest chain height is no less `min_height`
     pub min_height: BlockHeight,
+}
+
+#[derive(actix::Message, strum::IntoStaticStr)]
+#[rtype(result = "NetworkViewClientResponses")]
+pub enum NetworkViewClientMessages {
+    #[cfg(feature = "test_features")]
+    Adversarial(NetworkAdversarialMessage),
+
+    /// Transaction status query
+    TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
+    /// Transaction status response
+    TxStatusResponse(Box<FinalExecutionOutcomeView>),
+    /// Request a block.
+    BlockRequest(CryptoHash),
+    /// Request headers.
+    BlockHeadersRequest(Vec<CryptoHash>),
+    /// State request header.
+    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash },
+    /// State request part.
+    StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64 },
+    /// Account announcements that needs to be validated before being processed.
+    /// They are paired with last epoch id known to this announcement, in order to accept only
+    /// newer announcements.
+    AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
+}
+
+#[derive(Debug, actix::MessageResponse)]
+pub enum NetworkViewClientResponses {
+    /// Transaction execution outcome
+    TxStatus(Box<FinalExecutionOutcomeView>),
+    /// Block response.
+    Block(Box<Block>),
+    /// Headers response.
+    BlockHeaders(Vec<BlockHeader>),
+    /// Response to state request.
+    StateResponse(Box<StateResponseInfo>),
+    /// Valid announce accounts.
+    AnnounceAccount(Vec<AnnounceAccount>),
+    /// Ban peer for malicious behavior.
+    Ban { ban_reason: ReasonForBan },
+    /// Response not needed
+    NoResponse,
+}
+
+#[cfg(feature = "test_features")]
+#[derive(Debug)]
+pub enum NetworkAdversarialMessage {
+    AdvProduceBlocks(u64, bool),
+    AdvSwitchToHeight(u64),
+    AdvDisableHeaderSync,
+    AdvDisableDoomslug,
+    AdvGetSavedBlocks,
+    AdvCheckStorageConsistency,
+    AdvSetSyncInfo(u64),
 }

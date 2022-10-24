@@ -13,7 +13,6 @@ use once_cell::sync::OnceCell;
 use rand::{thread_rng, Rng};
 use tracing::info;
 
-use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_chain::test_utils::{
     wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
@@ -30,12 +29,13 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::PartialEdgeInfo;
 use near_network::types::{
-    AccountOrPeerIdOrHash, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
-    PeerChainInfoV2, PeerInfo, PeerType,
+    AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses,
+    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo,
+    PeerType,
 };
 use near_network::types::{
-    ConnectedPeerInfo, FullPeerInfo, NetworkRecipient, NetworkRequests, NetworkResponses,
-    PeerManagerAdapter,
+    ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkClientResponses,
+    NetworkRecipient, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
 use near_network::types::{
     NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
@@ -67,12 +67,7 @@ use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
-use crate::adapter::{
-    AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, ProcessTxResponse, RecvPartialEncodedChunk, RecvPartialEncodedChunkForward,
-    RecvPartialEncodedChunkRequest, RecvPartialEncodedChunkResponse, SetNetworkInfo,
-    StateRequestHeader, StateRequestPart, StateResponse,
-};
+use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 
 pub struct PeerManagerMock {
     handle: Box<
@@ -507,16 +502,16 @@ fn send_chunks<T, I, F>(
     recipients: I,
     target: T,
     drop_chunks: bool,
-    send_to: F,
+    create_msg: F,
 ) where
     T: Eq,
     I: Iterator<Item = (usize, T)>,
-    F: Fn(&Addr<ClientActor>),
+    F: Fn() -> WithSpanContext<NetworkClientMessages>,
 {
     for (i, name) in recipients {
         if name == target {
             if !drop_chunks || !thread_rng().gen_ratio(1, 5) {
-                send_to(&connectors[i].0);
+                connectors[i].0.do_send(create_msg());
             }
         }
     }
@@ -680,7 +675,8 @@ pub fn setup_mock_all_validators(
                             known_producers: vec![],
                             tier1_accounts: vec![],
                         };
-                        client_addr.do_send(SetNetworkInfo(info).with_span_context());
+                        client_addr
+                            .do_send(NetworkClientMessages::NetworkInfo(info).with_span_context());
                     }
 
                     match msg.as_network_requests_ref() {
@@ -693,11 +689,11 @@ pub fn setup_mock_all_validators(
 
                             for (client, _) in connectors1 {
                                 client.do_send(
-                                    BlockResponse {
-                                        block: block.clone(),
-                                        peer_id: PeerInfo::random().id,
-                                        was_requested: false,
-                                    }
+                                    NetworkClientMessages::Block(
+                                        block.clone(),
+                                        PeerInfo::random().id,
+                                        false,
+                                    )
                                     .with_span_context(),
                                 );
                             }
@@ -715,28 +711,34 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
                             let create_msg = || {
-                                RecvPartialEncodedChunkRequest(request.clone(), my_address)
-                                    .with_span_context()
+                                NetworkClientMessages::PartialEncodedChunkRequest(
+                                    request.clone(),
+                                    my_address,
+                                )
+                                .with_span_context()
                             };
                             send_chunks(
                                 connectors1,
                                 validators_clone2.iter().map(|s| Some(s.clone())).enumerate(),
                                 target.account_id.as_ref().map(|s| s.clone()),
                                 drop_chunks,
-                                |c| c.do_send(create_msg()),
+                                create_msg,
                             );
                         }
                         NetworkRequests::PartialEncodedChunkResponse { route_back, response } => {
                             let create_msg = || {
-                                RecvPartialEncodedChunkResponse(response.clone(), Clock::instant())
-                                    .with_span_context()
+                                NetworkClientMessages::PartialEncodedChunkResponse(
+                                    response.clone(),
+                                    Clock::instant(),
+                                )
+                                .with_span_context()
                             };
                             send_chunks(
                                 connectors1,
                                 addresses.iter().enumerate(),
                                 route_back,
                                 drop_chunks,
-                                |c| c.do_send(create_msg()),
+                                create_msg,
                             );
                         }
                         NetworkRequests::PartialEncodedChunkMessage {
@@ -744,7 +746,22 @@ pub fn setup_mock_all_validators(
                             partial_encoded_chunk,
                         } => {
                             let create_msg = || {
-                                RecvPartialEncodedChunk(partial_encoded_chunk.clone().into())
+                                NetworkClientMessages::PartialEncodedChunk(
+                                    partial_encoded_chunk.clone().into(),
+                                )
+                                .with_span_context()
+                            };
+                            send_chunks(
+                                connectors1,
+                                validators_clone2.iter().cloned().enumerate(),
+                                account_id.clone(),
+                                drop_chunks,
+                                create_msg,
+                            );
+                        }
+                        NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
+                            let create_msg = || {
+                                NetworkClientMessages::PartialEncodedChunkForward(forward.clone())
                                     .with_span_context()
                             };
                             send_chunks(
@@ -752,19 +769,7 @@ pub fn setup_mock_all_validators(
                                 validators_clone2.iter().cloned().enumerate(),
                                 account_id.clone(),
                                 drop_chunks,
-                                |c| c.do_send(create_msg()),
-                            );
-                        }
-                        NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
-                            let create_msg = || {
-                                RecvPartialEncodedChunkForward(forward.clone()).with_span_context()
-                            };
-                            send_chunks(
-                                connectors1,
-                                validators_clone2.iter().cloned().enumerate(),
-                                account_id.clone(),
-                                drop_chunks,
-                                |c| c.do_send(create_msg()),
+                                create_msg,
                             );
                         }
                         NetworkRequests::BlockRequest { hash, peer_id } => {
@@ -775,21 +780,23 @@ pub fn setup_mock_all_validators(
                                     actix::spawn(
                                         connectors1[i]
                                             .1
-                                            .send(BlockRequest(*hash).with_span_context())
+                                            .send(
+                                                NetworkViewClientMessages::BlockRequest(*hash)
+                                                    .with_span_context(),
+                                            )
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
-                                                    Some(block) => {
+                                                    NetworkViewClientResponses::Block(block) => {
                                                         me.do_send(
-                                                            BlockResponse {
-                                                                block: *block,
-                                                                peer_id,
-                                                                was_requested: true,
-                                                            }
+                                                            NetworkClientMessages::Block(
+                                                                *block, peer_id, true,
+                                                            )
                                                             .with_span_context(),
                                                         );
                                                     }
-                                                    None => {}
+                                                    NetworkViewClientResponses::NoResponse => {}
+                                                    _ => assert!(false),
                                                 }
                                                 future::ready(())
                                             }),
@@ -806,19 +813,26 @@ pub fn setup_mock_all_validators(
                                         connectors1[i]
                                             .1
                                             .send(
-                                                BlockHeadersRequest(hashes.clone())
-                                                    .with_span_context(),
+                                                NetworkViewClientMessages::BlockHeadersRequest(
+                                                    hashes.clone(),
+                                                )
+                                                .with_span_context(),
                                             )
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
-                                                    Some(headers) => {
+                                                    NetworkViewClientResponses::BlockHeaders(
+                                                        headers,
+                                                    ) => {
                                                         me.do_send(
-                                                            BlockHeadersResponse(headers, peer_id)
-                                                                .with_span_context(),
+                                                            NetworkClientMessages::BlockHeaders(
+                                                                headers, peer_id,
+                                                            )
+                                                            .with_span_context(),
                                                         );
                                                     }
-                                                    None => {}
+                                                    NetworkViewClientResponses::NoResponse => {}
+                                                    _ => assert!(false),
                                                 }
                                                 future::ready(())
                                             }),
@@ -842,7 +856,7 @@ pub fn setup_mock_all_validators(
                                         connectors1[i]
                                             .1
                                             .send(
-                                                StateRequestHeader {
+                                                NetworkViewClientMessages::StateRequestHeader {
                                                     shard_id: *shard_id,
                                                     sync_hash: *sync_hash,
                                                 }
@@ -851,10 +865,18 @@ pub fn setup_mock_all_validators(
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
-                                                    Some(response) => {
-                                                        me.do_send(response.with_span_context());
+                                                    NetworkViewClientResponses::StateResponse(
+                                                        response,
+                                                    ) => {
+                                                        me.do_send(
+                                                            NetworkClientMessages::StateResponse(
+                                                                *response,
+                                                            )
+                                                            .with_span_context(),
+                                                        );
                                                     }
-                                                    None => {}
+                                                    NetworkViewClientResponses::NoResponse => {}
+                                                    _ => assert!(false),
                                                 }
                                                 future::ready(())
                                             }),
@@ -879,7 +901,7 @@ pub fn setup_mock_all_validators(
                                         connectors1[i]
                                             .1
                                             .send(
-                                                StateRequestPart {
+                                                NetworkViewClientMessages::StateRequestPart {
                                                     shard_id: *shard_id,
                                                     sync_hash: *sync_hash,
                                                     part_id: *part_id,
@@ -889,10 +911,18 @@ pub fn setup_mock_all_validators(
                                             .then(move |response| {
                                                 let response = response.unwrap();
                                                 match response {
-                                                    Some(response) => {
-                                                        me.do_send(response.with_span_context());
+                                                    NetworkViewClientResponses::StateResponse(
+                                                        response,
+                                                    ) => {
+                                                        me.do_send(
+                                                            NetworkClientMessages::StateResponse(
+                                                                *response,
+                                                            )
+                                                            .with_span_context(),
+                                                        );
                                                     }
-                                                    None => {}
+                                                    NetworkViewClientResponses::NoResponse => {}
+                                                    _ => assert!(false),
                                                 }
                                                 future::ready(())
                                             }),
@@ -904,7 +934,7 @@ pub fn setup_mock_all_validators(
                             for (i, address) in addresses.iter().enumerate() {
                                 if route_back == address {
                                     connectors1[i].0.do_send(
-                                        StateResponse(Box::new(response.clone()))
+                                        NetworkClientMessages::StateResponse(response.clone())
                                             .with_span_context(),
                                     );
                                 }
@@ -920,7 +950,7 @@ pub fn setup_mock_all_validators(
                                 aa.insert(key);
                                 for (_, view_client) in connectors1 {
                                     view_client.do_send(
-                                        AnnounceAccountRequest(vec![(
+                                        NetworkViewClientMessages::AnnounceAccount(vec![(
                                             announce_account.clone(),
                                             None,
                                         )])
@@ -951,8 +981,11 @@ pub fn setup_mock_all_validators(
                                 for (i, name) in validators_clone2.iter().enumerate() {
                                     if name == &approval_message.target {
                                         connectors1[i].0.do_send(
-                                            BlockApproval(approval.clone(), my_key_pair.id.clone())
-                                                .with_span_context(),
+                                            NetworkClientMessages::BlockApproval(
+                                                approval.clone(),
+                                                my_key_pair.id.clone(),
+                                            )
+                                            .with_span_context(),
                                         );
                                     }
                                 }
@@ -1463,9 +1496,6 @@ impl TestEnv {
                 ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
                     self.clients[id].on_invalid_chunk(encoded_chunk);
                 }
-                ShardsManagerResponse::ChunkHeaderReadyForInclusion(header) => {
-                    self.clients[id].on_chunk_header_ready_for_inclusion(header);
-                }
             }
         }
     }
@@ -1479,7 +1509,7 @@ impl TestEnv {
         }
     }
 
-    pub fn send_money(&mut self, id: usize) -> ProcessTxResponse {
+    pub fn send_money(&mut self, id: usize) -> NetworkClientResponses {
         let account_id = self.get_client_id(0);
         let signer =
             InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
