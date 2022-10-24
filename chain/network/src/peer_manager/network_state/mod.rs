@@ -11,7 +11,7 @@ use crate::network_protocol::{
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
-use crate::private_actix::{PeerToManagerMsg, RegisterPeerError};
+use crate::private_actix::{RegisterPeerError};
 use crate::routing;
 use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::route_back_cache::RouteBackCache;
@@ -21,7 +21,6 @@ use crate::store;
 use crate::tcp;
 use crate::time;
 use crate::types::{ChainInfo, PeerType, ReasonForBan};
-use actix::Recipient;
 use arc_swap::ArcSwap;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -70,8 +69,6 @@ pub(crate) struct NetworkState {
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     pub client: client::Client,
-    /// Address of the peer manager actor.
-    pub peer_manager_addr: Recipient<PeerToManagerMsg>,
     /// RoutingTableActor, responsible for computing routing table, routing table exchange, etc.
     pub routing_table_addr: actix::Addr<routing::Actor>,
 
@@ -130,7 +127,6 @@ impl NetworkState {
         config: Arc<config::VerifiedConfig>,
         genesis_id: GenesisId,
         client: client::Client,
-        peer_manager_addr: Recipient<PeerToManagerMsg>,
         whitelist_nodes: Vec<WhitelistNode>,
     ) -> Self {
         let graph = Arc::new(RwLock::new(routing::GraphWithCache::new(config.node_id())));
@@ -140,7 +136,6 @@ impl NetworkState {
             graph,
             genesis_id,
             client,
-            peer_manager_addr,
             chain_info: Default::default(),
             tier2: connection::Pool::new(config.node_id()),
             tier1: connection::Pool::new(config.node_id()),
@@ -225,7 +220,7 @@ impl NetworkState {
     /// To build new edge between this pair of nodes both signatures are required.
     /// Signature from this node is passed in `edge_info`
     /// Signature from the other node is passed in `full_peer_info.edge_info`.
-    async fn register(
+    pub async fn register(
         &self,
         clock: &time::Clock,
         conn: Arc<connection::Connection>,

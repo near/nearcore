@@ -1,16 +1,14 @@
 use crate::client;
 use crate::config;
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Edge, EdgeState, PeerIdOrHash, PeerMessage, Ping, Pong,
+    AccountOrPeerIdOrHash, Edge, PeerIdOrHash, PeerMessage, Ping, Pong,
     RawRoutedMessage, RoutedMessageBody, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_store;
-use crate::private_actix::{
-    PeerRequestResult, PeerToManagerMsg, PeerToManagerMsgResp, PeersRequest, PeersResponse, StopMsg,
-};
+use crate::private_actix::{StopMsg};
 use crate::routing;
 use crate::stats::metrics;
 use crate::store;
@@ -19,7 +17,7 @@ use crate::time;
 use crate::types::{
     ConnectedPeerInfo, FullPeerInfo, GetNetworkInfo, KnownProducer, NetworkInfo, NetworkRequests,
     NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
-    ReasonForBan, SetChainInfo,
+    SetChainInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorFutureExt as _, AsyncContext as _};
@@ -274,7 +272,6 @@ impl PeerManagerActor {
                 config.clone(),
                 genesis_id,
                 client,
-                ctx.address().recipient(),
                 whitelist_nodes,
             )),
             clock,
@@ -896,18 +893,6 @@ impl PeerManagerActor {
             }
         }
     }
-
-    fn handle_peer_to_manager_msg(&mut self, msg: PeerToManagerMsg) -> PeerToManagerMsgResp {
-        match msg {
-            PeerToManagerMsg::PeersRequest(msg) => {
-                PeerToManagerMsgResp::PeersRequest(self.handle_msg_peers_request(msg))
-            }
-            PeerToManagerMsg::PeersResponse(msg) => {
-                self.handle_msg_peers_response(msg);
-                PeerToManagerMsgResp::Empty
-            }
-        }
-    }
 }
 
 /// Fetches NetworkInfo, which contains a bunch of stats about the
@@ -960,17 +945,6 @@ impl actix::Handler<SetChainInfo> for PeerManagerActor {
             accounts_data: state.accounts_data.load().data.values().cloned().collect(),
         })));
         state.config.event_sink.push(Event::SetChainInfo);
-    }
-}
-
-impl actix::Handler<PeerToManagerMsg> for PeerManagerActor {
-    type Result = PeerToManagerMsgResp;
-    fn handle(&mut self, msg: PeerToManagerMsg, _ctx: &mut Self::Context) -> Self::Result {
-        let _timer =
-            metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
-        let _span = tracing::trace_span!(target: "network", "handle", handler = "PeerToManagerMsg")
-            .entered();
-        self.handle_peer_to_manager_msg(msg)
     }
 }
 
