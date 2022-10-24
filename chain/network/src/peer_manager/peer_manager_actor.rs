@@ -150,6 +150,9 @@ pub struct PeerManagerActor {
     /// Last time when we tried to establish connection to this peer.
     last_peer_outbound_attempt: HashMap<PeerId, time::Utc>,
 
+    /// A queue of peers that we failed to connect to.
+    /// This queue is updates from multiple threads (as we attempt peer connection async) - and
+    /// its state is periodically synced into database (in monitor_peers_trigger).
     failed_connections: Arc<std::sync::Mutex<VecDeque<PeerId>>>,
 }
 
@@ -877,9 +880,12 @@ impl PeerManagerActor {
             error!(target: "network", ?err, "Failed to update peers last seen time.");
         }
 
+        // Get the peers that we failed to connect to recently, and mark their connection as failed.
         for failed_peer_id in self.failed_connections.lock().expect("Lock error").drain(..) {
-            error!(target: "network", ?failed_peer_id, "Marking peer as failed.");
-            self.peer_store.peer_connection_failed(&self.clock, &failed_peer_id);
+            debug!(target: "network", ?failed_peer_id, "Marking peer as failed.");
+            if self.peer_store.peer_connection_failed(&self.clock, &failed_peer_id).is_err() {
+                error!(target: "network", ?failed_peer_id, "Failed to mark peer as failed.");
+            }
         }
 
         if self.is_outbound_bootstrap_needed() {
@@ -908,6 +914,7 @@ impl PeerManagerActor {
                             anyhow::Ok(())
                         }.await {
                             tracing::info!(target:"network", ?err, "failed to connect to {peer_info}");
+                            // If we failed to connect - add this information to the queue.
                             failed_connections.lock().expect("Lock error").push_back(peer_info.id);
                         }
                     }

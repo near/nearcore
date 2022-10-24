@@ -30,6 +30,11 @@ enum TrustLevel {
     Signed,
 }
 
+/// When picking a peer to connect to, we'll pick from the 'safer peers'
+/// (a.k.a. ones that we've been connected to in the past) with these odds.
+/// Otherwise, we'd pick any peer that we've heard about.
+const PICK_KNOWN_PEER_ODDS: f64 = 0.6;
+
 #[derive(Debug, Clone)]
 struct VerifiedPeer {
     peer_id: PeerId,
@@ -234,6 +239,7 @@ impl PeerStore {
         Ok(())
     }
 
+    /// Marks the peer as Uknown (as we failed to connect to it).
     pub(crate) fn peer_connection_failed(
         &mut self,
         clock: &time::Clock,
@@ -308,7 +314,7 @@ impl PeerStore {
         ignore_fn: impl Fn(&KnownPeerState) -> bool,
     ) -> Option<PeerInfo> {
         // With some odds - try picking one of the 'NotConnected' peers -- these are the ones that we were able to connect to in the past.
-        if thread_rng().gen_bool(0.5) {
+        if thread_rng().gen_bool(PICK_KNOWN_PEER_ODDS) {
             let preferred_peer = self.find_peers(
                 |p| {
                     (p.status == KnownPeerStatus::NotConnected)

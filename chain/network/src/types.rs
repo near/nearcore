@@ -90,6 +90,7 @@ pub struct Ban {
 pub enum KnownPeerStatus {
     /// We got information about this peer from someone, but we didn't
     /// verify them yet. This peer might not exist, invalid IP etc.
+    /// Also the peers that we failed to connect to, will be marked as 'Unknown'.
     Unknown,
     /// We know that this peer exists - we were connected to it, or it was provided as boot node.
     NotConnected,
