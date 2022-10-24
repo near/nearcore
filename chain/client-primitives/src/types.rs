@@ -600,6 +600,12 @@ pub enum TxStatusError {
     TimeoutError,
 }
 
+impl From<near_chain_primitives::Error> for TxStatusError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        Self::ChainError(error)
+    }
+}
+
 impl From<TxStatusError> for String {
     fn from(error: TxStatusError) -> Self {
         match error {
