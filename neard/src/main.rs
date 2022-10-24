@@ -2,7 +2,7 @@ mod cli;
 mod log_config_watcher;
 
 use self::cli::NeardCmd;
-use crate::cli::RunError;
+use anyhow::Context;
 use near_primitives::version::{Version, PROTOCOL_VERSION};
 use near_store::metadata::DB_VERSION;
 use nearcore::get_default_home;
@@ -41,7 +41,7 @@ static ALLOC: near_rust_allocator_proxy::ProxyAllocator<tikv_jemallocator::Jemal
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
-fn main() -> Result<(), RunError> {
+fn main() -> anyhow::Result<()> {
     if env::var("RUST_BACKTRACE").is_err() {
         // Enable backtraces on panics by default.
         env::set_var("RUST_BACKTRACE", "1");
@@ -50,7 +50,7 @@ fn main() -> Result<(), RunError> {
     rayon::ThreadPoolBuilder::new()
         .stack_size(8 * 1024 * 1024)
         .build_global()
-        .map_err(RunError::RayonInstall)?;
+        .context("failed to create the threadpool")?;
 
     #[cfg(feature = "memory_stats")]
     ALLOC.set_report_usage_interval(512 << 20).enable_stack_trace(true);
