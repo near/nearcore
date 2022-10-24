@@ -45,18 +45,16 @@ impl<'a> Bytes<'a> {
     /// Error: Returns an error when the input does not look like an output from
     /// `bytes_format`.
     pub fn from_str(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-        if s.starts_with("`") && s.ends_with("`") {
+        if s.len() >= 2 && s.starts_with("`") && s.ends_with("`") {
             // hash encoded as base58
             let hash = CryptoHash::from_str(&s[1..s.len() - 1])?;
-            Ok(hash.0.to_vec())
-        } else if s.starts_with("'") && s.ends_with("'") {
+            Ok(hash.as_bytes().to_vec())
+        } else if s.len() >= 2 && s.starts_with("'") && s.ends_with("'") {
             // plain string
-            let bytes = s[1..s.len() - 1].as_bytes();
-            Ok(bytes.to_vec())
+            Ok(s[1..s.len() - 1].as_bytes().to_vec()
         } else {
             // encoded with base64
-            let bytes = from_base64(s)?;
-            Ok(bytes.to_vec())
+            from_base64(s)
         }
     }
 }
