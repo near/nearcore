@@ -263,7 +263,7 @@ impl PeerManagerActor {
         clock: time::Clock,
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
-        client: client::Client,
+        client: Arc<dyn client::Client>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
