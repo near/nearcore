@@ -6,8 +6,9 @@ use anyhow::{anyhow, Context as AnyhowContext};
 use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::GenesisConfig;
 use near_client::sync;
+use near_client::adapter::NetworkClientMessages; 
 use near_network::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
+    FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses,
     PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
 };
 use near_network::types::{

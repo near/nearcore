@@ -10,8 +10,9 @@ use crate::{ClientActor, ViewClientActor};
 use near_actix_test_utils::run_actix;
 use near_chain::Block;
 use near_network::types::PeerInfo;
+use crate::adapter::{NetworkClientMessages};
 use near_network::types::{
-    NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
+    NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
 };
 use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;

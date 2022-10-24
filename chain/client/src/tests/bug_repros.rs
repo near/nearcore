@@ -16,8 +16,9 @@ use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
 use near_network::types::PeerInfo;
+use crate::adapter::{NetworkClientMessages};
 use near_network::types::{
-    NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
+    NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
     PeerManagerMessageResponse,
 };
 use near_o11y::testonly::init_test_logger;

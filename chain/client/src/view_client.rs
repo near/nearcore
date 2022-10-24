@@ -28,10 +28,11 @@ use near_client_primitives::types::{
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::{
-    NetworkRequests, NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerAdapter,
+    NetworkRequests, PeerManagerAdapter,
     PeerManagerMessageRequest, ReasonForBan, StateResponseInfo, StateResponseInfoV1,
     StateResponseInfoV2,
 };
+use crate::adapter::{NetworkViewClientMessages, NetworkViewClientResponses};
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::{Block, BlockHeader};

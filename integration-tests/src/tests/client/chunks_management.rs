@@ -9,9 +9,10 @@ use near_chunks::{
 };
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, GetBlock, ViewClientActor};
+use near_client::adapter::NetworkClientMessages;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{AccountIdOrPeerTrackingShard, PeerInfo};
-use near_network::types::{NetworkClientMessages, NetworkRequests, NetworkResponses};
+use near_network::types::{NetworkRequests, NetworkResponses};
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;

@@ -14,11 +14,15 @@ use near_actix_test_utils::run_actix;
 use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::MockPeerManagerAdapter;
+use crate::adapter::{
+    NetworkClientMessages, NetworkClientResponses,
+    NetworkViewClientMessages, NetworkViewClientResponses,
+};
 use near_network::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
+    NetworkRequests, NetworkResponses,
     PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
-use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo};
+use near_network::types::{PeerInfo};
 
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;

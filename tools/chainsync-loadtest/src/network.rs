@@ -2,15 +2,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::concurrency::{Ctx, Once, RateLimiter, Scope, WeakMap};
 
+use near_client::adapter::{NetworkClientMessages, NetworkClientResponses, NetworkViewClientMessages, NetworkViewClientResponses};
 use near_network::types::{
-    AccountIdOrPeerTrackingShard, NetworkViewClientMessages, NetworkViewClientResponses,
+    AccountIdOrPeerTrackingShard, 
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
 };
 
 use actix::{Actor, Context, Handler};
 use log::info;
 use near_network::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
+    FullPeerInfo, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
 };
 use near_o11y::{WithSpanContext, WithSpanContextExt};

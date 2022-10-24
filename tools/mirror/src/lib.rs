@@ -9,7 +9,7 @@ use near_client_primitives::types::{
 };
 use near_crypto::{PublicKey, SecretKey};
 use near_indexer::{Indexer, StreamerMessage};
-use near_network::types::{NetworkClientMessages, NetworkClientResponses};
+use near_client::adapter::{NetworkClientMessages, NetworkClientResponses};
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{

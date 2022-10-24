@@ -26,8 +26,9 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::ShardsManager;
+use crate::adapter::NetworkClientResponses;
 use near_network::types::{
-    FullPeerInfo, NetworkClientResponses, NetworkRequests, PeerManagerAdapter,
+    FullPeerInfo, NetworkRequests, PeerManagerAdapter,
 };
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};

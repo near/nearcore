@@ -4,6 +4,7 @@ use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::info::{
     display_sync_status, get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper,
 };
+use crate::adapter::{NetworkClientMessages, NetworkClientResponses};
 use crate::metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY;
 use crate::sync::{StateSync, StateSyncResult};
 use crate::{metrics, StatusResponse};
@@ -32,7 +33,7 @@ use near_client_primitives::types::{
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
+    NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
 };
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
@@ -565,14 +566,6 @@ impl ClientActor {
                     error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer", hash);
                 }
 
-                NetworkClientResponses::NoResponse
-            }
-            NetworkClientMessages::EpochSyncResponse(_peer_id, _response) => {
-                // TODO #3488
-                NetworkClientResponses::NoResponse
-            }
-            NetworkClientMessages::EpochSyncFinalizationResponse(_peer_id, _response) => {
-                // TODO #3488
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunkRequest(part_request_msg, route_back) => {

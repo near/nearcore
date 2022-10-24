@@ -25,6 +25,7 @@ rand.workspace = true
 tokio.workspace = true
 
 near-chain-configs = { path = "../../core/chain-configs" }
+near-client = { path = "../../chain/client" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }

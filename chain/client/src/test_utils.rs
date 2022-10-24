@@ -28,14 +28,16 @@ use near_client_primitives::types::Error;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::PartialEdgeInfo;
+use crate::adapter::{
+    NetworkClientMessages, NetworkClientResponses,
+    NetworkViewClientMessages, NetworkViewClientResponses};
 use near_network::types::{
-    AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses,
+    AccountOrPeerIdOrHash, 
     PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo,
     PeerType,
 };
 use near_network::types::{
-    ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkClientResponses,
-    NetworkRecipient, NetworkRequests, NetworkResponses, PeerManagerAdapter,
+    ConnectedPeerInfo, FullPeerInfo,    NetworkRecipient, NetworkRequests, NetworkResponses, PeerManagerAdapter,
 };
 use near_network::types::{
     NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
@@ -66,7 +68,6 @@ use near_primitives::views::{
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
-
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 
 pub struct PeerManagerMock {
@@ -764,58 +765,6 @@ pub fn setup_mock_all_validators(
                                                 match response {
                                                     NetworkViewClientResponses::Block(block) => {
                                                         me.do_send(NetworkClientMessages::Block(*block, peer_id, true).with_span_context());
-                                                    }
-                                                    NetworkViewClientResponses::NoResponse => {}
-                                                    _ => assert!(false),
-                                                }
-                                                future::ready(())
-                                            }),
-                                    );
-                                }
-                            }
-                        }
-                        NetworkRequests::EpochSyncRequest { epoch_id, peer_id } => {
-                            for (i, peer_info) in key_pairs.iter().enumerate() {
-                                let peer_id = peer_id.clone();
-                                if peer_info.id == peer_id {
-                                    let me = connectors1[my_ord].0.clone();
-                                    actix::spawn(
-                                        connectors1[i]
-                                            .1
-                                            .send(NetworkViewClientMessages::EpochSyncRequest {
-                                                epoch_id: epoch_id.clone(),
-                                            }.with_span_context())
-                                            .then(move |response| {
-                                                let response = response.unwrap();
-                                                match response {
-                                                    NetworkViewClientResponses::EpochSyncResponse(response) => {
-                                                        me.do_send(NetworkClientMessages::EpochSyncResponse(peer_id, response).with_span_context());
-                                                    }
-                                                    NetworkViewClientResponses::NoResponse => {}
-                                                    _ => assert!(false),
-                                                }
-                                                future::ready(())
-                                            }),
-                                    );
-                                }
-                            }
-                        }
-                        NetworkRequests::EpochSyncFinalizationRequest { epoch_id, peer_id } => {
-                            for (i, peer_info) in key_pairs.iter().enumerate() {
-                                let peer_id = peer_id.clone();
-                                if peer_info.id == peer_id {
-                                    let me = connectors1[my_ord].0.clone();
-                                    actix::spawn(
-                                        connectors1[i]
-                                            .1
-                                            .send(NetworkViewClientMessages::EpochSyncFinalizationRequest {
-                                                epoch_id: epoch_id.clone(),
-                                            }.with_span_context())
-                                            .then(move |response| {
-                                                let response = response.unwrap();
-                                                match response {
-                                                    NetworkViewClientResponses::EpochSyncFinalizationResponse(response) => {
-                                                        me.do_send(NetworkClientMessages::EpochSyncFinalizationResponse(peer_id, response).with_span_context());
                                                     }
                                                     NetworkViewClientResponses::NoResponse => {}
                                                     _ => assert!(false),

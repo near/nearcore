@@ -10,7 +10,8 @@ use near_chain::{
 use near_chain_configs::GenesisConfig;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_network::types::{NetworkClientMessages, NetworkRecipient};
+use near_client::adapter::NetworkClientMessages;
+use near_network::types::{NetworkRecipient};
 use near_o11y::WithSpanContext;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
@@ -313,7 +314,7 @@ mod tests {
     use near_client::GetBlock;
     use near_crypto::{InMemorySigner, KeyType};
     use near_network::test_utils::{open_port, WaitOrTimeoutActor};
-    use near_network::types::NetworkClientMessages;
+    use near_client::adapter::NetworkClientMessages;
     use near_o11y::testonly::init_integration_logger;
     use near_o11y::WithSpanContextExt;
     use near_primitives::hash::CryptoHash;
