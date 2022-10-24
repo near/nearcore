@@ -3430,10 +3430,10 @@ impl Chain {
     /// Get all execution outcomes generated when the chunk are applied
     pub fn get_block_execution_outcomes(
         &self,
-        block_hash: &CryptoHash,
+        block: &Block,
     ) -> Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdAndProof>>, Error> {
-        let block = self.get_block(block_hash)?;
         let chunk_headers = block.chunks().iter().cloned().collect::<Vec<_>>();
+        let block_hash = block.hash();
 
         let mut res = HashMap::new();
         for chunk_header in chunk_headers {

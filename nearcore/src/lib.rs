@@ -189,6 +189,8 @@ pub fn start_with_config_and_synchronization(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
         runtime.clone(),
+        #[cfg(feature = "cold_store")]
+        None,
         network_adapter.clone(),
         config.client_config.clone(),
         adv.clone(),

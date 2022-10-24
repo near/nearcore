@@ -2,8 +2,6 @@
 //! Useful for querying from RPC.
 
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
-use near_primitives::receipt::Receipt;
-use near_primitives::time::Clock;
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
@@ -37,14 +35,16 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
-use near_primitives::sharding::ShardChunk;
+use near_primitives::receipt::Receipt;
+use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::syncing::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV1,
     ShardStateSyncResponseV2,
 };
+use near_primitives::time::Clock;
 use near_primitives::types::{
-    AccountId, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId, ShardId,
-    SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
+    AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality,
+    MaybeBlockId, ShardId, SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
@@ -52,6 +52,7 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockView,
     QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView, StateChangesView,
 };
+use near_store::Temperature;
 
 use crate::adapter::{
     AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, StateRequestHeader,
@@ -89,8 +90,12 @@ pub struct ViewClientActor {
 
     /// Validator account (if present).
     validator_account_id: Option<AccountId>,
-    chain: Chain,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    hot_chain: Chain,
+    #[cfg(feature = "cold_store")]
+    cold_chain: Option<Chain>,
+    hot_runtime_adapter: Arc<dyn RuntimeAdapter>,
+    #[cfg(feature = "cold_store")]
+    cold_runtime_adapter: Option<Arc<dyn RuntimeAdapter>>,
     network_adapter: Arc<dyn PeerManagerAdapter>,
     pub config: ClientConfig,
     request_manager: Arc<RwLock<ViewClientRequestManager>>,
@@ -116,24 +121,41 @@ impl ViewClientActor {
     pub fn new(
         validator_account_id: Option<AccountId>,
         chain_genesis: &ChainGenesis,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        hot_runtime_adapter: Arc<dyn RuntimeAdapter>,
+        #[cfg(feature = "cold_store")] cold_runtime_adapter: Option<Arc<dyn RuntimeAdapter>>,
         network_adapter: Arc<dyn PeerManagerAdapter>,
         config: ClientConfig,
         request_manager: Arc<RwLock<ViewClientRequestManager>>,
         adv: crate::adversarial::Controls,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
-        let chain = Chain::new_for_view_client(
-            runtime_adapter.clone(),
+        let hot_chain = Chain::new_for_view_client(
+            hot_runtime_adapter.clone(),
             chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             !config.archive,
         )?;
+        #[cfg(feature = "cold_store")]
+        let cold_chain = cold_runtime_adapter
+            .as_ref()
+            .map(|runtime_adapter| {
+                Chain::new_for_view_client(
+                    runtime_adapter.clone(),
+                    chain_genesis,
+                    DoomslugThresholdMode::TwoThirds,
+                    !config.archive,
+                )
+            })
+            .transpose()?;
         Ok(ViewClientActor {
             adv,
             validator_account_id,
-            chain,
-            runtime_adapter,
+            hot_chain,
+            #[cfg(feature = "cold_store")]
+            cold_chain,
+            hot_runtime_adapter,
+            #[cfg(feature = "cold_store")]
+            cold_runtime_adapter,
             network_adapter,
             config,
             request_manager,
@@ -141,17 +163,27 @@ impl ViewClientActor {
         })
     }
 
-    fn maybe_block_id_to_block_header(
-        &self,
-        block_id: MaybeBlockId,
-    ) -> Result<BlockHeader, near_chain::Error> {
-        match block_id {
-            None => {
-                let block_hash = self.chain.head()?.last_block_hash;
-                self.chain.get_block_header(&block_hash)
-            }
-            Some(BlockId::Height(height)) => self.chain.get_block_header_by_height(height),
-            Some(BlockId::Hash(block_hash)) => self.chain.get_block_header(&block_hash),
+    /// Returns chain with data for given temperature.
+    ///
+    /// Panics if requested Cold chain but the node is not running with cold
+    /// storage.
+    fn chain(&self, temp: Temperature) -> &Chain {
+        match temp {
+            Temperature::Hot => &self.hot_chain,
+            #[cfg(feature = "cold_store")]
+            Temperature::Cold => self.cold_chain.as_ref().unwrap(),
+        }
+    }
+
+    /// Returns runtime adapter with data for given temperature.
+    ///
+    /// Panics if requested Cold runtime adapter but the node is not running
+    /// with cold storage.
+    fn runtime_adapter(&self, temp: Temperature) -> &dyn RuntimeAdapter {
+        match temp {
+            Temperature::Hot => &*self.hot_runtime_adapter,
+            #[cfg(feature = "cold_store")]
+            Temperature::Cold => self.cold_runtime_adapter.as_deref().unwrap(),
         }
     }
 
@@ -172,10 +204,128 @@ impl ViewClientActor {
         finality: &Finality,
     ) -> Result<CryptoHash, near_chain::Error> {
         match finality {
-            Finality::None => Ok(self.chain.head()?.last_block_hash),
-            Finality::DoomSlug => Ok(*self.chain.head_header()?.last_ds_final_block()),
-            Finality::Final => Ok(self.chain.final_head()?.last_block_hash),
+            Finality::None => Ok(self.hot_chain.head()?.last_block_hash),
+            Finality::DoomSlug => Ok(*self.hot_chain.head_header()?.last_ds_final_block()),
+            Finality::Final => Ok(self.hot_chain.final_head()?.last_block_hash),
         }
+    }
+
+    /// Determines temperature of a block with given block hash.
+    ///
+    /// Returned temperature allows fetching all data related to block at given
+    /// height as well as data about previous and next blocks (if any).
+    fn get_temperature(&self, _block_hash: &CryptoHash) -> Result<Temperature, near_chain::Error> {
+        // TODO(#6119): Implement temperature detection.
+        Ok(Temperature::Hot)
+    }
+
+    /// Determines temperature of a block with given block height.
+    ///
+    /// Returned temperature allows fetching all data related to block with
+    /// given hash as well as data about previous and next blocks (if any).
+    fn get_temperature_by_height(
+        &self,
+        _block_height: BlockHeight,
+    ) -> Result<Temperature, near_chain::Error> {
+        // TODO(#6119): Implement temperature detection.
+        Ok(Temperature::Hot)
+    }
+
+    /// Determines temperature of a chunk with given chunk hash.
+    fn get_temperature_by_chunk_hash(
+        &self,
+        _chunk_hash: &ChunkHash,
+    ) -> Result<Temperature, near_chain::Error> {
+        // TODO(#6119): Implement temperature detection.
+        Ok(Temperature::Hot)
+    }
+
+    /// Determines temperature of data from transaction hash.
+    fn get_temperature_by_tx_hash(
+        &self,
+        _tx_hash: &CryptoHash,
+        _sender_id: &AccountId,
+    ) -> Result<Temperature, near_chain::Error> {
+        // TODO(#6119): Implement temperature detection.
+        Ok(Temperature::Hot)
+    }
+
+    /// Determines temperature of data from receipt hash.
+    fn get_temperature_by_rx_hash(
+        &self,
+        _rx_hash: &CryptoHash,
+        _receiver_id: Option<&AccountId>,
+    ) -> Result<Temperature, near_chain::Error> {
+        // TODO(#6119): Implement temperature detection.
+        Ok(Temperature::Hot)
+    }
+
+    /// Determines temperature of a chunk with given chunk hash.
+    fn get_temperature_by_epoch_id(
+        &self,
+        _epoch_id: &EpochId,
+    ) -> Result<Temperature, near_chain::Error> {
+        // TODO(#6119): Implement temperature detection.
+        Ok(Temperature::Hot)
+    }
+
+    /// Fetches block header by its hash and determines block’s temperature.
+    fn get_block_header(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<(Temperature, BlockHeader), near_chain::Error> {
+        // DBCol::BlocHeader is not garbage collected so it can always be read
+        // from hot chain.
+        // TODO(#3488): Switch to reading from proper storage once BlockHeader
+        // is garbage collected.
+        let header = self.hot_chain.get_block_header(block_hash)?;
+        let temp = self.get_temperature_by_height(header.height())?;
+        Ok((temp, header))
+    }
+
+    /// Fetches block header by its height and determines block’s temperature.
+    fn get_block_header_by_height(
+        &self,
+        block_height: BlockHeight,
+    ) -> Result<(Temperature, BlockHeader), near_chain::Error> {
+        let temp = self.get_temperature_by_height(block_height)?;
+        let header = self.chain(temp).get_block_header_by_height(block_height)?;
+        Ok((temp, header))
+    }
+
+    fn get_block_header_by_maybe_block_id(
+        &self,
+        block_id: MaybeBlockId,
+    ) -> Result<(Temperature, BlockHeader), near_chain::Error> {
+        match block_id {
+            None => {
+                let block_hash = self.hot_chain.head()?.last_block_hash;
+                let header = self.hot_chain.get_block_header(&block_hash)?;
+                Ok((Temperature::Hot, header))
+            }
+            Some(BlockId::Height(height)) => self.get_block_header_by_height(height),
+            Some(BlockId::Hash(block_hash)) => self.get_block_header(&block_hash),
+        }
+    }
+
+    /// Fetches block by its hash and determines block’s temperature.
+    fn get_block(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<(Temperature, Block), near_chain::Error> {
+        let temp = self.get_temperature(block_hash)?;
+        let block = self.chain(temp).get_block(block_hash)?;
+        Ok((temp, block))
+    }
+
+    /// Fetches block by its height and determines block’s temperature.
+    fn get_block_by_height(
+        &self,
+        block_height: BlockHeight,
+    ) -> Result<(Temperature, Block), near_chain::Error> {
+        let temp = self.get_temperature_by_height(block_height)?;
+        let block = self.chain(temp).get_block_by_height(block_height)?;
+        Ok((temp, block))
     }
 
     /// Returns block header by reference.
@@ -186,28 +336,28 @@ impl ViewClientActor {
     fn get_block_header_by_reference(
         &self,
         reference: &BlockReference,
-    ) -> Result<Option<BlockHeader>, near_chain::Error> {
+    ) -> Result<Option<(Temperature, BlockHeader)>, near_chain::Error> {
         match reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
-                self.chain.get_block_header_by_height(*block_height).map(Some)
+                self.get_block_header_by_height(*block_height).map(Some)
             }
             BlockReference::BlockId(BlockId::Hash(block_hash)) => {
-                self.chain.get_block_header(block_hash).map(Some)
+                self.get_block_header(block_hash).map(Some)
             }
             BlockReference::Finality(finality) => self
                 .get_block_hash_by_finality(finality)
-                .and_then(|block_hash| self.chain.get_block_header(&block_hash))
+                .and_then(|block_hash| self.get_block_header(&block_hash))
                 .map(Some),
             BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis) => {
-                Ok(Some(self.chain.genesis().clone()))
+                let header = self.hot_chain.genesis().clone();
+                Ok(Some((Temperature::Hot, header)))
             }
             BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable) => {
-                let block_hash = match self.chain.get_earliest_block_hash() {
-                    Ok(Some(block_hash)) => block_hash,
-                    Ok(None) => return Ok(None),
-                    Err(err) => return Err(err),
-                };
-                self.chain.get_block_header(&block_hash).map(Some)
+                // TODO(#6119): What should this actually do?
+                match self.hot_chain.get_earliest_block_hash()? {
+                    Some(block_hash) => self.get_block_header(&block_hash).map(Some),
+                    None => Ok(None),
+                }
             }
         }
     }
@@ -220,36 +370,36 @@ impl ViewClientActor {
     fn get_block_by_reference(
         &self,
         reference: &BlockReference,
-    ) -> Result<Option<Block>, near_chain::Error> {
+    ) -> Result<Option<(Temperature, Block)>, near_chain::Error> {
         match reference {
             BlockReference::BlockId(BlockId::Height(block_height)) => {
-                self.chain.get_block_by_height(*block_height).map(Some)
+                self.get_block_by_height(*block_height).map(Some)
             }
             BlockReference::BlockId(BlockId::Hash(block_hash)) => {
-                self.chain.get_block(block_hash).map(Some)
+                self.get_block(block_hash).map(Some)
             }
             BlockReference::Finality(finality) => self
                 .get_block_hash_by_finality(finality)
-                .and_then(|block_hash| self.chain.get_block(&block_hash))
+                .and_then(|block_hash| self.get_block(&block_hash))
                 .map(Some),
             BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis) => {
-                Ok(Some(self.chain.genesis_block().clone()))
+                let block = self.hot_chain.genesis_block().clone();
+                Ok(Some((Temperature::Hot, block)))
             }
             BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable) => {
-                let block_hash = match self.chain.get_earliest_block_hash() {
-                    Ok(Some(block_hash)) => block_hash,
-                    Ok(None) => return Ok(None),
-                    Err(err) => return Err(err),
-                };
-                self.chain.get_block(&block_hash).map(Some)
+                // TODO(#6119): What should this actually do?
+                match self.hot_chain.get_earliest_block_hash()? {
+                    Some(block_hash) => self.get_block(&block_hash).map(Some),
+                    None => Ok(None),
+                }
             }
         }
     }
 
     fn handle_query(&mut self, msg: Query) -> Result<QueryResponse, QueryError> {
-        let header = self.get_block_header_by_reference(&msg.block_reference);
-        let header = match header {
-            Ok(Some(header)) => Ok(header),
+        let res = self.get_block_header_by_reference(&msg.block_reference);
+        let (temp, header) = match res {
+            Ok(Some(res)) => Ok(res),
             Ok(None) => Err(QueryError::NoSyncedBlocks),
             Err(near_chain::near_chain_primitives::Error::DBNotFoundErr(_)) => {
                 Err(QueryError::UnknownBlock { block_reference: msg.block_reference })
@@ -268,22 +418,22 @@ impl ViewClientActor {
             QueryRequest::CallFunction { account_id, .. } => account_id,
             QueryRequest::ViewCode { account_id, .. } => account_id,
         };
-        let shard_id =
-            self.runtime_adapter
-                .account_id_to_shard_id(account_id, header.epoch_id())
-                .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
-        let shard_uid = self
-            .runtime_adapter
+        let runtime_adapter = self.runtime_adapter(temp);
+        let shard_id = runtime_adapter
+            .account_id_to_shard_id(account_id, header.epoch_id())
+            .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
+        let shard_uid = runtime_adapter
             .shard_id_to_uid(shard_id, header.epoch_id())
             .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
 
-        let tip = self.chain.head();
+        let chain = self.chain(temp);
+        let tip = chain.head();
         let chunk_extra =
-            self.chain.get_chunk_extra(header.hash(), &shard_uid).map_err(|err| match err {
+            chain.get_chunk_extra(header.hash(), &shard_uid).map_err(|err| match err {
                 near_chain::near_chain_primitives::Error::DBNotFoundErr(_) => match tip {
                     Ok(tip) => {
                         let gc_stop_height =
-                            self.runtime_adapter.get_gc_stop_height(&tip.last_block_hash);
+                            runtime_adapter.get_gc_stop_height(&tip.last_block_hash);
                         if !self.config.archive && header.height() < gc_stop_height {
                             QueryError::GarbageCollectedBlock {
                                 block_height: header.height(),
@@ -302,7 +452,7 @@ impl ViewClientActor {
             })?;
 
         let state_root = chunk_extra.state_root();
-        match self.runtime_adapter.query(
+        match runtime_adapter.query(
             shard_uid,
             state_root,
             header.height(),
@@ -366,6 +516,8 @@ impl ViewClientActor {
         signer_account_id: AccountId,
         fetch_receipt: bool,
     ) -> Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError> {
+        let temp = self.get_temperature_by_tx_hash(&tx_hash, &signer_account_id)?;
+
         {
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
             if let Some(res) = request_manager.tx_status_response.pop(&tx_hash) {
@@ -374,23 +526,24 @@ impl ViewClientActor {
             }
         }
 
-        let head = self.chain.head()?;
-        let target_shard_id = self
-            .runtime_adapter
+        let chain = self.chain(temp);
+        let runtime_adapter = self.runtime_adapter(temp);
+        let head = chain.head()?;
+        let target_shard_id = runtime_adapter
             .account_id_to_shard_id(&signer_account_id, &head.epoch_id)
             .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
         // Check if we are tracking this shard.
-        if self.runtime_adapter.cares_about_shard(
+        if runtime_adapter.cares_about_shard(
             self.validator_account_id.as_ref(),
             &head.prev_block_hash,
             target_shard_id,
             true,
         ) {
-            match self.chain.get_final_transaction_result(&tx_hash) {
+            match chain.get_final_transaction_result(&tx_hash) {
                 Ok(tx_result) => {
                     let res = if fetch_receipt {
                         let final_result =
-                            self.chain.get_final_transaction_result_with_receipt(tx_result)?;
+                            chain.get_final_transaction_result_with_receipt(tx_result)?;
                         FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(
                             final_result,
                         )
@@ -400,7 +553,7 @@ impl ViewClientActor {
                     Ok(Some(res))
                 }
                 Err(near_chain::Error::DBNotFoundErr(_)) => {
-                    if self.chain.get_execution_outcome(&tx_hash).is_ok() {
+                    if chain.get_execution_outcome(&tx_hash).is_ok() {
                         Ok(None)
                     } else {
                         Err(TxStatusError::MissingTransaction(tx_hash))
@@ -414,11 +567,10 @@ impl ViewClientActor {
         } else {
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
             if Self::need_request(tx_hash, &mut request_manager.tx_status_requests) {
-                let target_shard_id = self
-                    .runtime_adapter
+                let target_shard_id = runtime_adapter
                     .account_id_to_shard_id(&signer_account_id, &head.epoch_id)
                     .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
-                let validator = self.chain.find_validator_for_forwarding(target_shard_id)?;
+                let validator = chain.find_validator_for_forwarding(target_shard_id)?;
 
                 self.network_adapter.do_send(
                     PeerManagerMessageRequest::NetworkRequests(NetworkRequests::TxStatus(
@@ -437,7 +589,9 @@ impl ViewClientActor {
         &mut self,
         hashes: Vec<CryptoHash>,
     ) -> Result<Vec<BlockHeader>, near_chain::Error> {
-        self.chain.retrieve_headers(hashes, sync::MAX_BLOCK_HEADERS, None)
+        // TODO(#3488): This takes advantage of DBCol::BlockHeader not being
+        // garbage collected.  Switch to other method once that changes.
+        self.hot_chain.retrieve_headers(hashes, sync::MAX_BLOCK_HEADERS, None)
     }
 
     fn check_signature_account_announce(
@@ -445,9 +599,10 @@ impl ViewClientActor {
         announce_account: &AnnounceAccount,
     ) -> Result<bool, Error> {
         let announce_hash = announce_account.hash();
-        let head = self.chain.head()?;
+        let head = self.hot_chain.head()?;
 
-        self.runtime_adapter
+        // TODO(#6119): I believe this is always Hot, but need to verify.
+        self.hot_runtime_adapter
             .verify_validator_signature(
                 &announce_account.epoch_id,
                 &head.last_block_hash,
@@ -490,6 +645,23 @@ impl Handler<WithSpanContext<Query>> for ViewClientActor {
     }
 }
 
+impl ViewClientActor {
+    /// Implementation for GetBlock request.
+    fn get_block_view(
+        &self,
+        reference: &BlockReference,
+    ) -> Result<(Temperature, BlockView), GetBlockError> {
+        let (temp, block) = match self.get_block_by_reference(&reference)? {
+            None => return Err(GetBlockError::NotSyncedYet),
+            Some(block) => block,
+        };
+        let block_author = self
+            .runtime_adapter(temp)
+            .get_block_producer(block.header().epoch_id(), block.header().height())?;
+        Ok((temp, BlockView::from_author_block(block_author, block)))
+    }
+}
+
 /// Handles retrieving block from the chain.
 impl Handler<WithSpanContext<GetBlock>> for ViewClientActor {
     type Result = Result<BlockView, GetBlockError>;
@@ -499,14 +671,7 @@ impl Handler<WithSpanContext<GetBlock>> for ViewClientActor {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetBlock"]).start_timer();
-        let block = match self.get_block_by_reference(&msg.0)? {
-            None => return Err(GetBlockError::NotSyncedYet),
-            Some(block) => block,
-        };
-        let block_author = self
-            .runtime_adapter
-            .get_block_producer(block.header().epoch_id(), block.header().height())?;
-        Ok(BlockView::from_author_block(block_author, block))
+        Ok(self.get_block_view(&msg.0)?.1)
     }
 }
 
@@ -517,14 +682,14 @@ impl Handler<WithSpanContext<GetBlockWithMerkleTree>> for ViewClientActor {
     fn handle(
         &mut self,
         msg: WithSpanContext<GetBlockWithMerkleTree>,
-        ctx: &mut Self::Context,
+        _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetBlockWithMerkleTree"])
             .start_timer();
-        let block_view = self.handle(GetBlock(msg.0).with_span_context(), ctx)?;
-        self.chain
+        let (temp, block_view) = self.get_block_view(&msg.0)?;
+        self.chain(temp)
             .store()
             .get_block_merkle_tree(&block_view.header.hash)
             .map(|merkle_tree| (block_view, merkle_tree))
@@ -560,25 +725,29 @@ impl Handler<WithSpanContext<GetChunk>> for ViewClientActor {
             Ok(res)
         };
 
-        let chunk = match msg {
+        let (temp, chunk) = match msg {
             GetChunk::ChunkHash(chunk_hash) => {
-                let chunk = self.chain.get_chunk(&chunk_hash)?;
-                ShardChunk::clone(&chunk)
+                let temp = self.get_temperature_by_chunk_hash(&chunk_hash)?;
+                let chunk = self.chain(temp).get_chunk(&chunk_hash)?;
+                (temp, ShardChunk::clone(&chunk))
             }
             GetChunk::BlockHash(block_hash, shard_id) => {
-                let block = self.chain.get_block(&block_hash)?;
-                get_chunk_from_block(block, shard_id, &self.chain)?
+                let (temp, block) = self.get_block(&block_hash)?;
+                let chunk = get_chunk_from_block(block, shard_id, self.chain(temp))?;
+                (temp, chunk)
             }
             GetChunk::Height(height, shard_id) => {
-                let block = self.chain.get_block_by_height(height)?;
-                get_chunk_from_block(block, shard_id, &self.chain)?
+                let (temp, block) = self.get_block_by_height(height)?;
+                let chunk = get_chunk_from_block(block, shard_id, self.chain(temp))?;
+                (temp, chunk)
             }
         };
 
         let chunk_inner = chunk.cloned_header().take_inner();
+        let runtime_adapter = self.runtime_adapter(temp);
         let epoch_id =
-            self.runtime_adapter.get_epoch_id_from_prev_block(chunk_inner.prev_block_hash())?;
-        let author = self.runtime_adapter.get_chunk_producer(
+            runtime_adapter.get_epoch_id_from_prev_block(chunk_inner.prev_block_hash())?;
+        let author = runtime_adapter.get_chunk_producer(
             &epoch_id,
             chunk_inner.height_created(),
             chunk_inner.shard_id(),
@@ -613,40 +782,49 @@ impl Handler<WithSpanContext<GetValidatorInfo>> for ViewClientActor {
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetValidatorInfo"])
             .start_timer();
-        let epoch_identifier = match msg.epoch_reference {
+        let (temp, epoch_identifier) = match msg.epoch_reference {
             EpochReference::EpochId(id) => {
-                // By `EpochId` we can get only cached epochs.
-                // Request for not finished epoch by `EpochId` will return an error because epoch has not been cached yet
-                // If the requested one is current ongoing we need to handle it like `Latest`
-                let tip = self.chain.header_head()?;
-                if tip.epoch_id == id {
-                    ValidatorInfoIdentifier::BlockHash(tip.last_block_hash)
+                let temp = self.get_temperature_by_epoch_id(&id)?;
+                // By `EpochId` we can get only cached epochs.  Request for not
+                // finished epoch by `EpochId` will return an error because
+                // epoch has not been cached yet.  If the requested one is
+                // current ongoing we need to handle it like `Latest`
+                let id = if temp == Temperature::Hot {
+                    let tip = self.hot_chain.header_head()?;
+                    if tip.epoch_id == id {
+                        ValidatorInfoIdentifier::BlockHash(tip.last_block_hash)
+                    } else {
+                        ValidatorInfoIdentifier::EpochId(id)
+                    }
                 } else {
                     ValidatorInfoIdentifier::EpochId(id)
-                }
+                };
+                (temp, id)
             }
             EpochReference::BlockId(block_id) => {
-                let block_header = match block_id {
-                    BlockId::Hash(h) => self.chain.get_block_header(&h)?,
-                    BlockId::Height(h) => self.chain.get_block_header_by_height(h)?,
+                let (temp, header) = match block_id {
+                    BlockId::Hash(h) => self.get_block_header(&h)?,
+                    BlockId::Height(h) => self.get_block_header_by_height(h)?,
                 };
-                let next_block_hash =
-                    self.chain.store().get_next_block_hash(block_header.hash())?;
-                let next_block_header = self.chain.get_block_header(&next_block_hash)?;
-                if block_header.epoch_id() != next_block_header.epoch_id()
-                    && block_header.next_epoch_id() == next_block_header.epoch_id()
+                let chain = self.chain(temp);
+                let next_block_hash = chain.store().get_next_block_hash(header.hash())?;
+                let next_header = chain.get_block_header(&next_block_hash)?;
+                if header.epoch_id() == next_header.epoch_id()
+                    || header.next_epoch_id() != next_header.epoch_id()
                 {
-                    ValidatorInfoIdentifier::EpochId(block_header.epoch_id().clone())
-                } else {
                     return Err(GetValidatorInfoError::ValidatorInfoUnavailable);
                 }
+                let id = ValidatorInfoIdentifier::EpochId(header.epoch_id().clone());
+                (temp, id)
             }
             EpochReference::Latest => {
-                // use header head because this is latest from the perspective of epoch manager
-                ValidatorInfoIdentifier::BlockHash(self.chain.header_head()?.last_block_hash)
+                // use header head because this is latest from the perspective
+                // of epoch manager
+                let hash = self.hot_chain.header_head()?.last_block_hash;
+                (Temperature::Hot, ValidatorInfoIdentifier::BlockHash(hash))
             }
         };
-        self.runtime_adapter
+        self.runtime_adapter(temp)
             .get_validator_info(epoch_identifier)
             .map_err(GetValidatorInfoError::from)
     }
@@ -665,13 +843,12 @@ impl Handler<WithSpanContext<GetValidatorOrdered>> for ViewClientActor {
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetValidatorOrdered"])
             .start_timer();
-        Ok(self.maybe_block_id_to_block_header(msg.block_id).and_then(|header| {
-            get_epoch_block_producers_view(
-                header.epoch_id(),
-                header.prev_hash(),
-                &*self.runtime_adapter,
-            )
-        })?)
+        let (temp, header) = self.get_block_header_by_maybe_block_id(msg.block_id)?;
+        Ok(get_epoch_block_producers_view(
+            header.epoch_id(),
+            header.prev_hash(),
+            self.runtime_adapter(temp),
+        )?)
     }
 }
 /// Returns a list of change kinds per account in a store for a given block.
@@ -688,8 +865,9 @@ impl Handler<WithSpanContext<GetStateChangesInBlock>> for ViewClientActor {
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetStateChangesInBlock"])
             .start_timer();
+        let temp = self.get_temperature(&msg.block_hash)?;
         Ok(self
-            .chain
+            .chain(temp)
             .store()
             .get_state_changes_in_block(&msg.block_hash)?
             .into_iter()
@@ -712,7 +890,7 @@ impl Handler<WithSpanContext<GetStateChanges>> for ViewClientActor {
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetStateChanges"]).start_timer();
         Ok(self
-            .chain
+            .chain(self.get_temperature(&msg.block_hash)?)
             .store()
             .get_state_changes(&msg.block_hash, &msg.state_changes_request.into())?
             .into_iter()
@@ -735,8 +913,9 @@ impl Handler<WithSpanContext<GetStateChangesWithCauseInBlock>> for ViewClientAct
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetStateChangesWithCauseInBlock"])
             .start_timer();
+        let temp = self.get_temperature(&msg.block_hash)?;
         Ok(self
-            .chain
+            .chain(temp)
             .store()
             .get_state_changes_with_cause_in_block(&msg.block_hash)?
             .into_iter()
@@ -760,15 +939,16 @@ impl Handler<WithSpanContext<GetStateChangesWithCauseInBlockForTrackedShards>> f
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetStateChangesWithCauseInBlockForTrackedShards"])
             .start_timer();
+        let temp = self.get_temperature(&msg.block_hash)?;
         let state_changes_with_cause_in_block =
-            self.chain.store().get_state_changes_with_cause_in_block(&msg.block_hash)?;
+            self.chain(temp).store().get_state_changes_with_cause_in_block(&msg.block_hash)?;
 
-        let mut state_changes_with_cause_split_by_shard_id: HashMap<ShardId, StateChangesView> =
-            HashMap::new();
+        let mut state_changes_with_cause_split_by_shard_id =
+            HashMap::<ShardId, StateChangesView>::new();
         for state_change_with_cause in state_changes_with_cause_in_block {
             let account_id = state_change_with_cause.value.affected_account_id();
             let shard_id = match self
-                .runtime_adapter
+                .runtime_adapter(temp)
                 .account_id_to_shard_id(account_id, &msg.epoch_id)
             {
                 Ok(shard_id) => shard_id,
@@ -807,18 +987,18 @@ impl Handler<WithSpanContext<GetNextLightClientBlock>> for ViewClientActor {
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetNextLightClientBlock"])
             .start_timer();
-        let last_block_header = self.chain.get_block_header(&msg.last_block_hash)?;
+        let (last_block_temp, last_block_header) = self.get_block_header(&msg.last_block_hash)?;
         let last_epoch_id = last_block_header.epoch_id().clone();
         let last_next_epoch_id = last_block_header.next_epoch_id().clone();
         let last_height = last_block_header.height();
-        let head = self.chain.head()?;
+        let head = self.hot_chain.head()?;
 
         if last_epoch_id == head.epoch_id || last_next_epoch_id == head.epoch_id {
-            let head_header = self.chain.get_block_header(&head.last_block_hash)?;
+            let head_header = self.hot_chain.get_block_header(&head.last_block_hash)?;
             let ret = Chain::create_light_client_block(
                 &head_header,
-                &*self.runtime_adapter,
-                self.chain.store(),
+                &*self.hot_runtime_adapter,
+                self.hot_chain.store(),
             )?;
 
             if ret.inner_lite.height <= last_height {
@@ -827,7 +1007,11 @@ impl Handler<WithSpanContext<GetNextLightClientBlock>> for ViewClientActor {
                 Ok(Some(Arc::new(ret)))
             }
         } else {
-            match self.chain.store().get_epoch_light_client_block(&last_next_epoch_id.0) {
+            match self
+                .chain(last_block_temp)
+                .store()
+                .get_epoch_light_client_block(&last_next_epoch_id.0)
+            {
                 Ok(light_block) => Ok(Some(light_block)),
                 Err(e) => {
                     if let near_chain::Error::DBNotFoundErr(_) = e {
@@ -854,22 +1038,26 @@ impl Handler<WithSpanContext<GetExecutionOutcome>> for ViewClientActor {
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetExecutionOutcome"])
             .start_timer();
-        let (id, account_id) = match msg.id {
+        let (temp, id, account_id) = match msg.id {
             TransactionOrReceiptId::Transaction { transaction_hash, sender_id } => {
-                (transaction_hash, sender_id)
+                let temp = self.get_temperature_by_tx_hash(&transaction_hash, &sender_id)?;
+                (temp, transaction_hash, sender_id)
             }
             TransactionOrReceiptId::Receipt { receipt_id, receiver_id } => {
-                (receipt_id, receiver_id)
+                let temp = self.get_temperature_by_rx_hash(&receipt_id, Some(&receiver_id))?;
+                (temp, receipt_id, receiver_id)
             }
         };
-        match self.chain.get_execution_outcome(&id) {
+        let chain = self.chain(temp);
+        let runtime_adapter = self.runtime_adapter(temp);
+        match chain.get_execution_outcome(&id) {
             Ok(outcome) => {
                 let mut outcome_proof = outcome;
                 let epoch_id =
-                    self.chain.get_block(&outcome_proof.block_hash)?.header().epoch_id().clone();
+                    chain.get_block(&outcome_proof.block_hash)?.header().epoch_id().clone();
                 let target_shard_id =
-                    self.runtime_adapter.account_id_to_shard_id(&account_id, &epoch_id)?;
-                let res = self.chain.get_next_block_hash_with_new_chunk(
+                    runtime_adapter.account_id_to_shard_id(&account_id, &epoch_id)?;
+                let res = chain.get_next_block_hash_with_new_chunk(
                     &outcome_proof.block_hash,
                     target_shard_id,
                 )?;
@@ -878,8 +1066,7 @@ impl Handler<WithSpanContext<GetExecutionOutcome>> for ViewClientActor {
                         outcome_proof.block_hash = h;
                         // Here we assume the number of shards is small so this reconstruction
                         // should be fast
-                        let outcome_roots = self
-                            .chain
+                        let outcome_roots = chain
                             .get_block(&h)?
                             .chunks()
                             .iter()
@@ -903,29 +1090,29 @@ impl Handler<WithSpanContext<GetExecutionOutcome>> for ViewClientActor {
                     }),
                 }
             }
-            Err(e) => match e {
-                near_chain::Error::DBNotFoundErr(_) => {
-                    let head = self.chain.head()?;
-                    let target_shard_id =
-                        self.runtime_adapter.account_id_to_shard_id(&account_id, &head.epoch_id)?;
-                    if self.runtime_adapter.cares_about_shard(
-                        self.validator_account_id.as_ref(),
-                        &head.last_block_hash,
-                        target_shard_id,
-                        true,
-                    ) {
-                        Err(GetExecutionOutcomeError::UnknownTransactionOrReceipt {
-                            transaction_or_receipt_id: id,
-                        })
-                    } else {
-                        Err(GetExecutionOutcomeError::UnavailableShard {
-                            transaction_or_receipt_id: id,
-                            shard_id: target_shard_id,
-                        })
-                    }
+            Err(near_chain::Error::DBNotFoundErr(_)) => {
+                // TODO(#6119): Should this be chain? Or just always talk to
+                // hot?  Or something even more complicated?
+                let head = chain.head()?;
+                let target_shard_id =
+                    runtime_adapter.account_id_to_shard_id(&account_id, &head.epoch_id)?;
+                if runtime_adapter.cares_about_shard(
+                    self.validator_account_id.as_ref(),
+                    &head.last_block_hash,
+                    target_shard_id,
+                    true,
+                ) {
+                    Err(GetExecutionOutcomeError::UnknownTransactionOrReceipt {
+                        transaction_or_receipt_id: id,
+                    })
+                } else {
+                    Err(GetExecutionOutcomeError::UnavailableShard {
+                        transaction_or_receipt_id: id,
+                        shard_id: target_shard_id,
+                    })
                 }
-                _ => Err(e.into()),
-            },
+            }
+            Err(err) => Err(err.into()),
         }
     }
 }
@@ -945,9 +1132,10 @@ impl Handler<WithSpanContext<GetExecutionOutcomesForBlock>> for ViewClientActor 
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetExecutionOutcomesForBlock"])
             .start_timer();
+        let (temp, block) = self.get_block(&msg.block_hash).map_err(|e| e.to_string())?;
         Ok(self
-            .chain
-            .get_block_execution_outcomes(&msg.block_hash)
+            .chain(temp)
+            .get_block_execution_outcomes(&block)
             .map_err(|e| e.to_string())?
             .into_iter()
             .map(|(k, v)| (k, v.into_iter().map(Into::into).collect()))
@@ -963,8 +1151,9 @@ impl Handler<WithSpanContext<GetReceipt>> for ViewClientActor {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetReceipt"]).start_timer();
+        let temp = self.get_temperature_by_rx_hash(&msg.receipt_id, None)?;
         Ok(self
-            .chain
+            .chain(temp)
             .store()
             .get_receipt(&msg.receipt_id)?
             .map(|receipt| Receipt::clone(&receipt).into()))
@@ -983,11 +1172,14 @@ impl Handler<WithSpanContext<GetBlockProof>> for ViewClientActor {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetBlockProof"]).start_timer();
-        let block_header = self.chain.get_block_header(&msg.block_hash)?;
-        let head_block_header = self.chain.get_block_header(&msg.head_block_hash)?;
-        self.chain.check_blocks_final_and_canonical(&[&block_header, &head_block_header])?;
-        let block_header_lite = block_header.into();
-        let proof = self.chain.get_block_proof(&msg.block_hash, &msg.head_block_hash)?;
+        let (temp, header) = self.get_block_header(&msg.block_hash)?;
+        let (head_temp, head_header) = self.get_block_header(&msg.head_block_hash)?;
+        // TODO(#6119): Handle case when temperature of both blocks differs.
+        assert_eq!(temp, head_temp, "Not implemented yet");
+        let chain = self.chain(temp);
+        chain.check_blocks_final_and_canonical(&[&header, &head_header])?;
+        let block_header_lite = header.into();
+        let proof = chain.get_block_proof(&msg.block_hash, &msg.head_block_hash)?;
         Ok(GetBlockProofResponse { block_header_lite, proof })
     }
 }
@@ -1005,13 +1197,13 @@ impl Handler<WithSpanContext<GetProtocolConfig>> for ViewClientActor {
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetProtocolConfig"])
             .start_timer();
-        let header = match self.get_block_header_by_reference(&msg.0)? {
+        let (temp, header) = match self.get_block_header_by_reference(&msg.0)? {
             None => {
                 return Err(GetProtocolConfigError::UnknownBlock("EarliestAvailable".to_string()))
             }
             Some(header) => header,
         };
-        let config = self.runtime_adapter.get_protocol_config(header.epoch_id())?;
+        let config = self.runtime_adapter(temp).get_protocol_config(header.epoch_id())?;
         Ok(config.into())
     }
 }
@@ -1041,7 +1233,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ViewClientActor {
             }
             NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
                 info!(target: "adversary", "Switching to height");
-                let mut chain_store_update = self.chain.mut_store().store_update();
+                let mut chain_store_update = self.hot_chain.mut_store().store_update();
                 chain_store_update.save_largest_target_height(height);
                 chain_store_update
                     .adv_save_latest_known(height)
@@ -1110,7 +1302,7 @@ impl Handler<WithSpanContext<BlockRequest>> for ViewClientActor {
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["BlockRequest"]).start_timer();
         let BlockRequest(hash) = msg;
-        if let Ok(block) = self.chain.get_block(&hash) {
+        if let Ok((_temp, block)) = self.get_block(&hash) {
             Some(Box::new(block))
         } else {
             None
@@ -1160,9 +1352,11 @@ impl Handler<WithSpanContext<StateRequestHeader>> for ViewClientActor {
         if !self.check_state_sync_request() {
             return None;
         }
-        let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
+        // TODO(#6119): Should this depend on sync_hash?
+        let chain = &self.hot_chain;
+        let state_response = match chain.check_sync_hash_validity(&sync_hash) {
             Ok(true) => {
-                let header = match self.chain.get_state_response_header(shard_id, sync_hash) {
+                let header = match chain.get_state_response_header(shard_id, sync_hash) {
                     Ok(header) => Some(header),
                     Err(e) => {
                         error!(target: "sync", "Cannot build sync header (get_state_response_header): {}", e);
@@ -1250,9 +1444,11 @@ impl Handler<WithSpanContext<StateRequestPart>> for ViewClientActor {
             return None;
         }
         trace!(target: "sync", "Computing state request part {} {} {}", shard_id, sync_hash, part_id);
-        let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
+        // TODO(#6119): Should this depend on sync_hash?
+        let chain = &self.hot_chain;
+        let state_response = match chain.check_sync_hash_validity(&sync_hash) {
             Ok(true) => {
-                let part = match self.chain.get_state_response_part(shard_id, part_id, sync_hash) {
+                let part = match chain.get_state_response_part(shard_id, part_id, sync_hash) {
                     Ok(part) => Some((part_id, part)),
                     Err(e) => {
                         error!(target: "sync", "Cannot build sync part #{:?} (get_state_response_part): {}", part_id, e);
@@ -1307,7 +1503,9 @@ impl Handler<WithSpanContext<AnnounceAccountRequest>> for ViewClientActor {
             // Keep the announcement if it is newer than the last announcement from
             // the same account.
             if let Some(last_epoch) = last_epoch {
-                match self.runtime_adapter.compare_epoch_id(&announce_account.epoch_id, &last_epoch)
+                match self
+                    .hot_runtime_adapter
+                    .compare_epoch_id(&announce_account.epoch_id, &last_epoch)
                 {
                     Ok(Ordering::Greater) => {}
                     _ => continue,
@@ -1357,8 +1555,8 @@ impl Handler<WithSpanContext<GetGasPrice>> for ViewClientActor {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetGasPrice"]).start_timer();
-        let header = self.maybe_block_id_to_block_header(msg.block_id);
-        Ok(GasPriceView { gas_price: header?.gas_price() })
+        let header = self.get_block_header_by_maybe_block_id(msg.block_id)?.1;
+        Ok(GasPriceView { gas_price: header.gas_price() })
     }
 }
 
@@ -1366,7 +1564,8 @@ impl Handler<WithSpanContext<GetGasPrice>> for ViewClientActor {
 pub fn start_view_client(
     validator_account_id: Option<AccountId>,
     chain_genesis: ChainGenesis,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    hot_runtime_adapter: Arc<dyn RuntimeAdapter>,
+    #[cfg(feature = "cold_store")] cold_runtime_adapter: Option<Arc<dyn RuntimeAdapter>>,
     network_adapter: Arc<dyn PeerManagerAdapter>,
     config: ClientConfig,
     adv: crate::adversarial::Controls,
@@ -1374,18 +1573,15 @@ pub fn start_view_client(
     let request_manager = Arc::new(RwLock::new(ViewClientRequestManager::new()));
     SyncArbiter::start(config.view_client_threads, move || {
         // ViewClientActor::start_in_arbiter(&Arbiter::current(), move |_ctx| {
-        let validator_account_id1 = validator_account_id.clone();
-        let runtime_adapter1 = runtime_adapter.clone();
-        let network_adapter1 = network_adapter.clone();
-        let config1 = config.clone();
-        let request_manager1 = request_manager.clone();
         ViewClientActor::new(
-            validator_account_id1,
+            validator_account_id.clone(),
             &chain_genesis,
-            runtime_adapter1,
-            network_adapter1,
-            config1,
-            request_manager1,
+            hot_runtime_adapter.clone(),
+            #[cfg(feature = "cold_store")]
+            cold_runtime_adapter.clone(),
+            network_adapter.clone(),
+            config.clone(),
+            request_manager.clone(),
             adv.clone(),
         )
         .unwrap()

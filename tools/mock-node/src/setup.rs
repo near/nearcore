@@ -252,6 +252,8 @@ pub fn setup_mock_node(
         None,
         chain_genesis.clone(),
         client_runtime,
+        #[cfg(feature = "cold_store")]
+        None,
         network_adapter.clone(),
         config.client_config.clone(),
         adv,

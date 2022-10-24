@@ -243,6 +243,8 @@ pub fn setup(
         Some(signer.validator_id().clone()),
         chain_genesis.clone(),
         runtime.clone(),
+        #[cfg(feature = "cold_store")]
+        None,
         network_adapter.clone(),
         config.clone(),
         adv.clone(),
@@ -326,6 +328,8 @@ pub fn setup_only_view(
         Some(signer.validator_id().clone()),
         chain_genesis,
         runtime,
+        #[cfg(feature = "cold_store")]
+        None,
         network_adapter.clone(),
         config,
         adv,

@@ -55,11 +55,11 @@ pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
 
 /// Specifies temperature of a storage.
 ///
-/// Since currently only hot storage is implemented, this has only one variant.
-/// In the future, certain parts of the code may need to access hot or cold
-/// storage.  Specifically, querying an old block will require reading it from
-/// the cold storage.
-#[derive(Clone, Copy)]
+/// If note is running in split storage mode, old data that the archival node
+/// keeps is considered cold.  It’s stored in separate database and accessing it
+/// requires going through the cold storage.  This enum determines temperature
+/// of the data and storage.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Temperature {
     Hot,
     #[cfg(feature = "cold_store")]

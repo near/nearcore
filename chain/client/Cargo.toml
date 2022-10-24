@@ -73,3 +73,4 @@ sandbox = [
 ]
 # Shardnet is the experimental network that we deploy for chunk-only producer testing.
 shardnet = ["near-network/shardnet"]
+cold_store = ["near-store/cold_store"]

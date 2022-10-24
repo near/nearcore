@@ -2465,12 +2465,8 @@ fn test_block_execution_outcomes() {
     let block = env.clients[0].chain.get_block_by_height(2).unwrap();
     let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap();
     assert_eq!(chunk.transactions().len(), 3);
-    let execution_outcomes_from_block = env.clients[0]
-        .chain
-        .get_block_execution_outcomes(block.hash())
-        .unwrap()
-        .remove(&0)
-        .unwrap();
+    let execution_outcomes_from_block =
+        env.clients[0].chain.get_block_execution_outcomes(&block).unwrap().remove(&0).unwrap();
     assert_eq!(execution_outcomes_from_block.len(), 5);
     assert_eq!(
         execution_outcomes_from_block
@@ -2485,12 +2481,8 @@ fn test_block_execution_outcomes() {
     let next_chunk = env.clients[0].chain.get_chunk(&next_block.chunks()[0].chunk_hash()).unwrap();
     assert!(next_chunk.transactions().is_empty());
     assert!(next_chunk.receipts().is_empty());
-    let execution_outcomes_from_block = env.clients[0]
-        .chain
-        .get_block_execution_outcomes(next_block.hash())
-        .unwrap()
-        .remove(&0)
-        .unwrap();
+    let execution_outcomes_from_block =
+        env.clients[0].chain.get_block_execution_outcomes(&next_block).unwrap().remove(&0).unwrap();
     assert_eq!(execution_outcomes_from_block.len(), 1);
     assert!(execution_outcomes_from_block[0].outcome_with_id.id == delayed_receipt_id[0]);
 }
@@ -2595,12 +2587,8 @@ fn test_refund_receipts_processing() {
     let mut processed_refund_receipt_ids = HashSet::new();
     for i in begin_block_height..=ending_block_height {
         let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
-        let execution_outcomes_from_block = env.clients[0]
-            .chain
-            .get_block_execution_outcomes(block.hash())
-            .unwrap()
-            .remove(&0)
-            .unwrap();
+        let execution_outcomes_from_block =
+            env.clients[0].chain.get_block_execution_outcomes(&block).unwrap().remove(&0).unwrap();
         for outcome in execution_outcomes_from_block.iter() {
             processed_refund_receipt_ids.insert(outcome.outcome_with_id.id);
         }

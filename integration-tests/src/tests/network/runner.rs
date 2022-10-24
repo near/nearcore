@@ -92,6 +92,8 @@ fn setup_network_node(
         config.validator.as_ref().map(|v| v.account_id()),
         chain_genesis.clone(),
         runtime.clone(),
+        #[cfg(feature = "cold_store")]
+        None,
         network_adapter.clone(),
         client_config,
         adv,
