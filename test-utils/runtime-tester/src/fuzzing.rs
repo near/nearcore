@@ -544,7 +544,7 @@ impl Scope {
             } else {
                 AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: None,
-                    receiver_id: self.random_account(u)?.id.into(),
+                    receiver_id: self.random_account(u)?.id.to_string(),
                     method_names: vec![],
                 })
             }

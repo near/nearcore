@@ -319,7 +319,7 @@ impl ReceiptManager {
                     nonce,
                     permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                         allowance,
-                        receiver_id: receiver_id.into(),
+                        receiver_id: receiver_id.to_string(),
                         method_names: method_names
                             .into_iter()
                             .map(|method_name| {

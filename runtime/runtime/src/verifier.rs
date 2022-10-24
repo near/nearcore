@@ -825,7 +825,7 @@ mod tests {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: Some(100),
-                    receiver_id: bob_account().into(),
+                    receiver_id: bob_account().to_string(),
                     method_names: vec![],
                 }),
             }),
@@ -914,7 +914,7 @@ mod tests {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: None,
-                    receiver_id: bob_account().into(),
+                    receiver_id: bob_account().to_string(),
                     method_names: vec![],
                 }),
             }),
@@ -1008,7 +1008,7 @@ mod tests {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: None,
-                    receiver_id: bob_account().into(),
+                    receiver_id: bob_account().to_string(),
                     method_names: vec![],
                 }),
             }),
@@ -1040,7 +1040,7 @@ mod tests {
             RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
                 InvalidAccessKeyError::ReceiverMismatch {
                     tx_receiver: eve_dot_alice_account(),
-                    ak_receiver: bob_account().into()
+                    ak_receiver: bob_account().to_string()
                 }
             )),
         );
@@ -1056,7 +1056,7 @@ mod tests {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: None,
-                    receiver_id: bob_account().into(),
+                    receiver_id: bob_account().to_string(),
                     method_names: vec!["not_hello".to_string(), "world".to_string()],
                 }),
             }),
@@ -1101,7 +1101,7 @@ mod tests {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: None,
-                    receiver_id: bob_account().into(),
+                    receiver_id: bob_account().to_string(),
                     method_names: vec![],
                 }),
             }),
@@ -1484,7 +1484,7 @@ mod tests {
                     nonce: 0,
                     permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                         allowance: Some(1000),
-                        receiver_id: alice_account().into(),
+                        receiver_id: alice_account().to_string(),
                         method_names: vec!["hello".to_string(), "world".to_string()],
                     }),
                 },

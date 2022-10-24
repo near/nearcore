@@ -971,7 +971,7 @@ pub fn test_access_key_smart_contract(node: impl Node) {
         nonce: 0,
         permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
             allowance: Some(FUNCTION_CALL_AMOUNT),
-            receiver_id: bob_account().into(),
+            receiver_id: bob_account().to_string(),
             method_names: vec![],
         }),
     };
@@ -1010,7 +1010,7 @@ pub fn test_access_key_smart_contract(node: impl Node) {
             nonce: view_access_key.nonce,
             permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                 allowance: Some(FUNCTION_CALL_AMOUNT - function_call_cost + gas_refund),
-                receiver_id: bob_account().into(),
+                receiver_id: bob_account().to_string(),
                 method_names: vec![],
             }),
         }
@@ -1023,7 +1023,7 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
         nonce: 0,
         permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
             allowance: Some(FUNCTION_CALL_AMOUNT),
-            receiver_id: bob_account().into(),
+            receiver_id: bob_account().to_string(),
             method_names: vec!["log_something".to_string()],
         }),
     };
@@ -1051,7 +1051,7 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
         nonce: 0,
         permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
             allowance: Some(FUNCTION_CALL_AMOUNT),
-            receiver_id: bob_account().into(),
+            receiver_id: bob_account().to_string(),
             method_names: vec![],
         }),
     };
@@ -1076,7 +1076,7 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
         ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
             InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::ReceiverMismatch {
                 tx_receiver: eve_dot_alice_account(),
-                ak_receiver: bob_account().into()
+                ak_receiver: bob_account().to_string()
             })
         ))
     );
