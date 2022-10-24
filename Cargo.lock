@@ -878,12 +878,12 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "anyhow",
+ "async-trait",
  "clap 3.1.18",
  "dirs",
  "futures",
  "log",
  "near-chain-configs",
- "near-client",
  "near-crypto",
  "near-network",
  "near-o11y",

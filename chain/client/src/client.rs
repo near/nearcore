@@ -14,6 +14,7 @@ use near_client_primitives::debug::ChunkProduction;
 use near_primitives::time::Clock;
 use tracing::{debug, error, info, trace, warn};
 
+use crate::adapter::NetworkClientResponses;
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
     OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
@@ -26,10 +27,7 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::ShardsManager;
-use crate::adapter::NetworkClientResponses;
-use near_network::types::{
-    FullPeerInfo, NetworkRequests, PeerManagerAdapter,
-};
+use near_network::types::{FullPeerInfo, NetworkRequests, PeerManagerAdapter};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;

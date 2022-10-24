@@ -1,16 +1,14 @@
-use near_network::types::{
-    PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
-    StateResponseInfo,
-    NetworkInfo,
-    ReasonForBan,
-};
-use near_primitives::errors::InvalidTxError;
 use crate::client_actor::ClientActor;
 use crate::view_client::ViewClientActor;
 use near_network::time;
-use near_o11y::{WithSpanContextExt};
+use near_network::types::{
+    NetworkInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
+    PartialEncodedChunkResponseMsg, ReasonForBan, StateResponseInfo,
+};
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunk;
@@ -24,7 +22,7 @@ use near_primitives::views::FinalExecutionOutcomeView;
 #[rtype(result = "NetworkClientResponses")]
 pub enum NetworkClientMessages {
     #[cfg(feature = "test_features")]
-    Adversarial(crate::types::NetworkAdversarialMessage),
+    Adversarial(near_network::types::NetworkAdversarialMessage),
 
     /// Received transaction.
     Transaction {
@@ -85,7 +83,7 @@ pub enum NetworkClientResponses {
 #[rtype(result = "NetworkViewClientResponses")]
 pub enum NetworkViewClientMessages {
     #[cfg(feature = "test_features")]
-    Adversarial(NetworkAdversarialMessage),
+    Adversarial(near_network::types::NetworkAdversarialMessage),
 
     /// Transaction status query
     TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
@@ -171,10 +169,7 @@ impl near_network::client::Client for Adapter {
         }
     }
 
-    async fn tx_status_response(
-        &self,
-        tx_result: FinalExecutionOutcomeView,
-    ) {
+    async fn tx_status_response(&self, tx_result: FinalExecutionOutcomeView) {
         match self
             .view_client_addr
             .send(
@@ -183,7 +178,7 @@ impl near_network::client::Client for Adapter {
             )
             .await
         {
-            Ok(NetworkViewClientResponses::NoResponse) => {},
+            Ok(NetworkViewClientResponses::NoResponse) => {}
             Ok(resp) => panic!("unexpected ViewClientResponse: {resp:?}"),
             Err(err) => tracing::error!("mailbox error: {err}"),
         }
@@ -251,33 +246,25 @@ impl near_network::client::Client for Adapter {
             .send(NetworkClientMessages::StateResponse(info).with_span_context())
             .await
         {
-            Ok(NetworkClientResponses::NoResponse) => {},
+            Ok(NetworkClientResponses::NoResponse) => {}
             Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
             Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }
 
-    async fn block_approval(
-        &self,
-        approval: Approval,
-        peer_id: PeerId,
-    ) {
+    async fn block_approval(&self, approval: Approval, peer_id: PeerId) {
         match self
             .client_addr
             .send(NetworkClientMessages::BlockApproval(approval, peer_id).with_span_context())
             .await
         {
-            Ok(NetworkClientResponses::NoResponse) => {},
+            Ok(NetworkClientResponses::NoResponse) => {}
             Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
             Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }
 
-    async fn transaction(
-        &self,
-        transaction: SignedTransaction,
-        is_forwarded: bool,
-    ) {
+    async fn transaction(&self, transaction: SignedTransaction, is_forwarded: bool) {
         match self
             .client_addr
             .send(
@@ -289,8 +276,10 @@ impl near_network::client::Client for Adapter {
             // Almost all variants of NetworkClientResponse are used only in response
             // to NetworkClientMessages::Transaction (except for Ban). It will be clearer
             // once NetworkClientMessage is split into separate requests.
-            Ok(resp @ NetworkClientResponses::Ban{..}) => panic!("unexpected ClientResponse: {resp:?}"),
-            Ok(_) => {} 
+            Ok(resp @ NetworkClientResponses::Ban { .. }) => {
+                panic!("unexpected ClientResponse: {resp:?}")
+            }
+            Ok(_) => {}
             Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }
@@ -308,7 +297,7 @@ impl near_network::client::Client for Adapter {
             )
             .await
         {
-            Ok(NetworkClientResponses::NoResponse) => {},
+            Ok(NetworkClientResponses::NoResponse) => {}
             Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
             Err(err) => tracing::error!("mailbox error: {err}"),
         }
@@ -333,10 +322,7 @@ impl near_network::client::Client for Adapter {
         }
     }
 
-    async fn partial_encoded_chunk(
-        &self,
-        chunk: PartialEncodedChunk,
-    ) {
+    async fn partial_encoded_chunk(&self, chunk: PartialEncodedChunk) {
         match self
             .client_addr
             .send(NetworkClientMessages::PartialEncodedChunk(chunk).with_span_context())
@@ -348,10 +334,7 @@ impl near_network::client::Client for Adapter {
         }
     }
 
-    async fn partial_encoded_chunk_forward(
-        &self,
-        msg: PartialEncodedChunkForwardMsg,
-    ) {
+    async fn partial_encoded_chunk_forward(&self, msg: PartialEncodedChunkForwardMsg) {
         match self
             .client_addr
             .send(NetworkClientMessages::PartialEncodedChunkForward(msg).with_span_context())
@@ -379,10 +362,7 @@ impl near_network::client::Client for Adapter {
         }
     }
 
-    async fn block_headers_request(
-        &self,
-        hashes: Vec<CryptoHash>,
-    ) -> Option<Vec<BlockHeader>> {
+    async fn block_headers_request(&self, hashes: Vec<CryptoHash>) -> Option<Vec<BlockHeader>> {
         match self
             .view_client_addr
             .send(NetworkViewClientMessages::BlockHeadersRequest(hashes).with_span_context())
@@ -398,12 +378,7 @@ impl near_network::client::Client for Adapter {
         }
     }
 
-    async fn block(
-        &self,
-        block: Block,
-        peer_id: PeerId,
-        was_requested: bool,
-    ) {
+    async fn block(&self, block: Block, peer_id: PeerId, was_requested: bool) {
         match self
             .client_addr
             .send(NetworkClientMessages::Block(block, peer_id, was_requested).with_span_context())

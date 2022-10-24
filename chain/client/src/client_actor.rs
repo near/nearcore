@@ -1,10 +1,10 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
+use crate::adapter::{NetworkClientMessages, NetworkClientResponses};
 use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::info::{
     display_sync_status, get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper,
 };
-use crate::adapter::{NetworkClientMessages, NetworkClientResponses};
 use crate::metrics::PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY;
 use crate::sync::{StateSync, StateSyncResult};
 use crate::{metrics, StatusResponse};
@@ -33,8 +33,7 @@ use near_client_primitives::types::{
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
-    NetworkInfo, NetworkRequests,
-    PeerManagerAdapter, PeerManagerMessageRequest,
+    NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics;
