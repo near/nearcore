@@ -13,6 +13,7 @@ This crate provides the core set of primitives used by other nearcore crates inc
 """
 
 [dependencies]
+arbitrary.workspace = true
 base64.workspace = true
 borsh.workspace = true
 bs58.workspace = true
@@ -23,7 +24,7 @@ serde_repr.workspace = true
 sha2.workspace = true
 strum.workspace = true
 
-near-account-id = { path = "../account-id" }
+near-account-id = { path = "../account-id", features = ["arbitrary"] }
 
 [dev-dependencies]
 serde_json.workspace = true

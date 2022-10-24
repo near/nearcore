@@ -31,7 +31,6 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
-use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId};
@@ -256,10 +255,6 @@ pub enum PeerMessage {
     /// Gracefully disconnect from other peer.
     Disconnect,
     Challenge(Challenge),
-    EpochSyncRequest(EpochId),
-    EpochSyncResponse(Box<EpochSyncResponse>),
-    EpochSyncFinalizationRequest(EpochId),
-    EpochSyncFinalizationResponse(Box<EpochSyncFinalizationResponse>),
 }
 
 impl fmt::Display for PeerMessage {
@@ -314,47 +309,6 @@ impl PeerMessage {
         match self {
             PeerMessage::Routed(routed_msg) => routed_msg.body_variant(),
             _ => self.into(),
-        }
-    }
-
-    pub(crate) fn is_client_message(&self) -> bool {
-        match self {
-            PeerMessage::Block(_)
-            | PeerMessage::BlockHeaders(_)
-            | PeerMessage::Challenge(_)
-            | PeerMessage::EpochSyncFinalizationResponse(_)
-            | PeerMessage::EpochSyncResponse(_)
-            | PeerMessage::Transaction(_) => true,
-            PeerMessage::Routed(r) => matches!(
-                r.msg.body,
-                RoutedMessageBody::BlockApproval(_)
-                    | RoutedMessageBody::ForwardTx(_)
-                    | RoutedMessageBody::PartialEncodedChunkForward(_)
-                    | RoutedMessageBody::PartialEncodedChunkRequest(_)
-                    | RoutedMessageBody::PartialEncodedChunkResponse(_)
-                    | RoutedMessageBody::StateResponse(_)
-                    | RoutedMessageBody::VersionedPartialEncodedChunk(_)
-                    | RoutedMessageBody::VersionedStateResponse(_)
-            ),
-            _ => false,
-        }
-    }
-
-    pub(crate) fn is_view_client_message(&self) -> bool {
-        match self {
-            PeerMessage::BlockHeadersRequest(_)
-            | PeerMessage::BlockRequest(_)
-            | PeerMessage::EpochSyncFinalizationRequest(_)
-            | PeerMessage::EpochSyncRequest(_) => true,
-            PeerMessage::Routed(r) => matches!(
-                r.msg.body,
-                RoutedMessageBody::ReceiptOutcomeRequest(_)
-                    | RoutedMessageBody::StateRequestHeader(_, _)
-                    | RoutedMessageBody::StateRequestPart(_, _, _)
-                    | RoutedMessageBody::TxStatusRequest(_, _)
-                    | RoutedMessageBody::TxStatusResponse(_)
-            ),
-            _ => false,
         }
     }
 }
@@ -699,7 +653,7 @@ pub enum AccountOrPeerIdOrHash {
     Hash(CryptoHash),
 }
 
-pub struct RawRoutedMessage {
+pub(crate) struct RawRoutedMessage {
     pub target: PeerIdOrHash,
     pub body: RoutedMessageBody,
 }
@@ -714,12 +668,11 @@ impl RawRoutedMessage {
         now: Option<time::Utc>,
     ) -> RoutedMessageV2 {
         let author = PeerId::new(node_key.public_key());
-        let target = self.target;
-        let hash = RoutedMessage::build_hash(&target, &author, &self.body);
+        let hash = RoutedMessage::build_hash(&self.target, &author, &self.body);
         let signature = node_key.sign(hash.as_ref());
         RoutedMessageV2 {
             msg: RoutedMessage {
-                target,
+                target: self.target,
                 author,
                 signature,
                 ttl: routed_message_ttl,

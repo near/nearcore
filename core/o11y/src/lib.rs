@@ -5,7 +5,7 @@ pub use {backtrace, tracing, tracing_appender, tracing_subscriber};
 use clap::Parser;
 pub use context::*;
 use near_crypto::PublicKey;
-use near_primitives::types::AccountId;
+use near_primitives_core::types::AccountId;
 use once_cell::sync::OnceCell;
 use opentelemetry::sdk::trace::{self, IdGenerator, Sampler, Tracer};
 use opentelemetry::sdk::Resource;
@@ -27,6 +27,7 @@ use tracing_subscriber::{fmt, reload, EnvFilter, Layer, Registry};
 /// Custom tracing subscriber implementation that produces IO traces.
 pub mod context;
 mod io_tracer;
+pub mod macros;
 pub mod metrics;
 pub mod pretty;
 pub mod testonly;
@@ -541,6 +542,7 @@ impl<'a> EnvFilterBuilder<'a> {
             env_filter = env_filter
                 .add_directive("cranelift_codegen=warn".parse().expect("parse directive"))
                 .add_directive("h2=warn".parse().expect("parse directive"))
+                .add_directive("tower=warn".parse().expect("parse directive"))
                 .add_directive("trust_dns_resolver=warn".parse().expect("parse directive"))
                 .add_directive("trust_dns_proto=warn".parse().expect("parse directive"));
             env_filter = if module.is_empty() {

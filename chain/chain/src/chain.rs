@@ -91,7 +91,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
 
-/// Maximum age of orhpan to store in the chain.
+/// Maximum age of orphan to store in the chain.
 const MAX_ORPHAN_AGE_SECS: u64 = 300;
 
 // Number of orphan ancestors should be checked to request chunks
@@ -4286,6 +4286,11 @@ impl Chain {
     #[inline]
     pub fn is_in_processing(&self, hash: &CryptoHash) -> bool {
         self.blocks_in_processing.contains(hash)
+    }
+
+    #[inline]
+    pub fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error> {
+        self.store.is_height_processed(height)
     }
 
     /// Check if can sync with sync_hash
