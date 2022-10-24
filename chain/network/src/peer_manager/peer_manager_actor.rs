@@ -20,7 +20,7 @@ use crate::types::{
     SetChainInfo,
 };
 use actix::fut::future::wrap_future;
-use actix::{Actor as _, ActorFutureExt as _, AsyncContext as _};
+use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
@@ -28,25 +28,21 @@ use near_primitives::network::PeerId;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::cmp::min;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashSet};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 /// How much time to wait (in milliseconds) after we send update nonce request before disconnecting.
 /// This number should be large to handle pair of nodes with high latency.
-const WAIT_ON_TRY_UPDATE_NONCE: time::Duration = time::Duration::milliseconds(6_000);
+// const WAIT_ON_TRY_UPDATE_NONCE: time::Duration = time::Duration::milliseconds(6_000);
 /// If we see an edge between us and other peer, but this peer is not a current connection, wait this
 /// timeout and in case it didn't become a connected peer, broadcast edge removal update.
-const WAIT_PEER_BEFORE_REMOVE: time::Duration = time::Duration::milliseconds(6_000);
+// const WAIT_PEER_BEFORE_REMOVE: time::Duration = time::Duration::milliseconds(6_000);
 /// Ratio between consecutive attempts to establish connection with another peer.
 /// In the kth step node should wait `10 * EXPONENTIAL_BACKOFF_RATIO**k` milliseconds
 const EXPONENTIAL_BACKOFF_RATIO: f64 = 1.1;
 /// The initial waiting time between consecutive attempts to establish connection
 const MONITOR_PEERS_INITIAL_DURATION: time::Duration = time::Duration::milliseconds(10);
-/// How ofter should we broadcast edges.
-const BROADCAST_VALIDATED_EDGES_INTERVAL: time::Duration = time::Duration::milliseconds(50);
-/// Maximum amount of time spend processing edges.
-const BROAD_CAST_EDGES_MAX_WORK_ALLOWED: time::Duration = time::Duration::milliseconds(50);
 /// How often should we update the routing table
 const UPDATE_ROUTING_TABLE_INTERVAL: time::Duration = time::Duration::milliseconds(1_000);
 /// How often to report bandwidth stats.
@@ -84,8 +80,6 @@ pub struct PeerManagerActor {
     my_peer_id: PeerId,
     /// Flag that track whether we started attempts to establish outbound connections.
     started_connect_attempts: bool,
-    /// Connected peers we have sent new edge update, but we haven't received response so far.
-    local_peer_pending_update_nonce_request: HashMap<PeerId, u64>,
 
     pub(crate) state: Arc<NetworkState>,
 }
@@ -196,6 +190,7 @@ impl actix::Actor for PeerManagerActor {
         );
 
         let state = self.state.clone();
+        let clock = self.clock.clone();
         ctx.spawn(wrap_future(async move {
             let mut interval =
                 tokio::time::interval(UPDATE_ROUTING_TABLE_INTERVAL.try_into().unwrap());
@@ -207,8 +202,8 @@ impl actix::Actor for PeerManagerActor {
                 interval.tick().await;
                 state
                     .update_routing_table(
-                        self.clock.now().checked_sub(PRUNE_UNREACHABLE_PEERS_AFTER),
-                        self.clock.now_utc().checked_sub(PRUNE_EDGES_AFTER),
+                        clock.now().checked_sub(PRUNE_UNREACHABLE_PEERS_AFTER),
+                        clock.now_utc().checked_sub(PRUNE_EDGES_AFTER),
                     )
                     .await;
             }
@@ -260,11 +255,10 @@ impl PeerManagerActor {
         };
         let my_peer_id = config.node_id();
         let config = Arc::new(config);
-        Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| Self {
+        Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |_ctx| Self {
             my_peer_id: my_peer_id.clone(),
             config: config.clone(),
             started_connect_attempts: false,
-            local_peer_pending_update_nonce_request: HashMap::new(),
             state: Arc::new(NetworkState::new(
                 &clock,
                 store.clone(),

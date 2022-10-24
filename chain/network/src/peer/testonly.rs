@@ -10,8 +10,7 @@ use crate::peer::peer_actor::{ClosingReason, PeerActor};
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_store;
-use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
-use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
+use crate::private_actix::{ SendMessage};
 use crate::store;
 use crate::tcp;
 use crate::testonly::actix::ActixSystem;
@@ -65,30 +64,6 @@ struct FakePeerManagerActor {
 
 impl Actor for FakePeerManagerActor {
     type Context = Context<Self>;
-}
-
-impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
-    type Result = PeerToManagerMsgResp;
-    fn handle(&mut self, msg: PeerToManagerMsg, _ctx: &mut Self::Context) -> Self::Result {
-        let msg_type: &str = (&msg).into();
-        println!("{}: PeerManager message {}", self.cfg.id(), msg_type);
-        match msg {
-            PeerToManagerMsg::RegisterPeer(..) => {
-                PeerToManagerMsgResp::RegisterPeer(RegisterPeerResponse::Accept)
-            }
-            PeerToManagerMsg::RequestUpdateNonce(..) => PeerToManagerMsgResp::Empty,
-            PeerToManagerMsg::ResponseUpdateNonce(..) => PeerToManagerMsgResp::Empty,
-            PeerToManagerMsg::PeersRequest(_) => {
-                // PeerActor would panic if we returned a different response.
-                // This also triggers sending a message to the peer.
-                PeerToManagerMsgResp::PeersRequest(PeerRequestResult {
-                    peers: self.cfg.peers.clone(),
-                })
-            }
-            PeerToManagerMsg::PeersResponse(..) => PeerToManagerMsgResp::Empty,
-            _ => panic!("unsupported message"),
-        }
-    }
 }
 
 pub(crate) struct PeerHandle {

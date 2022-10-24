@@ -1,11 +1,10 @@
 use crate::network_protocol::Edge;
 use crate::private_actix::StopMsg;
 use crate::routing;
-use crate::routing::edge_validator_actor::EdgeValidatorActor;
 use crate::stats::metrics;
 use crate::store;
 use crate::time;
-use actix::{Actor as _, ActorContext as _, ActorFutureExt, Addr, Context, Running};
+use actix::{Actor as _, ActorContext as _, Context, Running};
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
 use parking_lot::RwLock;
@@ -34,11 +33,6 @@ pub(crate) struct Actor {
     store: store::Store,
     /// Last time a peer was reachable.
     peer_reachable_at: HashMap<PeerId, time::Instant>,
-    /// EdgeValidatorActor, which is responsible for validating edges.
-    edge_validator_pool: Addr<EdgeValidatorActor>,
-    /// Number of edge validations in progress; We will not update routing table as long as
-    /// this number is non zero.
-    edge_validator_requests_in_progress: u64,
 }
 
 impl Actor {
@@ -183,7 +177,7 @@ impl Actor {
     /// Should be called periodically.
     pub fn update_routing_table(
         &mut self,
-        mut prune_unreachable_since: Option<time::Instant>,
+        prune_unreachable_since: Option<time::Instant>,
         prune_edges_older_than: Option<time::Utc>,
     ) -> (Arc<routing::NextHopTable>, Vec<Edge>) {
         if let Some(prune_edges_older_than) = prune_edges_older_than {
@@ -197,9 +191,10 @@ impl Actor {
             self.peer_reachable_at.insert(peer.clone(), now);
         }
         // Do not prune if there are edges to validate in flight.
-        if self.edge_validator_requests_in_progress != 0 {
+        // TODO:
+        /*if self.edge_validator_requests_in_progress != 0 {
             prune_unreachable_since = None;
-        }
+        }*/
         let pruned_edges = match prune_unreachable_since {
             None => vec![],
             Some(t) => self.prune_unreachable_peers(t),
@@ -222,7 +217,6 @@ impl actix::Actor for Actor {
 impl actix::Handler<StopMsg> for Actor {
     type Result = ();
     fn handle(&mut self, _: StopMsg, ctx: &mut Self::Context) -> Self::Result {
-        self.edge_validator_pool.do_send(StopMsg {});
         ctx.stop();
     }
 }
@@ -260,19 +254,19 @@ impl actix::Handler<Message> for Actor {
     type Result = Response;
 
     #[perf]
-    fn handle(&mut self, msg: Message, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: Message, _ctx: &mut Self::Context) -> Self::Result {
         let _timer =
             metrics::ROUTING_TABLE_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         match msg {
             // Adds verified edges to the graph. Accesses DB.
             Message::AddVerifiedEdges { edges } => {
-                Response::AddVerifiedEdgesResponse(self.add_verified_edges(edges))
+                Response::AddVerifiedEdges(self.add_verified_edges(edges))
             }
             // Recalculates the routing table.
             Message::RoutingTableUpdate { prune_unreachable_since, prune_edges_older_than } => {
                 let (next_hops, pruned_edges) =
                     self.update_routing_table(prune_unreachable_since, prune_edges_older_than);
-                Response::RoutingTableUpdateResponse { pruned_edges, next_hops }
+                Response::RoutingTableUpdate { pruned_edges, next_hops }
             }
         }
     }

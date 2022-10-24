@@ -700,7 +700,13 @@ impl PeerActor {
         // decides whether to accept the connection or not: ctx.wait makes
         // the actor event loop poll on the future until it completes before
         // processing any other events.
-        ctx.wait(wrap_future(self.network_state.register(&self.clock,conn.clone()))
+        
+        ctx.wait(wrap_future({
+            let network_state = self.network_state.clone();
+            let clock = self.clock.clone();
+            let conn = conn.clone();    
+            async move { network_state.register(&clock,conn).await }
+        })
             .map(move |res, act: &mut PeerActor, ctx| {
                 match res {
                     Ok(()) => {
@@ -1020,7 +1026,7 @@ impl PeerActor {
     fn handle_msg_ready(
         &mut self,
         ctx: &mut actix::Context<Self>,
-        conn: &connection::Connection,
+        conn: Arc<connection::Connection>,
         peer_msg: PeerMessage,
     ) {
         match peer_msg.clone() {
@@ -1072,7 +1078,7 @@ impl PeerActor {
                         {
                             cur_edge.clone()
                         }
-                        None => {
+                        _ => {
                             let new_edge = Edge::build_with_secret_key(
                                 network_state.config.node_id(),
                                 peer_id.clone(),
@@ -1216,7 +1222,7 @@ impl PeerActor {
                                 .event_sink
                                 .push(Event::MessageProcessed(conn.tier, PeerMessage::Routed(msg)));
                         }
-                        _ => self.receive_message(ctx, conn, PeerMessage::Routed(msg.clone())),
+                        _ => self.receive_message(ctx, &conn, PeerMessage::Routed(msg.clone())),
                     }
                 } else {
                     if msg.decrease_ttl() {
@@ -1230,14 +1236,14 @@ impl PeerActor {
                     }
                 }
             }
-            msg => self.receive_message(ctx, conn, msg),
+            msg => self.receive_message(ctx, &conn, msg),
         }
     }
 
     fn handle_sync_routing_table(
         &mut self,
         ctx: &mut actix::Context<Self>,
-        conn: &connection::Connection,
+        conn: Arc<connection::Connection>,
         rtu: RoutingTableUpdate,
     ) {
         // Process edges and add new edges to the routing table. Also broadcast new edges.
@@ -1260,7 +1266,9 @@ impl PeerActor {
         let network_state = self.network_state.clone();
         let clock = self.clock.clone();
         ctx.spawn(wrap_future(async move {
-            network_state.add_edges_to_routing_table(&clock, edges).await;
+            if let Err(ban_reason) = network_state.add_edges_to_routing_table(&clock, edges).await {
+                conn.stop(Some(ban_reason));
+            }
         }));
         // Ask client to validate accounts before accepting them.
         let network_state = self.network_state.clone();
@@ -1310,7 +1318,7 @@ impl actix::Actor for PeerActor {
             .push(Event::HandshakeStarted(HandshakeStartedEvent { stream_id: self.stream_id }));
     }
 
-    fn stopping(&mut self, _: &mut Self::Context) -> actix::Running {
+    fn stopping(&mut self, ctx: &mut Self::Context) -> actix::Running {
         metrics::PEER_CONNECTIONS_TOTAL.dec();
         tracing::debug!(target: "network", "{:?}: [status = {:?}] Peer {} disconnected.", self.my_node_info.id, self.peer_status, self.peer_info);
         match &self.peer_status {
@@ -1319,14 +1327,22 @@ impl actix::Actor for PeerActor {
             // so there is nothing to be done.
             PeerStatus::Connecting(..) => {}
             // Clean up the Connection from the NetworkState.
-            PeerStatus::Ready(conn) => self.network_state.unregister(
-                &self.clock,
-                conn,
-                match self.closing_reason {
+            PeerStatus::Ready(conn) => {
+                let network_state = self.network_state.clone();
+                let clock = self.clock.clone();
+                let conn = conn.clone();
+                let ban_reason = match self.closing_reason {
                     Some(ClosingReason::Ban(reason)) => Some(reason),
                     _ => None,
-                },
-            ),
+                };
+                ctx.wait(wrap_future(async move {
+                    network_state.unregister(
+                        &clock,
+                        &conn,
+                        ban_reason,
+                    ).await;
+                }));
+            }
         }
         actix::Running::Stop
     }
@@ -1466,7 +1482,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
                     }
                 }
                 // Handle the message.
-                self.handle_msg_ready(ctx, &conn.clone(), peer_msg);
+                self.handle_msg_ready(ctx, conn.clone(), peer_msg);
             }
         }
     }

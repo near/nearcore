@@ -13,7 +13,6 @@ use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_actix::{RegisterPeerError};
 use crate::routing;
-use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
@@ -96,8 +95,6 @@ pub(crate) struct NetworkState {
     /// - account id
     /// Full routing table (that currently includes information about all edges in the graph) is now inside Routing Table.
     pub routing_table_view: RoutingTableView,
-    /// Fields used for communicating with EdgeValidatorActor
-    pub routing_table_exchange_helper: EdgeValidatorHelper,
 
     /// Hash of messages that requires routing back to respective previous hop.
     pub tier1_route_back: Mutex<RouteBackCache>,
@@ -143,7 +140,6 @@ impl NetworkState {
             peer_store,
             accounts_data: Arc::new(accounts_data::Cache::new()),
             routing_table_view: RoutingTableView::new(store, config.node_id()),
-            routing_table_exchange_helper: Default::default(),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
             tier1_recv_limiter: rate::Limiter::new(
                 clock,
@@ -152,10 +148,10 @@ impl NetworkState {
                     burst: (40 * bytesize::MIB) as u64,
                 },
             ),
-            config,
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,
             max_num_peers: AtomicCell::new(config.max_num_peers),
+            config,
         }
     }
 
@@ -289,7 +285,7 @@ impl NetworkState {
     }
 
     /// Removes the connection from the state.
-    pub fn unregister(
+    pub async fn unregister(
         &self,
         clock: &time::Clock,
         conn: &Arc<connection::Connection>,
@@ -309,7 +305,7 @@ impl NetworkState {
         if let Some(edge) = self.routing_table_view.get_local_edge(&peer_id) {
             if edge.edge_type() == EdgeState::Active {
                 let edge_update = edge.remove_edge(self.config.node_id(), &self.config.node_key);
-                self.add_edges_to_routing_table(clock, vec![edge_update.clone()]);
+                self.add_edges_to_routing_table(clock, vec![edge_update.clone()]).await.unwrap();
                 self.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
                     RoutingTableUpdate::from_edges(vec![edge_update]),
                 )));
@@ -560,6 +556,7 @@ impl NetworkState {
     /// a) there is a peer we should be connected to, but we aren't
     /// b) there is an edge indicating that we should be disconnected from a peer, but we are connected.
     /// Try to resolve the inconsistency.
+    #[allow(dead_code)]
     pub async fn update_local_edges(&self) {
         let local_edges = self.routing_table_view.get_local_edges();
         let tier2 = self.tier2.load();
@@ -580,7 +577,7 @@ impl NetworkState {
                         ))),
                     );
                     // wait for update with timeout.
-                    // TODO: gprusak
+                    // TODO: WAIT_ON_TRY_UPDATE_NONCE
                     if let Some(peer) = self.tier2.load().ready.get(&other_peer) {
                         // Send disconnect signal to this peer if we haven't edge update.
                         peer.stop(None);
