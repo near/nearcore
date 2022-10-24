@@ -38,7 +38,7 @@ impl client::Client for Fake {
         _account_id: AccountId,
         _tx_hash: CryptoHash,
     ) -> Option<Box<FinalExecutionOutcomeView>> {
-        panic!("unimplemented");
+        unimplemented!();
     }
 
     async fn tx_status_response(&self, _tx_result: FinalExecutionOutcomeView) {}
@@ -48,7 +48,7 @@ impl client::Client for Fake {
         _shard_id: ShardId,
         _sync_hash: CryptoHash,
     ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
-        panic!("unimplemented");
+        unimplemented!();
     }
 
     async fn state_request_part(
@@ -57,15 +57,15 @@ impl client::Client for Fake {
         _sync_hash: CryptoHash,
         _part_id: u64,
     ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
-        panic!("unimplemented");
+        unimplemented!();
     }
 
     async fn state_response(&self, _info: StateResponseInfo) {
-        panic!("unimplemented");
+        unimplemented!();
     }
 
     async fn block_approval(&self, _approval: Approval, _peer_id: PeerId) {
-        panic!("unimplemented");
+        unimplemented!();
     }
 
     async fn transaction(&self, transaction: SignedTransaction, _is_forwarded: bool) {
@@ -89,11 +89,11 @@ impl client::Client for Fake {
     }
 
     async fn partial_encoded_chunk(&self, _chunk: PartialEncodedChunk) {
-        panic!("unimplemented");
+        unimplemented!();
     }
 
     async fn partial_encoded_chunk_forward(&self, _msg: PartialEncodedChunkForwardMsg) {
-        panic!("unimplemented");
+        unimplemented!();
     }
 
     async fn block_request(&self, hash: CryptoHash) -> Option<Box<Block>> {

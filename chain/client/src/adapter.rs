@@ -97,10 +97,6 @@ pub enum NetworkViewClientMessages {
     StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash },
     /// State request part.
     StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64 },
-    /// A request for a light client info during Epoch Sync
-    EpochSyncRequest { epoch_id: EpochId },
-    /// A request for headers and proofs during Epoch Sync
-    EpochSyncFinalizationRequest { epoch_id: EpochId },
     /// Account announcements that needs to be validated before being processed.
     /// They are paired with last epoch id known to this announcement, in order to accept only
     /// newer announcements.
