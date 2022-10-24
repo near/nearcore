@@ -1,5 +1,4 @@
 use crate::broadcast;
-use crate::client;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
@@ -161,7 +160,7 @@ impl PeerHandle {
         let (send, recv) = broadcast::unbounded_channel();
         let actix = ActixSystem::spawn(move || {
             let fpm = FakePeerManagerActor { cfg: cfg.clone() }.start();
-            let fc = fake_client::start(send.sink().compose(Event::Client));
+            let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
             let store = store::Store::from(near_store::db::TestDB::new());
             let routing_table_view = RoutingTableView::new(store.clone(), cfg.id());
             // WARNING: this is a hack to make PeerActor use a specific nonce
@@ -185,7 +184,7 @@ impl PeerHandle {
             let network_state = Arc::new(NetworkState::new(
                 Arc::new(network_cfg.verify().unwrap()),
                 cfg.chain.genesis_id.clone(),
-                client::Client::new(fc.clone().recipient(), fc.clone().recipient()),
+                fc,
                 fpm.recipient(),
                 routing_table_addr,
                 routing_table_view,

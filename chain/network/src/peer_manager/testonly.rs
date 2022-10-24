@@ -1,5 +1,4 @@
 use crate::broadcast;
-use crate::client;
 use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
@@ -287,16 +286,9 @@ pub(crate) async fn start(
         let chain = chain.clone();
         move || {
             let genesis_id = chain.genesis_id.clone();
-            let fc = fake_client::start(send.sink().compose(Event::Client));
+            let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
             cfg.event_sink = send.sink().compose(Event::PeerManager);
-            PeerManagerActor::spawn(
-                clock,
-                store,
-                cfg,
-                client::Client::new(fc.clone().recipient(), fc.clone().recipient()),
-                genesis_id,
-            )
-            .unwrap()
+            PeerManagerActor::spawn(clock, store, cfg, fc, genesis_id).unwrap()
         }
     })
     .await;
