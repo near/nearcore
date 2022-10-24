@@ -32,12 +32,7 @@ use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-/// How much time to wait (in milliseconds) after we send update nonce request before disconnecting.
-/// This number should be large to handle pair of nodes with high latency.
-// const WAIT_ON_TRY_UPDATE_NONCE: time::Duration = time::Duration::seconds(6);
-/// If we see an edge between us and other peer, but this peer is not a current connection, wait this
-/// timeout and in case it didn't become a connected peer, broadcast edge removal update.
-// const WAIT_PEER_BEFORE_REMOVE: time::Duration = time::Duration::seconds(6);
+
 /// Ratio between consecutive attempts to establish connection with another peer.
 /// In the kth step node should wait `10 * EXPONENTIAL_BACKOFF_RATIO**k` milliseconds
 const EXPONENTIAL_BACKOFF_RATIO: f64 = 1.1;
@@ -45,6 +40,9 @@ const EXPONENTIAL_BACKOFF_RATIO: f64 = 1.1;
 const MONITOR_PEERS_INITIAL_DURATION: time::Duration = time::Duration::milliseconds(10);
 /// How often should we update the routing table
 const UPDATE_ROUTING_TABLE_INTERVAL: time::Duration = time::Duration::milliseconds(1_000);
+/// How often should we check wheter local edges match the connection pool.
+const FIX_LOCAL_EDGES_INTERVAL: time::Duration = time::Duration::seconds(60);
+
 /// How often to report bandwidth stats.
 const REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL: time::Duration =
     time::Duration::milliseconds(60_000);
@@ -76,6 +74,8 @@ pub struct PeerManagerActor {
     /// TODO(gprusak): this field is duplicated with
     /// NetworkState.config. Remove it from here.
     config: Arc<config::VerifiedConfig>,
+    /// Handle to the arbiter that this actor is running on.
+    arbiter: actix::ArbiterHandle,
     /// Peer information for this node.
     my_peer_id: PeerId,
     /// Flag that track whether we started attempts to establish outbound connections.
@@ -209,6 +209,18 @@ impl actix::Actor for PeerManagerActor {
             }
         }));
 
+        let state = self.state.clone();
+        let arbiter = self.arbiter.clone();
+        ctx.spawn(wrap_future(async move {
+            let mut interval = 
+                tokio::time::interval(FIX_LOCAL_EDGES_INTERVAL.try_into().unwrap());
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                state.fix_local_edges(arbiter.clone());
+            }
+        }));
+
         // Periodically prints bandwidth stats for each peer.
         self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
     }
@@ -255,8 +267,10 @@ impl PeerManagerActor {
         };
         let my_peer_id = config.node_id();
         let config = Arc::new(config);
-        Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |_ctx| Self {
+        let arbiter = actix::Arbiter::new();
+        Ok(Self::start_in_arbiter(&arbiter.handle(), move |_ctx| Self {
             my_peer_id: my_peer_id.clone(),
+            arbiter: arbiter.handle(),
             config: config.clone(),
             started_connect_attempts: false,
             state: Arc::new(NetworkState::new(

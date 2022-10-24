@@ -40,6 +40,13 @@ pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 /// We send these messages multiple times to reduce the chance that they are lost
 const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 
+/// How much time to wait after we send update nonce request before disconnecting.
+/// This number should be large to handle pair of nodes with high latency.
+const WAIT_ON_TRY_UPDATE_NONCE: time::Duration = time::Duration::seconds(6);
+/// If we see an edge between us and other peer, but this peer is not a current connection, wait this
+/// timeout and in case it didn't become a connected peer, broadcast edge removal update.
+const WAIT_PEER_BEFORE_REMOVE: time::Duration = time::Duration::seconds(6);
+
 impl TryFrom<&PeerInfo> for WhitelistNode {
     type Error = anyhow::Error;
     fn try_from(pi: &PeerInfo) -> anyhow::Result<Self> {
@@ -557,48 +564,55 @@ impl NetworkState {
     /// a) there is a peer we should be connected to, but we aren't
     /// b) there is an edge indicating that we should be disconnected from a peer, but we are connected.
     /// Try to resolve the inconsistency.
-    #[allow(dead_code)]
-    pub async fn update_local_edges(&self) {
+    pub fn fix_local_edges(self: &Arc<Self>, arbiter: actix::ArbiterHandle) {
         let local_edges = self.routing_table_view.get_local_edges();
         let tier2 = self.tier2.load();
-        let node_id = self.config.node_id();
         for edge in local_edges {
+            let node_id = self.config.node_id();
             let other_peer = edge.other(&node_id).unwrap();
             match (tier2.ready.get(other_peer), edge.edge_type()) {
                 // This is an active connection, while the edge indicates it shouldn't.
                 (Some(conn), EdgeState::Removed) => {
-                    let nonce = edge.next();
-                    conn.send_message(
-                        Arc::new(PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
-                            &node_id,
-                            other_peer,
-                            nonce,
-                            &self.config.node_key,
-                        ))),
-                    );
-                    // TODO(gprusak): here we should synchronically wait for the RequestUpdateNonce
-                    // response (with timeout).
-                    tokio::time::sleep(
-                    // wait for update with timeout.
-                    // TODO: WAIT_ON_TRY_UPDATE_NONCE
-                    
+                    let this = self.clone();
+                    let conn = conn.clone();
+                    arbiter.spawn(async move {
+                        conn.send_message(
+                            Arc::new(PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
+                                &node_id,
+                                &conn.peer_info.id,
+                                edge.next(),
+                                &this.config.node_key,
+                            ))),
+                        );
+                        // TODO(gprusak): here we should synchronically wait for the RequestUpdateNonce
+                        // response (with timeout). Until network round trips are implemented, we just
+                        // blindly wait for a while, then check again.
+                        tokio::time::sleep(WAIT_ON_TRY_UPDATE_NONCE.try_into().unwrap()).await;
+                        match this.routing_table_view.get_local_edge(&conn.peer_info.id) {
+                            Some(edge) if edge.edge_type()==EdgeState::Active => return,
+                            _ => conn.stop(None),
+                        }
+                    });
                 }
                 // We are not connected to this peer, but routing table contains
                 // information that we do. We should wait and remove that peer
                 // from routing table
                 (None, EdgeState::Active) => {
-                    // This edge says this is an connected peer, which is currently not in the set of connected peers.
-                    // Wait for some time to let the connection begin or broadcast edge removal instead.
-                    //TODO: wait(WAIT_PEER_BEFORE_REMOVE.try_into().unwrap());
-                    let other = edge.other(&node_id).unwrap();
-                    if self.tier2.load().ready.contains_key(other) {
-                        return;
-                    }
-                    // Peer is still not connected after waiting a timeout.
-                    let new_edge = edge.remove_edge(self.config.node_id(), &self.config.node_key);
-                    self.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-                        RoutingTableUpdate::from_edges(vec![new_edge]),
-                    )));
+                    let this = self.clone();
+                    let other_peer = other_peer.clone();
+                    arbiter.spawn(async move {
+                        // This edge says this is an connected peer, which is currently not in the set of connected peers.
+                        // Wait for some time to let the connection begin or broadcast edge removal instead.
+                        tokio::time::sleep(WAIT_PEER_BEFORE_REMOVE.try_into().unwrap()).await;
+                        if this.tier2.load().ready.contains_key(&other_peer) {
+                            return;
+                        }
+                        // Peer is still not connected after waiting a timeout.
+                        let new_edge = edge.remove_edge(this.config.node_id(), &this.config.node_key);
+                        this.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                            RoutingTableUpdate::from_edges(vec![new_edge]),
+                        )));
+                    });
                 }
                 // OK
                 _ => {}
