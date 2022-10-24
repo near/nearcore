@@ -114,7 +114,9 @@ trait Visitor {
                         if key_str.starts_with('"') {
                             key_str = &key_str[1..key_str.len() - 1];
                         }
-                        let key = bs58::decode(key_str).into_vec()?;
+                        let key = near_o11y::pretty::Bytes::from_str(key_str).map_err(|e| {
+                            anyhow::anyhow!(format!("failed to decode key {key_str} because {e}"))
+                        })?;
                         let dict = extract_key_values(tokens)?;
                         let size: Option<u64> = dict.get("size").map(|s| s.parse()).transpose()?;
                         self.eval_db_op(out, indent, keyword, size, &key, col)?;

@@ -198,7 +198,7 @@ impl IoTraceLayer {
                 } else {
                     String::new()
                 };
-                let output_line = format!("{db_op} {col} {key:?}{formatted_size}");
+                let output_line = format!("{db_op} {col} {key}{formatted_size}");
                 if let Some(span) = ctx.event_span(event) {
                     span.extensions_mut()
                         .get_mut::<OutputBuffer>()
