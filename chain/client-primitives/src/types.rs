@@ -8,7 +8,6 @@ use chrono::DateTime;
 use near_primitives::time::Utc;
 
 use near_chain_configs::ProtocolConfigView;
-use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
@@ -595,25 +594,8 @@ pub struct TxStatus {
 pub enum TxStatusError {
     ChainError(near_chain_primitives::Error),
     MissingTransaction(CryptoHash),
-    InvalidTx(InvalidTxError),
     InternalError(String),
     TimeoutError,
-}
-
-impl From<TxStatusError> for String {
-    fn from(error: TxStatusError) -> Self {
-        match error {
-            TxStatusError::ChainError(err) => format!("Chain error: {}", err),
-            TxStatusError::MissingTransaction(tx_hash) => {
-                format!("Transaction {} doesn't exist", tx_hash)
-            }
-            TxStatusError::InternalError(debug_message) => {
-                format!("Internal error: {}", debug_message)
-            }
-            TxStatusError::TimeoutError => format!("Timeout error"),
-            TxStatusError::InvalidTx(e) => format!("Invalid transaction: {}", e),
-        }
-    }
 }
 
 impl Message for TxStatus {
