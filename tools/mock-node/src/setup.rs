@@ -295,6 +295,7 @@ pub fn setup_mock_node(
             config.genesis.config,
             client.clone(),
             view_client.clone(),
+            None,
         )
     });
 

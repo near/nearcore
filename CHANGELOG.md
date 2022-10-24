@@ -27,6 +27,8 @@
   Instead of it aggregate `near_peer_message_received_by_type_total` metric.
   For example, to get total rate of received messages use
   `sum(rate(near_peer_message_received_by_type_total{...}[5m]))`.
+* Added `near_node_protocol_upgrade_voting_start` Prometheus metric whose value
+  is timestamp when voting for the next protocol version starts.
 * Few changes to `view_state` JSON RPC query:
   - The requset has now an optional `include_proof` argument.  When set to
     `true`, response’s `proof` will be populated.
@@ -45,6 +47,11 @@
   [#7590](https://github.com/near/nearcore/pull/7590) and enabled by default
   with [#7661](https://github.com/near/nearcore/pull/7661).
   Configurable in `config.json` using `store.enable_receipt_prefetching`.
+* neard cmd can now verify proofs from JSON files.
+* In storage configuration, the value `trie_cache_capacities` now is no longer
+  a hard limit but instead sets a memory consumption limit. For large trie nodes,
+  the limits are close to equivalent. For small values, there can now fit more
+  in the cache than previously.
 
 ## 1.29.0 [2022-08-15]
 

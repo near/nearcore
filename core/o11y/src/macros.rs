@@ -1,23 +1,45 @@
-/// Use this at the beginning of `handle` methods to reduce the boilerplate.
+/// Internal use only.
 #[macro_export]
 macro_rules! handler_span {
-    ($target:expr, $msg:expr $(, $extra_fields:tt)*) => {{
+    (target: $target:expr, level: $lvl:expr, $msg:expr, $($extra_fields:tt)*) => {{
         let WithSpanContext { msg, context, .. } = $msg;
-
-        let actor = near_o11y::macros::last_component_of_name(std::any::type_name::<Self>());
-        let handler = near_o11y::macros::type_name_of(&msg);
-
-        let span = tracing::debug_span!(
+        let span = tracing::span!(
             target: $target,
+            $lvl,
             "handle",
-            handler,
-            actor,
+            handler = near_o11y::macros::type_name_of(&msg),
+            actor = near_o11y::macros::last_component_of_name(std::any::type_name::<Self>()),
             $($extra_fields)*)
         .entered();
-
         span.set_parent(context);
         (span, msg)
     }};
+}
+
+/// A macro that lets attach `handle()` functions to the tracing context that
+/// generated the actix message being processed.
+/// Creates a DEBUG-level span with the handler type name and the message type name as attributes.
+#[macro_export]
+macro_rules! handler_debug_span {
+    (target: $target:expr, $msg:expr) => {
+        $crate::handler_span!(target: $target, level: tracing::Level::DEBUG, $msg, )
+    };
+    (target: $target:expr, $msg:expr, $($extra_fields:tt)*) => {
+        $crate::handler_span!(target: $target, level: tracing::Level::DEBUG, $msg, $($extra_fields)*)
+    };
+}
+
+/// A macro that lets attach `handle()` functions to the tracing context that
+/// generated the actix message being processed.
+/// Creates a TRACE-level span with the handler type name and the message type name as attributes.
+#[macro_export]
+macro_rules! handler_trace_span {
+    (target: $target:expr, $msg:expr) => {
+        $crate::handler_span!(target: $target, level: tracing::Level::TRACE, $msg, )
+    };
+    (target: $target:expr, $msg:expr, $($extra_fields:tt)*) => {
+        $crate::handler_span!(target: $target, level: tracing::Level::TRACE, $msg, $($extra_fields)*)
+    };
 }
 
 /// For internal use by `handler_span!`.

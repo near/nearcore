@@ -15,6 +15,7 @@ use crate::time;
 use crate::types::ChainInfo;
 use actix::Recipient;
 use arc_swap::ArcSwap;
+use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -35,9 +36,9 @@ pub(crate) struct NetworkState {
     pub config: Arc<config::VerifiedConfig>,
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
-    pub client: client::Client,
+    pub client: Arc<dyn client::Client>,
     /// Address of the peer manager actor.
-    pub peer_manager_addr: Recipient<PeerToManagerMsg>,
+    pub peer_manager_addr: Recipient<WithSpanContext<PeerToManagerMsg>>,
     /// RoutingTableActor, responsible for computing routing table, routing table exchange, etc.
     pub routing_table_addr: actix::Addr<routing::Actor>,
 
@@ -68,8 +69,8 @@ impl NetworkState {
     pub fn new(
         config: Arc<config::VerifiedConfig>,
         genesis_id: GenesisId,
-        client: client::Client,
-        peer_manager_addr: Recipient<PeerToManagerMsg>,
+        client: Arc<dyn client::Client>,
+        peer_manager_addr: Recipient<WithSpanContext<PeerToManagerMsg>>,
         routing_table_addr: actix::Addr<routing::Actor>,
         routing_table_view: RoutingTableView,
     ) -> Self {
@@ -236,7 +237,8 @@ impl NetworkState {
             return;
         }
         self.routing_table_view.add_local_edges(&edges);
-        self.routing_table_addr.do_send(routing::actor::Message::AddVerifiedEdges { edges });
+        self.routing_table_addr
+            .do_send(routing::actor::Message::AddVerifiedEdges { edges }.with_span_context());
     }
 
     pub fn broadcast_accounts(&self, accounts: Vec<AnnounceAccount>) {
@@ -257,13 +259,14 @@ impl NetworkState {
         if edges.is_empty() {
             return;
         }
-        self.routing_table_addr.do_send(routing::actor::Message::ValidateEdgeList(
-            ValidateEdgeList {
+        self.routing_table_addr.do_send(
+            routing::actor::Message::ValidateEdgeList(ValidateEdgeList {
                 source_peer_id: peer_id,
                 edges,
                 edges_info_shared: self.routing_table_exchange_helper.edges_info_shared.clone(),
                 sender: self.routing_table_exchange_helper.edges_to_add_sender.clone(),
-            },
-        ));
+            })
+            .with_span_context(),
+        );
     }
 }

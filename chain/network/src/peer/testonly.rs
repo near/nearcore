@@ -1,5 +1,4 @@
 use crate::broadcast;
-use crate::client;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
@@ -21,7 +20,7 @@ use crate::time;
 use crate::types::PeerIdOrHash;
 use actix::{Actor, Context, Handler};
 use near_crypto::{InMemorySigner, Signature};
-use near_o11y::WithSpanContextExt;
+use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_primitives::network::PeerId;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -69,10 +68,15 @@ impl Actor for FakePeerManagerActor {
     type Context = Context<Self>;
 }
 
-impl Handler<PeerToManagerMsg> for FakePeerManagerActor {
+impl Handler<WithSpanContext<PeerToManagerMsg>> for FakePeerManagerActor {
     type Result = PeerToManagerMsgResp;
-    fn handle(&mut self, msg: PeerToManagerMsg, _ctx: &mut Self::Context) -> Self::Result {
-        let msg_type: &str = (&msg).into();
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<PeerToManagerMsg>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let msg_type: &str = (&msg.msg).into();
+        let (_span, msg) = handler_debug_span!(target: "network", msg, msg_type);
         println!("{}: PeerManager message {}", self.cfg.id(), msg_type);
         match msg {
             PeerToManagerMsg::RegisterPeer(..) => {
@@ -156,7 +160,7 @@ impl PeerHandle {
         let (send, recv) = broadcast::unbounded_channel();
         let actix = ActixSystem::spawn(move || {
             let fpm = FakePeerManagerActor { cfg: cfg.clone() }.start();
-            let fc = fake_client::start(send.sink().compose(Event::Client));
+            let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
             let store = store::Store::from(near_store::db::TestDB::new());
             let routing_table_view = RoutingTableView::new(store.clone(), cfg.id());
             // WARNING: this is a hack to make PeerActor use a specific nonce
@@ -180,7 +184,7 @@ impl PeerHandle {
             let network_state = Arc::new(NetworkState::new(
                 Arc::new(network_cfg.verify().unwrap()),
                 cfg.chain.genesis_id.clone(),
-                client::Client::new(fc.clone().recipient(), fc.clone().recipient()),
+                fc,
                 fpm.recipient(),
                 routing_table_addr,
                 routing_table_view,

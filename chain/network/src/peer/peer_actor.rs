@@ -25,11 +25,12 @@ use actix::fut::future::wrap_future;
 use actix::{Actor, ActorContext, ActorFutureExt, AsyncContext, Context, Handler, Running};
 use lru::LruCache;
 use near_crypto::Signature;
-use near_o11y::{handler_span, OpenTelemetrySpanExt};
-use near_o11y::{log_assert, WithSpanContext};
+use near_o11y::{
+    handler_debug_span, log_assert, pretty, OpenTelemetrySpanExt, WithSpanContext,
+    WithSpanContextExt,
+};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
-use near_primitives::logging;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::EpochId;
 use near_primitives::utils::DisplayOption;
@@ -564,7 +565,7 @@ impl PeerActor {
         ctx.wait(wrap_future(self.network_state.peer_manager_addr
                 .send(PeerToManagerMsg::RegisterPeer(RegisterPeer {
                     connection: conn.clone(),
-                }))
+                }).with_span_context())
             )
             .then(move |res, act: &mut PeerActor, ctx| {
                 match res.map(|r|r.unwrap_consolidate_response()) {
@@ -640,9 +641,9 @@ impl PeerActor {
                     }
                     HandshakeFailureReason::InvalidTarget => {
                         debug!(target: "network", "Peer found was not what expected. Updating peer info with {:?}", peer_info);
-                        self.network_state
-                            .peer_manager_addr
-                            .do_send(PeerToManagerMsg::UpdatePeerInfo(peer_info));
+                        self.network_state.peer_manager_addr.do_send(
+                            PeerToManagerMsg::UpdatePeerInfo(peer_info).with_span_context(),
+                        );
                         self.stop(ctx, ClosingReason::HandshakeFailed);
                     }
                 }
@@ -703,10 +704,10 @@ impl PeerActor {
             RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => network_state
                 .client
                 .tx_status_request(account_id, tx_hash)
-                .await?
-                .map(RoutedMessageBody::TxStatusResponse),
+                .await
+                .map(|v| RoutedMessageBody::TxStatusResponse(*v)),
             RoutedMessageBody::TxStatusResponse(tx_result) => {
-                network_state.client.tx_status_response(tx_result).await?;
+                network_state.client.tx_status_response(tx_result).await;
                 None
             }
             RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => network_state
@@ -720,31 +721,31 @@ impl PeerActor {
                 .await?
                 .map(RoutedMessageBody::VersionedStateResponse),
             RoutedMessageBody::VersionedStateResponse(info) => {
-                network_state.client.state_response(info).await?;
+                network_state.client.state_response(info).await;
                 None
             }
             RoutedMessageBody::BlockApproval(approval) => {
-                network_state.client.block_approval(approval, peer_id).await?;
+                network_state.client.block_approval(approval, peer_id).await;
                 None
             }
             RoutedMessageBody::ForwardTx(transaction) => {
-                network_state.client.transaction(transaction, /*is_forwarded=*/ true).await?;
+                network_state.client.transaction(transaction, /*is_forwarded=*/ true).await;
                 None
             }
             RoutedMessageBody::PartialEncodedChunkRequest(request) => {
-                network_state.client.partial_encoded_chunk_request(request, msg_hash).await?;
+                network_state.client.partial_encoded_chunk_request(request, msg_hash).await;
                 None
             }
             RoutedMessageBody::PartialEncodedChunkResponse(response) => {
-                network_state.client.partial_encoded_chunk_response(response, clock.now()).await?;
+                network_state.client.partial_encoded_chunk_response(response, clock.now()).await;
                 None
             }
             RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
-                network_state.client.partial_encoded_chunk(chunk).await?;
+                network_state.client.partial_encoded_chunk(chunk).await;
                 None
             }
             RoutedMessageBody::PartialEncodedChunkForward(msg) => {
-                network_state.client.partial_encoded_chunk_forward(msg).await?;
+                network_state.client.partial_encoded_chunk_forward(msg).await;
                 None
             }
             RoutedMessageBody::ReceiptOutcomeRequest(_) => {
@@ -801,17 +802,17 @@ impl PeerActor {
                     )
                 }
                 PeerMessage::BlockRequest(hash) => {
-                    network_state.client.block_request(hash).await?.map(PeerMessage::Block)
+                    network_state.client.block_request(hash).await.map(|b|PeerMessage::Block(*b))
                 }
                 PeerMessage::BlockHeadersRequest(hashes) => {
-                    network_state.client.block_headers_request(hashes).await?.map(PeerMessage::BlockHeaders)
+                    network_state.client.block_headers_request(hashes).await.map(PeerMessage::BlockHeaders)
                 }
                 PeerMessage::Block(block) => {
-                    network_state.client.block(block, peer_id, was_requested).await?;
+                    network_state.client.block(block, peer_id, was_requested).await;
                     None
                 }
                 PeerMessage::Transaction(transaction) => {
-                    network_state.client.transaction(transaction, /*is_forwarded=*/ false).await?;
+                    network_state.client.transaction(transaction, /*is_forwarded=*/ false).await;
                     None
                 }
                 PeerMessage::BlockHeaders(headers) => {
@@ -819,7 +820,7 @@ impl PeerActor {
                     None
                 }
                 PeerMessage::Challenge(challenge) => {
-                    network_state.client.challenge(challenge).await?;
+                    network_state.client.challenge(challenge).await;
                     None
                 }
                 msg => {
@@ -856,7 +857,7 @@ impl PeerActor {
             }
             PeerMessage::PeersRequest => {
                 ctx.spawn(wrap_future(
-                    self.network_state.peer_manager_addr.send(PeerToManagerMsg::PeersRequest(PeersRequest {}))
+                    self.network_state.peer_manager_addr.send(PeerToManagerMsg::PeersRequest(PeersRequest {}).with_span_context())
                 ).then(|res, act: &mut PeerActor, _ctx| {
                     if let Ok(peers) = res.map(|f|f.unwrap_peers_request_result()) {
                         if !peers.peers.is_empty() {
@@ -870,19 +871,22 @@ impl PeerActor {
             }
             PeerMessage::PeersResponse(peers) => {
                 debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
-                self.network_state
-                    .peer_manager_addr
-                    .do_send(PeerToManagerMsg::PeersResponse(PeersResponse { peers }));
+                self.network_state.peer_manager_addr.do_send(
+                    PeerToManagerMsg::PeersResponse(PeersResponse { peers }).with_span_context(),
+                );
                 self.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
             }
             PeerMessage::RequestUpdateNonce(edge_info) => {
                 ctx.spawn(
-                    wrap_future(self.network_state.peer_manager_addr.send(
-                        PeerToManagerMsg::RequestUpdateNonce(
-                            self.other_peer_id().unwrap().clone(),
-                            edge_info,
+                    wrap_future(
+                        self.network_state.peer_manager_addr.send(
+                            PeerToManagerMsg::RequestUpdateNonce(
+                                self.other_peer_id().unwrap().clone(),
+                                edge_info,
+                            )
+                            .with_span_context(),
                         ),
-                    ))
+                    )
                     .then(|res, act: &mut PeerActor, ctx| {
                         match res.map(|f| f) {
                             Ok(PeerToManagerMsgResp::EdgeUpdate(edge)) => {
@@ -903,7 +907,7 @@ impl PeerActor {
                     wrap_future(
                         self.network_state
                             .peer_manager_addr
-                            .send(PeerToManagerMsg::ResponseUpdateNonce(edge)),
+                            .send(PeerToManagerMsg::ResponseUpdateNonce(edge).with_span_context()),
                     )
                     .then(|res, act: &mut PeerActor, ctx| {
                         match res {
@@ -1125,16 +1129,20 @@ impl Actor for PeerActor {
                 match &self.closing_reason {
                     Some(ClosingReason::Ban(ban_reason)) => {
                         warn!(target: "network", "Banning peer {} for {:?}", self.peer_info, ban_reason);
-                        self.network_state.peer_manager_addr.do_send(PeerToManagerMsg::Ban(Ban {
+                        self.network_state.peer_manager_addr.do_send(
+                            PeerToManagerMsg::Ban(Ban {
+                                peer_id: conn.peer_info.id.clone(),
+                                ban_reason: *ban_reason,
+                            })
+                            .with_span_context(),
+                        );
+                    }
+                    _ => self.network_state.peer_manager_addr.do_send(
+                        PeerToManagerMsg::Unregister(Unregister {
                             peer_id: conn.peer_info.id.clone(),
-                            ban_reason: *ban_reason,
-                        }));
-                    }
-                    _ => {
-                        self.network_state.peer_manager_addr.do_send(PeerToManagerMsg::Unregister(
-                            Unregister { peer_id: conn.peer_info.id.clone() },
-                        ))
-                    }
+                        })
+                        .with_span_context(),
+                    ),
                 }
             }
         }
@@ -1201,7 +1209,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
         let mut peer_msg = match self.parse_message(&msg) {
             Ok(msg) => msg,
             Err(err) => {
-                debug!(target: "network", "Received invalid data {:?} from {}: {}", logging::pretty_vec(&msg), self.peer_info, err);
+                debug!(target: "network", "Received invalid data {} from {}: {}", pretty::AbbrBytes(&msg), self.peer_info, err);
                 return;
             }
         };
@@ -1278,7 +1286,7 @@ impl Handler<WithSpanContext<SendMessage>> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<SendMessage>, _: &mut Self::Context) {
-        let (_span, msg) = handler_span!("network", msg);
+        let (_span, msg) = handler_debug_span!(target: "network", msg);
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
         self.send_message_or_log(&msg.message);
     }
@@ -1296,7 +1304,7 @@ impl actix::Handler<WithSpanContext<Stop>> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<Stop>, ctx: &mut Self::Context) -> Self::Result {
-        let (_span, msg) = handler_span!("network", msg);
+        let (_span, msg) = handler_debug_span!(target: "network", msg);
         self.stop(
             ctx,
             match msg.ban_reason {

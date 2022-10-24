@@ -128,11 +128,18 @@
                 type: "GET",
                 url: "/debug/api/epoch_info",
                 success: data => {
+                    let epoch_found = false;
                     data.status_response.EpochInfo.forEach(element => {
                         if (element.epoch_id == epoch_id) {
+                            epoch_found = true;
                             producers_callback(element.block_producers, element.chunk_only_producers);
                         }
                     });
+                    // This can happen if we're in sync mode - in such case, still print the list of peers,
+                    // but don't show producers.
+                    if (epoch_found == false) {
+                        producers_callback([], []);
+                    }
                 },
                 dataType: "json",
                 error: function (errMsg, textStatus, errorThrown) {
@@ -155,6 +162,7 @@
         }
 
         $(document).ready(() => {
+            $('.detailed-peer-storage-div').hide();
             $('span').text("Loading...");
             $.ajax({
                 type: "GET",
@@ -274,6 +282,57 @@
             })
 
         });
+
+        function to_human_time(seconds) {
+            let result = "";
+            if (seconds >= 60) {
+                let minutes = Math.floor(seconds / 60);
+                seconds = seconds % 60;
+                if (minutes > 60) {
+                    let hours = Math.floor(minutes / 60);
+                    minutes = minutes % 60;
+                    if (hours > 24) {
+                        let days = Math.floor(hours / 24);
+                        hours = hours % 24;
+                        result += days + " days ";
+                    }
+                    result += hours + " h ";
+                }
+                result += minutes + " m ";
+            }
+            result += seconds + " s"
+            return result;
+        }
+
+        function show_peer_storage() {
+            $(".detailed-peer-storage-button").text("Loading...");
+            $(".tbody-detailed-peer-storage").html("");
+            $.ajax({
+                type: "GET",
+                url: "/debug/api/peer_store",
+                success: data => {
+                    $(".detailed-peer-storage-size").text(data.status_response.PeerStore.peer_states.length);
+                    data.status_response.PeerStore.peer_states.forEach(element => {
+                        let row = $("<tr>");
+                        row.append($("<td>").append(element['peer_id']));
+                        row.append($("<td>").append(element['addr']));
+
+                        let first_seen =
+                            row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['first_seen'])));
+                        row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_seen'])));
+                        if (element['last_attempt'] != null) {
+                            row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_attempt'])));
+                        } else {
+                            row.append($("<td>"));
+                        }
+                        row.append($("<td>").append(element['status']));
+                        $(".tbody-detailed-peer-storage").append(row);
+                    });
+                    $(".detailed-peer-storage-div").show();
+                    $(".detailed-peer-storage-button").text("Refresh");
+                }
+            });
+        }
     </script>
 </head>
 
@@ -349,6 +408,26 @@ Unreachable: <span class="js-unreachable-chunk-producers"></span>
         <tbody class="js-tbody-peers">
         </tbody>
     </table>
+    <br>
+    <button onclick="show_peer_storage()" class="detailed-peer-storage-button">
+        Show detailed peer storage
+    </button>
+    <div class="detailed-peer-storage-div">
+        <h2>Peers in storage: <span class="detailed-peer-storage-size"></span></h2>
+        <table class="detailed-peer-storage">
+            <thead>
+                <th>Peer id</th>
+                <th>Peer address</th>
+                <th>First seen</th>
+                <th>Last seen</th>
+                <th>Last connection attempt</th>
+                <th>Status</th>
+            </thead>
+            <tbody class="tbody-detailed-peer-storage">
+
+            </tbody>
+        </table>
+    </div>
 </body>
 
 </html>

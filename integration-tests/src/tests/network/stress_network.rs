@@ -2,13 +2,11 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use actix::actors::mocker::Mocker;
 use actix::{Actor, AsyncContext, System};
 use futures::FutureExt;
 use tracing::info;
 
 use near_actix_test_utils::run_actix;
-use near_client::{ClientActor, ViewClientActor};
 use near_network::time;
 use near_o11y::testonly::init_test_logger_allow_panic;
 use near_primitives::block::GenesisId;
@@ -17,12 +15,8 @@ use near_network::config;
 use near_network::test_utils::{
     convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeoutActor,
 };
-use near_network::types::NetworkClientResponses;
-use near_network::types::NetworkViewClientResponses;
 use near_network::PeerManagerActor;
-
-type ClientMock = Mocker<ClientActor>;
-type ViewClientMock = Mocker<ViewClientActor>;
+use near_o11y::WithSpanContextExt;
 
 fn make_peer_manager(
     seed: &str,
@@ -31,19 +25,11 @@ fn make_peer_manager(
 ) -> actix::Addr<PeerManagerActor> {
     let mut config = config::NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
-    let client_addr = ClientMock::mock(Box::new(move |_msg, _ctx| {
-        Box::new(Some(NetworkClientResponses::NoResponse))
-    }))
-    .start();
-    let view_client_addr = ViewClientMock::mock(Box::new(|_msg, _ctx| {
-        Box::new(Some(NetworkViewClientResponses::NoResponse))
-    }))
-    .start();
     PeerManagerActor::spawn(
         time::Clock::real(),
         near_store::db::TestDB::new(),
         config,
-        near_network::client::Client::new(client_addr.recipient(), view_client_addr.recipient()),
+        Arc::new(near_network::client::Noop),
         GenesisId::default(),
     )
     .unwrap()
@@ -89,7 +75,7 @@ fn stress_test() {
             })
             .collect();
 
-        pms[0].do_send(StopSignal::should_panic());
+        pms[0].do_send(StopSignal::should_panic().with_span_context());
 
         // States:
         // 0 -> Check other nodes health.
@@ -109,7 +95,8 @@ fn stress_test() {
                         if !flag.load(Ordering::Relaxed) {
                             let flag1 = flag.clone();
 
-                            actix::spawn(pms[ix].send(GetInfo {}).then(move |info| {
+                            let actor = pms[ix].send(GetInfo {}.with_span_context());
+                            let actor = actor.then(move |info| {
                                 if let Ok(info) = info {
                                     if info.num_connected_peers == num_nodes - 2 {
                                         flag1.store(true, Ordering::Relaxed);
@@ -120,7 +107,8 @@ fn stress_test() {
                                 }
 
                                 futures::future::ready(())
-                            }));
+                            });
+                            actix::spawn(actor);
                         }
                     }
 
@@ -143,7 +131,7 @@ fn stress_test() {
                     let pm0 = pms[0].clone();
 
                     ctx.run_later(Duration::from_millis(10), move |_, _| {
-                        pm0.do_send(StopSignal::should_panic());
+                        pm0.do_send(StopSignal::should_panic().with_span_context());
                     });
 
                     let state1 = state.clone();
