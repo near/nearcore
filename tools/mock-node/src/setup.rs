@@ -295,6 +295,7 @@ pub fn setup_mock_node(
             config.genesis.config,
             client.clone(),
             view_client.clone(),
+            None,
         )
     });
 
@@ -356,7 +357,8 @@ mod tests {
                     let last_block2 = last_block1.clone();
                     let nonce = nonce.clone();
                     let client1 = client.clone();
-                    spawn_interruptible(view_client1.send(GetBlock::latest()).then(move |res| {
+                    let actor = view_client1.send(GetBlock::latest().with_span_context());
+                    let actor = actor.then(move |res| {
                         if let Ok(Ok(block)) = res {
                             let next_nonce = *nonce.read().unwrap();
                             if next_nonce < 100 {
@@ -405,7 +407,8 @@ mod tests {
                             }
                         }
                         future::ready(())
-                    }));
+                    });
+                    spawn_interruptible(actor);
                 }),
                 100,
                 60000,
@@ -435,7 +438,8 @@ mod tests {
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     let last_block1 = last_block.clone();
-                    actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
+                    let actor = view_client.send(GetBlock::latest().with_span_context());
+                    let actor = actor.then(move |res| {
                         if let Ok(Ok(block)) = res {
                             if block.header.height >= 20 {
                                 assert_eq!(*last_block1.read().unwrap(), block.header.hash);
@@ -443,7 +447,8 @@ mod tests {
                             }
                         }
                         future::ready(())
-                    }));
+                    });
+                    actix::spawn(actor);
                 }),
                 100,
                 60000,

@@ -7,7 +7,7 @@ use std::fmt::{Debug, Display};
 
 use crate::hash::CryptoHash;
 use near_rpc_error_macro::RpcError;
-use near_vm_errors::{CompilationError, FunctionCallErrorSer, MethodResolveError};
+use near_vm_errors::FunctionCallErrorSer;
 
 /// Error returned in the ExecutionOutcome in case of failure
 #[derive(
@@ -320,7 +320,7 @@ impl Display for ActionsValidationError {
 
 impl std::error::Error for ActionsValidationError {}
 
-/// An error happened during Acton execution
+/// An error happened during Action execution
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -333,44 +333,6 @@ pub struct ActionError {
 }
 
 impl std::error::Error for ActionError {}
-
-#[derive(Debug, Clone, PartialEq, Eq, RpcError)]
-pub enum ContractCallError {
-    MethodResolveError(MethodResolveError),
-    CompilationError(CompilationError),
-    ExecutionError { msg: String },
-}
-
-impl From<ContractCallError> for FunctionCallErrorSer {
-    fn from(e: ContractCallError) -> Self {
-        match e {
-            ContractCallError::CompilationError(e) => FunctionCallErrorSer::CompilationError(e),
-            ContractCallError::MethodResolveError(e) => FunctionCallErrorSer::MethodResolveError(e),
-            ContractCallError::ExecutionError { msg } => FunctionCallErrorSer::ExecutionError(msg),
-        }
-    }
-}
-
-impl From<FunctionCallErrorSer> for ContractCallError {
-    fn from(e: FunctionCallErrorSer) -> Self {
-        match e {
-            FunctionCallErrorSer::CompilationError(e) => ContractCallError::CompilationError(e),
-            FunctionCallErrorSer::MethodResolveError(e) => ContractCallError::MethodResolveError(e),
-            FunctionCallErrorSer::ExecutionError(msg) => ContractCallError::ExecutionError { msg },
-            FunctionCallErrorSer::LinkError { msg } => ContractCallError::ExecutionError { msg },
-            FunctionCallErrorSer::WasmUnknownError => {
-                ContractCallError::ExecutionError { msg: "unknown error".to_string() }
-            }
-            FunctionCallErrorSer::_EVMError => unreachable!(),
-            FunctionCallErrorSer::WasmTrap(e) => {
-                ContractCallError::ExecutionError { msg: format!("WASM: {:?}", e) }
-            }
-            FunctionCallErrorSer::HostError(e) => {
-                ContractCallError::ExecutionError { msg: format!("Host: {:?}", e) }
-            }
-        }
-    }
-}
 
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,

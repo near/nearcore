@@ -1,6 +1,6 @@
 use crate::tests::fixtures::get_context;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
-use crate::External;
+use crate::{External, StorageGetMode};
 
 #[test]
 fn test_storage_write_with_register() {
@@ -15,7 +15,7 @@ fn test_storage_write_with_register() {
 
     logic.storage_write(u64::MAX, 1 as _, u64::MAX, 2 as _, 0).expect("storage write ok");
 
-    let value_ptr = logic_builder.ext.storage_get(key).unwrap().unwrap();
+    let value_ptr = logic_builder.ext.storage_get(key, StorageGetMode::Trie).unwrap().unwrap();
     assert_eq!(value_ptr.deref().unwrap(), val.to_vec());
 }
 

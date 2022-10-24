@@ -223,7 +223,8 @@ mod caching_storage_tests {
                 rc: std::num::NonZeroU32::new(1).unwrap(),
             })
             .collect();
-        let (store_update, _) = tries.apply_all(&trie_changes, shard_uid);
+        let mut store_update = tries.store_update();
+        tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
         tries.get_store()
     }
@@ -351,7 +352,7 @@ mod caching_storage_tests {
         let shard_uid = ShardUId::single_shard();
         let store = create_store_with_values(&values, shard_uid);
         let mut trie_config = TrieConfig::default();
-        trie_config.shard_cache_config.override_max_entries.insert(shard_uid, shard_cache_size);
+        trie_config.shard_cache_config.override_max_total_bytes.insert(shard_uid, shard_cache_size);
         let trie_cache = TrieCache::new(&trie_config, shard_uid, false);
         let trie_caching_storage =
             TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false, None);

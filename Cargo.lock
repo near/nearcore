@@ -1003,12 +1003,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "conqueue"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eac4306c796b95d3964b94fa65018a57daee08b45a54b86a4f64910426427b66"
-
-[[package]]
 name = "console"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1483,6 +1477,7 @@ checksum = "f2fb860ca6fafa5552fb6d0e816a69c8e49f0908bf524e30a90d97c85892d506"
 dependencies = [
  "block-buffer 0.10.2",
  "crypto-common",
+ "subtle",
 ]
 
 [[package]]
@@ -2111,6 +2106,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59448fc2f82a5fb6907f78c3d69d843e82ff5b051923313cc4438cb0c7b745a8"
 dependencies = [
  "proc-macro-hack",
+]
+
+[[package]]
+name = "hkdf"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "791a029f6b9fc27657f6f188ec6e5e43f6911f6f878e0dc5501396e09809d437"
+dependencies = [
+ "hmac",
+]
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest 0.10.3",
 ]
 
 [[package]]
@@ -2776,6 +2789,7 @@ dependencies = [
 name = "near-account-id"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "bolero",
  "borsh",
  "serde",
@@ -3053,6 +3067,7 @@ dependencies = [
  "actix",
  "actix-cors",
  "actix-web",
+ "bs58",
  "easy-ext",
  "futures",
  "near-chain-configs",
@@ -3104,6 +3119,7 @@ dependencies = [
  "awc",
  "libfuzzer-sys",
  "near-jsonrpc",
+ "near-jsonrpc-primitives",
  "near-jsonrpc-tests",
  "near-primitives",
  "once_cell",
@@ -3116,6 +3132,7 @@ dependencies = [
 name = "near-jsonrpc-primitives"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "near-chain-configs",
  "near-client-primitives",
  "near-crypto",
@@ -3160,6 +3177,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-mirror"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "anyhow",
+ "borsh",
+ "bs58",
+ "clap 3.1.18",
+ "ed25519-dalek",
+ "hex",
+ "hkdf",
+ "near-chain-configs",
+ "near-client",
+ "near-client-primitives",
+ "near-crypto",
+ "near-indexer",
+ "near-indexer-primitives",
+ "near-network",
+ "near-o11y",
+ "near-primitives",
+ "near-primitives-core",
+ "near-store",
+ "nearcore",
+ "once_cell",
+ "openssl-probe",
+ "rand_core 0.5.1",
+ "rocksdb",
+ "secp256k1",
+ "serde",
+ "serde_json",
+ "sha2 0.10.2",
+ "strum",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "near-network"
 version = "0.0.0"
 dependencies = [
@@ -3171,7 +3226,6 @@ dependencies = [
  "bytes",
  "bytesize",
  "chrono",
- "conqueue",
  "criterion",
  "crossbeam-channel 0.5.4",
  "delay-detector",
@@ -3220,7 +3274,7 @@ dependencies = [
  "clap 3.1.18",
  "itoa 1.0.2",
  "near-crypto",
- "near-primitives",
+ "near-primitives-core",
  "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -3279,6 +3333,7 @@ dependencies = [
 name = "near-primitives"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "assert_matches",
  "bencher",
  "borsh",
@@ -3291,6 +3346,7 @@ dependencies = [
  "hex",
  "insta",
  "near-crypto",
+ "near-o11y",
  "near-primitives-core",
  "near-rpc-error-macro",
  "near-vm-errors",
@@ -3310,6 +3366,7 @@ dependencies = [
 name = "near-primitives-core"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "base64",
  "borsh",
  "bs58",
@@ -3337,6 +3394,7 @@ dependencies = [
  "hex",
  "insta",
  "near-account-id",
+ "near-actix-test-utils",
  "near-chain-configs",
  "near-client",
  "near-client-primitives",
@@ -3461,6 +3519,7 @@ dependencies = [
  "near-rpc-error-macro",
  "serde",
  "strum",
+ "thiserror",
 ]
 
 [[package]]
@@ -3608,10 +3667,13 @@ name = "neard"
 version = "0.0.0"
 dependencies = [
  "actix",
+ "ansi_term",
  "anyhow",
  "clap 3.1.18",
  "futures",
  "near-chain-configs",
+ "near-jsonrpc-primitives",
+ "near-mirror",
  "near-o11y",
  "near-performance-metrics",
  "near-primitives",
@@ -4769,6 +4831,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "borsh",
+ "bs58",
  "bytesize",
  "cfg-if 1.0.0",
  "chrono",
@@ -4776,6 +4839,7 @@ dependencies = [
  "genesis-populate",
  "hex",
  "indicatif",
+ "insta",
  "libc",
  "near-chain-configs",
  "near-crypto",
@@ -5878,9 +5942,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-core"
-version = "0.1.29"
+version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5aeea4303076558a00714b823f9ad67d58a3bbda1df83d8827d21193156e22f7"
+checksum = "24eb03ba0eab1fd845050058ce5e616558e8f8d8fca633e6b163fe25c797213a"
 dependencies = [
  "once_cell",
  "valuable",

@@ -14,6 +14,8 @@ name = "neard"
 
 [dependencies]
 actix.workspace = true
+ansi_term.workspace = true
+anyhow.workspace = true
 clap.workspace = true
 futures.workspace = true
 near-rust-allocator-proxy = { workspace = true, optional = true }
@@ -31,6 +33,8 @@ tracing.workspace = true
 
 nearcore = { path = "../nearcore" }
 near-chain-configs = { path = "../core/chain-configs" }
+near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
+near-mirror = { path = "../tools/mirror" }
 near-primitives = { path = "../core/primitives" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
 near-state-viewer = { path = "../tools/state-viewer", package = "state-viewer" }

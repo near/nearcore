@@ -10,6 +10,7 @@ use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
+#[cfg(feature = "protocol_feature_flat_state")]
 use near_primitives::state_record::is_delayed_receipt_key;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{StateRoot, StateRootNode};
@@ -60,6 +61,12 @@ pub struct TrieCosts {
     pub byte_of_key: u64,
     pub byte_of_value: u64,
     pub node_cost: u64,
+}
+
+/// Whether a key lookup will be performed through flat storage or through iterating the trie
+pub enum KeyLookupMode {
+    FlatStorage,
+    Trie,
 }
 
 const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node_cost: 50 };
@@ -881,25 +888,42 @@ impl Trie {
         }
     }
 
-    pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
+    /// Return the value reference to the `key`
+    /// `mode`: whether we will try to perform the lookup through flat storage or trie.
+    ///         Note that even if `mode == KeyLookupMode::FlatStorage`, we still may not use
+    ///         flat storage if the trie is not created with a flat storage object in it.
+    ///         Such double check may seem redundant but it is necessary for now.
+    ///         Not all tries are created with flat storage, for example, we don't
+    ///         enable flat storage for state-viewer. And we do not use flat
+    ///         storage for key lookup performed in `storage_write`, so we need
+    ///         the `use_flat_storage` to differentiate whether the lookup is performed for
+    ///         storage_write or not.
+    #[allow(unused)]
+    pub fn get_ref(
+        &self,
+        key: &[u8],
+        mode: KeyLookupMode,
+    ) -> Result<Option<ValueRef>, StorageError> {
         let key_nibbles = NibbleSlice::new(key.clone());
         let result = self.lookup(key_nibbles);
 
-        let is_delayed = is_delayed_receipt_key(key);
-        match &self.flat_state {
-            Some(flat_state) if !is_delayed => {
-                self.flat_state_trie_checks.fetch_add(1, Ordering::Relaxed);
-                let flat_result = flat_state.get_ref(&key);
-                assert_eq!(result, flat_result);
+        #[cfg(feature = "protocol_feature_flat_state")]
+        {
+            let is_delayed = is_delayed_receipt_key(key);
+            if matches!(mode, KeyLookupMode::FlatStorage) && !is_delayed {
+                if let Some(flat_state) = &self.flat_state {
+                    self.flat_state_trie_checks.fetch_add(1, Ordering::Relaxed);
+                    let flat_result = flat_state.get_ref(&key);
+                    assert_eq!(result, flat_result);
+                }
             }
-            _ => {}
-        };
+        }
 
         result
     }
 
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
-        match self.get_ref(key)? {
+        match self.get_ref(key, KeyLookupMode::FlatStorage)? {
             Some(ValueRef { hash, .. }) => {
                 self.storage.retrieve_raw_bytes(&hash).map(|bytes| Some(bytes.to_vec()))
             }
@@ -1020,7 +1044,8 @@ mod tests {
             changes.iter().map(|(key, _)| (key.clone(), None)).collect();
         let trie_changes =
             tries.get_trie_for_shard(shard_uid, root.clone()).update(delete_changes).unwrap();
-        let (store_update, root) = tries.apply_all(&trie_changes, shard_uid);
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         let trie = tries.get_trie_for_shard(shard_uid, root.clone());
         store_update.commit().unwrap();
         for (key, _) in changes {

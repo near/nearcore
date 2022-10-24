@@ -9,6 +9,10 @@ use actix::{
     Actor as _, ActorContext as _, ActorFutureExt, Addr, Context, ContextFutureSpawner as _,
     Running, WrapFuture as _,
 };
+use near_o11y::{
+    handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext,
+    WithSpanContextExt,
+};
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
 use parking_lot::RwLock;
@@ -232,10 +236,11 @@ impl actix::Actor for Actor {
     }
 }
 
-impl actix::Handler<StopMsg> for Actor {
+impl actix::Handler<WithSpanContext<StopMsg>> for Actor {
     type Result = ();
-    fn handle(&mut self, _: StopMsg, ctx: &mut Self::Context) -> Self::Result {
-        self.edge_validator_pool.do_send(StopMsg {});
+    fn handle(&mut self, msg: WithSpanContext<StopMsg>, ctx: &mut Self::Context) -> Self::Result {
+        let (_span, _msg) = handler_debug_span!(target: "network", msg);
+        self.edge_validator_pool.do_send(StopMsg {}.with_span_context());
         ctx.stop();
     }
 }
@@ -267,7 +272,7 @@ pub enum Response {
     RoutingTableUpdateResponse {
         /// PeerManager maintains list of local edges. We will notify `PeerManager`
         /// to remove those edges.
-        local_edges_to_remove: Vec<PeerId>,
+        pruned_edges: Vec<Edge>,
         /// Active PeerId that are part of the shortest path to each PeerId.
         next_hops: Arc<routing::NextHopTable>,
         /// List of peers to ban for sending invalid edges.
@@ -275,13 +280,15 @@ pub enum Response {
     },
 }
 
-impl actix::Handler<Message> for Actor {
+impl actix::Handler<WithSpanContext<Message>> for Actor {
     type Result = Response;
 
     #[perf]
-    fn handle(&mut self, msg: Message, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: WithSpanContext<Message>, ctx: &mut Self::Context) -> Self::Result {
+        let msg_type: &str = (&msg.msg).into();
+        let (_span, msg) = handler_trace_span!(target: "network", msg, msg_type);
         let _timer =
-            metrics::ROUTING_TABLE_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
+            metrics::ROUTING_TABLE_MESSAGES_TIME.with_label_values(&[msg_type]).start_timer();
         match msg {
             // Schedules edges for validation.
             Message::ValidateEdgeList(mut msg) => {
@@ -289,7 +296,7 @@ impl actix::Handler<Message> for Actor {
                 msg.edges.retain(|x| !self.graph.read().has(x));
                 let peer_id = msg.source_peer_id.clone();
                 self.edge_validator_pool
-                    .send(msg)
+                    .send(msg.with_span_context())
                     .into_actor(self)
                     .map(move |res, act, _| {
                         act.edge_validator_requests_in_progress -= 1;
@@ -309,11 +316,7 @@ impl actix::Handler<Message> for Actor {
                 let (next_hops, pruned_edges) =
                     self.update_routing_table(prune_unreachable_since, prune_edges_older_than);
                 Response::RoutingTableUpdateResponse {
-                    local_edges_to_remove: pruned_edges
-                        .iter()
-                        .filter_map(|e| e.other(&self.my_peer_id))
-                        .cloned()
-                        .collect(),
+                    pruned_edges,
                     next_hops,
                     peers_to_ban: std::mem::take(&mut self.peers_to_ban),
                 }
