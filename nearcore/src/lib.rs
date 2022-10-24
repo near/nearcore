@@ -75,8 +75,8 @@ fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result
         Err(StoreOpenerError::DbAlreadyExists) => unreachable!(),
         Err(StoreOpenerError::HotColdExistenceMismatch) => {
             Err(anyhow::anyhow!(
-                "Hot and cold databases must but exist or both not exist.\n\
-                 Note that at this moment it’s not possible to convert RPC or legacy archive database into split hot+cold database.\n\
+                "Hot and cold databases must either both exist or both not exist.\n\
+                 Note that at this moment it’s not possible to convert and RPC or legacy archive database into split hot+cold database.\n\
                  To set up node in that configuration, start with neither of the databases existing.",
             ))
         },

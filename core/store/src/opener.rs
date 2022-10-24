@@ -27,14 +27,18 @@ pub enum StoreOpenerError {
     #[error("Hot and cold databases must either both exist or not")]
     HotColdExistenceMismatch,
 
-    /// Hot database exists but cold doesn’t or the other way around.
+    /// Hot and cold databases have different versions.
     #[error(
         "Hot database version ({hot_version}) doesn’t match \
          cold databases version ({cold_version})"
     )]
     HotColdVersionMismatch { hot_version: DbVersion, cold_version: DbVersion },
 
-    /// Hot database exists but cold doesn’t or the other way around.
+    /// Database has incorrect kind.
+    ///
+    /// Specifically, this happens if node is running with a single database and
+    /// its kind is not RPC or Archive; or it’s running with two databases and
+    /// their types aren’t Hot and Cold respectively.
     #[error("{which} database kind should be {want} but got {got:?}")]
     DbKindMismatch { which: &'static str, got: Option<DbKind>, want: DbKind },
 
