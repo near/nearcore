@@ -997,12 +997,15 @@ fn test_ed25519_verify() {
         );
 
         assert_eq!(result, expected_result);
-        assert_costs(map! {
-            ExtCosts::read_memory_byte: 128,
-            ExtCosts::read_memory_base: 3,
-            ExtCosts::ed25519_verify_base: 1,
-            ExtCosts::ed25519_verify_byte: 32,
-        });
+        if expected_result == Ok(1) {
+            assert_costs(map! {
+                ExtCosts::read_memory_byte: 128,
+                ExtCosts::read_memory_base: 3,
+                ExtCosts::ed25519_verify_base: 1,
+                ExtCosts::ed25519_verify_byte: 32,
+            });
+        }
+        // TODO: unsure how to verify the costs of other variants - would be nice to get a pointer
     }
 
     // tests for data beingn read from registers
