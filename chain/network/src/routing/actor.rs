@@ -1,14 +1,11 @@
 use crate::network_protocol::Edge;
-use crate::private_actix::{StopMsg};
+use crate::private_actix::StopMsg;
 use crate::routing;
 use crate::routing::edge_validator_actor::EdgeValidatorActor;
 use crate::stats::metrics;
 use crate::store;
 use crate::time;
-use actix::{
-    Actor as _, ActorContext as _, ActorFutureExt, Addr, Context, 
-    Running, 
-};
+use actix::{Actor as _, ActorContext as _, ActorFutureExt, Addr, Context, Running};
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
 use parking_lot::RwLock;
@@ -51,13 +48,7 @@ impl Actor {
         graph: Arc<RwLock<routing::GraphWithCache>>,
     ) -> Self {
         let my_peer_id = graph.read().my_peer_id();
-        Self {
-            clock,
-            my_peer_id,
-            graph,
-            store,
-            peer_reachable_at: Default::default(),
-        }
+        Self { clock, my_peer_id, graph, store, peer_reachable_at: Default::default() }
     }
 
     pub fn spawn(
@@ -281,10 +272,7 @@ impl actix::Handler<Message> for Actor {
             Message::RoutingTableUpdate { prune_unreachable_since, prune_edges_older_than } => {
                 let (next_hops, pruned_edges) =
                     self.update_routing_table(prune_unreachable_since, prune_edges_older_than);
-                Response::RoutingTableUpdateResponse {
-                    pruned_edges,
-                    next_hops,
-                }
+                Response::RoutingTableUpdateResponse { pruned_edges, next_hops }
             }
         }
     }

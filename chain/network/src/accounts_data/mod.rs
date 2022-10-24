@@ -24,8 +24,8 @@
 //!       discarding the progress
 //!     - banning a peer wouldn't help since peers are anonymous, so a single attacker can act as a
 //!       lot of peers
-use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency;
+use crate::concurrency::arc_mutex::ArcMutex;
 use crate::network_protocol;
 use crate::network_protocol::SignedAccountData;
 use crate::types::AccountKeys;
@@ -179,12 +179,13 @@ impl Cache {
 
         // Verify the signatures in parallel.
         // Verification will stop at the first encountered error.
-        let (data, ok) = concurrency::rayon::try_map(data_and_keys.into_values().par_bridge(), |(d, key)| {
-            if d.payload().verify(&key).is_ok() {
-                return Some(d);
-            }
-            return None;
-        });
+        let (data, ok) =
+            concurrency::rayon::try_map(data_and_keys.into_values().par_bridge(), |(d, key)| {
+                if d.payload().verify(&key).is_ok() {
+                    return Some(d);
+                }
+                return None;
+            });
         if !ok {
             return (data, Some(Error::InvalidSignature));
         }

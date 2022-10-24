@@ -1,17 +1,15 @@
 use crate::client;
 use crate::config;
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Edge, EdgeState, PeerIdOrHash, PeerMessage,
-    Ping, Pong, RawRoutedMessage, RoutedMessageBody, StateResponseInfo,
-    SyncAccountsData,
+    AccountOrPeerIdOrHash, Edge, EdgeState, PeerIdOrHash, PeerMessage, Ping, Pong,
+    RawRoutedMessage, RoutedMessageBody, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_store;
 use crate::private_actix::{
-    PeerRequestResult, PeerToManagerMsg, PeerToManagerMsgResp, PeersRequest, PeersResponse,
-    StopMsg,
+    PeerRequestResult, PeerToManagerMsg, PeerToManagerMsgResp, PeersRequest, PeersResponse, StopMsg,
 };
 use crate::routing;
 use crate::stats::metrics;
@@ -83,13 +81,13 @@ pub struct PeerManagerActor {
     /// Networking configuration.
     /// TODO(gprusak): this field is duplicated with
     /// NetworkState.config. Remove it from here.
-    config: Arc<config::VerifiedConfig>, 
+    config: Arc<config::VerifiedConfig>,
     /// Peer information for this node.
     my_peer_id: PeerId,
     /// Flag that track whether we started attempts to establish outbound connections.
     started_connect_attempts: bool,
     /// Connected peers we have sent new edge update, but we haven't received response so far.
-    local_peer_pending_update_nonce_request: HashMap<PeerId, u64>, 
+    local_peer_pending_update_nonce_request: HashMap<PeerId, u64>,
 
     pub(crate) state: Arc<NetworkState>,
 }
@@ -201,17 +199,20 @@ impl actix::Actor for PeerManagerActor {
 
         let state = self.state.clone();
         ctx.spawn(wrap_future(async move {
-            let mut interval = tokio::time::interval(UPDATE_ROUTING_TABLE_INTERVAL.try_into().unwrap());
+            let mut interval =
+                tokio::time::interval(UPDATE_ROUTING_TABLE_INTERVAL.try_into().unwrap());
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
                     .with_label_values(&["update_routing_table"])
                     .start_timer();
                 interval.tick().await;
-                state.update_routing_table(
-                    self.clock.now().checked_sub(PRUNE_UNREACHABLE_PEERS_AFTER),
-                    self.clock.now_utc().checked_sub(PRUNE_EDGES_AFTER),
-                ).await;
+                state
+                    .update_routing_table(
+                        self.clock.now().checked_sub(PRUNE_UNREACHABLE_PEERS_AFTER),
+                        self.clock.now_utc().checked_sub(PRUNE_EDGES_AFTER),
+                    )
+                    .await;
             }
         }));
 
@@ -259,7 +260,7 @@ impl PeerManagerActor {
             }
             v
         };
-        let my_peer_id = config.node_id(); 
+        let my_peer_id = config.node_id();
         let config = Arc::new(config);
         Ok(Self::start_in_arbiter(&actix::Arbiter::new().handle(), move |ctx| Self {
             my_peer_id: my_peer_id.clone(),
@@ -339,8 +340,6 @@ impl PeerManagerActor {
                 && potential_outbound_connections < self.config.minimum_outbound_peers as usize))
             && !self.config.outbound_disabled
     }
-
-    
 
     /// Returns peers close to the highest height
     fn highest_height_peers(&self) -> Vec<FullPeerInfo> {
@@ -858,24 +857,6 @@ impl PeerManagerActor {
         }
     }
 
-    #[perf]
-    fn handle_msg_peers_request(&self, _msg: PeersRequest) -> PeerRequestResult {
-        let _d = delay_detector::DelayDetector::new(|| "peers request".into());
-        PeerRequestResult {
-            peers: self.state.peer_store.healthy_peers(self.config.max_send_peers as usize),
-        }
-    }
-
-    fn handle_msg_peers_response(&mut self, msg: PeersResponse) {
-        let _d = delay_detector::DelayDetector::new(|| "peers response".into());
-        if let Err(err) = self.state.peer_store.add_indirect_peers(
-            &self.clock,
-            msg.peers.into_iter().filter(|peer_info| peer_info.id != self.my_peer_id),
-        ) {
-            tracing::error!(target: "network", ?err, "Fail to update peer store");
-        };
-    }
-
     fn handle_peer_manager_message(
         &mut self,
         msg: PeerManagerMessageRequest,
@@ -924,67 +905,6 @@ impl PeerManagerActor {
             PeerToManagerMsg::PeersResponse(msg) => {
                 self.handle_msg_peers_response(msg);
                 PeerToManagerMsgResp::Empty
-            }
-            PeerToManagerMsg::UpdatePeerInfo(peer_info) => {
-                if let Err(err) = self.state.peer_store.add_direct_peer(&self.clock, peer_info) {
-                    tracing::error!(target: "network", ?err, "Fail to update peer store");
-                }
-                PeerToManagerMsgResp::Empty
-            }
-            PeerToManagerMsg::RequestUpdateNonce(peer_id, edge_info) => {
-                if Edge::partial_verify(&self.my_peer_id, &peer_id, &edge_info) {
-                    if let Some(cur_edge) = self.state.routing_table_view.get_local_edge(&peer_id) {
-                        if cur_edge.edge_type() == EdgeState::Active
-                            && cur_edge.nonce() >= edge_info.nonce
-                        {
-                            return PeerToManagerMsgResp::EdgeUpdate(Box::new(cur_edge.clone()));
-                        }
-                    }
-
-                    let new_edge = Edge::build_with_secret_key(
-                        self.my_peer_id.clone(),
-                        peer_id,
-                        edge_info.nonce,
-                        &self.config.node_key,
-                        edge_info.signature,
-                    );
-
-                    self.state.add_edges_to_routing_table(vec![new_edge.clone()]);
-                    PeerToManagerMsgResp::EdgeUpdate(Box::new(new_edge))
-                } else {
-                    PeerToManagerMsgResp::BanPeer(ReasonForBan::InvalidEdge)
-                }
-            }
-            PeerToManagerMsg::ResponseUpdateNonce(edge) => {
-                if let Some(other_peer) = edge.other(&self.my_peer_id) {
-                    if edge.verify() {
-                        // This happens in case, we get an edge, in `RoutingTableActor`,
-                        // which says that we shouldn't be connected to local peer, but we are.
-                        // This is a part of logic used to ask peer, if he really want to be disconnected.
-                        if self
-                            .state
-                            .routing_table_view
-                            .is_local_edge_newer(other_peer, edge.nonce())
-                        {
-                            if let Some(nonce) =
-                                self.local_peer_pending_update_nonce_request.get(other_peer)
-                            {
-                                if edge.nonce() >= *nonce {
-                                    // This means that, `other_peer` responded that we should keep
-                                    // the connection that that peer. Therefore, we are
-                                    // cleaning up this data structure.
-                                    self.local_peer_pending_update_nonce_request.remove(other_peer);
-                                }
-                            }
-                        }
-                        self.state.add_edges_to_routing_table(vec![edge.clone()]).await;
-                        PeerToManagerMsgResp::Empty
-                    } else {
-                        PeerToManagerMsgResp::BanPeer(ReasonForBan::InvalidEdge)
-                    }
-                } else {
-                    PeerToManagerMsgResp::BanPeer(ReasonForBan::InvalidEdge)
-                }
             }
         }
     }

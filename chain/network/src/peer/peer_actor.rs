@@ -818,9 +818,11 @@ impl PeerActor {
                     }
                     HandshakeFailureReason::InvalidTarget => {
                         tracing::debug!(target: "network", "Peer found was not what expected. Updating peer info with {:?}", peer_info);
-                        self.network_state
-                            .peer_manager_addr
-                            .do_send(PeerToManagerMsg::UpdatePeerInfo(peer_info));
+                        if let Err(err) =
+                            self.network_state.peer_store.add_direct_peer(&self.clock, peer_info)
+                        {
+                            tracing::error!(target: "network", ?err, "Fail to update peer store");
+                        }
                         self.stop(ctx, ClosingReason::HandshakeFailed);
                     }
                 }
@@ -1042,75 +1044,66 @@ impl PeerActor {
                 tracing::debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
             }
             PeerMessage::PeersRequest => {
-                ctx.spawn(wrap_future(
-                    self.network_state.peer_manager_addr.send(PeerToManagerMsg::PeersRequest(PeersRequest {}))
-                ).then(|res, act: &mut PeerActor, _ctx| {
-                    if let Ok(peers) = res.map(|f|f.unwrap_peers_request_result()) {
-                        if !peers.peers.is_empty() {
-                            tracing::debug!(target: "network", "Peers request from {}: sending {} peers.", act.peer_info, peers.peers.len());
-                            act.send_message_or_log(&PeerMessage::PeersResponse(peers.peers));
-                        }
-                    }
-                    actix::fut::ready(())
-                }));
+                let peers = self
+                    .state
+                    .peer_store
+                    .healthy_peers(self.network_state.config.max_send_peers as usize);
+                if !peers.is_empty() {
+                    tracing::debug!(target: "network", "Peers request from {}: sending {} peers.", self.peer_info, peers.len());
+                    act.send_message_or_log(&PeerMessage::PeersResponse(peers));
+                }
+                self.network_state
+                    .config
+                    .event_sink
+                    .push(Event::MessageProcessed(tcp::Tier::T2, peer_msg));
             }
             PeerMessage::PeersResponse(peers) => {
                 tracing::debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
-                self.network_state
-                    .peer_manager_addr
-                    .do_send(PeerToManagerMsg::PeersResponse(PeersResponse { peers }));
+                if let Err(err) = self.network_state.peer_store.add_indirect_peers(
+                    &self.clock,
+                    peers.into_iter().filter(|peer_info| peer_info.id != self.my_peer_id),
+                ) {
+                    tracing::error!(target: "network", ?err, "Fail to update peer store");
+                };
                 self.network_state
                     .config
                     .event_sink
                     .push(Event::MessageProcessed(tcp::Tier::T2, peer_msg));
             }
             PeerMessage::RequestUpdateNonce(edge_info) => {
-                ctx.spawn(
-                    wrap_future(self.network_state.peer_manager_addr.send(
-                        PeerToManagerMsg::RequestUpdateNonce(
-                            self.other_peer_id().unwrap().clone(),
-                            edge_info,
-                        ),
-                    ))
-                    .then(|res, act: &mut PeerActor, ctx| {
-                        match res.map(|f| f) {
-                            Ok(PeerToManagerMsgResp::EdgeUpdate(edge)) => {
-                                act.send_message_or_log(&PeerMessage::ResponseUpdateNonce(*edge));
-                            }
-                            Ok(PeerToManagerMsgResp::BanPeer(reason_for_ban)) => {
-                                act.stop(ctx, ClosingReason::Ban(reason_for_ban));
-                            }
-                            _ => {}
+                ctx.spawn(wrap_future(async move {
+                    let edge = match network_state.routing_table_view.get_local_edge(&peer_id) {
+                        Some(cur_edge)
+                            if cur_edge.edge_type() == EdgeState::Active
+                                && cur_edge.nonce() >= edge_info.nonce =>
+                        {
+                            cur_edge.clone()
                         }
-                        act.network_state
-                            .config
-                            .event_sink
-                            .push(Event::MessageProcessed(tcp::Tier::T2, peer_msg));
-                        actix::fut::ready(())
-                    }),
-                );
-            }
-            PeerMessage::ResponseUpdateNonce(edge) => {
-                ctx.spawn(
-                    wrap_future(
-                        self.network_state
-                            .peer_manager_addr
-                            .send(PeerToManagerMsg::ResponseUpdateNonce(edge)),
-                    )
-                    .then(|res, act: &mut PeerActor, ctx| {
-                        match res {
-                            Ok(PeerToManagerMsgResp::BanPeer(reason_for_ban)) => {
-                                act.stop(ctx, ClosingReason::Ban(reason_for_ban))
+                        None => {
+                            let new_edge = Edge::build_with_secret_key(
+                                self.my_peer_id.clone(),
+                                peer_id,
+                                edge_info.nonce,
+                                &self.config.node_key,
+                                edge_info.signature,
+                            );
+                            if Err(ban_reason) = network_state
+                                .add_edges_to_routing_table(vec![new_edge.clone()])
+                                .await
+                            {
+                                conn.stop(ClosingReason::Ban(ban_reason));
                             }
-                            _ => {}
+                            new_edge
                         }
-                        act.network_state
-                            .config
-                            .event_sink
-                            .push(Event::MessageProcessed(tcp::Tier::T2, peer_msg));
-                        actix::fut::ready(())
-                    }),
-                );
+                    };
+                    conn.send_message(Arc::new(PeerMessage::SyncRoutingTable(
+                        RoutingTableUpdate { accounts: vec![], edges: vec![edge] },
+                    )));
+                    network_state
+                        .config
+                        .event_sink
+                        .push(Event::MessageProcessed(tcp::Tier::T2, peer_msg));
+                }));
             }
             PeerMessage::SyncRoutingTable(rtu) => {
                 self.handle_sync_routing_table(ctx, conn, rtu);
@@ -1274,8 +1267,7 @@ impl PeerActor {
         let network_state = self.network_state.clone();
         let clock = self.clock.clone();
         ctx.spawn(wrap_future(async move {
-            network_state
-            .add_edges_to_routing_table(&clock, edges);
+            network_state.add_edges_to_routing_table(&clock, edges).await;
         }));
         // Ask client to validate accounts before accepting them.
         let network_state = self.network_state.clone();
