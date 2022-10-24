@@ -65,6 +65,8 @@ pub(crate) struct WhitelistNode {
 pub(crate) struct NetworkState {
     /// PeerManager config.
     pub config: Arc<config::VerifiedConfig>,
+    /// When network state has been constructed.
+    pub start_time: time::Instant,
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     pub client: client::Client,
@@ -152,6 +154,7 @@ impl NetworkState {
             whitelist_nodes,
             max_num_peers: AtomicCell::new(config.max_num_peers),
             config,
+            start_time: clock.now(),
         }
     }
 
@@ -511,10 +514,8 @@ impl NetworkState {
         // Most of the network is created during this time, which results
         // in us sending a lot of tombstones to peers.
         // Later, the amount of new edges is a lot smaller.
-        let skip_tombstones =
-            self.config.skip_tombstones.map(|it| /*TODO: node start + it*/ clock.now() + it);
-        if let Some(skip_tombstones_until) = skip_tombstones {
-            if clock.now() < skip_tombstones_until {
+        if let Some(skip_tombstones_duration) = self.config.skip_tombstones {
+            if clock.now() < self.start_time + skip_tombstones_duration {
                 edges.retain(|edge| edge.edge_type() == EdgeState::Active);
                 metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
             }
@@ -563,12 +564,11 @@ impl NetworkState {
         let node_id = self.config.node_id();
         for edge in local_edges {
             let other_peer = edge.other(&node_id).unwrap();
-            match (tier2.ready.contains_key(other_peer), edge.edge_type()) {
+            match (tier2.ready.get(other_peer), edge.edge_type()) {
                 // This is an active connection, while the edge indicates it shouldn't.
-                (true, EdgeState::Removed) => {
+                (Some(conn), EdgeState::Removed) => {
                     let nonce = edge.next();
-                    self.tier2.send_message(
-                        other_peer.clone(),
+                    conn.send_message(
                         Arc::new(PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
                             &node_id,
                             other_peer,
@@ -576,17 +576,17 @@ impl NetworkState {
                             &self.config.node_key,
                         ))),
                     );
+                    // TODO(gprusak): here we should synchronically wait for the RequestUpdateNonce
+                    // response (with timeout).
+                    tokio::time::sleep(
                     // wait for update with timeout.
                     // TODO: WAIT_ON_TRY_UPDATE_NONCE
-                    if let Some(peer) = self.tier2.load().ready.get(&other_peer) {
-                        // Send disconnect signal to this peer if we haven't edge update.
-                        peer.stop(None);
-                    }
+                    
                 }
                 // We are not connected to this peer, but routing table contains
                 // information that we do. We should wait and remove that peer
                 // from routing table
-                (false, EdgeState::Active) => {
+                (None, EdgeState::Active) => {
                     // This edge says this is an connected peer, which is currently not in the set of connected peers.
                     // Wait for some time to let the connection begin or broadcast edge removal instead.
                     //TODO: wait(WAIT_PEER_BEFORE_REMOVE.try_into().unwrap());
