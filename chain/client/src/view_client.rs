@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use tracing::{debug, error, info, trace, warn};
 
+use crate::adapter::{NetworkViewClientMessages, NetworkViewClientResponses};
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
     RuntimeAdapter,
@@ -28,9 +29,8 @@ use near_client_primitives::types::{
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::{
-    NetworkRequests, NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerAdapter,
-    PeerManagerMessageRequest, ReasonForBan, StateResponseInfo, StateResponseInfoV1,
-    StateResponseInfoV2,
+    NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, ReasonForBan,
+    StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
 };
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;

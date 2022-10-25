@@ -76,7 +76,8 @@ impl StateViewerSubCommand {
     pub fn run(self, home_dir: &Path, genesis_validation: GenesisValidationMode, mode: Mode) {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-        let store_opener = near_store::NodeStorage::opener(home_dir, &near_config.config.store);
+        let store_opener =
+            near_store::NodeStorage::opener(home_dir, &near_config.config.store, None);
         let store = store_opener.open_in_mode(mode).unwrap();
         let hot = store.get_store(near_store::Temperature::Hot);
         match self {

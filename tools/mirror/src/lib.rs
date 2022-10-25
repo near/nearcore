@@ -2,6 +2,7 @@ use actix::Addr;
 use anyhow::Context;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_configs::GenesisValidationMode;
+use near_client::adapter::{NetworkClientMessages, NetworkClientResponses};
 use near_client::{ClientActor, ViewClientActor};
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunk, GetChunkError, GetExecutionOutcome,
@@ -9,7 +10,6 @@ use near_client_primitives::types::{
 };
 use near_crypto::{PublicKey, SecretKey};
 use near_indexer::{Indexer, StreamerMessage};
-use near_network::types::{NetworkClientMessages, NetworkClientResponses};
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{
@@ -134,8 +134,9 @@ struct TxMirror {
 }
 
 fn open_db<P: AsRef<Path>>(home: P, config: &NearConfig) -> anyhow::Result<DB> {
-    let db_path =
-        near_store::NodeStorage::opener(home.as_ref(), &config.config.store).path().join("mirror");
+    let db_path = near_store::NodeStorage::opener(home.as_ref(), &config.config.store, None)
+        .path()
+        .join("mirror");
     let mut options = rocksdb::Options::default();
     options.create_missing_column_families(true);
     options.create_if_missing(true);
