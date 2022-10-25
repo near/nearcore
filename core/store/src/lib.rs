@@ -59,8 +59,11 @@ pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
 /// In the future, certain parts of the code may need to access hot or cold
 /// storage.  Specifically, querying an old block will require reading it from
 /// the cold storage.
+#[derive(Clone, Copy)]
 pub enum Temperature {
     Hot,
+    #[cfg(feature = "cold_store")]
+    Cold,
 }
 
 /// Node’s storage holding chain and all other necessary data.
@@ -70,7 +73,11 @@ pub enum Temperature {
 /// to [`Store`] which will abstract access to only one of the temperatures of
 /// the storage.
 pub struct NodeStorage {
-    storage: Arc<dyn Database>,
+    hot_storage: Arc<dyn Database>,
+    #[cfg(feature = "cold_store")]
+    cold_storage: Option<Arc<crate::db::ColdDB>>,
+    #[cfg(not(feature = "cold_store"))]
+    cold_storage: Option<std::convert::Infallible>,
 }
 
 /// Node’s single storage source.
@@ -86,10 +93,22 @@ pub struct Store {
     storage: Arc<dyn Database>,
 }
 
+// Those are temporary.  While cold_store feature is stabilised, remove those
+// type aliases and just use the type directly.
+#[cfg(feature = "cold_store")]
+pub type ColdConfig<'a> = Option<&'a StoreConfig>;
+#[cfg(not(feature = "cold_store"))]
+pub type ColdConfig<'a> = Option<std::convert::Infallible>;
+
 impl NodeStorage {
-    /// Initialises a new opener with given home directory and store config.
-    pub fn opener<'a>(home_dir: &std::path::Path, config: &'a StoreConfig) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, config)
+    /// Initialises a new opener with given home directory and hot and cold
+    /// store config.
+    pub fn opener<'a>(
+        home_dir: &std::path::Path,
+        config: &'a StoreConfig,
+        cold_config: ColdConfig<'a>,
+    ) -> StoreOpener<'a> {
+        StoreOpener::new(home_dir, config, cold_config)
     }
 
     /// Initialises an opener for a new temporary test store.
@@ -103,7 +122,7 @@ impl NodeStorage {
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
         static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = StoreOpener::new(dir.path(), &CONFIG);
+        let opener = StoreOpener::new(dir.path(), &CONFIG, None);
         (dir, opener)
     }
 
@@ -117,7 +136,22 @@ impl NodeStorage {
     /// possibly [`crate::test_utils::create_test_store`] (depending whether you
     /// need [`NodeStorage`] or [`Store`] object.
     pub fn new(storage: Arc<dyn Database>) -> Self {
-        Self { storage }
+        Self { hot_storage: storage, cold_storage: None }
+    }
+
+    /// Constructs new object backed by given database.
+    fn from_rocksdb(
+        hot_storage: crate::db::RocksDB,
+        #[cfg(feature = "cold_store")] cold_storage: Option<crate::db::RocksDB>,
+        #[cfg(not(feature = "cold_store"))] cold_storage: Option<std::convert::Infallible>,
+    ) -> Self {
+        Self {
+            hot_storage: Arc::new(hot_storage),
+            #[cfg(feature = "cold_store")]
+            cold_storage: cold_storage.map(|db| Arc::new(db.into())),
+            #[cfg(not(feature = "cold_store"))]
+            cold_storage: cold_storage.map(|_| unreachable!()),
+        }
     }
 
     /// Returns storage for given temperature.
@@ -134,7 +168,9 @@ impl NodeStorage {
     /// cold.
     pub fn get_store(&self, temp: Temperature) -> Store {
         match temp {
-            Temperature::Hot => Store { storage: self.storage.clone() },
+            Temperature::Hot => Store { storage: self.hot_storage.clone() },
+            #[cfg(feature = "cold_store")]
+            Temperature::Cold => Store { storage: self.cold_storage.as_ref().unwrap().clone() },
         }
     }
 
@@ -153,9 +189,11 @@ impl NodeStorage {
     /// well.  For example, garbage collection only ever touches hot storage but
     /// it should go through [`Store`] interface since data it manipulates
     /// (e.g. blocks) are live in both databases.
-    pub fn get_inner(&self, temp: Temperature) -> &Arc<dyn Database> {
+    pub fn _get_inner(&self, temp: Temperature) -> &Arc<dyn Database> {
         match temp {
-            Temperature::Hot => &self.storage,
+            Temperature::Hot => &self.hot_storage,
+            #[cfg(feature = "cold_store")]
+            Temperature::Cold => todo!(),
         }
     }
 
@@ -165,15 +203,27 @@ impl NodeStorage {
     /// `Arc::clone`.
     pub fn into_inner(self, temp: Temperature) -> Arc<dyn Database> {
         match temp {
-            Temperature::Hot => self.storage,
+            Temperature::Hot => self.hot_storage,
+            #[cfg(feature = "cold_store")]
+            Temperature::Cold => self.cold_storage.unwrap(),
         }
+    }
+
+    /// Returns whether the storage has a cold database.
+    pub fn has_cold(&self) -> bool {
+        self.cold_storage.is_some()
     }
 
     /// Reads database metadata and returns whether the storage is archival.
     pub fn is_archive(&self) -> io::Result<bool> {
-        Ok(match metadata::DbMetadata::read(self.storage.as_ref())?.kind.unwrap() {
+        if self.cold_storage.is_some() {
+            return Ok(true);
+        }
+        Ok(match metadata::DbMetadata::read(self.hot_storage.as_ref())?.kind.unwrap() {
             metadata::DbKind::RPC => false,
             metadata::DbKind::Archive => true,
+            #[cfg(feature = "cold_store")]
+            metadata::DbKind::Hot | metadata::DbKind::Cold => unreachable!(),
         })
     }
 }

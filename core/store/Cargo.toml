@@ -60,6 +60,7 @@ test_features = [
   "cold_storage",
 ]
 protocol_feature_flat_state = []
+cold_store = []
 
 nightly_protocol = []
 nightly = [
