@@ -17,6 +17,7 @@ use tokio::time::{sleep, timeout};
 use tracing::info;
 
 use near_chain_configs::GenesisConfig;
+use near_client::adapter::{NetworkClientMessages, NetworkClientResponses};
 use near_client::{
     ClientActor, DebugStatus, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
     GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
@@ -27,7 +28,6 @@ pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
-use near_network::types::{NetworkClientMessages, NetworkClientResponses};
 use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
@@ -1147,7 +1147,7 @@ impl JsonRpcHandler {
         actix::spawn(
             self.client_addr
                 .send(
-                    near_network::types::NetworkClientMessages::Adversarial(
+                    near_client::adapter::NetworkClientMessages::Adversarial(
                         near_network::types::NetworkAdversarialMessage::AdvSetSyncInfo(height),
                     )
                     .with_span_context(),
@@ -1161,7 +1161,7 @@ impl JsonRpcHandler {
         actix::spawn(
             self.client_addr
                 .send(
-                    near_network::types::NetworkClientMessages::Adversarial(
+                    near_client::adapter::NetworkClientMessages::Adversarial(
                         near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync,
                     )
                     .with_span_context(),
@@ -1171,7 +1171,7 @@ impl JsonRpcHandler {
         actix::spawn(
             self.view_client_addr
                 .send(
-                    near_network::types::NetworkViewClientMessages::Adversarial(
+                    near_client::adapter::NetworkViewClientMessages::Adversarial(
                         near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync,
                     )
                     .with_span_context(),
@@ -1195,7 +1195,7 @@ impl JsonRpcHandler {
         actix::spawn(
             self.view_client_addr
                 .send(
-                    near_network::types::NetworkViewClientMessages::Adversarial(
+                    near_client::adapter::NetworkViewClientMessages::Adversarial(
                         near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug,
                     )
                     .with_span_context(),
@@ -1237,7 +1237,7 @@ impl JsonRpcHandler {
         actix::spawn(
             self.view_client_addr
                 .send(
-                    near_network::types::NetworkViewClientMessages::Adversarial(
+                    near_client::adapter::NetworkViewClientMessages::Adversarial(
                         near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height),
                     )
                     .with_span_context(),

@@ -13,6 +13,11 @@ use once_cell::sync::OnceCell;
 use rand::{thread_rng, Rng};
 use tracing::info;
 
+use crate::adapter::{
+    NetworkClientMessages, NetworkClientResponses, NetworkViewClientMessages,
+    NetworkViewClientResponses,
+};
+use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_chain::test_utils::{
     wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
@@ -29,13 +34,12 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::PartialEdgeInfo;
 use near_network::types::{
-    AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses,
-    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo,
-    PeerType,
+    AccountOrPeerIdOrHash, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
+    PeerChainInfoV2, PeerInfo, PeerType,
 };
 use near_network::types::{
-    ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkClientResponses,
-    NetworkRecipient, NetworkRequests, NetworkResponses, PeerManagerAdapter,
+    ConnectedPeerInfo, FullPeerInfo, NetworkRecipient, NetworkRequests, NetworkResponses,
+    PeerManagerAdapter,
 };
 use near_network::types::{
     NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
@@ -66,8 +70,6 @@ use near_primitives::views::{
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
-
-use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 
 pub struct PeerManagerMock {
     handle: Box<
