@@ -86,8 +86,7 @@ mod old_validator_selection {
         AccountId, Balance, NumSeats, ValidatorId, ValidatorKickoutReason,
     };
     use near_primitives::version::ProtocolVersion;
-    use rand::seq::SliceRandom;
-    use rand::SeedableRng;
+    use rand::{RngCore, SeedableRng};
     use rand_hc::Hc128Rng;
 
     use crate::proposals::find_threshold;
@@ -270,9 +269,24 @@ mod old_validator_selection {
 
     fn shuffle_duplicate_proposals(dup_proposals: &mut Vec<u64>, rng_seed: RngSeed) {
         let mut rng: Hc128Rng = SeedableRng::from_seed(rng_seed);
-        dup_proposals.shuffle(&mut rng);
+        for i in (1..dup_proposals.len()).rev() {
+            dup_proposals.swap(i, gen_index_old(&mut rng, (i + 1) as u64) as usize);
+        }
     }
 
+    fn gen_index_old(rng: &mut Hc128Rng, bound: u64) -> u64 {
+        // This is a simplified copy of the rand gen_index implementation to ensure that
+        // upgrades to the rand library will not cause a change in the shuffling behavior.
+        let zone = (bound << bound.leading_zeros()).wrapping_sub(1);
+        loop {
+            let v = rng.next_u64();
+            let mul = (v as u128) * (bound as u128);
+            let (hi, lo) = ((mul >> 64) as u64, mul as u64);
+            if lo < zone {
+                return hi;
+            }
+        }
+    }
     #[cfg(test)]
     mod tests {
         use near_primitives::hash::CryptoHash;
@@ -280,14 +294,38 @@ mod old_validator_selection {
         use crate::proposals::old_validator_selection::shuffle_duplicate_proposals;
 
         #[test]
+        pub fn proposal_shuffling_sanity_checks() {
+            // Since we made our own impl for shuffling, do some sanity checks.
+            for i in 0..10 {
+                let mut dup_proposals = (0..i).collect::<Vec<_>>();
+                shuffle_duplicate_proposals(
+                    &mut dup_proposals,
+                    CryptoHash::hash_bytes(&[1, 2, 3, 4, 5]).as_bytes().clone(),
+                );
+                assert_eq!(dup_proposals.len(), i as usize);
+                dup_proposals.sort();
+                assert_eq!(dup_proposals, (0..i).collect::<Vec<_>>());
+            }
+        }
+
+        #[test]
         pub fn proposal_randomness_reproducibility() {
             // Sanity check that the proposal shuffling implementation does not change.
-            let mut dup_proposals = vec![0, 1, 2, 3, 4, 5, 6];
+            let mut dup_proposals = (0..100).collect::<Vec<u64>>();
             shuffle_duplicate_proposals(
                 &mut dup_proposals,
                 CryptoHash::hash_bytes(&[1, 2, 3, 4, 5]).as_bytes().clone(),
             );
-            assert_eq!(dup_proposals, vec![3, 1, 0, 4, 5, 6, 2]);
+            assert_eq!(
+                dup_proposals,
+                vec![
+                    28, 64, 35, 39, 5, 19, 91, 93, 32, 55, 49, 86, 7, 34, 58, 48, 65, 11, 0, 3, 63,
+                    85, 96, 12, 23, 76, 29, 69, 31, 45, 1, 15, 33, 61, 38, 74, 87, 10, 62, 9, 40,
+                    56, 98, 8, 52, 75, 99, 13, 57, 44, 6, 79, 89, 84, 68, 36, 94, 53, 80, 70, 42,
+                    88, 73, 2, 72, 25, 20, 67, 37, 97, 41, 71, 47, 59, 24, 66, 54, 21, 18, 26, 60,
+                    92, 50, 77, 81, 14, 43, 17, 90, 95, 78, 16, 30, 46, 22, 83, 27, 4, 51, 82
+                ]
+            );
         }
     }
 }
