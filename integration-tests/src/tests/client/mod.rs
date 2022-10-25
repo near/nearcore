@@ -1,7 +1,7 @@
 mod benchmarks;
 mod challenges;
 mod chunks_management;
-#[cfg(feature = "test_features")]
+#[cfg(feature = "cold_store")]
 mod cold_storage;
 mod features;
 mod process_blocks;

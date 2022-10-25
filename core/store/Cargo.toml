@@ -51,14 +51,11 @@ name = "store_bench"
 harness = false
 
 [features]
-cold_storage = []
 default = []
 io_trace = []
 no_cache = []
 single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
-test_features = [
-  "cold_storage",
-]
+test_features = []
 protocol_feature_flat_state = []
 cold_store = []
 
