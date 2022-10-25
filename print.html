@@ -1559,11 +1559,11 @@ nearcore repository and how they can be referenced in code.</p>
 <p>The <a href="architecture/gas_params/./gas_profile.html">Gas Profile</a> section goes into more details on how gas
 costs of a transaction are tracked in nearcore.</p>
 <p>The <a href="architecture/gas_params/./estimator.html">runtime parameter estimator</a> is a separate binary within
-the nearcore repository. It contains benchmarking-like code that is used to
-validate existing parameters values. Or when new features are added, new code
-has to be added there to estimate the safe values of new parameters. That
-section is for you if you want to add new features, such as a new pre-compiled
-method or other host functions.</p>
+the nearcore repository. It contains benchmarking-like code used to validate
+existing parameters values. When implementing new features, code should be added
+there to estimate the safe values of the new parameters. This section is for you
+if you are adding new features such as a new pre-compiled method or other host
+functions.</p>
 <!-- TODO: ## Action parameters-->
 <!-- TODO: ## WASM parameters-->
 <!-- TODO: ## Non-gas parameters -->
