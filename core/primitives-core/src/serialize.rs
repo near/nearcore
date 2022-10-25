@@ -1,7 +1,3 @@
-pub fn to_base58<T: AsRef<[u8]>>(input: T) -> String {
-    bs58::encode(input).into_string()
-}
-
 pub fn to_base64<T: AsRef<[u8]>>(input: T) -> String {
     base64::encode(&input)
 }
