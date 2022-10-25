@@ -15,11 +15,11 @@ The [Gas Profile](./gas_profile.md) section goes into more details on how gas
 costs of a transaction are tracked in nearcore.
 
 The [runtime parameter estimator](./estimator.md) is a separate binary within
-the nearcore repository. It contains benchmarking-like code that is used to
-validate existing parameters values. Or when new features are added, new code
-has to be added there to estimate the safe values of new parameters. That
-section is for you if you want to add new features, such as a new pre-compiled
-method or other host functions.
+the nearcore repository. The binary contains benchmarking-like code used to
+validate existing parameters values. When implementing new features, code should
+be added there to estimate the safe values of the new parameters. This section
+is for you if you are adding new features such as a new pre-compiled method or
+other host functions.
 
 
 <!-- TODO: ## Action parameters-->
