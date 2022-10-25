@@ -1,8 +1,10 @@
 use crate::columns::DBKeyType;
 use crate::refcount::add_positive_refcount;
-use crate::{DBCol, DBTransaction, Database, Store};
+use crate::trie::TrieRefcountChange;
+use crate::{DBCol, DBTransaction, Database, Store, TrieChanges};
 
 use borsh::BorshDeserialize;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::BlockHeight;
 use std::collections::HashMap;
 use std::io;
@@ -38,13 +40,14 @@ struct StoreWithCache<'a> {
 pub fn update_cold_db(
     cold_db: &dyn Database,
     hot_store: &Store,
+    shard_layout: &ShardLayout,
     height: &BlockHeight,
 ) -> io::Result<()> {
     let _span = tracing::debug_span!(target: "store", "update cold db", height = height);
 
     let mut store_with_cache = StoreWithCache { store: hot_store, cache: StoreCache::new() };
 
-    let key_type_to_keys = get_keys_from_store(&mut store_with_cache, height)?;
+    let key_type_to_keys = get_keys_from_store(&mut store_with_cache, shard_layout, height)?;
     for col in DBCol::iter() {
         if col.is_cold() {
             copy_from_store(
@@ -116,6 +119,10 @@ pub fn test_cold_genesis_update(cold_db: &dyn Database, hot_store: &Store) -> io
     Ok(())
 }
 
+pub fn test_get_store_reads(column: DBCol) -> u64 {
+    crate::metrics::COLD_MIGRATION_READS.with_label_values(&[&column.to_string()]).get()
+}
+
 /// Returns HashMap from DBKeyType to possible keys of that type for provided height.
 /// Only constructs keys for key types that are used in cold columns.
 /// The goal is to capture all changes to db made during production of the block at provided height.
@@ -124,6 +131,7 @@ pub fn test_cold_genesis_update(cold_db: &dyn Database, hot_store: &Store) -> io
 /// But for TransactionHash, for example, it is all of the tx hashes in that block.
 fn get_keys_from_store(
     store: &mut StoreWithCache,
+    shard_layout: &ShardLayout,
     height: &BlockHeight,
 ) -> io::Result<HashMap<DBKeyType, Vec<StoreKey>>> {
     let mut key_type_to_keys = HashMap::new();
@@ -136,6 +144,38 @@ fn get_keys_from_store(
             key_type,
             match key_type {
                 DBKeyType::BlockHash => vec![block_hash_key.clone()],
+                DBKeyType::ShardUId => shard_layout
+                    .get_shard_uids()
+                    .iter()
+                    .map(|uid| uid.to_bytes().to_vec())
+                    .collect(),
+                DBKeyType::TrieNodeOrValueHash => {
+                    let mut keys = vec![];
+                    for shard_uid in shard_layout.get_shard_uids() {
+                        let shard_uid_key = shard_uid.to_bytes().to_vec();
+
+                        debug_assert_eq!(
+                            DBCol::TrieChanges.key_type(),
+                            &[DBKeyType::BlockHash, DBKeyType::ShardUId]
+                        );
+                        let trie_changes_option: Option<TrieChanges> = {
+                            store
+                                .get_ser(
+                                    DBCol::TrieChanges,
+                                    &join_two_keys(&block_hash_key, &shard_uid_key),
+                                )
+                                .unwrap()
+                        };
+
+                        if let Some(trie_changes) = trie_changes_option {
+                            for op in trie_changes.insertions() {
+                                store.insert_state_to_cache_from_op(op, &shard_uid_key);
+                                keys.push(op.hash().as_ref().to_vec());
+                            }
+                        }
+                    }
+                    keys
+                }
                 _ => {
                     vec![]
                 }
@@ -144,6 +184,12 @@ fn get_keys_from_store(
     }
 
     Ok(key_type_to_keys)
+}
+
+pub fn join_two_keys(prefix_key: &StoreKey, suffix_key: &StoreKey) -> StoreKey {
+    let mut new_key = prefix_key.clone();
+    new_key.extend(suffix_key);
+    new_key
 }
 
 /// Returns all possible keys for a column with key represented by a specific sequence of key types.
@@ -179,9 +225,7 @@ fn combine_keys_with_stop(
     let mut result_keys = vec![];
     for prefix_key in &all_smaller_keys {
         for suffix_key in &key_type_to_keys[last_kt] {
-            let mut new_key = prefix_key.clone();
-            new_key.extend(suffix_key);
-            result_keys.push(new_key);
+            result_keys.push(join_two_keys(prefix_key, suffix_key));
         }
     }
     result_keys
@@ -202,6 +246,7 @@ where
 impl StoreWithCache<'_> {
     pub fn get(&mut self, column: DBCol, key: &[u8]) -> io::Result<StoreValue> {
         if !self.cache.contains_key(&(column, key.to_vec())) {
+            crate::metrics::COLD_MIGRATION_READS.with_label_values(&[&column.to_string()]).inc();
             self.cache.insert(
                 (column.clone(), key.to_vec()),
                 self.store.get(column, key)?.map(|x| x.as_slice().to_vec()),
@@ -231,6 +276,21 @@ impl StoreWithCache<'_> {
         key: &[u8],
     ) -> io::Result<T> {
         option_to_not_found(self.get_ser(column, key), format_args!("{:?}: {:?}", column, key))
+    }
+
+    pub fn insert_state_to_cache_from_op(
+        &mut self,
+        op: &TrieRefcountChange,
+        shard_uid_key: &StoreKey,
+    ) {
+        debug_assert_eq!(
+            DBCol::State.key_type(),
+            &[DBKeyType::ShardUId, DBKeyType::TrieNodeOrValueHash]
+        );
+        self.cache.insert(
+            (DBCol::State, join_two_keys(shard_uid_key, &op.hash().as_ref().to_vec())),
+            Some(op.value()),
+        );
     }
 }
 
