@@ -3223,5 +3223,28 @@ mod test {
             block.header().hash(),
             &CryptoHash::from_str("EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H").unwrap()
         );
+
+        let epoch_manager = EpochManager::new_from_genesis_config(
+            store.get_store(Temperature::Hot),
+            &genesis.config,
+        )
+        .unwrap();
+        let epoch_info = epoch_manager.get_epoch_info(&EpochId::default()).unwrap();
+
+        println!("{:?}", epoch_info.block_producers_settlement());
+
+        println!("{:?}", epoch_manager.get_epoch_info(&EpochId::default()));
+
+        assert_eq!(
+            [
+                1, 0, 1, 0, 0, 3, 3, 2, 2, 3, 0, 2, 0, 0, 1, 1, 1, 1, 3, 2, 3, 2, 0, 3, 3, 3, 0, 3,
+                1, 3, 1, 0, 1, 2, 3, 0, 1, 0, 0, 0, 2, 2, 2, 3, 3, 3, 3, 1, 2, 0, 1, 0, 1, 0, 3, 2,
+                1, 2, 0, 1, 3, 3, 1, 2, 1, 2, 1, 0, 2, 3, 1, 2, 1, 2, 3, 2, 0, 3, 3, 2, 0, 0, 2, 3,
+                0, 3, 0, 2, 3, 1, 1, 2, 1, 0, 1, 2, 2, 1, 2, 0
+            ],
+            epoch_info.block_producers_settlement()
+        );
+
+        //assert_eq!(1, 2);
     }
 }
