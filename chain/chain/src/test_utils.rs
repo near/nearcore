@@ -23,6 +23,7 @@ use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
@@ -462,6 +463,18 @@ impl EpochManagerAdapter for KeyValueRuntime {
 
     fn shard_id_to_uid(&self, shard_id: ShardId, _epoch_id: &EpochId) -> Result<ShardUId, Error> {
         Ok(ShardUId { version: 0, shard_id: shard_id as u32 })
+    }
+
+    fn get_block_info(&self, _hash: &CryptoHash) -> Result<Arc<BlockInfo>, Error> {
+        Ok(Default::default())
+    }
+
+    fn get_epoch_config(&self, _epoch_id: &EpochId) -> Result<EpochConfig, Error> {
+        Err(Error::Other("There is no epoch config in KeyValueRuntime".into()))
+    }
+
+    fn get_epoch_info(&self, _epoch_id: &EpochId) -> Result<Arc<EpochInfo>, Error> {
+        Ok(Default::default())
     }
 
     fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {

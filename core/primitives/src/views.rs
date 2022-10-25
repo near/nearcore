@@ -5,6 +5,7 @@
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use std::collections::HashMap;
 use std::fmt;
+use std::ops::Range;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -1896,3 +1897,6 @@ impl From<StateChangeWithCause> for StateChangeWithCauseView {
 }
 
 pub type StateChangesView = Vec<StateChangeWithCauseView>;
+
+/// Maintenance windows view are a vector of maintenance window.
+pub type MaintenanceWindowsView = Vec<Range<BlockHeight>>;

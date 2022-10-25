@@ -2969,6 +2969,7 @@ dependencies = [
  "near-chunks",
  "near-client-primitives",
  "near-crypto",
+ "near-epoch-manager",
  "near-network",
  "near-o11y",
  "near-performance-metrics",
