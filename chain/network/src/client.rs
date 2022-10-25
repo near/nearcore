@@ -82,7 +82,7 @@ pub trait Client: Send + Sync + 'static {
     ) -> Result<Vec<AnnounceAccount>, ReasonForBan>;
 }
 
-// Implementation of Client which doesn't do anything and never returns errors.
+/// Implementation of Client which doesn't do anything and never returns errors.
 pub struct Noop;
 
 #[async_trait::async_trait]

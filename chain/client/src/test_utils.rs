@@ -13,6 +13,7 @@ use once_cell::sync::OnceCell;
 use rand::{thread_rng, Rng};
 use tracing::info;
 
+use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_chain::test_utils::{
     wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
@@ -72,7 +73,6 @@ use crate::adapter::{
     RecvPartialEncodedChunkRequest, RecvPartialEncodedChunkResponse, SetNetworkInfo,
     StateRequestHeader, StateRequestPart, StateResponse,
 };
-use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 
 pub struct PeerManagerMock {
     handle: Box<

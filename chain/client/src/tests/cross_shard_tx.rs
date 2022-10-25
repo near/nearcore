@@ -12,8 +12,7 @@ use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::PeerInfo;
 use near_network::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkResponses, PeerManagerMessageRequest,
-    PeerManagerMessageResponse,
+    NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
 use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;

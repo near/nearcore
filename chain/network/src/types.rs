@@ -9,12 +9,11 @@ use futures::future::BoxFuture;
 use futures::FutureExt;
 use near_crypto::PublicKey;
 use near_o11y::WithSpanContext;
-use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader};
+use near_primitives::block::{ApprovalMessage, Block};
 use near_primitives::challenge::Challenge;
-use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::sharding::{PartialEncodedChunk, PartialEncodedChunkWithArcReceipts};
+use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
 use near_primitives::types::{AccountId, EpochId, ShardId};
@@ -409,69 +408,6 @@ pub enum NetworkAdversarialMessage {
     AdvSetSyncInfo(u64),
 }
 
-#[derive(actix::Message, Debug, strum::AsRefStr, strum::IntoStaticStr)]
-// TODO(#1313): Use Box
-#[allow(clippy::large_enum_variant)]
-#[rtype(result = "NetworkClientResponses")]
-pub enum NetworkClientMessages {
-    #[cfg(feature = "test_features")]
-    Adversarial(crate::types::NetworkAdversarialMessage),
-
-    /// Received transaction.
-    Transaction {
-        transaction: SignedTransaction,
-        /// Whether the transaction is forwarded from other nodes.
-        is_forwarded: bool,
-        /// Whether the transaction needs to be submitted.
-        check_only: bool,
-    },
-    /// Received block, possibly requested.
-    Block(Block, PeerId, bool),
-    /// Received list of headers for syncing.
-    BlockHeaders(Vec<BlockHeader>, PeerId),
-    /// Block approval.
-    BlockApproval(Approval, PeerId),
-    /// State response.
-    StateResponse(StateResponseInfo),
-
-    /// Request chunk parts and/or receipts.
-    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
-    /// Response to a request for  chunk parts and/or receipts.
-    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg, std::time::Instant),
-    /// Information about chunk such as its header, some subset of parts and/or incoming receipts
-    PartialEncodedChunk(PartialEncodedChunk),
-    /// Forwarding parts to those tracking the shard (so they don't need to send requests)
-    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
-
-    /// A challenge to invalidate the block.
-    Challenge(Challenge),
-
-    NetworkInfo(NetworkInfo),
-}
-
-// TODO(#1313): Use Box
-#[derive(Eq, PartialEq, Debug, actix::MessageResponse)]
-#[allow(clippy::large_enum_variant)]
-pub enum NetworkClientResponses {
-    /// Adv controls.
-    #[cfg(feature = "test_features")]
-    AdvResult(u64),
-
-    /// No response.
-    NoResponse,
-    /// Valid transaction inserted into mempool as response to Transaction.
-    ValidTx,
-    /// Invalid transaction inserted into mempool as response to Transaction.
-    InvalidTx(InvalidTxError),
-    /// The request is routed to other shards
-    RequestRouted,
-    /// The node being queried does not track the shard needed and therefore cannot provide userful
-    /// response.
-    DoesNotTrackShard,
-    /// Ban peer for malicious behavior.
-    Ban { ban_reason: ReasonForBan },
-}
-
 pub trait MsgRecipient<M: actix::Message>: Send + Sync + 'static {
     fn send(&self, msg: M) -> BoxFuture<'static, Result<M::Result, actix::MailboxError>>;
     fn do_send(&self, msg: M);
@@ -553,8 +489,6 @@ mod tests {
         assert_size!(HandshakeFailureReason);
         assert_size!(NetworkRequests);
         assert_size!(NetworkResponses);
-        assert_size!(NetworkClientMessages);
-        assert_size!(NetworkClientResponses);
         assert_size!(Handshake);
         assert_size!(Ping);
         assert_size!(Pong);

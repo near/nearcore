@@ -1,11 +1,10 @@
 use crate::client_actor::ClientActor;
 use crate::view_client::ViewClientActor;
+use near_network::time;
 use near_network::types::{
     NetworkInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
     PartialEncodedChunkResponseMsg, ReasonForBan, StateResponseInfo,
 };
-//use near_o11y::{WithSpanContext, WithSpanContextExt};
-use near_network::time;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
