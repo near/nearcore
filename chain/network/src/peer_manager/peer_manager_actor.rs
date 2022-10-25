@@ -1,7 +1,6 @@
 use crate::client;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
-use near_primitives::views::{KnownPeerStateView,PeerStoreView};
 use crate::network_protocol::{
     AccountData, AccountOrPeerIdOrHash, Edge, EdgeState, PartialEdgeInfo, PeerInfo, PeerMessage,
     Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo,
@@ -37,6 +36,7 @@ use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
+use near_primitives::views::{KnownPeerStateView, PeerStoreView};
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::cmp::min;

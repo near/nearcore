@@ -60,6 +60,9 @@ const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
 const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
 
+// TODO(gprusak): this delay is unnecessary, drop it.
+const WAIT_FOR_SYNC_DELAY: time::Duration = time::Duration::milliseconds(1_000);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectionClosedEvent {
     pub(crate) stream_id: tcp::StreamId,
@@ -586,8 +589,12 @@ impl PeerActor {
                                 RoutingTableUpdate::from_edges(vec![conn.edge.clone()]),
                             )));
                         }
-                        // Sync the RoutingTable.
-                        act.sync_routing_table();
+                        ctx.spawn(wrap_future(async {
+                            tokio::time::sleep(WAIT_FOR_SYNC_DELAY.try_into().unwrap()).await;
+                        }).map(|_,act:&mut Self,_|{
+                            // Sync the RoutingTable.
+                            act.sync_routing_table();
+                        }));
                         // Exchange peers periodically.
                         ctx.spawn(wrap_future({
                             let conn = conn.clone();

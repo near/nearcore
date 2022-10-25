@@ -4,12 +4,12 @@ use crate::store;
 use crate::time;
 use crate::types::{KnownPeerState, KnownPeerStatus, ReasonForBan};
 use anyhow::bail;
+use im::hashmap::Entry;
+use im::{HashMap, HashSet};
 use near_primitives::network::PeerId;
 use parking_lot::Mutex;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
-use im::hashmap::Entry;
-use im::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::ops::Not;
 
