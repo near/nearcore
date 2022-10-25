@@ -334,8 +334,6 @@ message PeerMessage {
   // Deprecated fields.
   reserved 20,21,22,23,24;
 
-  bytes trace_context = 26;
-
   oneof message_type {
     Handshake handshake = 4;
     HandshakeFailure handshake_failure = 5;
