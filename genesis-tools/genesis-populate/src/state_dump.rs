@@ -20,7 +20,9 @@ impl StateDump {
             let storage = TestDB::new();
             near_store::NodeStorage::new(storage)
         } else {
-            near_store::NodeStorage::opener(store_home_dir, &Default::default()).open().unwrap()
+            near_store::NodeStorage::opener(store_home_dir, &Default::default(), None)
+                .open()
+                .unwrap()
         };
         let store = node_storage.get_store(Temperature::Hot);
         let state_file = dir.join(STATE_DUMP_FILE);

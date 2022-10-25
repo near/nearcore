@@ -54,9 +54,16 @@ pub fn get_default_home() -> PathBuf {
 /// being opened.
 fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result<NodeStorage> {
     let migrator = migrations::Migrator::new(near_config);
-    let opener = NodeStorage::opener(home_dir, &near_config.config.store)
-        .with_migrator(&migrator)
-        .expect_archive(near_config.client_config.archive);
+    let opener = NodeStorage::opener(
+        home_dir,
+        &near_config.config.store,
+        #[cfg(feature = "cold_store")]
+        near_config.config.cold_store.as_ref(),
+        #[cfg(not(feature = "cold_store"))]
+        None,
+    )
+    .with_migrator(&migrator)
+    .expect_archive(near_config.client_config.archive);
     let storage = match opener.open() {
         Ok(storage) => Ok(storage),
         Err(StoreOpenerError::IO(err)) => {
@@ -66,6 +73,23 @@ fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result
         Err(StoreOpenerError::DbDoesNotExist) => unreachable!(),
         // Cannot happen with Mode::ReadWrite
         Err(StoreOpenerError::DbAlreadyExists) => unreachable!(),
+        Err(StoreOpenerError::HotColdExistenceMismatch) => {
+            Err(anyhow::anyhow!(
+                "Hot and cold databases must either both exist or both not exist.\n\
+                 Note that at this moment it’s not possible to convert and RPC or legacy archive database into split hot+cold database.\n\
+                 To set up node in that configuration, start with neither of the databases existing.",
+            ))
+        },
+        Err(err @ StoreOpenerError::HotColdVersionMismatch { .. }) => {
+            Err(anyhow::anyhow!("{err}"))
+        },
+        Err(StoreOpenerError::DbKindMismatch { which, got, want }) => {
+            Err(if let Some(got) = got {
+                anyhow::anyhow!("{which} database kind should be {want} but got {got}")
+            } else {
+                anyhow::anyhow!("{which} database kind should be {want} but none was set")
+            })
+        }
         Err(StoreOpenerError::SnapshotAlreadyExists(snap_path)) => {
             Err(anyhow::anyhow!(
                 "Detected an existing database migration snapshot at ‘{}’.\n\
@@ -259,7 +283,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
         skip_columns.push(DBCol::TrieChanges);
     }
 
-    let src_opener = NodeStorage::opener(home_dir, &config.store);
+    let src_opener = NodeStorage::opener(home_dir, &config.store, None);
     let src_path = src_opener.path();
 
     let mut dst_config = config.store.clone();
@@ -267,7 +291,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     // Note: opts.dest_dir is resolved relative to current working directory
     // (since it’s a command line option) which is why we set home to cwd.
     let cwd = std::env::current_dir()?;
-    let dst_opener = NodeStorage::opener(&cwd, &dst_config);
+    let dst_opener = NodeStorage::opener(&cwd, &dst_config, None);
     let dst_path = dst_opener.path();
 
     info!(target: "recompress",

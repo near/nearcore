@@ -5,6 +5,10 @@ use near_primitives::merkle::PartialMerkleTree;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::adapter::{
+    NetworkClientMessages, NetworkClientResponses, NetworkViewClientMessages,
+    NetworkViewClientResponses,
+};
 use crate::test_utils::{setup_mock_all_validators, setup_no_network, setup_only_view};
 use crate::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, QueryError, Status,
@@ -14,11 +18,10 @@ use near_actix_test_utils::run_actix;
 use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::MockPeerManagerAdapter;
+use near_network::types::PeerInfo;
 use near_network::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
-    PeerManagerMessageRequest, PeerManagerMessageResponse,
+    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
-use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo};
 
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;

@@ -35,9 +35,15 @@ use crate::DBCol;
 /// Lastly, since no data is ever deleted from cold storage, trying to decrease
 /// reference of a value count or delete data is ignored and if debug assertions
 /// are enabled will cause a panic.
-struct ColdDatabase<D: Database = crate::db::RocksDB>(D);
+pub struct ColdDB<D: Database = crate::db::RocksDB>(D);
 
-impl<D: Database> ColdDatabase<D> {
+impl<D: Database> std::convert::From<D> for ColdDB<D> {
+    fn from(db: D) -> Self {
+        Self(db)
+    }
+}
+
+impl<D: Database> ColdDB<D> {
     /// Returns raw bytes from the underlying storage.
     ///
     /// Adjusts the key if necessary (see [`get_cold_key`]) and retrieves data
@@ -51,7 +57,7 @@ impl<D: Database> ColdDatabase<D> {
     }
 }
 
-impl<D: Database> super::Database for ColdDatabase<D> {
+impl<D: Database> super::Database for ColdDB<D> {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
         match self.get_impl(col, key) {
             Ok(Some(value)) if col.is_rc() => {
@@ -262,8 +268,8 @@ mod test {
     const VALUE: &[u8] = "FooBar".as_bytes();
 
     /// Constructs test in-memory database.
-    fn create_test_db() -> ColdDatabase<crate::db::TestDB> {
-        ColdDatabase(crate::db::testdb::TestDB::default())
+    fn create_test_db() -> ColdDB<crate::db::TestDB> {
+        ColdDB(crate::db::testdb::TestDB::default())
     }
 
     fn set(col: DBCol, key: &[u8]) -> DBOp {
@@ -338,8 +344,8 @@ mod test {
 
                 let name = if is_raw { "raw " } else { "cold" };
                 let value = db.get_raw_bytes(col, &key).unwrap();
-                // When fetching reference counted column ColdDatabase adds
-                // reference count to it.
+                // When fetching reference counted column ColdDB adds reference
+                // count to it.
                 let value = pretty_value(value.as_deref(), col.is_rc() && !is_raw);
                 result.push(format!("    [{name}] get_raw_bytes → {value}"));
 
