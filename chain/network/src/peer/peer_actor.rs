@@ -456,6 +456,7 @@ impl PeerActor {
     fn stop(&mut self, ctx: &mut actix::Context<PeerActor>, reason: ClosingReason) {
         // Only the first call to stop sets the closing_reason.
         if self.closing_reason.is_none() {
+            tracing::debug!(target:"network", "{}: stopping: {reason:?}",self.network_state.config.node_id());
             self.closing_reason = Some(reason);
         }
         ctx.stop();

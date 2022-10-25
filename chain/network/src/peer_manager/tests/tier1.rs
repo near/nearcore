@@ -11,7 +11,6 @@ use crate::time;
 use crate::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block_header::{Approval, ApprovalInner, ApprovalMessage};
-use near_primitives::types::EpochId;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::db::TestDB;
 use rand::Rng as _;
@@ -27,28 +26,6 @@ fn make_block_approval(rng: &mut Rng, signer: &dyn ValidatorSigner) -> Approval 
         account_id: signer.validator_id().clone(),
         target_height,
         inner,
-    }
-}
-
-async fn set_chain_info(
-    epoch_id: &EpochId,
-    chain: &data::Chain,
-    validators: &[&peer_manager::testonly::ActorHandler],
-    all: &[&peer_manager::testonly::ActorHandler],
-) {
-    // Construct ChainInfo with tier1_accounts set to `validators`.
-    let vs: Vec<_> = validators.iter().map(|pm| pm.cfg.validator.clone().unwrap()).collect();
-    let account_keys = Arc::new(
-        vs.iter()
-            .map(|v| ((epoch_id.clone(), v.signer.validator_id().clone()), v.signer.public_key()))
-            .collect(),
-    );
-    let mut chain_info = chain.get_chain_info();
-    chain_info.tier1_accounts = account_keys;
-
-    // Send it to all peers.
-    for pm in all {
-        pm.set_chain_info(chain_info.clone()).await;
     }
 }
 
@@ -132,13 +109,15 @@ async fn direct_connections() {
     let pms: Vec<_> = pms.iter().collect();
 
     // Connect peers serially.
-    let peer_infos: Vec<_> = pms.iter().map(|pm| pm.peer_info()).collect();
     for i in 1..pms.len() {
-        pms[i - 1].connect_to(&peer_infos[i]).await;
+        pms[i - 1].connect_to(&pms[i].peer_info(),tcp::Tier::T2).await;
     }
 
     let epoch = data::make_epoch_id(rng);
-    set_chain_info(&epoch, &chain, &pms[..], &pms[..]).await;
+    let chain_info = peer_manager::testonly::make_chain_info(&epoch,&chain,&pms[..]);
+    for pm in &pms {
+        pm.set_chain_info(chain_info.clone()).await;
+    }
     establish_connections(&clock.clock(), &pms[..]).await;
     test_clique(rng, &pms[..]).await;
 }
@@ -196,10 +175,10 @@ async fn proxy_connections() {
     )
     .await;
     for pm in &validators {
-        pm.connect_to(&hub.peer_info()).await;
+        pm.connect_to(&hub.peer_info(),tcp::Tier::T2).await;
     }
     for pm in &proxies {
-        pm.connect_to(&hub.peer_info()).await;
+        pm.connect_to(&hub.peer_info(),tcp::Tier::T2).await;
     }
 
     let mut all = vec![];
@@ -208,7 +187,10 @@ async fn proxy_connections() {
     all.push(&hub);
 
     let epoch = data::make_epoch_id(rng);
-    set_chain_info(&epoch, &chain, &validators[..], &all[..]).await;
+    let chain_info = peer_manager::testonly::make_chain_info(&epoch,&chain,&validators[..]);
+    for pm in &all {
+        pm.set_chain_info(chain_info.clone()).await;
+    }
     establish_connections(&clock.clock(), &all[..]).await;
     test_clique(rng, &validators[..]).await;
 }
@@ -225,17 +207,27 @@ async fn account_keys_change() {
     let v1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let v2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
     let hub = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
-    hub.connect_to(&v0.peer_info()).await;
-    hub.connect_to(&v1.peer_info()).await;
-    hub.connect_to(&v2.peer_info()).await;
+    hub.connect_to(&v0.peer_info(),tcp::Tier::T2).await;
+    hub.connect_to(&v1.peer_info(),tcp::Tier::T2).await;
+    hub.connect_to(&v2.peer_info(),tcp::Tier::T2).await;
 
     // TIER1 nodes in 1st epoch are {v0,v1}.
-    set_chain_info(&data::make_epoch_id(rng), &chain, &[&v0, &v1], &[&v0, &v1, &v2, &hub]).await;
+    let chain_info = peer_manager::testonly::make_chain_info(
+        &data::make_epoch_id(rng),&chain,&[&v0,&v1]
+    );
+    for pm in [&v0, &v1, &v2, &hub] {
+        pm.set_chain_info(chain_info.clone()).await;
+    }
     establish_connections(&clock.clock(), &[&v0, &v1, &v2, &hub]).await;
     test_clique(rng, &[&v0, &v1]).await;
 
     // TIER1 nodes in 2nd epoch are {v0,v2}.
-    set_chain_info(&data::make_epoch_id(rng), &chain, &[&v0, &v2], &[&v0, &v1, &v2, &hub]).await;
+    let chain_info = peer_manager::testonly::make_chain_info(
+        &data::make_epoch_id(rng),&chain,&[&v0,&v2]
+    );
+    for pm in [&v0, &v1, &v2, &hub] {
+        pm.set_chain_info(chain_info.clone()).await;
+    }
     establish_connections(&clock.clock(), &[&v0, &v1, &v2, &hub]).await;
     test_clique(rng, &[&v0, &v2]).await;
 
@@ -275,16 +267,19 @@ async fn proxy_change() {
     let v0 = start_pm(clock.clock(), TestDB::new(), v0cfg.clone(), chain.clone()).await;
     let v1 = start_pm(clock.clock(), TestDB::new(), v1cfg.clone(), chain.clone()).await;
     let hub = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
-    hub.connect_to(&p0.peer_info()).await;
-    hub.connect_to(&p1.peer_info()).await;
-    hub.connect_to(&v0.peer_info()).await;
-    hub.connect_to(&v1.peer_info()).await;
+    hub.connect_to(&p0.peer_info(),tcp::Tier::T2).await;
+    hub.connect_to(&p1.peer_info(),tcp::Tier::T2).await;
+    hub.connect_to(&v0.peer_info(),tcp::Tier::T2).await;
+    hub.connect_to(&v1.peer_info(),tcp::Tier::T2).await;
     let epoch = data::make_epoch_id(rng);
 
     tracing::info!(target:"test", "p0 goes down");
     drop(p0);
     tracing::info!(target:"test", "remaining nodes learn that [v0,v1] are TIER1 nodes");
-    set_chain_info(&epoch, &chain, &[&v0, &v1], &[&v0, &v1, &p1, &hub]).await;
+    let chain_info = peer_manager::testonly::make_chain_info(&epoch,&chain,&[&v0,&v1]);
+    for pm in [&v0, &v1, &p1, &hub] {
+        pm.set_chain_info(chain_info.clone()).await;
+    }
     tracing::info!(target:"test", "TIER1 connections get established: v0 -> p1 <- v1.");
     establish_connections(&clock.clock(), &[&v0, &v1, &p1, &hub]).await;
     tracing::info!(target:"test", "Send message v1 -> v0 over TIER1.");
@@ -297,8 +292,8 @@ async fn proxy_change() {
     drop(p1);
     tracing::info!(target:"test", "p0 goes up and learns that [v0,v1] are TIER1 nodes.");
     let p0 = start_pm(clock.clock(), TestDB::new(), p0cfg.clone(), chain.clone()).await;
-    set_chain_info(&epoch, &chain, &[&v0, &v1], &[&p0]).await;
-    hub.connect_to(&p0.peer_info()).await;
+    p0.set_chain_info(chain_info).await;
+    hub.connect_to(&p0.peer_info(),tcp::Tier::T2).await;
     tracing::info!(target:"test", "TIER1 connections get established: v0 -> p0 <- v1.");
     establish_connections(&clock.clock(), &[&v0, &v1, &p0, &hub]).await;
     tracing::info!(target:"test", "Send message v1 -> v0 over TIER1.");

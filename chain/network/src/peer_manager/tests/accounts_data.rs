@@ -117,8 +117,8 @@ async fn accounts_data_gradual_epoch_change() {
     // 0 <-> 1 <-> 2
     let pm1 = pms[1].peer_info();
     let pm2 = pms[2].peer_info();
-    pms[0].connect_to(&pm1).await;
-    pms[1].connect_to(&pm2).await;
+    pms[0].connect_to(&pm1,tcp::Tier::T2).await;
+    pms[1].connect_to(&pm2,tcp::Tier::T2).await;
 
     // Validator configs.
     let vs: Vec<_> = pms.iter().map(|pm| pm.cfg.validator.clone().unwrap()).collect();
@@ -205,7 +205,7 @@ async fn accounts_data_rate_limiting() {
         for j in 0..m {
             for k in 0..m {
                 let pi = pms[(i + 1) * m + k].peer_info();
-                pms[i * m + j].connect_to(&pi).await;
+                pms[i * m + j].connect_to(&pi,tcp::Tier::T2).await;
                 connections += 1;
             }
         }

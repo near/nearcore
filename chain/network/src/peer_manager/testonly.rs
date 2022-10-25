@@ -12,6 +12,7 @@ use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::tcp;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
+use near_primitives::types::EpochId;
 use crate::time;
 use crate::types::{ChainInfo, KnownPeerStatus, PeerManagerMessageRequest, SetChainInfo};
 use crate::PeerManagerActor;
@@ -89,6 +90,23 @@ pub fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccountsData
     }
 }
 
+pub(crate) fn make_chain_info(
+    epoch_id: &EpochId,
+    chain: &data::Chain,
+    validators: &[&ActorHandler],
+) -> ChainInfo {
+    // Construct ChainInfo with tier1_accounts set to `validators`.
+    let vs: Vec<_> = validators.iter().map(|pm| pm.cfg.validator.clone().unwrap()).collect();
+    let account_keys = Arc::new(
+        vs.iter()
+            .map(|v| ((epoch_id.clone(), v.signer.validator_id().clone()), v.signer.public_key()))
+            .collect(),
+    );
+    let mut chain_info = chain.get_chain_info();
+    chain_info.tier1_accounts = account_keys;
+    chain_info
+}
+
 pub(crate) struct RawConnection {
     events: broadcast::Receiver<Event>,
     stream: tcp::Stream,
@@ -150,8 +168,8 @@ impl ActorHandler {
         }
     }
 
-    pub async fn connect_to(&self, peer_info: &PeerInfo) {
-        let stream = tcp::Stream::connect(peer_info, tcp::Tier::T2).await.unwrap();
+    pub async fn connect_to(&self, peer_info: &PeerInfo, tier: tcp::Tier) {
+        let stream = tcp::Stream::connect(peer_info, tier).await.unwrap();
         let mut events = self.events.from_now();
         let stream_id = stream.id();
         self.actix.addr.do_send(PeerManagerMessageRequest::OutboundTcpConnect(stream));
@@ -202,7 +220,6 @@ impl ActorHandler {
             cfg: peer::testonly::PeerConfig {
                 network: network_cfg,
                 chain,
-                peers: vec![],
                 force_encoding: Some(Encoding::Proto),
                 nonce: None,
             },
@@ -241,7 +258,6 @@ impl ActorHandler {
             cfg: peer::testonly::PeerConfig {
                 network: network_cfg,
                 chain,
-                peers: vec![],
                 force_encoding: Some(Encoding::Proto),
                 nonce: None,
             },

@@ -507,12 +507,18 @@ impl NetworkState {
         })
         .await;
         self.routing_table_view.add_local_edges(&edges);
-        // TODO: this unwrap may panic in tests.
-        let resp = self
+        
+        let resp = match self
             .routing_table_addr
             .send(routing::actor::Message::AddVerifiedEdges { edges })
             .await
-            .unwrap();
+        {
+            Ok(resp) => resp,
+            Err(err) => {
+                tracing::error!(target:"network","routing::actor::Actor closed: {err}");
+                return Ok(());
+            }
+        };
         let mut edges = match resp {
             routing::actor::Response::AddVerifiedEdges(edges) => edges,
             _ => panic!("expected AddVerifiedEdges"),

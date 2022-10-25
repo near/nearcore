@@ -3,7 +3,7 @@ use crate::client;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PeerIdOrHash, PeerInfo, RawRoutedMessage, RoutedMessageBody,
+    Edge, PartialEdgeInfo, PeerIdOrHash, RawRoutedMessage, RoutedMessageBody,
     RoutedMessageV2,
 };
 use crate::peer::peer_actor::{ClosingReason, PeerActor};
@@ -25,7 +25,6 @@ use std::sync::Arc;
 pub struct PeerConfig {
     pub chain: Arc<data::Chain>,
     pub network: NetworkConfig,
-    pub peers: Vec<PeerInfo>,
     pub force_encoding: Option<crate::network_protocol::Encoding>,
     /// If both start_handshake_with and nonce are set, PeerActor
     /// will use this nonce in the handshake.

@@ -1,5 +1,6 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
+    PartialEdgeInfo,
     Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutedMessageBody,
 };
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
@@ -28,14 +29,12 @@ async fn test_peer_communication(
     let inbound_cfg = PeerConfig {
         chain: chain.clone(),
         network: chain.make_config(&mut rng),
-        peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: inbound_encoding,
         nonce: None,
     };
     let outbound_cfg = PeerConfig {
         chain: chain.clone(),
         network: chain.make_config(&mut rng),
-        peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: outbound_encoding,
         nonce: None,
     };
@@ -57,27 +56,28 @@ async fn test_peer_communication(
 
     // RequestUpdateNonce
     let mut events = inbound.events.from_now();
-    let want = PeerMessage::RequestUpdateNonce(data::make_partial_edge(&mut rng));
+    let want = PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
+        &outbound.cfg.network.node_id(),
+        &inbound.cfg.network.node_id(),
+        15,
+        &outbound.cfg.network.node_key,
+    ));
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    // ReponseUpdateNonce
-    tracing::debug!(target:"test","0");
-    let mut events = inbound.events.from_now();
-    let a = data::make_signer(&mut rng);
-    let b = data::make_signer(&mut rng);
-    let want = PeerMessage::ResponseUpdateNonce(data::make_edge(&a, &b));
-    outbound.send(want.clone()).await;
-    tracing::debug!(target:"test","0a");
-    events.recv_until(message_processed(want)).await;
-    tracing::debug!(target:"test","0b");
-
-    // PeersRequest -> PeersResponse
+    // PeersRequest
     tracing::debug!(target:"test","1");
-    // This test is different from the rest, because we cannot skip sending the response back.
-    let mut events = outbound.events.from_now();
-    let want = PeerMessage::PeersResponse(inbound.cfg.peers.clone());
-    outbound.send(PeerMessage::PeersRequest).await;
+    let mut events = inbound.events.from_now();
+    let want = PeerMessage::PeersRequest;
+    outbound.send(want.clone()).await;
+    events.recv_until(message_processed(want)).await;
+
+    // PeersResponse
+    let mut events = inbound.events.from_now();
+    let want = PeerMessage::PeersResponse(
+        (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
+    );
+    outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
     // BlockRequest
@@ -195,14 +195,12 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
     let inbound_cfg = PeerConfig {
         network: chain.make_config(&mut rng),
         chain: chain.clone(),
-        peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: inbound_encoding,
         nonce: None,
     };
     let outbound_cfg = PeerConfig {
         network: chain.make_config(&mut rng),
         chain: chain.clone(),
-        peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
         force_encoding: outbound_encoding,
         nonce: None,
     };

@@ -61,7 +61,6 @@ async fn test_nonces() {
         let cfg = peer::testonly::PeerConfig {
             network: chain.make_config(rng),
             chain: chain.clone(),
-            peers: vec![],
             force_encoding: Some(Encoding::Proto),
             // Connect with nonce equal to unix timestamp
             nonce: test.0,

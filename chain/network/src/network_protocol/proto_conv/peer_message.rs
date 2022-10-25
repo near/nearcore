@@ -97,12 +97,6 @@ impl From<&PeerMessage> for proto::PeerMessage {
                         ..Default::default()
                     })
                 }
-                PeerMessage::ResponseUpdateNonce(e) => {
-                    ProtoMT::UpdateNonceResponse(proto::UpdateNonceResponse {
-                        edge: MF::some(e.into()),
-                        ..Default::default()
-                    })
-                }
                 PeerMessage::SyncAccountsData(msg) => {
                     ProtoMT::SyncAccountsData(proto::SyncAccountsData {
                         accounts_data: msg
@@ -225,9 +219,6 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::UpdateNonceRequest(unr) => PeerMessage::RequestUpdateNonce(
                 try_from_required(&unr.partial_edge_info)
                     .map_err(Self::Error::UpdateNonceRequest)?,
-            ),
-            ProtoMT::UpdateNonceResponse(unr) => PeerMessage::ResponseUpdateNonce(
-                try_from_required(&unr.edge).map_err(Self::Error::UpdateNonceResponse)?,
             ),
             ProtoMT::SyncAccountsData(msg) => PeerMessage::SyncAccountsData(SyncAccountsData {
                 accounts_data: try_from_slice(&msg.accounts_data)

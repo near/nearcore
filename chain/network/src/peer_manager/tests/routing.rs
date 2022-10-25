@@ -32,7 +32,6 @@ async fn ttl() {
     let cfg = peer::testonly::PeerConfig {
         network: chain.make_config(rng),
         chain,
-        peers: vec![],
         force_encoding: Some(Encoding::Proto),
         nonce: None,
     };
@@ -103,7 +102,6 @@ async fn repeated_data_in_sync_routing_table() {
     let cfg = peer::testonly::PeerConfig {
         network: chain.make_config(rng),
         chain,
-        peers: vec![],
         force_encoding: Some(Encoding::Proto),
         nonce: None,
     };
@@ -206,7 +204,6 @@ async fn no_edge_broadcast_after_restart() {
         let cfg = peer::testonly::PeerConfig {
             network: chain.make_config(rng),
             chain: chain.clone(),
-            peers: vec![],
             force_encoding: Some(Encoding::Proto),
             nonce: None,
         };
