@@ -120,7 +120,7 @@ pub fn test_cold_genesis_update(cold_db: &dyn Database, hot_store: &Store) -> io
 }
 
 pub fn test_get_store_reads(column: DBCol) -> u64 {
-    crate::metrics::COLD_MIGRATION_READS.with_label_values(&[&column.to_string()]).get()
+    crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(column)]).get()
 }
 
 /// Returns HashMap from DBKeyType to possible keys of that type for provided height.
@@ -246,7 +246,7 @@ where
 impl StoreWithCache<'_> {
     pub fn get(&mut self, column: DBCol, key: &[u8]) -> io::Result<StoreValue> {
         if !self.cache.contains_key(&(column, key.to_vec())) {
-            crate::metrics::COLD_MIGRATION_READS.with_label_values(&[&column.to_string()]).inc();
+            crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(column)]).inc();
             self.cache.insert(
                 (column.clone(), key.to_vec()),
                 self.store.get(column, key)?.map(|x| x.as_slice().to_vec()),
