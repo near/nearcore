@@ -2,8 +2,8 @@
 
 The transaction runtime charges gas in various places around the code. The
 charges end up as summaries inside an `ActionResult`. More specifically, the
-`gas_burnt` and `gas_used` counters and the `profile` field keep track of what
-the gas was spent on.
+`gas_burnt` and `gas_used` counters track the total gas required and the
+`profile` field keeps track of what the gas was spent on.
 
 ## Charging Gas
 Generally speaking, gas is charged right before the computation that it pays for
