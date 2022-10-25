@@ -113,25 +113,20 @@ pub fn do_migrate_34_to_35(
         let trie = runtime.get_trie_for_shard(shard_id, &block_hash, state_root, false)?;
         let root_node = trie.retrieve_root_node().unwrap();
         let memory_usage = root_node.memory_usage;
-
-        let sub_trie_size = memory_usage / 1024; //5_000_000;
-        info!(target: "chain", %shard_id, "Start flat state shard migration, mem_usage = {} gb, sub_trie_size = {} gb", memory_usage as f64 / 10f64.powf(9.0), sub_trie_size as f64 / 10f64.powf(9.0));
+        let num_parts = 4_000;
+        info!(target: "chain", %shard_id, "Start flat state shard migration, mem_usage = {} gb", memory_usage as f64 / 10f64.powf(9.0));
 
         let (sender, receiver) = unbounded();
-        let inner_items = Arc::new(Mutex::new(vec![]));
 
-        // let max_threads = 1024;
         let thread_usage = Arc::new(std::sync::atomic::AtomicU32::new(0));
-        let mem_progress = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let part_progress = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let global_nodes_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
-        let mut state_iter = trie.iter()?;
 
         let mut threads = 0u64;
-        for sub_trie in state_iter.heavy_sub_tries(sub_trie_size, inner_items.clone())? {
-            let TrieIterator { trie, trail, key_nibbles, .. } = sub_trie?;
-            if key_nibbles.len() > 2000 {
-                panic!("Too long nibbles vec");
-            }
+        for part_id in 0..num_parts {
+            let path_begin = trie.find_path_for_part_boundary(part_id, num_parts)?;
+            let path_end = trie.find_path_for_part_boundary(part_id + 1, num_parts)?;
+            let TrieIterator { trie, trail, key_nibbles, .. } = trie.iter()?;
 
             let storage = trie
                 .storage
@@ -139,7 +134,7 @@ pub fn do_migrate_34_to_35(
                 .expect("preload called without caching storage")
                 .clone();
             let root = trie.get_root().clone();
-            let inner_mem_progress = mem_progress.clone();
+            let inner_part_progress = part_progress.clone();
             let inner_thread_usage = thread_usage.clone();
             let inner_nodes_count = global_nodes_count.clone();
             let inner_sender = sender.clone();
@@ -152,11 +147,10 @@ pub fn do_migrate_34_to_35(
                     .iter()
                     .map(|&n| char::from_digit(n as u32, 16).expect("nibble should be <16"))
                     .collect();
-                debug!(target: "store", "Preload subtrie at {hex_prefix}");
+                debug!(target: "store", "Preload state part from {hex_prefix}");
                 let trie = Trie::new(Box::new(storage), root, None);
-                let current_memory_usage = trail.last().unwrap().node.memory_usage();
                 let nodes_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
-                let inner_iter = TrieIterator {
+                let mut inner_iter = TrieIterator {
                     trie: &trie,
                     trail,
                     key_nibbles,
@@ -166,30 +160,34 @@ pub fn do_migrate_34_to_35(
                 };
                 let mut store_update = BatchedStoreUpdate::new(&inner_store, 10_000_000);
                 let mut first_state_record: Option<StateRecord> = None;
-                let n = inner_iter
-                    .enumerate()
-                    .map(|(i, item)| {
-                        let item = item.unwrap();
-                        let value_ref = ValueRef::new(&item.1);
-                        store_update
-                            .set_ser(DBCol::FlatState, &item.0, &value_ref)
-                            .expect("Failed to put value in FlatState");
-                        if i == 0 {
-                            first_state_record = StateRecord::from_raw_key_value(item.0, item.1);
+                let mut n = 0;
+
+                for TrieTraversalItem { hash, key } in
+                    inner_iter.visit_nodes_interval(&path_begin, &path_end)?
+                {
+                    match key {
+                        None => {}
+                        Some(key) => {
+                            let value = trie.storage.retrieve_raw_bytes(&hash)?;
+                            let value_ref = ValueRef::new(&value);
+                            store_update
+                                .set_ser(DBCol::FlatState, &key, &value_ref)
+                                .expect("Failed to put value in FlatState");
+                            if n == 0 {
+                                first_state_record =
+                                    StateRecord::from_raw_key_value(item.0, item.1);
+                            }
+                            n += 1;
                         }
-                    })
-                    .count();
+                    }
+                }
                 store_update.finish().unwrap();
                 inner_thread_usage.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-                inner_mem_progress
-                    .fetch_add(current_memory_usage, std::sync::atomic::Ordering::Relaxed);
+                inner_part_progress.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
                 let nodes_count = nodes_count.load(std::sync::atomic::Ordering::Relaxed);
                 let threads_usage = inner_thread_usage.load(std::sync::atomic::Ordering::Relaxed);
-                let mem_progress_gb = inner_mem_progress.load(std::sync::atomic::Ordering::Relaxed)
-                    as f64
-                    / 10f64.powf(9.0);
-                let mem_usage_gb = memory_usage as f64 / 10f64.powf(9.0);
+                let part_progress = inner_part_progress.load(std::sync::atomic::Ordering::Relaxed);
                 let first_record_to_display = match first_state_record {
                     Some(state_record) => format!("{}", state_record),
                     None => String::from(""),
@@ -200,36 +198,11 @@ pub fn do_migrate_34_to_35(
                     visited {nodes_count} nodes, \
                     {threads_usage} threads used, \
                     {first_record_to_display} is the first state record, \
-                    mem progress gb: {mem_progress_gb} / {mem_usage_gb}"
+                    parts proccessed: {part_progress} / {num_parts}"
                 );
                 inner_sender.send(n).unwrap();
             });
-
-            let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
-            let mut items = inner_items.lock().unwrap();
-            let len = items.len();
-            debug!(target: "store", "inner items: {len}");
-            for item in items.drain(..) {
-                let value_ref = ValueRef::new(&item.1);
-                store_update
-                    .set_ser(DBCol::FlatState, &item.0, &value_ref)
-                    .expect("Failed to put value in FlatState");
-            }
-            store_update.finish().unwrap();
-            // handles.push(handle);
         }
-
-        let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
-        let mut items = inner_items.lock().unwrap();
-        let len = items.len();
-        debug!(target: "store", "remaining inner items: {len}");
-        for item in items.drain(..) {
-            let value_ref = ValueRef::new(&item.1);
-            store_update
-                .set_ser(DBCol::FlatState, &item.0, &value_ref)
-                .expect("Failed to put value in FlatState");
-        }
-        store_update.finish().unwrap();
 
         let mut n = 0;
         for _ in 0..threads {

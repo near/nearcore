@@ -197,11 +197,11 @@ impl<'a> TrieIterator<'a> {
             visited.push(bytes.ok_or(StorageError::TrieNodeMissing)?);
         }
         self.nodes_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.global_nodes_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let global_count = self.global_nodes_count.load(std::sync::atomic::Ordering::Relaxed);
         if global_count % 10_000 == 0 {
             debug!(target: "store", global_count);
         }
-        self.global_nodes_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.trail.push(Crumb { status: CrumbStatus::Entering, node, prefix_boundary: false });
         Ok(())
     }
@@ -319,7 +319,7 @@ impl<'a> TrieIterator<'a> {
     /// Visits all nodes belonging to the interval [path_begin, path_end) in depth-first search
     /// order and return TrieTraversalItem for each visited node.
     /// Used to generate and apply state parts for state sync.
-    pub(crate) fn visit_nodes_interval(
+    pub fn visit_nodes_interval(
         &mut self,
         path_begin: &[u8],
         path_end: &[u8],
