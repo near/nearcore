@@ -1,5 +1,6 @@
 use crate::client;
 use crate::config;
+use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
     AccountData, AccountOrPeerIdOrHash, Edge, EdgeState, PartialEdgeInfo, PeerInfo, PeerMessage,
     Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo,
@@ -36,6 +37,7 @@ use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
+use near_primitives::views::{KnownPeerStateView, PeerStoreView};
 use parking_lot::RwLock;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
@@ -143,6 +145,9 @@ pub struct PeerManagerActor {
     whitelist_nodes: Vec<WhitelistNode>,
 
     pub(crate) state: Arc<NetworkState>,
+
+    /// Last time when we tried to establish connection to this peer.
+    last_peer_outbound_attempt: HashMap<PeerId, time::Utc>,
 }
 
 /// TEST-ONLY
@@ -258,7 +263,7 @@ impl PeerManagerActor {
         clock: time::Clock,
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
-        client: client::Client,
+        client: Arc<dyn client::Client>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
@@ -299,6 +304,7 @@ impl PeerManagerActor {
             started_connect_attempts: false,
             local_peer_pending_update_nonce_request: HashMap::new(),
             whitelist_nodes,
+            last_peer_outbound_attempt: Default::default(),
             state: Arc::new(NetworkState::new(
                 config.clone(),
                 genesis_id,
@@ -878,7 +884,7 @@ impl PeerManagerActor {
                     self.started_connect_attempts = true;
                     interval = default_interval;
                 }
-
+                self.last_peer_outbound_attempt.insert(peer_info.id.clone(), self.clock.now_utc());
                 ctx.spawn(wrap_future({
                     let state = self.state.clone();
                     let clock = self.clock.clone();
@@ -1084,29 +1090,6 @@ impl PeerManagerActor {
                         &self.clock,
                         RawRoutedMessage { target: PeerIdOrHash::Hash(route_back), body },
                     ),
-                ) {
-                    NetworkResponses::NoResponse
-                } else {
-                    NetworkResponses::RouteNotFound
-                }
-            }
-            // unused: epoch sync is not implemented
-            NetworkRequests::EpochSyncRequest { peer_id, epoch_id } => {
-                if self
-                    .state
-                    .tier2
-                    .send_message(peer_id, Arc::new(PeerMessage::EpochSyncRequest(epoch_id)))
-                {
-                    NetworkResponses::NoResponse
-                } else {
-                    NetworkResponses::RouteNotFound
-                }
-            }
-            // unused: epoch sync is not implemented
-            NetworkRequests::EpochSyncFinalizationRequest { peer_id, epoch_id } => {
-                if self.state.tier2.send_message(
-                    peer_id,
-                    Arc::new(PeerMessage::EpochSyncFinalizationRequest(epoch_id)),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1324,7 +1307,6 @@ impl PeerManagerActor {
                     self.handle_msg_network_requests(msg, ctx),
                 )
             }
-            // TEST-ONLY
             PeerManagerMessageRequest::OutboundTcpConnect(stream) => {
                 let peer_addr = stream.peer_addr;
                 if let Err(err) =
@@ -1579,5 +1561,33 @@ impl Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerActor {
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
         self.handle_peer_manager_message(msg, ctx)
+    }
+}
+
+impl Handler<GetDebugStatus> for PeerManagerActor {
+    type Result = DebugStatus;
+    fn handle(&mut self, msg: GetDebugStatus, _ctx: &mut Context<Self>) -> Self::Result {
+        match msg {
+            GetDebugStatus::PeerStore => {
+                let mut peer_states_view = self
+                    .peer_store
+                    .iter()
+                    .map(|(peer_id, known_peer_state)| KnownPeerStateView {
+                        peer_id: peer_id.clone(),
+                        status: format!("{:?}", known_peer_state.status),
+                        addr: format!("{:?}", known_peer_state.peer_info.addr),
+                        first_seen: known_peer_state.first_seen.unix_timestamp(),
+                        last_seen: known_peer_state.last_seen.unix_timestamp(),
+                        last_attempt: self
+                            .last_peer_outbound_attempt
+                            .get(peer_id)
+                            .map(|it| it.unix_timestamp()),
+                    })
+                    .collect::<Vec<_>>();
+
+                peer_states_view.sort_by_key(|a| (-a.last_attempt.unwrap_or(0), -a.last_seen));
+                DebugStatus::PeerStore(PeerStoreView { peer_states: peer_states_view })
+            }
+        }
     }
 }

@@ -187,10 +187,7 @@ pub fn start_with_config_and_synchronization(
         time::Clock::real(),
         store.into_inner(near_store::Temperature::Hot),
         config.network_config,
-        near_network::client::Client::new(
-            client_actor.clone().recipient(),
-            view_client.clone().recipient(),
-        ),
+        Arc::new(near_client::adapter::Adapter::new(client_actor.clone(), view_client.clone())),
         genesis_id,
     )
     .context("PeerManager::spawn()")?;
@@ -203,6 +200,7 @@ pub fn start_with_config_and_synchronization(
             config.genesis.config.clone(),
             client_actor.clone(),
             view_client.clone(),
+            Some(network_actor.clone()),
         ));
     }
 

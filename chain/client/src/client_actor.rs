@@ -567,14 +567,6 @@ impl ClientActor {
 
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::EpochSyncResponse(_peer_id, _response) => {
-                // TODO #3488
-                NetworkClientResponses::NoResponse
-            }
-            NetworkClientMessages::EpochSyncFinalizationResponse(_peer_id, _response) => {
-                // TODO #3488
-                NetworkClientResponses::NoResponse
-            }
             NetworkClientMessages::PartialEncodedChunkRequest(part_request_msg, route_back) => {
                 let _ = self
                     .client
@@ -1418,6 +1410,23 @@ impl ClientActor {
         if block.header().height() < tail {
             debug!(target: "client", tail_height = tail, "Dropping a block that is too far behind.");
             return;
+        }
+        // drop the block if a) it is not requested, b) we already processed this height, c) it is not building on top of current head
+        // Note that this check must happen before process_block where we try to validate block
+        // header and rebroadcast blocks, otherwise blocks that failed processing could be
+        // processed and rebroadcasted again and again.
+        if !was_requested
+            && block.header().prev_hash()
+                != &self
+                    .client
+                    .chain
+                    .head()
+                    .map_or_else(|_| CryptoHash::default(), |tip| tip.last_block_hash)
+        {
+            if self.client.chain.is_height_processed(block.header().height()).unwrap_or_default() {
+                debug!(target: "client", height = block.header().height(), "Dropping a block because we've seen this height before and we didn't request it");
+                return;
+            }
         }
         let prev_hash = *block.header().prev_hash();
         let provenance =

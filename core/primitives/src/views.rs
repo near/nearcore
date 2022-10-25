@@ -12,6 +12,7 @@ use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
+use near_o11y::pretty;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader, Tip};
@@ -25,6 +26,7 @@ use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::{combine_hash, MerklePath};
+use crate::network::PeerId;
 use crate::profile::Cost;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::serialize::{base64_format, dec_format, option_base64_format};
@@ -243,6 +245,18 @@ impl FromIterator<AccessKeyInfoView> for AccessKeyList {
     }
 }
 
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct KnownPeerStateView {
+    pub peer_id: PeerId,
+    pub status: String,
+    pub addr: String,
+    pub first_seen: i64,
+    pub last_seen: i64,
+    pub last_attempt: Option<i64>,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum QueryResponseKind {
     ViewAccount(AccountView),
@@ -371,6 +385,11 @@ pub enum SyncStatusView {
     StateSyncDone,
     /// Catch up on blocks.
     BodySync { start_height: BlockHeight, current_height: BlockHeight, highest_height: BlockHeight },
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct PeerStoreView {
+    pub peer_states: Vec<KnownPeerStateView>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -1099,7 +1118,7 @@ impl fmt::Debug for FinalExecutionStatus {
             FinalExecutionStatus::Started => f.write_str("Started"),
             FinalExecutionStatus::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
             FinalExecutionStatus::SuccessValue(v) => {
-                f.write_fmt(format_args!("SuccessValue({})", logging::pretty_utf8(&v)))
+                f.write_fmt(format_args!("SuccessValue({})", pretty::AbbrBytes(v)))
             }
         }
     }
@@ -1137,7 +1156,7 @@ impl fmt::Debug for ExecutionStatusView {
             ExecutionStatusView::Unknown => f.write_str("Unknown"),
             ExecutionStatusView::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
             ExecutionStatusView::SuccessValue(v) => {
-                f.write_fmt(format_args!("SuccessValue({})", logging::pretty_utf8(&v)))
+                f.write_fmt(format_args!("SuccessValue({})", pretty::AbbrBytes(v)))
             }
             ExecutionStatusView::SuccessReceiptId(receipt_id) => {
                 f.write_fmt(format_args!("SuccessReceiptId({})", receipt_id))

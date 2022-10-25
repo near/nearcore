@@ -383,9 +383,9 @@ dependencies = [
 
 [[package]]
 name = "async-trait"
-version = "0.1.53"
+version = "0.1.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed6aa3524a2dfcf9fe180c51eae2b58738348d819517ceadf95789c51fff7600"
+checksum = "1e805d94e6b5001b651426cf4cd446b1ab5f319d27bab5c644f61de0a804360c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -878,6 +878,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "anyhow",
+ "async-trait",
  "clap 3.1.18",
  "dirs",
  "futures",
@@ -1477,6 +1478,7 @@ checksum = "f2fb860ca6fafa5552fb6d0e816a69c8e49f0908bf524e30a90d97c85892d506"
 dependencies = [
  "block-buffer 0.10.2",
  "crypto-common",
+ "subtle",
 ]
 
 [[package]]
@@ -2105,6 +2107,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59448fc2f82a5fb6907f78c3d69d843e82ff5b051923313cc4438cb0c7b745a8"
 dependencies = [
  "proc-macro-hack",
+]
+
+[[package]]
+name = "hkdf"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "791a029f6b9fc27657f6f188ec6e5e43f6911f6f878e0dc5501396e09809d437"
+dependencies = [
+ "hmac",
+]
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest 0.10.3",
 ]
 
 [[package]]
@@ -2909,6 +2929,7 @@ dependencies = [
  "actix-rt",
  "ansi_term",
  "assert_matches",
+ "async-trait",
  "borsh",
  "chrono",
  "delay-detector",
@@ -3158,6 +3179,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-mirror"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "anyhow",
+ "borsh",
+ "bs58",
+ "clap 3.1.18",
+ "ed25519-dalek",
+ "hex",
+ "hkdf",
+ "near-chain-configs",
+ "near-client",
+ "near-client-primitives",
+ "near-crypto",
+ "near-indexer",
+ "near-indexer-primitives",
+ "near-network",
+ "near-o11y",
+ "near-primitives",
+ "near-primitives-core",
+ "near-store",
+ "nearcore",
+ "once_cell",
+ "openssl-probe",
+ "rand_core 0.5.1",
+ "rocksdb",
+ "secp256k1",
+ "serde",
+ "serde_json",
+ "sha2 0.10.2",
+ "strum",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "near-network"
 version = "0.0.0"
 dependencies = [
@@ -3165,6 +3224,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "assert_matches",
+ "async-trait",
  "borsh",
  "bytes",
  "bytesize",
@@ -3217,7 +3277,7 @@ dependencies = [
  "clap 3.1.18",
  "itoa 1.0.2",
  "near-crypto",
- "near-primitives",
+ "near-primitives-core",
  "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -3289,6 +3349,7 @@ dependencies = [
  "hex",
  "insta",
  "near-crypto",
+ "near-o11y",
  "near-primitives-core",
  "near-rpc-error-macro",
  "near-vm-errors",
@@ -3614,6 +3675,7 @@ dependencies = [
  "futures",
  "near-chain-configs",
  "near-jsonrpc-primitives",
+ "near-mirror",
  "near-o11y",
  "near-performance-metrics",
  "near-primitives",
@@ -4229,11 +4291,11 @@ checksum = "dbf0c48bc1d91375ae5c3cd81e3722dff1abcf81a30960240640d223f59fe0e5"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.38"
+version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9027b48e9d4c9175fa2218adf3557f91c1137021739951d4932f5f8268ac48aa"
+checksum = "5ea3d908b0e36316caf9e9e2c4625cdde190a7e6f440d794667ed17a1855e725"
 dependencies = [
- "unicode-xid",
+ "unicode-ident",
 ]
 
 [[package]]
@@ -5424,13 +5486,13 @@ checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
 
 [[package]]
 name = "syn"
-version = "1.0.94"
+version = "1.0.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a07e33e919ebcd69113d5be0e4d70c5707004ff45188910106854f38b960df4a"
+checksum = "a864042229133ada95abf3b54fdc62ef5ccabe9515b64717bcb9a1919e59445d"
 dependencies = [
  "proc-macro2",
  "quote",
- "unicode-xid",
+ "unicode-ident",
 ]
 
 [[package]]
@@ -5982,6 +6044,12 @@ name = "unicode-bidi"
 version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "099b7128301d285f79ddd55b9a83d5e6b9e97c92e0ea0daebee7263e932de992"
+
+[[package]]
+name = "unicode-ident"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ceab39d59e4c9499d4e5a8ee0e2735b891bb7308ac83dfb4e80cad195c9f6f3"
 
 [[package]]
 name = "unicode-normalization"
