@@ -3,14 +3,13 @@ use bs58;
 use curve25519_dalek::constants::{
     RISTRETTO_BASEPOINT_POINT as G, RISTRETTO_BASEPOINT_TABLE as GT,
 };
-use rand::rngs::OsRng;
 use std::borrow::Borrow;
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 
 #[derive(Clone)]
 pub struct PublicKey(pub(crate) [u8; 32], pub(crate) Point);
 #[derive(Clone)]
-pub struct SecretKey(pub(crate) Scalar, pub(crate) PublicKey);
+pub struct SecretKey(Scalar, PublicKey);
 value_type!(pub, Value, 32, "value");
 value_type!(pub, Proof, 64, "proof");
 
@@ -55,10 +54,6 @@ impl SecretKey {
 
     fn from_bytes(bytes: &[u8; 32]) -> Option<Self> {
         Some(Self::from_scalar(unpack(bytes)?))
-    }
-
-    pub fn random() -> Self {
-        Self::from_scalar(Scalar::random(&mut OsRng))
     }
 
     pub fn public_key(&self) -> &PublicKey {
@@ -111,12 +106,18 @@ traits!(SecretKey, 32, |s| s.0.as_bytes(), "secret key");
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use rand::rngs::OsRng;
     use serde::{Deserialize, Serialize};
     use serde_json::{from_str, to_string};
 
+    fn random_secret_key() -> SecretKey {
+        SecretKey::from_scalar(Scalar::random(&mut OsRng))
+    }
+
     #[test]
     fn test_conversion() {
-        let sk = SecretKey::random();
+        let sk = random_secret_key();
         let sk2 = SecretKey::from_bytes(&sk.clone().into()).unwrap();
         assert_eq!(sk, sk2);
         let pk = sk.public_key();
@@ -128,7 +129,7 @@ mod tests {
 
     #[test]
     fn test_verify() {
-        let sk = SecretKey::random();
+        let sk = random_secret_key();
         let (val, proof) = sk.compute_vrf_with_proof(b"Test");
         let val2 = sk.compute_vrf(b"Test");
         assert_eq!(val, val2);
@@ -138,8 +139,8 @@ mod tests {
 
     #[test]
     fn test_different_keys() {
-        let sk = SecretKey::random();
-        let sk2 = SecretKey::random();
+        let sk = random_secret_key();
+        let sk2 = random_secret_key();
         assert_ne!(sk, sk2);
         assert_ne!(Into::<[u8; 32]>::into(sk.clone()), Into::<[u8; 32]>::into(sk2.clone()));
         let pk = sk.public_key();
@@ -161,7 +162,7 @@ mod tests {
 
     #[test]
     fn test_serialize() {
-        let sk = SecretKey::random();
+        let sk = random_secret_key();
         let sk2 = round_trip(&sk);
         assert_eq!(sk, sk2);
         let (val, proof) = sk.compute_vrf_with_proof(b"Test");
