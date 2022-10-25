@@ -15,7 +15,6 @@ use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
-use tracing::Instrument;
 
 /// A strongly typed asynchronous API for the Client logic.
 /// It abstracts away the fact that client is implemented using actix
@@ -54,7 +53,6 @@ impl Client {
                 }
                 .with_span_context(),
             )
-            .in_current_span()
             .await
         {
             Ok(NetworkViewClientResponses::TxStatus(tx_result)) => Ok(Some(*tx_result)),
@@ -78,7 +76,6 @@ impl Client {
                 NetworkViewClientMessages::TxStatusResponse(Box::new(tx_result.clone()))
                     .with_span_context(),
             )
-            .in_current_span()
             .await
         {
             Ok(NetworkViewClientResponses::NoResponse) => Ok(()),
@@ -106,7 +103,6 @@ impl Client {
                 }
                 .with_span_context(),
             )
-            .in_current_span()
             .await
         {
             Ok(NetworkViewClientResponses::StateResponse(resp)) => Ok(Some(*resp)),
@@ -137,7 +133,6 @@ impl Client {
                 }
                 .with_span_context(),
             )
-            .in_current_span()
             .await
         {
             Ok(NetworkViewClientResponses::StateResponse(resp)) => Ok(Some(*resp)),
@@ -156,7 +151,6 @@ impl Client {
         match self
             .client_addr
             .send(NetworkClientMessages::StateResponse(info).with_span_context())
-            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -178,7 +172,6 @@ impl Client {
         match self
             .client_addr
             .send(NetworkClientMessages::BlockApproval(approval, peer_id).with_span_context())
-            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -203,7 +196,6 @@ impl Client {
                 NetworkClientMessages::Transaction { transaction, is_forwarded, check_only: false }
                     .with_span_context(),
             )
-            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::ValidTx) => Ok(()),
@@ -234,7 +226,6 @@ impl Client {
                 NetworkClientMessages::PartialEncodedChunkRequest(req, msg_hash)
                     .with_span_context(),
             )
-            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -260,7 +251,6 @@ impl Client {
                 NetworkClientMessages::PartialEncodedChunkResponse(resp, timestamp.into())
                     .with_span_context(),
             )
-            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -281,7 +271,6 @@ impl Client {
         match self
             .client_addr
             .send(NetworkClientMessages::PartialEncodedChunk(chunk).with_span_context())
-            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -303,7 +292,6 @@ impl Client {
         match self
             .client_addr
             .send(NetworkClientMessages::PartialEncodedChunkForward(msg).with_span_context())
-            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -321,7 +309,6 @@ impl Client {
         match self
             .view_client_addr
             .send(NetworkViewClientMessages::BlockRequest(hash).with_span_context())
-            .in_current_span()
             .await
         {
             Ok(NetworkViewClientResponses::Block(block)) => Ok(Some(*block)),
@@ -343,7 +330,6 @@ impl Client {
         match self
             .view_client_addr
             .send(NetworkViewClientMessages::BlockHeadersRequest(hashes).with_span_context())
-            .in_current_span()
             .await
         {
             Ok(NetworkViewClientResponses::BlockHeaders(block_headers)) => Ok(Some(block_headers)),
@@ -367,7 +353,6 @@ impl Client {
         match self
             .client_addr
             .send(NetworkClientMessages::Block(block, peer_id, was_requested).with_span_context())
-            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -389,7 +374,6 @@ impl Client {
         match self
             .client_addr
             .send(NetworkClientMessages::BlockHeaders(headers, peer_id).with_span_context())
-            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -407,7 +391,6 @@ impl Client {
         match self
             .client_addr
             .send(NetworkClientMessages::Challenge(challenge).with_span_context())
-            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -425,7 +408,6 @@ impl Client {
         match self
             .client_addr
             .send(NetworkClientMessages::NetworkInfo(info).with_span_context())
-            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => {}
@@ -442,7 +424,6 @@ impl Client {
         match self
             .view_client_addr
             .send(NetworkViewClientMessages::AnnounceAccount(accounts).with_span_context())
-            .in_current_span()
             .await
         {
             Ok(NetworkViewClientResponses::AnnounceAccount(accounts)) => Ok(accounts),

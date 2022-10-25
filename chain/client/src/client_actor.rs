@@ -286,6 +286,9 @@ impl Handler<WithSpanContext<NetworkClientMessages>> for ClientActor {
 
 impl ClientActor {
     fn handle_client_messages(&mut self, msg: NetworkClientMessages) -> NetworkClientResponses {
+        let msg_type: &str = (&msg).into();
+        let _span =
+            tracing::trace_span!(target: "client", "handle_client_messages", msg_type).entered();
         match msg {
             #[cfg(feature = "test_features")]
             NetworkClientMessages::Adversarial(adversarial_msg) => {
