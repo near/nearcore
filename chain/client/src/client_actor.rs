@@ -1247,7 +1247,6 @@ impl ClientActor {
     fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
         if let Some(block) = self.client.produce_block(next_height)? {
-            // We’ve produced the block so that counts as validated block.
             // If we produced the block, send it out before we apply the block.
             self.network_adapter.do_send(
                 PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Block {
@@ -1255,6 +1254,7 @@ impl ClientActor {
                 })
                 .with_span_context(),
             );
+            // We’ve produced the block so that counts as validated block.
             let block = MaybeValidated::from_validated(block);
             let res = self.client.start_process_block(
                 block,
@@ -1351,6 +1351,7 @@ impl ClientActor {
         if headers.len() == 0 {
             return true;
         }
+        info!(target: "client", "Received block headers from height {} to {}", headers.first().unwrap().height(), headers.last().unwrap().height());
         match self.client.sync_block_headers(headers) {
             Ok(_) => true,
             Err(err) => {

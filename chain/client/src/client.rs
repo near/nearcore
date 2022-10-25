@@ -823,29 +823,28 @@ impl Client {
         let prev_hash = *block.header().prev_hash();
         let _span = tracing::debug_span!(
             target: "client",
-            "process_block",
+            "receive_block",
             me = ?self.validator_signer.as_ref().map(|vs| vs.validator_id()),
-            prev_hash = %prev_hash,
+            %prev_hash,
             %hash,
             height = block.header().height(),
             %peer_id,
             was_requested)
         .entered();
 
-        match self.receive_block_impl(
+        let res = self.receive_block_impl(
             block,
             peer_id.clone(),
             was_requested,
             apply_chunks_done_callback,
-        ) {
-            Ok(_) => {}
-            // Log the errors here. Note that the real error handling logic is already
-            // done within process_block_impl, this is just for logging.
-            Err(ref err) if err.is_bad_data() => {
+        );
+        // Log the errors here. Note that the real error handling logic is already
+        // done within process_block_impl, this is just for logging.
+        if let Err(err) = res {
+            if err.is_bad_data() {
                 warn!(target: "client", "Receive bad block: {}", err);
-            }
-            Err(ref err) if err.is_error() => {
-                if let near_chain::Error::DBNotFoundErr(msg) = err {
+            } else if err.is_error() {
+                if let near_chain::Error::DBNotFoundErr(msg) = &err {
                     debug_assert!(!msg.starts_with("BLOCK HEIGHT"), "{:?}", err);
                 }
                 if self.sync_status.is_syncing() {
@@ -855,9 +854,8 @@ impl Client {
                 } else {
                     error!(target: "client", "Error on receival of block: {}", err);
                 }
-            }
-            Err(e) => {
-                debug!(target: "client", error = %e, "Process block: refused by chain");
+            } else {
+                debug!(target: "client", error = %err, "Process block: refused by chain");
             }
         }
     }
@@ -874,17 +872,17 @@ impl Client {
         was_requested: bool,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), near_chain::Error> {
-        let prev_hash = *block.header().prev_hash();
         // To protect ourselves from spamming, we do some pre-check on block height before we do any
         // real processing.
         if !self.check_block_height(&block, was_requested)? {
             return Ok(());
         }
+        let prev_hash = *block.header().prev_hash();
         let block = block.into();
         self.verify_and_rebroadcast_block(&block, was_requested, &peer_id)?;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
-        let res = self.start_process_block(block.into(), provenance, apply_chunks_done_callback);
+        let res = self.start_process_block(block, provenance, apply_chunks_done_callback);
         match &res {
             Err(near_chain::Error::Orphan) => {
                 if !self.chain.is_orphan(&prev_hash) {
