@@ -5,11 +5,10 @@ use assert_matches::assert_matches;
 use near_chain::chain::NUM_ORPHAN_ANCESTORS_CHECK;
 use near_chain::{ChainGenesis, Error, Provenance, RuntimeAdapter};
 use near_chain_configs::Genesis;
+use near_client::adapter::NetworkClientResponses;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_network::types::{
-    MsgRecipient, NetworkClientResponses, NetworkRequests, PeerManagerMessageRequest,
-};
+use near_network::types::{MsgRecipient, NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::account::AccessKey;
