@@ -9,6 +9,7 @@ use actix::{Addr, System};
 use futures::FutureExt;
 use rand::{thread_rng, Rng};
 
+use crate::adapter::NetworkClientMessages;
 use crate::test_utils::setup_mock_all_validators;
 use crate::{ClientActor, GetBlock, ViewClientActor};
 use near_actix_test_utils::run_actix;
@@ -17,8 +18,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
 use near_network::types::PeerInfo;
 use near_network::types::{
-    NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
-    PeerManagerMessageResponse,
+    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
