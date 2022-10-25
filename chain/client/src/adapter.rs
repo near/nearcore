@@ -2,19 +2,124 @@ use crate::client_actor::ClientActor;
 use crate::view_client::ViewClientActor;
 use near_network::time;
 use near_network::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkViewClientMessages,
-    NetworkViewClientResponses, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
+    NetworkInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
     PartialEncodedChunkResponseMsg, ReasonForBan, StateResponseInfo,
 };
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
+
+#[derive(actix::Message, Debug, strum::AsRefStr, strum::IntoStaticStr)]
+// TODO(#1313): Use Box
+#[allow(clippy::large_enum_variant)]
+#[rtype(result = "NetworkClientResponses")]
+pub enum NetworkClientMessages {
+    #[cfg(feature = "test_features")]
+    Adversarial(near_network::types::NetworkAdversarialMessage),
+
+    /// Received transaction.
+    Transaction {
+        transaction: SignedTransaction,
+        /// Whether the transaction is forwarded from other nodes.
+        is_forwarded: bool,
+        /// Whether the transaction needs to be submitted.
+        check_only: bool,
+    },
+    /// Received block, possibly requested.
+    Block(Block, PeerId, bool),
+    /// Received list of headers for syncing.
+    BlockHeaders(Vec<BlockHeader>, PeerId),
+    /// Block approval.
+    BlockApproval(Approval, PeerId),
+    /// State response.
+    StateResponse(StateResponseInfo),
+
+    /// Request chunk parts and/or receipts.
+    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg, CryptoHash),
+    /// Response to a request for  chunk parts and/or receipts.
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg, std::time::Instant),
+    /// Information about chunk such as its header, some subset of parts and/or incoming receipts
+    PartialEncodedChunk(PartialEncodedChunk),
+    /// Forwarding parts to those tracking the shard (so they don't need to send requests)
+    PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
+
+    /// A challenge to invalidate the block.
+    Challenge(Challenge),
+
+    NetworkInfo(NetworkInfo),
+}
+
+// TODO(#1313): Use Box
+#[derive(Eq, PartialEq, Debug, actix::MessageResponse)]
+#[allow(clippy::large_enum_variant)]
+pub enum NetworkClientResponses {
+    /// Adv controls.
+    #[cfg(feature = "test_features")]
+    AdvResult(u64),
+
+    /// No response.
+    NoResponse,
+    /// Valid transaction inserted into mempool as response to Transaction.
+    ValidTx,
+    /// Invalid transaction inserted into mempool as response to Transaction.
+    InvalidTx(InvalidTxError),
+    /// The request is routed to other shards
+    RequestRouted,
+    /// The node being queried does not track the shard needed and therefore cannot provide userful
+    /// response.
+    DoesNotTrackShard,
+    /// Ban peer for malicious behavior.
+    Ban { ban_reason: ReasonForBan },
+}
+
+#[derive(actix::Message, strum::IntoStaticStr)]
+#[rtype(result = "NetworkViewClientResponses")]
+pub enum NetworkViewClientMessages {
+    #[cfg(feature = "test_features")]
+    Adversarial(near_network::types::NetworkAdversarialMessage),
+
+    /// Transaction status query
+    TxStatus { tx_hash: CryptoHash, signer_account_id: AccountId },
+    /// Transaction status response
+    TxStatusResponse(Box<FinalExecutionOutcomeView>),
+    /// Request a block.
+    BlockRequest(CryptoHash),
+    /// Request headers.
+    BlockHeadersRequest(Vec<CryptoHash>),
+    /// State request header.
+    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash },
+    /// State request part.
+    StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64 },
+    /// Account announcements that needs to be validated before being processed.
+    /// They are paired with last epoch id known to this announcement, in order to accept only
+    /// newer announcements.
+    AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
+}
+
+#[derive(Debug, actix::MessageResponse)]
+pub enum NetworkViewClientResponses {
+    /// Transaction execution outcome
+    TxStatus(Box<FinalExecutionOutcomeView>),
+    /// Block response.
+    Block(Box<Block>),
+    /// Headers response.
+    BlockHeaders(Vec<BlockHeader>),
+    /// Response to state request.
+    StateResponse(Box<StateResponseInfo>),
+    /// Valid announce accounts.
+    AnnounceAccount(Vec<AnnounceAccount>),
+    /// Ban peer for malicious behavior.
+    Ban { ban_reason: ReasonForBan },
+    /// Response not needed
+    NoResponse,
+}
 
 pub struct Adapter {
     /// Address of the client actor.
