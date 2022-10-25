@@ -14,6 +14,7 @@ use near_client_primitives::debug::ChunkProduction;
 use near_primitives::time::Clock;
 use tracing::{debug, error, info, trace, warn};
 
+use crate::adapter::NetworkClientResponses;
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
     OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
@@ -26,9 +27,7 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::ShardsManager;
-use near_network::types::{
-    FullPeerInfo, NetworkClientResponses, NetworkRequests, PeerManagerAdapter,
-};
+use near_network::types::{FullPeerInfo, NetworkRequests, PeerManagerAdapter};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
@@ -817,24 +816,6 @@ impl Client {
         provenance: Provenance,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), near_chain::Error> {
-        let is_requested = match provenance {
-            Provenance::PRODUCED | Provenance::SYNC => true,
-            Provenance::NONE => false,
-        };
-        // Drop the block if a) it is not requested, b) we already processed this height,
-        // c) it is not building on top of current head
-        if !is_requested
-            && block.header().prev_hash()
-                != &self
-                    .chain
-                    .head()
-                    .map_or_else(|_| CryptoHash::default(), |tip| tip.last_block_hash)
-        {
-            if self.chain.store().is_height_processed(block.header().height())? {
-                return Ok(());
-            }
-        }
-
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
         let result = {

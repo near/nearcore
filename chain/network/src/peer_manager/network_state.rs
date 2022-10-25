@@ -39,7 +39,7 @@ pub(crate) struct NetworkState {
     pub config: Arc<config::VerifiedConfig>,
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
-    pub client: client::Client,
+    pub client: Arc<dyn client::Client>,
     /// Address of the peer manager actor.
     pub peer_manager_addr: Recipient<WithSpanContext<PeerToManagerMsg>>,
     /// RoutingTableActor, responsible for computing routing table, routing table exchange, etc.
@@ -79,7 +79,7 @@ impl NetworkState {
         peer_store: peer_store::PeerStore,
         config: Arc<config::VerifiedConfig>,
         genesis_id: GenesisId,
-        client: client::Client,
+        client: Arc<dyn client::Client>,
         peer_manager_addr: Recipient<WithSpanContext<PeerToManagerMsg>>,
     ) -> Self {
         let graph = Arc::new(RwLock::new(routing::GraphWithCache::new(config.node_id())));

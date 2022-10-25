@@ -8,8 +8,8 @@ use near_primitives::network::PeerId;
 use parking_lot::Mutex;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use im::hashmap::Entry;
+use im::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::ops::Not;
 
@@ -508,6 +508,10 @@ impl PeerStore {
                 tracing::error!(target: "network", ?err, "Failed to unban a peer");
             }
         }
+    }
+
+    pub fn load(&self) -> HashMap<PeerId, KnownPeerState> {
+        self.0.lock().peer_states.clone()
     }
 }
 

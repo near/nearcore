@@ -1,5 +1,6 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
+use crate::adapter::{NetworkClientMessages, NetworkClientResponses};
 use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::info::{
     display_sync_status, get_validator_epoch_stats, InfoHelper, ValidatorInfoHelper,
@@ -32,8 +33,7 @@ use near_client_primitives::types::{
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
-    PeerManagerAdapter, PeerManagerMessageRequest,
+    NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics;
@@ -1410,6 +1410,23 @@ impl ClientActor {
         if block.header().height() < tail {
             debug!(target: "client", tail_height = tail, "Dropping a block that is too far behind.");
             return;
+        }
+        // drop the block if a) it is not requested, b) we already processed this height, c) it is not building on top of current head
+        // Note that this check must happen before process_block where we try to validate block
+        // header and rebroadcast blocks, otherwise blocks that failed processing could be
+        // processed and rebroadcasted again and again.
+        if !was_requested
+            && block.header().prev_hash()
+                != &self
+                    .client
+                    .chain
+                    .head()
+                    .map_or_else(|_| CryptoHash::default(), |tip| tip.last_block_hash)
+        {
+            if self.client.chain.is_height_processed(block.header().height()).unwrap_or_default() {
+                debug!(target: "client", height = block.header().height(), "Dropping a block because we've seen this height before and we didn't request it");
+                return;
+            }
         }
         let prev_hash = *block.header().prev_hash();
         let provenance =
