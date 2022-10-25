@@ -15,6 +15,7 @@ use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
+use tracing::Instrument;
 
 /// A strongly typed asynchronous API for the Client logic.
 /// It abstracts away the fact that client is implemented using actix
@@ -43,6 +44,7 @@ impl Client {
         account_id: AccountId,
         tx_hash: CryptoHash,
     ) -> Result<Option<FinalExecutionOutcomeView>, ReasonForBan> {
+        let _span = tracing::trace_span!(target: "network", "tx_status_request").entered();
         match self
             .view_client_addr
             .send(
@@ -52,6 +54,7 @@ impl Client {
                 }
                 .with_span_context(),
             )
+            .in_current_span()
             .await
         {
             Ok(NetworkViewClientResponses::TxStatus(tx_result)) => Ok(Some(*tx_result)),
@@ -68,12 +71,14 @@ impl Client {
         &self,
         tx_result: FinalExecutionOutcomeView,
     ) -> Result<(), ReasonForBan> {
+        let _span = tracing::trace_span!(target: "network", "tx_status_response").entered();
         match self
             .view_client_addr
             .send(
                 NetworkViewClientMessages::TxStatusResponse(Box::new(tx_result.clone()))
                     .with_span_context(),
             )
+            .in_current_span()
             .await
         {
             Ok(NetworkViewClientResponses::NoResponse) => Ok(()),
@@ -91,6 +96,7 @@ impl Client {
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
+        let _span = tracing::trace_span!(target: "network", "state_request_header").entered();
         match self
             .view_client_addr
             .send(
@@ -100,6 +106,7 @@ impl Client {
                 }
                 .with_span_context(),
             )
+            .in_current_span()
             .await
         {
             Ok(NetworkViewClientResponses::StateResponse(resp)) => Ok(Some(*resp)),
@@ -119,6 +126,7 @@ impl Client {
         sync_hash: CryptoHash,
         part_id: u64,
     ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
+        let _span = tracing::trace_span!(target: "network", "state_request_part").entered();
         match self
             .view_client_addr
             .send(
@@ -129,6 +137,7 @@ impl Client {
                 }
                 .with_span_context(),
             )
+            .in_current_span()
             .await
         {
             Ok(NetworkViewClientResponses::StateResponse(resp)) => Ok(Some(*resp)),
@@ -143,9 +152,11 @@ impl Client {
     }
 
     pub async fn state_response(&self, info: StateResponseInfo) -> Result<(), ReasonForBan> {
+        let _span = tracing::trace_span!(target: "network", "state_response").entered();
         match self
             .client_addr
             .send(NetworkClientMessages::StateResponse(info).with_span_context())
+            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -163,9 +174,11 @@ impl Client {
         approval: Approval,
         peer_id: PeerId,
     ) -> Result<(), ReasonForBan> {
+        let _span = tracing::trace_span!(target: "network", "block_approval").entered();
         match self
             .client_addr
             .send(NetworkClientMessages::BlockApproval(approval, peer_id).with_span_context())
+            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -183,12 +196,14 @@ impl Client {
         transaction: SignedTransaction,
         is_forwarded: bool,
     ) -> Result<(), ReasonForBan> {
+        let _span = tracing::trace_span!(target: "network", "transaction").entered();
         match self
             .client_addr
             .send(
                 NetworkClientMessages::Transaction { transaction, is_forwarded, check_only: false }
                     .with_span_context(),
             )
+            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::ValidTx) => Ok(()),
@@ -211,12 +226,15 @@ impl Client {
         req: PartialEncodedChunkRequestMsg,
         msg_hash: CryptoHash,
     ) -> Result<(), ReasonForBan> {
+        let _span =
+            tracing::trace_span!(target: "network", "partial_encoded_chunk_request").entered();
         match self
             .client_addr
             .send(
                 NetworkClientMessages::PartialEncodedChunkRequest(req, msg_hash)
                     .with_span_context(),
             )
+            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -234,12 +252,15 @@ impl Client {
         resp: PartialEncodedChunkResponseMsg,
         timestamp: time::Instant,
     ) -> Result<(), ReasonForBan> {
+        let _span =
+            tracing::trace_span!(target: "network", "partial_encoded_chunk_response").entered();
         match self
             .client_addr
             .send(
                 NetworkClientMessages::PartialEncodedChunkResponse(resp, timestamp.into())
                     .with_span_context(),
             )
+            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -256,9 +277,11 @@ impl Client {
         &self,
         chunk: PartialEncodedChunk,
     ) -> Result<(), ReasonForBan> {
+        let _span = tracing::trace_span!(target: "network", "partial_encoded_chunk").entered();
         match self
             .client_addr
             .send(NetworkClientMessages::PartialEncodedChunk(chunk).with_span_context())
+            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -275,9 +298,12 @@ impl Client {
         &self,
         msg: PartialEncodedChunkForwardMsg,
     ) -> Result<(), ReasonForBan> {
+        let _span =
+            tracing::trace_span!(target: "network", "partial_encoded_chunk_forward").entered();
         match self
             .client_addr
             .send(NetworkClientMessages::PartialEncodedChunkForward(msg).with_span_context())
+            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -291,9 +317,11 @@ impl Client {
     }
 
     pub async fn block_request(&self, hash: CryptoHash) -> Result<Option<Block>, ReasonForBan> {
+        let _span = tracing::trace_span!(target: "network", "block_request").entered();
         match self
             .view_client_addr
             .send(NetworkViewClientMessages::BlockRequest(hash).with_span_context())
+            .in_current_span()
             .await
         {
             Ok(NetworkViewClientResponses::Block(block)) => Ok(Some(*block)),
@@ -311,9 +339,11 @@ impl Client {
         &self,
         hashes: Vec<CryptoHash>,
     ) -> Result<Option<Vec<BlockHeader>>, ReasonForBan> {
+        let _span = tracing::trace_span!(target: "network", "block_headers_request").entered();
         match self
             .view_client_addr
             .send(NetworkViewClientMessages::BlockHeadersRequest(hashes).with_span_context())
+            .in_current_span()
             .await
         {
             Ok(NetworkViewClientResponses::BlockHeaders(block_headers)) => Ok(Some(block_headers)),
@@ -333,9 +363,11 @@ impl Client {
         peer_id: PeerId,
         was_requested: bool,
     ) -> Result<(), ReasonForBan> {
+        let _span = tracing::trace_span!(target: "network", "block").entered();
         match self
             .client_addr
             .send(NetworkClientMessages::Block(block, peer_id, was_requested).with_span_context())
+            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -353,9 +385,11 @@ impl Client {
         headers: Vec<BlockHeader>,
         peer_id: PeerId,
     ) -> Result<(), ReasonForBan> {
+        let _span = tracing::trace_span!(target: "network", "block_headers").entered();
         match self
             .client_addr
             .send(NetworkClientMessages::BlockHeaders(headers, peer_id).with_span_context())
+            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -369,9 +403,11 @@ impl Client {
     }
 
     pub async fn challenge(&self, challenge: Challenge) -> Result<(), ReasonForBan> {
+        let _span = tracing::trace_span!(target: "network", "challenge").entered();
         match self
             .client_addr
             .send(NetworkClientMessages::Challenge(challenge).with_span_context())
+            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => Ok(()),
@@ -385,9 +421,11 @@ impl Client {
     }
 
     pub async fn network_info(&self, info: NetworkInfo) {
+        let _span = tracing::trace_span!(target: "network", "network_info").entered();
         match self
             .client_addr
             .send(NetworkClientMessages::NetworkInfo(info).with_span_context())
+            .in_current_span()
             .await
         {
             Ok(NetworkClientResponses::NoResponse) => {}
@@ -400,9 +438,11 @@ impl Client {
         &self,
         accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
     ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
+        let _span = tracing::trace_span!(target: "network", "announce_account").entered();
         match self
             .view_client_addr
             .send(NetworkViewClientMessages::AnnounceAccount(accounts).with_span_context())
+            .in_current_span()
             .await
         {
             Ok(NetworkViewClientResponses::AnnounceAccount(accounts)) => Ok(accounts),
