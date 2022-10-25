@@ -911,7 +911,8 @@ impl Client {
             debug!(target: "client", tail_height = tail, "Dropping a block that is too far behind.");
             return Ok(false);
         }
-        // drop the block if a) it is not requested, b) we already processed this height, c) it is not building on top of current head
+        // drop the block if a) it is not requested, b) we already processed this height,
+        // c) it is not building on top of current head
         if !was_requested
             && block.header().prev_hash()
                 != &self
