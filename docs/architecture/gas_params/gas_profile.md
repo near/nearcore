@@ -1,11 +1,11 @@
 # Gas Profile
 
-The transaction runtime charges gas in various places around the code. But they
-all end up summaries inside an `ActionResult`. More specifically, the counters
-`gas_burnt` and `gas_used` and the `profile` field that keeps track of what the
-gas has been spent on.
+The transaction runtime charges gas in various places around the code. The
+charges end up as summaries inside an `ActionResult`. More specifically, the
+`gas_burnt` and `gas_used` counters track the total gas required and the
+`profile` field keeps track of what the gas was spent on.
 
-## Charing Gas
+## Charging Gas
 Generally speaking, gas is charged right before the computation that it pays for
 is executed. It has to be before to avoid cheap resource exhaustion attacks.
 Imagine the user has only 1 gas unit left but we start executing an expensive
