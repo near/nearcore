@@ -12,11 +12,11 @@ use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::tcp;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
-use near_primitives::types::EpochId;
 use crate::time;
 use crate::types::{ChainInfo, KnownPeerStatus, PeerManagerMessageRequest, SetChainInfo};
 use crate::PeerManagerActor;
 use near_primitives::network::PeerId;
+use near_primitives::types::EpochId;
 use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
@@ -179,7 +179,7 @@ impl ActorHandler {
                     Some(())
                 }
                 Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
-                    panic!("PeerManager accepted the handshake")
+                    panic!("PeerManager rejected the handshake")
                 }
                 _ => None,
             })
@@ -304,8 +304,6 @@ impl ActorHandler {
                     s.accounts_data.load().data.values().cloned().collect::<HashSet<_>>()
                 })
                 .await;
-            tracing::debug!(target:"dupa","got = {:?}",got);
-            tracing::debug!(target:"dupa","want = {:?}",want);
             if &got == want {
                 break;
             }

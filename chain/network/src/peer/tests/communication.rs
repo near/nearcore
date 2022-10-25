@@ -1,7 +1,6 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    PartialEdgeInfo,
-    Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutedMessageBody,
+    Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, RoutedMessageBody,
 };
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor::Event as PME;
@@ -74,9 +73,7 @@ async fn test_peer_communication(
 
     // PeersResponse
     let mut events = inbound.events.from_now();
-    let want = PeerMessage::PeersResponse(
-        (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
-    );
+    let want = PeerMessage::PeersResponse((0..5).map(|_| data::make_peer_info(&mut rng)).collect());
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 

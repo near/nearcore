@@ -70,6 +70,7 @@ pub(crate) struct WhitelistNode {
 }
 
 pub(crate) struct NetworkState {
+    pub arbiter: actix::ArbiterHandle,
     /// PeerManager config.
     pub config: Arc<config::VerifiedConfig>,
     /// When network state has been constructed.
@@ -125,7 +126,24 @@ pub(crate) struct NetworkState {
     pub max_num_peers: AtomicCell<u32>,
 }
 
+impl Drop for NetworkState {
+    fn drop(&mut self) {
+        self.arbiter.stop();
+    }
+}
+
 impl NetworkState {
+    /*pub async fn run<F,Fut,R>(self:&Arc<Self>, f:F) -> R where
+        F : FnOnce(&NetworkState) -> Fut,
+        Fut: 'static + Send + std::future::Future<Output=R>
+    {
+        let this = self.clone();
+        let (send,recv) = tokio::sync::oneshot::channel();
+        let fut = f(&this);
+        self.arbiter.spawn(async move { send.send(fut.await); });
+        recv.await
+    }*/
+
     pub fn new(
         clock: &time::Clock,
         store: store::Store,
@@ -138,6 +156,7 @@ impl NetworkState {
         let graph = Arc::new(RwLock::new(routing::GraphWithCache::new(config.node_id())));
 
         Self {
+            arbiter: actix::Arbiter::new().handle(),
             routing_table_addr: routing::Actor::spawn(clock.clone(), store.clone(), graph.clone()),
             graph,
             genesis_id,
@@ -283,12 +302,16 @@ impl NetworkState {
         match conn.tier {
             tcp::Tier::T1 => self.tier1.insert_ready(conn).map_err(RegisterPeerError::PoolError)?,
             tcp::Tier::T2 => {
+                // Verify and broadcast the edge of the connection. Only then insert the new
+                // connection to TIER2 pool.
+                self.add_edges_to_routing_table(&clock, vec![conn.edge.clone()])
+                    .await
+                    .map_err(|_| RegisterPeerError::InvalidEdge)?;
                 self.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
                 // Best effort write to DB.
                 if let Err(err) = self.peer_store.peer_connected(clock, peer_info) {
                     tracing::error!(target: "network", ?err, "Failed to save peer data");
                 }
-                self.add_edges_to_routing_table(&clock, vec![conn.edge.clone()]).await.unwrap();
             }
         }
         Ok(())
@@ -489,9 +512,10 @@ impl NetworkState {
         clock: &time::Clock,
         mut edges: Vec<Edge>,
     ) -> Result<(), ReasonForBan> {
-        let graph = self.graph.read();
-        edges.retain(|x| !graph.has(x));
-        drop(graph);
+        {
+            let graph = self.graph.read();
+            edges.retain(|x| !graph.has(x));
+        }
         if edges.is_empty() {
             return Ok(());
         }
@@ -507,7 +531,7 @@ impl NetworkState {
         })
         .await;
         self.routing_table_view.add_local_edges(&edges);
-        
+
         let resp = match self
             .routing_table_addr
             .send(routing::actor::Message::AddVerifiedEdges { edges })
@@ -535,9 +559,11 @@ impl NetworkState {
         }
         // Broadcast new edges to all other peers.
         // TODO: demux
-        self.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-            RoutingTableUpdate::from_edges(edges),
-        )));
+        if edges.len() > 0 {
+            self.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                RoutingTableUpdate::from_edges(edges),
+            )));
+        }
         if !ok {
             return Err(ReasonForBan::InvalidEdge);
         }
@@ -549,14 +575,21 @@ impl NetworkState {
         prune_unreachable_since: Option<time::Instant>,
         prune_edges_older_than: Option<time::Utc>,
     ) {
-        let resp = self
+        let resp = match self
             .routing_table_addr
             .send(routing::actor::Message::RoutingTableUpdate {
                 prune_unreachable_since,
                 prune_edges_older_than,
             })
             .await
-            .unwrap();
+        {
+            Ok(resp) => resp,
+            Err(err) => {
+                // This can happen only when the PeerManagerActor is being shut down.
+                tracing::error!(target:"network","routing::actor::Actor: {err}");
+                return;
+            }
+        };
         match resp {
             routing::actor::Response::RoutingTableUpdate { pruned_edges, next_hops } => {
                 self.routing_table_view.update(&pruned_edges, next_hops.clone());
@@ -570,7 +603,7 @@ impl NetworkState {
     /// a) there is a peer we should be connected to, but we aren't
     /// b) there is an edge indicating that we should be disconnected from a peer, but we are connected.
     /// Try to resolve the inconsistency.
-    pub fn fix_local_edges(self: &Arc<Self>, arbiter: actix::ArbiterHandle) {
+    pub fn fix_local_edges(self: &Arc<Self>) {
         let local_edges = self.routing_table_view.get_local_edges();
         let tier2 = self.tier2.load();
         for edge in local_edges {
@@ -581,21 +614,21 @@ impl NetworkState {
                 (Some(conn), EdgeState::Removed) => {
                     let this = self.clone();
                     let conn = conn.clone();
-                    arbiter.spawn(async move {
-                        conn.send_message(
-                            Arc::new(PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
+                    self.arbiter.spawn(async move {
+                        conn.send_message(Arc::new(PeerMessage::RequestUpdateNonce(
+                            PartialEdgeInfo::new(
                                 &node_id,
                                 &conn.peer_info.id,
                                 edge.next(),
                                 &this.config.node_key,
-                            ))),
-                        );
+                            ),
+                        )));
                         // TODO(gprusak): here we should synchronically wait for the RequestUpdateNonce
                         // response (with timeout). Until network round trips are implemented, we just
                         // blindly wait for a while, then check again.
                         tokio::time::sleep(WAIT_ON_TRY_UPDATE_NONCE.try_into().unwrap()).await;
                         match this.routing_table_view.get_local_edge(&conn.peer_info.id) {
-                            Some(edge) if edge.edge_type()==EdgeState::Active => return,
+                            Some(edge) if edge.edge_type() == EdgeState::Active => return,
                             _ => conn.stop(None),
                         }
                     });
@@ -606,7 +639,7 @@ impl NetworkState {
                 (None, EdgeState::Active) => {
                     let this = self.clone();
                     let other_peer = other_peer.clone();
-                    arbiter.spawn(async move {
+                    self.arbiter.spawn(async move {
                         // This edge says this is an connected peer, which is currently not in the set of connected peers.
                         // Wait for some time to let the connection begin or broadcast edge removal instead.
                         tokio::time::sleep(WAIT_PEER_BEFORE_REMOVE.try_into().unwrap()).await;
@@ -614,7 +647,8 @@ impl NetworkState {
                             return;
                         }
                         // Peer is still not connected after waiting a timeout.
-                        let new_edge = edge.remove_edge(this.config.node_id(), &this.config.node_key);
+                        let new_edge =
+                            edge.remove_edge(this.config.node_id(), &this.config.node_key);
                         this.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
                             RoutingTableUpdate::from_edges(vec![new_edge]),
                         )));

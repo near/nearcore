@@ -32,7 +32,6 @@ use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-
 /// Ratio between consecutive attempts to establish connection with another peer.
 /// In the kth step node should wait `10 * EXPONENTIAL_BACKOFF_RATIO**k` milliseconds
 const EXPONENTIAL_BACKOFF_RATIO: f64 = 1.1;
@@ -74,8 +73,6 @@ pub struct PeerManagerActor {
     /// TODO(gprusak): this field is duplicated with
     /// NetworkState.config. Remove it from here.
     config: Arc<config::VerifiedConfig>,
-    /// Handle to the arbiter that this actor is running on.
-    arbiter: actix::ArbiterHandle,
     /// Peer information for this node.
     my_peer_id: PeerId,
     /// Flag that track whether we started attempts to establish outbound connections.
@@ -210,14 +207,12 @@ impl actix::Actor for PeerManagerActor {
         }));
 
         let state = self.state.clone();
-        let arbiter = self.arbiter.clone();
         ctx.spawn(wrap_future(async move {
-            let mut interval = 
-                tokio::time::interval(FIX_LOCAL_EDGES_INTERVAL.try_into().unwrap());
+            let mut interval = tokio::time::interval(FIX_LOCAL_EDGES_INTERVAL.try_into().unwrap());
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 interval.tick().await;
-                state.fix_local_edges(arbiter.clone());
+                state.fix_local_edges();
             }
         }));
 
@@ -270,7 +265,6 @@ impl PeerManagerActor {
         let arbiter = actix::Arbiter::new();
         Ok(Self::start_in_arbiter(&arbiter.handle(), move |_ctx| Self {
             my_peer_id: my_peer_id.clone(),
-            arbiter: arbiter.handle(),
             config: config.clone(),
             started_connect_attempts: false,
             state: Arc::new(NetworkState::new(

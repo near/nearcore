@@ -116,7 +116,9 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
                 mem::PeerMessage::SyncRoutingTable(rtu.into())
             }
             net::PeerMessage::RequestUpdateNonce(e) => mem::PeerMessage::RequestUpdateNonce(e),
-            net::PeerMessage::_ResponseUpdateNonce => return Err(Self::Error::DeprecatedResponseUpdateNonce),
+            net::PeerMessage::_ResponseUpdateNonce => {
+                return Err(Self::Error::DeprecatedResponseUpdateNonce)
+            }
             net::PeerMessage::PeersRequest => mem::PeerMessage::PeersRequest,
             net::PeerMessage::PeersResponse(pis) => mem::PeerMessage::PeersResponse(pis),
             net::PeerMessage::BlockHeadersRequest(bhs) => {

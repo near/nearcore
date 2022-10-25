@@ -176,7 +176,7 @@ impl Connection {
                 .await;
             if res.is_err() {
                 tracing::info!(
-                    "peer {} disconnected, while sencing SyncAccountsData",
+                    "peer {} disconnected, while sending SyncAccountsData",
                     this.peer_info.id
                 );
             }

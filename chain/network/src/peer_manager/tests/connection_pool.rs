@@ -24,7 +24,9 @@ async fn connection_spam_security_test() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
+    const PEERS_OVER_LIMIT: usize = 10;
     let mut cfg = chain.make_config(rng);
+    cfg.max_num_peers = (LIMIT_PENDING_PEERS + PEERS_OVER_LIMIT) as u32;
     // Make sure that connections will never get dropped.
     cfg.handshake_timeout = time::Duration::hours(1);
     let pm = peer_manager::testonly::start(
@@ -41,7 +43,7 @@ async fn connection_spam_security_test() {
         conns.push(pm.start_inbound(chain.clone(), chain.make_config(rng)).await);
     }
     // Try to establish additional connections. Should fail.
-    for _ in 0..10 {
+    for _ in 0..PEERS_OVER_LIMIT {
         let conn = pm.start_inbound(chain.clone(), chain.make_config(rng)).await;
         assert_eq!(
             ClosingReason::TooManyInbound,
@@ -73,9 +75,8 @@ async fn loop_connection() {
     cfg.node_key = pm.cfg.node_key.clone();
 
     // Loop connection on TIER1 should be accepted.
-    let chain_info = peer_manager::testonly::make_chain_info(
-        &data::make_epoch_id(rng),&chain,&[&pm],
-    );
+    let chain_info =
+        peer_manager::testonly::make_chain_info(&data::make_epoch_id(rng), &chain, &[&pm]);
     pm.set_chain_info(chain_info).await;
     pm.connect_to(&pm.peer_info(), tcp::Tier::T1).await;
 

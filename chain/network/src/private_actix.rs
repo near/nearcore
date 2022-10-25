@@ -13,6 +13,7 @@ pub(crate) enum RegisterPeerError {
     ConnectionLimitExceeded,
     NotTier1Peer,
     Tier1InboundDisabled,
+    InvalidEdge,
 }
 
 #[derive(actix::Message)]

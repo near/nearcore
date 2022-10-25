@@ -456,7 +456,10 @@ impl PeerActor {
     fn stop(&mut self, ctx: &mut actix::Context<PeerActor>, reason: ClosingReason) {
         // Only the first call to stop sets the closing_reason.
         if self.closing_reason.is_none() {
-            tracing::debug!(target:"network", "{}: stopping: {reason:?}",self.network_state.config.node_id());
+            tracing::debug!(target:"network", "{}: stopping: {reason:?} :: {:?}",self.network_state.config.node_id(),match &self.peer_status {
+                PeerStatus::Ready(conn) => Some(&conn.peer_info.id),
+                _ => None,
+            });
             self.closing_reason = Some(reason);
         }
         ctx.stop();
@@ -588,18 +591,6 @@ impl PeerActor {
             }
         }
 
-        // Verify that the received partial edge is valid.
-        // WARNING: signature is verified against the 2nd argument.
-        if !Edge::partial_verify(
-            &self.my_node_id(),
-            &handshake.sender_peer_id,
-            &handshake.partial_edge_info,
-        ) {
-            tracing::warn!(target: "network", "partial edge with invalid signature, disconnecting");
-            self.stop(ctx, ClosingReason::Ban(ReasonForBan::InvalidSignature));
-            return;
-        }
-
         // Merge partial edges.
         let nonce = handshake.partial_edge_info.nonce;
         let partial_edge_info = match cs {
@@ -617,7 +608,6 @@ impl PeerActor {
             partial_edge_info.signature.clone(),
             handshake.partial_edge_info.signature.clone(),
         );
-        debug_assert!(edge.verify());
 
         // TODO(gprusak): not enabling a port for listening is also a valid setup.
         // In that case peer_info.addr should be None (same as now), however
@@ -1068,7 +1058,7 @@ impl PeerActor {
             PeerMessage::RequestUpdateNonce(edge_info) => {
                 let clock = self.clock.clone();
                 let network_state = self.network_state.clone();
-                ctx.spawn(wrap_future(async move {
+                self.network_state.arbiter.spawn(async move {
                     let peer_id = &conn.peer_info.id;
                     let edge = match network_state.routing_table_view.get_local_edge(peer_id) {
                         Some(cur_edge)
@@ -1101,10 +1091,10 @@ impl PeerActor {
                         .config
                         .event_sink
                         .push(Event::MessageProcessed(tcp::Tier::T2, peer_msg));
-                }));
+                });
             }
             PeerMessage::SyncRoutingTable(rtu) => {
-                self.handle_sync_routing_table(ctx, conn, rtu);
+                self.handle_sync_routing_table(conn, rtu);
                 self.network_state
                     .config
                     .event_sink
@@ -1112,30 +1102,36 @@ impl PeerActor {
             }
             PeerMessage::SyncAccountsData(msg) => {
                 let peer_id = conn.peer_info.id.clone();
-                let pms = self.network_state.clone();
+                let network_state = self.network_state.clone();
                 // In case a full sync is requested, immediately send what we got.
                 // It is a microoptimization: we do not send back the data we just received.
                 if msg.requesting_full_sync {
                     self.send_message_or_log(&PeerMessage::SyncAccountsData(SyncAccountsData {
                         requesting_full_sync: false,
                         incremental: false,
-                        accounts_data: pms.accounts_data.load().data.values().cloned().collect(),
+                        accounts_data: network_state
+                            .accounts_data
+                            .load()
+                            .data
+                            .values()
+                            .cloned()
+                            .collect(),
                     }));
                 }
-                ctx.spawn(
-                    wrap_future(async move {
+                assert!(self.network_state.arbiter.spawn(async move {
+                    async {
                         // Early exit, if there is no data in the message.
                         if msg.accounts_data.is_empty() {
-                            return None;
+                            return;
                         }
                         // Verify and add the new data to the internal state.
                         let (new_data, err) =
-                            pms.accounts_data.clone().insert(msg.accounts_data).await;
+                            network_state.accounts_data.clone().insert(msg.accounts_data).await;
                         // Broadcast any new data we have found, even in presence of an error.
                         // This will prevent a malicious peer from forcing us to re-verify valid
                         // datasets. See accounts_data::Cache documentation for details.
                         if new_data.len() > 0 {
-                            let handles: Vec<_> = pms
+                            let handles: Vec<_> = network_state
                                 .tier2
                                 .load()
                                 .ready
@@ -1146,26 +1142,24 @@ impl PeerActor {
                                 .collect();
                             futures_util::future::join_all(handles).await;
                         }
-                        err.map(|err| match err {
-                            accounts_data::Error::InvalidSignature => {
-                                ReasonForBan::InvalidSignature
-                            }
-                            accounts_data::Error::DataTooLarge => ReasonForBan::Abusive,
-                            accounts_data::Error::SingleAccountMultipleData => {
-                                ReasonForBan::Abusive
-                            }
-                        })
-                    })
-                    .map(|ban_reason, act: &mut PeerActor, ctx| {
-                        if let Some(ban_reason) = ban_reason {
-                            act.stop(ctx, ClosingReason::Ban(ban_reason));
+                        if let Some(err) = err {
+                            conn.stop(Some(match err {
+                                accounts_data::Error::InvalidSignature => {
+                                    ReasonForBan::InvalidSignature
+                                }
+                                accounts_data::Error::DataTooLarge => ReasonForBan::Abusive,
+                                accounts_data::Error::SingleAccountMultipleData => {
+                                    ReasonForBan::Abusive
+                                }
+                            }));
                         }
-                        act.network_state
-                            .config
-                            .event_sink
-                            .push(Event::MessageProcessed(tcp::Tier::T2, peer_msg));
-                    }),
-                );
+                    }
+                    .await;
+                    network_state
+                        .config
+                        .event_sink
+                        .push(Event::MessageProcessed(tcp::Tier::T2, peer_msg));
+                }));
             }
             PeerMessage::Routed(mut msg) => {
                 tracing::trace!(
@@ -1241,7 +1235,6 @@ impl PeerActor {
 
     fn handle_sync_routing_table(
         &mut self,
-        ctx: &mut actix::Context<Self>,
         conn: Arc<connection::Connection>,
         rtu: RoutingTableUpdate,
     ) {
@@ -1262,26 +1255,29 @@ impl PeerActor {
             })
             .collect();
 
-        let network_state = self.network_state.clone();
-        let clock = self.clock.clone();
-        ctx.spawn(wrap_future(async move {
-            if let Err(ban_reason) = network_state.add_edges_to_routing_table(&clock, edges).await {
-                conn.stop(Some(ban_reason));
+        self.network_state.arbiter.spawn({
+            let conn = conn.clone();
+            let network_state = self.network_state.clone();
+            let clock = self.clock.clone();
+            async move {
+                if let Err(ban_reason) =
+                    network_state.add_edges_to_routing_table(&clock, edges).await
+                {
+                    conn.stop(Some(ban_reason));
+                }
             }
-        }));
+        });
         // Ask client to validate accounts before accepting them.
-        let network_state = self.network_state.clone();
-        ctx.spawn(
-            wrap_future(async move { network_state.client.announce_account(accounts).await }).then(
-                move |res, act: &mut PeerActor, ctx| {
-                    match res {
-                        Err(ban_reason) => act.stop(ctx, ClosingReason::Ban(ban_reason)),
-                        Ok(accounts) => act.network_state.broadcast_accounts(accounts),
-                    }
-                    wrap_future(async {})
-                },
-            ),
-        );
+        self.network_state.arbiter.spawn({
+            let conn = conn.clone();
+            let network_state = self.network_state.clone();
+            async move {
+                match network_state.client.announce_account(accounts).await {
+                    Err(ban_reason) => conn.stop(Some(ban_reason)),
+                    Ok(accounts) => network_state.broadcast_accounts(accounts),
+                }
+            }
+        });
     }
 }
 
@@ -1317,9 +1313,9 @@ impl actix::Actor for PeerActor {
             .push(Event::HandshakeStarted(HandshakeStartedEvent { stream_id: self.stream_id }));
     }
 
-    fn stopping(&mut self, ctx: &mut Self::Context) -> actix::Running {
+    fn stopping(&mut self, _: &mut Self::Context) -> actix::Running {
         metrics::PEER_CONNECTIONS_TOTAL.dec();
-        tracing::debug!(target: "network", "{:?}: [status = {:?}] Peer {} disconnected.", self.my_node_info.id, self.peer_status, self.peer_info);
+        tracing::debug!(target: "network", "{:?}: Peer {} disconnected.", self.my_node_info.id, self.peer_info);
         match &self.peer_status {
             // If PeerActor is in Connecting state, then
             // it was not registered in the NewtorkState,
@@ -1334,9 +1330,9 @@ impl actix::Actor for PeerActor {
                     Some(ClosingReason::Ban(reason)) => Some(reason),
                     _ => None,
                 };
-                ctx.wait(wrap_future(async move {
+                self.network_state.arbiter.spawn(async move {
                     network_state.unregister(&clock, &conn, ban_reason).await;
-                }));
+                });
             }
         }
         actix::Running::Stop

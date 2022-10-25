@@ -42,14 +42,18 @@ async fn accounts_data_broadcast() {
     };
 
     let data = chain.make_tier1_data(rng, clock);
-
-    // Connect peer, expect initial sync to be empty.
+    tracing::info!(target:"dupa","pm = {}",pm.cfg.node_id());
+    tracing::info!(target:"test","Connect peer, expect initial sync to be empty");
     let mut peer1 =
         pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
+    tracing::info!(target:"dupa","connected");
     let got1 = peer1.events.recv_until(take_sync).await;
-    assert_eq!(got1.accounts_data, vec![]);
+    assert_eq!(
+        got1,
+        SyncAccountsData { accounts_data: vec![], requesting_full_sync: false, incremental: false }
+    );
 
-    // Send some data. It won't be broadcasted back.
+    tracing::info!(target:"test","Send some data. It won't be broadcasted back.");
     let msg = SyncAccountsData {
         accounts_data: vec![data[0].clone(), data[1].clone()],
         incremental: true,
@@ -59,13 +63,13 @@ async fn accounts_data_broadcast() {
     peer1.send(PeerMessage::SyncAccountsData(msg)).await;
     pm.wait_for_accounts_data(&want).await;
 
-    // Connect another peer and perform initial full sync.
+    tracing::info!(target:"test","Connect another peer and perform initial full sync.");
     let mut peer2 =
         pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
     let got2 = peer2.events.recv_until(take_sync).await;
     assert_eq!(got2.accounts_data.as_set(), want.iter().collect());
 
-    // Send a mix of new and old data. Only new data should be broadcasted.
+    tracing::info!(target:"test","Send a mix of new and old data. Only new data should be broadcasted.");
     let msg = SyncAccountsData {
         accounts_data: vec![data[1].clone(), data[2].clone()],
         incremental: true,
@@ -76,7 +80,7 @@ async fn accounts_data_broadcast() {
     let got2 = peer2.events.recv_until(take_sync).await;
     assert_eq!(got2.accounts_data.as_set(), want.as_set());
 
-    // Send a request for a full sync.
+    tracing::info!(target:"test","Send a request for a full sync.");
     let want = vec![data[0].clone(), data[1].clone(), data[2].clone()];
     peer1
         .send(PeerMessage::SyncAccountsData(SyncAccountsData {
@@ -117,8 +121,8 @@ async fn accounts_data_gradual_epoch_change() {
     // 0 <-> 1 <-> 2
     let pm1 = pms[1].peer_info();
     let pm2 = pms[2].peer_info();
-    pms[0].connect_to(&pm1,tcp::Tier::T2).await;
-    pms[1].connect_to(&pm2,tcp::Tier::T2).await;
+    pms[0].connect_to(&pm1, tcp::Tier::T2).await;
+    pms[1].connect_to(&pm2, tcp::Tier::T2).await;
 
     // Validator configs.
     let vs: Vec<_> = pms.iter().map(|pm| pm.cfg.validator.clone().unwrap()).collect();
@@ -205,7 +209,7 @@ async fn accounts_data_rate_limiting() {
         for j in 0..m {
             for k in 0..m {
                 let pi = pms[(i + 1) * m + k].peer_info();
-                pms[i * m + j].connect_to(&pi,tcp::Tier::T2).await;
+                pms[i * m + j].connect_to(&pi, tcp::Tier::T2).await;
                 connections += 1;
             }
         }
