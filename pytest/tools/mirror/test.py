@@ -46,17 +46,22 @@ def ordinal_to_port(port, ordinal):
     return f'0.0.0.0:{port + 10 + ordinal}'
 
 
+def copy_genesis(neard, home):
+    shutil.copy(dot_near() / 'test0/forked/genesis.json', home / 'genesis.json')
+    shutil.copy(dot_near() / 'test0/forked/records.json', home / 'records.json')
+
+
 def init_target_dir(neard, home, ordinal, validator_account=None):
     mkdir_clean(home)
 
     try:
-        subprocess.check_output([neard, '--home', home, 'init'],
-                                stderr=subprocess.STDOUT)
+        args = [neard, '--home', home, 'init']
+        if validator_account is not None:
+            args.extend(['--account-id', validator_account])
+        subprocess.check_output(args, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
         sys.exit(f'"neard init" command failed: output: {e.stdout}')
     shutil.copy(dot_near() / 'test0/config.json', home / 'config.json')
-    shutil.copy(dot_near() / 'test0/forked/genesis.json', home / 'genesis.json')
-    shutil.copy(dot_near() / 'test0/forked/records.json', home / 'records.json')
 
     with open(home / 'config.json', 'r') as f:
         config = json.load(f)
@@ -68,18 +73,6 @@ def init_target_dir(neard, home, ordinal, validator_account=None):
 
     if validator_account is None:
         os.remove(home / 'validator_key.json')
-    else:
-        # this key and the suffix -load-test.near are hardcoded in create_genesis_file()
-        with open(home / 'validator_key.json', 'w') as f:
-            json.dump(
-                {
-                    'account_id':
-                        f'{validator_account + "-load-test.near"}',
-                    'public_key':
-                        'ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN',
-                    'secret_key':
-                        'ed25519:3cCk8KUWBySGCxBcn1syMoY5u73wx5eaPLRbQcMi23LwBA3aLsqEbA33Ww1bsJaFrchmDciGe9otdn45SrDSkow2'
-                }, f)
 
 
 def init_target_dirs(neard):
@@ -88,15 +81,11 @@ def init_target_dirs(neard):
 
     for account_id in TARGET_VALIDATORS:
         home = dot_near() / f'test_target_{account_id}'
-        dirs.append(str(home))
+        dirs.append(home)
         init_target_dir(neard, home, ordinal, validator_account=account_id)
         ordinal += 1
 
-    observer = dot_near() / f'{MIRROR_DIR}/target'
-    init_target_dir(neard, observer, ordinal, validator_account=None)
-    shutil.copy(dot_near() / 'test0/output/mirror-secret.json',
-                observer / 'mirror-secret.json')
-    return dirs, observer
+    return dirs
 
 
 def create_forked_chain(config, near_root):
@@ -126,24 +115,64 @@ def create_forked_chain(config, near_root):
     except subprocess.CalledProcessError as e:
         sys.exit(f'"mirror prepare" command failed: output: {e.stdout}')
 
+    dirs = init_target_dirs(neard)
+
+    target_dir = dot_near() / f'{MIRROR_DIR}/target'
+    init_target_dir(neard,
+                    target_dir,
+                    NUM_VALIDATORS + 1 + len(dirs),
+                    validator_account=None)
+    shutil.copy(dot_near() / 'test0/output/mirror-secret.json',
+                target_dir / 'mirror-secret.json')
+
     os.mkdir(dot_near() / 'test0/forked')
-    genesis_filename_in = dot_near() / 'test0/output/genesis.json'
-    genesis_filename_out = dot_near() / 'test0/forked/genesis.json'
-    records_filename_in = dot_near() / 'test0/output/mirror-records.json'
-    records_filename_out = dot_near() / 'test0/forked/records.json'
-    create_genesis_file(TARGET_VALIDATORS,
-                        genesis_filename_in=genesis_filename_in,
-                        genesis_filename_out=genesis_filename_out,
-                        records_filename_in=records_filename_in,
-                        records_filename_out=records_filename_out,
-                        rpc_node_names=[],
-                        chain_id='foonet',
-                        append=True,
-                        epoch_length=20,
-                        node_pks=None,
-                        increasing_stakes=0.0,
-                        num_seats=len(TARGET_VALIDATORS))
-    return init_target_dirs(neard)
+    genesis_file_in = dot_near() / 'test0/output/genesis.json'
+    genesis_file_out = dot_near() / 'test0/forked/genesis.json'
+    records_file_in = dot_near() / 'test0/output/mirror-records.json'
+    records_file_out = dot_near() / 'test0/forked/records.json'
+
+    validators = []
+    for d in dirs:
+        with open(d / 'validator_key.json') as f:
+            key = json.load(f)
+        validators.append({
+            'account_id': key['account_id'],
+            'public_key': key['public_key'],
+            'amount': '700000000000000'
+        })
+
+    validators_file = dot_near() / 'test0/forked/validators.json'
+    with open(validators_file, 'w') as f:
+        json.dump(validators, f)
+
+    try:
+        subprocess.check_output([
+            neard,
+            'amend-genesis',
+            '--genesis-file-in',
+            genesis_file_in,
+            '--records-file-in',
+            records_file_in,
+            '--genesis-file-out',
+            genesis_file_out,
+            '--records-file-out',
+            records_file_out,
+            '--validators',
+            validators_file,
+            '--chain-id',
+            'foonet',
+            '--epoch-length',
+            '20',
+        ],
+                                stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        sys.exit(f'"amend-genesis" command failed: output: {e.stdout}')
+
+    for d in dirs:
+        copy_genesis(neard, d)
+    copy_genesis(neard, target_dir)
+
+    return [str(d) for d in dirs], target_dir
 
 
 def init_mirror_dir(home, source_boot_node):
