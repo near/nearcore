@@ -4,13 +4,12 @@ mod network;
 
 use std::sync::Arc;
 
-use actix::{Actor, Arbiter};
 use anyhow::{anyhow, Context};
 use clap::Parser;
 use openssl_probe;
 
 use concurrency::{Ctx, Scope};
-use network::{FakeClientActor, Network};
+use network::Network;
 
 use near_chain_configs::Genesis;
 use near_network::time;
@@ -38,19 +37,12 @@ fn genesis_hash(chain_id: &str) -> CryptoHash {
 pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<Arc<Network>> {
     let network_adapter = Arc::new(NetworkRecipient::default());
     let network = Network::new(&config, network_adapter.clone(), qps_limit);
-    let client_actor = FakeClientActor::start_in_arbiter(&Arbiter::new().handle(), {
-        let network = network.clone();
-        move |_| FakeClientActor::new(network)
-    });
 
     let network_actor = PeerManagerActor::spawn(
         time::Clock::real(),
         near_store::db::TestDB::new(),
         config.network_config,
-        near_network::client::Client::new(
-            client_actor.clone().recipient(),
-            client_actor.clone().recipient(),
-        ),
+        network.clone(),
         GenesisId {
             chain_id: config.client_config.chain_id.clone(),
             hash: genesis_hash(&config.client_config.chain_id),
