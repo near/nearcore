@@ -10,9 +10,12 @@ use near_primitives::state::ValueRef;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::Gas;
 use near_primitives::utils::index_to_bytes;
+use near_store::flat_state::store_helper;
 use near_store::metadata::{DbVersion, DB_VERSION};
 use near_store::migrations::BatchedStoreUpdate;
-use near_store::{DBCol, NibbleSlice, NodeStorage, Store, Temperature, Trie, TrieIterator};
+use near_store::{
+    DBCol, NibbleSlice, NodeStorage, Store, Temperature, Trie, TrieIterator, TrieTraversalItem,
+};
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "protocol_feature_flat_state")]
 use tracing::{debug, info};
@@ -96,6 +99,18 @@ pub fn do_migrate_34_to_35(
     let block_hash = final_head.last_block_hash;
     let epoch_id = runtime.get_epoch_id(&block_hash)?;
     let num_shards = runtime.num_shards(&epoch_id)?;
+
+    // check deltas existence
+    for height in final_head.height + 1..=chain_store.final_head()?.height {
+        for (_, hashes) in chain_store.get_all_block_hashes_by_height(height)?.iter() {
+            for hash in hashes {
+                for shard_id in 0..num_shards {
+                    store_helper::get_delta(&store, shard_id, hash.clone())?;
+                }
+            }
+        }
+    }
+
     let mut store_update = BatchedStoreUpdate::new(&store, 1_000);
     info!(target: "chain", "Writing flat state heads");
     for shard_id in 0..num_shards {
@@ -163,19 +178,19 @@ pub fn do_migrate_34_to_35(
                 let mut n = 0;
 
                 for TrieTraversalItem { hash, key } in
-                    inner_iter.visit_nodes_interval(&path_begin, &path_end)?
+                    inner_iter.visit_nodes_interval(&path_begin, &path_end).unwrap()
                 {
                     match key {
                         None => {}
                         Some(key) => {
-                            let value = trie.storage.retrieve_raw_bytes(&hash)?;
+                            let value = trie.storage.retrieve_raw_bytes(&hash).unwrap();
                             let value_ref = ValueRef::new(&value);
                             store_update
                                 .set_ser(DBCol::FlatState, &key, &value_ref)
                                 .expect("Failed to put value in FlatState");
                             if n == 0 {
                                 first_state_record =
-                                    StateRecord::from_raw_key_value(item.0, item.1);
+                                    StateRecord::from_raw_key_value(key, value.to_vec());
                             }
                             n += 1;
                         }

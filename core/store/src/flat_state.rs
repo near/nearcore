@@ -458,7 +458,7 @@ pub mod store_helper {
     use near_primitives::types::ShardId;
     use std::sync::Arc;
 
-    pub(crate) fn get_delta(
+    pub fn get_delta(
         store: &Store,
         shard_id: ShardId,
         block_hash: CryptoHash,
