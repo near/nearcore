@@ -170,7 +170,12 @@ impl RuntimeUser {
             block_hash: Default::default(),
         }];
         for hash in &receipt_ids {
-            transactions.extend(self.get_recursive_transaction_results(hash).into_iter());
+            let receipts = self.receipts.borrow();
+            let receipt = receipts.get(&hash).unwrap();
+            let is_refund = receipt.predecessor_id.is_system();
+            if !is_refund {
+                transactions.extend(self.get_recursive_transaction_results(hash).into_iter());
+            }
         }
         transactions
     }
