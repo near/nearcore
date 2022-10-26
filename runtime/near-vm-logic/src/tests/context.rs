@@ -1,3 +1,5 @@
+use near_primitives::config::{VMLimitConfig, ViewConfig};
+
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::VMContext;
 
@@ -104,3 +106,27 @@ decl_test_u128!(
     create_context().account_locked_balance
 );
 decl_test_u128!(test_attached_deposit, attached_deposit, create_context().attached_deposit);
+
+#[test]
+fn test_attached_deposit_view() {
+    #[track_caller]
+    fn test_view(amount: u128) {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut context = create_context();
+        context.view_config =
+            Some(ViewConfig { max_gas_burnt: VMLimitConfig::test().max_gas_burnt });
+        context.account_balance = 0;
+        context.attached_deposit = amount;
+        let mut logic = logic_builder.build(context);
+
+        let mut buf = [0u8; std::mem::size_of::<u128>()];
+
+        logic.attached_deposit(buf.as_mut_ptr() as _).expect("read from context should be ok");
+        let res = u128::from_le_bytes(buf);
+        assert_eq!(res, amount);
+    }
+
+    test_view(0);
+    test_view(1);
+    test_view(u128::MAX);
+}

@@ -745,12 +745,6 @@ impl<'a> VMLogic<'a> {
     pub fn attached_deposit(&mut self, balance_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
 
-        if self.context.is_view() {
-            return Err(HostError::ProhibitedInView {
-                method_name: "attached_deposit".to_string(),
-            }
-            .into());
-        }
         self.memory_set_u128(balance_ptr, self.context.attached_deposit)
     }
 
