@@ -43,10 +43,6 @@
             "secs": 20,
             "nanos": 0
         },
-        "reconnect_delay": {
-            "secs": 60,
-            "nanos": 0
-        },
         "skip_sync_wait": false,
         "ban_window": {
             "secs": 10800,

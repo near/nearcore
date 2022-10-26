@@ -21,6 +21,8 @@ use crate::types::{PeerMessage, RoutingTableUpdate};
 use itertools::Itertools;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::db::TestDB;
+use peer_manager::testonly::start as start_pm;
 use pretty_assertions::assert_eq;
 use rand::seq::SliceRandom as _;
 use rand::Rng as _;
@@ -159,6 +161,7 @@ async fn no_edge_broadcast_after_restart() {
         // Receive the initial sync, which will consist just of the current edge:
         // - the disconnected edges from the previous iterations are not loaded yet.
         // - the local edges weren't stored at all.
+        tracing::info!(target: "test", "wait_for_edges(<first edge>)");
         wait_for_edges(&mut peer, &[edge.clone()].into()).await;
 
         // Create a bunch of fresh unreachable edges, then send all the edges created so far.
@@ -179,9 +182,11 @@ async fn no_edge_broadcast_after_restart() {
         .await;
 
         // Wait for the fresh edges to be broadcasted back.
+        tracing::info!(target: "test", "wait_for_edges(<fresh edges>)");
         wait_for_edges(&mut peer, &fresh_edges).await;
 
         // Wait for all the disconnected edges created so far to be saved to storage.
+        tracing::info!(target: "test", "wait for pruning");
         let mut pruned = HashSet::new();
         while pruned != total_edges {
             match events.recv().await {
@@ -681,4 +686,57 @@ async fn loop_connection() {
         )),
         reason
     );
+}
+
+#[tokio::test]
+async fn square() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    tracing::info!(target:"test", "connect 4 nodes in a square");
+    let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let pm3 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    pm0.connect_to(&pm1.peer_info()).await;
+    pm1.connect_to(&pm2.peer_info()).await;
+    pm2.connect_to(&pm3.peer_info()).await;
+    pm3.connect_to(&pm0.peer_info()).await;
+    let id0 = pm0.cfg.node_id();
+    let id1 = pm1.cfg.node_id();
+    let id2 = pm2.cfg.node_id();
+    let id3 = pm3.cfg.node_id();
+
+    pm0.wait_for_routing_table(&[
+        (id1.clone(), vec![id1.clone()]),
+        (id3.clone(), vec![id3.clone()]),
+        (id2.clone(), vec![id1.clone(), id3.clone()]),
+    ])
+    .await;
+    tracing::info!(target:"test","stop {id1}");
+    drop(pm1);
+    tracing::info!(target:"test","wait for {id0} routing table");
+    pm0.wait_for_routing_table(&[
+        (id3.clone(), vec![id3.clone()]),
+        (id2.clone(), vec![id3.clone()]),
+    ])
+    .await;
+    tracing::info!(target:"test","wait for {id2} routing table");
+    pm2.wait_for_routing_table(&[
+        (id3.clone(), vec![id3.clone()]),
+        (id0.clone(), vec![id3.clone()]),
+    ])
+    .await;
+    tracing::info!(target:"test","wait for {id3} routing table");
+    pm3.wait_for_routing_table(&[
+        (id2.clone(), vec![id2.clone()]),
+        (id0.clone(), vec![id0.clone()]),
+    ])
+    .await;
+    drop(pm0);
+    drop(pm2);
+    drop(pm3);
 }
