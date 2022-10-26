@@ -1074,6 +1074,8 @@ pub fn create_testnet_configs_from_seeds(
         config.rpc.get_or_insert(Default::default()).enable_debug_rpc = true;
         config.consensus.min_block_production_delay = Duration::from_millis(600);
         config.consensus.max_block_production_delay = Duration::from_millis(2000);
+        // This will set all nodes to track all shards
+        config.tracked_shards = vec![0];
         if local_ports {
             config.network.addr =
                 format!("127.0.0.1:{}", if i == 0 { first_node_port } else { open_port() });
