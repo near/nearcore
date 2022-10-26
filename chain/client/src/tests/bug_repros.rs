@@ -9,6 +9,7 @@ use actix::{Addr, System};
 use futures::FutureExt;
 use rand::{thread_rng, Rng};
 
+use crate::adapter::{BlockApproval, BlockResponse, ProcessTxRequest, RecvPartialEncodedChunk};
 use crate::test_utils::setup_mock_all_validators;
 use crate::{ClientActor, GetBlock, ViewClientActor};
 use near_actix_test_utils::run_actix;
@@ -17,8 +18,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
 use near_network::types::PeerInfo;
 use near_network::types::{
-    NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
-    PeerManagerMessageResponse,
+    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
@@ -72,11 +72,11 @@ fn repro_1183() {
                     if let Some(last_block) = last_block.clone() {
                         for (client, _) in connectors1.write().unwrap().iter() {
                             client.do_send(
-                                NetworkClientMessages::Block(
-                                    last_block.clone(),
-                                    PeerInfo::random().id,
-                                    false,
-                                )
+                                BlockResponse {
+                                    block: last_block.clone(),
+                                    peer_id: PeerInfo::random().id,
+                                    was_requested: false,
+                                }
                                 .with_span_context(),
                             )
                         }
@@ -91,7 +91,7 @@ fn repro_1183() {
                             for (i, name) in validators.iter().enumerate() {
                                 if name == account_id {
                                     connectors1.write().unwrap()[i].0.do_send(
-                                        NetworkClientMessages::PartialEncodedChunk(
+                                        RecvPartialEncodedChunk(
                                             partial_encoded_chunk.clone().into(),
                                         )
                                         .with_span_context(),
@@ -110,7 +110,7 @@ fn repro_1183() {
                             connectors1.write().unwrap()[account_id_to_shard_id(&from, 4) as usize]
                                 .0
                                 .do_send(
-                                    NetworkClientMessages::Transaction {
+                                    ProcessTxRequest {
                                         transaction: SignedTransaction::send_money(
                                             block.header().height() * 16 + nonce_delta,
                                             from.clone(),
@@ -211,11 +211,11 @@ fn test_sync_from_archival_node() {
                                 for (i, (client, _)) in conns.iter().enumerate() {
                                     if i != 3 {
                                         client.do_send(
-                                            NetworkClientMessages::Block(
-                                                block.clone(),
-                                                PeerInfo::random().id,
-                                                false,
-                                            )
+                                            BlockResponse {
+                                                block: block.clone(),
+                                                peer_id: PeerInfo::random().id,
+                                                was_requested: false,
+                                            }
                                             .with_span_context(),
                                         )
                                     }
@@ -229,7 +229,7 @@ fn test_sync_from_archival_node() {
                                 for (i, (client, _)) in conns.clone().into_iter().enumerate() {
                                     if i != 3 {
                                         client.do_send(
-                                            NetworkClientMessages::BlockApproval(
+                                            BlockApproval(
                                                 approval_message.approval.clone(),
                                                 PeerInfo::random().id,
                                             )
@@ -247,8 +247,12 @@ fn test_sync_from_archival_node() {
                         }
                         for (_, block) in blocks.write().unwrap().drain() {
                             conns[3].0.do_send(
-                                NetworkClientMessages::Block(block, PeerInfo::random().id, false)
-                                    .with_span_context(),
+                                BlockResponse {
+                                    block,
+                                    peer_id: PeerInfo::random().id,
+                                    was_requested: false,
+                                }
+                                .with_span_context(),
                             );
                         }
                         match msg {

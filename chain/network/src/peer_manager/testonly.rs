@@ -1,5 +1,4 @@
 use crate::broadcast;
-use crate::client;
 use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
@@ -9,11 +8,13 @@ use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::tcp;
+use crate::test_utils;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
 use crate::types::{
-    ChainInfo, GetNetworkInfo, KnownPeerStatus, PeerManagerMessageRequest, SetChainInfo,
+    ChainInfo, GetNetworkInfo, KnownPeerStatus, PeerManagerMessageRequest,
+    PeerManagerMessageResponse, SetChainInfo,
 };
 use crate::PeerManagerActor;
 use near_o11y::{WithSpanContext, WithSpanContextExt};
@@ -35,11 +36,13 @@ impl actix::Handler<WithSpanContext<CheckConsistency>> for PeerManagerActor {
         // Check that the set of ready connections matches the PeerStore state.
         let tier2: HashSet<_> = self.state.tier2.load().ready.keys().cloned().collect();
         let store: HashSet<_> = self
+            .state
             .peer_store
-            .iter()
-            .filter_map(|(peer_id, state)| {
+            .dump()
+            .into_iter()
+            .filter_map(|state| {
                 if state.status == KnownPeerStatus::Connected {
-                    Some(peer_id.clone())
+                    Some(state.peer_info.id)
                 } else {
                     None
                 }
@@ -273,6 +276,32 @@ impl ActorHandler {
             self.events.recv_until(unwrap_sync_accounts_data_processed).await;
         }
     }
+
+    // Awaits until the routing_table matches `want`.
+    pub async fn wait_for_routing_table(&self, want: &[(PeerId, Vec<PeerId>)]) {
+        let mut events = self.events.from_now();
+        loop {
+            let resp = self
+                .actix
+                .addr
+                .send(PeerManagerMessageRequest::FetchRoutingTable.with_span_context())
+                .await
+                .unwrap();
+            let got = match resp {
+                PeerManagerMessageResponse::FetchRoutingTable(rt) => rt.next_hops,
+                _ => panic!("bad response"),
+            };
+            if test_utils::expected_routing_tables(&got, want) {
+                return;
+            }
+            events
+                .recv_until(|ev| match ev {
+                    Event::PeerManager(PME::RoutingTableUpdate { .. }) => Some(()),
+                    _ => None,
+                })
+                .await;
+        }
+    }
 }
 
 pub(crate) async fn start(
@@ -287,16 +316,9 @@ pub(crate) async fn start(
         let chain = chain.clone();
         move || {
             let genesis_id = chain.genesis_id.clone();
-            let fc = fake_client::start(send.sink().compose(Event::Client));
+            let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
             cfg.event_sink = send.sink().compose(Event::PeerManager);
-            PeerManagerActor::spawn(
-                clock,
-                store,
-                cfg,
-                client::Client::new(fc.clone().recipient(), fc.clone().recipient()),
-                genesis_id,
-            )
-            .unwrap()
+            PeerManagerActor::spawn(clock, store, cfg, fc, genesis_id).unwrap()
         }
     })
     .await;

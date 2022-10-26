@@ -11,6 +11,7 @@ edition.workspace = true
 actix-rt.workspace = true
 actix.workspace = true
 ansi_term.workspace = true
+async-trait.workspace = true
 borsh.workspace = true
 chrono.workspace = true
 futures.workspace = true

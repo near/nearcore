@@ -47,7 +47,6 @@ impl RpcFrom<TxStatusError> for RpcTransactionError {
             TxStatusError::MissingTransaction(requested_transaction_hash) => {
                 Self::UnknownTransaction { requested_transaction_hash }
             }
-            TxStatusError::InvalidTx(context) => Self::InvalidTransaction { context },
             TxStatusError::InternalError(debug_info) => Self::InternalError { debug_info },
             TxStatusError::TimeoutError => Self::TimeoutError,
         }

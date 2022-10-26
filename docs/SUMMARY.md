@@ -12,6 +12,10 @@
   - [Transaction Routing](./architecture/how/tx_routing.md)
 - [Trie](./architecture/trie.md)
 - [Network](./architecture/network.md)
+- [Gas Cost Parameters](./architecture/gas/README.md)
+  - [Parameter Definitions](./architecture/gas/parameter_definition.md)
+  - [Gas Profile](./architecture/gas/gas_profile.md)
+  - [Runtime Parameter Estimator](./architecture/gas/estimator.md)
 
 # Practices
 

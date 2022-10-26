@@ -12,7 +12,6 @@ use near_primitives_core::profile::ProfileData;
 use crate::account::AccessKey;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
-use crate::logging;
 use crate::merkle::MerklePath;
 use crate::serialize::{base64_format, dec_format};
 use crate::types::{AccountId, Balance, Gas, Nonce};
@@ -383,8 +382,8 @@ impl Default for ExecutionMetadata {
 impl fmt::Debug for ExecutionOutcome {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExecutionOutcome")
-            .field("logs", &format_args!("{}", logging::pretty_vec(&self.logs)))
-            .field("receipt_ids", &format_args!("{}", logging::pretty_vec(&self.receipt_ids)))
+            .field("logs", &pretty::Slice(&self.logs))
+            .field("receipt_ids", &pretty::Slice(&self.receipt_ids))
             .field("burnt_gas", &self.gas_burnt)
             .field("tokens_burnt", &self.tokens_burnt)
             .field("status", &self.status)
