@@ -269,7 +269,7 @@ impl PeerManagerActor {
         clock: time::Clock,
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
-        client: client::Client,
+        client: Arc<dyn client::Client>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
@@ -1111,29 +1111,6 @@ impl PeerManagerActor {
                         &self.clock,
                         RawRoutedMessage { target: PeerIdOrHash::Hash(route_back), body },
                     ),
-                ) {
-                    NetworkResponses::NoResponse
-                } else {
-                    NetworkResponses::RouteNotFound
-                }
-            }
-            // unused: epoch sync is not implemented
-            NetworkRequests::EpochSyncRequest { peer_id, epoch_id } => {
-                if self
-                    .state
-                    .tier2
-                    .send_message(peer_id, Arc::new(PeerMessage::EpochSyncRequest(epoch_id)))
-                {
-                    NetworkResponses::NoResponse
-                } else {
-                    NetworkResponses::RouteNotFound
-                }
-            }
-            // unused: epoch sync is not implemented
-            NetworkRequests::EpochSyncFinalizationRequest { peer_id, epoch_id } => {
-                if self.state.tier2.send_message(
-                    peer_id,
-                    Arc::new(PeerMessage::EpochSyncFinalizationRequest(epoch_id)),
                 ) {
                     NetworkResponses::NoResponse
                 } else {

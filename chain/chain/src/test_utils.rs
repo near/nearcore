@@ -73,6 +73,10 @@ pub fn wait_for_all_blocks_in_processing(chain: &mut Chain) -> bool {
     chain.blocks_in_processing.wait_for_all_blocks()
 }
 
+pub fn is_block_in_processing(chain: &Chain, block_hash: &CryptoHash) -> bool {
+    chain.blocks_in_processing.contains(block_hash)
+}
+
 pub fn wait_for_block_in_processing(
     chain: &mut Chain,
     hash: &CryptoHash,

@@ -3391,7 +3391,7 @@ impl Chain {
     }
 
     pub fn check_blocks_final_and_canonical(
-        &mut self,
+        &self,
         block_headers: &[&BlockHeader],
     ) -> Result<(), Error> {
         let last_final_block_hash = *self.head_header()?.last_final_block();

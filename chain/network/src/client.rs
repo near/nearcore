@@ -2,11 +2,7 @@ use crate::network_protocol::{
     PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
     StateResponseInfo,
 };
-use crate::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkViewClientMessages,
-    NetworkViewClientResponses, ReasonForBan,
-};
-use near_o11y::{WithSpanContext, WithSpanContextExt};
+use crate::types::{NetworkInfo, ReasonForBan};
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
@@ -19,400 +15,154 @@ use near_primitives::views::FinalExecutionOutcomeView;
 /// A strongly typed asynchronous API for the Client logic.
 /// It abstracts away the fact that client is implemented using actix
 /// actors.
-/// TODO(gprusak): eventually we might want to replace this concrete
-/// implementation with an (async) trait, and move the
-/// concrete implementation to the near_client crate. This way we will
-/// be able to remove actix from the near_network crate entirely.
-pub struct Client {
-    /// Address of the client actor.
-    client_addr: actix::Recipient<WithSpanContext<NetworkClientMessages>>,
-    /// Address of the view client actor.
-    view_client_addr: actix::Recipient<WithSpanContext<NetworkViewClientMessages>>,
-}
-
-impl Client {
-    pub fn new(
-        client_addr: actix::Recipient<WithSpanContext<NetworkClientMessages>>,
-        view_client_addr: actix::Recipient<WithSpanContext<NetworkViewClientMessages>>,
-    ) -> Self {
-        Self { client_addr, view_client_addr }
-    }
-
-    pub async fn tx_status_request(
+#[async_trait::async_trait]
+pub trait Client: Send + Sync + 'static {
+    async fn tx_status_request(
         &self,
         account_id: AccountId,
         tx_hash: CryptoHash,
-    ) -> Result<Option<FinalExecutionOutcomeView>, ReasonForBan> {
-        match self
-            .view_client_addr
-            .send(
-                NetworkViewClientMessages::TxStatus {
-                    tx_hash: tx_hash,
-                    signer_account_id: account_id,
-                }
-                .with_span_context(),
-            )
-            .await
-        {
-            Ok(NetworkViewClientResponses::TxStatus(tx_result)) => Ok(Some(*tx_result)),
-            Ok(NetworkViewClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ViewClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(None)
-            }
-        }
-    }
+    ) -> Option<Box<FinalExecutionOutcomeView>>;
 
-    pub async fn tx_status_response(
-        &self,
-        tx_result: FinalExecutionOutcomeView,
-    ) -> Result<(), ReasonForBan> {
-        match self
-            .view_client_addr
-            .send(
-                NetworkViewClientMessages::TxStatusResponse(Box::new(tx_result.clone()))
-                    .with_span_context(),
-            )
-            .await
-        {
-            Ok(NetworkViewClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkViewClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ViewClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(())
-            }
-        }
-    }
+    async fn tx_status_response(&self, tx_result: FinalExecutionOutcomeView);
 
-    pub async fn state_request_header(
+    async fn state_request_header(
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-    ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
-        match self
-            .view_client_addr
-            .send(
-                NetworkViewClientMessages::StateRequestHeader {
-                    shard_id: shard_id,
-                    sync_hash: sync_hash,
-                }
-                .with_span_context(),
-            )
-            .await
-        {
-            Ok(NetworkViewClientResponses::StateResponse(resp)) => Ok(Some(*resp)),
-            Ok(NetworkViewClientResponses::NoResponse) => Ok(None),
-            Ok(NetworkViewClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ViewClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(None)
-            }
-        }
-    }
+    ) -> Result<Option<StateResponseInfo>, ReasonForBan>;
 
-    pub async fn state_request_part(
+    async fn state_request_part(
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
         part_id: u64,
-    ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
-        match self
-            .view_client_addr
-            .send(
-                NetworkViewClientMessages::StateRequestPart {
-                    shard_id: shard_id,
-                    sync_hash: sync_hash,
-                    part_id: part_id,
-                }
-                .with_span_context(),
-            )
-            .await
-        {
-            Ok(NetworkViewClientResponses::StateResponse(resp)) => Ok(Some(*resp)),
-            Ok(NetworkViewClientResponses::NoResponse) => Ok(None),
-            Ok(NetworkViewClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ViewClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(None)
-            }
-        }
-    }
+    ) -> Result<Option<StateResponseInfo>, ReasonForBan>;
 
-    pub async fn state_response(&self, info: StateResponseInfo) -> Result<(), ReasonForBan> {
-        match self
-            .client_addr
-            .send(NetworkClientMessages::StateResponse(info).with_span_context())
-            .await
-        {
-            Ok(NetworkClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(())
-            }
-        }
-    }
+    async fn state_response(&self, info: StateResponseInfo);
 
-    pub async fn block_approval(
-        &self,
-        approval: Approval,
-        peer_id: PeerId,
-    ) -> Result<(), ReasonForBan> {
-        match self
-            .client_addr
-            .send(NetworkClientMessages::BlockApproval(approval, peer_id).with_span_context())
-            .await
-        {
-            Ok(NetworkClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(())
-            }
-        }
-    }
+    async fn block_approval(&self, approval: Approval, peer_id: PeerId);
 
-    pub async fn transaction(
-        &self,
-        transaction: SignedTransaction,
-        is_forwarded: bool,
-    ) -> Result<(), ReasonForBan> {
-        match self
-            .client_addr
-            .send(
-                NetworkClientMessages::Transaction { transaction, is_forwarded, check_only: false }
-                    .with_span_context(),
-            )
-            .await
-        {
-            Ok(NetworkClientResponses::ValidTx) => Ok(()),
-            Ok(NetworkClientResponses::InvalidTx(err)) => {
-                tracing::warn!(target: "network", ?err, "Received invalid tx");
-                // TODO: count as malicious behavior?
-                Ok(())
-            }
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(())
-            }
-        }
-    }
+    async fn transaction(&self, transaction: SignedTransaction, is_forwarded: bool);
 
-    pub async fn partial_encoded_chunk_request(
+    async fn partial_encoded_chunk_request(
         &self,
         req: PartialEncodedChunkRequestMsg,
         msg_hash: CryptoHash,
-    ) -> Result<(), ReasonForBan> {
-        match self
-            .client_addr
-            .send(
-                NetworkClientMessages::PartialEncodedChunkRequest(req, msg_hash)
-                    .with_span_context(),
-            )
-            .await
-        {
-            Ok(NetworkClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(())
-            }
-        }
-    }
+    );
 
-    pub async fn partial_encoded_chunk_response(
+    async fn partial_encoded_chunk_response(
         &self,
         resp: PartialEncodedChunkResponseMsg,
         timestamp: time::Instant,
-    ) -> Result<(), ReasonForBan> {
-        match self
-            .client_addr
-            .send(
-                NetworkClientMessages::PartialEncodedChunkResponse(resp, timestamp.into())
-                    .with_span_context(),
-            )
-            .await
-        {
-            Ok(NetworkClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(())
-            }
-        }
-    }
+    );
 
-    pub async fn partial_encoded_chunk(
-        &self,
-        chunk: PartialEncodedChunk,
-    ) -> Result<(), ReasonForBan> {
-        match self
-            .client_addr
-            .send(NetworkClientMessages::PartialEncodedChunk(chunk).with_span_context())
-            .await
-        {
-            Ok(NetworkClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(())
-            }
-        }
-    }
+    async fn partial_encoded_chunk(&self, chunk: PartialEncodedChunk);
 
-    pub async fn partial_encoded_chunk_forward(
-        &self,
-        msg: PartialEncodedChunkForwardMsg,
-    ) -> Result<(), ReasonForBan> {
-        match self
-            .client_addr
-            .send(NetworkClientMessages::PartialEncodedChunkForward(msg).with_span_context())
-            .await
-        {
-            Ok(NetworkClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(())
-            }
-        }
-    }
+    async fn partial_encoded_chunk_forward(&self, msg: PartialEncodedChunkForwardMsg);
 
-    pub async fn block_request(&self, hash: CryptoHash) -> Result<Option<Block>, ReasonForBan> {
-        match self
-            .view_client_addr
-            .send(NetworkViewClientMessages::BlockRequest(hash).with_span_context())
-            .await
-        {
-            Ok(NetworkViewClientResponses::Block(block)) => Ok(Some(*block)),
-            Ok(NetworkViewClientResponses::NoResponse) => Ok(None),
-            Ok(NetworkViewClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ViewClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(None)
-            }
-        }
-    }
+    async fn block_request(&self, hash: CryptoHash) -> Option<Box<Block>>;
 
-    pub async fn block_headers_request(
-        &self,
-        hashes: Vec<CryptoHash>,
-    ) -> Result<Option<Vec<BlockHeader>>, ReasonForBan> {
-        match self
-            .view_client_addr
-            .send(NetworkViewClientMessages::BlockHeadersRequest(hashes).with_span_context())
-            .await
-        {
-            Ok(NetworkViewClientResponses::BlockHeaders(block_headers)) => Ok(Some(block_headers)),
-            Ok(NetworkViewClientResponses::NoResponse) => Ok(None),
-            Ok(NetworkViewClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ViewClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(None)
-            }
-        }
-    }
+    async fn block_headers_request(&self, hashes: Vec<CryptoHash>) -> Option<Vec<BlockHeader>>;
 
-    pub async fn block(
-        &self,
-        block: Block,
-        peer_id: PeerId,
-        was_requested: bool,
-    ) -> Result<(), ReasonForBan> {
-        match self
-            .client_addr
-            .send(NetworkClientMessages::Block(block, peer_id, was_requested).with_span_context())
-            .await
-        {
-            Ok(NetworkClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(())
-            }
-        }
-    }
+    async fn block(&self, block: Block, peer_id: PeerId, was_requested: bool);
 
-    pub async fn block_headers(
+    async fn block_headers(
         &self,
         headers: Vec<BlockHeader>,
         peer_id: PeerId,
-    ) -> Result<(), ReasonForBan> {
-        match self
-            .client_addr
-            .send(NetworkClientMessages::BlockHeaders(headers, peer_id).with_span_context())
-            .await
-        {
-            Ok(NetworkClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(())
-            }
-        }
-    }
+    ) -> Result<(), ReasonForBan>;
 
-    pub async fn challenge(&self, challenge: Challenge) -> Result<(), ReasonForBan> {
-        match self
-            .client_addr
-            .send(NetworkClientMessages::Challenge(challenge).with_span_context())
-            .await
-        {
-            Ok(NetworkClientResponses::NoResponse) => Ok(()),
-            Ok(NetworkClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(())
-            }
-        }
-    }
+    async fn challenge(&self, challenge: Challenge);
 
-    pub async fn network_info(&self, info: NetworkInfo) {
-        match self
-            .client_addr
-            .send(NetworkClientMessages::NetworkInfo(info).with_span_context())
-            .await
-        {
-            Ok(NetworkClientResponses::NoResponse) => {}
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => tracing::error!("mailbox error: {err}"),
-        }
-    }
+    async fn network_info(&self, info: NetworkInfo);
 
-    pub async fn announce_account(
+    async fn announce_account(
         &self,
         accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
+    ) -> Result<Vec<AnnounceAccount>, ReasonForBan>;
+}
+
+/// Implementation of Client which doesn't do anything and never returns errors.
+pub struct Noop;
+
+#[async_trait::async_trait]
+impl Client for Noop {
+    async fn tx_status_request(
+        &self,
+        _account_id: AccountId,
+        _tx_hash: CryptoHash,
+    ) -> Option<Box<FinalExecutionOutcomeView>> {
+        None
+    }
+
+    async fn tx_status_response(&self, _tx_result: FinalExecutionOutcomeView) {}
+
+    async fn state_request_header(
+        &self,
+        _shard_id: ShardId,
+        _sync_hash: CryptoHash,
+    ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
+        Ok(None)
+    }
+
+    async fn state_request_part(
+        &self,
+        _shard_id: ShardId,
+        _sync_hash: CryptoHash,
+        _part_id: u64,
+    ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
+        Ok(None)
+    }
+
+    async fn state_response(&self, _info: StateResponseInfo) {}
+    async fn block_approval(&self, _approval: Approval, _peer_id: PeerId) {}
+
+    async fn transaction(&self, _transaction: SignedTransaction, _is_forwarded: bool) {}
+
+    async fn partial_encoded_chunk_request(
+        &self,
+        _req: PartialEncodedChunkRequestMsg,
+        _msg_hash: CryptoHash,
+    ) {
+    }
+
+    async fn partial_encoded_chunk_response(
+        &self,
+        _resp: PartialEncodedChunkResponseMsg,
+        _timestamp: time::Instant,
+    ) {
+    }
+
+    async fn partial_encoded_chunk(&self, _chunk: PartialEncodedChunk) {}
+
+    async fn partial_encoded_chunk_forward(&self, _msg: PartialEncodedChunkForwardMsg) {}
+
+    async fn block_request(&self, _hash: CryptoHash) -> Option<Box<Block>> {
+        None
+    }
+
+    async fn block_headers_request(&self, _hashes: Vec<CryptoHash>) -> Option<Vec<BlockHeader>> {
+        None
+    }
+
+    async fn block(&self, _block: Block, _peer_id: PeerId, _was_requested: bool) {}
+
+    async fn block_headers(
+        &self,
+        _headers: Vec<BlockHeader>,
+        _peer_id: PeerId,
+    ) -> Result<(), ReasonForBan> {
+        Ok(())
+    }
+
+    async fn challenge(&self, _challenge: Challenge) {}
+
+    async fn network_info(&self, _info: NetworkInfo) {}
+
+    async fn announce_account(
+        &self,
+        _accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
     ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
-        match self
-            .view_client_addr
-            .send(NetworkViewClientMessages::AnnounceAccount(accounts).with_span_context())
-            .await
-        {
-            Ok(NetworkViewClientResponses::AnnounceAccount(accounts)) => Ok(accounts),
-            Ok(NetworkViewClientResponses::NoResponse) => Ok(vec![]),
-            Ok(NetworkViewClientResponses::Ban { ban_reason }) => Err(ban_reason),
-            Ok(resp) => panic!("unexpected ClientResponse: {resp:?}"),
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(vec![])
-            }
-        }
+        Ok(vec![])
     }
 }

@@ -255,14 +255,18 @@ impl Hash for PublicKey {
 }
 
 impl Display for PublicKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", String::from(self))
+    fn fmt(&self, fmt: &mut Formatter) -> std::fmt::Result {
+        let (key_type, key_data) = match self {
+            PublicKey::ED25519(public_key) => (KeyType::ED25519, &public_key.0[..]),
+            PublicKey::SECP256K1(public_key) => (KeyType::SECP256K1, &public_key.0[..]),
+        };
+        write!(fmt, "{}:{}", key_type, bs58::encode(key_data).into_string())
     }
 }
 
 impl Debug for PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", String::from(self))
+        Display::fmt(self, f)
     }
 }
 
@@ -305,7 +309,7 @@ impl serde::Serialize for PublicKey {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&String::from(self))
+        serializer.collect_str(self)
     }
 }
 
@@ -317,21 +321,6 @@ impl<'de> serde::Deserialize<'de> for PublicKey {
         let s = <String as serde::Deserialize>::deserialize(deserializer)?;
         s.parse()
             .map_err(|err: crate::errors::ParseKeyError| serde::de::Error::custom(err.to_string()))
-    }
-}
-
-impl From<&PublicKey> for String {
-    fn from(public_key: &PublicKey) -> Self {
-        match public_key {
-            PublicKey::ED25519(public_key) => {
-                format!("{}:{}", KeyType::ED25519, bs58::encode(&public_key.0).into_string())
-            }
-            PublicKey::SECP256K1(public_key) => format!(
-                "{}:{}",
-                KeyType::SECP256K1,
-                bs58::encode(&public_key.0.to_vec()).into_string()
-            ),
-        }
     }
 }
 

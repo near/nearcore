@@ -2,6 +2,7 @@ use actix::Addr;
 use anyhow::Context;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_configs::GenesisValidationMode;
+use near_client::adapter::{NetworkClientMessages, NetworkClientResponses};
 use near_client::{ClientActor, ViewClientActor};
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunk, GetChunkError, GetExecutionOutcome,
@@ -9,7 +10,6 @@ use near_client_primitives::types::{
 };
 use near_crypto::{PublicKey, SecretKey};
 use near_indexer::{Indexer, StreamerMessage};
-use near_network::types::{NetworkClientMessages, NetworkClientResponses};
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{
@@ -134,8 +134,9 @@ struct TxMirror {
 }
 
 fn open_db<P: AsRef<Path>>(home: P, config: &NearConfig) -> anyhow::Result<DB> {
-    let db_path =
-        near_store::NodeStorage::opener(home.as_ref(), &config.config.store).path().join("mirror");
+    let db_path = near_store::NodeStorage::opener(home.as_ref(), &config.config.store, None)
+        .path()
+        .join("mirror");
     let mut options = rocksdb::Options::default();
     options.create_missing_column_families(true);
     options.create_if_missing(true);
@@ -147,19 +148,65 @@ fn open_db<P: AsRef<Path>>(home: P, config: &NearConfig) -> anyhow::Result<DB> {
 
 // a transaction that's almost prepared, except that we don't yet know
 // what nonce to use because the public key was added in an AddKey
-// action that we haven't seen on chain yet. The tx field is complete
+// action that we haven't seen on chain yet. The target_tx field is complete
 // except for the nonce field.
 #[derive(Debug)]
 struct TxAwaitingNonce {
     source_public: PublicKey,
     source_signer_id: AccountId,
+    source_receiver_id: AccountId,
+    source_tx_index: usize,
     target_private: SecretKey,
-    tx: Transaction,
+    target_tx: Transaction,
+}
+
+impl TxAwaitingNonce {
+    fn new(
+        source_tx: &SignedTransactionView,
+        source_tx_index: usize,
+        target_tx: Transaction,
+        target_private: SecretKey,
+    ) -> Self {
+        Self {
+            source_public: source_tx.public_key.clone(),
+            source_signer_id: source_tx.signer_id.clone(),
+            source_receiver_id: source_tx.receiver_id.clone(),
+            source_tx_index,
+            target_private,
+            target_tx,
+        }
+    }
+}
+
+// A transaction meant for the target chain that is complete/ready to send.
+// We keep some extra info about the transaction for the purposes of logging
+// later on when we find it on chain.
+#[derive(Debug)]
+struct MappedTx {
+    source_signer_id: AccountId,
+    source_receiver_id: AccountId,
+    source_tx_index: usize,
+    target_tx: SignedTransaction,
+}
+
+impl MappedTx {
+    fn new(
+        source_tx: &SignedTransactionView,
+        source_tx_index: usize,
+        target_tx: SignedTransaction,
+    ) -> Self {
+        Self {
+            source_signer_id: source_tx.signer_id.clone(),
+            source_receiver_id: source_tx.receiver_id.clone(),
+            source_tx_index,
+            target_tx,
+        }
+    }
 }
 
 #[derive(Debug)]
 enum TargetChainTx {
-    Ready(SignedTransaction),
+    Ready(MappedTx),
     AwaitingNonce(TxAwaitingNonce),
 }
 
@@ -169,16 +216,21 @@ impl TargetChainTx {
     fn set_nonce(&mut self, nonce: Nonce) {
         match self {
             Self::AwaitingNonce(t) => {
-                t.tx.nonce = nonce;
-                let tx = SignedTransaction::new(
-                    t.target_private.sign(&t.tx.get_hash_and_size().0.as_ref()),
-                    t.tx.clone(),
+                t.target_tx.nonce = nonce;
+                let target_tx = SignedTransaction::new(
+                    t.target_private.sign(&t.target_tx.get_hash_and_size().0.as_ref()),
+                    t.target_tx.clone(),
                 );
                 tracing::debug!(
                     target: "mirror", "prepared a transaction for ({:?}, {:?}) that was previously waiting for the access key to appear on chain",
-                    &tx.transaction.signer_id, &tx.transaction.public_key
+                    &t.source_signer_id, &t.source_public,
                 );
-                *self = Self::Ready(tx);
+                *self = Self::Ready(MappedTx {
+                    source_signer_id: t.source_signer_id.clone(),
+                    source_receiver_id: t.source_receiver_id.clone(),
+                    source_tx_index: t.source_tx_index,
+                    target_tx,
+                });
             }
             Self::Ready(_) => unreachable!(),
         }
@@ -429,18 +481,19 @@ impl TxMirror {
 
     async fn send_transactions(
         &mut self,
-        block: &MappedBlock,
-    ) -> anyhow::Result<Vec<SignedTransaction>> {
+        block: MappedBlock,
+    ) -> anyhow::Result<Vec<(ShardId, Vec<MappedTx>)>> {
         let mut sent = vec![];
-        for chunk in block.chunks.iter() {
-            for tx in chunk.txs.iter() {
+        for chunk in block.chunks {
+            let mut txs = vec![];
+            for tx in chunk.txs {
                 match tx {
                     TargetChainTx::Ready(tx) => {
                         match self
                             .target_client
                             .send(
                                 NetworkClientMessages::Transaction {
-                                    transaction: tx.clone(),
+                                    transaction: tx.target_tx.clone(),
                                     is_forwarded: false,
                                     check_only: false,
                                 }
@@ -450,7 +503,7 @@ impl TxMirror {
                         {
                             NetworkClientResponses::RequestRouted => {
                                 crate::metrics::TRANSACTIONS_SENT.with_label_values(&["ok"]).inc();
-                                sent.push(tx.clone());
+                                txs.push(tx);
                             }
                             NetworkClientResponses::InvalidTx(e) => {
                                 // TODO: here if we're getting an error because the tx was already included, it is possible
@@ -481,6 +534,7 @@ impl TxMirror {
                     }
                 }
             }
+            sent.push((chunk.shard_id, txs));
         }
         Ok(sent)
     }
@@ -761,61 +815,71 @@ impl TxMirror {
             }
 
             let mut num_not_ready = 0;
-            for t in chunk.transactions {
-                let actions = self.map_actions(&t, &prev_hash).await?;
+            for (idx, source_tx) in chunk.transactions.into_iter().enumerate() {
+                let actions = self.map_actions(&source_tx, &prev_hash).await?;
                 if actions.is_empty() {
                     // If this is a tx containing only stake actions, skip it.
                     continue;
                 }
-                let mapped_key = crate::key_mapping::map_key(&t.public_key, self.secret.as_ref());
+                let mapped_key =
+                    crate::key_mapping::map_key(&source_tx.public_key, self.secret.as_ref());
                 let public_key = mapped_key.public_key();
 
                 let target_signer_id =
-                    crate::key_mapping::map_account(&t.signer_id, self.secret.as_ref());
+                    crate::key_mapping::map_account(&source_tx.signer_id, self.secret.as_ref());
                 match self
-                    .map_nonce(&t.signer_id, &target_signer_id, &t.public_key, &public_key, t.nonce)
+                    .map_nonce(
+                        &source_tx.signer_id,
+                        &target_signer_id,
+                        &source_tx.public_key,
+                        &public_key,
+                        source_tx.nonce,
+                    )
                     .await?
                 {
                     Ok(nonce) => {
-                        let mut tx = Transaction::new(
+                        let mut target_tx = Transaction::new(
                             target_signer_id,
                             public_key,
-                            crate::key_mapping::map_account(&t.receiver_id, self.secret.as_ref()),
+                            crate::key_mapping::map_account(
+                                &source_tx.receiver_id,
+                                self.secret.as_ref(),
+                            ),
                             nonce,
                             ref_hash.clone(),
                         );
-                        tx.actions = actions;
-                        let tx = SignedTransaction::new(
-                            mapped_key.sign(&tx.get_hash_and_size().0.as_ref()),
-                            tx,
+                        target_tx.actions = actions;
+                        let target_tx = SignedTransaction::new(
+                            mapped_key.sign(&target_tx.get_hash_and_size().0.as_ref()),
+                            target_tx,
                         );
-                        txs.push(TargetChainTx::Ready(tx));
+                        txs.push(TargetChainTx::Ready(MappedTx::new(&source_tx, idx, target_tx)));
                     }
                     Err(e) => match e {
                         MapNonceError::AddOverflow(..)
                         | MapNonceError::SubOverflow(..)
                         | MapNonceError::SourceKeyNotOnChain => {
-                            tracing::error!(target: "mirror", "error mapping nonce for ({:?}, {:?}): {:?}", &t.signer_id, &public_key, e);
+                            tracing::error!(target: "mirror", "error mapping nonce for ({:?}, {:?}): {:?}", &source_tx.signer_id, &public_key, e);
                             continue;
                         }
                         MapNonceError::TargetKeyNotOnChain => {
-                            let mut tx = Transaction::new(
-                                crate::key_mapping::map_account(&t.signer_id, self.secret.as_ref()),
-                                public_key,
+                            let mut target_tx = Transaction::new(
                                 crate::key_mapping::map_account(
-                                    &t.receiver_id,
+                                    &source_tx.signer_id,
                                     self.secret.as_ref(),
                                 ),
-                                t.nonce,
+                                public_key,
+                                crate::key_mapping::map_account(
+                                    &source_tx.receiver_id,
+                                    self.secret.as_ref(),
+                                ),
+                                source_tx.nonce,
                                 ref_hash.clone(),
                             );
-                            tx.actions = actions;
-                            txs.push(TargetChainTx::AwaitingNonce(TxAwaitingNonce {
-                                tx,
-                                source_public: t.public_key.clone(),
-                                source_signer_id: t.signer_id.clone(),
-                                target_private: mapped_key,
-                            }));
+                            target_tx.actions = actions;
+                            txs.push(TargetChainTx::AwaitingNonce(TxAwaitingNonce::new(
+                                &source_tx, idx, target_tx, mapped_key,
+                            )));
                             num_not_ready += 1;
                         }
                     },
@@ -931,10 +995,10 @@ impl TxMirror {
                 let nonce = self
                     .map_nonce(
                         &tx.source_signer_id,
-                        &tx.tx.signer_id,
+                        &tx.target_tx.signer_id,
                         &tx.source_public,
-                        &tx.tx.public_key,
-                        tx.tx.nonce,
+                        &tx.target_tx.public_key,
+                        tx.target_tx.nonce,
                     )
                     .await?
                     .unwrap();
@@ -962,13 +1026,14 @@ impl TxMirror {
                 // time to send a batch of transactions
                 mapped_block = tracker.next_batch(), if tracker.num_blocks_queued() > 0 => {
                     let mapped_block = mapped_block.unwrap();
-                    let sent = self.send_transactions(&mapped_block).await?;
-                    tracker.on_txs_sent(&sent, mapped_block.source_height, target_height);
+                    let source_height = mapped_block.source_height;
+                    let sent = self.send_transactions(mapped_block).await?;
+                    tracker.on_txs_sent(&sent, source_height, target_height);
 
                     // now we have one second left until we need to send more transactions. In the
                     // meantime, we might as well prepare some more batches of transactions.
                     // TODO: continue in best effort fashion on error
-                    self.set_next_source_height(mapped_block.source_height+1)?;
+                    self.set_next_source_height(source_height+1)?;
                     self.queue_txs(&mut tracker, target_head, true).await?;
                 }
                 msg = self.target_stream.recv() => {

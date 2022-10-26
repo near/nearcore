@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use tracing::{debug, error, info, trace, warn};
 
+use crate::adapter::{NetworkViewClientMessages, NetworkViewClientResponses};
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
     RuntimeAdapter,
@@ -28,9 +29,8 @@ use near_client_primitives::types::{
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::{
-    NetworkRequests, NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerAdapter,
-    PeerManagerMessageRequest, ReasonForBan, StateResponseInfo, StateResponseInfoV1,
-    StateResponseInfoV2,
+    NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, ReasonForBan,
+    StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
 };
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
@@ -371,7 +371,7 @@ impl ViewClientActor {
             }
         }
 
-        let head = self.chain.head().map_err(|e| TxStatusError::ChainError(e))?;
+        let head = self.chain.head()?;
         let target_shard_id = self
             .runtime_adapter
             .account_id_to_shard_id(&signer_account_id, &head.epoch_id)
@@ -386,10 +386,8 @@ impl ViewClientActor {
             match self.chain.get_final_transaction_result(&tx_hash) {
                 Ok(tx_result) => {
                     let res = if fetch_receipt {
-                        let final_result = self
-                            .chain
-                            .get_final_transaction_result_with_receipt(tx_result)
-                            .map_err(|e| TxStatusError::ChainError(e))?;
+                        let final_result =
+                            self.chain.get_final_transaction_result_with_receipt(tx_result)?;
                         FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(
                             final_result,
                         )
@@ -407,7 +405,7 @@ impl ViewClientActor {
                 }
                 Err(err) => {
                     warn!(target: "client", ?err, "Error trying to get transaction result");
-                    Err(TxStatusError::ChainError(err))
+                    Err(err.into())
                 }
             }
         } else {
@@ -417,10 +415,7 @@ impl ViewClientActor {
                     .runtime_adapter
                     .account_id_to_shard_id(&signer_account_id, &head.epoch_id)
                     .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
-                let validator = self
-                    .chain
-                    .find_validator_for_forwarding(target_shard_id)
-                    .map_err(|e| TxStatusError::ChainError(e))?;
+                let validator = self.chain.find_validator_for_forwarding(target_shard_id)?;
 
                 self.network_adapter.do_send(
                     PeerManagerMessageRequest::NetworkRequests(NetworkRequests::TxStatus(
@@ -907,7 +902,7 @@ impl Handler<WithSpanContext<GetExecutionOutcome>> for ViewClientActor {
             }
             Err(e) => match e {
                 near_chain::Error::DBNotFoundErr(_) => {
-                    let head = self.chain.head().map_err(|e| TxStatusError::ChainError(e))?;
+                    let head = self.chain.head()?;
                     let target_shard_id =
                         self.runtime_adapter.account_id_to_shard_id(&account_id, &head.epoch_id)?;
                     if self.runtime_adapter.cares_about_shard(
@@ -1257,14 +1252,6 @@ impl Handler<WithSpanContext<NetworkViewClientMessages>> for ViewClientActor {
                 }
 
                 NetworkViewClientResponses::AnnounceAccount(filtered_announce_accounts)
-            }
-            NetworkViewClientMessages::EpochSyncRequest { epoch_id: _epoch_id } => {
-                // TODO #3488
-                NetworkViewClientResponses::NoResponse
-            }
-            NetworkViewClientMessages::EpochSyncFinalizationRequest { epoch_id: _epoch_id } => {
-                // TODO #3488
-                NetworkViewClientResponses::NoResponse
             }
         }
     }
