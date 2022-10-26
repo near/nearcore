@@ -10,6 +10,7 @@ use crate::testonly::{make_rng, Rng};
 use crate::time;
 use crate::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::block_header::{Approval, ApprovalInner, ApprovalMessage};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::db::TestDB;
@@ -60,7 +61,12 @@ async fn send_tier1_message(
         approval_message: ApprovalMessage { approval: want.clone(), target },
     };
     let mut events = to.events.from_now();
-    let resp = from.actix.addr.send(PeerManagerMessageRequest::NetworkRequests(req)).await.unwrap();
+    let resp = from
+        .actix
+        .addr
+        .send(PeerManagerMessageRequest::NetworkRequests(req).with_span_context())
+        .await
+        .unwrap();
     assert_eq!(NetworkResponses::NoResponse, resp.as_network_response());
     let got = events
         .recv_until(|ev| match ev {

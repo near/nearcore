@@ -13,6 +13,7 @@ protobuf-codegen.workspace = true
 
 [dependencies]
 rlimit.workspace = true
+async-trait.workspace = true
 actix.workspace = true
 anyhow.workspace = true
 arc-swap.workspace = true

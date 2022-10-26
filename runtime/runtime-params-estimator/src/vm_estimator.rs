@@ -49,7 +49,7 @@ fn measure_contract(
     let vm = vm_kind.runtime(vm_config).unwrap();
     let result = vm.precompile(contract, cache).unwrap();
     let end = start.elapsed();
-    assert!(result.is_ok(), "Compilation failed");
+    result.unwrap_or_else(|err| panic!("compilation failed, {err}"));
     end
 }
 

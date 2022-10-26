@@ -23,10 +23,9 @@ use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
 use lru::LruCache;
 use near_crypto::Signature;
-use near_o11y::{handler_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
+use near_o11y::{handler_debug_span, log_assert, pretty, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
-use near_primitives::logging;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::EpochId;
 use near_primitives::utils::DisplayOption;
@@ -61,6 +60,9 @@ const MAX_TRANSACTIONS_PER_BLOCK_MESSAGE: usize = 1000;
 const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
 const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
+
+// TODO(gprusak): this delay is unnecessary, drop it.
+const WAIT_FOR_SYNC_DELAY: time::Duration = time::Duration::milliseconds(1_000);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectionClosedEvent {
@@ -681,7 +683,6 @@ impl PeerActor {
         // decides whether to accept the connection or not: ctx.wait makes
         // the actor event loop poll on the future until it completes before
         // processing any other events.
-
         ctx.wait(wrap_future({
             let network_state = self.network_state.clone();
             let clock = self.clock.clone();
@@ -731,6 +732,12 @@ impl PeerActor {
                                 }
                             }));
                         }
+                        ctx.spawn(wrap_future(async {
+                            tokio::time::sleep(WAIT_FOR_SYNC_DELAY.try_into().unwrap()).await;
+                        }).map(|_,act:&mut Self,_|{
+                            // Sync the RoutingTable.
+                            act.sync_routing_table();
+                        }));
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
                             edge: conn.edge.clone(),
@@ -868,10 +875,10 @@ impl PeerActor {
             RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => network_state
                 .client
                 .tx_status_request(account_id, tx_hash)
-                .await?
-                .map(RoutedMessageBody::TxStatusResponse),
+                .await
+                .map(|v| RoutedMessageBody::TxStatusResponse(*v)),
             RoutedMessageBody::TxStatusResponse(tx_result) => {
-                network_state.client.tx_status_response(tx_result).await?;
+                network_state.client.tx_status_response(tx_result).await;
                 None
             }
             RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => network_state
@@ -885,31 +892,31 @@ impl PeerActor {
                 .await?
                 .map(RoutedMessageBody::VersionedStateResponse),
             RoutedMessageBody::VersionedStateResponse(info) => {
-                network_state.client.state_response(info).await?;
+                network_state.client.state_response(info).await;
                 None
             }
             RoutedMessageBody::BlockApproval(approval) => {
-                network_state.client.block_approval(approval, peer_id).await?;
+                network_state.client.block_approval(approval, peer_id).await;
                 None
             }
             RoutedMessageBody::ForwardTx(transaction) => {
-                network_state.client.transaction(transaction, /*is_forwarded=*/ true).await?;
+                network_state.client.transaction(transaction, /*is_forwarded=*/ true).await;
                 None
             }
             RoutedMessageBody::PartialEncodedChunkRequest(request) => {
-                network_state.client.partial_encoded_chunk_request(request, msg_hash).await?;
+                network_state.client.partial_encoded_chunk_request(request, msg_hash).await;
                 None
             }
             RoutedMessageBody::PartialEncodedChunkResponse(response) => {
-                network_state.client.partial_encoded_chunk_response(response, clock.now()).await?;
+                network_state.client.partial_encoded_chunk_response(response, clock.now()).await;
                 None
             }
             RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
-                network_state.client.partial_encoded_chunk(chunk).await?;
+                network_state.client.partial_encoded_chunk(chunk).await;
                 None
             }
             RoutedMessageBody::PartialEncodedChunkForward(msg) => {
-                network_state.client.partial_encoded_chunk_forward(msg).await?;
+                network_state.client.partial_encoded_chunk_forward(msg).await;
                 None
             }
             RoutedMessageBody::ReceiptOutcomeRequest(_) => {
@@ -967,17 +974,17 @@ impl PeerActor {
                     )
                 }
                 PeerMessage::BlockRequest(hash) => {
-                    network_state.client.block_request(hash).await?.map(PeerMessage::Block)
+                    network_state.client.block_request(hash).await.map(|b|PeerMessage::Block(*b))
                 }
                 PeerMessage::BlockHeadersRequest(hashes) => {
-                    network_state.client.block_headers_request(hashes).await?.map(PeerMessage::BlockHeaders)
+                    network_state.client.block_headers_request(hashes).await.map(PeerMessage::BlockHeaders)
                 }
                 PeerMessage::Block(block) => {
-                    network_state.client.block(block, peer_id, was_requested).await?;
+                    network_state.client.block(block, peer_id, was_requested).await;
                     None
                 }
                 PeerMessage::Transaction(transaction) => {
-                    network_state.client.transaction(transaction, /*is_forwarded=*/ false).await?;
+                    network_state.client.transaction(transaction, /*is_forwarded=*/ false).await;
                     None
                 }
                 PeerMessage::BlockHeaders(headers) => {
@@ -985,7 +992,7 @@ impl PeerActor {
                     None
                 }
                 PeerMessage::Challenge(challenge) => {
-                    network_state.client.challenge(challenge).await?;
+                    network_state.client.challenge(challenge).await;
                     None
                 }
                 msg => {
@@ -1427,7 +1434,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
         let mut peer_msg = match self.parse_message(&msg) {
             Ok(msg) => msg,
             Err(err) => {
-                tracing::debug!(target: "network", "Received invalid data {:?} from {}: {}", logging::pretty_vec(&msg), self.peer_info, err);
+                tracing::debug!(target: "network", "Received invalid data {} from {}: {}", pretty::AbbrBytes(&msg), self.peer_info, err);
                 return;
             }
         };
@@ -1502,7 +1509,7 @@ impl actix::Handler<WithSpanContext<SendMessage>> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<SendMessage>, _: &mut Self::Context) {
-        let (_span, msg) = handler_span!("network", msg);
+        let (_span, msg) = handler_debug_span!(target: "network", msg);
         let _d = delay_detector::DelayDetector::new(|| "send message".into());
         self.send_message_or_log(&msg.message);
     }
@@ -1520,7 +1527,7 @@ impl actix::Handler<WithSpanContext<Stop>> for PeerActor {
 
     #[perf]
     fn handle(&mut self, msg: WithSpanContext<Stop>, ctx: &mut Self::Context) -> Self::Result {
-        let (_span, msg) = handler_span!("network", msg);
+        let (_span, msg) = handler_debug_span!(target: "network", msg);
         self.stop(
             ctx,
             match msg.ban_reason {

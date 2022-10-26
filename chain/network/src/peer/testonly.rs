@@ -1,5 +1,4 @@
 use crate::broadcast;
-use crate::client;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
@@ -116,7 +115,7 @@ impl PeerHandle {
         let cfg_ = cfg.clone();
         let (send, recv) = broadcast::unbounded_channel();
         let actix = ActixSystem::spawn(move || {
-            let fc = fake_client::start(send.sink().compose(Event::Client));
+            let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
             let store = store::Store::from(near_store::db::TestDB::new());
             let mut network_cfg = cfg.network.clone();
             network_cfg.event_sink = send.sink().compose(Event::Network);
@@ -127,7 +126,7 @@ impl PeerHandle {
                     .unwrap(),
                 Arc::new(network_cfg.verify().unwrap()),
                 cfg.chain.genesis_id.clone(),
-                client::Client::new(fc.clone().recipient(), fc.clone().recipient()),
+                fc,
                 vec![],
             ));
             // WARNING: this is a hack to make PeerActor use a specific nonce

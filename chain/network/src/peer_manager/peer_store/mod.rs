@@ -4,12 +4,12 @@ use crate::store;
 use crate::time;
 use crate::types::{KnownPeerState, KnownPeerStatus, ReasonForBan};
 use anyhow::bail;
+use im::hashmap::Entry;
+use im::{HashMap, HashSet};
 use near_primitives::network::PeerId;
 use parking_lot::Mutex;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::ops::Not;
 
@@ -19,7 +19,7 @@ mod testonly;
 mod tests;
 
 /// Level of trust we have about a new (PeerId, Addr) pair.
-#[derive(Eq, PartialEq, Debug, Clone)]
+#[derive(Eq, PartialEq, Debug, Clone, Copy)]
 enum TrustLevel {
     /// We learn about it from other peers.
     Indirect,
@@ -46,9 +46,19 @@ impl VerifiedPeer {
 
 #[derive(Clone)]
 pub struct Config {
-    pub blacklist: blacklist::Blacklist,
-    /// Nodes will not accept or try to establish connection to such peers.
+    /// A list of nodes to connect to on the first run of the neard server.
+    /// Once it connects to some of them, the server will learn about other
+    /// nodes in the network and will try to connect to them as well.
+    /// Sever will also store in DB the info about the nodes it learned about,
+    /// so that on the next run it has a larger choice of nodes to connect
+    /// to (rather than just the boot nodes).
+    ///
+    /// The recommended boot nodes are distributed together with the config.json
+    /// file, but you can modify the boot_nodes field to contain any nodes that
+    /// you trust.
     pub boot_nodes: Vec<PeerInfo>,
+    /// Nodes will not accept or try to establish connection to such peers.
+    pub blacklist: blacklist::Blacklist,
     /// If true - connect only to the bootnodes.
     pub connect_only_to_boot_nodes: bool,
     /// Remove expired peers.
@@ -81,7 +91,6 @@ impl Inner {
     }
 
     /// Adds a peer into the store with given trust level.
-    #[inline(always)]
     fn add_peer(
         &mut self,
         clock: &time::Clock,
@@ -97,18 +106,15 @@ impl Inner {
                     // If this peer already exists with a signed connection ignore this update.
                     // Warning: This is a problem for nodes that changes its address without changing peer_id.
                     //          It is recommended to change peer_id if address is changed.
-                    let is_peer_trusted =
-                        self.peer_states.get(&peer_info.id).map_or(false, |peer_state| {
-                            peer_state.peer_info.addr.map_or(false, |current_addr| {
-                                self.addr_peers.get(&current_addr).map_or(false, |verified_peer| {
-                                    verified_peer.trust_level == TrustLevel::Signed
-                                })
-                            })
-                        });
-                    if is_peer_trusted {
+                    let trust_level = (|| {
+                        let state = self.peer_states.get(&peer_info.id)?;
+                        let addr = state.peer_info.addr?;
+                        let verified_peer = self.addr_peers.get(&addr)?;
+                        Some(verified_peer.trust_level)
+                    })();
+                    if trust_level == Some(TrustLevel::Signed) {
                         return Ok(());
                     }
-
                     self.update_peer_info(clock, peer_info, peer_addr, TrustLevel::Direct)?;
                 }
                 TrustLevel::Indirect => {
@@ -124,10 +130,9 @@ impl Inner {
         } else {
             // If doesn't have the address attached it is not verified and we add it
             // only if it is unknown to us.
-            if !self.peer_states.contains_key(&peer_info.id) {
-                self.peer_states
-                    .insert(peer_info.id.clone(), KnownPeerState::new(peer_info, clock.now_utc()));
-            }
+            self.peer_states
+                .entry(peer_info.id.clone())
+                .or_insert_with(|| KnownPeerState::new(peer_info, clock.now_utc()));
         }
         Ok(())
     }
@@ -503,6 +508,10 @@ impl PeerStore {
                 tracing::error!(target: "network", ?err, "Failed to unban a peer");
             }
         }
+    }
+
+    pub fn load(&self) -> HashMap<PeerId, KnownPeerState> {
+        self.0.lock().peer_states.clone()
     }
 }
 

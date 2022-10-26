@@ -106,8 +106,6 @@ pub struct Config {
     pub archival_peer_connections_lower_bound: u32,
     /// Handshake timeout.
     pub handshake_timeout: Duration,
-    /// Duration before trying to reconnect to a peer.
-    pub reconnect_delay: Duration,
     /// Skip waiting for peers before starting node.
     pub skip_sync_wait: bool,
     /// Ban window for peers who misbehave.
@@ -233,7 +231,6 @@ impl Default for Config {
             safe_set_size: default_safe_set_size(),
             archival_peer_connections_lower_bound: default_archival_peer_connections_lower_bound(),
             handshake_timeout: Duration::from_secs(20),
-            reconnect_delay: Duration::from_secs(60),
             skip_sync_wait: false,
             ban_window: Duration::from_secs(3 * 60 * 60),
             blacklist: vec![],

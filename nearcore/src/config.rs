@@ -322,8 +322,12 @@ pub struct Config {
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gas_burnt_view: Option<Gas>,
-    /// Different parameters to configure/optimize underlying storage.
+    /// Different parameters to configure underlying storage.
     pub store: near_store::StoreConfig,
+    /// Different parameters to configure underlying cold storage.
+    #[cfg(feature = "cold_store")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cold_store: Option<near_store::StoreConfig>,
 
     // TODO(mina86): Remove those two altogether at some point.  We need to be
     // somewhat careful though and make sure that we don’t start silently
@@ -369,6 +373,8 @@ impl Default for Config {
             db_migration_snapshot_path: None,
             use_db_migration_snapshot: None,
             store: near_store::StoreConfig::default(),
+            #[cfg(feature = "cold_store")]
+            cold_store: None,
         }
     }
 }

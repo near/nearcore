@@ -234,7 +234,6 @@ async fn accounts_data_rate_limiting() {
     for pm in &mut pms {
         pm.set_chain_info(chain_info.clone()).await;
         want.extend(pm.tier1_advertise_proxies(&clock.clock()).await);
-        tracing::debug!(target:"test","set chain info [X]");
     }
 
     // Capture the event streams at the start, so that we can compute

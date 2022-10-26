@@ -5,15 +5,16 @@ use actix::{Actor, Context, Handler, Recipient};
 use anyhow::{anyhow, Context as AnyhowContext};
 use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::GenesisConfig;
+use near_client::adapter::NetworkClientMessages;
 use near_client::sync;
 use near_network::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
+    FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
+    PeerManagerMessageResponse, SetChainInfo,
 };
 use near_network::types::{
     PartialEdgeInfo, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
 };
-use near_o11y::{WithSpanContext, WithSpanContextExt};
+use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics::actix::run_later;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -345,16 +346,21 @@ impl Actor for MockPeerManagerActor {
     }
 }
 
-impl Handler<SetChainInfo> for MockPeerManagerActor {
+impl Handler<WithSpanContext<SetChainInfo>> for MockPeerManagerActor {
     type Result = ();
 
-    fn handle(&mut self, _msg: SetChainInfo, _ctx: &mut Self::Context) {}
+    fn handle(&mut self, _msg: WithSpanContext<SetChainInfo>, _ctx: &mut Self::Context) {}
 }
 
-impl Handler<PeerManagerMessageRequest> for MockPeerManagerActor {
+impl Handler<WithSpanContext<PeerManagerMessageRequest>> for MockPeerManagerActor {
     type Result = PeerManagerMessageResponse;
 
-    fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<PeerManagerMessageRequest>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "mock-node", msg);
         match msg {
             PeerManagerMessageRequest::NetworkRequests(request) => match request {
                 NetworkRequests::BlockRequest { hash, peer_id } => {

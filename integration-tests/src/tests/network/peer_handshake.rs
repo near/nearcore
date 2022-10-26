@@ -3,26 +3,20 @@ use near_network::time;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use actix::actors::mocker::Mocker;
 use actix::Actor;
 use actix::System;
 use futures::{future, FutureExt};
 use near_primitives::block::GenesisId;
 
 use near_actix_test_utils::run_actix;
-use near_client::{ClientActor, ViewClientActor};
 use near_o11y::testonly::init_test_logger;
 
 use near_network::config;
 use near_network::test_utils::{
     convert_boot_nodes, open_port, wait_or_timeout, GetInfo, StopSignal, WaitOrTimeoutActor,
 };
-use near_network::types::NetworkClientResponses;
-use near_network::types::NetworkViewClientResponses;
 use near_network::PeerManagerActor;
-
-type ClientMock = Mocker<ClientActor>;
-type ViewClientMock = Mocker<ViewClientActor>;
+use near_o11y::WithSpanContextExt;
 
 #[cfg(test)]
 fn make_peer_manager(
@@ -36,20 +30,12 @@ fn make_peer_manager(
     config.max_num_peers = peer_max_count;
     config.ideal_connections_hi = peer_max_count;
     config.ideal_connections_lo = peer_max_count;
-    let client_addr = ClientMock::mock(Box::new(move |_msg, _ctx| {
-        Box::new(Some(NetworkClientResponses::NoResponse))
-    }))
-    .start();
-    let view_client_addr = ViewClientMock::mock(Box::new(|_msg, _ctx| {
-        Box::new(Some(NetworkViewClientResponses::NoResponse))
-    }))
-    .start();
 
     PeerManagerActor::spawn(
         time::Clock::real(),
         near_store::db::TestDB::new(),
         config,
-        near_network::client::Client::new(client_addr.recipient(), view_client_addr.recipient()),
+        Arc::new(near_network::client::Noop),
         GenesisId::default(),
     )
     .unwrap()
@@ -64,7 +50,7 @@ fn peer_handshake() {
         let pm1 = make_peer_manager("test1", port1, vec![("test2", port2)], 10);
         let _pm2 = make_peer_manager("test2", port2, vec![("test1", port1)], 10);
         wait_or_timeout(100, 2000, || async {
-            let info = pm1.send(GetInfo {}).await.unwrap();
+            let info = pm1.send(GetInfo {}.with_span_context()).await.unwrap();
             if info.num_connected_peers == 1 {
                 return ControlFlow::Break(());
             }
@@ -96,7 +82,8 @@ fn peers_connect_all() {
             Box::new(move |_| {
                 for i in 0..num_peers {
                     let flags1 = flags.clone();
-                    actix::spawn(peers[i].send(GetInfo {}).then(move |res| {
+                    let actor = peers[i].send(GetInfo {}.with_span_context());
+                    let actor = actor.then(move |res| {
                         let info = res.unwrap();
                         if info.num_connected_peers > num_peers - 1
                             && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0
@@ -104,7 +91,8 @@ fn peers_connect_all() {
                             flags1.fetch_add(1 << i, Ordering::Relaxed);
                         }
                         future::ready(())
-                    }));
+                    });
+                    actix::spawn(actor);
                 }
                 // Stop if all connected to all after exchanging peers.
                 if flags.load(Ordering::Relaxed) == (1 << num_peers) - 1 {
@@ -140,20 +128,22 @@ fn peer_recover() {
                     state.store(1, Ordering::Relaxed);
                 } else if state.load(Ordering::Relaxed) == 1 {
                     // Stop node2.
-                    let _ = pm2.do_send(StopSignal::default());
+                    let _ = pm2.do_send(StopSignal::default().with_span_context());
                     state.store(2, Ordering::Relaxed);
                 } else if state.load(Ordering::Relaxed) == 2 {
                     // Wait until node0 removes node2 from active validators.
                     if !flag.load(Ordering::Relaxed) {
                         let flag1 = flag.clone();
-                        actix::spawn(pm0.send(GetInfo {}).then(move |res| {
+                        let actor = pm0.send(GetInfo {}.with_span_context());
+                        let actor = actor.then(move |res| {
                             if let Ok(info) = res {
                                 if info.connected_peers.len() == 1 {
                                     flag1.store(true, Ordering::Relaxed);
                                 }
                             }
                             future::ready(())
-                        }));
+                        });
+                        actix::spawn(actor);
                     } else {
                         state.store(3, Ordering::Relaxed);
                     }
@@ -169,14 +159,16 @@ fn peer_recover() {
                     state.store(4, Ordering::Relaxed);
                 } else if state.load(Ordering::Relaxed) == 4 {
                     // Wait until node2 is connected with node0
-                    actix::spawn(pm2.send(GetInfo {}).then(|res| {
+                    let actor = pm2.send(GetInfo {}.with_span_context());
+                    let actor = actor.then(|res| {
                         if let Ok(info) = res {
                             if info.connected_peers.len() == 1 {
                                 System::current().stop();
                             }
                         }
                         future::ready(())
-                    }));
+                    });
+                    actix::spawn(actor);
                 }
             }),
             100,

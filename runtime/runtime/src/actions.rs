@@ -7,7 +7,7 @@ use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::contract::ContractCode;
-use near_primitives::errors::{ActionError, ActionErrorKind, ContractCallError, RuntimeError};
+use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::runtime::config::AccountCreationConfig;
@@ -27,7 +27,10 @@ use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
     StorageError, TrieUpdate,
 };
-use near_vm_errors::{CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError};
+use near_vm_errors::{
+    CompilationError, FunctionCallError, FunctionCallErrorSer, InconsistentStateError,
+    VMRunnerError,
+};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
@@ -204,66 +207,41 @@ pub(crate) fn action_function_call(
         }
     }
 
-    let execution_succeeded = match outcome.aborted {
-        Some(err) => {
-            metrics::FUNCTION_CALL_PROCESSED_FUNCTION_CALL_ERRORS
-                .with_label_values(&[(&err).into()])
-                .inc();
-            match err {
-                FunctionCallError::CompilationError(err) => {
-                    metrics::FUNCTION_CALL_PROCESSED_COMPILATION_ERRORS
-                        .with_label_values(&[(&err).into()])
-                        .inc();
-                    result.result = Err(ActionErrorKind::FunctionCallError(
-                        ContractCallError::CompilationError(err).into(),
-                    )
-                    .into());
-                    false
-                }
-                FunctionCallError::LinkError { msg } => {
-                    result.result = Err(ActionErrorKind::FunctionCallError(
-                        ContractCallError::ExecutionError { msg: format!("Link Error: {}", msg) }
-                            .into(),
-                    )
-                    .into());
-                    false
-                }
-                FunctionCallError::MethodResolveError(err) => {
-                    metrics::FUNCTION_CALL_PROCESSED_METHOD_RESOLVE_ERRORS
-                        .with_label_values(&[(&err).into()])
-                        .inc();
-                    result.result = Err(ActionErrorKind::FunctionCallError(
-                        ContractCallError::MethodResolveError(err).into(),
-                    )
-                    .into());
-                    false
-                }
-                FunctionCallError::WasmTrap(ref inner_err) => {
-                    metrics::FUNCTION_CALL_PROCESSED_WASM_TRAP_ERRORS
-                        .with_label_values(&[inner_err.into()])
-                        .inc();
-                    result.result = Err(ActionErrorKind::FunctionCallError(
-                        ContractCallError::ExecutionError { msg: err.to_string() }.into(),
-                    )
-                    .into());
-                    false
-                }
-                FunctionCallError::HostError(ref inner_err) => {
-                    metrics::FUNCTION_CALL_PROCESSED_HOST_ERRORS
-                        .with_label_values(&[inner_err.into()])
-                        .inc();
-                    result.result = Err(ActionErrorKind::FunctionCallError(
-                        ContractCallError::ExecutionError { msg: err.to_string() }.into(),
-                    )
-                    .into());
-                    false
-                }
-                FunctionCallError::_EVMError => unreachable!(),
+    let execution_succeeded = outcome.aborted.is_none();
+    if let Some(err) = outcome.aborted {
+        // collect metrics for failed function calls
+        metrics::FUNCTION_CALL_PROCESSED_FUNCTION_CALL_ERRORS
+            .with_label_values(&[(&err).into()])
+            .inc();
+        match &err {
+            FunctionCallError::CompilationError(err) => {
+                metrics::FUNCTION_CALL_PROCESSED_COMPILATION_ERRORS
+                    .with_label_values(&[err.into()])
+                    .inc();
+            }
+            FunctionCallError::LinkError { .. } => (),
+            FunctionCallError::MethodResolveError(err) => {
+                metrics::FUNCTION_CALL_PROCESSED_METHOD_RESOLVE_ERRORS
+                    .with_label_values(&[err.into()])
+                    .inc();
+            }
+            FunctionCallError::WasmTrap(ref inner_err) => {
+                metrics::FUNCTION_CALL_PROCESSED_WASM_TRAP_ERRORS
+                    .with_label_values(&[inner_err.into()])
+                    .inc();
+            }
+            FunctionCallError::HostError(ref inner_err) => {
+                metrics::FUNCTION_CALL_PROCESSED_HOST_ERRORS
+                    .with_label_values(&[inner_err.into()])
+                    .inc();
             }
         }
-        None => true,
-    };
-
+        // Update action result with the abort error converted to the
+        // transaction runtime's format of errors.
+        let ser: FunctionCallErrorSer = err.into();
+        let action_err: ActionError = ActionErrorKind::FunctionCallError(ser).into();
+        result.result = Err(action_err);
+    }
     result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
     result.gas_burnt_for_function_call =
         safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;

@@ -1,5 +1,6 @@
 use crate::client;
 use crate::config;
+use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
     AccountOrPeerIdOrHash, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage,
     RoutedMessageBody, StateResponseInfo, SyncAccountsData,
@@ -22,13 +23,15 @@ use crate::types::{
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
+use near_o11y::{handler_trace_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
+use near_primitives::views::{KnownPeerStateView, PeerStoreView};
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::cmp::min;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -79,6 +82,9 @@ pub struct PeerManagerActor {
     started_connect_attempts: bool,
 
     pub(crate) state: Arc<NetworkState>,
+
+    /// Last time when we tried to establish connection to this peer.
+    last_peer_outbound_attempt: HashMap<PeerId, time::Utc>,
 }
 
 /// TEST-ONLY
@@ -224,7 +230,7 @@ impl actix::Actor for PeerManagerActor {
     fn stopping(&mut self, _ctx: &mut Self::Context) -> actix::Running {
         tracing::warn!("PeerManager: stopping");
         self.state.tier2.broadcast_message(Arc::new(PeerMessage::Disconnect));
-        self.state.routing_table_addr.do_send(StopMsg {});
+        self.state.routing_table_addr.do_send(StopMsg {}.with_span_context());
         actix::Running::Stop
     }
 
@@ -238,21 +244,20 @@ impl PeerManagerActor {
         clock: time::Clock,
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
-        client: client::Client,
+        client: Arc<dyn client::Client>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
         let store = store::Store::from(store);
         let peer_store =
             peer_store::PeerStore::new(&clock, config.peer_store.clone(), store.clone())
-                .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+                .context("PeerStore::new")?;
         tracing::debug!(target: "network",
                len = peer_store.len(),
                boot_nodes = config.peer_store.boot_nodes.len(),
                banned = peer_store.count_banned(),
                "Found known peers");
         tracing::debug!(target: "network", blacklist = ?config.peer_store.blacklist, "Blacklist");
-
         let whitelist_nodes = {
             let mut v = vec![];
             for wn in &config.whitelist_nodes {
@@ -267,6 +272,7 @@ impl PeerManagerActor {
             my_peer_id: my_peer_id.clone(),
             config: config.clone(),
             started_connect_attempts: false,
+            last_peer_outbound_attempt: Default::default(),
             state: Arc::new(NetworkState::new(
                 &clock,
                 store.clone(),
@@ -499,7 +505,7 @@ impl PeerManagerActor {
                     self.started_connect_attempts = true;
                     interval = default_interval;
                 }
-
+                self.last_peer_outbound_attempt.insert(peer_info.id.clone(), self.clock.now_utc());
                 ctx.spawn(wrap_future({
                     let state = self.state.clone();
                     let clock = self.clock.clone();
@@ -869,7 +875,6 @@ impl PeerManagerActor {
                     self.handle_msg_network_requests(msg, ctx),
                 )
             }
-            // TEST-ONLY
             PeerManagerMessageRequest::OutboundTcpConnect(stream) => {
                 let peer_addr = stream.peer_addr;
                 if let Err(err) =
@@ -902,25 +907,27 @@ impl PeerManagerActor {
 /// TODO(gprusak): In prod, NetworkInfo is pushed periodically from PeerManagerActor to ClientActor.
 /// It would be cleaner to replace the push loop in PeerManagerActor with a pull loop
 /// in the ClientActor.
-impl actix::Handler<GetNetworkInfo> for PeerManagerActor {
+impl actix::Handler<WithSpanContext<GetNetworkInfo>> for PeerManagerActor {
     type Result = NetworkInfo;
-    fn handle(&mut self, _: GetNetworkInfo, _ctx: &mut Self::Context) -> NetworkInfo {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetNetworkInfo>,
+        _ctx: &mut Self::Context,
+    ) -> NetworkInfo {
+        let (_span, _msg) = handler_trace_span!(target: "network", msg);
         let _timer = metrics::PEER_MANAGER_MESSAGES_TIME
             .with_label_values(&["GetNetworkInfo"])
             .start_timer();
-        let _span =
-            tracing::trace_span!(target: "network", "handle", handler = "GetNetworkInfo").entered();
         self.get_network_info()
     }
 }
 
-impl actix::Handler<SetChainInfo> for PeerManagerActor {
+impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
     type Result = ();
-    fn handle(&mut self, info: SetChainInfo, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: WithSpanContext<SetChainInfo>, _ctx: &mut Self::Context) {
+        let (_span, info) = handler_trace_span!(target: "network", msg);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&["SetChainInfo"]).start_timer();
-        let _span =
-            tracing::trace_span!(target: "network", "handle", handler = "SetChainInfo").entered();
         let SetChainInfo(info) = info;
         let state = self.state.clone();
         // We set state.chain_info and call accounts_data.set_keys
@@ -950,12 +957,47 @@ impl actix::Handler<SetChainInfo> for PeerManagerActor {
     }
 }
 
-impl actix::Handler<PeerManagerMessageRequest> for PeerManagerActor {
+impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerActor {
     type Result = PeerManagerMessageResponse;
-    fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<PeerManagerMessageRequest>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let msg_type: &str = (&msg.msg).into();
+        let (_span, msg) = handler_trace_span!(target: "network", msg, msg_type);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&[(&msg).into()]).start_timer();
-        let _span = tracing::trace_span!(target: "network", "handle", handler = "PeerManagerMessageRequest").entered();
         self.handle_peer_manager_message(msg, ctx)
+    }
+}
+
+impl actix::Handler<GetDebugStatus> for PeerManagerActor {
+    type Result = DebugStatus;
+    fn handle(&mut self, msg: GetDebugStatus, _ctx: &mut actix::Context<Self>) -> Self::Result {
+        match msg {
+            GetDebugStatus::PeerStore => {
+                let mut peer_states_view = self
+                    .state
+                    .peer_store
+                    .load()
+                    .iter()
+                    .map(|(peer_id, known_peer_state)| KnownPeerStateView {
+                        peer_id: peer_id.clone(),
+                        status: format!("{:?}", known_peer_state.status),
+                        addr: format!("{:?}", known_peer_state.peer_info.addr),
+                        first_seen: known_peer_state.first_seen.unix_timestamp(),
+                        last_seen: known_peer_state.last_seen.unix_timestamp(),
+                        last_attempt: self
+                            .last_peer_outbound_attempt
+                            .get(peer_id)
+                            .map(|it| it.unix_timestamp()),
+                    })
+                    .collect::<Vec<_>>();
+
+                peer_states_view.sort_by_key(|a| (-a.last_attempt.unwrap_or(0), -a.last_seen));
+                DebugStatus::PeerStore(PeerStoreView { peer_states: peer_states_view })
+            }
+        }
     }
 }

@@ -1,3 +1,4 @@
+use crate::trie::trie_storage::TrieCacheInner;
 use crate::StoreConfig;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::AccountId;
@@ -42,11 +43,7 @@ pub struct TrieConfig {
 pub struct ShardCacheConfig {
     /// Shard cache capacity in number of trie nodes.
     pub default_max_entries: u64,
-    /// Limits the sum of all cached value sizes.
-    ///
-    /// This is useful to limit total memory consumption. However, crucially this
-    /// is not a hard limit. It only limits the sum of all cached values, not
-    /// factoring in the overhead for each entry.
+    /// Limits the memory consumption for the cache.
     pub default_max_total_bytes: u64,
     /// Overrides `default_max_entries` per shard.
     pub override_max_entries: HashMap<ShardUId, u64>,
@@ -76,12 +73,6 @@ impl TrieConfig {
         this
     }
 
-    /// Shard cache capacity in number of trie nodes.
-    pub fn shard_cache_capacity(&self, shard_uid: ShardUId, is_view: bool) -> u64 {
-        if is_view { &self.view_shard_cache_config } else { &self.shard_cache_config }
-            .capacity(shard_uid)
-    }
-
     /// Shard cache capacity in total bytes.
     pub fn shard_cache_total_size_limit(&self, shard_uid: ShardUId, is_view: bool) -> u64 {
         if is_view { &self.view_shard_cache_config } else { &self.shard_cache_config }
@@ -106,15 +97,29 @@ impl TrieConfig {
 }
 
 impl ShardCacheConfig {
+    // TODO(#7894): Remove this when `trie_cache_capacities` is removed from config.
     fn capacity(&self, shard_uid: ShardUId) -> u64 {
         self.override_max_entries.get(&shard_uid).cloned().unwrap_or(self.default_max_entries)
     }
 
     fn total_size_limit(&self, shard_uid: ShardUId) -> u64 {
-        self.override_max_total_bytes
+        let explicit_limit = self
+            .override_max_total_bytes
             .get(&shard_uid)
-            .cloned()
-            .unwrap_or(self.default_max_total_bytes)
+            .copied()
+            .unwrap_or(self.default_max_total_bytes);
+        // As long as `trie_cache_capacities` is a config option, it should be respected.
+        // We no longer commit to a hard limit on this. But we make sure that the old
+        // worst-case assumption of how much memory would be consumed still works.
+        // Specifically, the old calculation ignored `PER_ENTRY_OVERHEAD` and used
+        // `max_cached_value_size()` only to figure out a good value for how many
+        // nodes we want in the cache at most.
+        // This implicit limit should result in the same may number of nodes and same max memory
+        // consumption as the old config.
+        // TODO(#7894): Remove this when `trie_cache_capacities` is removed from config.
+        let implicit_limit = self.capacity(shard_uid)
+            * (TrieCacheInner::PER_ENTRY_OVERHEAD + TrieConfig::max_cached_value_size() as u64);
+        explicit_limit.min(implicit_limit)
     }
 }
 

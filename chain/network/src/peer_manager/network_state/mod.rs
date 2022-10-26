@@ -22,6 +22,7 @@ use crate::time;
 use crate::types::{ChainInfo, PeerType, ReasonForBan};
 use arc_swap::ArcSwap;
 use near_crypto::Signature;
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -82,7 +83,7 @@ pub(crate) struct NetworkState {
     pub start_time: time::Instant,
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
-    pub client: client::Client,
+    pub client: Arc<dyn client::Client>,
     /// RoutingTableActor, responsible for computing routing table, routing table exchange, etc.
     pub routing_table_addr: actix::Addr<routing::Actor>,
 
@@ -97,11 +98,7 @@ pub(crate) struct NetworkState {
     pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
     /// Peer store that provides read/write access to peers.
     pub peer_store: peer_store::PeerStore,
-    /// A graph of the whole NEAR network, shared between routing::Actor
-    /// and PeerManagerActor. PeerManagerActor should have read-only access to the graph.
-    /// TODO: this is an intermediate step towards replacing actix runtime with a
-    /// generic threadpool (or multiple pools) in the near-network crate.
-    /// It the threadpool setup, inevitably some of the state will be shared.
+    /// A graph of the whole NEAR network.
     pub graph: Arc<RwLock<routing::GraphWithCache>>,
 
     /// View of the Routing table. It keeps:
@@ -144,24 +141,13 @@ impl Drop for NetworkState {
 }
 
 impl NetworkState {
-    /*pub async fn run<F,Fut,R>(self:&Arc<Self>, f:F) -> R where
-        F : FnOnce(&NetworkState) -> Fut,
-        Fut: 'static + Send + std::future::Future<Output=R>
-    {
-        let this = self.clone();
-        let (send,recv) = tokio::sync::oneshot::channel();
-        let fut = f(&this);
-        self.arbiter.spawn(async move { send.send(fut.await); });
-        recv.await
-    }*/
-
     pub fn new(
         clock: &time::Clock,
         store: store::Store,
         peer_store: peer_store::PeerStore,
         config: Arc<config::VerifiedConfig>,
         genesis_id: GenesisId,
-        client: client::Client,
+        client: Arc<dyn client::Client>,
         whitelist_nodes: Vec<WhitelistNode>,
     ) -> Self {
         let graph = Arc::new(RwLock::new(routing::GraphWithCache::new(config.node_id())));
@@ -548,7 +534,7 @@ impl NetworkState {
 
         let resp = match self
             .routing_table_addr
-            .send(routing::actor::Message::AddVerifiedEdges { edges })
+            .send(routing::actor::Message::AddVerifiedEdges { edges }.with_span_context())
             .await
         {
             Ok(resp) => resp,
@@ -591,10 +577,13 @@ impl NetworkState {
     ) {
         let resp = match self
             .routing_table_addr
-            .send(routing::actor::Message::RoutingTableUpdate {
-                prune_unreachable_since,
-                prune_edges_older_than,
-            })
+            .send(
+                routing::actor::Message::RoutingTableUpdate {
+                    prune_unreachable_since,
+                    prune_edges_older_than,
+                }
+                .with_span_context(),
+            )
             .await
         {
             Ok(resp) => resp,

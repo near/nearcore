@@ -137,7 +137,6 @@ pub(super) enum PeerMessage {
     _EpochSyncResponse,
     _EpochSyncFinalizationRequest,
     _EpochSyncFinalizationResponse,
-
     _RoutingTableSyncV2,
 }
 #[cfg(target_arch = "x86_64")] // Non-x86_64 doesn't match this requirement yet but it's not bad as it's not production-ready

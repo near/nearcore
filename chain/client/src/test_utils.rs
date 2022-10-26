@@ -13,6 +13,11 @@ use once_cell::sync::OnceCell;
 use rand::{thread_rng, Rng};
 use tracing::info;
 
+use crate::adapter::{
+    NetworkClientMessages, NetworkClientResponses, NetworkViewClientMessages,
+    NetworkViewClientResponses,
+};
+use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_chain::test_utils::{
     wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
@@ -29,13 +34,12 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::PartialEdgeInfo;
 use near_network::types::{
-    AccountOrPeerIdOrHash, NetworkViewClientMessages, NetworkViewClientResponses,
-    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo,
-    PeerType,
+    AccountOrPeerIdOrHash, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
+    PeerChainInfoV2, PeerInfo, PeerType,
 };
 use near_network::types::{
-    ConnectedPeerInfo, FullPeerInfo, NetworkClientMessages, NetworkClientResponses,
-    NetworkRecipient, NetworkRequests, NetworkResponses, PeerManagerAdapter,
+    ConnectedPeerInfo, FullPeerInfo, NetworkRecipient, NetworkRequests, NetworkResponses,
+    PeerManagerAdapter,
 };
 use near_network::types::{
     NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
@@ -67,12 +71,10 @@ use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
-use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
-
 pub struct PeerManagerMock {
     handle: Box<
         dyn FnMut(
-            PeerManagerMessageRequest,
+            WithSpanContext<PeerManagerMessageRequest>,
             &mut actix::Context<Self>,
         ) -> PeerManagerMessageResponse,
     >,
@@ -82,7 +84,7 @@ impl PeerManagerMock {
     fn new(
         f: impl 'static
             + FnMut(
-                PeerManagerMessageRequest,
+                WithSpanContext<PeerManagerMessageRequest>,
                 &mut actix::Context<Self>,
             ) -> PeerManagerMessageResponse,
     ) -> Self {
@@ -94,16 +96,20 @@ impl actix::Actor for PeerManagerMock {
     type Context = actix::Context<Self>;
 }
 
-impl actix::Handler<PeerManagerMessageRequest> for PeerManagerMock {
+impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerMock {
     type Result = PeerManagerMessageResponse;
-    fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<PeerManagerMessageRequest>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
         (self.handle)(msg, ctx)
     }
 }
 
-impl actix::Handler<SetChainInfo> for PeerManagerMock {
+impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerMock {
     type Result = ();
-    fn handle(&mut self, _msg: SetChainInfo, _ctx: &mut Self::Context) {}
+    fn handle(&mut self, _msg: WithSpanContext<SetChainInfo>, _ctx: &mut Self::Context) {}
 }
 
 /// min block production time in milliseconds
@@ -386,7 +392,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     let client_addr1 = client_addr.clone();
 
     let network_actor =
-        PeerManagerMock::new(move |msg, ctx| peermanager_mock(&msg, ctx, client_addr1.clone()))
+        PeerManagerMock::new(move |msg, ctx| peermanager_mock(&msg.msg, ctx, client_addr1.clone()))
             .start();
 
     network_adapter.set_recipient(network_actor);
@@ -619,6 +625,7 @@ pub fn setup_mock_all_validators(
             let client_addr = ctx.address();
             let _account_id = account_id.clone();
             let pm = PeerManagerMock::new(move |msg, _ctx| {
+                let msg = msg.msg;
                 // Note: this `.wait` will block until all `ClientActors` are created.
                 let connectors1 = connectors1.wait();
                 let mut guard = network_mock1.write().unwrap();

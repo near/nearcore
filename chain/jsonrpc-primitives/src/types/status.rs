@@ -1,3 +1,7 @@
+use near_client_primitives::debug::{
+    DebugBlockStatusData, EpochInfoView, TrackedShardsView, ValidatorStatus,
+};
+use near_primitives::views::{CatchupStatusView, PeerStoreView, SyncStatusView};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -6,10 +10,24 @@ pub struct RpcStatusResponse {
     pub status_response: near_primitives::views::StatusResponse,
 }
 
+#[derive(Serialize, Debug)]
+pub enum DebugStatusResponse {
+    SyncStatus(SyncStatusView),
+    CatchupStatus(Vec<CatchupStatusView>),
+    TrackedShards(TrackedShardsView),
+    // List of epochs - in descending order (next epoch is first).
+    EpochInfo(Vec<EpochInfoView>),
+    // Detailed information about blocks.
+    BlockStatus(DebugBlockStatusData),
+    // Detailed information about the validator (approvals, block & chunk production etc.)
+    ValidatorStatus(ValidatorStatus),
+    PeerStore(PeerStoreView),
+}
+
 #[cfg(feature = "debug_types")]
 #[derive(Debug, Serialize)]
 pub struct RpcDebugStatusResponse {
-    pub status_response: near_client_primitives::debug::DebugStatusResponse,
+    pub status_response: DebugStatusResponse,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

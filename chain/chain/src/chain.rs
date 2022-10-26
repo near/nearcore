@@ -3391,7 +3391,7 @@ impl Chain {
     }
 
     pub fn check_blocks_final_and_canonical(
-        &mut self,
+        &self,
         block_headers: &[&BlockHeader],
     ) -> Result<(), Error> {
         let last_final_block_hash = *self.head_header()?.last_final_block();
@@ -4286,6 +4286,11 @@ impl Chain {
     #[inline]
     pub fn is_in_processing(&self, hash: &CryptoHash) -> bool {
         self.blocks_in_processing.contains(hash)
+    }
+
+    #[inline]
+    pub fn is_height_processed(&self, height: BlockHeight) -> Result<bool, Error> {
+        self.store.is_height_processed(height)
     }
 
     /// Check if can sync with sync_hash

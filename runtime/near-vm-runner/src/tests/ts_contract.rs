@@ -3,7 +3,7 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_vm_errors::{FunctionCallError, HostError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
-use near_vm_logic::{External, VMConfig};
+use near_vm_logic::{External, StorageGetMode, VMConfig};
 
 use crate::tests::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
 use crate::vm_kind::VMKind;
@@ -55,7 +55,7 @@ pub fn test_ts_contract() {
             .expect("bad failure");
         // Verify by looking directly into the storage of the host.
         {
-            let res = fake_external.storage_get(b"foo");
+            let res = fake_external.storage_get(b"foo", StorageGetMode::Trie);
             let value_ptr = res.unwrap().unwrap();
             let value = value_ptr.deref().unwrap();
             let value = String::from_utf8(value).unwrap();
