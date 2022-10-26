@@ -159,12 +159,10 @@ fn get_keys_from_store(
                             DBCol::TrieChanges.key_type(),
                             &[DBKeyType::BlockHash, DBKeyType::ShardUId]
                         );
-                        let trie_changes_option: Option<TrieChanges> =
-                            store
-                                .get_ser(
-                                    DBCol::TrieChanges,
-                                    &join_two_keys(&block_hash_key, &shard_uid_key),
-                                )?;
+                        let trie_changes_option: Option<TrieChanges> = store.get_ser(
+                            DBCol::TrieChanges,
+                            &join_two_keys(&block_hash_key, &shard_uid_key),
+                        )?;
 
                         if let Some(trie_changes) = trie_changes_option {
                             for op in trie_changes.insertions() {
@@ -275,11 +273,7 @@ impl StoreWithCache<'_> {
         option_to_not_found(self.get_ser(column, key), format_args!("{:?}: {:?}", column, key))
     }
 
-    pub fn insert_state_to_cache_from_op(
-        &mut self,
-        op: &TrieRefcountChange,
-        shard_uid_key: &[u8],
-    ) {
+    pub fn insert_state_to_cache_from_op(&mut self, op: &TrieRefcountChange, shard_uid_key: &[u8]) {
         debug_assert_eq!(
             DBCol::State.key_type(),
             &[DBKeyType::ShardUId, DBKeyType::TrieNodeOrValueHash]
