@@ -9,7 +9,7 @@ use near_primitives::time::Clock;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::views::{
     BlockProcessingInfo, BlockProcessingStatus, ChainProcessingInfo, ChunkProcessingInfo,
-    ChunkProcessingStatus,
+    ChunkProcessingStatus, DroppedReason,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::mem;
@@ -58,6 +58,10 @@ pub struct BlockTrackingStats {
     pub removed_from_missing_chunks_timestamp: Option<Instant>,
     /// Timestamp when block was done processing
     pub processed_timestamp: Option<Instant>,
+    /// Whether the block is not processed because of different reasons
+    pub dropped: Option<DroppedReason>,
+    /// Stores the error message encountered during the processing of this block
+    pub error: Option<String>,
     /// Only contains new chunks that belong to this block, if the block doesn't produce a new chunk
     /// for a shard, the corresponding item will be None.
     pub chunks: Vec<Option<ChunkHash>>,
@@ -164,9 +168,27 @@ impl BlocksDelayTracker {
                 removed_from_orphan_timestamp: None,
                 removed_from_missing_chunks_timestamp: None,
                 processed_timestamp: None,
+                dropped: None,
+                error: None,
                 chunks,
             });
             self.blocks_height_map.entry(height).or_insert(vec![]).push(*block_hash);
+        }
+    }
+
+    pub fn mark_block_dropped(&mut self, block_hash: &CryptoHash, reason: DroppedReason) {
+        if let Some(block_entry) = self.blocks.get_mut(block_hash) {
+            block_entry.dropped = Some(reason);
+        } else {
+            error!(target:"blocks_delay_tracker", "block {:?} was dropped but was not marked received", block_hash);
+        }
+    }
+
+    pub fn mark_block_errored(&mut self, block_hash: &CryptoHash, err: String) {
+        if let Some(block_entry) = self.blocks.get_mut(block_hash) {
+            block_entry.error = Some(err);
+        } else {
+            error!(target:"blocks_delay_tracker", "block {:?} was errored but was not marked received", block_hash);
         }
     }
 
@@ -350,7 +372,7 @@ impl BlocksDelayTracker {
                 })
                 .collect();
             let now = Clock::instant();
-            let block_status = chain.get_block_status(block_hash);
+            let block_status = chain.get_block_status(block_hash, block_stats);
             let in_progress_ms = block_stats
                 .processed_timestamp
                 .unwrap_or(now)
@@ -391,7 +413,11 @@ impl BlocksDelayTracker {
 }
 
 impl Chain {
-    fn get_block_status(&self, block_hash: &CryptoHash) -> BlockProcessingStatus {
+    fn get_block_status(
+        &self,
+        block_hash: &CryptoHash,
+        block_info: &BlockTrackingStats,
+    ) -> BlockProcessingStatus {
         if self.is_orphan(block_hash) {
             return BlockProcessingStatus::Orphan;
         }
@@ -402,7 +428,13 @@ impl Chain {
             return BlockProcessingStatus::InProcessing;
         }
         if self.store().block_exists(block_hash).unwrap_or_default() {
-            return BlockProcessingStatus::Processed;
+            return BlockProcessingStatus::Accepted;
+        }
+        if let Some(dropped_reason) = &block_info.dropped {
+            return BlockProcessingStatus::Dropped(dropped_reason.clone());
+        }
+        if let Some(error) = &block_info.error {
+            return BlockProcessingStatus::Error(error.clone());
         }
         return BlockProcessingStatus::Unknown;
     }
