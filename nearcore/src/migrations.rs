@@ -105,7 +105,7 @@ pub fn do_migrate_34_to_35(
         for (_, hashes) in chain_store.get_all_block_hashes_by_height(height)?.iter() {
             for hash in hashes {
                 for shard_id in 0..num_shards {
-                    store_helper::get_delta(&store, shard_id, hash.clone())?;
+                    store_helper::get_delta(&store, shard_id, hash.clone()).unwrap();
                 }
             }
         }
