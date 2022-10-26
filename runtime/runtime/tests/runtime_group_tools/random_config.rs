@@ -35,6 +35,7 @@ pub fn random_config() -> RuntimeConfig {
                 },
                 delete_key_cost: random_fee(),
                 delete_account_cost: random_fee(),
+                delegate_cost: random_fee(),
             },
             storage_usage_config: StorageUsageConfig {
                 num_bytes_account: rng.next_u64() % 10000,

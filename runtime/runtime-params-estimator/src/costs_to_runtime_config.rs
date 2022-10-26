@@ -78,6 +78,7 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
             },
             delete_key_cost: fee(Cost::ActionDeleteKey)?,
             delete_account_cost: fee(Cost::ActionDeleteAccount)?,
+            delegate_cost: fee(Cost::ActionDelegate)?,
         },
         ..actual_fees_config.clone()
     };

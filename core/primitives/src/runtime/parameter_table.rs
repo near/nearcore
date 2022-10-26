@@ -125,6 +125,7 @@ impl ParameterTable {
                 },
                 "delete_key_cost": self.fee_json(FeeParameter::ActionDeleteKey),
                 "delete_account_cost": self.fee_json(FeeParameter::ActionDeleteAccount),
+                "delegate_cost": self.fee_json(FeeParameter::ActionDelegate),
             },
             "storage_usage_config": {
                 "num_bytes_account": self.get(Parameter::StorageNumBytesAccount),

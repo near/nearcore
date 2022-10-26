@@ -113,6 +113,9 @@ pub struct ActionCreationConfig {
 
     /// Base cost of deleting an account.
     pub delete_account_cost: Fee,
+
+    /// Base cost of a delegate action
+    pub delegate_cost: Fee,
 }
 
 /// Describes the cost of creating an access key.
@@ -219,6 +222,11 @@ impl RuntimeFeesConfig {
                     send_not_sir: 147489000000,
                     execution: 147489000000,
                 },
+                delegate_cost: Fee {
+                    send_sir: 2319861500000,
+                    send_not_sir: 2319861500000,
+                    execution: 2319861500000,
+                },
             },
             storage_usage_config: StorageUsageConfig {
                 // See Account in core/primitives/src/account.rs for the data structure.
@@ -253,7 +261,8 @@ impl RuntimeFeesConfig {
                     function_call_cost_per_byte: free.clone(),
                 },
                 delete_key_cost: free.clone(),
-                delete_account_cost: free,
+                delete_account_cost: free.clone(),
+                delegate_cost: free,
             },
             storage_usage_config: StorageUsageConfig {
                 num_bytes_account: 0,

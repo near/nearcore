@@ -79,6 +79,9 @@ pub enum Parameter {
     ActionDeleteKeySendSir,
     ActionDeleteKeySendNotSir,
     ActionDeleteKeyExecution,
+    ActionDelegateSendSir,
+    ActionDelegateSendNotSir,
+    ActionDelegateExecution,
 
     // Smart contract dynamic gas costs
     WasmRegularOpCost,
@@ -203,6 +206,7 @@ pub enum FeeParameter {
     ActionAddFunctionCallKey,
     ActionAddFunctionCallKeyPerByte,
     ActionDeleteKey,
+    ActionDelegate,
 }
 
 impl Parameter {

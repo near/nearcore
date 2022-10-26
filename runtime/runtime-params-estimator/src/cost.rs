@@ -154,6 +154,9 @@ pub enum Cost {
     /// Subtract the base cost of creating a sir-receipt.
     /// (TODO[jakmeier] Consider different account states.
     ActionDeleteAccount,
+    /// Estimates `action_creation_config.delegate_cost` which is charged
+    /// for `DelegateAction` actions.
+    ActionDelegate,
 
     /// Estimates `wasm_config.ext_costs.base` which is intended to be charged
     /// once on every host function call. However, this is currently
