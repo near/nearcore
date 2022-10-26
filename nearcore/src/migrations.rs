@@ -101,7 +101,7 @@ pub fn do_migrate_34_to_35(
     let num_shards = runtime.num_shards(&epoch_id)?;
 
     // check deltas existence
-    for height in final_head.height + 1..=chain_store.final_head()?.height {
+    for height in final_head.height + 1..=chain_store.head()?.height {
         for (_, hashes) in chain_store.get_all_block_hashes_by_height(height)?.iter() {
             for hash in hashes {
                 for shard_id in 0..num_shards {
