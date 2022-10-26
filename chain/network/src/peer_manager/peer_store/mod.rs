@@ -356,6 +356,9 @@ impl PeerStore {
     pub(crate) fn count_banned(&self) -> usize {
         self.0.lock().peer_states.values().filter(|st| st.status.is_banned()).count()
     }
+
+    #[allow(dead_code)]
+    /// Returns the state of the current peer in memory.
     pub(crate) fn get_peer_state(&self, peer_id: &PeerId) -> Option<KnownPeerState> {
         self.0.lock().peer_states.get(peer_id).cloned()
     }
