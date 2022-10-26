@@ -130,6 +130,7 @@ impl PeerStore {
                 first_seen: peer_state.first_seen,
                 last_seen: peer_state.last_seen,
                 status,
+                last_outbound_attempt: None,
             };
 
             let is_blacklisted =
@@ -239,15 +240,21 @@ impl PeerStore {
         Ok(())
     }
 
+    /// Records the last attempt to connect to peer.
     /// Marks the peer as Uknown (as we failed to connect to it).
-    pub(crate) fn peer_connection_failed(
+    pub(crate) fn peer_connection_attempt(
         &mut self,
         clock: &time::Clock,
         peer_id: &PeerId,
+        result: Result<(), anyhow::Error>,
     ) -> anyhow::Result<()> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
+            if result.is_err() {
+                peer_state.status = KnownPeerStatus::Unknown;
+            }
+            peer_state.last_outbound_attempt =
+                Some((clock.now_utc(), result.map_err(|err| err.to_string())));
             peer_state.last_seen = clock.now_utc();
-            peer_state.status = KnownPeerStatus::Unknown;
             self.store.set_peer_state(peer_id, peer_state)?;
         } else {
             bail!("Peer {} is missing in the peer store", peer_id);

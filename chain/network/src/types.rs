@@ -101,6 +101,9 @@ pub struct KnownPeerState {
     pub status: KnownPeerStatus,
     pub first_seen: time::Utc,
     pub last_seen: time::Utc,
+    // Last time we tried to connect to this peer.
+    // This data is not persisted in storage.
+    pub last_outbound_attempt: Option<(time::Utc, Result<(), String>)>,
 }
 
 impl KnownPeerState {
@@ -110,6 +113,7 @@ impl KnownPeerState {
             status: KnownPeerStatus::Unknown,
             first_seen: now,
             last_seen: now,
+            last_outbound_attempt: None,
         }
     }
 }
