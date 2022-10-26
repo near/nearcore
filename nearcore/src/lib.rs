@@ -142,7 +142,7 @@ pub fn start_with_config_and_synchronization(
     shutdown_signal: Option<oneshot::Sender<()>>,
 ) -> anyhow::Result<NearNode> {
     let store = open_storage(home_dir, &mut config)?;
-    panic!("Opened storage, everything is fine");
+
     let runtime = Arc::new(NightshadeRuntime::from_config(
         home_dir,
         store.get_store(Temperature::Hot),
