@@ -1,7 +1,7 @@
 # Gas Cost Parameters
 
-NEAR charges gas when executing users' WASM code. The how and why is described
-in other documents, such as [Gas basic
+NEAR charges gas when executing users' WASM code and other transactions. The how
+and why is described in other documents, such as [Gas basic
 concepts](https://docs.near.org/concepts/basics/transactions/gas), [Gas advanced
 concepts](https://docs.near.org/concepts/basics/transactions/gas-advanced), and
 [the runtime fee specification](https://nomicon.io/RuntimeSpec/Fees/).
