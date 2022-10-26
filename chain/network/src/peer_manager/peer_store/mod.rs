@@ -10,7 +10,6 @@ use near_primitives::network::PeerId;
 use parking_lot::Mutex;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
-use rand::Rng;
 use std::net::SocketAddr;
 use std::ops::Not;
 
@@ -29,11 +28,6 @@ enum TrustLevel {
     /// Responding peer proved to have SecretKey associated with this PeerID.
     Signed,
 }
-
-/// When picking a peer to connect to, we'll pick from the 'safer peers'
-/// (a.k.a. ones that we've been connected to in the past) with these odds.
-/// Otherwise, we'd pick any peer that we've heard about.
-const PICK_KNOWN_PEER_ODDS: f64 = 0.6;
 
 #[derive(Debug, Clone)]
 struct VerifiedPeer {
@@ -362,6 +356,9 @@ impl PeerStore {
     pub(crate) fn count_banned(&self) -> usize {
         self.0.lock().peer_states.values().filter(|st| st.status.is_banned()).count()
     }
+    pub(crate) fn get_peer_state(&self, peer_id: &PeerId) -> Option<KnownPeerState> {
+        self.0.lock().peer_states.get(peer_id).cloned()
+    }
 
     pub(crate) fn peer_connected(
         &self,
@@ -413,7 +410,7 @@ impl PeerStore {
     }
 
     /// Records the last attempt to connect to peer.
-    /// Marks the peer as Uknown (as we failed to connect to it).
+    /// Marks the peer as Unknown (as we failed to connect to it).
     pub(crate) fn peer_connection_attempt(
         &self,
         clock: &time::Clock,
@@ -462,10 +459,10 @@ impl PeerStore {
     pub(crate) fn unconnected_peer(
         &self,
         ignore_fn: impl Fn(&KnownPeerState) -> bool,
+        prefer_previously_connected_peer: bool,
     ) -> Option<PeerInfo> {
         let inner = self.0.lock();
-        // With some odds - try picking one of the 'NotConnected' peers -- these are the ones that we were able to connect to in the past.
-        if thread_rng().gen_bool(PICK_KNOWN_PEER_ODDS) {
+        if prefer_previously_connected_peer {
             let preferred_peer = inner.find_peers(
                 |p| {
                     (p.status == KnownPeerStatus::NotConnected)

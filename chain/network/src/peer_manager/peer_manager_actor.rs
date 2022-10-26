@@ -37,6 +37,7 @@ use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use near_primitives::views::{KnownPeerStateView, PeerStoreView};
+use rand::Rng;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::cmp::min;
@@ -86,6 +87,12 @@ const UNRELIABLE_PEER_HORIZON: u64 = 60;
 
 /// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
 pub const MAX_NUM_PEERS: usize = 128;
+
+/// When picking a peer to connect to, we'll pick from the 'safer peers'
+/// (a.k.a. ones that we've been connected to in the past) with these odds.
+/// Otherwise, we'd pick any peer that we've heard about.
+const PREFER_PREVIOUSLY_CONNECTED_PEER: f64 = 0.6;
+
 
 #[derive(Clone, PartialEq, Eq)]
 struct WhitelistNode {
@@ -776,13 +783,15 @@ impl PeerManagerActor {
 
         if self.is_outbound_bootstrap_needed() {
             let tier2 = self.state.tier2.load();
+            // With some odds - try picking one of the 'NotConnected' peers -- these are the ones that we were able to connect to in the past.
+            let prefer_previously_connected_peer = thread_rng().gen_bool(PREFER_PREVIOUSLY_CONNECTED_PEER);
             if let Some(peer_info) = self.state.peer_store.unconnected_peer(|peer_state| {
                 // Ignore connecting to ourself
                 self.my_peer_id == peer_state.peer_info.id
                     || self.config.node_addr == peer_state.peer_info.addr
                     // Or to peers we are currently trying to connect to
                     || tier2.outbound_handshakes.contains(&peer_state.peer_info.id)
-            }) {
+            }, prefer_previously_connected_peer) {
                 // Start monitor_peers_attempts from start after we discover the first healthy peer
                 if !self.started_connect_attempts {
                     self.started_connect_attempts = true;
@@ -791,20 +800,17 @@ impl PeerManagerActor {
                 ctx.spawn(wrap_future({
                     let state = self.state.clone();
                     let clock = self.clock.clone();
-                    let state2 = self.state.clone();
-                    let clock2 = self.clock.clone();
-                    
                     async move {
                         let result = async {
                             let stream = tcp::Stream::connect(&peer_info).await.context("tcp::Stream::connect()")?;
-                            PeerActor::spawn(clock,stream,None,state.clone()).context("PeerActor::spawn()")?;
+                            PeerActor::spawn(clock.clone(),stream,None,state.clone()).context("PeerActor::spawn()")?;
                             anyhow::Ok(())
                         }.await;
 
                         if result.is_err() {
                             tracing::info!(target:"network", ?result, "failed to connect to {peer_info}");
                         }
-                        if state2.peer_store.peer_connection_attempt(&clock2, &peer_info.id, result).is_err() {
+                        if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
                             error!(target: "network", ?peer_info, "Failed to mark peer as failed.");
                         }                        
                     }
