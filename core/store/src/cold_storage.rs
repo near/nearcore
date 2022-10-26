@@ -173,6 +173,16 @@ fn get_keys_from_store(
                     }
                     keys
                 }
+                // TODO: write StateChanges values to colddb directly, not to cache.
+                DBKeyType::TrieKey => {
+                    let mut keys = vec![];
+                    store.iter_prefix_with_callback(
+                        DBCol::StateChanges,
+                        &block_hash_key,
+                        |full_key| keys.push(full_key[block_hash_key.len()..].to_vec()),
+                    )?;
+                    keys
+                }
                 _ => {
                     vec![]
                 }
@@ -239,6 +249,20 @@ where
 
 #[allow(dead_code)]
 impl StoreWithCache<'_> {
+    pub fn iter_prefix_with_callback(
+        &mut self,
+        col: DBCol,
+        key_prefix: &[u8],
+        mut callback: impl FnMut(Box<[u8]>),
+    ) -> io::Result<()> {
+        for iter_result in self.store.iter_prefix(col, key_prefix) {
+            let (key, value) = iter_result?;
+            self.cache.insert((col.clone(), key.to_vec()), Some(value.to_vec()));
+            callback(key);
+        }
+        Ok(())
+    }
+
     pub fn get(&mut self, column: DBCol, key: &[u8]) -> io::Result<StoreValue> {
         if !self.cache.contains_key(&(column, key.to_vec())) {
             crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(column)]).inc();
