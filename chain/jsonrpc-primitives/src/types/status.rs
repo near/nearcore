@@ -1,5 +1,5 @@
 use near_client_primitives::debug::{
-    DebugBlockStatus, EpochInfoView, TrackedShardsView, ValidatorStatus,
+    DebugBlockStatusData, EpochInfoView, TrackedShardsView, ValidatorStatus,
 };
 use near_primitives::views::{CatchupStatusView, PeerStoreView, SyncStatusView};
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,7 @@ pub enum DebugStatusResponse {
     // List of epochs - in descending order (next epoch is first).
     EpochInfo(Vec<EpochInfoView>),
     // Detailed information about blocks.
-    BlockStatus(Vec<DebugBlockStatus>),
+    BlockStatus(DebugBlockStatusData),
     // Detailed information about the validator (approvals, block & chunk production etc.)
     ValidatorStatus(ValidatorStatus),
     PeerStore(PeerStoreView),
