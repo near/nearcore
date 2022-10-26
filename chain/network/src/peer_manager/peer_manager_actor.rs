@@ -40,7 +40,6 @@ use near_primitives::views::{KnownPeerStateView, PeerStoreView};
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::cmp::min;
-use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
@@ -133,12 +132,8 @@ pub struct PeerManagerActor {
     /// reached.
     whitelist_nodes: Vec<WhitelistNode>,
 
+    /// State that is shared between multiple threads (including PeerActors).
     pub(crate) state: Arc<NetworkState>,
-
-    /// A queue of peers that we failed to connect to.
-    /// This queue is updates from multiple threads (as we attempt peer connection async) - and
-    /// its state is periodically synced into database (in monitor_peers_trigger).
-    connection_attempts: Arc<std::sync::Mutex<VecDeque<(PeerId, Result<(), anyhow::Error>)>>>,
 }
 
 /// TEST-ONLY
@@ -294,7 +289,6 @@ impl PeerManagerActor {
                 client,
                 ctx.address().recipient(),
             )),
-            connection_attempts: Arc::new(std::sync::Mutex::new(VecDeque::default())),
             clock,
         }))
     }
@@ -776,16 +770,8 @@ impl PeerManagerActor {
             metrics::PEER_MANAGER_TRIGGER_TIME.with_label_values(&["monitor_peers"]).start_timer();
 
         self.state.peer_store.unban(&self.clock);
-        if let Err(err) = self.peer_store.update_connected_peers_last_seen(&self.clock) {
+        if let Err(err) = self.state.peer_store.update_connected_peers_last_seen(&self.clock) {
             error!(target: "network", ?err, "Failed to update peers last seen time.");
-        }
-
-        // Get the peers that we failed to connect to recently, and mark their connection as failed.
-        for (failed_peer_id, result) in self.connection_attempts.lock().expect("Lock error").drain(..)
-        {
-            if self.peer_store.peer_connection_attempt(&self.clock, &failed_peer_id, result).is_err() {
-                error!(target: "network", ?failed_peer_id, "Failed to mark peer as failed.");
-            }
         }
 
         if self.is_outbound_bootstrap_needed() {
@@ -805,9 +791,10 @@ impl PeerManagerActor {
                 ctx.spawn(wrap_future({
                     let state = self.state.clone();
                     let clock = self.clock.clone();
-                    let connection_attempts = self.connection_attempts.clone();
+                    let state2 = self.state.clone();
+                    let clock2 = self.clock.clone();
+                    
                     async move {
-
                         let result = async {
                             let stream = tcp::Stream::connect(&peer_info).await.context("tcp::Stream::connect()")?;
                             PeerActor::spawn(clock,stream,None,state.clone()).context("PeerActor::spawn()")?;
@@ -817,9 +804,9 @@ impl PeerManagerActor {
                         if result.is_err() {
                             tracing::info!(target:"network", ?result, "failed to connect to {peer_info}");
                         }
-                                                
-                        connection_attempts.lock().expect("Lock error").push_back((peer_info.id, result));
-                        
+                        if state2.peer_store.peer_connection_attempt(&clock2, &peer_info.id, result).is_err() {
+                            error!(target: "network", ?peer_info, "Failed to mark peer as failed.");
+                        }                        
                     }
                 }));
             }

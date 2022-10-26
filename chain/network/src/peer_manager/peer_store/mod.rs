@@ -276,7 +276,7 @@ impl PeerStore {
             let status = match peer_state.status {
                 KnownPeerStatus::Unknown => {
                     // We mark boot nodes as 'NotConnected', as we trust that they exist.
-                    if boot_nodes_set.contains(&peer_id) {
+                    if boot_nodes.contains(&peer_id) {
                         KnownPeerStatus::NotConnected
                     } else {
                         KnownPeerStatus::Unknown
@@ -285,7 +285,7 @@ impl PeerStore {
                 KnownPeerStatus::NotConnected => KnownPeerStatus::NotConnected,
                 KnownPeerStatus::Connected => KnownPeerStatus::NotConnected,
                 KnownPeerStatus::Banned(reason, deadline) => {
-                    if connect_only_to_boot_nodes && boot_nodes_set.contains(&peer_id) {
+                    if config.connect_only_to_boot_nodes && boot_nodes.contains(&peer_id) {
                         // Give boot node another chance.
                         KnownPeerStatus::NotConnected
                     } else {
@@ -379,15 +379,17 @@ impl PeerStore {
 
     /// Update the 'last_seen' time for all the peers that we're currently connected to.
     pub(crate) fn update_connected_peers_last_seen(
-        &mut self,
+        &self,
         clock: &time::Clock,
     ) -> anyhow::Result<()> {
-        for (peer_id, peer_state) in self.peer_states.iter_mut() {
+        let mut inner = self.0.lock();
+        let mut store = inner.store.clone();
+        for (peer_id, peer_state) in inner.peer_states.iter_mut() {
             if peer_state.status == KnownPeerStatus::Connected
                 && clock.now_utc() > peer_state.last_seen.saturating_add(time::Duration::minutes(1))
             {
                 peer_state.last_seen = clock.now_utc();
-                self.store.set_peer_state(peer_id, peer_state)?
+                store.set_peer_state(peer_id, peer_state)?
             }
         }
         Ok(())
@@ -413,19 +415,22 @@ impl PeerStore {
     /// Records the last attempt to connect to peer.
     /// Marks the peer as Uknown (as we failed to connect to it).
     pub(crate) fn peer_connection_attempt(
-        &mut self,
+        &self,
         clock: &time::Clock,
         peer_id: &PeerId,
         result: Result<(), anyhow::Error>,
     ) -> anyhow::Result<()> {
-        if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
+        let mut inner = self.0.lock();
+        let mut store = inner.store.clone();
+
+        if let Some(peer_state) = inner.peer_states.get_mut(peer_id) {
             if result.is_err() {
                 peer_state.status = KnownPeerStatus::Unknown;
             }
             peer_state.last_outbound_attempt =
                 Some((clock.now_utc(), result.map_err(|err| err.to_string())));
             peer_state.last_seen = clock.now_utc();
-            self.store.set_peer_state(peer_id, peer_state)?;
+            store.set_peer_state(peer_id, peer_state)?;
         } else {
             bail!("Peer {} is missing in the peer store", peer_id);
         }
@@ -458,7 +463,28 @@ impl PeerStore {
         &self,
         ignore_fn: impl Fn(&KnownPeerState) -> bool,
     ) -> Option<PeerInfo> {
-        self.find_peers(
+        let inner = self.0.lock();
+        // With some odds - try picking one of the 'NotConnected' peers -- these are the ones that we were able to connect to in the past.
+        if thread_rng().gen_bool(PICK_KNOWN_PEER_ODDS) {
+            let preferred_peer = inner.find_peers(
+                |p| {
+                    (p.status == KnownPeerStatus::NotConnected)
+                        && !ignore_fn(p)
+                        && p.peer_info.addr.is_some()
+                        // if we're connecting only to the boot nodes - filter out the nodes that are not bootnodes.
+                        && (!inner.config.connect_only_to_boot_nodes || inner.boot_nodes.contains(&p.peer_info.id))
+                },
+                1,
+            )
+            .get(0)
+            .cloned();
+            // If we found a preferred peer - return it.
+            if preferred_peer.is_some() {
+                return preferred_peer;
+            };
+            // otherwise, pick a peer from the wider pool below.
+        }
+        inner.find_peers(
             |p| {
                 (p.status == KnownPeerStatus::NotConnected || p.status == KnownPeerStatus::Unknown)
                     && !ignore_fn(p)
