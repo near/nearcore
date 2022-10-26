@@ -106,7 +106,10 @@ pub fn do_migrate_34_to_35(
             for hash in hashes {
                 for shard_id in 0..num_shards {
                     info!(target: "chain", %shard_id, %height, %hash, "Checking delta existence");
-                    store_helper::get_delta(&store, shard_id, hash.clone()).unwrap();
+                    println!(
+                        "{:?}",
+                        store_helper::get_delta(&store, shard_id, hash.clone()).unwrap()
+                    );
                 }
             }
         }
