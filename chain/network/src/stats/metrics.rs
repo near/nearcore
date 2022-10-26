@@ -1,5 +1,6 @@
 use crate::network_protocol::Encoding;
 use crate::network_protocol::{RoutedMessageBody, RoutedMessageV2};
+use crate::tcp;
 use crate::time;
 use crate::types::PeerType;
 use near_o11y::metrics::prometheus;
@@ -326,9 +327,9 @@ pub(crate) static BROADCAST_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
 
 static NETWORK_ROUTED_MSG_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
-        "crate_routed_msg_latency",
-        "Latency of network messages, assuming clocks are perfectly synchronized",
-        &["routed"],
+        "near_network_routed_msg_latency",
+        "Latency of network messages, assuming clocks are perfectly synchronized. 'tier' indicates what is the tier of the connection on which the message arrived (TIER1 is expected to be faster than TIER2) and 'fastest' indicates whether this was the first copy of the message to arrive.",
+        &["routed","tier","fastest"],
         Some(exponential_buckets(0.0001, 1.6, 20).unwrap()),
     )
     .unwrap()
@@ -344,12 +345,24 @@ pub(crate) static CONNECTED_TO_MYSELF: Lazy<IntCounter> = Lazy::new(|| {
 
 // The routed message received its destination. If the timestamp of creation of this message is
 // known, then update the corresponding latency metric histogram.
-pub(crate) fn record_routed_msg_latency(clock: &time::Clock, msg: &RoutedMessageV2) {
+pub(crate) fn record_routed_msg_latency(
+    clock: &time::Clock,
+    msg: &RoutedMessageV2,
+    tier: tcp::Tier,
+    fastest: bool,
+) {
     if let Some(created_at) = msg.created_at {
         let now = clock.now_utc();
         let duration = now - created_at;
         NETWORK_ROUTED_MSG_LATENCY
-            .with_label_values(&[msg.body_variant()])
+            .with_label_values(&[
+                msg.body_variant(),
+                tier.as_ref(),
+                match fastest {
+                    true => "true",
+                    false => "false",
+                },
+            ])
             .observe(duration.as_seconds_f64());
     }
 }

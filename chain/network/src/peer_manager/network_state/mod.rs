@@ -21,6 +21,7 @@ use crate::tcp;
 use crate::time;
 use crate::types::{ChainInfo, PeerType, ReasonForBan};
 use arc_swap::ArcSwap;
+use near_crypto::Signature;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -46,6 +47,10 @@ const WAIT_ON_TRY_UPDATE_NONCE: time::Duration = time::Duration::seconds(6);
 /// If we see an edge between us and other peer, but this peer is not a current connection, wait this
 /// timeout and in case it didn't become a connected peer, broadcast edge removal update.
 const WAIT_PEER_BEFORE_REMOVE: time::Duration = time::Duration::seconds(6);
+/// Size of LRU cache size of recent routed messages.
+/// It should be large enough to detect duplicates (i.e. all messages received during
+/// production of 1 block should fit).
+const RECENT_ROUTED_MESSAGES_CACHE_SIZE: usize = 10000;
 
 impl TryFrom<&PeerInfo> for WhitelistNode {
     type Error = anyhow::Error;
@@ -105,6 +110,12 @@ pub(crate) struct NetworkState {
     /// - account id
     /// Full routing table (that currently includes information about all edges in the graph) is now inside Routing Table.
     pub routing_table_view: RoutingTableView,
+
+    /// Signatures of the recently received routed messages.
+    /// We use signatures instead of hashes, because we expect identical messages
+    /// (like BlockApproval) signed by different keys.
+    /// It allows us to determine whether messages arrived faster over TIER1 or TIER2 network.
+    pub recent_routed_messages: Mutex<lru::LruCache<Signature, ()>>,
 
     /// Hash of messages that requires routing back to respective previous hop.
     pub tier1_route_back: Mutex<RouteBackCache>,
@@ -176,6 +187,9 @@ impl NetworkState {
                     burst: (40 * bytesize::MIB) as u64,
                 },
             ),
+            recent_routed_messages: Mutex::new(lru::LruCache::new(
+                RECENT_ROUTED_MESSAGES_CACHE_SIZE,
+            )),
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,
             max_num_peers: AtomicCell::new(config.max_num_peers),

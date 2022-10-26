@@ -474,14 +474,6 @@ impl PeerActor {
         self.peer_info.as_ref().as_ref().map(|peer_info| &peer_info.id)
     }
 
-    /// Update stats when receiving msg
-    fn update_stats_on_receiving_message(&mut self, msg_len: usize) {
-        metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg_len as u64);
-        metrics::PEER_MESSAGE_RECEIVED_TOTAL.inc();
-        tracing::trace!(target: "network", msg_len);
-        self.tracker.lock().increment_received(&self.clock, msg_len as u64);
-    }
-
     fn process_handshake(
         &mut self,
         ctx: &mut <PeerActor as actix::Actor>::Context,
@@ -949,6 +941,7 @@ impl PeerActor {
             .delayed_push(|| Event::MessageProcessed(conn.tier, msg.clone()));
         let was_requested = match &msg {
             PeerMessage::Block(block) => {
+                self.network_state.txns_since_last_block.store(0, Ordering::Release);
                 let hash = *block.hash();
                 conn.chain_height.fetch_max(block.header().height(), Ordering::Relaxed);
                 let mut tracker = self.tracker.lock();
@@ -1167,6 +1160,37 @@ impl PeerActor {
                     "Received routed message from {} to {:?}.",
                     self.peer_info,
                     msg.target);
+                let for_me = self.network_state.message_for_me(&msg.target);
+                if for_me {
+                    let first = self
+                        .network_state
+                        .recent_routed_messages
+                        .lock()
+                        .put(msg.signature.clone(), ())
+                        .is_none();
+                    metrics::record_routed_msg_latency(&self.clock, &msg, conn.tier, first);
+                }
+
+                // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
+                let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
+                let now = self.clock.now();
+                if let Some(&t) = self.routed_message_cache.get(&key) {
+                    if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
+                        tracing::debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
+                        return;
+                    }
+                }
+                if let RoutedMessageBody::ForwardTx(_) = &msg.body {
+                    // Check whenever we exceeded number of transactions we got since last block.
+                    // If so, drop the transaction.
+                    let r = self.network_state.txns_since_last_block.load(Ordering::Acquire);
+                    if r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE {
+                        return;
+                    }
+                    self.network_state.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
+                }
+                self.routed_message_cache.put(key, now);
+
                 if !msg.verify() {
                     // Received invalid routed message from peer.
                     self.stop(ctx, ClosingReason::Ban(ReasonForBan::InvalidSignature));
@@ -1188,8 +1212,7 @@ impl PeerActor {
                         ),
                     }
                 }
-                if self.network_state.message_for_me(&msg.target) {
-                    metrics::record_routed_msg_latency(&self.clock, &msg);
+                if for_me {
                     // Handle Ping and Pong message if they are for us without sending to client.
                     // i.e. Return false in case of Ping and Pong
                     match &msg.body {
@@ -1387,15 +1410,20 @@ impl actix::Handler<stream::Frame> for PeerActor {
     #[perf]
     fn handle(&mut self, stream::Frame(msg): stream::Frame, ctx: &mut Self::Context) {
         let _span = tracing::trace_span!(target: "network", "handle", handler = "bytes").entered();
-        // TODO(#5155) We should change our code to track size of messages received from Peer
-        // as long as it travels to PeerManager, etc.
 
         if self.closing_reason.is_some() {
             tracing::warn!(target: "network", "Received message from closing connection {:?}. Ignoring", self.peer_type);
             return;
         }
 
-        self.update_stats_on_receiving_message(msg.len());
+        // Message type agnostic stats.
+        {
+            metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg.len() as u64);
+            metrics::PEER_MESSAGE_RECEIVED_TOTAL.inc();
+            tracing::trace!(target: "network", msg_len=msg.len());
+            self.tracker.lock().increment_received(&self.clock, msg.len() as u64);
+        }
+
         let mut peer_msg = match self.parse_message(&msg) {
             Ok(msg) => msg,
             Err(err) => {
@@ -1403,34 +1431,6 @@ impl actix::Handler<stream::Frame> for PeerActor {
                 return;
             }
         };
-
-        match &peer_msg {
-            PeerMessage::Routed(msg) => {
-                let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
-                let now = self.clock.now();
-                // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
-                if let Some(&t) = self.routed_message_cache.get(&key) {
-                    if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
-                        tracing::debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
-                        return;
-                    }
-                }
-                if let RoutedMessageBody::ForwardTx(_) = &msg.body {
-                    // Check whenever we exceeded number of transactions we got since last block.
-                    // If so, drop the transaction.
-                    let r = self.network_state.txns_since_last_block.load(Ordering::Acquire);
-                    if r > MAX_TRANSACTIONS_PER_BLOCK_MESSAGE {
-                        return;
-                    }
-                    self.network_state.txns_since_last_block.fetch_add(1, Ordering::AcqRel);
-                }
-                self.routed_message_cache.put(key, now);
-            }
-            PeerMessage::Block(_) => {
-                self.network_state.txns_since_last_block.store(0, Ordering::Release);
-            }
-            _ => {}
-        }
 
         tracing::trace!(target: "network", "Received message: {}", peer_msg);
 
