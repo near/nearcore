@@ -322,7 +322,7 @@
                         row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_seen'])));
                         if (element['last_attempt'] != null) {
                             row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_attempt'][0])));
-                            row.append($("<td>").append(element['status'] + " " + element['last_attempt'][1]));
+                            row.append($("<td>").append(element['status'] + " Last attempt: " + element['last_attempt'][1]));
                         } else {
                             row.append($("<td>"));
                             row.append($("<td>").append(element['status']));
