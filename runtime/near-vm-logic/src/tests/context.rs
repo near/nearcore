@@ -1,7 +1,6 @@
-use near_primitives::config::{VMLimitConfig, ViewConfig};
-
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::VMContext;
+use near_primitives::config::{VMLimitConfig, ViewConfig};
 
 pub fn create_context() -> VMContext {
     VMContext {
