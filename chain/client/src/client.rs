@@ -55,7 +55,7 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::CatchupStatusView;
+use near_primitives::views::{CatchupStatusView, DroppedReason};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -856,6 +856,7 @@ impl Client {
             } else {
                 debug!(target: "client", error = %err, "Process block: refused by chain");
             }
+            self.chain.blocks_delay_tracker.mark_block_errored(&hash, err.to_string());
         }
     }
 
@@ -871,9 +872,13 @@ impl Client {
         was_requested: bool,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), near_chain::Error> {
+        self.chain.blocks_delay_tracker.mark_block_received(&block, Clock::instant(), Clock::utc());
         // To protect ourselves from spamming, we do some pre-check on block height before we do any
         // real processing.
         if !self.check_block_height(&block, was_requested)? {
+            self.chain
+                .blocks_delay_tracker
+                .mark_block_dropped(block.hash(), DroppedReason::HeightProcessed);
             return Ok(());
         }
         let prev_hash = *block.header().prev_hash();

@@ -128,7 +128,8 @@
                         row.append($('<td>').append(block.height));
                         row.append($('<td>').append(block.hash));
                         row.append($('<td>').append(prettyTime(block.received_timestamp)));
-                        row.append($('<td>').append(block.block_status));
+                        console.log(block);
+                        row.append($('<td>').append(JSON.stringify(block.block_status)));
                         row.append($('<td>').append(printTimeInMs(block.in_progress_ms)));
                         row.append($('<td>').append(printTimeInMs(block.orphaned_ms)));
                         row.append($('<td>').append(printTimeInMs(block.missing_chunks_ms)));
