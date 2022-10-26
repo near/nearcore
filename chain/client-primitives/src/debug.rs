@@ -51,7 +51,7 @@ pub struct DebugBlockStatus {
     pub block_height: u64,
     pub block_timestamp: u64,
     pub block_producer: Option<AccountId>,
-    pub is_block_missing: bool, // only header available
+    pub full_block_missing: bool, // only header available
     pub is_on_canonical_chain: bool,
     pub chunks: Vec<DebugChunkStatus>,
     // Time that was spent processing a given block.

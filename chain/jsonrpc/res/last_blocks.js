@@ -192,7 +192,7 @@ function BlocksTable({ rows, knownProducers, expandAll, hideMissingHeights }) {
                 <td>{block.processing_time_ms}</td>
                 <td>{row.blockDelay ?? ''}</td>
                 <td>{block.gas_price_ratio}</td>
-                {block.is_block_missing && <td colSpan={numShards * 3}>header only</td>}
+                {block.full_block_missing && <td colSpan={numShards * 3}>header only</td>}
                 {chunkCells}
             </tr>);
         if (row.parentIndex != null) {

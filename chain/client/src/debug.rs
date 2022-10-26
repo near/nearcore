@@ -473,7 +473,7 @@ impl ClientActor {
                         prev_block_hash: *block_header.prev_hash(),
                         block_height: block_header.height(),
                         block_producer,
-                        is_block_missing: block.is_none(),
+                        full_block_missing: block.is_none(),
                         is_on_canonical_chain,
                         chunks,
                         processing_time_ms: CryptoHashTimer::get_timer_value(block_hash)
