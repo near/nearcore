@@ -158,7 +158,7 @@ pub fn do_migrate_34_to_35(
             threads += 1;
             pool.spawn(move || {
                 inner_thread_usage.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let hex_prefix: String = key_nibbles
+                let hex_prefix: String = NibbleSlice::encode_nibbles(&path_begin, true)
                     .iter()
                     .map(|&n| char::from_digit(n as u32, 16).expect("nibble should be <16"))
                     .collect();
