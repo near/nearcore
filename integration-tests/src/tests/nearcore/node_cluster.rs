@@ -44,7 +44,7 @@ fn start_nodes(
         rpc_addrs.push(near_config.rpc_addr().unwrap().to_owned());
         near_config.client_config.min_num_peers = (num_nodes as usize) - 1;
         if i > 0 {
-            near_config.network_config.boot_nodes =
+            near_config.network_config.peer_store.boot_nodes =
                 convert_boot_nodes(vec![("near.0", first_node)]);
         }
         // if non validator, track all shards
