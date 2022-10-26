@@ -293,7 +293,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
         msg: WithSpanContext<NetworkAdversarialMessage>,
         ctx: &mut Context<Self>,
     ) -> Self::Result {
-        self.wrap(msg,ctx,"NetworkAdversarialMessage",|this,msg| match msg {
+        self.wrap(msg, ctx, "NetworkAdversarialMessage", |this, msg| match msg {
             near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug => {
                 info!(target: "adversary", "Turning Doomslug off");
                 this.adv.set_disable_doomslug(true);
