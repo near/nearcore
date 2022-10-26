@@ -48,7 +48,7 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
+use near_primitives::views::{DetailedDebugStatus, DroppedReason, ValidatorInfo};
 use near_store::DBCol;
 use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
@@ -1370,6 +1370,11 @@ impl ClientActor {
             debug!(target: "client", tail_height = tail, "Dropping a block that is too far behind.");
             return;
         }
+        self.client.chain.blocks_delay_tracker.mark_block_received(
+            &block,
+            Clock::instant(),
+            Clock::utc(),
+        );
         // drop the block if a) it is not requested, b) we already processed this height, c) it is not building on top of current head
         if !was_requested
             && block.header().prev_hash()
@@ -1380,6 +1385,10 @@ impl ClientActor {
                     .map_or_else(|_| CryptoHash::default(), |tip| tip.last_block_hash)
         {
             if self.client.chain.is_height_processed(block.header().height()).unwrap_or_default() {
+                self.client
+                    .chain
+                    .blocks_delay_tracker
+                    .mark_block_dropped(block.hash(), DroppedReason::HeightProcessed);
                 debug!(target: "client", height = block.header().height(), "Dropping a block because we've seen this height before and we didn't request it");
                 return;
             }
