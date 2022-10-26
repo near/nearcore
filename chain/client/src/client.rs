@@ -14,7 +14,6 @@ use near_client_primitives::debug::ChunkProduction;
 use near_primitives::time::Clock;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::adapter::NetworkClientResponses;
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
     OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
@@ -44,6 +43,7 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 
+use crate::adapter::ProcessTxResponse;
 use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
@@ -1722,11 +1722,11 @@ impl Client {
         tx: SignedTransaction,
         is_forwarded: bool,
         check_only: bool,
-    ) -> NetworkClientResponses {
+    ) -> ProcessTxResponse {
         unwrap_or_return!(self.process_tx_internal(&tx, is_forwarded, check_only), {
             let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
             warn!(target: "client", "I'm: {:?} Dropping tx: {:?}", me, tx);
-            NetworkClientResponses::NoResponse
+            ProcessTxResponse::NoResponse
         })
     }
 
@@ -1768,7 +1768,7 @@ impl Client {
         tx: &SignedTransaction,
         is_forwarded: bool,
         check_only: bool,
-    ) -> Result<NetworkClientResponses, Error> {
+    ) -> Result<ProcessTxResponse, Error> {
         let head = self.chain.head()?;
         let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
         let cur_block_header = self.chain.head_header()?;
@@ -1782,7 +1782,7 @@ impl Client {
             transaction_validity_period,
         ) {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
-            return Ok(NetworkClientResponses::InvalidTx(e));
+            return Ok(ProcessTxResponse::InvalidTx(e));
         }
         let gas_price = cur_block_header.gas_price();
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
@@ -1795,7 +1795,7 @@ impl Client {
             .expect("no storage errors")
         {
             debug!(target: "client", "Invalid tx during basic validation: {:?}", err);
-            return Ok(NetworkClientResponses::InvalidTx(err));
+            return Ok(ProcessTxResponse::InvalidTx(err));
         }
 
         let shard_id =
@@ -1813,7 +1813,7 @@ impl Client {
                         return Err(Error::Other("Node has not caught up yet".to_string()));
                     } else {
                         self.forward_tx(&epoch_id, tx)?;
-                        return Ok(NetworkClientResponses::RequestRouted);
+                        return Ok(ProcessTxResponse::RequestRouted);
                     }
                 }
             };
@@ -1823,9 +1823,9 @@ impl Client {
                 .expect("no storage errors")
             {
                 debug!(target: "client", "Invalid tx: {:?}", err);
-                Ok(NetworkClientResponses::InvalidTx(err))
+                Ok(ProcessTxResponse::InvalidTx(err))
             } else if check_only {
-                Ok(NetworkClientResponses::ValidTx)
+                Ok(ProcessTxResponse::ValidTx)
             } else {
                 let active_validator = self.active_validator(shard_id)?;
 
@@ -1847,30 +1847,30 @@ impl Client {
                     if !is_forwarded {
                         self.possibly_forward_tx_to_next_epoch(tx)?;
                     }
-                    Ok(NetworkClientResponses::ValidTx)
+                    Ok(ProcessTxResponse::ValidTx)
                 } else if !is_forwarded {
                     trace!(target: "client", shard_id, "Forwarding a transaction.");
                     metrics::TRANSACTION_RECEIVED_NON_VALIDATOR.inc();
                     self.forward_tx(&epoch_id, tx)?;
-                    Ok(NetworkClientResponses::RequestRouted)
+                    Ok(ProcessTxResponse::RequestRouted)
                 } else {
                     trace!(target: "client", shard_id, "Non-validator received a forwarded transaction, dropping it.");
                     metrics::TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED.inc();
-                    Ok(NetworkClientResponses::NoResponse)
+                    Ok(ProcessTxResponse::NoResponse)
                 }
             }
         } else if check_only {
-            Ok(NetworkClientResponses::DoesNotTrackShard)
+            Ok(ProcessTxResponse::DoesNotTrackShard)
         } else {
             if is_forwarded {
                 // received forwarded transaction but we are not tracking the shard
                 debug!(target: "client", "Received forwarded transaction but no tracking shard {}, I'm {:?}", shard_id, me);
-                return Ok(NetworkClientResponses::NoResponse);
+                return Ok(ProcessTxResponse::NoResponse);
             }
             // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
 
             self.forward_tx(&epoch_id, tx)?;
-            Ok(NetworkClientResponses::RequestRouted)
+            Ok(ProcessTxResponse::RequestRouted)
         }
     }
 

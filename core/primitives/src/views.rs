@@ -24,7 +24,6 @@ use crate::challenge::{Challenge, ChallengesResult};
 use crate::contract::ContractCode;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
-use crate::logging;
 use crate::merkle::{combine_hash, MerklePath};
 use crate::network::PeerId;
 use crate::profile::Cost;
@@ -1386,10 +1385,7 @@ impl fmt::Debug for FinalExecutionOutcomeView {
             .field("status", &self.status)
             .field("transaction", &self.transaction)
             .field("transaction_outcome", &self.transaction_outcome)
-            .field(
-                "receipts_outcome",
-                &format_args!("{}", logging::pretty_vec(&self.receipts_outcome)),
-            )
+            .field("receipts_outcome", &pretty::Slice(&self.receipts_outcome))
             .finish()
     }
 }

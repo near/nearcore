@@ -11,8 +11,7 @@ use crate::genesis_helpers::genesis_hash;
 use crate::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::Genesis;
-use near_client::adapter::NetworkClientMessages;
-use near_client::{ClientActor, GetBlock, Query, Status, ViewClientActor};
+use near_client::{ClientActor, GetBlock, ProcessTxRequest, Query, Status, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
 use near_o11y::testonly::init_integration_logger;
@@ -67,7 +66,8 @@ fn init_test_staking(
             genesis.clone(),
         );
         if i != 0 {
-            config.network_config.boot_nodes = convert_boot_nodes(vec![("near.0", first_node)]);
+            config.network_config.peer_store.boot_nodes =
+                convert_boot_nodes(vec![("near.0", first_node)]);
         }
         config.client_config.min_num_peers = num_node_seats as usize - 1;
         config.client_config.epoch_sync_enabled = false;
@@ -125,7 +125,7 @@ fn test_stake_nodes() {
                 test_nodes[0]
                     .client
                     .send(
-                        NetworkClientMessages::Transaction {
+                        ProcessTxRequest {
                             transaction: tx,
                             is_forwarded: false,
                             check_only: false,
@@ -220,7 +220,7 @@ fn test_validator_kickout() {
                     test_node
                         .client
                         .send(
-                            NetworkClientMessages::Transaction {
+                            ProcessTxRequest {
                                 transaction: stake_transaction,
                                 is_forwarded: false,
                                 check_only: false,
@@ -378,7 +378,7 @@ fn test_validator_join() {
                 test_nodes[1]
                     .client
                     .send(
-                        NetworkClientMessages::Transaction {
+                        ProcessTxRequest {
                             transaction: unstake_transaction,
                             is_forwarded: false,
                             check_only: false,
@@ -391,7 +391,7 @@ fn test_validator_join() {
                 test_nodes[0]
                     .client
                     .send(
-                        NetworkClientMessages::Transaction {
+                        ProcessTxRequest {
                             transaction: stake_transaction,
                             is_forwarded: false,
                             check_only: false,

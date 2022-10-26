@@ -16,7 +16,7 @@ When charging gas for an action, the `ActionResult` can be updated directly. But
 when charging WASM costs, it would be too slow to do a context switch each time,
 Therefore, a fast gas counter exists that can be updated from within the VM.
 (See
-[gas_counter.rs](https://github.com/near/nearcore/blob/master/runtime/near-vm-logic/src/gas_counter.rs))
+[gas_counter.rs](https://github.com/near/nearcore/blob/06711f8460f946b8d2042aa1df6abe03c5184767/runtime/near-vm-logic/src/gas_counter.rs))
 At the end of a function call execution, the gas counter is read by the host and
 merged into the `ActionResult`.
 
