@@ -108,7 +108,7 @@ pub fn do_migrate_34_to_35(
                     info!(target: "chain", %shard_id, %height, %hash, "Checking delta existence");
                     println!(
                         "{:?}",
-                        store_helper::get_delta(&store, shard_id, hash.clone()).unwrap()
+                        store_helper::get_delta(&store, shard_id, hash.clone()).unwrap().unwrap()
                     );
                 }
             }
