@@ -45,6 +45,11 @@
                 String(time.getUTCSeconds()).padStart(2, "0") + "." + String(time.getUTCMilliseconds()).padStart(3, '0')
         }
 
+        function printStatus(blockStatus) {
+            if (typeof blockStatus === "string") return blockStatus
+            return  JSON.stringify(blockStatus)
+        }
+
         function printDuration(start, end) {
             let duration = Date.parse(end) - Date.parse(start);
             if (duration > 0) {
@@ -128,8 +133,7 @@
                         row.append($('<td>').append(block.height));
                         row.append($('<td>').append(block.hash));
                         row.append($('<td>').append(prettyTime(block.received_timestamp)));
-                        console.log(block);
-                        row.append($('<td>').append(JSON.stringify(block.block_status)));
+                        row.append($('<td>').append(printStatus(block.block_status)));
                         row.append($('<td>').append(printTimeInMs(block.in_progress_ms)));
                         row.append($('<td>').append(printTimeInMs(block.orphaned_ms)));
                         row.append($('<td>').append(printTimeInMs(block.missing_chunks_ms)));

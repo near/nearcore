@@ -4892,7 +4892,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_block = self.chain_store_update.get_block(prev_hash)?;
         let results = apply_chunks_results.into_iter().map(|x| {
             if let Err(err) = &x {
-                warn!(target:"chain", hash=%block.hash(), error=%err, "Error in applying chunks for block");
+                warn!(target:"chain", hash = %block.hash(), error = %err, "Error in applying chunks for block");
             }
             x
         }).collect::<Result<Vec<_>, Error>>()?;
