@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Gas Cost Parameters - Guide to Nearcore Development</title>
+        <title>Parameter Definitions - Guide to Nearcore Development</title>
         <!-- Custom HTML head -->
         <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
         <meta name="description" content="">
@@ -75,7 +75,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../../architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../../architecture/how/index.html"><strong aria-hidden="true">2.</strong> How neard works</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../architecture/how/sync.html"><strong aria-hidden="true">2.1.</strong> How Sync Works</a></li><li class="chapter-item expanded "><a href="../../architecture/how/gc.html"><strong aria-hidden="true">2.2.</strong> Garbage Collection</a></li><li class="chapter-item expanded "><a href="../../architecture/how/epoch.html"><strong aria-hidden="true">2.3.</strong> How Epoch Works</a></li><li class="chapter-item expanded "><a href="../../architecture/how/tx_routing.html"><strong aria-hidden="true">2.4.</strong> Transaction Routing</a></li></ol></li><li class="chapter-item expanded "><a href="../../architecture/trie.html"><strong aria-hidden="true">3.</strong> Trie</a></li><li class="chapter-item expanded "><a href="../../architecture/network.html"><strong aria-hidden="true">4.</strong> Network</a></li><li class="chapter-item expanded "><a href="../../architecture/gas_params/index.html" class="active"><strong aria-hidden="true">5.</strong> Gas Cost Parameters</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../parameter_definition.html"><strong aria-hidden="true">5.1.</strong> Parameter Definitions</a></li><li class="chapter-item expanded "><a href="../../gas_profile.html"><strong aria-hidden="true">5.2.</strong> Gas Profile</a></li><li class="chapter-item expanded "><a href="../../estimator.html"><strong aria-hidden="true">5.3.</strong> Runtime Parameter Estimator</a></li></ol></li><li class="chapter-item expanded "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../../practices/index.html"><strong aria-hidden="true">6.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../../practices/style.html"><strong aria-hidden="true">7.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../../practices/docs.html"><strong aria-hidden="true">8.</strong> Documentation</a></li><li class="chapter-item expanded "><a href="../../practices/tracking_issues.html"><strong aria-hidden="true">9.</strong> Tracking Issues</a></li><li class="chapter-item expanded "><a href="../../practices/fast_builds.html"><strong aria-hidden="true">10.</strong> Fast Builds</a></li><li class="chapter-item expanded "><a href="../../practices/testing/index.html"><strong aria-hidden="true">11.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../practices/testing/python_tests.html"><strong aria-hidden="true">11.1.</strong> Python Tests</a></li></ol></li><li class="chapter-item expanded "><a href="../../practices/protocol_upgrade.html"><strong aria-hidden="true">12.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../../misc/index.html"><strong aria-hidden="true">13.</strong> Misc</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../../architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../../architecture/how/index.html"><strong aria-hidden="true">2.</strong> How neard works</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../architecture/how/sync.html"><strong aria-hidden="true">2.1.</strong> How Sync Works</a></li><li class="chapter-item expanded "><a href="../../architecture/how/gc.html"><strong aria-hidden="true">2.2.</strong> Garbage Collection</a></li><li class="chapter-item expanded "><a href="../../architecture/how/epoch.html"><strong aria-hidden="true">2.3.</strong> How Epoch Works</a></li><li class="chapter-item expanded "><a href="../../architecture/how/tx_routing.html"><strong aria-hidden="true">2.4.</strong> Transaction Routing</a></li></ol></li><li class="chapter-item expanded "><a href="../../architecture/trie.html"><strong aria-hidden="true">3.</strong> Trie</a></li><li class="chapter-item expanded "><a href="../../architecture/network.html"><strong aria-hidden="true">4.</strong> Network</a></li><li class="chapter-item expanded "><a href="../../architecture/gas/index.html"><strong aria-hidden="true">5.</strong> Gas Cost Parameters</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../architecture/gas/parameter_definition.html" class="active"><strong aria-hidden="true">5.1.</strong> Parameter Definitions</a></li><li class="chapter-item expanded "><a href="../../architecture/gas/gas_profile.html"><strong aria-hidden="true">5.2.</strong> Gas Profile</a></li><li class="chapter-item expanded "><a href="../../architecture/gas/estimator.html"><strong aria-hidden="true">5.3.</strong> Runtime Parameter Estimator</a></li></ol></li><li class="chapter-item expanded "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../../practices/index.html"><strong aria-hidden="true">6.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../../practices/style.html"><strong aria-hidden="true">7.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../../practices/docs.html"><strong aria-hidden="true">8.</strong> Documentation</a></li><li class="chapter-item expanded "><a href="../../practices/tracking_issues.html"><strong aria-hidden="true">9.</strong> Tracking Issues</a></li><li class="chapter-item expanded "><a href="../../practices/fast_builds.html"><strong aria-hidden="true">10.</strong> Fast Builds</a></li><li class="chapter-item expanded "><a href="../../practices/testing/index.html"><strong aria-hidden="true">11.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../practices/testing/python_tests.html"><strong aria-hidden="true">11.1.</strong> Python Tests</a></li></ol></li><li class="chapter-item expanded "><a href="../../practices/protocol_upgrade.html"><strong aria-hidden="true">12.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../../misc/index.html"><strong aria-hidden="true">13.</strong> Misc</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -113,7 +113,7 @@
                         <a href="https://github.com/near/nearcore/tree/master/docs" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/near/nearcore/edit/master/docs/./architecture/gas_params/README.md" title="Suggest an edit" aria-label="Suggest an edit">
+                        <a href="https://github.com/near/nearcore/edit/master/docs/./architecture/gas/parameter_definition.md" title="Suggest an edit" aria-label="Suggest an edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
                     </div>
@@ -140,39 +140,26 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="gas-cost-parameters"><a class="header" href="#gas-cost-parameters">Gas Cost Parameters</a></h1>
-<p>NEAR charges gas when executing users' WASM code. The how and why is described
-in other documents, such as <a href="https://docs.near.org/concepts/basics/transactions/gas">Gas basic
-concepts</a>, <a href="https://docs.near.org/concepts/basics/transactions/gas-advanced">Gas advanced
-concepts</a>, and
-<a href="https://nomicon.io/RuntimeSpec/Fees/">the runtime fee specification</a>.</p>
-<p>So-called gas cost parameters are part of the protocol definition which can
-change between versions. The section on <a href="./parameter_definition.html">Parameter Definitions</a>
-explains how to find the source of truth for such parameter's values in the
-nearcore repository and how they can be referenced in code.</p>
-<p>The <a href="./gas_profile.html">Gas Profile</a> section goes into more details on how gas
-costs of a transaction are tracked in nearcore.</p>
-<p>The <a href="./estimator.html">runtime parameter estimator</a> is a separate binary within
-the nearcore repository. It contains benchmarking-like code used to validate
-existing parameters values. When implementing new features, code should be added
-there to estimate the safe values of the new parameters. This section is for you
-if you are adding new features such as a new pre-compiled method or other host
-functions.</p>
-<!-- TODO: ## Action parameters-->
-<!-- TODO: ## WASM parameters-->
-<!-- TODO: ## Non-gas parameters -->
-<!-- TODO: - Gas economics config-->
-<!-- TODO: - Gas economics config-->
-<!-- TODO: - Storage usage config-->
-<!-- TODO: - Smart contract limits-->
+                        <h1 id="parameter-definitions"><a class="header" href="#parameter-definitions">Parameter Definitions</a></h1>
+<p>Gas parameters are a subset of runtime parameters that are defined in
+<a href="https://github.com/near/nearcore/blob/master/core/primitives/res/runtime_configs/parameters.txt">core/primitives/res/runtime_configs/parameters.txt</a>.
+IMPORTANT: This is not the final list of parameters, it contains the base values
+which can be overwritten per protocol version. For example,
+<a href="core/primitives/res/runtime_configs/53.txt">53.txt</a> changes several parameters
+starting from version 53. To see all parameter values for a specific version at
+once, check out list of JSON snapshots generated in this directory:
+<a href="https://github.com/near/nearcore/blob/master/core/primitives/src/runtime/snapshots">core/primitives/src/runtime/snapshots</a>.</p>
+<!-- TODO: How to add a new parameter -->
+<!-- TODO: Runtime Config Store -->
+
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../../architecture/network.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../../architecture/gas/index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
-                            <a rel="next" href="../../parameter_definition.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next" href="../../architecture/gas/gas_profile.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
                         <div style="clear: both"></div>
@@ -181,10 +168,10 @@ functions.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../../architecture/network.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../../architecture/gas/index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
-                    <a rel="next" href="../../parameter_definition.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next" href="../../architecture/gas/gas_profile.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>
