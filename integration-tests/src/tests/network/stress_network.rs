@@ -24,7 +24,7 @@ fn make_peer_manager(
     boot_nodes: Vec<(&str, u16)>,
 ) -> actix::Addr<PeerManagerActor> {
     let mut config = config::NetworkConfig::from_seed(seed, port);
-    config.boot_nodes = convert_boot_nodes(boot_nodes);
+    config.peer_store.boot_nodes = convert_boot_nodes(boot_nodes);
     PeerManagerActor::spawn(
         time::Clock::real(),
         near_store::db::TestDB::new(),
