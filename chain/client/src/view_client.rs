@@ -12,7 +12,6 @@ use std::time::{Duration, Instant};
 
 use tracing::{debug, error, info, trace, warn};
 
-use crate::adapter::{NetworkViewClientMessages, NetworkViewClientResponses};
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
     RuntimeAdapter,
@@ -54,6 +53,10 @@ use near_primitives::views::{
     QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView, StateChangesView,
 };
 
+use crate::adapter::{
+    AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, StateRequestHeader,
+    StateRequestPart, StateResponse, TxStatusRequest, TxStatusResponse,
+};
 use crate::{
     metrics, sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
@@ -1013,247 +1016,332 @@ impl Handler<WithSpanContext<GetProtocolConfig>> for ViewClientActor {
     }
 }
 
-impl Handler<WithSpanContext<NetworkViewClientMessages>> for ViewClientActor {
-    type Result = NetworkViewClientResponses;
+#[cfg(feature = "test_features")]
+impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ViewClientActor {
+    type Result = Option<u64>;
 
     #[perf]
     fn handle(
         &mut self,
-        msg: WithSpanContext<NetworkViewClientMessages>,
+        msg: WithSpanContext<NetworkAdversarialMessage>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["NetworkAdversarialMessage"])
+            .start_timer();
+        match msg {
+            NetworkAdversarialMessage::AdvDisableDoomslug => {
+                info!(target: "adversary", "Turning Doomslug off");
+                self.adv.set_disable_doomslug(true);
+            }
+            NetworkAdversarialMessage::AdvDisableHeaderSync => {
+                info!(target: "adversary", "Blocking header sync");
+                self.adv.set_disable_header_sync(true);
+            }
+            NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
+                info!(target: "adversary", "Switching to height");
+                let mut chain_store_update = self.chain.mut_store().store_update();
+                chain_store_update.save_largest_target_height(height);
+                chain_store_update
+                    .adv_save_latest_known(height)
+                    .expect("adv method should not fail");
+                chain_store_update.commit().expect("adv method should not fail");
+            }
+            _ => panic!("invalid adversary message"),
+        }
+        None
+    }
+}
+
+impl Handler<WithSpanContext<TxStatusRequest>> for ViewClientActor {
+    type Result = Option<Box<FinalExecutionOutcomeView>>;
+
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<TxStatusRequest>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
-            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&[(&msg).into()]).start_timer();
-        match msg {
-            #[cfg(feature = "test_features")]
-            NetworkViewClientMessages::Adversarial(adversarial_msg) => {
-                return match adversarial_msg {
-                    NetworkAdversarialMessage::AdvDisableDoomslug => {
-                        info!(target: "adversary", "Turning Doomslug off");
-                        self.adv.set_disable_doomslug(true);
-                        self.chain.adv_disable_doomslug();
-                        NetworkViewClientResponses::NoResponse
-                    }
-                    NetworkAdversarialMessage::AdvDisableHeaderSync => {
-                        info!(target: "adversary", "Blocking header sync");
-                        self.adv.set_disable_header_sync(true);
-                        NetworkViewClientResponses::NoResponse
-                    }
-                    NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
-                        info!(target: "adversary", "Switching to height");
-                        let mut chain_store_update = self.chain.mut_store().store_update();
-                        chain_store_update.save_largest_target_height(height);
-                        chain_store_update
-                            .adv_save_latest_known(height)
-                            .expect("adv method should not fail");
-                        chain_store_update.commit().expect("adv method should not fail");
-                        NetworkViewClientResponses::NoResponse
-                    }
-                    _ => panic!("invalid adversary message"),
-                }
-            }
-            NetworkViewClientMessages::TxStatus { tx_hash, signer_account_id } => {
-                if let Ok(Some(result)) = self.get_tx_status(tx_hash, signer_account_id, false) {
-                    NetworkViewClientResponses::TxStatus(Box::new(result.into_outcome()))
-                } else {
-                    NetworkViewClientResponses::NoResponse
-                }
-            }
-            NetworkViewClientMessages::TxStatusResponse(tx_result) => {
-                let tx_hash = tx_result.transaction_outcome.id;
-                let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-                if request_manager.tx_status_requests.pop(&tx_hash).is_some() {
-                    request_manager.tx_status_response.put(tx_hash, *tx_result);
-                }
-                NetworkViewClientResponses::NoResponse
-            }
-            NetworkViewClientMessages::BlockRequest(hash) => {
-                if let Ok(block) = self.chain.get_block(&hash) {
-                    NetworkViewClientResponses::Block(Box::new(block))
-                } else {
-                    NetworkViewClientResponses::NoResponse
-                }
-            }
-            NetworkViewClientMessages::BlockHeadersRequest(hashes) => {
-                if self.adv.disable_header_sync() {
-                    NetworkViewClientResponses::NoResponse
-                } else if let Ok(headers) = self.retrieve_headers(hashes) {
-                    NetworkViewClientResponses::BlockHeaders(headers)
-                } else {
-                    NetworkViewClientResponses::NoResponse
-                }
-            }
-            NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash } => {
-                if !self.check_state_sync_request() {
-                    return NetworkViewClientResponses::NoResponse;
-                }
+            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatusRequest"]).start_timer();
+        let TxStatusRequest { tx_hash, signer_account_id } = msg;
+        if let Ok(Some(result)) = self.get_tx_status(tx_hash, signer_account_id, false) {
+            Some(Box::new(result.into_outcome()))
+        } else {
+            None
+        }
+    }
+}
 
-                let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
-                    Ok(true) => {
-                        let header = match self.chain.get_state_response_header(shard_id, sync_hash)
-                        {
-                            Ok(header) => Some(header),
-                            Err(e) => {
-                                error!(target: "sync", "Cannot build sync header (get_state_response_header): {}", e);
-                                None
-                            }
-                        };
-                        match header {
-                            None => ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
-                                header: None,
-                                part: None,
-                            }),
-                            Some(ShardStateSyncResponseHeader::V1(header)) => {
-                                ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
-                                    header: Some(header),
-                                    part: None,
-                                })
-                            }
-                            Some(ShardStateSyncResponseHeader::V2(header)) => {
-                                ShardStateSyncResponse::V2(ShardStateSyncResponseV2 {
-                                    header: Some(header),
-                                    part: None,
-                                })
-                            }
-                        }
+impl Handler<WithSpanContext<TxStatusResponse>> for ViewClientActor {
+    type Result = ();
+
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<TxStatusResponse>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["TxStatusResponse"])
+            .start_timer();
+        let TxStatusResponse(tx_result) = msg;
+        let tx_hash = tx_result.transaction_outcome.id;
+        let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
+        if request_manager.tx_status_requests.pop(&tx_hash).is_some() {
+            request_manager.tx_status_response.put(tx_hash, *tx_result);
+        }
+    }
+}
+
+impl Handler<WithSpanContext<BlockRequest>> for ViewClientActor {
+    type Result = Option<Box<Block>>;
+
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<BlockRequest>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        let _timer =
+            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["BlockRequest"]).start_timer();
+        let BlockRequest(hash) = msg;
+        if let Ok(block) = self.chain.get_block(&hash) {
+            Some(Box::new(block))
+        } else {
+            None
+        }
+    }
+}
+
+impl Handler<WithSpanContext<BlockHeadersRequest>> for ViewClientActor {
+    type Result = Option<Vec<BlockHeader>>;
+
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<BlockHeadersRequest>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["BlockHeadersRequest"])
+            .start_timer();
+        let BlockHeadersRequest(hashes) = msg;
+
+        if self.adv.disable_header_sync() {
+            None
+        } else if let Ok(headers) = self.retrieve_headers(hashes) {
+            Some(headers)
+        } else {
+            None
+        }
+    }
+}
+
+impl Handler<WithSpanContext<StateRequestHeader>> for ViewClientActor {
+    type Result = Option<StateResponse>;
+
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<StateRequestHeader>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["StateRequestHeader"])
+            .start_timer();
+        let StateRequestHeader { shard_id, sync_hash } = msg;
+        if !self.check_state_sync_request() {
+            return None;
+        }
+        let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
+            Ok(true) => {
+                let header = match self.chain.get_state_response_header(shard_id, sync_hash) {
+                    Ok(header) => Some(header),
+                    Err(e) => {
+                        error!(target: "sync", "Cannot build sync header (get_state_response_header): {}", e);
+                        None
                     }
-                    Ok(false) => {
-                        warn!(target: "sync", "sync_hash {:?} didn't pass validation, possible malicious behavior", sync_hash);
-                        return NetworkViewClientResponses::NoResponse;
-                    }
-                    Err(e) => match e {
-                        near_chain::Error::DBNotFoundErr(_) => {
-                            // This case may appear in case of latency in epoch switching.
-                            // Request sender is ready to sync but we still didn't get the block.
-                            info!(target: "sync", "Can't get sync_hash block {:?} for state request header", sync_hash);
-                            ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
-                                header: None,
-                                part: None,
-                            })
-                        }
-                        _ => {
-                            error!(target: "sync", "Failed to verify sync_hash {:?} validity, {:?}", sync_hash, e);
-                            ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
-                                header: None,
-                                part: None,
-                            })
-                        }
-                    },
                 };
-                match state_response {
-                    ShardStateSyncResponse::V1(state_response) => {
-                        let info = StateResponseInfo::V1(StateResponseInfoV1 {
-                            shard_id,
-                            sync_hash,
-                            state_response,
-                        });
-                        NetworkViewClientResponses::StateResponse(Box::new(info))
+                match header {
+                    None => ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
+                        header: None,
+                        part: None,
+                    }),
+                    Some(ShardStateSyncResponseHeader::V1(header)) => {
+                        ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
+                            header: Some(header),
+                            part: None,
+                        })
                     }
-                    state_response @ ShardStateSyncResponse::V2(_) => {
-                        let info = StateResponseInfo::V2(StateResponseInfoV2 {
-                            shard_id,
-                            sync_hash,
-                            state_response,
-                        });
-                        NetworkViewClientResponses::StateResponse(Box::new(info))
+                    Some(ShardStateSyncResponseHeader::V2(header)) => {
+                        ShardStateSyncResponse::V2(ShardStateSyncResponseV2 {
+                            header: Some(header),
+                            part: None,
+                        })
                     }
                 }
             }
-            NetworkViewClientMessages::StateRequestPart { shard_id, sync_hash, part_id } => {
-                if !self.check_state_sync_request() {
-                    return NetworkViewClientResponses::NoResponse;
+            Ok(false) => {
+                warn!(target: "sync", "sync_hash {:?} didn't pass validation, possible malicious behavior", sync_hash);
+                return None;
+            }
+            Err(e) => match e {
+                near_chain::Error::DBNotFoundErr(_) => {
+                    // This case may appear in case of latency in epoch switching.
+                    // Request sender is ready to sync but we still didn't get the block.
+                    info!(target: "sync", "Can't get sync_hash block {:?} for state request header", sync_hash);
+                    ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
+                        header: None,
+                        part: None,
+                    })
                 }
-                trace!(target: "sync", "Computing state request part {} {} {}", shard_id, sync_hash, part_id);
-                let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
-                    Ok(true) => {
-                        let part = match self
-                            .chain
-                            .get_state_response_part(shard_id, part_id, sync_hash)
-                        {
-                            Ok(part) => Some((part_id, part)),
-                            Err(e) => {
-                                error!(target: "sync", "Cannot build sync part #{:?} (get_state_response_part): {}", part_id, e);
-                                None
-                            }
-                        };
-
-                        trace!(target: "sync", "Finish computation for state request part {} {} {}", shard_id, sync_hash, part_id);
-                        ShardStateSyncResponseV1 { header: None, part }
-                    }
-                    Ok(false) => {
-                        warn!(target: "sync", "sync_hash {:?} didn't pass validation, possible malicious behavior", sync_hash);
-                        return NetworkViewClientResponses::NoResponse;
-                    }
-                    Err(e) => match e {
-                        near_chain::Error::DBNotFoundErr(_) => {
-                            // This case may appear in case of latency in epoch switching.
-                            // Request sender is ready to sync but we still didn't get the block.
-                            info!(target: "sync", "Can't get sync_hash block {:?} for state request part", sync_hash);
-                            ShardStateSyncResponseV1 { header: None, part: None }
-                        }
-                        _ => {
-                            error!(target: "sync", "Failed to verify sync_hash {:?} validity, {:?}", sync_hash, e);
-                            ShardStateSyncResponseV1 { header: None, part: None }
-                        }
-                    },
-                };
+                _ => {
+                    error!(target: "sync", "Failed to verify sync_hash {:?} validity, {:?}", sync_hash, e);
+                    ShardStateSyncResponse::V1(ShardStateSyncResponseV1 {
+                        header: None,
+                        part: None,
+                    })
+                }
+            },
+        };
+        match state_response {
+            ShardStateSyncResponse::V1(state_response) => {
                 let info = StateResponseInfo::V1(StateResponseInfoV1 {
                     shard_id,
                     sync_hash,
                     state_response,
                 });
-                NetworkViewClientResponses::StateResponse(Box::new(info))
+                Some(StateResponse(Box::new(info)))
             }
-            NetworkViewClientMessages::AnnounceAccount(announce_accounts) => {
-                let mut filtered_announce_accounts = Vec::new();
-
-                for (announce_account, last_epoch) in announce_accounts {
-                    // Keep the announcement if it is newer than the last announcement from
-                    // the same account.
-                    if let Some(last_epoch) = last_epoch {
-                        match self
-                            .runtime_adapter
-                            .compare_epoch_id(&announce_account.epoch_id, &last_epoch)
-                        {
-                            Ok(Ordering::Greater) => {}
-                            _ => continue,
-                        }
-                    }
-
-                    match self.check_signature_account_announce(&announce_account) {
-                        Ok(true) => {
-                            filtered_announce_accounts.push(announce_account);
-                        }
-                        // TODO(gprusak): Here we ban for broadcasting accounts which have been slashed
-                        // according to BlockInfo for the current chain tip. It is unfair,
-                        // given that peers do not have perfectly synchronized heads:
-                        // - AFAIU each block can introduce a slashed account, so the announcement
-                        //   could be OK at the moment that peer has sent it out.
-                        // - the current epoch_id is not related to announce_account.epoch_id,
-                        //   so it carry a perfectly valid (outdated) information.
-                        Ok(false) => {
-                            return NetworkViewClientResponses::Ban {
-                                ban_reason: ReasonForBan::InvalidSignature,
-                            };
-                        }
-                        // Filter out this account. This covers both good reasons to ban the peer:
-                        // - signature didn't match the data and public_key.
-                        // - account is not a validator for the given epoch
-                        // and cases when we were just unable to validate the data (so we shouldn't
-                        // ban), for example when the node is not aware of the public key for the given
-                        // (account_id,epoch_id) pair.
-                        // We currently do NOT ban the peer for either.
-                        // TODO(gprusak): consider whether we should change that.
-                        Err(e) => {
-                            debug!(target: "view_client", "Failed to validate account announce signature: {}", e);
-                        }
-                    }
-                }
-
-                NetworkViewClientResponses::AnnounceAccount(filtered_announce_accounts)
+            state_response @ ShardStateSyncResponse::V2(_) => {
+                let info = StateResponseInfo::V2(StateResponseInfoV2 {
+                    shard_id,
+                    sync_hash,
+                    state_response,
+                });
+                Some(StateResponse(Box::new(info)))
             }
         }
+    }
+}
+
+impl Handler<WithSpanContext<StateRequestPart>> for ViewClientActor {
+    type Result = Option<StateResponse>;
+
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<StateRequestPart>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["StateRequestPart"])
+            .start_timer();
+        let StateRequestPart { shard_id, sync_hash, part_id } = msg;
+        if !self.check_state_sync_request() {
+            return None;
+        }
+        trace!(target: "sync", "Computing state request part {} {} {}", shard_id, sync_hash, part_id);
+        let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
+            Ok(true) => {
+                let part = match self.chain.get_state_response_part(shard_id, part_id, sync_hash) {
+                    Ok(part) => Some((part_id, part)),
+                    Err(e) => {
+                        error!(target: "sync", "Cannot build sync part #{:?} (get_state_response_part): {}", part_id, e);
+                        None
+                    }
+                };
+
+                trace!(target: "sync", "Finish computation for state request part {} {} {}", shard_id, sync_hash, part_id);
+                ShardStateSyncResponseV1 { header: None, part }
+            }
+            Ok(false) => {
+                warn!(target: "sync", "sync_hash {:?} didn't pass validation, possible malicious behavior", sync_hash);
+                return None;
+            }
+            Err(e) => match e {
+                near_chain::Error::DBNotFoundErr(_) => {
+                    // This case may appear in case of latency in epoch switching.
+                    // Request sender is ready to sync but we still didn't get the block.
+                    info!(target: "sync", "Can't get sync_hash block {:?} for state request part", sync_hash);
+                    ShardStateSyncResponseV1 { header: None, part: None }
+                }
+                _ => {
+                    error!(target: "sync", "Failed to verify sync_hash {:?} validity, {:?}", sync_hash, e);
+                    ShardStateSyncResponseV1 { header: None, part: None }
+                }
+            },
+        };
+        let info =
+            StateResponseInfo::V1(StateResponseInfoV1 { shard_id, sync_hash, state_response });
+        Some(StateResponse(Box::new(info)))
+    }
+}
+
+impl Handler<WithSpanContext<AnnounceAccountRequest>> for ViewClientActor {
+    type Result = Result<Vec<AnnounceAccount>, ReasonForBan>;
+
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<AnnounceAccountRequest>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["AnnounceAccountRequest"])
+            .start_timer();
+        let AnnounceAccountRequest(announce_accounts) = msg;
+
+        let mut filtered_announce_accounts = Vec::new();
+
+        for (announce_account, last_epoch) in announce_accounts {
+            // Keep the announcement if it is newer than the last announcement from
+            // the same account.
+            if let Some(last_epoch) = last_epoch {
+                match self.runtime_adapter.compare_epoch_id(&announce_account.epoch_id, &last_epoch)
+                {
+                    Ok(Ordering::Greater) => {}
+                    _ => continue,
+                }
+            }
+
+            match self.check_signature_account_announce(&announce_account) {
+                Ok(true) => {
+                    filtered_announce_accounts.push(announce_account);
+                }
+                // TODO(gprusak): Here we ban for broadcasting accounts which have been slashed
+                // according to BlockInfo for the current chain tip. It is unfair,
+                // given that peers do not have perfectly synchronized heads:
+                // - AFAIU each block can introduce a slashed account, so the announcement
+                //   could be OK at the moment that peer has sent it out.
+                // - the current epoch_id is not related to announce_account.epoch_id,
+                //   so it carry a perfectly valid (outdated) information.
+                Ok(false) => {
+                    return Err(ReasonForBan::InvalidSignature);
+                }
+                // Filter out this account. This covers both good reasons to ban the peer:
+                // - signature didn't match the data and public_key.
+                // - account is not a validator for the given epoch
+                // and cases when we were just unable to validate the data (so we shouldn't
+                // ban), for example when the node is not aware of the public key for the given
+                // (account_id,epoch_id) pair.
+                // We currently do NOT ban the peer for either.
+                // TODO(gprusak): consider whether we should change that.
+                Err(e) => {
+                    debug!(target: "view_client", "Failed to validate account announce signature: {}", e);
+                }
+            }
+        }
+        Ok(filtered_announce_accounts)
     }
 }
 

@@ -542,14 +542,14 @@ impl Runner {
             config.whitelist.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
 
         let mut network_config = config::NetworkConfig::from_seed(&config.account_id, config.port);
-        network_config.ban_window = config.ban_window;
+        network_config.peer_store.ban_window = config.ban_window;
         network_config.max_num_peers = config.max_num_peers;
         network_config.ttl_account_id_router = time::Duration::seconds(5);
         network_config.routed_message_ttl = config.routed_message_ttl;
-        network_config.blacklist = blacklist;
+        network_config.peer_store.blacklist = blacklist;
         network_config.whitelist_nodes = whitelist;
         network_config.outbound_disabled = config.outbound_disabled;
-        network_config.boot_nodes = boot_nodes;
+        network_config.peer_store.boot_nodes = boot_nodes;
         network_config.archive = config.archive;
         let (send_events, recv_events) = broadcast::unbounded_channel();
         network_config.event_sink = send_events.sink();
