@@ -1141,8 +1141,7 @@ impl<'a> VMLogic<'a> {
     /// # Error
     ///
     /// If the public key's size is not equal to 32 returns [HostError::Ed25519VerifyInvalidInput].
-    /// Also if the signature size is not equal to 64 or the signature's "s" scalar isn't properly reduced
-    /// then returns [HostError::Ed25519VerifyInvalidInput].
+    /// If the signature size is not equal to 64  returns [HostError::Ed25519VerifyInvalidInput].
 
     #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub fn ed25519_verify(
@@ -1157,7 +1156,7 @@ impl<'a> VMLogic<'a> {
         use ed25519_dalek::{PublicKey, Signature, Verifier, PUBLIC_KEY_LENGTH, SIGNATURE_LENGTH};
 
         self.gas_counter.pay_base(ed25519_verify_base)?;
-        let msg = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
+
         let signature_array = self.get_vec_from_memory_or_register(sig_ptr, sig_len)?;
         if signature_array.len() != SIGNATURE_LENGTH {
             return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
@@ -1169,6 +1168,8 @@ impl<'a> VMLogic<'a> {
             Ok(signature) => signature,
             Err(_) => return Ok(0),
         };
+
+        let msg = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
         let num_bytes = msg.len();
         self.gas_counter.pay_per(ed25519_verify_byte, num_bytes as _)?;
 
