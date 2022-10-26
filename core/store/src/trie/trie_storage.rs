@@ -489,15 +489,15 @@ impl TrieCachingStorage {
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        self.metrics.chunk_cache_size.set(self.chunk_cache.borrow().len() as i64);
+        // self.metrics.chunk_cache_size.set(self.chunk_cache.borrow().len() as i64);
         // Try to get value from chunk cache containing nodes with cheaper access. We can do it for any `TrieCacheMode`,
         // because we charge for reading nodes only when `CachingChunk` mode is enabled anyway.
-        if let Some(val) = self.chunk_cache.borrow_mut().get(hash) {
-            self.metrics.chunk_cache_hits.inc();
-            self.inc_mem_read_nodes();
-            return Ok(val.clone());
-        }
-        self.metrics.chunk_cache_misses.inc();
+        // if let Some(val) = self.chunk_cache.borrow_mut().get(hash) {
+        //     self.metrics.chunk_cache_hits.inc();
+        //     self.inc_mem_read_nodes();
+        //     return Ok(val.clone());
+        // }
+        // self.metrics.chunk_cache_misses.inc();
 
         // Try to get value from shard cache containing most recently touched nodes.
         // let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
@@ -596,10 +596,10 @@ impl TrieStorage for TrieCachingStorage {
         // - - size of trie keys and values is limited by receipt gas limit / lowest per byte fee
         // (`storage_read_value_byte`) ~= (500 * 10**12 / 5611005) / 2**20 ~= 85 MB.
         // All values are given as of 16/03/2022. We may consider more precise limit for the chunk cache as well.
-        self.inc_db_read_nodes();
-        if let TrieCacheMode::CachingChunk = self.cache_mode.borrow().get() {
-            self.chunk_cache.borrow_mut().insert(*hash, val.clone());
-        };
+        // self.inc_db_read_nodes();
+        // if let TrieCacheMode::CachingChunk = self.cache_mode.borrow().get() {
+        //     self.chunk_cache.borrow_mut().insert(*hash, val.clone());
+        // };
 
         Ok(val)
     }
