@@ -149,6 +149,7 @@ fn get_keys_from_store(
                     .iter()
                     .map(|uid| uid.to_bytes().to_vec())
                     .collect(),
+                // TODO: don't write values of State column to cache. Write them directly to colddb.
                 DBKeyType::TrieNodeOrValueHash => {
                     let mut keys = vec![];
                     for shard_uid in shard_layout.get_shard_uids() {
