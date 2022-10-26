@@ -7,7 +7,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
-use near_store::cold_storage::{test_cold_genesis_update, update_cold_db};
+use near_store::cold_storage::{test_cold_genesis_update, test_get_store_reads, update_cold_db};
 use near_store::db::TestDB;
 use near_store::{DBCol, NodeStorage, Store, Temperature};
 use nearcore::config::GenesisExt;
@@ -22,10 +22,13 @@ fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) 
     assert_eq!(first_res.unwrap(), second_res.unwrap());
 }
 
-fn check_iter(first_store: &Store, second_store: &Store, col: DBCol) {
+fn check_iter(first_store: &Store, second_store: &Store, col: DBCol) -> u64 {
+    let mut num_checks = 0;
     for (key, _) in first_store.iter(col).map(Result::unwrap) {
         check_key(first_store, second_store, col, &key);
+        num_checks += 1;
     }
+    num_checks
 }
 
 /// Deploying test contract and calling write_random_value 5 times every block for 4 epochs.
@@ -55,6 +58,8 @@ fn test_storage_after_commit_of_cold_update() {
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
     test_cold_genesis_update(&*cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
+
+    let state_reads = test_get_store_reads(DBCol::State);
 
     for h in 1..max_height {
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -102,16 +107,34 @@ fn test_storage_after_commit_of_cold_update() {
         let block = env.clients[0].produce_block(h).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
 
-        last_hash = block.hash().clone();
+        update_cold_db(
+            &*cold_db,
+            &env.clients[0].runtime_adapter.store(),
+            &env.clients[0]
+                .runtime_adapter
+                .get_shard_layout(
+                    &env.clients[0]
+                        .runtime_adapter
+                        .get_epoch_id_from_prev_block(&last_hash)
+                        .unwrap(),
+                )
+                .unwrap(),
+            &h,
+        )
+        .unwrap();
 
-        update_cold_db(&*cold_db, &env.clients[0].runtime_adapter.store(), &h).unwrap();
+        last_hash = block.hash().clone();
     }
+
+    // assert that we don't read State from db, but from TrieChanges
+    assert_eq!(state_reads, test_get_store_reads(DBCol::State));
 
     let cold_store = NodeStorage::new(cold_db).get_store(Temperature::Hot);
 
     for col in DBCol::iter() {
         if col.is_cold() {
-            check_iter(&env.clients[0].runtime_adapter.store(), &cold_store, col);
+            // assert that this test actually checks something
+            assert!(check_iter(&env.clients[0].runtime_adapter.store(), &cold_store, col) > 0);
         }
     }
 }
