@@ -500,90 +500,91 @@ impl TrieStorage for TrieCachingStorage {
         self.metrics.chunk_cache_misses.inc();
 
         // Try to get value from shard cache containing most recently touched nodes.
-        let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
-        self.metrics.shard_cache_size.set(guard.len() as i64);
-        self.metrics.shard_cache_current_total_size.set(guard.current_total_size() as i64);
-        let val = match guard.get(hash) {
-            Some(val) => {
-                self.metrics.shard_cache_hits.inc();
-                near_o11y::io_trace!(count: "shard_cache_hit");
-                val.clone()
-            }
-            None => {
-                self.metrics.shard_cache_misses.inc();
-                near_o11y::io_trace!(count: "shard_cache_miss");
-                let val;
-                if let Some(prefetcher) = &self.prefetch_api {
-                    let prefetch_state = prefetcher.prefetching.get_or_set_fetching(hash.clone());
-                    // Keep lock until here to avoid race condition between shard cache lookup and reserving prefetch slot.
-                    std::mem::drop(guard);
-
-                    val = match prefetch_state {
-                        // Slot reserved for us, the main thread.
-                        // `SlotReserved` for the main thread means, either we have not submitted a prefetch request for
-                        // this value, or maybe it is just still queued up. Either way, prefetching is not going to help
-                        // so the main thread should fetch data from DB on its own.
-                        PrefetcherResult::SlotReserved => {
-                            self.metrics.prefetch_not_requested.inc();
-                            self.read_from_db(hash)?
-                        }
-                        // `MemoryLimitReached` is not really relevant for the main thread,
-                        // we always have to go to DB even if we could not stage a new prefetch.
-                        // It only means we were not able to mark it as already being fetched, which in turn could lead to
-                        // a prefetcher trying to fetch the same value before we can put it in the shard cache.
-                        PrefetcherResult::MemoryLimitReached => {
-                            self.metrics.prefetch_memory_limit_reached.inc();
-                            self.read_from_db(hash)?
-                        }
-                        PrefetcherResult::Prefetched(value) => {
-                            near_o11y::io_trace!(count: "prefetch_hit");
-                            self.metrics.prefetch_hits.inc();
-                            value
-                        }
-                        PrefetcherResult::Pending => {
-                            near_o11y::io_trace!(count: "prefetch_pending");
-                            self.metrics.prefetch_pending.inc();
-                            std::thread::yield_now();
-                            // If data is already being prefetched, wait for that instead of sending a new request.
-                            match prefetcher.prefetching.blocking_get(hash.clone()) {
-                                Some(value) => value,
-                                // Only main thread (this one) removes values from staging area,
-                                // therefore blocking read will usually not return empty unless there
-                                // was a storage error. Or in the case of forks and parallel chunk
-                                // processing where one chunk cleans up prefetched data from the other.
-                                // In any case, we can try again from the main thread.
-                                None => {
-                                    self.metrics.prefetch_retry.inc();
-                                    self.read_from_db(hash)?
-                                }
-                            }
-                        }
-                    };
-                } else {
-                    std::mem::drop(guard);
-                    val = self.read_from_db(hash)?;
-                }
-
-                // Insert value to shard cache, if its size is small enough.
-                // It is fine to have a size limit for shard cache and **not** have a limit for chunk cache, because key
-                // is always a value hash, so for each key there could be only one value, and it is impossible to have
-                // **different** values for the given key in shard and chunk caches.
-                if val.len() < TrieConfig::max_cached_value_size() {
-                    let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
-                    guard.put(*hash, val.clone());
-                } else {
-                    self.metrics.shard_cache_too_large.inc();
-                    near_o11y::io_trace!(count: "shard_cache_too_large");
-                }
-
-                if let Some(prefetcher) = &self.prefetch_api {
-                    // Only release after insertion in shard cache. See comment on fn release.
-                    prefetcher.prefetching.release(hash);
-                }
-
-                val
-            }
-        };
+        // let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
+        // self.metrics.shard_cache_size.set(guard.len() as i64);
+        // self.metrics.shard_cache_current_total_size.set(guard.current_total_size() as i64);
+        // let val = match guard.get(hash) {
+        //     Some(val) => {
+        //         self.metrics.shard_cache_hits.inc();
+        //         near_o11y::io_trace!(count: "shard_cache_hit");
+        //         val.clone()
+        //     }
+        //     None => {
+        //         self.metrics.shard_cache_misses.inc();
+        //         near_o11y::io_trace!(count: "shard_cache_miss");
+        //         let val;
+        //         if let Some(prefetcher) = &self.prefetch_api {
+        //             let prefetch_state = prefetcher.prefetching.get_or_set_fetching(hash.clone());
+        //             // Keep lock until here to avoid race condition between shard cache lookup and reserving prefetch slot.
+        //             std::mem::drop(guard);
+        //
+        //             val = match prefetch_state {
+        //                 // Slot reserved for us, the main thread.
+        //                 // `SlotReserved` for the main thread means, either we have not submitted a prefetch request for
+        //                 // this value, or maybe it is just still queued up. Either way, prefetching is not going to help
+        //                 // so the main thread should fetch data from DB on its own.
+        //                 PrefetcherResult::SlotReserved => {
+        //                     self.metrics.prefetch_not_requested.inc();
+        //                     self.read_from_db(hash)?
+        //                 }
+        //                 // `MemoryLimitReached` is not really relevant for the main thread,
+        //                 // we always have to go to DB even if we could not stage a new prefetch.
+        //                 // It only means we were not able to mark it as already being fetched, which in turn could lead to
+        //                 // a prefetcher trying to fetch the same value before we can put it in the shard cache.
+        //                 PrefetcherResult::MemoryLimitReached => {
+        //                     self.metrics.prefetch_memory_limit_reached.inc();
+        //                     self.read_from_db(hash)?
+        //                 }
+        //                 PrefetcherResult::Prefetched(value) => {
+        //                     near_o11y::io_trace!(count: "prefetch_hit");
+        //                     self.metrics.prefetch_hits.inc();
+        //                     value
+        //                 }
+        //                 PrefetcherResult::Pending => {
+        //                     near_o11y::io_trace!(count: "prefetch_pending");
+        //                     self.metrics.prefetch_pending.inc();
+        //                     std::thread::yield_now();
+        //                     // If data is already being prefetched, wait for that instead of sending a new request.
+        //                     match prefetcher.prefetching.blocking_get(hash.clone()) {
+        //                         Some(value) => value,
+        //                         // Only main thread (this one) removes values from staging area,
+        //                         // therefore blocking read will usually not return empty unless there
+        //                         // was a storage error. Or in the case of forks and parallel chunk
+        //                         // processing where one chunk cleans up prefetched data from the other.
+        //                         // In any case, we can try again from the main thread.
+        //                         None => {
+        //                             self.metrics.prefetch_retry.inc();
+        //                             self.read_from_db(hash)?
+        //                         }
+        //                     }
+        //                 }
+        //             };
+        //         } else {
+        //             std::mem::drop(guard);
+        //             val = self.read_from_db(hash)?;
+        //         }
+        //
+        //         // Insert value to shard cache, if its size is small enough.
+        //         // It is fine to have a size limit for shard cache and **not** have a limit for chunk cache, because key
+        //         // is always a value hash, so for each key there could be only one value, and it is impossible to have
+        //         // **different** values for the given key in shard and chunk caches.
+        //         if val.len() < TrieConfig::max_cached_value_size() {
+        //             let mut guard = self.shard_cache.0.lock().expect(POISONED_LOCK_ERR);
+        //             guard.put(*hash, val.clone());
+        //         } else {
+        //             self.metrics.shard_cache_too_large.inc();
+        //             near_o11y::io_trace!(count: "shard_cache_too_large");
+        //         }
+        //
+        //         if let Some(prefetcher) = &self.prefetch_api {
+        //             // Only release after insertion in shard cache. See comment on fn release.
+        //             prefetcher.prefetching.release(hash);
+        //         }
+        //
+        //         val
+        //     }
+        // };
+        let val = self.read_from_db(hash)?;
 
         // Because node is not present in chunk cache, increment the nodes counter and optionally insert it into the
         // chunk cache.
