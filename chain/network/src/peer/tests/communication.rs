@@ -51,13 +51,13 @@ async fn test_peer_communication(
         }
     };
 
-    // RequestUpdateNonce
+    tracing::info!(target:"test","RequestUpdateNonce");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::RequestUpdateNonce(data::make_partial_edge(&mut rng));
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    // ReponseUpdateNonce
+    tracing::info!(target:"test","ReponseUpdateNonce");
     let mut events = inbound.events.from_now();
     let a = data::make_signer(&mut rng);
     let b = data::make_signer(&mut rng);
@@ -65,45 +65,45 @@ async fn test_peer_communication(
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    // PeersRequest -> PeersResponse
+    tracing::info!(target:"test","PeersRequest -> PeersResponse");
     // This test is different from the rest, because we cannot skip sending the response back.
     let mut events = outbound.events.from_now();
     let want = PeerMessage::PeersResponse(inbound.cfg.peers.clone());
     outbound.send(PeerMessage::PeersRequest).await;
     events.recv_until(message_processed(want)).await;
 
-    // BlockRequest
+    tracing::info!(target:"test","BlockRequest");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::BlockRequest(chain.blocks[5].hash().clone());
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    // Block
+    tracing::info!(target:"test","Block");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::Block(chain.blocks[5].clone());
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    // BlockHeadersRequest
+    tracing::info!(target:"test","BlockHeadersRequest");
     let mut events = inbound.events.from_now();
     let want =
         PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| b.hash().clone()).collect());
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    // BlockHeaders
+    tracing::info!(target:"test","BlockHeaders");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::BlockHeaders(chain.get_block_headers());
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    // SyncRoutingTable
+    tracing::info!(target:"test","SyncRoutingTable");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::SyncRoutingTable(data::make_routing_table(&mut rng));
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    // PartialEncodedChunkRequest
+    tracing::info!(target:"test","PartialEncodedChunkRequest");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::Routed(Box::new(outbound.routed_message(
         RoutedMessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
@@ -118,7 +118,7 @@ async fn test_peer_communication(
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    // PartialEncodedChunkResponse
+    tracing::info!(target:"test","PartialEncodedChunkResponse");
     let mut events = inbound.events.from_now();
     let want_hash = chain.blocks[3].chunks()[0].chunk_hash();
     let want_parts = data::make_chunk_parts(chain.chunks[&want_hash].clone());
@@ -135,14 +135,14 @@ async fn test_peer_communication(
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    // Transaction
+    tracing::info!(target:"test","Transaction");
     let mut events = inbound.events.from_now();
     let want = data::make_signed_transaction(&mut rng);
     let want = PeerMessage::Transaction(want);
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
-    // Challenge
+    tracing::info!(target:"test","Challenge");
     let mut events = inbound.events.from_now();
     let want = PeerMessage::Challenge(data::make_challenge(&mut rng));
     outbound.send(want.clone()).await;

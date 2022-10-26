@@ -278,7 +278,7 @@ impl Handler<WithSpanContext<BanPeerSignal>> for PeerManagerActor {
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "network", msg);
         debug!(target: "network", "Ban peer: {:?}", msg.peer_id);
-        self.try_ban_peer(&msg.peer_id, msg.ban_reason);
+        self.state.disconnect_and_ban(&self.clock, &msg.peer_id, msg.ban_reason);
     }
 }
 
