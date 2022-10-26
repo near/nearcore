@@ -277,11 +277,7 @@ mod old_validator_selection {
     fn gen_index_old(rng: &mut Hc128Rng, bound: u64) -> u64 {
         // This is a simplified copy of the rand gen_index implementation to ensure that
         // upgrades to the rand library will not cause a change in the shuffling behavior.
-<<<<<<< HEAD
-        let zone = u64::MAX - (u64::MAX - bound + 1) % (bound);
-=======
         let zone = (bound << bound.leading_zeros()).wrapping_sub(1);
->>>>>>> master
         loop {
             let v = rng.next_u64();
             let mul = (v as u128) * (bound as u128);
@@ -298,26 +294,6 @@ mod old_validator_selection {
         use crate::proposals::old_validator_selection::shuffle_duplicate_proposals;
 
         #[test]
-<<<<<<< HEAD
-        pub fn proposal_shuffling_sanity_check_empty_vector() {
-            // Since we made our own impl for shuffling, do some sanity checks.
-            let mut dup_proposals = vec![];
-            shuffle_duplicate_proposals(
-                &mut dup_proposals,
-                CryptoHash::hash_bytes(&[1, 2, 3, 4, 5]).as_bytes().clone(),
-            );
-            assert_eq!(dup_proposals, Vec::<u64>::new());
-        }
-
-        #[test]
-        pub fn proposal_shuffling_sanity_check_one_element() {
-            let mut dup_proposals = vec![8];
-            shuffle_duplicate_proposals(
-                &mut dup_proposals,
-                CryptoHash::hash_bytes(&[1, 2, 3, 4, 5]).as_bytes().clone(),
-            );
-            assert_eq!(dup_proposals, vec![8]);
-=======
         pub fn proposal_shuffling_sanity_checks() {
             // Since we made our own impl for shuffling, do some sanity checks.
             for i in 0..10 {
@@ -330,7 +306,6 @@ mod old_validator_selection {
                 dup_proposals.sort();
                 assert_eq!(dup_proposals, (0..i).collect::<Vec<_>>());
             }
->>>>>>> master
         }
 
         #[test]
@@ -341,9 +316,6 @@ mod old_validator_selection {
                 &mut dup_proposals,
                 CryptoHash::hash_bytes(&[1, 2, 3, 4, 5]).as_bytes().clone(),
             );
-<<<<<<< HEAD
-            assert_eq!(dup_proposals, vec![4, 6, 2, 1, 0, 3, 5]);
-=======
             assert_eq!(
                 dup_proposals,
                 vec![
@@ -354,7 +326,6 @@ mod old_validator_selection {
                     92, 50, 77, 81, 14, 43, 17, 90, 95, 78, 16, 30, 46, 22, 83, 27, 4, 51, 82
                 ]
             );
->>>>>>> master
         }
     }
 }
