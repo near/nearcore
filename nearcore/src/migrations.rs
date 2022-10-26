@@ -105,6 +105,7 @@ pub fn do_migrate_34_to_35(
         for (_, hashes) in chain_store.get_all_block_hashes_by_height(height)?.iter() {
             for hash in hashes {
                 for shard_id in 0..num_shards {
+                    info!(target: "chain", %shard_id, %height, %hash, "Checking delta existence");
                     store_helper::get_delta(&store, shard_id, hash.clone()).unwrap();
                 }
             }
@@ -158,7 +159,11 @@ pub fn do_migrate_34_to_35(
             threads += 1;
             pool.spawn(move || {
                 inner_thread_usage.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let hex_prefix: String = NibbleSlice::encode_nibbles(&path_begin, true)
+                let path_prefix = match path_begin.last() {
+                    Some(16) => &path_begin[..path_begin.len() - 1],
+                    _ => &path_begin,
+                };
+                let hex_prefix: String = path_prefix
                     .iter()
                     .map(|&n| char::from_digit(n as u32, 16).expect("nibble should be <16"))
                     .collect();
