@@ -499,12 +499,12 @@ pub struct TrieRefcountChange {
 }
 
 impl TrieRefcountChange {
-    pub fn hash(&self) -> CryptoHash {
-        self.trie_node_or_value_hash
+    pub fn hash(&self) -> &CryptoHash {
+        &self.trie_node_or_value_hash
     }
 
-    pub fn value(&self) -> Vec<u8> {
-        self.trie_node_or_value.clone()
+    pub fn payload(&self) -> &[u8] {
+        self.trie_node_or_value.as_slice()
     }
 }
 
@@ -544,8 +544,8 @@ impl TrieChanges {
         TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
     }
 
-    pub fn insertions(&self) -> &Vec<TrieRefcountChange> {
-        &self.insertions
+    pub fn insertions(&self) -> &[TrieRefcountChange] {
+        self.insertions.as_slice()
     }
 }
 

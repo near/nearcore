@@ -152,25 +152,23 @@ fn get_keys_from_store(
                 DBKeyType::TrieNodeOrValueHash => {
                     let mut keys = vec![];
                     for shard_uid in shard_layout.get_shard_uids() {
-                        let shard_uid_key = shard_uid.to_bytes().to_vec();
+                        let shard_uid_key = shard_uid.to_bytes();
 
                         debug_assert_eq!(
                             DBCol::TrieChanges.key_type(),
                             &[DBKeyType::BlockHash, DBKeyType::ShardUId]
                         );
-                        let trie_changes_option: Option<TrieChanges> = {
+                        let trie_changes_option: Option<TrieChanges> =
                             store
                                 .get_ser(
                                     DBCol::TrieChanges,
                                     &join_two_keys(&block_hash_key, &shard_uid_key),
-                                )
-                                .unwrap()
-                        };
+                                )?;
 
                         if let Some(trie_changes) = trie_changes_option {
                             for op in trie_changes.insertions() {
                                 store.insert_state_to_cache_from_op(op, &shard_uid_key);
-                                keys.push(op.hash().as_ref().to_vec());
+                                keys.push(op.hash().as_bytes().to_vec());
                             }
                         }
                     }
@@ -186,10 +184,8 @@ fn get_keys_from_store(
     Ok(key_type_to_keys)
 }
 
-pub fn join_two_keys(prefix_key: &StoreKey, suffix_key: &StoreKey) -> StoreKey {
-    let mut new_key = prefix_key.clone();
-    new_key.extend(suffix_key);
-    new_key
+pub fn join_two_keys(prefix_key: &[u8], suffix_key: &[u8]) -> StoreKey {
+    [prefix_key, suffix_key].concat()
 }
 
 /// Returns all possible keys for a column with key represented by a specific sequence of key types.
@@ -281,15 +277,15 @@ impl StoreWithCache<'_> {
     pub fn insert_state_to_cache_from_op(
         &mut self,
         op: &TrieRefcountChange,
-        shard_uid_key: &StoreKey,
+        shard_uid_key: &[u8],
     ) {
         debug_assert_eq!(
             DBCol::State.key_type(),
             &[DBKeyType::ShardUId, DBKeyType::TrieNodeOrValueHash]
         );
         self.cache.insert(
-            (DBCol::State, join_two_keys(shard_uid_key, &op.hash().as_ref().to_vec())),
-            Some(op.value()),
+            (DBCol::State, join_two_keys(shard_uid_key, op.hash().as_bytes())),
+            Some(op.payload().to_vec()),
         );
     }
 }
