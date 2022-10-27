@@ -369,6 +369,8 @@ impl DBCol {
     pub const fn is_cold(&self) -> bool {
         match self {
             DBCol::Block
+            | DBCol::ChunkExtra
+            | DBCol::Chunks
             | DBCol::IncomingReceipts
             | DBCol::OutcomeIds
             | DBCol::OutgoingReceipts
