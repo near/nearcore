@@ -722,7 +722,10 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::AnnounceAccount(announce_account) => {
-                self.state.broadcast_accounts(vec![announce_account]);
+                let state = self.state.clone();
+                self.state.arbiter.spawn(async move {
+                    state.broadcast_accounts(vec![announce_account]).await;
+                });
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedChunkRequest { target, request, create_time } => {

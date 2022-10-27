@@ -163,6 +163,8 @@ pub struct NetworkConfig {
     pub archive: bool,
     /// Maximal rate at which SyncAccountsData can be broadcasted.
     pub accounts_data_broadcast_rate_limit: rate::Limit,
+    /// Maximal rate at which RoutingTableUpdate can be sent out.
+    pub routing_table_update_rate_limit: rate::Limit,
     /// features
     pub features: Features,
 
@@ -264,6 +266,7 @@ impl NetworkConfig {
             outbound_disabled: false,
             archive,
             accounts_data_broadcast_rate_limit: rate::Limit { qps: 0.1, burst: 1 },
+            routing_table_update_rate_limit: rate::Limit { qps: 0.2, burst: 1 },
             features,
             inbound_disabled: cfg.experimental.inbound_disabled,
             skip_tombstones: if cfg.experimental.skip_sending_tombstones_seconds > 0 {
@@ -328,6 +331,7 @@ impl NetworkConfig {
             inbound_disabled: false,
             archive: false,
             accounts_data_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
+            routing_table_update_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
             features: Features {
                 tier1: Some(Tier1 {
                     // The tick is triggered manually.

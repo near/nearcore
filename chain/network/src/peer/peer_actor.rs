@@ -61,9 +61,6 @@ const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
 const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
 
-// TODO(gprusak): this delay is unnecessary, drop it.
-const WAIT_FOR_SYNC_DELAY: time::Duration = time::Duration::milliseconds(1_000);
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectionClosedEvent {
     pub(crate) stream_id: tcp::StreamId,
@@ -637,6 +634,9 @@ impl PeerActor {
             send_accounts_data_demux: demux::Demux::new(
                 self.network_state.config.accounts_data_broadcast_rate_limit,
             ),
+            send_routing_table_update_demux: demux::Demux::new(
+                self.network_state.config.routing_table_update_rate_limit,
+            ),
         });
 
         let tracker = self.tracker.clone();
@@ -712,14 +712,8 @@ impl PeerActor {
                                     accounts_data: act.network_state.accounts_data.load().data.values().cloned().collect(),
                                     incremental: false,
                                     requesting_full_sync: true,
-                                }));
-                                // Only broadcast the new edge from the outbound endpoint.
-                                act.network_state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-                                    RoutingTableUpdate::from_edges(vec![conn.edge.clone()]),
-                                )));
+                                }));   
                             }
-                            // Sync the RoutingTable.
-                            act.sync_routing_table();
                             // Exchange peers periodically.
                             let conn = conn.clone();
                             ctx.spawn(wrap_future(async move {
@@ -731,13 +725,9 @@ impl PeerActor {
                                     interval.tick().await;
                                 }
                             }));
-                        }
-                        ctx.spawn(wrap_future(async {
-                            tokio::time::sleep(WAIT_FOR_SYNC_DELAY.try_into().unwrap()).await;
-                        }).map(|_,act:&mut Self,_|{
                             // Sync the RoutingTable.
                             act.sync_routing_table();
-                        }));
+                        }
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
                             edge: conn.edge.clone(),
@@ -1304,7 +1294,7 @@ impl PeerActor {
             async move {
                 match network_state.client.announce_account(accounts).await {
                     Err(ban_reason) => conn.stop(Some(ban_reason)),
-                    Ok(accounts) => network_state.broadcast_accounts(accounts),
+                    Ok(accounts) => network_state.broadcast_accounts(accounts).await,
                 }
             }
         });

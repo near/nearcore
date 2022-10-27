@@ -339,9 +339,9 @@ impl NetworkState {
             if edge.edge_type() == EdgeState::Active {
                 let edge_update = edge.remove_edge(self.config.node_id(), &self.config.node_key);
                 self.add_edges_to_routing_table(clock, vec![edge_update.clone()]).await.unwrap();
-                self.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-                    RoutingTableUpdate::from_edges(vec![edge_update]),
-                )));
+                self.broadcast_routing_table_update(
+                    Arc::new(RoutingTableUpdate::from_edges(vec![edge_update]))
+                ).await;
             }
         }
 
@@ -352,6 +352,13 @@ impl NetworkState {
         } {
             tracing::error!(target: "network", ?err, "Failed to save peer data");
         }
+    }
+
+    async fn broadcast_routing_table_update(&self, rtu: Arc<RoutingTableUpdate>) {
+        let handles: Vec<_> = self.tier2.load().ready.values().map(|conn|{
+            conn.send_routing_table_update(rtu.clone())
+        }).collect();
+        futures_util::future::join_all(handles).await;
     }
 
     /// Determine if the given target is referring to us.
@@ -493,13 +500,13 @@ impl NetworkState {
         }
     }
 
-    pub fn broadcast_accounts(&self, accounts: Vec<AnnounceAccount>) {
+    pub async fn broadcast_accounts(&self, accounts: Vec<AnnounceAccount>) {
         let new_accounts = self.routing_table_view.add_accounts(accounts);
         tracing::debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
         if new_accounts.len() > 0 {
-            self.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-                RoutingTableUpdate::from_accounts(new_accounts),
-            )));
+            self.broadcast_routing_table_update(
+                Arc::new(RoutingTableUpdate::from_accounts(new_accounts)),
+            ).await;
         }
     }
 
@@ -558,11 +565,10 @@ impl NetworkState {
             }
         }
         // Broadcast new edges to all other peers.
-        // TODO: demux
         if edges.len() > 0 {
-            self.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-                RoutingTableUpdate::from_edges(edges),
-            )));
+            self.broadcast_routing_table_update(
+                Arc::new(RoutingTableUpdate::from_edges(edges)),
+            ).await;
         }
         if !ok {
             return Err(ReasonForBan::InvalidEdge);
@@ -652,9 +658,9 @@ impl NetworkState {
                         // Peer is still not connected after waiting a timeout.
                         let new_edge =
                             edge.remove_edge(this.config.node_id(), &this.config.node_key);
-                        this.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-                            RoutingTableUpdate::from_edges(vec![new_edge]),
-                        )));
+                        this.broadcast_routing_table_update(
+                            Arc::new(RoutingTableUpdate::from_edges(vec![new_edge])),
+                        ).await;
                     });
                 }
                 // OK
