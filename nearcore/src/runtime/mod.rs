@@ -3202,7 +3202,7 @@ mod test {
         assert_eq!(state_value, view_state_value);
     }
 
-    /// Check that mainnet genesis hash still matches.
+    /// Check that mainnet genesis hash still matches, to make sure that we're still backwards compatible.
     #[test]
     fn test_genesis_hash() {
         let genesis = Genesis::from_file("res/mainnet_genesis.json", GenesisValidationMode::Full);
