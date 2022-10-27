@@ -15,7 +15,7 @@ fn bad_account_data_size() {
     let signer = data::make_validator_signer(&mut rng);
 
     let ad = AccountData {
-        peers: (0..1000)
+        proxies: (0..1000)
             .map(|_| {
                 let ip = data::make_ipv6(&mut rng);
                 data::make_peer_addr(&mut rng, ip)

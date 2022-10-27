@@ -453,7 +453,7 @@ mod test {
         let signer = data::make_validator_signer(&mut rng);
 
         let ad = AccountData {
-            peers: (0..config::MAX_PEER_ADDRS)
+            proxies: (0..config::MAX_PEER_ADDRS)
                 .map(|_| {
                     // Using IPv6 gives maximal size of the resulting config.
                     let ip = data::make_ipv6(&mut rng);

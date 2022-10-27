@@ -87,7 +87,7 @@ impl std::str::FromStr for PeerAddr {
 #[derive(PartialEq, Eq, Debug, Hash)]
 pub struct AccountData {
     pub peer_id: Option<PeerId>,
-    pub peers: Vec<PeerAddr>,
+    pub proxies: Vec<PeerAddr>,
     pub account_id: AccountId,
     pub epoch_id: EpochId,
     pub timestamp: time::Utc,

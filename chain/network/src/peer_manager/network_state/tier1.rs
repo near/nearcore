@@ -140,7 +140,7 @@ impl super::NetworkState {
                         epoch_id: epoch_id.clone(),
                         account_id: vc.signer.validator_id().clone(),
                         timestamp: now,
-                        peers: my_proxies.clone(),
+                        proxies: my_proxies.clone(),
                     }
                     .sign(vc.signer.as_ref())
                     .unwrap(),
@@ -185,8 +185,8 @@ impl super::NetworkState {
         let mut accounts_by_proxy = HashMap::<_, Vec<_>>::new();
         let mut proxies_by_account = HashMap::<_, Vec<_>>::new();
         for d in accounts_data.data.values() {
-            proxies_by_account.entry(&d.account_id).or_default().extend(d.peers.iter());
-            for p in &d.peers {
+            proxies_by_account.entry(&d.account_id).or_default().extend(d.proxies.iter());
+            for p in &d.proxies {
                 accounts_by_proxy.entry(&p.peer_id).or_default().push(&d.account_id);
             }
         }
@@ -334,7 +334,7 @@ impl super::NetworkState {
                 Some(id) => id,
                 None => continue,
             };
-            for proxy in &data.peers {
+            for proxy in &data.proxies {
                 if let Some(conn) = tier1.ready.get(&proxy.peer_id) {
                     return Some((peer_id.clone(), conn.clone()));
                 }

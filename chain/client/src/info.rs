@@ -554,7 +554,7 @@ mod tests {
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,
                 known_producers: vec![],
-                tier1_accounts: vec![],
+                tier1_accounts_data: vec![],
             },
             &config,
             0.0,

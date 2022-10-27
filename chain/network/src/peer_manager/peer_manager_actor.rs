@@ -611,7 +611,7 @@ impl PeerManagerActor {
                     next_hops: self.state.routing_table_view.view_route(&announce_account.peer_id),
                 })
                 .collect(),
-            tier1_accounts: self.state.accounts_data.load().data.values().cloned().collect(),
+            tier1_accounts_data: self.state.accounts_data.load().data.values().cloned().collect(),
         }
     }
 

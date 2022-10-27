@@ -391,7 +391,7 @@ pub fn make_account_data(
     peer_id: PeerId,
 ) -> AccountData {
     AccountData {
-        peers: vec![
+        proxies: vec![
             // Can't inline make_ipv4/ipv6 calls, because 2-phase borrow
             // doesn't work.
             {

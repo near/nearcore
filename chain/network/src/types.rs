@@ -17,7 +17,7 @@ use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
 use near_primitives::types::{AccountId, EpochId, ShardId};
-use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView};
+use near_primitives::views::{KnownProducerView, NetworkInfoView, PeerInfoView, AccountDataView, Tier1ProxyView };
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -343,7 +343,7 @@ pub struct NetworkInfo {
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
-    pub tier1_accounts: Vec<Arc<SignedAccountData>>,
+    pub tier1_accounts_data: Vec<Arc<SignedAccountData>>,
 }
 
 impl From<NetworkInfo> for NetworkInfoView {
@@ -368,6 +368,20 @@ impl From<NetworkInfo> for NetworkInfoView {
                         .map(|it| it.iter().map(|peer_id| peer_id.public_key().clone()).collect()),
                 })
                 .collect(),
+            tier1_accounts_data: network_info
+                .tier1_accounts_data
+                .iter()
+                .map(|d|AccountDataView{
+                    peer_id: d.peer_id.as_ref().map(|id|id.public_key().clone()),
+                    proxies: d.proxies.iter().map(|p|Tier1ProxyView {
+                        addr: p.addr,
+                        peer_id: p.peer_id.public_key().clone(),
+                    }).collect(),
+                    account_id: d.account_id.clone(),
+                    epoch_id: d.epoch_id.clone(),
+                    timestamp: chrono::DateTime::from_utc(
+                        chrono::NaiveDateTime::from_timestamp(d.timestamp.unix_timestamp(), 0), chrono::Utc),
+                }).collect(),
         }
     }
 }

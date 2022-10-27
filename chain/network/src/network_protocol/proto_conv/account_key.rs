@@ -33,7 +33,7 @@ impl From<&AccountData> for proto::AccountKeyPayload {
             payload_type: Some(ProtoPT::AccountData(proto::AccountData {
                 peer_id: x.peer_id.as_ref().map(Into::into).into(),
                 account_id: x.account_id.to_string(),
-                peers: x.peers.iter().map(Into::into).collect(),
+                proxies: x.proxies.iter().map(Into::into).collect(),
                 epoch_id: MF::some((&x.epoch_id.0).into()),
                 timestamp: MF::some(utc_to_proto(&x.timestamp)),
                 ..Default::default()
@@ -53,7 +53,7 @@ impl TryFrom<&proto::AccountKeyPayload> for AccountData {
         Ok(Self {
             peer_id: try_from_optional(&x.peer_id).map_err(Self::Error::PeerId)?,
             account_id: x.account_id.clone().try_into().map_err(Self::Error::AccountId)?,
-            peers: try_from_slice(&x.peers).map_err(Self::Error::Peers)?,
+            proxies: try_from_slice(&x.proxies).map_err(Self::Error::Peers)?,
             epoch_id: EpochId(try_from_required(&x.epoch_id).map_err(Self::Error::EpochId)?),
             timestamp: map_from_required(&x.timestamp, utc_from_proto)
                 .map_err(Self::Error::Timestamp)?,

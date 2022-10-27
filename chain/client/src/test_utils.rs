@@ -675,7 +675,7 @@ pub fn setup_mock_all_validators(
                             sent_bytes_per_sec: 0,
                             received_bytes_per_sec: 0,
                             known_producers: vec![],
-                            tier1_accounts: vec![],
+                            tier1_accounts_data: vec![],
                         };
                         client_addr
                             .do_send(NetworkClientMessages::NetworkInfo(info).with_span_context());

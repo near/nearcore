@@ -225,7 +225,7 @@ message AccountData {
   // or a list of peers known to be connected to the validator.
   // If empty, the validator explicitly declares that it has no public IP
   // and the P2P routing should be used instead (discouraged, might be disallowed in the future).
-  repeated PeerAddr peers = 2;
+  repeated PeerAddr proxies = 2;
 
   // Epoch for which this data is valid.
   // This AccountData should be signed with the account key assigned to
