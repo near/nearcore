@@ -1,5 +1,6 @@
 use anyhow::Context;
-use near_network::raw::{ConnectError, Message, Peer};
+use near_network::raw::{ConnectError, Connection, ReceivedMessage};
+use near_network::time;
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -10,7 +11,6 @@ use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::time::{Duration, Instant};
 
 pub mod cli;
 mod csv;
@@ -24,16 +24,16 @@ struct PingStats {
     pongs_received: usize,
     // TODO: these latency stats could be separated into time to first byte
     // + time to last byte, etc.
-    min_latency: Duration,
-    max_latency: Duration,
-    average_latency: Duration,
+    min_latency: time::Duration,
+    max_latency: time::Duration,
+    average_latency: time::Duration,
 }
 
 impl PingStats {
-    fn pong_received(&mut self, latency: Duration) {
+    fn pong_received(&mut self, latency: time::Duration) {
         self.pongs_received += 1;
 
-        if self.min_latency == Duration::ZERO || self.min_latency > latency {
+        if self.min_latency == time::Duration::ZERO || self.min_latency > latency {
             self.min_latency = latency;
         }
         if self.max_latency < latency {
@@ -49,7 +49,7 @@ type Nonce = u64;
 #[derive(Debug, Eq, PartialEq)]
 struct PingTarget {
     peer_id: PeerId,
-    last_pinged: Option<Instant>,
+    last_pinged: Option<time::Instant>,
 }
 
 impl PartialOrd for PingTarget {
@@ -79,7 +79,7 @@ impl Ord for PingTarget {
 struct PingTimeout {
     peer_id: PeerId,
     nonce: u64,
-    timeout: Instant,
+    timeout: time::Instant,
 }
 
 impl PartialOrd for PingTimeout {
@@ -101,18 +101,18 @@ fn peer_str(peer_id: &PeerId, account_id: Option<&AccountId>) -> String {
 }
 
 const MAX_PINGS_IN_FLIGHT: usize = 10;
-const PING_TIMEOUT: Duration = Duration::from_secs(100);
+const PING_TIMEOUT: time::Duration = time::Duration::seconds(100);
 
 #[derive(Debug)]
 struct PingState {
     stats: PingStats,
-    last_pinged: Option<Instant>,
+    last_pinged: Option<time::Instant>,
     account_id: Option<AccountId>,
 }
 
 struct PingTimes {
-    sent_at: Instant,
-    timeout: Instant,
+    sent_at: time::Instant,
+    timeout: time::Instant,
 }
 
 struct AppInfo {
@@ -144,7 +144,7 @@ impl AppInfo {
     }
 
     fn ping_sent(&mut self, peer_id: &PeerId, nonce: u64) {
-        let timestamp = Instant::now();
+        let timestamp = time::Instant::now();
         let timeout = timestamp + PING_TIMEOUT;
 
         match self.stats.entry(peer_id.clone()) {
@@ -193,8 +193,8 @@ impl AppInfo {
         &mut self,
         peer_id: &PeerId,
         nonce: u64,
-        received_at: Instant,
-    ) -> Option<(Duration, Option<&AccountId>)> {
+        received_at: time::Instant,
+    ) -> Option<(time::Duration, Option<&AccountId>)> {
         match self.stats.get_mut(peer_id) {
             Some(state) => {
                 let pending_pings = self
@@ -215,10 +215,11 @@ impl AppInfo {
                             timeout: times.timeout
                         }));
 
+                        let l: std::time::Duration = latency.try_into().unwrap();
                         println!(
                             "recv pong <-------------- {} latency: {:?}",
                             peer_str(&peer_id, state.account_id.as_ref()),
-                            latency
+                            l
                         );
                         Some((latency, state.account_id.as_ref()))
                     }
@@ -315,12 +316,12 @@ impl AppInfo {
 
 fn handle_message(
     app_info: &mut AppInfo,
-    msg: &Message,
-    received_at: Instant,
+    msg: &ReceivedMessage,
+    received_at: time::Instant,
     latencies_csv: Option<&mut crate::csv::LatenciesCsv>,
 ) -> anyhow::Result<()> {
     match &msg {
-        Message::Pong { nonce, source } => {
+        ReceivedMessage::Pong { nonce, source } => {
             if let Some((latency, account_id)) = app_info.pong_received(source, *nonce, received_at)
             {
                 if let Some(csv) = latencies_csv {
@@ -328,7 +329,7 @@ fn handle_message(
                 }
             }
         }
-        Message::AnnounceAccounts(a) => {
+        ReceivedMessage::AnnounceAccounts(a) => {
             app_info.add_announce_accounts(a);
         }
     };
@@ -359,7 +360,7 @@ fn collect_stats(app_info: AppInfo, ping_stats: &mut Vec<(PeerIdentifier, PingSt
 
 fn prepare_timeout(sleep: Pin<&mut tokio::time::Sleep>, app_info: &AppInfo) -> Option<PingTimeout> {
     if let Some(t) = app_info.timeouts.iter().next() {
-        sleep.reset(tokio::time::Instant::from_std(t.timeout));
+        sleep.reset(tokio::time::Instant::from_std(t.timeout.try_into().unwrap()));
         Some(t.clone())
     } else {
         None
@@ -375,6 +376,7 @@ async fn ping_via_node(
     peer_addr: SocketAddr,
     ttl: u8,
     ping_frequency_millis: u64,
+    recv_timeout_seconds: u32,
     account_filter: Option<HashSet<AccountId>>,
     mut latencies_csv: Option<crate::csv::LatenciesCsv>,
     ping_stats: &mut Vec<(PeerIdentifier, PingStats)>,
@@ -383,20 +385,18 @@ async fn ping_via_node(
 
     app_info.add_peer(&peer_id, None);
 
-    let mut peer = match Peer::connect(
+    let mut peer = match Connection::connect(
         peer_addr,
         peer_id,
         protocol_version,
         chain_id,
         genesis_hash,
         head_height,
+        recv_timeout_seconds,
     )
     .await
     {
         Ok(p) => p,
-        Err(ConnectError::IO(e)) => {
-            anyhow::bail!("Error connecting to {:?}: {}", peer_addr, e);
-        }
         Err(ConnectError::HandshakeFailure(reason)) => {
             match reason {
                 HandshakeFailureReason::ProtocolVersionMismatch { version, oldest_supported_version } => anyhow::bail!(
@@ -413,13 +413,16 @@ async fn ping_via_node(
                 ),
             }
         }
+        Err(e) => {
+            anyhow::bail!("Error connecting to {:?}: {}", peer_addr, e);
+        }
     };
 
     let mut result = Ok(());
     let mut nonce = 1;
-    let next_ping = tokio::time::sleep(Duration::ZERO);
+    let next_ping = tokio::time::sleep(std::time::Duration::ZERO);
     tokio::pin!(next_ping);
-    let next_timeout = tokio::time::sleep(Duration::ZERO);
+    let next_timeout = tokio::time::sleep(std::time::Duration::ZERO);
     tokio::pin!(next_timeout);
 
     loop {
@@ -435,7 +438,7 @@ async fn ping_via_node(
                 }
                 app_info.ping_sent(&target, nonce);
                 nonce += 1;
-                next_ping.as_mut().reset(tokio::time::Instant::now() + Duration::from_millis(ping_frequency_millis));
+                next_ping.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_millis(ping_frequency_millis));
             }
             res = peer.recv() => {
                 let messages = match res {
@@ -446,7 +449,12 @@ async fn ping_via_node(
                     }
                 };
                 for (msg, first_byte_time) in messages {
-                    result = handle_message(&mut app_info, &msg, first_byte_time, latencies_csv.as_mut());
+                    result = handle_message(
+                                &mut app_info,
+                                &msg,
+                                first_byte_time.try_into().unwrap(),
+                                latencies_csv.as_mut()
+                             );
                     if result.is_err() {
                         break;
                     }

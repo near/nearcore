@@ -4,12 +4,12 @@ use near_network::types::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
-use near_primitives::types::BlockHeight;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::time::Duration;
 
 #[derive(Parser)]
 pub struct PingCommand {
@@ -45,6 +45,9 @@ pub struct PingCommand {
     /// filename to append CSV data to
     #[clap(long)]
     latencies_csv_file: Option<PathBuf>,
+    /// number of seconds to wait for incoming data before timing out
+    #[clap(long)]
+    recv_timeout_seconds: Option<u32>,
 }
 
 fn display_stats(stats: &mut [(crate::PeerIdentifier, crate::PingStats)], peer_id: &PeerId) {
@@ -68,14 +71,17 @@ fn display_stats(stats: &mut [(crate::PeerIdentifier, crate::PingStats)], peer_i
         if stats.pings_sent == 0 {
             continue;
         }
+        let min_latency: Duration = stats.min_latency.try_into().unwrap();
+        let max_latency: Duration = stats.max_latency.try_into().unwrap();
+        let average_latency: Duration = stats.average_latency.try_into().unwrap();
         println!(
             "{:<acc_width$} | {:<10} | {:<10} | {:<17?} | {:<17?} | {:<17?}{}",
             peer,
             stats.pings_sent,
             stats.pongs_received,
-            stats.min_latency,
-            stats.max_latency,
-            stats.average_latency,
+            min_latency,
+            max_latency,
+            average_latency,
             if peer_id == &peer.peer_id { " <-------------- direct pings" } else { "" }
         );
     }
@@ -84,7 +90,6 @@ fn display_stats(stats: &mut [(crate::PeerIdentifier, crate::PingStats)], peer_i
 struct ChainInfo {
     chain_id: &'static str,
     genesis_hash: CryptoHash,
-    head_height: BlockHeight,
 }
 
 static CHAIN_INFO: &[ChainInfo] = &[
@@ -94,7 +99,6 @@ static CHAIN_INFO: &[ChainInfo] = &[
             198, 253, 249, 28, 142, 130, 248, 249, 23, 204, 25, 117, 233, 222, 28, 100, 190, 17,
             137, 158, 50, 29, 253, 245, 254, 188, 251, 183, 49, 63, 20, 134,
         ]),
-        head_height: 71112469,
     },
     ChainInfo {
         chain_id: "testnet",
@@ -102,7 +106,6 @@ static CHAIN_INFO: &[ChainInfo] = &[
             215, 132, 218, 90, 158, 94, 102, 102, 133, 22, 193, 154, 128, 149, 68, 143, 197, 74,
             34, 162, 137, 113, 220, 51, 15, 0, 153, 223, 148, 55, 148, 16,
         ]),
-        head_height: 96446588,
     },
     ChainInfo {
         chain_id: "shardnet",
@@ -110,7 +113,6 @@ static CHAIN_INFO: &[ChainInfo] = &[
             23, 22, 21, 53, 29, 32, 253, 218, 219, 182, 221, 220, 200, 18, 11, 102, 161, 16, 96,
             127, 219, 141, 160, 109, 150, 121, 215, 174, 108, 67, 47, 110,
         ]),
-        head_height: 1622527,
     },
 ];
 
@@ -173,17 +175,6 @@ impl PingCommand {
                 ),
             }
         };
-        let head_height = if let Some(h) = &self.head_height {
-            *h
-        } else {
-            match chain_info {
-                Some(chain_info) => chain_info.head_height,
-                None => anyhow::bail!(
-                    "--head-height not given, and genesis hash for --chain-id {} not known",
-                    &self.chain_id
-                ),
-            }
-        };
 
         let peer = match PeerInfo::from_str(&self.peer) {
             Ok(p) => p,
@@ -211,12 +202,13 @@ impl PingCommand {
             crate::ping_via_node(
                 &self.chain_id,
                 genesis_hash,
-                head_height,
+                self.head_height.unwrap_or(0),
                 self.protocol_version,
                 peer.id.clone(),
                 peer.addr.clone().unwrap(),
                 self.ttl,
                 self.ping_frequency_millis,
+                self.recv_timeout_seconds.unwrap_or(5),
                 filter,
                 csv,
                 &mut stats,

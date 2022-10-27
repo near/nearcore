@@ -2,7 +2,7 @@ use crate::network_protocol::{
     Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash,
     PeerMessage, Ping, RawRoutedMessage, RoutedMessageBody,
 };
-use crate::time::Utc;
+use crate::time::{Duration, Instant, Utc};
 use bytes::buf::{Buf, BufMut};
 use bytes::BytesMut;
 use near_crypto::{KeyType, SecretKey};
@@ -13,7 +13,6 @@ use near_primitives::types::{AccountId, BlockHeight, EpochId};
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use std::io;
 use std::net::SocketAddr;
-use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -22,39 +21,43 @@ use tokio::net::TcpStream;
 /// will receive messages via the recv() function. Currently the only message
 /// you can send is a Ping message, but in the future we can add more stuff there
 /// (e.g. sending blocks/chunk parts/etc)
-pub struct Peer {
+pub struct Connection {
     my_peer_id: PeerId,
     peer_id: PeerId,
     secret_key: SecretKey,
     stream: TcpStream,
     buf: BytesMut,
+    recv_timeout_seconds: u32,
 }
 
 /// The types of messages it's possible to receive from a `Peer`. Any PeerMessage
 /// we receive that doesn't fit one of these will just be logged and dropped.
-pub enum Message {
+pub enum ReceivedMessage {
     AnnounceAccounts(Vec<(AccountId, PeerId, EpochId)>),
     Pong { nonce: u64, source: PeerId },
 }
 
-impl Message {
-    fn from_peer_message(m: PeerMessage) -> Option<Self> {
+impl TryFrom<PeerMessage> for ReceivedMessage {
+    // the only possible error here is that it's not implemented
+    type Error = ();
+
+    fn try_from(m: PeerMessage) -> Result<Self, Self::Error> {
         match m {
             PeerMessage::Routed(r) => match &r.body {
                 RoutedMessageBody::Pong(p) => {
-                    Some(Self::Pong { nonce: p.nonce, source: p.source.clone() })
+                    Ok(Self::Pong { nonce: p.nonce, source: p.source.clone() })
                 }
-                _ => None,
+                _ => Err(()),
             },
-            PeerMessage::SyncRoutingTable(r) => Some(Self::AnnounceAccounts(
+            PeerMessage::SyncRoutingTable(r) => Ok(Self::AnnounceAccounts(
                 r.accounts.into_iter().map(|a| (a.account_id, a.peer_id, a.epoch_id)).collect(),
             )),
-            _ => None,
+            _ => Err(()),
         }
     }
 }
 
-impl std::fmt::Debug for Peer {
+impl std::fmt::Debug for Connection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let addr = match self.stream.peer_addr() {
             Ok(a) => format!("{:?}", a),
@@ -66,13 +69,15 @@ impl std::fmt::Debug for Peer {
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConnectError {
-    #[error(transparent)]
-    IO(#[from] std::io::Error),
+    #[error("IO")]
+    IO(#[source] std::io::Error),
     #[error("handshake failed {0:?}")]
     HandshakeFailure(HandshakeFailureReason),
+    #[error("received unexpected message before the handshake: {0:?}")]
+    UnexpectedFirstMessage(PeerMessage),
 }
 
-impl Peer {
+impl Connection {
     /// Connect to the NEAR node at `peer_id`@`addr`. The inputs are used to build out handshake,
     /// and this function will return a `Peer` when a handshake has been received successfully.
     pub async fn connect(
@@ -82,21 +87,32 @@ impl Peer {
         chain_id: &str,
         genesis_hash: CryptoHash,
         head_height: BlockHeight,
+        recv_timeout_seconds: u32,
     ) -> Result<Self, ConnectError> {
         let secret_key = SecretKey::from_random(KeyType::ED25519);
         let my_peer_id = PeerId::new(secret_key.public_key());
 
         let start = Instant::now();
-        let stream = tokio::time::timeout(Duration::from_secs(2), TcpStream::connect(addr))
-            .await
-            .map_err(Into::<io::Error>::into)??;
+        let stream = tokio::time::timeout(
+            (recv_timeout_seconds * Duration::SECOND).try_into().unwrap(),
+            TcpStream::connect(addr),
+        )
+        .await
+        .map_err(|e| ConnectError::IO(e.into()))?
+        .map_err(ConnectError::IO)?;
         tracing::info!(
-            target: "network", "Connection to {:?}@{:?} established. latency: {:?}",
+            target: "network", "Connection to {}@{:?} established. latency: {}",
             &peer_id, &addr, start.elapsed(),
         );
 
-        let mut peer =
-            Self { stream, peer_id, buf: BytesMut::with_capacity(1024), secret_key, my_peer_id };
+        let mut peer = Self {
+            stream,
+            peer_id,
+            buf: BytesMut::with_capacity(1024),
+            secret_key,
+            my_peer_id,
+            recv_timeout_seconds,
+        };
         peer.do_handshake(
             my_protocol_version.unwrap_or(PROTOCOL_VERSION),
             chain_id,
@@ -137,30 +153,21 @@ impl Peer {
             ),
         });
 
-        self.write_message(&handshake).await?;
+        self.write_message(&handshake).await.map_err(ConnectError::IO)?;
 
         let start = Instant::now();
 
-        let (message, timestamp) = self.recv_message().await?;
+        let (message, timestamp) = self.recv_message().await.map_err(ConnectError::IO)?;
 
         match message {
             // TODO: maybe check the handshake for sanity
             PeerMessage::Handshake(_) => {
-                tracing::info!(target: "network", "handshake latency: {:?}", timestamp - start);
+                tracing::info!(target: "network", "handshake latency: {}", timestamp - start);
             }
             PeerMessage::HandshakeFailure(_peer_info, reason) => {
                 return Err(ConnectError::HandshakeFailure(reason))
             }
-            _ => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!(
-                        "First message received from {:?} is not a handshake: {:?}",
-                        self, &message
-                    ),
-                )
-                .into())
-            }
+            _ => return Err(ConnectError::UnexpectedFirstMessage(message)),
         };
 
         Ok(())
@@ -187,8 +194,11 @@ impl Peer {
     }
 
     async fn do_read(&mut self) -> io::Result<()> {
-        let n = tokio::time::timeout(Duration::from_secs(5), self.stream.read_buf(&mut self.buf))
-            .await??;
+        let n = tokio::time::timeout(
+            (self.recv_timeout_seconds * Duration::SECOND).try_into().unwrap(),
+            self.stream.read_buf(&mut self.buf),
+        )
+        .await??;
         tracing::trace!(target: "network", "Read {} bytes from {:?}", n, self.stream.peer_addr());
         if n == 0 {
             return Err(io::Error::new(
@@ -309,17 +319,17 @@ impl Peer {
     }
 
     /// Reads from the socket until we receive some message that we care to pass to the caller
-    /// (that is, represented in `Message`). After receiving the first such message, we will
+    /// (that is, represented in `ReceivedMessage`). After receiving the first such message, we will
     /// continue to read any messages available to be read without blocking. The `Instant`s
     /// in the returned `Vec` are timestamps taken when the corresponding messages were read
-    pub async fn recv(&mut self) -> io::Result<Vec<(Message, Instant)>> {
+    pub async fn recv(&mut self) -> io::Result<Vec<(ReceivedMessage, Instant)>> {
         let mut ret = Vec::new();
 
         loop {
             let msgs = self.recv_messages().await?;
 
             for (msg, timestamp) in msgs {
-                if let Some(m) = Message::from_peer_message(msg) {
+                if let Ok(m) = ReceivedMessage::try_from(msg) {
                     ret.push((m, timestamp));
                 }
             }
