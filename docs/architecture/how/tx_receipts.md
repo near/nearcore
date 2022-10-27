@@ -13,33 +13,33 @@ First, let’s look at the ‘high level view’:
 
 ## Transaction vs receipt
 
-As you can see form the image above:
+As you can see from the image above:
 
 **Transactions** are ‘external’ communication - they are coming from the
 outside.
 
-**Receipts** are used for  ‘internal’ communication (cross shard, cross
+**Receipts** are used for ‘internal’ communication (cross shard, cross
 contract) - they are created by the block/chunk producers.
 
 
 ## Life of a Transaction
 
-If we ‘zoom-in', the chunk producer work looks like this:
+If we ‘zoom-in', the chunk producer's work looks like this:
 
 ![image](https://user-images.githubusercontent.com/1711539/198282518-cdeb375e-8f1c-4634-842c-6490020ad9c0.png)
 
 
 ### Step 1: Process Transaction into receipt
 
-Once chunk producer is ready to produce the chunk, it will fetch the
+Once a chunk producer is ready to produce a chunk, it will fetch the
 transactions from its mempool, check that they are valid, and if so, prepare to
-change them into receipts.
+process them into receipts.
 
-**Note:** There are additional restrictions (making sure that we take them in
-the right order, that we don’t take too many etc) - that you can see in
-nomicon’s transaction page.
+**Note:** There are additional restrictions (e.g. making sure that we take them in
+the right order, that we don’t take too many, etc.) - that you can see in
+nomicon’s [transaction page](https://nomicon.io/ChainSpec/Transactions).
 
-You can see this part very clearly in explorer:
+You can see this part in explorer:
 
 ![image](https://user-images.githubusercontent.com/1711539/198282561-c97235a1-93a1-4dc8-b6bc-ee9983376b2c.png)
 
@@ -74,8 +74,8 @@ consider the transaction to be successful.
 
 ### [Advanced] But reality is more complex
 
-**Caution:** In the section below, some things are simplified and are not 100%
-match to how the current code works.
+**Caution:** In the section below, some things are simplified and do not match exactly 
+to how the current code works.
 
 Let’s quickly also check what’s actually inside a Chunk:
 
@@ -89,10 +89,9 @@ pub struct ShardChunkV2 {
 ```
 
 Yes, it is a little bit confusing, that receipts here are NOT the ‘incoming’
-ones for this chunk, but instead the ‘outgoing’ ones from the previous block ??
-Why??
+ones for this chunk, but instead the ‘outgoing’ ones from the previous block.  Why?!?!
 
-It all has to do with performance.
+This has to do with performance.
 
 #### Simple approach
 
@@ -110,16 +109,16 @@ before sending the chunk to other validators.
 ![image](https://user-images.githubusercontent.com/1711539/198282601-383977f1-08dd-45fe-aa19-70556d585034.png)
 
 
-Once other validators receive the chunk, they can start their own processing to
+Once the other validators receive the chunk, they can start their own processing to
 verify those outgoing receipts/final state - and then do the signing. Only then,
-the next chunk producer can start creating the next chunk.
+can the next chunk producer start creating the next chunk.
 
 While this approach does work, we can do it faster.
 
 #### Faster approach
 
-What if the chunk didn’t contain the ‘output’ state? This changes a little bit
-our ‘mental’ model, as now when we’re singing the chunk, we’d be actually
+What if the chunk didn’t contain the ‘output’ state? This changes our ‘mental’ model
+a little bit, as now when we’re singing the chunk, we’d actually be
 verifying the previous chunk - but that’s the topic for the next article (TODO:
 add future link to article about signatures and verification).
 
@@ -128,8 +127,8 @@ For now, imagine if the chunk only had:
 * list of transactions
 * list of incoming receipts
 
-In such case, the chunk producer could send the chunk a lot earlier, and
-validators (and chunk producer) could do the processing at the same time:
+In such a case, the chunk producer could send the chunk a lot earlier, and
+validators (and chunk producer) could do their processing at the same time:
 
 
 ![image](https://user-images.githubusercontent.com/1711539/198282641-1e728088-6f2b-4cb9-90c9-5eb09304e72a.png)
