@@ -211,6 +211,9 @@ pub(super) struct InitCmd {
     /// Specify a custom download URL for the genesis file.
     #[clap(long)]
     download_genesis_url: Option<String>,
+    /// Specify a custom download URL for the records file.
+    #[clap(long)]
+    download_records_url: Option<String>,
     /// Specify a custom download URL for the config file.
     #[clap(long)]
     download_config_url: Option<String>,
@@ -289,6 +292,7 @@ impl InitCmd {
             self.genesis.as_deref(),
             self.download_genesis,
             self.download_genesis_url.as_deref(),
+            self.download_records_url.as_deref(),
             self.download_config,
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
