@@ -354,8 +354,6 @@ pub fn amend_genesis<P: AsRef<Path>>(
     if let Some(t) = genesis_changes.chunk_producer_kickout_threshold {
         genesis.config.chunk_producer_kickout_threshold = t;
     }
-    genesis.config.protocol_reward_rate = num_rational::Rational32::new(1, 10);
-    genesis.config.block_producer_kickout_threshold = 10;
     genesis.to_file(genesis_file_out);
     records_seq.end()?;
     Ok(())
