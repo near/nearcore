@@ -205,11 +205,11 @@ fn get_keys_from_store(
                 DBKeyType::TransactionHash => chunks
                     .iter()
                     .flat_map(|c| c.transactions().iter().map(|t| t.get_hash().as_bytes().to_vec()))
-                    .collect::<Vec<StoreKey>>(),
+                    .collect(),
                 DBKeyType::ReceiptHash => chunks
                     .iter()
                     .flat_map(|c| c.receipts().iter().map(|r| r.get_hash().as_bytes().to_vec()))
-                    .collect::<Vec<StoreKey>>(),
+                    .collect(),
                 DBKeyType::OutcomeId => {
                     let mut outcomes: Vec<Vec<CryptoHash>> = vec![];
                     for shard_id in 0..shard_layout.num_shards() {
