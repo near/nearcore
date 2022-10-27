@@ -2819,6 +2819,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-amend-genesis"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "borsh",
+ "clap 3.1.18",
+ "near-chain",
+ "near-chain-configs",
+ "near-crypto",
+ "near-epoch-manager",
+ "near-network",
+ "near-primitives",
+ "near-primitives-core",
+ "near-store",
+ "near-test-contracts",
+ "nearcore",
+ "node-runtime",
+ "num-rational",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
 name = "near-cache"
 version = "0.0.0"
 dependencies = [
@@ -3674,6 +3699,7 @@ dependencies = [
  "anyhow",
  "clap 3.1.18",
  "futures",
+ "near-amend-genesis",
  "near-chain-configs",
  "near-jsonrpc-primitives",
  "near-mirror",
