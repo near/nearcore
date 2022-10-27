@@ -143,13 +143,13 @@ fn get_keys_from_store(
     let block_hash_key = store.get_or_err(DBCol::BlockHeight, &height_key)?.as_slice().to_vec();
 
     let block: Block = store.get_ser_or_err(DBCol::Block, &block_hash_key)?;
-    let chunks = {
-        let mut chunks: Vec<ShardChunk> = vec![];
-        for chunk_header in block.chunks().iter() {
-            chunks.push(store.get_ser_or_err(DBCol::Chunks, chunk_header.chunk_hash().as_bytes())?);
-        }
-        chunks
-    };
+    let chunks = block
+        .chunks()
+        .iter()
+        .map(|chunk_header| {
+            store.get_ser_or_err(DBCol::Chunks, chunk_header.chunk_hash().as_bytes())
+        })
+        .collect::<io::Result<Vec<ShardChunk>>>()?;
 
     for key_type in DBKeyType::iter() {
         key_type_to_keys.insert(
@@ -211,28 +211,25 @@ fn get_keys_from_store(
                     .flat_map(|c| c.receipts().iter().map(|r| r.get_hash().as_bytes().to_vec()))
                     .collect(),
                 DBKeyType::OutcomeId => {
-                    let mut outcomes: Vec<Vec<CryptoHash>> = vec![];
-                    for shard_id in 0..shard_layout.num_shards() {
-                        debug_assert_eq!(
-                            DBCol::OutcomeIds.key_type(),
-                            &[DBKeyType::BlockHash, DBKeyType::ShardId]
-                        );
-
-                        outcomes.push(
-                            store
-                                .get_ser(
-                                    DBCol::OutcomeIds,
-                                    &join_two_keys(
-                                        &block_hash_key,
-                                        &shard_id.to_le_bytes().to_vec(),
-                                    ),
-                                )?
-                                .unwrap_or_default(),
-                        );
-                    }
-                    outcomes
-                        .iter()
-                        .flat_map(|os| os.iter().map(|o| o.as_bytes().to_vec()))
+                    debug_assert_eq!(
+                        DBCol::OutcomeIds.key_type(),
+                        &[DBKeyType::BlockHash, DBKeyType::ShardId]
+                    );
+                    (0..shard_layout.num_shards())
+                        .map(|shard_id| {
+                            store.get_ser(
+                                DBCol::OutcomeIds,
+                                &join_two_keys(&block_hash_key, &shard_id.to_le_bytes()),
+                            )
+                        })
+                        .collect::<io::Result<Vec<Option<Vec<CryptoHash>>>>>()?
+                        .into_iter()
+                        .flat_map(|hashes| {
+                            hashes
+                                .unwrap_or_default()
+                                .into_iter()
+                                .map(|hash| hash.as_bytes().to_vec())
+                        })
                         .collect()
                 }
                 _ => {
