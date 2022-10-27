@@ -174,6 +174,11 @@ impl NodeStorage {
         }
     }
 
+    #[cfg(feature = "cold_store")]
+    pub fn cold_store(&self) -> Option<Store> {
+        self.cold_storage.as_ref().map(|storage| Store { storage: storage.clone() })
+    }
+
     /// Returns underlying database for given temperature.
     ///
     /// With (currently unimplemented) cold storage, this allows accessing

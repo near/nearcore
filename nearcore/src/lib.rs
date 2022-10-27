@@ -173,6 +173,13 @@ pub fn start_with_config_and_synchronization(
         &config,
     ));
 
+    #[cfg(feature = "cold_store")]
+    let cold_runtime = store.cold_store().map(|store| {
+        let runtime = NightshadeRuntime::from_config(home_dir, store, &config);
+        let runtime: Arc<dyn near_chain::RuntimeAdapter> = Arc::new(runtime);
+        runtime
+    });
+
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(&config.genesis);
     let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis)?;
@@ -190,7 +197,7 @@ pub fn start_with_config_and_synchronization(
         chain_genesis.clone(),
         runtime.clone(),
         #[cfg(feature = "cold_store")]
-        None,
+        cold_runtime,
         network_adapter.clone(),
         config.client_config.clone(),
         adv.clone(),
