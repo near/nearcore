@@ -372,7 +372,9 @@ impl DBCol {
             | DBCol::State
             | DBCol::StateChanges
             | DBCol::IncomingReceipts
-            | DBCol::OutgoingReceipts => true,
+            | DBCol::OutgoingReceipts
+            | DBCol::Transactions
+            | DBCol::Receipts => true,
             _ => false,
         }
     }

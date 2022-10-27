@@ -4,7 +4,9 @@ use crate::trie::TrieRefcountChange;
 use crate::{DBCol, DBTransaction, Database, Store, TrieChanges};
 
 use borsh::BorshDeserialize;
+use near_primitives::block::Block;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::sharding::ShardChunk;
 use near_primitives::types::BlockHeight;
 use std::collections::HashMap;
 use std::io;
@@ -139,6 +141,15 @@ fn get_keys_from_store(
     let height_key = height.to_le_bytes();
     let block_hash_key = store.get_or_err(DBCol::BlockHeight, &height_key)?.as_slice().to_vec();
 
+    let block: Block = store.get_ser_or_err(DBCol::Block, &block_hash_key)?;
+    let chunks = {
+        let mut chunks: Vec<ShardChunk> = vec![];
+        for chunk_header in block.chunks().iter() {
+            chunks.push(store.get_ser_or_err(DBCol::Chunks, chunk_header.chunk_hash().as_ref())?);
+        }
+        chunks
+    };
+
     for key_type in DBKeyType::iter() {
         key_type_to_keys.insert(
             key_type,
@@ -190,6 +201,14 @@ fn get_keys_from_store(
                     )?;
                     keys
                 }
+                DBKeyType::TransactionHash => chunks
+                    .iter()
+                    .flat_map(|c| c.transactions().iter().map(|t| t.get_hash().as_ref().to_vec()))
+                    .collect::<Vec<StoreKey>>(),
+                DBKeyType::ReceiptHash => chunks
+                    .iter()
+                    .flat_map(|c| c.receipts().iter().map(|r| r.get_hash().as_ref().to_vec()))
+                    .collect::<Vec<StoreKey>>(),
                 _ => {
                     vec![]
                 }
