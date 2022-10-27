@@ -267,16 +267,25 @@ impl PeerStore {
         let mut peers_to_keep = vec![];
         let mut peers_to_delete = vec![];
         for (peer_id, peer_state) in store.list_peer_states()? {
-            // If it’s already banned, keep it banned.  Otherwise, it’s not connected.
-            let status = if peer_state.status.is_banned() {
-                if config.connect_only_to_boot_nodes && boot_nodes.contains(&peer_id) {
-                    // Give boot node another chance.
-                    KnownPeerStatus::NotConnected
-                } else {
-                    peer_state.status
+            let status = match peer_state.status {
+                KnownPeerStatus::Unknown => {
+                    // We mark boot nodes as 'NotConnected', as we trust that they exist.
+                    if boot_nodes.contains(&peer_id) {
+                        KnownPeerStatus::NotConnected
+                    } else {
+                        KnownPeerStatus::Unknown
+                    }
                 }
-            } else {
-                KnownPeerStatus::NotConnected
+                KnownPeerStatus::NotConnected => KnownPeerStatus::NotConnected,
+                KnownPeerStatus::Connected => KnownPeerStatus::NotConnected,
+                KnownPeerStatus::Banned(reason, deadline) => {
+                    if config.connect_only_to_boot_nodes && boot_nodes.contains(&peer_id) {
+                        // Give boot node another chance.
+                        KnownPeerStatus::NotConnected
+                    } else {
+                        KnownPeerStatus::Banned(reason, deadline)
+                    }
+                }
             };
 
             let peer_state = KnownPeerState {
@@ -284,6 +293,7 @@ impl PeerStore {
                 first_seen: peer_state.first_seen,
                 last_seen: peer_state.last_seen,
                 status,
+                last_outbound_attempt: None,
             };
 
             let is_blacklisted =
@@ -347,6 +357,12 @@ impl PeerStore {
         self.0.lock().peer_states.values().filter(|st| st.status.is_banned()).count()
     }
 
+    #[allow(dead_code)]
+    /// Returns the state of the current peer in memory.
+    pub(crate) fn get_peer_state(&self, peer_id: &PeerId) -> Option<KnownPeerState> {
+        self.0.lock().peer_states.get(peer_id).cloned()
+    }
+
     pub(crate) fn peer_connected(
         &self,
         clock: &time::Clock,
@@ -361,6 +377,24 @@ impl PeerStore {
         Ok(store.set_peer_state(&peer_info.id, entry)?)
     }
 
+    /// Update the 'last_seen' time for all the peers that we're currently connected to.
+    pub(crate) fn update_connected_peers_last_seen(
+        &self,
+        clock: &time::Clock,
+    ) -> anyhow::Result<()> {
+        let mut inner = self.0.lock();
+        let mut store = inner.store.clone();
+        for (peer_id, peer_state) in inner.peer_states.iter_mut() {
+            if peer_state.status == KnownPeerStatus::Connected
+                && clock.now_utc() > peer_state.last_seen.saturating_add(time::Duration::minutes(1))
+            {
+                peer_state.last_seen = clock.now_utc();
+                store.set_peer_state(peer_id, peer_state)?
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn peer_disconnected(
         &self,
         clock: &time::Clock,
@@ -371,6 +405,31 @@ impl PeerStore {
         if let Some(peer_state) = inner.peer_states.get_mut(peer_id) {
             peer_state.last_seen = clock.now_utc();
             peer_state.status = KnownPeerStatus::NotConnected;
+            store.set_peer_state(peer_id, peer_state)?;
+        } else {
+            bail!("Peer {} is missing in the peer store", peer_id);
+        }
+        Ok(())
+    }
+
+    /// Records the last attempt to connect to peer.
+    /// Marks the peer as Unknown (as we failed to connect to it).
+    pub(crate) fn peer_connection_attempt(
+        &self,
+        clock: &time::Clock,
+        peer_id: &PeerId,
+        result: Result<(), anyhow::Error>,
+    ) -> anyhow::Result<()> {
+        let mut inner = self.0.lock();
+        let mut store = inner.store.clone();
+
+        if let Some(peer_state) = inner.peer_states.get_mut(peer_id) {
+            if result.is_err() {
+                peer_state.status = KnownPeerStatus::Unknown;
+            }
+            peer_state.last_outbound_attempt =
+                Some((clock.now_utc(), result.map_err(|err| err.to_string())));
+            peer_state.last_seen = clock.now_utc();
             store.set_peer_state(peer_id, peer_state)?;
         } else {
             bail!("Peer {} is missing in the peer store", peer_id);
@@ -403,8 +462,28 @@ impl PeerStore {
     pub(crate) fn unconnected_peer(
         &self,
         ignore_fn: impl Fn(&KnownPeerState) -> bool,
+        prefer_previously_connected_peer: bool,
     ) -> Option<PeerInfo> {
         let inner = self.0.lock();
+        if prefer_previously_connected_peer {
+            let preferred_peer = inner.find_peers(
+                |p| {
+                    (p.status == KnownPeerStatus::NotConnected)
+                        && !ignore_fn(p)
+                        && p.peer_info.addr.is_some()
+                        // if we're connecting only to the boot nodes - filter out the nodes that are not bootnodes.
+                        && (!inner.config.connect_only_to_boot_nodes || inner.boot_nodes.contains(&p.peer_info.id))
+                },
+                1,
+            )
+            .get(0)
+            .cloned();
+            // If we found a preferred peer - return it.
+            if preferred_peer.is_some() {
+                return preferred_peer;
+            };
+            // otherwise, pick a peer from the wider pool below.
+        }
         inner.find_peers(
             |p| {
                 (p.status == KnownPeerStatus::NotConnected || p.status == KnownPeerStatus::Unknown)
