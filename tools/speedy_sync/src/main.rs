@@ -17,10 +17,10 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
-use near_store::{DBCol, Store, StoreUpdate};
-use near_store::{StoreOpener, HEADER_HEAD_KEY};
+use near_store::HEADER_HEAD_KEY;
+use near_store::{DBCol, Mode, NodeStorage, Store, StoreUpdate};
 
-use nearcore::{init_and_migrate_store, NightshadeRuntime};
+use nearcore::NightshadeRuntime;
 use serde::Serialize;
 
 #[derive(Serialize, BorshSerialize, BorshDeserialize)]
@@ -128,18 +128,25 @@ fn write_epoch_checkpoint(store_update: &mut StoreUpdate, epoch_checkpoint: &Epo
 
 fn create_snapshot(create_cmd: CreateCmd) {
     let path = Path::new(&create_cmd.home);
-    let store = StoreOpener::with_default_config().read_only(true).home(path).open();
+    let store = NodeStorage::opener(path, &Default::default(), None)
+        .open_in_mode(Mode::ReadOnly)
+        .unwrap()
+        .get_store(near_store::Temperature::Hot);
 
     // Get epoch information:
     let mut epochs = store
         .iter(DBCol::EpochInfo)
-        .filter_map(|(key, value)| {
-            if key.as_ref() == AGGREGATOR_KEY {
-                None
+        .filter_map(|result| {
+            if let Ok((key, value)) = result {
+                if key.as_ref() == AGGREGATOR_KEY {
+                    None
+                } else {
+                    let info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
+                    let id = EpochId::try_from_slice(key.as_ref()).unwrap();
+                    Some(EpochCheckpoint { id, info })
+                }
             } else {
-                let info = EpochInfo::try_from_slice(value.as_ref()).unwrap();
-                let id = EpochId::try_from_slice(key.as_ref()).unwrap();
-                Some(EpochCheckpoint { id, info })
+                None
             }
         })
         .collect::<Vec<EpochCheckpoint>>();
@@ -219,15 +226,12 @@ fn load_snapshot(load_cmd: LoadCmd) {
 
     let config = nearcore::config::load_config(&home_dir, GenesisValidationMode::UnsafeFast)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-    let store = init_and_migrate_store(home_dir, &config).unwrap();
-    let chain_genesis = ChainGenesis::from(&config.genesis);
-    let runtime = Arc::new(NightshadeRuntime::with_config(
-        home_dir,
-        store.clone(),
-        &config,
-        config.client_config.trie_viewer_state_size_limit,
-        config.client_config.max_gas_burnt_view,
-    ));
+    let store = NodeStorage::opener(home_dir, &Default::default(), None)
+        .open()
+        .unwrap()
+        .get_store(near_store::Temperature::Hot);
+    let chain_genesis = ChainGenesis::new(&config.genesis);
+    let runtime = Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &config));
     // This will initialize the database (add genesis block etc)
     let _chain = Chain::new(
         runtime.clone(),
