@@ -60,6 +60,7 @@ fn test_storage_after_commit_of_cold_update() {
     test_cold_genesis_update(&*cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
 
     let state_reads = test_get_store_reads(DBCol::State);
+    let state_changes_reads = test_get_store_reads(DBCol::StateChanges);
 
     for h in 1..max_height {
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -128,6 +129,8 @@ fn test_storage_after_commit_of_cold_update() {
 
     // assert that we don't read State from db, but from TrieChanges
     assert_eq!(state_reads, test_get_store_reads(DBCol::State));
+    // assert that we don't read StateChanges from db again after iter_prefix
+    assert_eq!(state_changes_reads, test_get_store_reads(DBCol::StateChanges));
 
     let cold_store = NodeStorage::new(cold_db).get_store(Temperature::Hot);
 
