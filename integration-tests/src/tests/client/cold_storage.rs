@@ -77,32 +77,37 @@ fn test_storage_after_commit_of_cold_update() {
             );
             env.clients[0].process_tx(tx, false, false);
         }
-        for i in 0..5 {
-            let tx = SignedTransaction::from_actions(
-                h * 10 + i,
-                "test0".parse().unwrap(),
-                "test0".parse().unwrap(),
-                &signer,
-                vec![Action::FunctionCall(FunctionCallAction {
-                    method_name: "write_random_value".to_string(),
-                    args: vec![],
-                    gas: 100_000_000_000_000,
-                    deposit: 0,
-                })],
-                last_hash,
-            );
-            env.clients[0].process_tx(tx, false, false);
-        }
-        for i in 0..5 {
-            let tx = SignedTransaction::send_money(
-                h * 10 + i,
-                "test0".parse().unwrap(),
-                "test0".parse().unwrap(),
-                &signer,
-                1,
-                last_hash,
-            );
-            env.clients[0].process_tx(tx, false, false);
+        // Don't send transactions in last two blocks. Because on last block production a chunk from
+        // the next block will be produced and information about these transactions will be written
+        // into db. And it is a PAIN to filter it out, especially for Receipts.
+        if h + 2 < max_height {
+            for i in 0..5 {
+                let tx = SignedTransaction::from_actions(
+                    h * 10 + i,
+                    "test0".parse().unwrap(),
+                    "test0".parse().unwrap(),
+                    &signer,
+                    vec![Action::FunctionCall(FunctionCallAction {
+                        method_name: "write_random_value".to_string(),
+                        args: vec![],
+                        gas: 100_000_000_000_000,
+                        deposit: 0,
+                    })],
+                    last_hash,
+                );
+                env.clients[0].process_tx(tx, false, false);
+            }
+            for i in 0..5 {
+                let tx = SignedTransaction::send_money(
+                    h * 10 + i,
+                    "test0".parse().unwrap(),
+                    "test1".parse().unwrap(),
+                    &signer,
+                    1,
+                    last_hash,
+                );
+                env.clients[0].process_tx(tx, false, false);
+            }
         }
 
         let block = env.clients[0].produce_block(h).unwrap().unwrap();
