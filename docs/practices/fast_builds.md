@@ -13,15 +13,17 @@ contains a section on compilation time as well!
 
 ## Release Builds and Link Time Optimization
 
-Obviously, `cargo build --release` is slower than `cargo build`. What's not
-entirely obvious is that `cargo build -r` is not as slow as it could be: our
-`--release` profile is somewhat optimized for fast builds, as it doesn't enable
-full LTO.
+Obviously, `cargo build --release` is slower than `cargo build`. We enable full
+lto (link time optimization), so our `-r` builds are very slow, use a lot of
+RAM, and don't take advantage full of parallelism.
 
-When building production binaries, we use `lto=true` and `codegen-units=1`
-options, which make the build significantly slower (but the resulting binary
-somewhat faster). Keep this in mind when running benchmarks or parameter
-estimation.
+As debug builds are much to slow at runtime for many purposes, we have a custom
+profile `--profile quick-release` which is equivalent to `-r`, but doesn't do
+`lto`.
+
+Use `--profile quick-release` when doing comparative benchmarking, or when
+connecting a locally build node to a network. Use `-r` if you want to get
+absolute performance numbers.
 
 ## Linker
 
