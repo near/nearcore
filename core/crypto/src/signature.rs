@@ -75,13 +75,6 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::Pa
 #[derive(Clone)]
 pub struct Secp256K1PublicKey([u8; 64]);
 
-#[cfg(feature = "deepsize_feature")]
-impl deepsize::DeepSizeOf for Secp256K1PublicKey {
-    fn deep_size_of_children(&self, _context: &mut deepsize::Context) -> usize {
-        0
-    }
-}
-
 impl From<[u8; 64]> for Secp256K1PublicKey {
     fn from(data: [u8; 64]) -> Self {
         Self(data)
@@ -148,7 +141,6 @@ impl Ord for Secp256K1PublicKey {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Clone, derive_more::AsRef)]
 #[as_ref(forward)]
 pub struct ED25519PublicKey(pub [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]);
@@ -197,7 +189,6 @@ impl Ord for ED25519PublicKey {
 }
 
 /// Public key container supporting different curves.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq)]
 pub enum PublicKey {
     /// 256 bit elliptic curve based public-key.
@@ -264,14 +255,18 @@ impl Hash for PublicKey {
 }
 
 impl Display for PublicKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", String::from(self))
+    fn fmt(&self, fmt: &mut Formatter) -> std::fmt::Result {
+        let (key_type, key_data) = match self {
+            PublicKey::ED25519(public_key) => (KeyType::ED25519, &public_key.0[..]),
+            PublicKey::SECP256K1(public_key) => (KeyType::SECP256K1, &public_key.0[..]),
+        };
+        write!(fmt, "{}:{}", key_type, bs58::encode(key_data).into_string())
     }
 }
 
 impl Debug for PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", String::from(self))
+        Display::fmt(self, f)
     }
 }
 
@@ -314,7 +309,7 @@ impl serde::Serialize for PublicKey {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&String::from(self))
+        serializer.collect_str(self)
     }
 }
 
@@ -326,21 +321,6 @@ impl<'de> serde::Deserialize<'de> for PublicKey {
         let s = <String as serde::Deserialize>::deserialize(deserializer)?;
         s.parse()
             .map_err(|err: crate::errors::ParseKeyError| serde::de::Error::custom(err.to_string()))
-    }
-}
-
-impl From<&PublicKey> for String {
-    fn from(public_key: &PublicKey) -> Self {
-        match public_key {
-            PublicKey::ED25519(public_key) => {
-                format!("{}:{}", KeyType::ED25519, bs58::encode(&public_key.0).into_string())
-            }
-            PublicKey::SECP256K1(public_key) => format!(
-                "{}:{}",
-                KeyType::SECP256K1,
-                bs58::encode(&public_key.0.to_vec()).into_string()
-            ),
-        }
     }
 }
 
@@ -674,16 +654,6 @@ impl From<Secp256K1Signature> for [u8; 65] {
 pub enum Signature {
     ED25519(ed25519_dalek::Signature),
     SECP256K1(Secp256K1Signature),
-}
-
-#[cfg(feature = "deepsize_feature")]
-impl deepsize::DeepSizeOf for Signature {
-    fn deep_size_of_children(&self, _context: &mut deepsize::Context) -> usize {
-        match self {
-            Signature::ED25519(_) => ed25519_dalek::SIGNATURE_LENGTH,
-            Signature::SECP256K1(_) => SECP256K1_SIGNATURE_LENGTH,
-        }
-    }
 }
 
 impl Hash for Signature {

@@ -161,7 +161,8 @@ impl GenesisBuilder {
         let trie_changes = state_update.finalize()?.0;
         let genesis_shard_version = self.genesis.config.shard_layout.version();
         let shard_uid = ShardUId { version: genesis_shard_version, shard_id: shard_idx as u32 };
-        let (store_update, root) = tries.apply_all(&trie_changes, shard_uid);
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit()?;
 
         self.roots.insert(shard_idx, root.clone());

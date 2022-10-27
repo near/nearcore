@@ -1,7 +1,7 @@
 /// Contains borsh <-> network_protocol conversions.
 use crate::network_protocol as mem;
-use crate::network_protocol::borsh as net;
-use near_network_primitives::types::RoutedMessageV2;
+use crate::network_protocol::borsh_ as net;
+use crate::network_protocol::RoutedMessageV2;
 use thiserror::Error;
 
 impl From<&net::Handshake> for mem::Handshake {
@@ -96,6 +96,8 @@ pub enum ParsePeerMessageError {
     DeprecatedHandshakeV2,
     #[error("RoutingTableSyncV2 is deprecated")]
     DeprecatedRoutingTableSyncV2,
+    #[error("EpochSync is deprecated")]
+    DeprecatedEpochSync,
 }
 
 impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
@@ -127,15 +129,13 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
             net::PeerMessage::Disconnect => mem::PeerMessage::Disconnect,
             net::PeerMessage::Challenge(c) => mem::PeerMessage::Challenge(c),
             net::PeerMessage::_HandshakeV2 => return Err(Self::Error::DeprecatedHandshakeV2),
-            net::PeerMessage::EpochSyncRequest(epoch_id) => {
-                mem::PeerMessage::EpochSyncRequest(epoch_id)
+            net::PeerMessage::_EpochSyncRequest => return Err(Self::Error::DeprecatedEpochSync),
+            net::PeerMessage::_EpochSyncResponse => return Err(Self::Error::DeprecatedEpochSync),
+            net::PeerMessage::_EpochSyncFinalizationRequest => {
+                return Err(Self::Error::DeprecatedEpochSync)
             }
-            net::PeerMessage::EpochSyncResponse(esr) => mem::PeerMessage::EpochSyncResponse(esr),
-            net::PeerMessage::EpochSyncFinalizationRequest(epoch_id) => {
-                mem::PeerMessage::EpochSyncFinalizationRequest(epoch_id)
-            }
-            net::PeerMessage::EpochSyncFinalizationResponse(esfr) => {
-                mem::PeerMessage::EpochSyncFinalizationResponse(esfr)
+            net::PeerMessage::_EpochSyncFinalizationResponse => {
+                return Err(Self::Error::DeprecatedEpochSync)
             }
             net::PeerMessage::_RoutingTableSyncV2 => {
                 return Err(Self::Error::DeprecatedRoutingTableSyncV2)
@@ -175,16 +175,6 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
             mem::PeerMessage::Routed(r) => net::PeerMessage::Routed(Box::new(r.msg.clone())),
             mem::PeerMessage::Disconnect => net::PeerMessage::Disconnect,
             mem::PeerMessage::Challenge(c) => net::PeerMessage::Challenge(c),
-            mem::PeerMessage::EpochSyncRequest(epoch_id) => {
-                net::PeerMessage::EpochSyncRequest(epoch_id)
-            }
-            mem::PeerMessage::EpochSyncResponse(esr) => net::PeerMessage::EpochSyncResponse(esr),
-            mem::PeerMessage::EpochSyncFinalizationRequest(epoch_id) => {
-                net::PeerMessage::EpochSyncFinalizationRequest(epoch_id)
-            }
-            mem::PeerMessage::EpochSyncFinalizationResponse(esfr) => {
-                net::PeerMessage::EpochSyncFinalizationResponse(esfr)
-            }
         }
     }
 }

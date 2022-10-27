@@ -28,7 +28,7 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
 
     bench.iter(move || {
         tracing::info!(target: "neard", "{:?}", home_dir);
-        let store = near_store::NodeStorage::opener(&home_dir, &near_config.config.store)
+        let store = near_store::NodeStorage::opener(&home_dir, &near_config.config.store, None)
             .open_in_mode(mode)
             .unwrap()
             .get_store(Temperature::Hot);
@@ -44,7 +44,7 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
         let header = last_block.header();
 
         let trie = runtime
-            .get_trie_for_shard(shard_id as u64, header.prev_hash(), state_roots[shard_id])
+            .get_trie_for_shard(shard_id as u64, header.prev_hash(), state_roots[shard_id], false)
             .unwrap();
         let start = Instant::now();
         let num_items_read = trie

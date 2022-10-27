@@ -11,6 +11,7 @@ edition.workspace = true
 actix-rt.workspace = true
 actix.workspace = true
 ansi_term.workspace = true
+async-trait.workspace = true
 borsh.workspace = true
 chrono.workspace = true
 futures.workspace = true
@@ -42,7 +43,6 @@ near-o11y = { path = "../../core/o11y" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
 delay-detector = { path = "../../tools/delay-detector" }
-near-network-primitives = { path = "../network-primitives" }
 
 [dev-dependencies]
 assert_matches.workspace = true

@@ -448,7 +448,7 @@ mod tests {
     #[test]
     fn test_combine_empty_trie_parts() {
         let state_root = Trie::EMPTY_ROOT;
-        let _ = Trie::combine_state_parts_naive(&state_root, &vec![]).unwrap();
+        let _ = Trie::combine_state_parts_naive(&state_root, &[]).unwrap();
         let _ = Trie::validate_trie_nodes_for_part(
             &state_root,
             PartId::new(0, 1),

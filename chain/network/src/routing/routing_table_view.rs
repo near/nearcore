@@ -1,16 +1,15 @@
+use crate::network_protocol::{Edge, PeerIdOrHash};
 use crate::routing;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::store;
+use crate::time;
 use lru::LruCache;
-use near_network_primitives::time;
-use near_network_primitives::types::{Edge, PeerIdOrHash};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::warn;
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const LAST_ROUTED_CACHE_SIZE: usize = 10_000;
@@ -71,7 +70,7 @@ impl Inner {
         }
         match self.store.get_account_announcement(&account_id) {
             Err(e) => {
-                warn!(target: "network", "Error loading announce account from store: {:?}", e);
+                tracing::warn!(target: "network", "Error loading announce account from store: {:?}", e);
                 None
             }
             Ok(None) => None,
@@ -86,7 +85,6 @@ impl Inner {
 #[derive(Debug)]
 pub(crate) enum FindRouteError {
     PeerUnreachable,
-    AccountNotFound,
     RouteBackNotFound,
 }
 
@@ -104,14 +102,12 @@ impl RoutingTableView {
         }))
     }
 
-    pub(crate) fn update(
-        &self,
-        local_edges_to_remove: &[PeerId],
-        next_hops: Arc<routing::NextHopTable>,
-    ) {
+    pub(crate) fn update(&self, pruned_edges: &[Edge], next_hops: Arc<routing::NextHopTable>) {
         let mut inner = self.0.lock();
-        for peer_id in local_edges_to_remove {
-            inner.local_edges.remove(peer_id);
+        for e in pruned_edges {
+            if let Some(peer_id) = e.other(&inner.my_peer_id) {
+                inner.local_edges.remove(peer_id);
+            }
         }
         inner.next_hops = next_hops;
     }
@@ -148,12 +144,8 @@ impl RoutingTableView {
     }
 
     /// Find peer that owns this AccountId.
-    pub(crate) fn account_owner(&self, account_id: &AccountId) -> Result<PeerId, FindRouteError> {
-        self.0
-            .lock()
-            .get_announce(account_id)
-            .map(|announce_account| announce_account.peer_id)
-            .ok_or(FindRouteError::AccountNotFound)
+    pub(crate) fn account_owner(&self, account_id: &AccountId) -> Option<PeerId> {
+        self.0.lock().get_announce(account_id).map(|announce_account| announce_account.peer_id)
     }
 
     /// Adds accounts to the routing table.
@@ -170,7 +162,7 @@ impl RoutingTableView {
             inner.account_peers.put(aa.account_id.clone(), aa.clone());
             // Add account to store. Best effort
             if let Err(e) = inner.store.set_account_announcement(&aa.account_id, &aa) {
-                warn!(target: "network", "Error saving announce account to store: {:?}", e);
+                tracing::warn!(target: "network", "Error saving announce account to store: {:?}", e);
             }
             res.push(aa);
         }

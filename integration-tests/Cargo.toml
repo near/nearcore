@@ -23,6 +23,7 @@ rand.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 smart-default.workspace = true
+strum.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -40,7 +41,6 @@ near-jsonrpc = { path = "../chain/jsonrpc" }
 near-jsonrpc-client = { path = "../chain/jsonrpc/client" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 near-network = { path = "../chain/network" }
-near-network-primitives = { path = "../chain/network-primitives" }
 near-primitives = { path = "../core/primitives" }
 near-primitives-core = { path = "../core/primitives-core" }
 near-store = { path = "../core/store" }
@@ -64,7 +64,10 @@ performance_stats = [
   "near-network/performance_stats",
 ]
 expensive_tests = []
-test_features = ["nearcore/test_features"]
+test_features = [
+  "nearcore/test_features",
+  "near-store/test_features",
+]
 protocol_feature_fix_contract_loading_cost = [
   "nearcore/protocol_feature_fix_contract_loading_cost",
 ]
@@ -86,3 +89,6 @@ sandbox = [
   "near-client/sandbox",
 ]
 no_cache = ["nearcore/no_cache"]
+cold_store = [
+  "near-store/cold_store"
+]

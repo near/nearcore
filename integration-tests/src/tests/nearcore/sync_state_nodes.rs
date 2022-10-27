@@ -10,6 +10,7 @@ use near_chain_configs::Genesis;
 use near_client::GetBlock;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
 use near_o11y::testonly::init_integration_logger;
+use near_o11y::WithSpanContextExt;
 use nearcore::{config::GenesisExt, load_test_config, start_with_config};
 
 /// One client is in front, another must sync to it using state (fast) sync.
@@ -23,7 +24,7 @@ fn sync_state_nodes() {
 
         let (port1, port2) = (open_port(), open_port());
         let mut near1 = load_test_config("test1", port1, genesis.clone());
-        near1.network_config.boot_nodes = convert_boot_nodes(vec![]);
+        near1.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![]);
         near1.client_config.min_num_peers = 0;
         near1.client_config.epoch_sync_enabled = false;
         run_actix(async move {
@@ -42,7 +43,8 @@ fn sync_state_nodes() {
                         let arbiters_holder2 = arbiters_holder2.clone();
                         let genesis2 = genesis.clone();
 
-                        actix::spawn(view_client1.send(GetBlock::latest()).then(move |res| {
+                        let actor = view_client1.send(GetBlock::latest().with_span_context());
+                        let actor = actor.then(move |res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => {
                                     let mut view_client2_holder2 =
@@ -54,7 +56,7 @@ fn sync_state_nodes() {
                                             load_test_config("test2", port2, genesis2.clone());
                                         near2.client_config.skip_sync_wait = false;
                                         near2.client_config.min_num_peers = 1;
-                                        near2.network_config.boot_nodes =
+                                        near2.network_config.peer_store.boot_nodes =
                                             convert_boot_nodes(vec![("test1", port1)]);
                                         near2.client_config.epoch_sync_enabled = false;
 
@@ -79,11 +81,13 @@ fn sync_state_nodes() {
                                 _ => {}
                             };
                             future::ready(())
-                        }));
+                        });
+                        actix::spawn(actor);
                     }
 
                     if let Some(view_client2) = &*view_client2_holder.write().unwrap() {
-                        actix::spawn(view_client2.send(GetBlock::latest()).then(|res| {
+                        let actor = view_client2.send(GetBlock::latest().with_span_context());
+                        let actor = actor.then(|res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
                                 Ok(Ok(b)) if b.header.height < 101 => {
@@ -93,7 +97,8 @@ fn sync_state_nodes() {
                                 _ => {}
                             };
                             future::ready(())
-                        }));
+                        });
+                        actix::spawn(actor);
                     } else {
                     }
                 }),
@@ -129,7 +134,7 @@ fn sync_state_nodes_multishard() {
             let (port1, port2, port3, port4) = (open_port(), open_port(), open_port(), open_port());
 
             let mut near1 = load_test_config("test1", port1, genesis.clone());
-            near1.network_config.boot_nodes =
+            near1.network_config.peer_store.boot_nodes =
                 convert_boot_nodes(vec![("test3", port3), ("test4", port4)]);
             near1.client_config.min_num_peers = 2;
             near1.client_config.min_block_production_delay = Duration::from_millis(200);
@@ -137,7 +142,7 @@ fn sync_state_nodes_multishard() {
             near1.client_config.epoch_sync_enabled = false;
 
             let mut near3 = load_test_config("test3", port3, genesis.clone());
-            near3.network_config.boot_nodes =
+            near3.network_config.peer_store.boot_nodes =
                 convert_boot_nodes(vec![("test1", port1), ("test4", port4)]);
             near3.client_config.min_num_peers = 2;
             near3.client_config.min_block_production_delay =
@@ -147,7 +152,7 @@ fn sync_state_nodes_multishard() {
             near3.client_config.epoch_sync_enabled = false;
 
             let mut near4 = load_test_config("test4", port4, genesis.clone());
-            near4.network_config.boot_nodes =
+            near4.network_config.peer_store.boot_nodes =
                 convert_boot_nodes(vec![("test1", port1), ("test3", port3)]);
             near4.client_config.min_num_peers = 2;
             near4.client_config.min_block_production_delay =
@@ -177,7 +182,8 @@ fn sync_state_nodes_multishard() {
                         let arbiter_holder2 = arbiter_holder2.clone();
                         let genesis2 = genesis.clone();
 
-                        actix::spawn(view_client1.send(GetBlock::latest()).then(move |res| {
+                        let actor = view_client1.send(GetBlock::latest().with_span_context());
+                        let actor = actor.then(move |res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => {
                                     let mut view_client2_holder2 =
@@ -192,11 +198,12 @@ fn sync_state_nodes_multishard() {
                                             Duration::from_millis(200);
                                         near2.client_config.max_block_production_delay =
                                             Duration::from_millis(400);
-                                        near2.network_config.boot_nodes = convert_boot_nodes(vec![
-                                            ("test1", port1),
-                                            ("test3", port3),
-                                            ("test4", port4),
-                                        ]);
+                                        near2.network_config.peer_store.boot_nodes =
+                                            convert_boot_nodes(vec![
+                                                ("test1", port1),
+                                                ("test3", port3),
+                                                ("test4", port4),
+                                            ]);
                                         near2.client_config.epoch_sync_enabled = false;
 
                                         let dir2 = tempfile::Builder::new()
@@ -220,11 +227,13 @@ fn sync_state_nodes_multishard() {
                                 _ => {}
                             };
                             future::ready(())
-                        }));
+                        });
+                        actix::spawn(actor);
                     }
 
                     if let Some(view_client2) = &*view_client2_holder.write().unwrap() {
-                        actix::spawn(view_client2.send(GetBlock::latest()).then(|res| {
+                        let actor = view_client2.send(GetBlock::latest().with_span_context());
+                        let actor = actor.then(|res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
                                 Ok(Ok(b)) if b.header.height < 101 => {
@@ -243,7 +252,8 @@ fn sync_state_nodes_multishard() {
                                 }
                             };
                             future::ready(())
-                        }));
+                        });
+                        actix::spawn(actor);
                     }
                 }),
                 100,
@@ -298,7 +308,8 @@ fn sync_empty_state() {
                         let genesis2 = genesis.clone();
                         let dir2 = dir2.clone();
 
-                        actix::spawn(view_client1.send(GetBlock::latest()).then(move |res| {
+                        let actor = view_client1.send(GetBlock::latest().with_span_context());
+                        let actor = actor.then(move |res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= state_sync_horizon + 1 => {
                                     let mut view_client2_holder2 =
@@ -307,7 +318,7 @@ fn sync_empty_state() {
 
                                     if view_client2_holder2.is_none() {
                                         let mut near2 = load_test_config("test2", port2, genesis2);
-                                        near2.network_config.boot_nodes =
+                                        near2.network_config.peer_store.boot_nodes =
                                             convert_boot_nodes(vec![("test1", port1)]);
                                         near2.client_config.min_num_peers = 1;
                                         near2.client_config.min_block_production_delay =
@@ -340,11 +351,13 @@ fn sync_empty_state() {
                                 _ => {}
                             };
                             future::ready(())
-                        }));
+                        });
+                        actix::spawn(actor);
                     }
 
                     if let Some(view_client2) = &*view_client2_holder.write().unwrap() {
-                        actix::spawn(view_client2.send(GetBlock::latest()).then(|res| {
+                        let actor = view_client2.send(GetBlock::latest().with_span_context());
+                        let actor = actor.then(|res| {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 40 => System::current().stop(),
                                 Ok(Ok(b)) if b.header.height < 40 => {
@@ -363,7 +376,8 @@ fn sync_empty_state() {
                                 }
                             };
                             future::ready(())
-                        }));
+                        });
+                        actix::spawn(actor);
                     }
                 }),
                 100,

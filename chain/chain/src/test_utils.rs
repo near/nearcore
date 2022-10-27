@@ -73,6 +73,10 @@ pub fn wait_for_all_blocks_in_processing(chain: &mut Chain) -> bool {
     chain.blocks_in_processing.wait_for_all_blocks()
 }
 
+pub fn is_block_in_processing(chain: &Chain, block_hash: &CryptoHash) -> bool {
+    chain.blocks_in_processing.contains(block_hash)
+}
+
 pub fn wait_for_block_in_processing(
     chain: &mut Chain,
     hash: &CryptoHash,
@@ -128,6 +132,13 @@ struct EpochValidatorSet {
 }
 
 /// Simple key value runtime for tests.
+///
+/// Major differences with production `NightshadeRuntime`:
+///   * Uses in-memory storage
+///   * Doesn't have WASM runtime, so can only process simple transfer
+///     transaction
+///   * Uses hard-coded validator schedule instead of using `EpochManager` and
+///     staking to assign block and chunk producers.
 pub struct KeyValueRuntime {
     store: Store,
     tries: ShardTries,
@@ -174,7 +185,7 @@ fn create_receipt_nonce(
     amount: Balance,
     nonce: Nonce,
 ) -> CryptoHash {
-    CryptoHash::hash_borsh(&ReceiptNonce { from, to, amount, nonce })
+    CryptoHash::hash_borsh(ReceiptNonce { from, to, amount, nonce })
 }
 
 impl KeyValueRuntime {
@@ -418,6 +429,18 @@ impl EpochManagerAdapter for KeyValueRuntime {
         Ok(self.num_shards)
     }
 
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        _epoch_id: &EpochId,
+    ) -> Result<ShardId, Error> {
+        Ok(account_id_to_shard_id(account_id, self.num_shards))
+    }
+
+    fn shard_id_to_uid(&self, shard_id: ShardId, _epoch_id: &EpochId) -> Result<ShardUId, Error> {
+        Ok(ShardUId { version: 0, shard_id: shard_id as u32 })
+    }
+
     fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {
         Ok(ShardLayout::v0(self.num_shards, 0))
     }
@@ -573,6 +596,22 @@ impl EpochManagerAdapter for KeyValueRuntime {
         Err(Error::NotAValidator)
     }
 
+    fn get_validator_info(
+        &self,
+        _epoch_id: ValidatorInfoIdentifier,
+    ) -> Result<EpochValidatorInfo, Error> {
+        Ok(EpochValidatorInfo {
+            current_validators: vec![],
+            next_validators: vec![],
+            current_fishermen: vec![],
+            next_fishermen: vec![],
+            current_proposals: vec![],
+            prev_epoch_kickout: vec![],
+            epoch_start_height: 0,
+            epoch_height: 1,
+        })
+    }
+
     fn verify_block_vrf(
         &self,
         _epoch_id: &EpochId,
@@ -677,8 +716,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         (self.store.clone(), ((0..self.num_shards).map(|_| Trie::EMPTY_ROOT).collect()))
     }
 
-    fn get_store(&self) -> Store {
-        self.store.clone()
+    fn store(&self) -> &Store {
+        &self.store
     }
 
     fn get_tries(&self) -> ShardTries {
@@ -690,6 +729,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
         _block_hash: &CryptoHash,
         state_root: StateRoot,
+        _use_flat_storage: bool,
     ) -> Result<Trie, Error> {
         Ok(self
             .tries
@@ -729,10 +769,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(self.store.store_update())
     }
 
-    fn shard_id_to_uid(&self, shard_id: ShardId, _epoch_id: &EpochId) -> Result<ShardUId, Error> {
-        Ok(ShardUId { version: 0, shard_id: shard_id as u32 })
-    }
-
     fn num_total_parts(&self) -> usize {
         12 + (self.num_shards as usize + 1) % 50
     }
@@ -745,14 +781,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         } else {
             (total_parts - 1) / 3
         }
-    }
-
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        _epoch_id: &EpochId,
-    ) -> Result<ShardId, Error> {
-        Ok(account_id_to_shard_id(account_id, self.num_shards))
     }
 
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
@@ -887,6 +915,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _is_new_chunk: bool,
         _is_first_block_with_chunk_of_version: bool,
         _state_patch: SandboxStatePatch,
+        _use_flat_storage: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
         let mut tx_results = vec![];
@@ -1261,33 +1290,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(Default::default())
     }
 
-    fn get_epoch_sync_data_hash(
-        &self,
-        _prev_epoch_last_block_hash: &CryptoHash,
-        _epoch_id: &EpochId,
-        _next_epoch_id: &EpochId,
-    ) -> Result<CryptoHash, Error> {
-        Ok(CryptoHash::default())
-    }
-
     fn get_epoch_protocol_version(&self, _epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
         Ok(PROTOCOL_VERSION)
-    }
-
-    fn get_validator_info(
-        &self,
-        _epoch_id: ValidatorInfoIdentifier,
-    ) -> Result<EpochValidatorInfo, Error> {
-        Ok(EpochValidatorInfo {
-            current_validators: vec![],
-            next_validators: vec![],
-            current_fishermen: vec![],
-            next_fishermen: vec![],
-            current_proposals: vec![],
-            prev_epoch_kickout: vec![],
-            epoch_start_height: 0,
-            epoch_height: 1,
-        })
     }
 
     fn compare_epoch_id(
@@ -1585,7 +1589,7 @@ mod test {
                 })
                 .cloned()
                 .collect();
-            receipts_hashes.push(CryptoHash::hash_borsh(&ReceiptList(shard_id, &shard_receipts)));
+            receipts_hashes.push(CryptoHash::hash_borsh(ReceiptList(shard_id, &shard_receipts)));
         }
         receipts_hashes
     }

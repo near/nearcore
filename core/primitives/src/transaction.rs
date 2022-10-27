@@ -6,6 +6,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
+use near_o11y::pretty;
+use near_primitives_core::profile::ProfileData;
 
 use crate::account::AccessKey;
 use crate::errors::TxExecutionError;
@@ -14,11 +16,9 @@ use crate::logging;
 use crate::merkle::MerklePath;
 use crate::serialize::{base64_format, dec_format};
 use crate::types::{AccountId, Balance, Gas, Nonce};
-use near_primitives_core::profile::ProfileData;
 
 pub type LogEntry = String;
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Transaction {
     /// An account on which behalf transaction is signed
@@ -45,7 +45,6 @@ impl Transaction {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -89,7 +88,6 @@ impl Action {
 }
 
 /// Create account action
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct CreateAccountAction {}
 
@@ -100,7 +98,6 @@ impl From<CreateAccountAction> for Action {
 }
 
 /// Deploy contract action
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct DeployContractAction {
     /// WebAssembly binary
@@ -117,12 +114,11 @@ impl From<DeployContractAction> for Action {
 impl fmt::Debug for DeployContractAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DeployContractAction")
-            .field("code", &format_args!("{}", logging::pretty_utf8(&self.code)))
+            .field("code", &format_args!("{}", pretty::AbbrBytes(&self.code)))
             .finish()
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct FunctionCallAction {
     pub method_name: String,
@@ -143,14 +139,13 @@ impl fmt::Debug for FunctionCallAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FunctionCallAction")
             .field("method_name", &format_args!("{}", &self.method_name))
-            .field("args", &format_args!("{}", logging::pretty_utf8(&self.args)))
+            .field("args", &format_args!("{}", pretty::AbbrBytes(&self.args)))
             .field("gas", &format_args!("{}", &self.gas))
             .field("deposit", &format_args!("{}", &self.deposit))
             .finish()
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct TransferAction {
     #[serde(with = "dec_format")]
@@ -163,14 +158,13 @@ impl From<TransferAction> for Action {
     }
 }
 
-/// An action which stakes singer_id tokens and setup's validator public key
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+/// An action which stakes signer_id tokens and setup's validator public key
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct StakeAction {
     /// Amount of tokens to stake.
     #[serde(with = "dec_format")]
     pub stake: Balance,
-    /// Validator key which will be used to sign transactions on behalf of singer_id
+    /// Validator key which will be used to sign transactions on behalf of signer_id
     pub public_key: PublicKey,
 }
 
@@ -180,7 +174,6 @@ impl From<StakeAction> for Action {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AddKeyAction {
     /// A public key which will be associated with an access_key
@@ -195,7 +188,6 @@ impl From<AddKeyAction> for Action {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteKeyAction {
     /// A public key associated with the access_key to be deleted.
@@ -208,7 +200,6 @@ impl From<DeleteKeyAction> for Action {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteAccountAction {
     pub beneficiary_id: AccountId,
@@ -220,7 +211,6 @@ impl From<DeleteAccountAction> for Action {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Eq, Debug, Clone)]
 #[borsh_init(init)]
 pub struct SignedTransaction {
@@ -293,7 +283,7 @@ impl fmt::Debug for ExecutionStatus {
             ExecutionStatus::Unknown => f.write_str("Unknown"),
             ExecutionStatus::Failure(e) => f.write_fmt(format_args!("Failure({})", e)),
             ExecutionStatus::SuccessValue(v) => {
-                f.write_fmt(format_args!("SuccessValue({})", logging::pretty_utf8(v)))
+                f.write_fmt(format_args!("SuccessValue({})", pretty::AbbrBytes(v)))
             }
             ExecutionStatus::SuccessReceiptId(receipt_id) => {
                 f.write_fmt(format_args!("SuccessReceiptId({})", receipt_id))
@@ -310,7 +300,7 @@ impl Default for ExecutionStatus {
 
 /// ExecutionOutcome for proof. Excludes logs and metadata
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone)]
-struct PartialExecutionOutcome {
+pub struct PartialExecutionOutcome {
     pub receipt_ids: Vec<CryptoHash>,
     pub gas_burnt: Gas,
     pub tokens_burnt: Balance,
@@ -418,7 +408,7 @@ impl ExecutionOutcomeWithId {
     pub fn to_hashes(&self) -> Vec<CryptoHash> {
         let mut result = Vec::with_capacity(2 + self.outcome.logs.len());
         result.push(self.id);
-        result.push(CryptoHash::hash_borsh(&PartialExecutionOutcome::from(&self.outcome)));
+        result.push(CryptoHash::hash_borsh(PartialExecutionOutcome::from(&self.outcome)));
         result.extend(self.outcome.logs.iter().map(|log| hash(log.as_bytes())));
         result
     }
@@ -448,6 +438,12 @@ pub fn verify_transaction_signature(
     public_keys.iter().any(|key| transaction.signature.verify(hash, key))
 }
 
+/// A more compact struct, just for storage.
+#[derive(Clone, BorshSerialize, BorshDeserialize)]
+pub struct ExecutionOutcomeWithProof {
+    pub proof: MerklePath,
+    pub outcome: ExecutionOutcome,
+}
 #[cfg(test)]
 mod tests {
     use borsh::BorshDeserialize;

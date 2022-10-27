@@ -183,6 +183,10 @@ fn default_sync_step_period() -> Duration {
     Duration::from_millis(10)
 }
 
+fn default_sync_height_threshold() -> u64 {
+    1
+}
+
 fn default_view_client_threads() -> usize {
     4
 }
@@ -250,6 +254,8 @@ pub struct Consensus {
     /// Time between running doomslug timer.
     #[serde(default = "default_doomslug_step_period")]
     pub doomslug_step_period: Duration,
+    #[serde(default = "default_sync_height_threshold")]
+    pub sync_height_threshold: u64,
 }
 
 impl Default for Consensus {
@@ -276,6 +282,7 @@ impl Default for Consensus {
             sync_check_period: default_sync_check_period(),
             sync_step_period: default_sync_step_period(),
             doomslug_step_period: default_doomslug_step_period(),
+            sync_height_threshold: default_sync_height_threshold(),
         }
     }
 }
@@ -298,6 +305,7 @@ pub struct Config {
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
+    #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
     pub log_summary_style: LogSummaryStyle,
     /// Garbage collection configuration.
@@ -313,8 +321,12 @@ pub struct Config {
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gas_burnt_view: Option<Gas>,
-    /// Different parameters to configure/optimize underlying storage.
+    /// Different parameters to configure underlying storage.
     pub store: near_store::StoreConfig,
+    /// Different parameters to configure underlying cold storage.
+    #[cfg(feature = "cold_store")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cold_store: Option<near_store::StoreConfig>,
 
     // TODO(mina86): Remove those two altogether at some point.  We need to be
     // somewhat careful though and make sure that we don’t start silently
@@ -327,6 +339,10 @@ pub struct Config {
     /// Deprecated; use `store.migration_snapshot` instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub db_migration_snapshot_path: Option<PathBuf>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl Default for Config {
@@ -356,6 +372,8 @@ impl Default for Config {
             db_migration_snapshot_path: None,
             use_db_migration_snapshot: None,
             store: near_store::StoreConfig::default(),
+            #[cfg(feature = "cold_store")]
+            cold_store: None,
         }
     }
 }
@@ -554,7 +572,7 @@ impl NearConfig {
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: config.consensus.sync_check_period,
                 sync_step_period: config.consensus.sync_step_period,
-                sync_height_threshold: 1,
+                sync_height_threshold: config.consensus.sync_height_threshold,
                 header_sync_initial_timeout: config.consensus.header_sync_initial_timeout,
                 header_sync_progress_timeout: config.consensus.header_sync_progress_timeout,
                 header_sync_stall_ban_timeout: config.consensus.header_sync_stall_ban_timeout,
@@ -593,13 +611,8 @@ impl NearConfig {
                 network_key_pair.secret_key,
                 validator_signer.clone(),
                 config.archive,
-                match genesis.config.chain_id.as_ref() {
-                    "mainnet" | "testnet" | "betanet" => {
-                        near_network::config::Features { enable_tier1: false }
-                    }
-                    // shardnet and all test setups.
-                    "shardnet" | _ => near_network::config::Features { enable_tier1: true },
-                },
+                // Enable tier1 (currently tier1 discovery only).
+                near_network::config::Features { enable_tier1: true },
             )?,
             telemetry_config: config.telemetry,
             #[cfg(feature = "json_rpc")]

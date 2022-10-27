@@ -135,6 +135,7 @@ pub(crate) fn apply_chunk(
             true,
             is_first_block_with_chunk_of_version,
             Default::default(),
+            false,
         )?,
         chunk_header.gas_limit(),
     ))
@@ -196,7 +197,7 @@ fn apply_tx_in_block(
             }
         },
         None => {
-            Err(anyhow!("Could not find tx with hash {} in block {}, even though `DBCol::TransactionResult` says it should be there", tx_hash, block_hash))
+            Err(anyhow!("Could not find tx with hash {} in block {}, even though `DBCol::TransactionResultForBlock` says it should be there", tx_hash, block_hash))
         }
     }
 }
@@ -404,12 +405,12 @@ pub(crate) fn apply_receipt(
 
 #[cfg(test)]
 mod test {
-    use near_chain::{ChainGenesis, ChainStore, ChainStoreAccess, Provenance, RuntimeAdapter};
+    use near_chain::{ChainGenesis, ChainStore, ChainStoreAccess, Provenance};
     use near_chain_configs::Genesis;
+    use near_client::adapter::NetworkClientResponses;
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyType};
     use near_epoch_manager::EpochManagerAdapter;
-    use near_network::types::NetworkClientResponses;
     use near_primitives::hash::CryptoHash;
     use near_primitives::runtime::config_store::RuntimeConfigStore;
     use near_primitives::shard_layout;

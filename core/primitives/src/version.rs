@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::str::FromStr;
 
 use once_cell::sync::Lazy;
@@ -7,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use crate::types::Balance;
 
 /// Data structure for semver version and github tag or commit.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Version {
     pub version: String,
@@ -176,22 +174,21 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protoco
     STABLE_PROTOCOL_VERSION
 };
 
-/// The points in time after which the voting for the protocol version should start.
-#[allow(dead_code)]
-const PROTOCOL_UPGRADE_SCHEDULE: Lazy<HashMap<ProtocolVersion, ProtocolUpgradeVotingSchedule>> =
-    Lazy::new(|| {
-        let mut schedule = HashMap::new();
-        // Update to latest protocol version on release.
-        schedule
-            .insert(54, ProtocolUpgradeVotingSchedule::from_str("2022-06-27 15:00:00").unwrap());
-
-        /*
-        // Final shardnet release. Do not include it in testnet or mainnet releases.
-        schedule
-            .insert(102, ProtocolUpgradeVotingSchedule::from_str("2022-09-05 15:00:00").unwrap());
-         */
-        schedule
-    });
+/// The points in time after which the voting for the latest protocol version
+/// should start.
+///
+/// In non-release builds this is typically a date in the far past (meaning that
+/// nightly builds will vote for new protocols immediately).  On release builds
+/// it’s set according to the schedule for that protocol upgrade.  Release
+/// candidates usually have separate schedule to final releases.
+pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy::new(|| {
+    if cfg!(feature = "shardnet") {
+        ProtocolUpgradeVotingSchedule::from_str("2022-09-05 15:00:00").unwrap()
+    } else {
+        // Update to according to schedule when making a release.
+        ProtocolUpgradeVotingSchedule::default()
+    }
+});
 
 /// Gives new clients an option to upgrade without announcing that they support
 /// the new version.  This gives non-validator nodes time to upgrade.  See
@@ -200,7 +197,7 @@ pub fn get_protocol_version(next_epoch_protocol_version: ProtocolVersion) -> Pro
     get_protocol_version_internal(
         next_epoch_protocol_version,
         PROTOCOL_VERSION,
-        &PROTOCOL_UPGRADE_SCHEDULE,
+        *PROTOCOL_UPGRADE_SCHEDULE,
     )
 }
 

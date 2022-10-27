@@ -1,6 +1,7 @@
 use crate::network_protocol::Encoding;
-use near_network_primitives::time;
-use near_network_primitives::types::{PeerType, RoutedMessageBody, RoutedMessageV2};
+use crate::network_protocol::{RoutedMessageBody, RoutedMessageV2};
+use crate::time;
+use crate::types::PeerType;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::{
     exponential_buckets, try_create_histogram, try_create_histogram_vec,
@@ -198,24 +199,6 @@ pub(crate) static PEER_MESSAGE_SENT_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::n
     )
     .unwrap()
 });
-pub(crate) static PEER_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> =
-    Lazy::new(|| {
-        try_create_int_counter_vec(
-            "near_peer_client_message_received_by_type_total",
-            "Number of messages for client received from peers, by message types",
-            &["type"],
-        )
-        .unwrap()
-    });
-pub(crate) static PEER_VIEW_CLIENT_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> =
-    Lazy::new(|| {
-        try_create_int_counter_vec(
-            "near_peer_view_client_message_received_by_type_total",
-            "Number of messages for view client received from peers, by message types",
-            &["type"],
-        )
-        .unwrap()
-    });
 pub(crate) static REQUEST_COUNT_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_requests_count_by_type_total",
@@ -316,13 +299,6 @@ pub(crate) static PEER_REACHABLE: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_peer_reachable",
         "Total peers such that there is a path potentially through other peers",
-    )
-    .unwrap()
-});
-pub static RECEIVED_INFO_ABOUT_ITSELF: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter(
-        "received_info_about_itself",
-        "Number of times a peer tried to connect to itself",
     )
     .unwrap()
 });

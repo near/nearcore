@@ -12,6 +12,7 @@ anyhow.workspace = true
 protobuf-codegen.workspace = true
 
 [dependencies]
+async-trait.workspace = true
 actix.workspace = true
 anyhow.workspace = true
 arc-swap.workspace = true
@@ -20,9 +21,7 @@ borsh.workspace = true
 bytes.workspace = true
 bytesize.workspace = true
 chrono.workspace = true
-conqueue.workspace = true
 crossbeam-channel.workspace = true
-deepsize = { workspace = true, optional = true }
 futures-util.workspace = true
 futures.workspace = true
 im.workspace = true
@@ -43,13 +42,12 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tokio-util.workspace = true
-tracing-opentelemetry.workspace = true
 tracing.workspace = true
+time.workspace = true
 
 delay-detector = { path = "../../tools/delay-detector" }
 near-o11y = { path = "../../core/o11y" }
 near-crypto = { path = "../../core/crypto" }
-near-network-primitives = { path = "../network-primitives" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
 near-primitives = { path = "../../core/primitives" }
@@ -62,20 +60,12 @@ pretty_assertions.workspace = true
 tempfile.workspace = true
 
 [features]
-deepsize_feature = [
-    "deepsize",
-    "near-crypto/deepsize_feature",
-    "near-network-primitives/deepsize_feature",
-    "near-primitives/deepsize_feature",
-]
 delay_detector = ["delay-detector/delay_detector"]
 performance_stats = [
     "near-performance-metrics/performance_stats",
     "near-rust-allocator-proxy",
 ]
-test_features = [
-  "near-network-primitives/test_features",
-]
+test_features = []
 
 shardnet = []
 

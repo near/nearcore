@@ -9,7 +9,7 @@ use near_chunks::ProcessPartialEncodedChunkResult;
 use near_client::test_utils::TestEnv;
 use near_crypto::KeyType;
 use near_network::test_utils::MockPeerManagerAdapter;
-use near_network_primitives::types::PartialEncodedChunkForwardMsg;
+use near_network::types::PartialEncodedChunkForwardMsg;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::hash::hash;
@@ -155,29 +155,14 @@ fn test_process_partial_encoded_chunk_with_missing_block() {
 
     // process_partial_encoded_chunk should return Ok(NeedBlock) if the chunk is
     // based on a missing block.
-    let result = client.shards_mgr.process_partial_encoded_chunk(
-        MaybeValidated::from(mock_chunk.clone()),
-        None,
-        client.chain.mut_store(),
-    );
+    let result =
+        client.shards_mgr.process_partial_encoded_chunk(MaybeValidated::from(mock_chunk.clone()));
     assert_matches!(result, Ok(ProcessPartialEncodedChunkResult::NeedBlock));
-
-    // Client::process_partial_encoded_chunk should not return an error
-    // if the chunk is based on a missing block.
-    let result = client.process_partial_encoded_chunk(mock_chunk);
-    match result {
-        Ok(()) => {
-            let accepted_blocks = client.finish_blocks_in_processing();
-            assert!(accepted_blocks.is_empty());
-        }
-        Err(e) => panic!("Client::process_partial_encoded_chunk failed with {:?}", e),
-    }
+    let accepted_blocks = client.finish_blocks_in_processing();
+    assert!(accepted_blocks.is_empty());
 
     // process_partial_encoded_chunk_forward should return UnknownChunk if it is based on a
     // a missing block.
-    let result = client.process_partial_encoded_chunk_forward(mock_forward);
-    assert_matches!(
-        result.unwrap_err(),
-        near_client_primitives::types::Error::Chunk(near_chunks::Error::UnknownChunk)
-    );
+    let result = client.shards_mgr.process_partial_encoded_chunk_forward(mock_forward);
+    assert_matches!(result.unwrap_err(), near_chunks::Error::UnknownChunk);
 }

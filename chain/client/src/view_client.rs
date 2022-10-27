@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use tracing::{debug, error, info, trace, warn};
 
+use crate::adapter::{NetworkViewClientMessages, NetworkViewClientResponses};
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
     RuntimeAdapter,
@@ -25,14 +26,14 @@ use near_client_primitives::types::{
     GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
     GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
 };
-use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 #[cfg(feature = "test_features")]
-use near_network_primitives::types::NetworkAdversarialMessage;
-use near_network_primitives::types::{
-    NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
-    StateResponseInfoV1, StateResponseInfoV2,
+use near_network::types::NetworkAdversarialMessage;
+use near_network::types::{
+    NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, ReasonForBan,
+    StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
 };
-use near_performance_metrics_macros::{perf, perf_with_debug};
+use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_performance_metrics_macros::perf;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
@@ -370,7 +371,7 @@ impl ViewClientActor {
             }
         }
 
-        let head = self.chain.head().map_err(|e| TxStatusError::ChainError(e))?;
+        let head = self.chain.head()?;
         let target_shard_id = self
             .runtime_adapter
             .account_id_to_shard_id(&signer_account_id, &head.epoch_id)
@@ -385,10 +386,8 @@ impl ViewClientActor {
             match self.chain.get_final_transaction_result(&tx_hash) {
                 Ok(tx_result) => {
                     let res = if fetch_receipt {
-                        let final_result = self
-                            .chain
-                            .get_final_transaction_result_with_receipt(tx_result)
-                            .map_err(|e| TxStatusError::ChainError(e))?;
+                        let final_result =
+                            self.chain.get_final_transaction_result_with_receipt(tx_result)?;
                         FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(
                             final_result,
                         )
@@ -406,7 +405,7 @@ impl ViewClientActor {
                 }
                 Err(err) => {
                     warn!(target: "client", ?err, "Error trying to get transaction result");
-                    Err(TxStatusError::ChainError(err))
+                    Err(err.into())
                 }
             }
         } else {
@@ -416,14 +415,16 @@ impl ViewClientActor {
                     .runtime_adapter
                     .account_id_to_shard_id(&signer_account_id, &head.epoch_id)
                     .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
-                let validator = self
-                    .chain
-                    .find_validator_for_forwarding(target_shard_id)
-                    .map_err(|e| TxStatusError::ChainError(e))?;
+                let validator = self.chain.find_validator_for_forwarding(target_shard_id)?;
 
-                self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::TxStatus(validator, signer_account_id, tx_hash),
-                ));
+                self.network_adapter.do_send(
+                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::TxStatus(
+                        validator,
+                        signer_account_id,
+                        tx_hash,
+                    ))
+                    .with_span_context(),
+                );
             }
             Ok(None)
         }
@@ -475,22 +476,24 @@ impl Actor for ViewClientActor {
     type Context = SyncContext<Self>;
 }
 
-impl Handler<Query> for ViewClientActor {
+impl Handler<WithSpanContext<Query>> for ViewClientActor {
     type Result = Result<QueryResponse, QueryError>;
 
     #[perf]
-    fn handle(&mut self, msg: Query, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: WithSpanContext<Query>, _: &mut Self::Context) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["Query"]).start_timer();
         self.handle_query(msg)
     }
 }
 
 /// Handles retrieving block from the chain.
-impl Handler<GetBlock> for ViewClientActor {
+impl Handler<WithSpanContext<GetBlock>> for ViewClientActor {
     type Result = Result<BlockView, GetBlockError>;
 
     #[perf]
-    fn handle(&mut self, msg: GetBlock, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: WithSpanContext<GetBlock>, _: &mut Self::Context) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetBlock"]).start_timer();
         let block = match self.get_block_by_reference(&msg.0)? {
@@ -504,15 +507,20 @@ impl Handler<GetBlock> for ViewClientActor {
     }
 }
 
-impl Handler<GetBlockWithMerkleTree> for ViewClientActor {
+impl Handler<WithSpanContext<GetBlockWithMerkleTree>> for ViewClientActor {
     type Result = Result<(BlockView, Arc<PartialMerkleTree>), GetBlockError>;
 
     #[perf]
-    fn handle(&mut self, msg: GetBlockWithMerkleTree, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetBlockWithMerkleTree>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetBlockWithMerkleTree"])
             .start_timer();
-        let block_view = self.handle(GetBlock(msg.0), ctx)?;
+        let block_view = self.handle(GetBlock(msg.0).with_span_context(), ctx)?;
         self.chain
             .store()
             .get_block_merkle_tree(&block_view.header.hash)
@@ -521,11 +529,12 @@ impl Handler<GetBlockWithMerkleTree> for ViewClientActor {
     }
 }
 
-impl Handler<GetChunk> for ViewClientActor {
+impl Handler<WithSpanContext<GetChunk>> for ViewClientActor {
     type Result = Result<ChunkView, GetChunkError>;
 
     #[perf]
-    fn handle(&mut self, msg: GetChunk, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: WithSpanContext<GetChunk>, _: &mut Self::Context) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetChunk"]).start_timer();
         let get_chunk_from_block = |block: Block,
@@ -576,22 +585,28 @@ impl Handler<GetChunk> for ViewClientActor {
     }
 }
 
-impl Handler<TxStatus> for ViewClientActor {
+impl Handler<WithSpanContext<TxStatus>> for ViewClientActor {
     type Result = Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError>;
 
     #[perf]
-    fn handle(&mut self, msg: TxStatus, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: WithSpanContext<TxStatus>, _: &mut Self::Context) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatus"]).start_timer();
         self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt)
     }
 }
 
-impl Handler<GetValidatorInfo> for ViewClientActor {
+impl Handler<WithSpanContext<GetValidatorInfo>> for ViewClientActor {
     type Result = Result<EpochValidatorInfo, GetValidatorInfoError>;
 
     #[perf]
-    fn handle(&mut self, msg: GetValidatorInfo, _: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetValidatorInfo>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetValidatorInfo"])
             .start_timer();
@@ -634,11 +649,16 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
     }
 }
 
-impl Handler<GetValidatorOrdered> for ViewClientActor {
+impl Handler<WithSpanContext<GetValidatorOrdered>> for ViewClientActor {
     type Result = Result<Vec<ValidatorStakeView>, GetValidatorInfoError>;
 
     #[perf]
-    fn handle(&mut self, msg: GetValidatorOrdered, _: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetValidatorOrdered>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetValidatorOrdered"])
             .start_timer();
@@ -652,11 +672,16 @@ impl Handler<GetValidatorOrdered> for ViewClientActor {
     }
 }
 /// Returns a list of change kinds per account in a store for a given block.
-impl Handler<GetStateChangesInBlock> for ViewClientActor {
+impl Handler<WithSpanContext<GetStateChangesInBlock>> for ViewClientActor {
     type Result = Result<StateChangesKindsView, GetStateChangesError>;
 
     #[perf]
-    fn handle(&mut self, msg: GetStateChangesInBlock, _: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetStateChangesInBlock>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetStateChangesInBlock"])
             .start_timer();
@@ -671,11 +696,16 @@ impl Handler<GetStateChangesInBlock> for ViewClientActor {
 }
 
 /// Returns a list of changes in a store for a given block filtering by the state changes request.
-impl Handler<GetStateChanges> for ViewClientActor {
+impl Handler<WithSpanContext<GetStateChanges>> for ViewClientActor {
     type Result = Result<StateChangesView, GetStateChangesError>;
 
     #[perf]
-    fn handle(&mut self, msg: GetStateChanges, _: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetStateChanges>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetStateChanges"]).start_timer();
         Ok(self
@@ -689,15 +719,16 @@ impl Handler<GetStateChanges> for ViewClientActor {
 }
 
 /// Returns a list of changes in a store with causes for a given block.
-impl Handler<GetStateChangesWithCauseInBlock> for ViewClientActor {
+impl Handler<WithSpanContext<GetStateChangesWithCauseInBlock>> for ViewClientActor {
     type Result = Result<StateChangesView, GetStateChangesError>;
 
     #[perf]
     fn handle(
         &mut self,
-        msg: GetStateChangesWithCauseInBlock,
+        msg: WithSpanContext<GetStateChangesWithCauseInBlock>,
         _: &mut Self::Context,
     ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetStateChangesWithCauseInBlock"])
             .start_timer();
@@ -713,15 +744,16 @@ impl Handler<GetStateChangesWithCauseInBlock> for ViewClientActor {
 
 /// Returns a hashmap where the key represents the ShardID and the value
 /// is the list of changes in a store with causes for a given block.
-impl Handler<GetStateChangesWithCauseInBlockForTrackedShards> for ViewClientActor {
+impl Handler<WithSpanContext<GetStateChangesWithCauseInBlockForTrackedShards>> for ViewClientActor {
     type Result = Result<HashMap<ShardId, StateChangesView>, GetStateChangesError>;
 
     #[perf]
     fn handle(
         &mut self,
-        msg: GetStateChangesWithCauseInBlockForTrackedShards,
+        msg: WithSpanContext<GetStateChangesWithCauseInBlockForTrackedShards>,
         _: &mut Self::Context,
     ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetStateChangesWithCauseInBlockForTrackedShards"])
             .start_timer();
@@ -759,11 +791,16 @@ impl Handler<GetStateChangesWithCauseInBlockForTrackedShards> for ViewClientActo
 ///     - Same as above
 ///  3. Otherwise, return the last final block in the epoch that follows that of the last block known
 ///     to the light client
-impl Handler<GetNextLightClientBlock> for ViewClientActor {
+impl Handler<WithSpanContext<GetNextLightClientBlock>> for ViewClientActor {
     type Result = Result<Option<Arc<LightClientBlockView>>, GetNextLightClientBlockError>;
 
     #[perf]
-    fn handle(&mut self, msg: GetNextLightClientBlock, _: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetNextLightClientBlock>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetNextLightClientBlock"])
             .start_timer();
@@ -801,11 +838,16 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
     }
 }
 
-impl Handler<GetExecutionOutcome> for ViewClientActor {
+impl Handler<WithSpanContext<GetExecutionOutcome>> for ViewClientActor {
     type Result = Result<GetExecutionOutcomeResponse, GetExecutionOutcomeError>;
 
     #[perf]
-    fn handle(&mut self, msg: GetExecutionOutcome, _: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetExecutionOutcome>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetExecutionOutcome"])
             .start_timer();
@@ -860,7 +902,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
             }
             Err(e) => match e {
                 near_chain::Error::DBNotFoundErr(_) => {
-                    let head = self.chain.head().map_err(|e| TxStatusError::ChainError(e))?;
+                    let head = self.chain.head()?;
                     let target_shard_id =
                         self.runtime_adapter.account_id_to_shard_id(&account_id, &head.epoch_id)?;
                     if self.runtime_adapter.cares_about_shard(
@@ -887,11 +929,16 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
 
 /// Extract the list of execution outcomes that were produced in a given block
 /// (including those created for local receipts).
-impl Handler<GetExecutionOutcomesForBlock> for ViewClientActor {
+impl Handler<WithSpanContext<GetExecutionOutcomesForBlock>> for ViewClientActor {
     type Result = Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdView>>, String>;
 
     #[perf]
-    fn handle(&mut self, msg: GetExecutionOutcomesForBlock, _: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetExecutionOutcomesForBlock>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetExecutionOutcomesForBlock"])
             .start_timer();
@@ -905,11 +952,12 @@ impl Handler<GetExecutionOutcomesForBlock> for ViewClientActor {
     }
 }
 
-impl Handler<GetReceipt> for ViewClientActor {
+impl Handler<WithSpanContext<GetReceipt>> for ViewClientActor {
     type Result = Result<Option<ReceiptView>, GetReceiptError>;
 
     #[perf]
-    fn handle(&mut self, msg: GetReceipt, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: WithSpanContext<GetReceipt>, _: &mut Self::Context) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetReceipt"]).start_timer();
         Ok(self
@@ -920,11 +968,16 @@ impl Handler<GetReceipt> for ViewClientActor {
     }
 }
 
-impl Handler<GetBlockProof> for ViewClientActor {
+impl Handler<WithSpanContext<GetBlockProof>> for ViewClientActor {
     type Result = Result<GetBlockProofResponse, GetBlockProofError>;
 
     #[perf]
-    fn handle(&mut self, msg: GetBlockProof, _: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetBlockProof>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetBlockProof"]).start_timer();
         let block_header = self.chain.get_block_header(&msg.block_hash)?;
@@ -936,11 +989,16 @@ impl Handler<GetBlockProof> for ViewClientActor {
     }
 }
 
-impl Handler<GetProtocolConfig> for ViewClientActor {
+impl Handler<WithSpanContext<GetProtocolConfig>> for ViewClientActor {
     type Result = Result<ProtocolConfigView, GetProtocolConfigError>;
 
     #[perf]
-    fn handle(&mut self, msg: GetProtocolConfig, _: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetProtocolConfig>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["GetProtocolConfig"])
             .start_timer();
@@ -955,11 +1013,16 @@ impl Handler<GetProtocolConfig> for ViewClientActor {
     }
 }
 
-impl Handler<NetworkViewClientMessages> for ViewClientActor {
+impl Handler<WithSpanContext<NetworkViewClientMessages>> for ViewClientActor {
     type Result = NetworkViewClientResponses;
 
-    #[perf_with_debug]
-    fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Self::Context) -> Self::Result {
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<NetworkViewClientMessages>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&[(&msg).into()]).start_timer();
         match msg {
@@ -992,14 +1055,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             }
             NetworkViewClientMessages::TxStatus { tx_hash, signer_account_id } => {
                 if let Ok(Some(result)) = self.get_tx_status(tx_hash, signer_account_id, false) {
-                    // TODO: remove this legacy support in #3204
-                    let result = match result {
-                        FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(outcome) => outcome,
-                        FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(
-                            outcome,
-                        ) => outcome.into(),
-                    };
-                    NetworkViewClientResponses::TxStatus(Box::new(result))
+                    NetworkViewClientResponses::TxStatus(Box::new(result.into_outcome()))
                 } else {
                     NetworkViewClientResponses::NoResponse
                 }
@@ -1197,23 +1253,20 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
 
                 NetworkViewClientResponses::AnnounceAccount(filtered_announce_accounts)
             }
-            NetworkViewClientMessages::EpochSyncRequest { epoch_id: _epoch_id } => {
-                // TODO #3488
-                NetworkViewClientResponses::NoResponse
-            }
-            NetworkViewClientMessages::EpochSyncFinalizationRequest { epoch_id: _epoch_id } => {
-                // TODO #3488
-                NetworkViewClientResponses::NoResponse
-            }
         }
     }
 }
 
-impl Handler<GetGasPrice> for ViewClientActor {
+impl Handler<WithSpanContext<GetGasPrice>> for ViewClientActor {
     type Result = Result<GasPriceView, GetGasPriceError>;
 
     #[perf]
-    fn handle(&mut self, msg: GetGasPrice, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetGasPrice>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetGasPrice"]).start_timer();
         let header = self.maybe_block_id_to_block_header(msg.block_id);

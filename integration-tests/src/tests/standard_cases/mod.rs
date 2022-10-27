@@ -8,8 +8,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, ContractCallError, InvalidAccessKeyError, InvalidTxError,
-    TxExecutionError,
+    ActionError, ActionErrorKind, InvalidAccessKeyError, InvalidTxError, TxExecutionError,
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{AccountId, Balance, TrieNodesCount};
@@ -17,7 +16,7 @@ use near_primitives::views::{
     AccessKeyView, AccountView, ExecutionMetadataView, FinalExecutionOutcomeView,
     FinalExecutionStatus,
 };
-use near_vm_errors::MethodResolveError;
+use near_vm_errors::{FunctionCallErrorSer, MethodResolveError};
 use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
 use crate::node::Node;
@@ -89,12 +88,9 @@ pub fn test_smart_contract_panic(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(
-                    ContractCallError::ExecutionError {
-                        msg: "Smart contract panicked: WAT?".to_string()
-                    }
-                    .into()
-                )
+                kind: ActionErrorKind::FunctionCallError(FunctionCallErrorSer::ExecutionError(
+                    "Smart contract panicked: WAT?".to_string()
+                ))
             }
             .into()
         )
@@ -130,10 +126,9 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(
-                    ContractCallError::MethodResolveError(MethodResolveError::MethodNotFound)
-                        .into()
-                )
+                kind: ActionErrorKind::FunctionCallError(FunctionCallErrorSer::MethodResolveError(
+                    MethodResolveError::MethodNotFound
+                ))
             }
             .into()
         )
@@ -155,10 +150,9 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(
-                    ContractCallError::MethodResolveError(MethodResolveError::MethodEmptyName)
-                        .into()
-                )
+                kind: ActionErrorKind::FunctionCallError(FunctionCallErrorSer::MethodResolveError(
+                    MethodResolveError::MethodEmptyName
+                ))
             }
             .into()
         )
@@ -180,10 +174,9 @@ pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(
-                    ContractCallError::MethodResolveError(MethodResolveError::MethodEmptyName)
-                        .into()
-                )
+                kind: ActionErrorKind::FunctionCallError(FunctionCallErrorSer::MethodResolveError(
+                    MethodResolveError::MethodEmptyName
+                ))
             }
             .into()
         )
@@ -1535,7 +1528,7 @@ pub fn test_chunk_nodes_cache_mode(node: impl Node, runtime_config: RuntimeConfi
         make_receipt(&node, vec![make_write_key_value_action(vec![1], vec![1])], bob_account()),
         make_receipt(
             &node,
-            vec![DeployContractAction { code: test_utils::encode(&vec![2]) }.into()],
+            vec![DeployContractAction { code: test_utils::encode(&[2]) }.into()],
             alice_account(),
         ),
         make_receipt(&node, vec![make_write_key_value_action(vec![2], vec![2])], bob_account()),

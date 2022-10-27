@@ -1,25 +1,23 @@
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
-use crate::network_protocol::PeerMessage;
-use crate::network_protocol::{SignedAccountData, SyncAccountsData};
+use crate::network_protocol::{
+    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerMessage, SignedAccountData,
+    SyncAccountsData,
+};
+use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
 use crate::stats::metrics;
-use crate::types::FullPeerInfo;
-use near_network_primitives::time;
-use near_network_primitives::types::{
-    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest,
-    PeerManagerRequestWithContext, PeerType, ReasonForBan,
-};
+use crate::time;
+use crate::types::{FullPeerInfo, PeerType, ReasonForBan};
+use near_o11y::WithSpanContextExt;
 use near_primitives::network::PeerId;
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
-use tracing::Span;
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 #[cfg(test)]
 mod tests;
@@ -58,7 +56,7 @@ pub(crate) struct Connection {
     pub connection_established_time: time::Instant,
 
     /// Last time requested peers.
-    pub last_time_peer_requested: AtomicCell<time::Instant>,
+    pub last_time_peer_requested: AtomicCell<Option<time::Instant>>,
     /// Last time we received a message from this peer.
     pub last_time_received_message: AtomicCell<time::Instant>,
     /// Connection stats
@@ -99,24 +97,16 @@ impl Connection {
         }
     }
 
-    pub fn ban(&self, ban_reason: ReasonForBan) {
-        self.addr.do_send(PeerManagerRequestWithContext {
-            msg: PeerManagerRequest::BanPeer(ban_reason),
-            context: Span::current().context(),
-        });
+    pub fn stop(&self, ban_reason: Option<ReasonForBan>) {
+        self.addr.do_send(peer_actor::Stop { ban_reason }.with_span_context());
     }
 
-    pub fn unregister(&self) {
-        self.addr.do_send(PeerManagerRequestWithContext {
-            msg: PeerManagerRequest::UnregisterPeer,
-            context: Span::current().context(),
-        });
-    }
-
+    // TODO(gprusak): embed Stream directly in Connection,
+    // so that we can skip actix queue when sending messages.
     pub fn send_message(&self, msg: Arc<PeerMessage>) {
         let msg_kind = msg.msg_variant().to_string();
         tracing::trace!(target: "network", ?msg_kind, "Send message");
-        self.addr.do_send(SendMessage { message: msg, context: Span::current().context() });
+        self.addr.do_send(SendMessage { message: msg }.with_span_context());
     }
 
     pub fn send_accounts_data(
@@ -230,12 +220,14 @@ impl Drop for OutboundHandshakePermit {
 #[derive(Clone)]
 pub(crate) struct Pool(Arc<ArcMutex<PoolSnapshot>>);
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PoolError {
     #[error("already connected to this peer")]
     AlreadyConnected,
     #[error("already started another outbound connection to this peer")]
     AlreadyStartedConnecting,
+    #[error("loop connections are not allowed")]
+    LoopConnection,
 }
 
 impl Pool {
@@ -254,6 +246,9 @@ impl Pool {
     pub fn insert_ready(&self, peer: Arc<Connection>) -> Result<(), PoolError> {
         self.0.update(move |pool| {
             let id = &peer.peer_info.id;
+            if id == &pool.me {
+                return Err(PoolError::LoopConnection);
+            }
             if pool.ready.contains_key(id) {
                 return Err(PoolError::AlreadyConnected);
             }
@@ -283,6 +278,9 @@ impl Pool {
 
     pub fn start_outbound(&self, peer_id: PeerId) -> Result<OutboundHandshakePermit, PoolError> {
         self.0.update(move |pool| {
+            if peer_id == pool.me {
+                return Err(PoolError::LoopConnection);
+            }
             if pool.ready.contains_key(&peer_id) {
                 return Err(PoolError::AlreadyConnected);
             }

@@ -6,6 +6,7 @@ use actix::System;
 use near_client::{GetBlock, GetChunk};
 use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_integration_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 
 use crate::tests::nearcore::node_cluster::NodeCluster;
@@ -29,7 +30,8 @@ fn track_shards() {
         wait_or_timeout(100, 30000, || async {
             let bh = *last_block_hash.read().unwrap();
             if let Some(block_hash) = bh {
-                let res = view_client.send(GetChunk::BlockHash(block_hash, 3)).await;
+                let res =
+                    view_client.send(GetChunk::BlockHash(block_hash, 3).with_span_context()).await;
                 match &res {
                     Ok(Ok(_)) => {
                         return ControlFlow::Break(());
@@ -40,7 +42,7 @@ fn track_shards() {
                 }
             } else {
                 let last_block_hash1 = last_block_hash.clone();
-                let res = view_client.send(GetBlock::latest()).await;
+                let res = view_client.send(GetBlock::latest().with_span_context()).await;
                 match &res {
                     Ok(Ok(b)) if b.header.height > 10 => {
                         *last_block_hash1.write().unwrap() = Some(b.header.hash);

@@ -8,10 +8,11 @@ use near_chain::{
     Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode, RuntimeAdapter,
 };
 use near_chain_configs::GenesisConfig;
+use near_client::adapter::NetworkClientMessages;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_network::types::NetworkClientMessages;
 use near_network::types::NetworkRecipient;
+use near_o11y::WithSpanContext;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::BlockHeight;
@@ -33,7 +34,7 @@ fn setup_runtime(
     let store = if in_memory_storage {
         create_test_store()
     } else {
-        near_store::NodeStorage::opener(home_dir, &config.config.store)
+        near_store::NodeStorage::opener(home_dir, &config.config.store, None)
             .open()
             .unwrap()
             .get_store(near_store::Temperature::Hot)
@@ -44,7 +45,7 @@ fn setup_runtime(
 
 fn setup_mock_peer_manager_actor(
     chain: Chain,
-    client_addr: Recipient<NetworkClientMessages>,
+    client_addr: Recipient<WithSpanContext<NetworkClientMessages>>,
     genesis_config: &GenesisConfig,
     block_production_delay: Duration,
     client_start_height: BlockHeight,
@@ -119,12 +120,12 @@ pub fn setup_mock_node(
     if client_start_height > 0 {
         tracing::info!(target: "mock_node", "Preparing client data dir to be able to start at the specified start height {}", client_start_height);
         let mut chain_store = ChainStore::new(
-            client_runtime.get_store(),
+            client_runtime.store().clone(),
             config.genesis.config.genesis_height,
             !config.client_config.archive,
         );
         let mut network_chain_store = ChainStore::new(
-            mock_network_runtime.get_store(),
+            mock_network_runtime.store().clone(),
             config.genesis.config.genesis_height,
             !config.client_config.archive,
         );
@@ -166,12 +167,12 @@ pub fn setup_mock_node(
 
         // copy epoch info
         let mut epoch_manager = EpochManager::new_from_genesis_config(
-            client_runtime.get_store(),
+            client_runtime.store().clone(),
             &config.genesis.config,
         )
         .unwrap();
         let mock_epoch_manager = EpochManager::new_from_genesis_config(
-            mock_network_runtime.get_store(),
+            mock_network_runtime.store().clone(),
             &config.genesis.config,
         )
         .unwrap();
@@ -295,6 +296,7 @@ pub fn setup_mock_node(
             config.genesis.config,
             client.clone(),
             view_client.clone(),
+            None,
         )
     });
 
@@ -309,11 +311,12 @@ mod tests {
     use futures::{future, FutureExt};
     use near_actix_test_utils::{run_actix, spawn_interruptible};
     use near_chain_configs::Genesis;
+    use near_client::adapter::NetworkClientMessages;
     use near_client::GetBlock;
     use near_crypto::{InMemorySigner, KeyType};
     use near_network::test_utils::{open_port, WaitOrTimeoutActor};
-    use near_network::types::NetworkClientMessages;
     use near_o11y::testonly::init_integration_logger;
+    use near_o11y::WithSpanContextExt;
     use near_primitives::hash::CryptoHash;
     use near_primitives::transaction::SignedTransaction;
     use near_store::test_utils::gen_account;
@@ -355,7 +358,8 @@ mod tests {
                     let last_block2 = last_block1.clone();
                     let nonce = nonce.clone();
                     let client1 = client.clone();
-                    spawn_interruptible(view_client1.send(GetBlock::latest()).then(move |res| {
+                    let actor = view_client1.send(GetBlock::latest().with_span_context());
+                    let actor = actor.then(move |res| {
                         if let Ok(Ok(block)) = res {
                             let next_nonce = *nonce.read().unwrap();
                             if next_nonce < 100 {
@@ -380,11 +384,14 @@ mod tests {
                                         );
                                         spawn_interruptible(
                                             client1
-                                                .send(NetworkClientMessages::Transaction {
-                                                    transaction,
-                                                    is_forwarded: false,
-                                                    check_only: false,
-                                                })
+                                                .send(
+                                                    NetworkClientMessages::Transaction {
+                                                        transaction,
+                                                        is_forwarded: false,
+                                                        check_only: false,
+                                                    }
+                                                    .with_span_context(),
+                                                )
                                                 .then(move |_res| future::ready(())),
                                         );
                                     }),
@@ -401,7 +408,8 @@ mod tests {
                             }
                         }
                         future::ready(())
-                    }));
+                    });
+                    spawn_interruptible(actor);
                 }),
                 100,
                 60000,
@@ -431,7 +439,8 @@ mod tests {
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
                     let last_block1 = last_block.clone();
-                    actix::spawn(view_client.send(GetBlock::latest()).then(move |res| {
+                    let actor = view_client.send(GetBlock::latest().with_span_context());
+                    let actor = actor.then(move |res| {
                         if let Ok(Ok(block)) = res {
                             if block.header.height >= 20 {
                                 assert_eq!(*last_block1.read().unwrap(), block.header.hash);
@@ -439,7 +448,8 @@ mod tests {
                             }
                         }
                         future::ready(())
-                    }));
+                    });
+                    actix::spawn(actor);
                 }),
                 100,
                 60000,

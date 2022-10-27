@@ -18,7 +18,7 @@ pub enum RpcBlockError {
     InternalError { error_message: String },
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, arbitrary::Arbitrary)]
 pub struct RpcBlockRequest {
     #[serde(flatten)]
     pub block_reference: near_primitives::types::BlockReference,

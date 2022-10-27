@@ -168,9 +168,9 @@ mod nodes_counter_tests {
         // Extension -> Branch -> Branch -> Leaf plus retrieving the value by its hash. In total
         // there will be 9 distinct nodes, because 011 and 100 both add one Leaf and value.
         let trie_items = vec![
-            (create_trie_key(&vec![0, 0, 0]), Some(vec![0])),
-            (create_trie_key(&vec![0, 1, 1]), Some(vec![1])),
-            (create_trie_key(&vec![1, 0, 0]), Some(vec![2])),
+            (create_trie_key(&[0, 0, 0]), Some(vec![0])),
+            (create_trie_key(&[0, 1, 1]), Some(vec![1])),
+            (create_trie_key(&[1, 0, 0]), Some(vec![2])),
         ];
         let trie = create_trie(&trie_items);
         assert_eq!(get_touched_nodes_numbers(trie.clone(), &trie_items), vec![5, 5, 4]);
@@ -186,8 +186,8 @@ mod nodes_counter_tests {
         // Extension([0, 0]) -> Branch -> Leaf([48/49]) -> value.
         // TODO: explain the exact values in path items here
         let trie_items = vec![
-            (create_trie_key(&vec![0, 0]), Some(vec![1])),
-            (create_trie_key(&vec![1, 1]), Some(vec![1])),
+            (create_trie_key(&[0, 0]), Some(vec![1])),
+            (create_trie_key(&[1, 1]), Some(vec![1])),
         ];
         let trie = create_trie(&trie_items);
         assert_eq!(get_touched_nodes_numbers(trie.clone(), &trie_items), vec![4, 4]);
@@ -219,7 +219,8 @@ mod caching_storage_tests {
                 rc: std::num::NonZeroU32::new(1).unwrap(),
             })
             .collect();
-        let (store_update, _) = tries.apply_all(&trie_changes, shard_uid);
+        let mut store_update = tries.store_update();
+        tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
         tries.get_store()
     }
@@ -347,7 +348,7 @@ mod caching_storage_tests {
         let shard_uid = ShardUId::single_shard();
         let store = create_store_with_values(&values, shard_uid);
         let mut trie_config = TrieConfig::default();
-        trie_config.shard_cache_config.override_max_entries.insert(shard_uid, shard_cache_size);
+        trie_config.shard_cache_config.override_max_total_bytes.insert(shard_uid, shard_cache_size);
         let trie_cache = TrieCache::new(&trie_config, shard_uid, false);
         let trie_caching_storage =
             TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false, None);

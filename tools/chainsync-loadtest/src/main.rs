@@ -4,18 +4,17 @@ mod network;
 
 use std::sync::Arc;
 
-use actix::{Actor, Arbiter};
 use anyhow::{anyhow, Context};
 use clap::Parser;
 use openssl_probe;
 
 use concurrency::{Ctx, Scope};
-use network::{FakeClientActor, Network};
+use network::Network;
 
 use near_chain_configs::Genesis;
+use near_network::time;
 use near_network::types::NetworkRecipient;
 use near_network::PeerManagerActor;
-use near_network_primitives::time;
 use near_o11y::tracing::{error, info};
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -38,17 +37,12 @@ fn genesis_hash(chain_id: &str) -> CryptoHash {
 pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<Arc<Network>> {
     let network_adapter = Arc::new(NetworkRecipient::default());
     let network = Network::new(&config, network_adapter.clone(), qps_limit);
-    let client_actor = FakeClientActor::start_in_arbiter(&Arbiter::new().handle(), {
-        let network = network.clone();
-        move |_| FakeClientActor::new(network)
-    });
 
     let network_actor = PeerManagerActor::spawn(
         time::Clock::real(),
         near_store::db::TestDB::new(),
         config.network_config,
-        client_actor.clone().recipient(),
-        client_actor.clone().recipient(),
+        network.clone(),
         GenesisId {
             chain_id: config.client_config.chain_id.clone(),
             hash: genesis_hash(&config.client_config.chain_id),
@@ -103,7 +97,7 @@ impl Cmd {
         let near_config =
             download_configs(&cmd.chain_id, home_dir).context("Failed to initialize configs")?;
 
-        info!("#boot nodes = {}", near_config.network_config.boot_nodes.len());
+        info!("#boot nodes = {}", near_config.network_config.peer_store.boot_nodes.len());
         // Dropping Runtime is blocking, while futures should never be blocking.
         // Tokio has a runtime check which panics if you drop tokio Runtime from a future executed
         // on another Tokio runtime.
@@ -142,10 +136,7 @@ fn main() {
         .finish()
         .unwrap()
         .add_directive(near_o11y::tracing::Level::INFO.into());
-    let runtime = tokio::runtime::Runtime::new().unwrap();
-    let _subscriber = runtime.block_on(async {
-        near_o11y::default_subscriber(env_filter, &Default::default()).await.global();
-    });
+    let _subscriber = near_o11y::default_subscriber(env_filter, &Default::default()).global();
     let orig_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         orig_hook(panic_info);

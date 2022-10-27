@@ -19,6 +19,7 @@ lru.workspace = true
 num-rational.workspace = true
 once_cell.workspace = true
 rand.workspace = true
+rand_chacha.workspace = true
 rayon.workspace = true
 strum.workspace = true
 thiserror.workspace = true

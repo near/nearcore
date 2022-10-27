@@ -8,7 +8,7 @@ pub fn get_context(input: Vec<u8>, is_view: bool) -> VMContext {
         signer_account_pk: vec![0, 1, 2],
         predecessor_account_id: "carol.near".parse().unwrap(),
         input,
-        block_index: 0,
+        block_height: 0,
         block_timestamp: 0,
         epoch_height: 0,
         account_balance: 100,

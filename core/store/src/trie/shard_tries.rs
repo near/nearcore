@@ -13,6 +13,7 @@ use near_primitives::types::{
 
 use crate::flat_state::FlatStateFactory;
 use crate::trie::config::TrieConfig;
+use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
 use crate::{metrics, DBCol, DBOp, DBTransaction, PrefetchApi};
@@ -27,7 +28,7 @@ struct ShardTriesInner {
     view_caches: RwLock<HashMap<ShardUId, TrieCache>>,
     flat_state_factory: FlatStateFactory,
     /// Prefetcher state, such as IO threads, per shard.
-    prefetchers: RwLock<HashMap<ShardUId, PrefetchApi>>,
+    prefetchers: RwLock<HashMap<ShardUId, (PrefetchApi, PrefetchingThreadsHandle)>>,
 }
 
 #[derive(Clone)]
@@ -85,7 +86,7 @@ impl ShardTries {
             .collect()
     }
 
-    pub fn is_same(&self, other: &Self) -> bool {
+    pub(crate) fn is_same(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
 
@@ -136,6 +137,7 @@ impl ShardTries {
                         &self.0.trie_config,
                     )
                 })
+                .0
                 .clone()
         });
 
@@ -172,8 +174,16 @@ impl ShardTries {
         self.get_trie_for_shard_internal(shard_uid, state_root, true, None)
     }
 
+    pub fn store_update(&self) -> StoreUpdate {
+        StoreUpdate::new_with_tries(self.clone())
+    }
+
     pub fn get_store(&self) -> Store {
         self.0.store.clone()
+    }
+
+    pub(crate) fn get_db(&self) -> &Arc<dyn crate::Database> {
+        &self.0.store.storage
     }
 
     pub(crate) fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
@@ -253,13 +263,13 @@ impl ShardTries {
         trie_changes: &TrieChanges,
         shard_uid: ShardUId,
         apply_deletions: bool,
-    ) -> (StoreUpdate, StateRoot) {
-        let mut store_update = StoreUpdate::new_with_tries(self.clone());
-        self.apply_insertions_inner(&trie_changes.insertions, shard_uid, &mut store_update);
+        store_update: &mut StoreUpdate,
+    ) -> StateRoot {
+        self.apply_insertions_inner(&trie_changes.insertions, shard_uid, store_update);
         if apply_deletions {
-            self.apply_deletions_inner(&trie_changes.deletions, shard_uid, &mut store_update);
+            self.apply_deletions_inner(&trie_changes.deletions, shard_uid, store_update);
         }
-        (store_update, trie_changes.new_root)
+        trie_changes.new_root
     }
 
     pub fn apply_insertions(
@@ -314,8 +324,9 @@ impl ShardTries {
         &self,
         trie_changes: &TrieChanges,
         shard_uid: ShardUId,
-    ) -> (StoreUpdate, StateRoot) {
-        self.apply_all_inner(trie_changes, shard_uid, true)
+        store_update: &mut StoreUpdate,
+    ) -> StateRoot {
+        self.apply_all_inner(trie_changes, shard_uid, true, store_update)
     }
 }
 

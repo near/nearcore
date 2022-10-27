@@ -32,18 +32,21 @@ const BORSH_ERR: &str = "Borsh cannot fail";
 
 #[derive(strum::AsRefStr, Debug)]
 pub enum FlatStorageError {
-    /// This means we can't find a path from `flat_head` to the block
-    BlockNotSupported(CryptoHash),
+    /// This means we can't find a path from `flat_head` to the block. Includes `flat_head` hash and block hash,
+    /// respectively.
+    BlockNotSupported((CryptoHash, CryptoHash)),
     StorageInternalError,
 }
 
 impl From<FlatStorageError> for StorageError {
     fn from(err: FlatStorageError) -> Self {
         match err {
-            FlatStorageError::BlockNotSupported(hash) => StorageError::FlatStorageError(format!(
-                "FlatStorage does not support this block {:?}",
-                hash
-            )),
+            FlatStorageError::BlockNotSupported((head_hash, block_hash)) => {
+                StorageError::FlatStorageError(format!(
+                    "FlatStorage with head {:?} does not support this block {:?}",
+                    head_hash, block_hash
+                ))
+            }
             FlatStorageError::StorageInternalError => StorageError::StorageInternalError,
         }
     }
@@ -475,6 +478,11 @@ pub mod store_helper {
             .map_err(|_| FlatStorageError::StorageInternalError)
     }
 
+    pub fn remove_delta(store_update: &mut StoreUpdate, shard_id: ShardId, block_hash: CryptoHash) {
+        let key = KeyForFlatStateDelta { shard_id, block_hash };
+        store_update.delete(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap());
+    }
+
     pub(crate) fn get_flat_head(store: &Store, shard_id: ShardId) -> CryptoHash {
         store
             .get_ser(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap())
@@ -529,6 +537,11 @@ pub trait ChainAccessForFlatStorage {
 
 #[cfg(feature = "protocol_feature_flat_state")]
 impl FlatStorageStateInner {
+    /// Creates `BlockNotSupported` error for the given block.
+    fn create_block_not_supported_error(&self, block_hash: &CryptoHash) -> FlatStorageError {
+        FlatStorageError::BlockNotSupported((self.flat_head, *block_hash))
+    }
+
     /// Get deltas between blocks `target_block_hash`(inclusive) to flat head(exclusive),
     /// in backwards chain order. Returns an error if there is no path between these two them.
     fn get_deltas_between_blocks(
@@ -543,10 +556,10 @@ impl FlatStorageStateInner {
             let block_info = self
                 .blocks
                 .get(&block_hash)
-                .ok_or(FlatStorageError::BlockNotSupported(*target_block_hash))?;
+                .ok_or(self.create_block_not_supported_error(target_block_hash))?;
 
             if block_info.height < flat_head_info.height {
-                return Err(FlatStorageError::BlockNotSupported(*target_block_hash));
+                return Err(self.create_block_not_supported_error(target_block_hash));
             }
 
             let delta = self
@@ -645,8 +658,9 @@ impl FlatStorageState {
         Ok(vec![])
     }
 
-    // Update the head of the flat storage, including updating the flat state in memory and on disk
-    // and updating the flat state to reflect the state at the new head
+    /// Update the head of the flat storage, including updating the flat state in memory and on disk
+    /// and updating the flat state to reflect the state at the new head. If updating to given head is not possible,
+    /// returns an error.
     // TODO (#7327): implement garbage collection of old deltas.
     #[cfg(feature = "protocol_feature_flat_state")]
     pub fn update_flat_head(&self, new_head: &CryptoHash) -> Result<(), FlatStorageError> {
@@ -657,10 +671,33 @@ impl FlatStorageState {
             merged_delta.merge(delta.as_ref());
         }
 
+        // Update flat state on disk.
         guard.flat_head = *new_head;
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
         store_helper::set_flat_head(&mut store_update, guard.shard_id, new_head);
         merged_delta.apply_to_flat_state(&mut store_update);
+
+        // Remove old deltas and blocks info from memory and disk.
+        // TODO (#7327): in case of long forks it can take a while and delay processing of some chunk. Consider
+        // avoid iterating over all blocks and making removals lazy.
+        let flat_head_height = guard.blocks.get(&guard.flat_head).unwrap().height;
+        let hashes_to_remove: Vec<_> = guard
+            .blocks
+            .iter()
+            .filter(|(_, block_info)| block_info.height <= flat_head_height)
+            .map(|(block_hash, _)| block_hash)
+            .cloned()
+            .collect();
+        for hash in hashes_to_remove {
+            // Note that we have to remove delta for new head but we still need to keep block info, e.g. for knowing
+            // height of the head.
+            guard.deltas.remove(&hash);
+            if &hash != new_head {
+                guard.blocks.remove(&hash);
+            }
+            store_helper::remove_delta(&mut store_update, guard.shard_id, hash);
+        }
+
         store_update.commit().expect(BORSH_ERR);
         Ok(())
     }
@@ -685,7 +722,7 @@ impl FlatStorageState {
         let mut guard = self.0.write().expect(POISONED_LOCK_ERR);
         tracing::info!(target:"chain", "blocks {:?} prev_hash {:?}", guard.blocks.keys(), block.prev_hash);
         if !guard.blocks.contains_key(&block.prev_hash) {
-            return Err(FlatStorageError::BlockNotSupported(*block_hash));
+            return Err(guard.create_block_not_supported_error(block_hash));
         }
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
         store_helper::set_delta(&mut store_update, guard.shard_id, block_hash.clone(), &delta)?;
@@ -702,17 +739,6 @@ impl FlatStorageState {
         _block_info: BlockInfo,
     ) -> Result<StoreUpdate, FlatStorageError> {
         panic!("not implemented")
-    }
-
-    #[cfg(feature = "protocol_feature_flat_state")]
-    pub fn get_flat_head(&self) -> CryptoHash {
-        let guard = self.0.read().expect(POISONED_LOCK_ERR);
-        guard.flat_head
-    }
-
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    pub fn get_flat_head(&self) -> CryptoHash {
-        CryptoHash::default()
     }
 }
 
@@ -961,6 +987,14 @@ mod tests {
         assert_eq!(flat_state0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
         assert_eq!(flat_state1.get_ref(&[1]).unwrap(), Some(ValueRef::new(&[4])));
         assert_eq!(flat_state1.get_ref(&[2]).unwrap(), None);
+        assert_matches!(
+            store_helper::get_delta(&store, 0, chain.get_block_hash(5)).unwrap(),
+            Some(_)
+        );
+        assert_matches!(
+            store_helper::get_delta(&store, 0, chain.get_block_hash(10)).unwrap(),
+            Some(_)
+        );
 
         // 5. Move the flat head to block 5, verify that flat_state0 still returns the same values
         // and flat_state1 returns an error. Also check that DBCol::FlatState is updated correctly
@@ -972,6 +1006,11 @@ mod tests {
         assert_eq!(flat_state0.get_ref(&[1]).unwrap(), None);
         assert_eq!(flat_state0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
         assert_matches!(flat_state1.get_ref(&[1]), Err(StorageError::FlatStorageError(_)));
+        assert_matches!(store_helper::get_delta(&store, 0, chain.get_block_hash(5)).unwrap(), None);
+        assert_matches!(
+            store_helper::get_delta(&store, 0, chain.get_block_hash(10)).unwrap(),
+            Some(_)
+        );
 
         // 6. Move the flat head to block 10, verify that flat_state0 still returns the same values
         //    Also checks that DBCol::FlatState is updated correctly.
@@ -983,5 +1022,9 @@ mod tests {
         assert_eq!(store_helper::get_ref(&store, &[2]).unwrap(), Some(ValueRef::new(&[1])));
         assert_eq!(flat_state0.get_ref(&[1]).unwrap(), None);
         assert_eq!(flat_state0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
+        assert_matches!(
+            store_helper::get_delta(&store, 0, chain.get_block_hash(10)).unwrap(),
+            None
+        );
     }
 }
