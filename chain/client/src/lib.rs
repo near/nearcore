@@ -9,6 +9,9 @@ pub use near_client_primitives::types::{
 
 pub use near_client_primitives::debug::DebugStatus;
 
+pub use crate::adapter::{
+    BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
+};
 pub use crate::client::Client;
 pub use crate::client_actor::{start_client, ClientActor};
 pub use crate::view_client::{start_view_client, ViewClientActor};
