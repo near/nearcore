@@ -441,23 +441,21 @@ async fn ping_via_node(
                 next_ping.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_millis(ping_frequency_millis));
             }
             res = peer.recv() => {
-                let messages = match res {
+                let (msg, first_byte_time) = match res {
                     Ok(x) => x,
                     Err(e) => {
                         result = Err(e).context("Failed receiving messages");
                         break;
                     }
                 };
-                for (msg, first_byte_time) in messages {
-                    result = handle_message(
-                                &mut app_info,
-                                &msg,
-                                first_byte_time.try_into().unwrap(),
-                                latencies_csv.as_mut()
-                             );
-                    if result.is_err() {
-                        break;
-                    }
+                result = handle_message(
+                            &mut app_info,
+                            &msg,
+                            first_byte_time.try_into().unwrap(),
+                            latencies_csv.as_mut()
+                        );
+                if result.is_err() {
+                    break;
                 }
             }
             _ = &mut next_timeout, if pending_timeout.is_some() => {

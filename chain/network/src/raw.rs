@@ -180,19 +180,6 @@ impl Connection {
         self.stream.write_all(&buf).await
     }
 
-    // panics if there's not at least `len` + 4 bytes available
-    fn extract_msg(&mut self, len: usize) -> io::Result<PeerMessage> {
-        self.buf.advance(4);
-        let msg = PeerMessage::deserialize(Encoding::Proto, &self.buf[..len]);
-        self.buf.advance(len);
-        msg.map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("error parsing protobuf of length {}", len),
-            )
-        })
-    }
-
     async fn do_read(&mut self) -> io::Result<()> {
         let n = tokio::time::timeout(
             (self.recv_timeout_seconds * Duration::SECOND).try_into().unwrap(),
@@ -226,115 +213,42 @@ impl Connection {
         Ok((len as usize, first_byte_time.unwrap_or(Instant::now())))
     }
 
-    // drains anything still available to be read without blocking and
-    // returns a vec of message lengths currently ready
-    fn read_remaining_messages(
-        &mut self,
-        first_msg_length: usize,
-    ) -> io::Result<Vec<(usize, Instant)>> {
-        let mut pos = first_msg_length + 4;
-        let mut lengths = Vec::new();
-        let mut pending_msg_length = None;
-
-        loop {
-            match self.stream.try_read_buf(&mut self.buf) {
-                Ok(n) => {
-                    if n == 0 {
-                        return Err(io::Error::new(
-                            io::ErrorKind::UnexpectedEof,
-                            "no more bytes available, but expected to receive a message",
-                        ));
-                    }
-                    let timestamp = Instant::now();
-                    tracing::trace!(target: "network", "Read {} bytes from {:?} non-blocking", n, self.stream.peer_addr());
-                    loop {
-                        if pending_msg_length.is_none() && self.buf.remaining() - pos >= 4 {
-                            let len =
-                                u32::from_le_bytes(self.buf[pos..pos + 4].try_into().unwrap());
-                            pending_msg_length = Some(len as usize);
-                        }
-                        if let Some(l) = pending_msg_length {
-                            if self.buf.remaining() - pos >= l + 4 {
-                                lengths.push((l, timestamp));
-                                pos += l + 4;
-                                pending_msg_length = None;
-                            } else {
-                                break;
-                            }
-                        } else {
-                            break;
-                        }
-                    }
-                }
-                Err(e) => match e.kind() {
-                    io::ErrorKind::WouldBlock => {
-                        break;
-                    }
-                    _ => return Err(e),
-                },
-            };
-        }
-        Ok(lengths)
-    }
-
     // Reads from the socket until there is at least one full PeerMessage available.
-    // After that point, continues to read any bytes available to be read without blocking
-    // and appends any extra messages to the returned Vec. Usually there is only one in there
-    async fn recv_messages(&mut self) -> io::Result<Vec<(PeerMessage, Instant)>> {
-        let mut messages = Vec::new();
-        let (msg_length, first_byte_time) = self.read_msg_length().await?;
-
-        while self.buf.remaining() < msg_length + 4 {
-            // TODO: measure time to last byte here
-            self.do_read().await?;
-        }
-
-        let more_messages = self.read_remaining_messages(msg_length)?;
-
-        let msg = self.extract_msg(msg_length)?;
-        tracing::debug!(target: "network", "received PeerMessage::{} len: {}", msg, msg_length);
-        messages.push((msg, first_byte_time));
-
-        for (len, timestamp) in more_messages {
-            let msg = self.extract_msg(len)?;
-            tracing::debug!(target: "network", "received PeerMessage::{} len: {}", msg, len);
-            messages.push((msg, timestamp));
-        }
-
-        // make sure we can probably read the next message in one syscall next time
-        let max_len_after_next_read = self.buf.chunk_mut().len() + self.buf.remaining();
-        if max_len_after_next_read < 512 {
-            self.buf.reserve(512 - max_len_after_next_read);
-        }
-        Ok(messages)
-    }
-
     async fn recv_message(&mut self) -> io::Result<(PeerMessage, Instant)> {
         let (msg_length, first_byte_time) = self.read_msg_length().await?;
 
         while self.buf.remaining() < msg_length + 4 {
             self.do_read().await?;
         }
-        Ok((self.extract_msg(msg_length)?, first_byte_time))
+
+        self.buf.advance(4);
+        let msg = PeerMessage::deserialize(Encoding::Proto, &self.buf[..msg_length]);
+        self.buf.advance(msg_length);
+
+        // make sure we can probably read the next message in one syscall next time
+        let max_len_after_next_read = self.buf.chunk_mut().len() + self.buf.remaining();
+        if max_len_after_next_read < 512 {
+            self.buf.reserve(512 - max_len_after_next_read);
+        }
+        msg.map(|m| {
+            tracing::debug!(target: "network", "received PeerMessage::{} len: {}", &m, msg_length);
+            (m, first_byte_time)
+        })
+        .map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("error parsing protobuf of length {}", msg_length),
+            )
+        })
     }
 
     /// Reads from the socket until we receive some message that we care to pass to the caller
-    /// (that is, represented in `ReceivedMessage`). After receiving the first such message, we will
-    /// continue to read any messages available to be read without blocking. The `Instant`s
-    /// in the returned `Vec` are timestamps taken when the corresponding messages were read
-    pub async fn recv(&mut self) -> io::Result<Vec<(ReceivedMessage, Instant)>> {
-        let mut ret = Vec::new();
-
+    /// (that is, represented in `ReceivedMessage`).
+    pub async fn recv(&mut self) -> io::Result<(ReceivedMessage, Instant)> {
         loop {
-            let msgs = self.recv_messages().await?;
-
-            for (msg, timestamp) in msgs {
-                if let Ok(m) = ReceivedMessage::try_from(msg) {
-                    ret.push((m, timestamp));
-                }
-            }
-            if !ret.is_empty() {
-                return Ok(ret);
+            let (msg, timestamp) = self.recv_message().await?;
+            if let Ok(m) = ReceivedMessage::try_from(msg) {
+                return Ok((m, timestamp));
             }
         }
     }
