@@ -3297,9 +3297,7 @@ impl Chain {
         let receipt_ids = outcome.outcome.receipt_ids.clone();
         let mut results = vec![outcome];
         for receipt_id in &receipt_ids {
-            let receipt = self.store.get_receipt(&receipt_id)?.ok_or_else(|| {
-                Error::DBNotFoundErr(format!("receipt id {} is not found", receipt_id))
-            })?;
+            let receipt = self.store.get_receipt(&receipt_id)?.unwrap();
             let is_refund = receipt.predecessor_id.is_system();
             if !is_refund {
                 results.extend(self.get_recursive_transaction_results(receipt_id)?);
