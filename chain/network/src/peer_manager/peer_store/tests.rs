@@ -2,7 +2,7 @@ use super::*;
 use crate::blacklist::Blacklist;
 use crate::time;
 use near_crypto::{KeyType, SecretKey};
-use near_store::{NodeStorage, StoreOpener};
+use near_store::{Mode, NodeStorage, StoreOpener};
 use std::collections::HashSet;
 use std::net::{Ipv4Addr, SocketAddrV4};
 
@@ -85,8 +85,134 @@ fn test_unconnected_peer() {
             store,
         )
         .unwrap();
-        assert!(peer_store.unconnected_peer(|_| false).is_some());
-        assert!(peer_store.unconnected_peer(|_| true).is_none());
+        assert!(peer_store.unconnected_peer(|_| false, false).is_some());
+        assert!(peer_store.unconnected_peer(|_| true, false).is_none());
+    }
+}
+
+#[test]
+fn test_unknown_vs_not_connected() {
+    use KnownPeerStatus::{Connected, NotConnected, Unknown};
+    let clock = time::FakeClock::default();
+    let peer_info_a = gen_peer_info(0);
+    let peer_info_b = gen_peer_info(1);
+    let (_tmp_dir, opener) = NodeStorage::test_opener();
+    let peer_info_boot_node = gen_peer_info(2);
+    let boot_nodes = vec![peer_info_boot_node.clone()];
+
+    let nodes = [&peer_info_a, &peer_info_b, &peer_info_boot_node];
+
+    let get_in_memory_status = |peer_store: &PeerStore| {
+        nodes.map(|peer| peer_store.get_peer_state(&peer.id).map(|known_state| known_state.status))
+    };
+
+    let get_database_status = || {
+        let store = crate::store::Store::from(opener.open_in_mode(Mode::ReadOnly).unwrap());
+        let peers_state: HashMap<PeerId, KnownPeerState> =
+            store.list_peer_states().unwrap().into_iter().map(|x| (x.0, x.1)).collect();
+        nodes.map(|peer| peers_state.get(&peer.id).map(|known_state| known_state.status.clone()))
+    };
+
+    {
+        let store = store::Store::from(opener.open().unwrap());
+        let peer_store = PeerStore::new(
+            &clock.clock(),
+            make_config(&boot_nodes, Blacklist::default(), false),
+            store,
+        )
+        .unwrap();
+
+        // Check the status of the in-memory store.
+        // Boot node should be marked as not-connected, as we've verified it.
+        // TODO(mm-near) - the boot node should have been added as 'NotConnected' and not Unknown.
+        assert_eq!(get_in_memory_status(&peer_store), [None, None, Some(Unknown)]);
+
+        // Add the remaining peers.
+        peer_store.add_direct_peer(&clock.clock(), peer_info_a.clone()).unwrap();
+        peer_store.add_direct_peer(&clock.clock(), peer_info_b.clone()).unwrap();
+
+        // Check the state in a database.
+        // Seems that boot node is not added to the database when 'new' is called.
+        assert_eq!(get_database_status(), [Some(Unknown), Some(Unknown), None]);
+
+        assert_eq!(
+            get_in_memory_status(&peer_store),
+            [Some(Unknown), Some(Unknown), Some(Unknown)]
+        );
+
+        // Connect to both nodes
+        for peer_info in [peer_info_a.clone(), peer_info_b.clone()] {
+            peer_store.peer_connected(&clock.clock(), &peer_info).unwrap();
+        }
+        assert_eq!(
+            get_in_memory_status(&peer_store),
+            [Some(Connected), Some(Connected), Some(Unknown)]
+        );
+        assert_eq!(get_database_status(), [Some(Connected), Some(Connected), None]);
+
+        // Disconnect from 'b'
+        peer_store.peer_disconnected(&clock.clock(), &peer_info_b.id).unwrap();
+
+        assert_eq!(
+            get_in_memory_status(&peer_store),
+            [Some(Connected), Some(NotConnected), Some(Unknown)]
+        );
+        assert_eq!(get_database_status(), [Some(Connected), Some(NotConnected), None]);
+
+        // if we prefer 'previously connected' peers - we should keep picking 'b'.
+        assert_eq!(
+            (0..10)
+                .map(|_| peer_store.unconnected_peer(|_| false, true).unwrap().id)
+                .collect::<HashSet<PeerId>>(),
+            [peer_info_b.id.clone()].into_iter().collect()
+        );
+
+        // if we don't care, we should pick either 'b' or 'boot'.
+        assert_eq!(
+            (0..100)
+                .map(|_| peer_store.unconnected_peer(|_| false, false).unwrap().id)
+                .collect::<HashSet<PeerId>>(),
+            [peer_info_b.id.clone(), peer_info_boot_node.id.clone()].into_iter().collect()
+        );
+
+        // And fail when trying to reconnect to b.
+        peer_store
+            .peer_connection_attempt(
+                &clock.clock(),
+                &peer_info_b.id,
+                Err(anyhow::anyhow!("b failed to connect error")),
+            )
+            .unwrap();
+
+        // It should move 'back' into Unknown state.
+        assert_eq!(
+            get_in_memory_status(&peer_store),
+            [Some(Connected), Some(Unknown), Some(Unknown)]
+        );
+        assert_eq!(get_database_status(), [Some(Connected), Some(Unknown), None]);
+    }
+
+    {
+        // Let's reset the store.
+        let store = store::Store::from(opener.open().unwrap());
+        let peer_store = PeerStore::new(
+            &clock.clock(),
+            make_config(&boot_nodes, Blacklist::default(), false),
+            store,
+        )
+        .unwrap();
+        assert_eq!(
+            get_in_memory_status(&peer_store),
+            [Some(NotConnected), Some(Unknown), Some(Unknown)]
+        );
+        assert_eq!(get_database_status(), [Some(Connected), Some(Unknown), None]);
+        // After restart - we should try to connect to 'a' (if we prefer previously connected nodes).
+        assert_eq!(
+            (0..10)
+                .map(|_| peer_store.unconnected_peer(|_| false, true).unwrap().id)
+                .collect::<HashSet<PeerId>>(),
+            [peer_info_a.id.clone()].into_iter().collect()
+        );
     }
 }
 
@@ -110,7 +236,7 @@ fn test_unconnected_peer_only_boot_nodes() {
         .unwrap();
         peer_store.add_direct_peer(&clock.clock(), peer_in_store.clone()).unwrap();
         peer_store.peer_connected(&clock.clock(), &peer_info_a).unwrap();
-        assert_eq!(peer_store.unconnected_peer(|_| false), Some(peer_in_store.clone()));
+        assert_eq!(peer_store.unconnected_peer(|_| false, false), Some(peer_in_store.clone()));
     }
 
     // 1 boot node (peer_info_a) that we're already connected to.
@@ -126,7 +252,7 @@ fn test_unconnected_peer_only_boot_nodes() {
         .unwrap();
         peer_store.add_direct_peer(&clock.clock(), peer_in_store.clone()).unwrap();
         peer_store.peer_connected(&clock.clock(), &peer_info_a).unwrap();
-        assert_eq!(peer_store.unconnected_peer(|_| false), None);
+        assert_eq!(peer_store.unconnected_peer(|_| false, false), None);
     }
 
     // 1 boot node (peer_info_a) is in the store.
@@ -140,7 +266,7 @@ fn test_unconnected_peer_only_boot_nodes() {
         )
         .unwrap();
         peer_store.add_direct_peer(&clock.clock(), peer_info_a.clone()).unwrap();
-        assert_eq!(peer_store.unconnected_peer(|_| false), Some(peer_info_a.clone()));
+        assert_eq!(peer_store.unconnected_peer(|_| false, false), Some(peer_info_a.clone()));
     }
 }
 
