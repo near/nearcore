@@ -39,6 +39,7 @@ use near_primitives::types::AccountId;
 use near_primitives::views::{KnownPeerStateView, PeerStoreView};
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
+use rand::Rng;
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
@@ -87,6 +88,11 @@ const UNRELIABLE_PEER_HORIZON: u64 = 60;
 /// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
 pub const MAX_NUM_PEERS: usize = 128;
 
+/// When picking a peer to connect to, we'll pick from the 'safer peers'
+/// (a.k.a. ones that we've been connected to in the past) with these odds.
+/// Otherwise, we'd pick any peer that we've heard about.
+const PREFER_PREVIOUSLY_CONNECTED_PEER: f64 = 0.6;
+
 #[derive(Clone, PartialEq, Eq)]
 struct WhitelistNode {
     id: PeerId,
@@ -132,10 +138,8 @@ pub struct PeerManagerActor {
     /// reached.
     whitelist_nodes: Vec<WhitelistNode>,
 
+    /// State that is shared between multiple threads (including PeerActors).
     pub(crate) state: Arc<NetworkState>,
-
-    /// Last time when we tried to establish connection to this peer.
-    last_peer_outbound_attempt: HashMap<PeerId, time::Utc>,
 }
 
 /// TEST-ONLY
@@ -282,7 +286,6 @@ impl PeerManagerActor {
             started_connect_attempts: false,
             local_peer_pending_update_nonce_request: HashMap::new(),
             whitelist_nodes,
-            last_peer_outbound_attempt: Default::default(),
             state: Arc::new(NetworkState::new(
                 &clock,
                 store.clone(),
@@ -773,32 +776,45 @@ impl PeerManagerActor {
             metrics::PEER_MANAGER_TRIGGER_TIME.with_label_values(&["monitor_peers"]).start_timer();
 
         self.state.peer_store.unban(&self.clock);
+        if let Err(err) = self.state.peer_store.update_connected_peers_last_seen(&self.clock) {
+            error!(target: "network", ?err, "Failed to update peers last seen time.");
+        }
 
         if self.is_outbound_bootstrap_needed() {
             let tier2 = self.state.tier2.load();
-            if let Some(peer_info) = self.state.peer_store.unconnected_peer(|peer_state| {
-                // Ignore connecting to ourself
-                self.my_peer_id == peer_state.peer_info.id
+            // With some odds - try picking one of the 'NotConnected' peers -- these are the ones that we were able to connect to in the past.
+            let prefer_previously_connected_peer =
+                thread_rng().gen_bool(PREFER_PREVIOUSLY_CONNECTED_PEER);
+            if let Some(peer_info) = self.state.peer_store.unconnected_peer(
+                |peer_state| {
+                    // Ignore connecting to ourself
+                    self.my_peer_id == peer_state.peer_info.id
                     || self.config.node_addr == peer_state.peer_info.addr
                     // Or to peers we are currently trying to connect to
                     || tier2.outbound_handshakes.contains(&peer_state.peer_info.id)
-            }) {
+                },
+                prefer_previously_connected_peer,
+            ) {
                 // Start monitor_peers_attempts from start after we discover the first healthy peer
                 if !self.started_connect_attempts {
                     self.started_connect_attempts = true;
                     interval = default_interval;
                 }
-                self.last_peer_outbound_attempt.insert(peer_info.id.clone(), self.clock.now_utc());
                 ctx.spawn(wrap_future({
                     let state = self.state.clone();
                     let clock = self.clock.clone();
                     async move {
-                        if let Err(err) = async {
+                        let result = async {
                             let stream = tcp::Stream::connect(&peer_info).await.context("tcp::Stream::connect()")?;
-                            PeerActor::spawn(clock,stream,None,state.clone()).context("PeerActor::spawn()")?;
+                            PeerActor::spawn(clock.clone(),stream,None,state.clone()).context("PeerActor::spawn()")?;
                             anyhow::Ok(())
-                        }.await {
-                            tracing::info!(target:"network", ?err, "failed to connect to {peer_info}");
+                        }.await;
+
+                        if result.is_err() {
+                            tracing::info!(target:"network", ?result, "failed to connect to {peer_info}");
+                        }
+                        if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
+                            error!(target: "network", ?peer_info, "Failed to mark peer as failed.");
                         }
                     }
                 }));
@@ -1464,14 +1480,24 @@ impl Handler<GetDebugStatus> for PeerManagerActor {
                         addr: format!("{:?}", known_peer_state.peer_info.addr),
                         first_seen: known_peer_state.first_seen.unix_timestamp(),
                         last_seen: known_peer_state.last_seen.unix_timestamp(),
-                        last_attempt: self
-                            .last_peer_outbound_attempt
-                            .get(peer_id)
-                            .map(|it| it.unix_timestamp()),
+                        last_attempt: known_peer_state.last_outbound_attempt.clone().map(
+                            |(attempt_time, attempt_result)| {
+                                let foo = match attempt_result {
+                                    Ok(_) => String::from("Ok"),
+                                    Err(err) => format!("Error: {:?}", err.as_str()),
+                                };
+                                (attempt_time.unix_timestamp(), foo)
+                            },
+                        ),
                     })
                     .collect::<Vec<_>>();
 
-                peer_states_view.sort_by_key(|a| (-a.last_attempt.unwrap_or(0), -a.last_seen));
+                peer_states_view.sort_by_key(|a| {
+                    (
+                        -a.last_attempt.clone().map(|(attempt_time, _)| attempt_time).unwrap_or(0),
+                        -a.last_seen,
+                    )
+                });
                 DebugStatus::PeerStore(PeerStoreView { peer_states: peer_states_view })
             }
         }
