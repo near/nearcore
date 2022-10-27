@@ -374,7 +374,8 @@ impl DBCol {
             | DBCol::IncomingReceipts
             | DBCol::OutgoingReceipts
             | DBCol::Transactions
-            | DBCol::Receipts => true,
+            | DBCol::Receipts
+            | DBCol::TransactionResultForBlock => true,
             _ => false,
         }
     }

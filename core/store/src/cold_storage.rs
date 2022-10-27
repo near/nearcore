@@ -5,6 +5,7 @@ use crate::{DBCol, DBTransaction, Database, Store, TrieChanges};
 
 use borsh::BorshDeserialize;
 use near_primitives::block::Block;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::BlockHeight;
@@ -145,7 +146,7 @@ fn get_keys_from_store(
     let chunks = {
         let mut chunks: Vec<ShardChunk> = vec![];
         for chunk_header in block.chunks().iter() {
-            chunks.push(store.get_ser_or_err(DBCol::Chunks, chunk_header.chunk_hash().as_ref())?);
+            chunks.push(store.get_ser_or_err(DBCol::Chunks, chunk_header.chunk_hash().as_bytes())?);
         }
         chunks
     };
@@ -203,12 +204,37 @@ fn get_keys_from_store(
                 }
                 DBKeyType::TransactionHash => chunks
                     .iter()
-                    .flat_map(|c| c.transactions().iter().map(|t| t.get_hash().as_ref().to_vec()))
+                    .flat_map(|c| c.transactions().iter().map(|t| t.get_hash().as_bytes().to_vec()))
                     .collect::<Vec<StoreKey>>(),
                 DBKeyType::ReceiptHash => chunks
                     .iter()
-                    .flat_map(|c| c.receipts().iter().map(|r| r.get_hash().as_ref().to_vec()))
+                    .flat_map(|c| c.receipts().iter().map(|r| r.get_hash().as_bytes().to_vec()))
                     .collect::<Vec<StoreKey>>(),
+                DBKeyType::OutcomeId => {
+                    let mut outcomes: Vec<Vec<CryptoHash>> = vec![];
+                    for shard_id in 0..shard_layout.num_shards() {
+                        debug_assert_eq!(
+                            DBCol::OutcomeIds.key_type(),
+                            &[DBKeyType::BlockHash, DBKeyType::ShardId]
+                        );
+
+                        outcomes.push(
+                            store
+                                .get_ser(
+                                    DBCol::OutcomeIds,
+                                    &join_two_keys(
+                                        &block_hash_key,
+                                        &shard_id.to_le_bytes().to_vec(),
+                                    ),
+                                )?
+                                .unwrap_or_default(),
+                        );
+                    }
+                    outcomes
+                        .iter()
+                        .flat_map(|os| os.iter().map(|o| o.as_bytes().to_vec()))
+                        .collect()
+                }
                 _ => {
                     vec![]
                 }
