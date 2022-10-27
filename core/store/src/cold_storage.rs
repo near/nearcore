@@ -179,7 +179,11 @@ fn get_keys_from_store(
                     store.iter_prefix_with_callback(
                         DBCol::StateChanges,
                         &block_hash_key,
-                        |full_key| keys.push(full_key[block_hash_key.len()..].to_vec()),
+                        |full_key| {
+                            let mut full_key = Vec::from(full_key);
+                            full_key.drain(..block_hash_key.len());
+                            keys.push(full_key);
+                        },
                     )?;
                     keys
                 }
@@ -257,7 +261,7 @@ impl StoreWithCache<'_> {
     ) -> io::Result<()> {
         for iter_result in self.store.iter_prefix(col, key_prefix) {
             let (key, value) = iter_result?;
-            self.cache.insert((col.clone(), key.to_vec()), Some(value.to_vec()));
+            self.cache.insert((col, key.to_vec()), Some(value.into()));
             callback(key);
         }
         Ok(())
