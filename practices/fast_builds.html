@@ -150,14 +150,15 @@ extremely common failure mode!</p>
 <p><a href="https://nnethercote.github.io/perf-book/compile-times.html">Rust Perf Book</a>
 contains a section on compilation time as well!</p>
 <h2 id="release-builds-and-link-time-optimization"><a class="header" href="#release-builds-and-link-time-optimization">Release Builds and Link Time Optimization</a></h2>
-<p>Obviously, <code>cargo build --release</code> is slower than <code>cargo build</code>. What's not
-entirely obvious is that <code>cargo build -r</code> is not as slow as it could be: our
-<code>--release</code> profile is somewhat optimized for fast builds, as it doesn't enable
-full LTO.</p>
-<p>When building production binaries, we use <code>lto=true</code> and <code>codegen-units=1</code>
-options, which make the build significantly slower (but the resulting binary
-somewhat faster). Keep this in mind when running benchmarks or parameter
-estimation.</p>
+<p>Obviously, <code>cargo build --release</code> is slower than <code>cargo build</code>. We enable full
+lto (link time optimization), so our <code>-r</code> builds are very slow, use a lot of
+RAM, and don't take advantage full of parallelism.</p>
+<p>As debug builds are much to slow at runtime for many purposes, we have a custom
+profile <code>--profile quick-release</code> which is equivalent to <code>-r</code>, but doesn't do
+<code>lto</code>.</p>
+<p>Use <code>--profile quick-release</code> when doing comparative benchmarking, or when
+connecting a locally build node to a network. Use <code>-r</code> if you want to get
+absolute performance numbers.</p>
 <h2 id="linker"><a class="header" href="#linker">Linker</a></h2>
 <p>By default, <code>rustc</code> uses system's linker, which might be quite slow. Using <code>lld</code>
 (LLVM linker) or <code>mold</code> (very new, very fast linker) is usually a big win.</p>
