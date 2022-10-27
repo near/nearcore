@@ -3,35 +3,29 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::test_utils::encode;
 use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::types::Balance;
-use near_primitives::version::ProtocolFeature;
-use near_vm_errors::{FunctionCallError, HostError, VMError, WasmTrap};
+use near_vm_errors::{FunctionCallError, HostError, WasmTrap};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
 use near_vm_logic::{ReceiptMetadata, VMConfig};
 use std::mem::size_of;
 
+use crate::runner::VMResult;
 use crate::tests::{
     create_context, with_vm_variants, CURRENT_ACCOUNT_ID, LATEST_PROTOCOL_VERSION,
     PREDECESSOR_ACCOUNT_ID, SIGNER_ACCOUNT_ID, SIGNER_ACCOUNT_PK,
 };
 use crate::vm_kind::VMKind;
-use crate::VMResult;
 
 fn test_contract() -> ContractCode {
-    let code = if cfg!(feature = "protocol_feature_alt_bn128") {
-        near_test_contracts::nightly_rs_contract()
-    } else {
-        near_test_contracts::rs_contract()
-    };
+    let code = near_test_contracts::rs_contract();
     ContractCode::new(code.to_vec(), None)
 }
 
+#[track_caller]
 fn assert_run_result(result: VMResult, expected_value: u64) {
-    if let Some(_) = result.error() {
-        panic!("Failed execution");
-    }
+    let outcome = result.expect("Failed execution");
 
-    if let ReturnData::Value(value) = &result.outcome().return_data {
+    if let ReturnData::Value(value) = &outcome.return_data {
         let mut arr = [0u8; size_of::<u64>()];
         arr.copy_from_slice(&value);
         let res = u64::from_le_bytes(arr);
@@ -80,47 +74,6 @@ pub fn test_read_write() {
     });
 }
 
-#[test]
-pub fn test_stablized_host_function() {
-    with_vm_variants(|vm_kind: VMKind| {
-        let code = test_contract();
-        let mut fake_external = MockedExternal::new();
-
-        let context = create_context(vec![]);
-        let config = VMConfig::test();
-        let fees = RuntimeFeesConfig::test();
-
-        let promise_results = vec![];
-        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
-        let result = runtime.run(
-            &code,
-            "do_ripemd",
-            &mut fake_external,
-            context.clone(),
-            &fees,
-            &promise_results,
-            LATEST_PROTOCOL_VERSION,
-            None,
-        );
-        assert_eq!(result.error(), None);
-
-        let result = runtime.run(
-            &code,
-            "do_ripemd",
-            &mut fake_external,
-            context,
-            &fees,
-            &promise_results,
-            ProtocolFeature::MathExtension.protocol_version() - 1,
-            None,
-        );
-        match result.error() {
-            Some(&VMError::FunctionCallError(FunctionCallError::LinkError { msg: _ })) => {}
-            _ => panic!("should return a link error due to missing import"),
-        }
-    });
-}
-
 macro_rules! def_test_ext {
     ($name:ident, $method:expr, $expected:expr, $input:expr, $validator:expr) => {
         #[test]
@@ -164,15 +117,11 @@ fn run_test_ext(
     let context = create_context(input.to_vec());
     let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
 
-    let (outcome, err) = runtime
+    let outcome = runtime
         .run(&code, method, &mut fake_external, context, &fees, &[], LATEST_PROTOCOL_VERSION, None)
-        .outcome_error();
+        .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 
     assert_eq!(outcome.profile.action_gas(), 0);
-
-    if let Some(_) = err {
-        panic!("Failed execution: {:?}", err);
-    }
 
     if let ReturnData::Value(value) = outcome.return_data {
         assert_eq!(&value, &expected);
@@ -261,22 +210,23 @@ pub fn test_out_of_memory() {
         let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
 
         let promise_results = vec![];
-        let result = runtime.run(
-            &code,
-            "out_of_memory",
-            &mut fake_external,
-            context,
-            &fees,
-            &promise_results,
-            LATEST_PROTOCOL_VERSION,
-            None,
-        );
+        let result = runtime
+            .run(
+                &code,
+                "out_of_memory",
+                &mut fake_external,
+                context,
+                &fees,
+                &promise_results,
+                LATEST_PROTOCOL_VERSION,
+                None,
+            )
+            .expect("execution failed");
         assert_eq!(
-            result.error(),
+            result.aborted,
             match vm_kind {
-                VMKind::Wasmer0 | VMKind::Wasmer2 => Some(&VMError::FunctionCallError(
-                    FunctionCallError::WasmTrap(WasmTrap::Unreachable)
-                )),
+                VMKind::Wasmer0 | VMKind::Wasmer2 =>
+                    Some(FunctionCallError::WasmTrap(WasmTrap::Unreachable)),
                 VMKind::Wasmtime => unreachable!(),
             }
         );
@@ -301,7 +251,7 @@ fn attach_unspent_gas_but_burn_all_gas() {
         config.limit_config.max_gas_burnt = context.prepaid_gas / 3;
         let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
 
-        let (outcome, err) = runtime
+        let outcome = runtime
             .run(
                 &code,
                 "attach_unspent_gas_but_burn_all_gas",
@@ -312,13 +262,10 @@ fn attach_unspent_gas_but_burn_all_gas() {
                 LATEST_PROTOCOL_VERSION,
                 None,
             )
-            .outcome_error();
+            .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 
-        let err = err.unwrap();
-        assert!(matches!(
-            err,
-            VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasLimitExceeded))
-        ));
+        let err = outcome.aborted.as_ref().unwrap();
+        assert!(matches!(err, FunctionCallError::HostError(HostError::GasLimitExceeded)));
         match &outcome.action_receipts.as_slice() {
             [(_, ReceiptMetadata { actions, .. })] => match actions.as_slice() {
                 [Action::FunctionCall(FunctionCallAction { gas, .. })] => {
@@ -344,7 +291,7 @@ fn attach_unspent_gas_but_use_all_gas() {
         config.limit_config.max_gas_burnt = context.prepaid_gas / 3;
         let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
 
-        let (outcome, err) = runtime
+        let outcome = runtime
             .run(
                 &code,
                 "attach_unspent_gas_but_use_all_gas",
@@ -355,13 +302,10 @@ fn attach_unspent_gas_but_use_all_gas() {
                 LATEST_PROTOCOL_VERSION,
                 None,
             )
-            .outcome_error();
+            .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 
-        let err = err.unwrap();
-        assert!(matches!(
-            err,
-            VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded))
-        ));
+        let err = outcome.aborted.as_ref().unwrap();
+        assert!(matches!(err, FunctionCallError::HostError(HostError::GasExceeded)));
 
         match &outcome.action_receipts.as_slice() {
             [(_, ReceiptMetadata { actions, .. }), _] => match actions.as_slice() {

@@ -157,6 +157,12 @@ impl From<RpcParseError> for RpcError {
     }
 }
 
+impl From<std::convert::Infallible> for RpcError {
+    fn from(_: std::convert::Infallible) -> Self {
+        unsafe { core::hint::unreachable_unchecked() }
+    }
+}
+
 impl fmt::Display for ServerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

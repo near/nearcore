@@ -58,7 +58,7 @@ obtaining this whole history is the following:
   [installation guide](https://cloud.google.com/sdk/docs/install) if needed.
 * It is recommended to run all the following commands as user `ubuntu`: `sudo su ubuntu`.
 * Install tools be able to compile `neard`:
-  * Install development packages: <https://docs.near.org/docs/develop/node/validator/compile-and-run-a-node>
+  * Install development packages: <https://near-nodes.io/validator/compile-and-run-a-node>
   * Install Rust: <https://rustup.rs/>
   * Clone the git repository: `git clone http://github.com/near/nearcore`
   * `make neard`
@@ -88,7 +88,33 @@ Saves the current state of the network in a new genesis file.
 
 Flags:
 
-* `--height` takes state from the genesis up to and including the given height. By default, dumps all available state.
+* `--height` takes state from the genesis up to and including the given height. By default, the tool dumps all available states.
+
+* `--account-ids`, if set, specifies the only accounts that will appear in the output genesis file, except for validators, who will always be included.
+
+Example:
+
+```shell
+./target/release/neard --home ~/.near/mainnet/ view_state dump_state --height 68874690 --account-ids near
+```
+
+### `dump_tx`
+
+Saves all transactions of a range of blocks [start, end] to a file.
+
+Flags:
+
+* `--start-height` specifies the start block by its height, inclusive.
+
+* `--end-height` specifies the end block by its height, inclusive.
+
+* `--account-ids` specifies the accounts as receivers of the transactions that need to be dumped. By default, all transactions will be dumped if this parameter is not set.
+
+Example:
+
+```shell
+./target/release/neard --home ~/.near/mainnet/ view_state dump_tx --start-height 68701890 --end-height 68701890 --account-ids near
+```
 
 ### `rocksdb_stats`
 

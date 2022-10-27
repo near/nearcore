@@ -7,5 +7,6 @@ mod commands;
 mod epoch_info;
 mod rocksdb_stats;
 mod state_dump;
+mod tx_dump;
 
 pub use cli::StateViewerSubCommand;

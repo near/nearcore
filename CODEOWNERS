@@ -1,4 +1,3 @@
 # CODEOWNERS: https://help.github.com/articles/about-codeowners/
 
 * @near/nearcore-codeowners
-/.buildkite/ @rtsai123 @mhalambek

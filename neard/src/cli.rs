@@ -1,18 +1,25 @@
 use crate::log_config_watcher::{LogConfigWatcher, UpdateBehavior};
-use actix::SystemRunner;
+use anyhow::Context;
 use clap::{Args, Parser};
 use near_chain_configs::GenesisValidationMode;
+use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
+use near_mirror::MirrorCommand;
+use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
-    default_subscriber, BuildEnvFilterError, DefaultSubscriberGuard, EnvFilterBuilder,
+    default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
+    EnvFilterBuilder, OpenTelemetryLevel,
 };
+use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
-use std::cell::Cell;
-use std::fs;
+use near_store::Mode;
+use serde_json::Value;
+use std::fs::File;
+use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
 use tracing::{debug, error, info, warn};
@@ -29,14 +36,15 @@ pub(super) struct NeardCmd {
 }
 
 impl NeardCmd {
-    pub(super) fn parse_and_run() -> Result<(), RunError> {
+    pub(super) fn parse_and_run() -> anyhow::Result<()> {
         let neard_cmd = Self::parse();
 
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        // Opentelemetry needs a running Tokio system to report spans asynchronously and in batches,
-        // which is great for the overall system performance.
-        let _subscriber_guard =
-            runtime.block_on(async { init_logging(&neard_cmd.opts).await.unwrap() });
+        // Enable logging of the current thread.
+        let _subscriber_guard = default_subscriber(
+            make_env_filter(neard_cmd.opts.verbose_target())?,
+            &neard_cmd.opts.o11y,
+        )
+        .local();
 
         info!(
             target: "neard",
@@ -58,7 +66,7 @@ impl NeardCmd {
             }
         }
 
-        let home_dir = neard_cmd.opts.home;
+        let home_dir = neard_cmd.opts.home.clone();
         let genesis_validation = if neard_cmd.opts.unsafe_fast_startup {
             GenesisValidationMode::UnsafeFast
         } else {
@@ -68,60 +76,30 @@ impl NeardCmd {
         match neard_cmd.subcmd {
             NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
             NeardSubCommand::Localnet(cmd) => cmd.run(&home_dir),
-            NeardSubCommand::Testnet(cmd) => {
-                warn!(
-                    "The 'testnet' command has been renamed to 'localnet' \
-                           and will be removed in the future"
-                );
-                cmd.run(&home_dir);
-            }
-            NeardSubCommand::Run(cmd) => cmd.run(&home_dir, genesis_validation, runtime),
-
-            // TODO(mina86): Remove the command in Q3 2022.
-            NeardSubCommand::UnsafeResetData => {
-                let store_path = near_store::get_store_path(&home_dir);
-                unsafe_reset("unsafe_reset_data", &store_path, "data", "<near-home-dir>/data");
-            }
-            // TODO(mina86): Remove the command in Q3 2022.
-            NeardSubCommand::UnsafeResetAll => {
-                unsafe_reset("unsafe_reset_all", &home_dir, "data and config", "<near-home-dir>");
-            }
+            NeardSubCommand::Run(cmd) => cmd.run(
+                &home_dir,
+                genesis_validation,
+                neard_cmd.opts.verbose_target(),
+                &neard_cmd.opts.o11y,
+            ),
 
             NeardSubCommand::StateViewer(cmd) => {
-                cmd.subcmd.run(&home_dir, genesis_validation, cmd.readwrite);
+                let mode = if cmd.readwrite { Mode::ReadWrite } else { Mode::ReadOnly };
+                cmd.subcmd.run(&home_dir, genesis_validation, mode);
             }
 
             NeardSubCommand::RecompressStorage(cmd) => {
                 cmd.run(&home_dir);
             }
+            NeardSubCommand::VerifyProof(cmd) => {
+                cmd.run();
+            }
+            NeardSubCommand::Mirror(cmd) => {
+                cmd.run()?;
+            }
         };
         Ok(())
     }
-}
-
-async fn init_logging(
-    opts: &NeardOpts,
-) -> Result<DefaultSubscriberGuard<impl tracing::Subscriber + Send + Sync>, RunError> {
-    let verbose = opts.verbose_target();
-    let env_filter =
-        EnvFilterBuilder::from_env().verbose(verbose).finish().map_err(RunError::EnvFilter)?;
-    // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
-    // This is hidden by default so we enable it for sandbox node.
-    let env_filter = if cfg!(feature = "sandbox") {
-        env_filter.add_directive("sandbox=debug".parse().unwrap())
-    } else {
-        env_filter
-    };
-    let subscriber = default_subscriber(env_filter, &opts.o11y).await.global();
-    Ok(subscriber)
-}
-
-#[derive(thiserror::Error, Debug)]
-pub(crate) enum RunError {
-    #[error("invalid logging directives provided")]
-    EnvFilter(#[source] BuildEnvFilterError),
-    #[error("could not install a rayon thread pool")]
-    RayonInstall(#[source] rayon::ThreadPoolBuildError),
 }
 
 #[derive(Parser)]
@@ -133,15 +111,6 @@ pub(super) struct StateViewerCommand {
     readwrite: bool,
     #[clap(subcommand)]
     subcmd: StateViewerSubCommand,
-}
-
-fn unsafe_reset(command: &str, path: &std::path::Path, what: &str, default: &str) {
-    let dir =
-        path.to_str().map(|path| shell_escape::unix::escape(path.into())).unwrap_or(default.into());
-    warn!(target: "neard", "The ‘{}’ command is deprecated and will be removed in Q3 2022", command);
-    warn!(target: "neard", "Use ‘rm -r -- {}’ instead (which is effectively what this command does)", dir);
-    info!(target: "neard", "Removing all {} from {}", what, path.display());
-    fs::remove_dir_all(path).expect("Removing data failed");
 }
 
 #[derive(Parser, Debug)]
@@ -181,22 +150,6 @@ pub(super) enum NeardSubCommand {
     /// Sets up local configuration with all necessary files (validator key, node key, genesis and
     /// config)
     Localnet(LocalnetCmd),
-    /// DEPRECATED: this command has been renamed to 'localnet' and will be removed in a future
-    /// release.
-    // We’re not using clap(alias = "testnet") on Localnet because we want this
-    // to be a separate subcommand with a deprecation warning.  TODO(#4372):
-    // Deprecated since 1.24.  Delete it in a couple of releases in 2022.
-    #[clap(hide = true)]
-    Testnet(LocalnetCmd),
-    /// (unsafe) Remove the entire NEAR home directory (which includes the
-    /// configuration, genesis files, private keys and data).  This effectively
-    /// removes all information about the network.
-    #[clap(alias = "unsafe_reset_all", hide = true)]
-    UnsafeResetAll,
-    /// (unsafe) Remove all the data, effectively resetting node to the genesis state (keeps genesis and
-    /// config).
-    #[clap(alias = "unsafe_reset_data", hide = true)]
-    UnsafeResetData,
     /// View DB state.
     #[clap(name = "view-state", alias = "view_state")]
     StateViewer(StateViewerCommand),
@@ -228,6 +181,14 @@ pub(super) enum NeardSubCommand {
     /// tool, it is planned to be removed by the end of 2022.
     #[clap(alias = "recompress_storage")]
     RecompressStorage(RecompressStorageSubCommand),
+
+    /// Verify proofs
+    #[clap(alias = "verify_proof")]
+    VerifyProof(VerifyProofSubCommand),
+
+    /// Mirror transactions from a source chain to a test chain with state forked
+    /// from it, reproducing traffic and state as closely as possible.
+    Mirror(MirrorCommand),
 }
 
 #[derive(Parser)]
@@ -340,7 +301,9 @@ impl InitCmd {
 
 #[derive(Parser)]
 pub(super) struct RunCmd {
-    /// Keep old blocks in the storage (default false).
+    /// Configure node to run as archival node which prevents deletion of old
+    /// blocks.  This is a persistent setting; once client is started as
+    /// archival node, it cannot be run in non-archival mode.
     #[clap(long)]
     archive: bool,
     /// Set the boot nodes to bootstrap network from.
@@ -386,7 +349,8 @@ impl RunCmd {
         self,
         home_dir: &Path,
         genesis_validation: GenesisValidationMode,
-        runtime: Runtime,
+        verbose_target: Option<&str>,
+        o11y_opts: &near_o11y::Options,
     ) {
         // Load configs from home.
         let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation)
@@ -402,7 +366,7 @@ impl RunCmd {
         }
         if let Some(boot_nodes) = self.boot_nodes {
             if !boot_nodes.is_empty() {
-                near_config.network_config.boot_nodes = boot_nodes
+                near_config.network_config.peer_store.boot_nodes = boot_nodes
                     .split(',')
                     .map(|chunk| chunk.parse().expect("Failed to parse PeerInfo"))
                     .collect();
@@ -412,7 +376,7 @@ impl RunCmd {
             near_config.client_config.min_num_peers = min_peers;
         }
         if let Some(network_addr) = self.network_addr {
-            near_config.network_config.addr = Some(network_addr);
+            near_config.network_config.node_addr = Some(network_addr);
         }
         #[cfg(feature = "json_rpc")]
         if self.disable_rpc {
@@ -452,8 +416,24 @@ impl RunCmd {
         }
 
         let (tx, rx) = oneshot::channel::<()>();
-        let sys = new_actix_system(runtime);
+        let sys = actix::System::new();
+
         sys.block_on(async move {
+            // Initialize the subscriber that takes care of both logging and tracing.
+            let _subscriber_guard = default_subscriber_with_opentelemetry(
+                make_env_filter(verbose_target).unwrap(),
+                o11y_opts,
+                near_config.client_config.chain_id.clone(),
+                near_config.network_config.node_key.public_key().clone(),
+                near_config
+                    .network_config
+                    .validator
+                    .as_ref()
+                    .map(|validator| validator.account_id()),
+            )
+            .await
+            .global();
+
             let nearcore::NearNode { rpc_servers, .. } =
                 nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
                     .expect("start_with_config");
@@ -466,24 +446,14 @@ impl RunCmd {
             }))
             .await;
             actix::System::current().stop();
+
+            // Disable the subscriber to properly shutdown the tracer.
+            near_o11y::reload(Some("error"), None, Some(OpenTelemetryLevel::OFF)).unwrap();
         });
         sys.run().unwrap();
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
         RocksDB::block_until_all_instances_are_dropped();
     }
-}
-
-/// Creates a new actix SystemRunner using the given tokio Runtime.
-fn new_actix_system(runtime: Runtime) -> SystemRunner {
-    // `with_tokio_rt()` accepts an `Fn()->Runtime`, however we know that this function is called exactly once.
-    // This makes it safe to move out of the captured variable `runtime`, which is done by a trick
-    // using a `swap` of `Cell<Option<Runtime>>`s.
-    let runtime_cell = Cell::new(Some(runtime));
-    actix::System::with_tokio_rt(|| {
-        let r = Cell::new(None);
-        runtime_cell.swap(&r);
-        r.into_inner().unwrap()
-    })
 }
 
 #[cfg(not(unix))]
@@ -597,9 +567,126 @@ impl RecompressStorageSubCommand {
     }
 }
 
+#[derive(thiserror::Error, Debug, PartialEq)]
+pub enum VerifyProofError {
+    #[error("invalid outcome root proof")]
+    InvalidOutcomeRootProof,
+    #[error("invalid block hash proof")]
+    InvalidBlockHashProof,
+}
+
+#[derive(Parser)]
+pub struct VerifyProofSubCommand {
+    #[clap(long)]
+    json_file_path: String,
+}
+
+impl VerifyProofSubCommand {
+    /// Verifies light client transaction proof (result of the EXPERIMENTAL_light_client_proof RPC call).
+    /// Returns the Hash and height of the block that transaction belongs to, and root of the light block merkle tree.
+    pub fn run(self) -> ((CryptoHash, u64), CryptoHash) {
+        let file = File::open(Path::new(self.json_file_path.as_str()))
+            .with_context(|| "Could not open proof file.")
+            .unwrap();
+        let reader = BufReader::new(file);
+        let light_client_rpc_response: Value =
+            serde_json::from_reader(reader).with_context(|| "Failed to deserialize JSON.").unwrap();
+        Self::verify_json(light_client_rpc_response).unwrap()
+    }
+
+    pub fn verify_json(
+        light_client_rpc_response: Value,
+    ) -> Result<((CryptoHash, u64), CryptoHash), VerifyProofError> {
+        let light_client_proof: RpcLightClientExecutionProofResponse =
+            serde_json::from_value(light_client_rpc_response["result"].clone()).unwrap();
+
+        println!(
+            "Verifying light client proof for txn id: {:?}",
+            light_client_proof.outcome_proof.id
+        );
+        let outcome_hashes = light_client_proof.outcome_proof.clone().to_hashes();
+        println!("Hashes of the outcome are: {:?}", outcome_hashes);
+
+        let outcome_hash = CryptoHash::hash_borsh(&outcome_hashes);
+        println!("Hash of the outcome is: {:?}", outcome_hash);
+
+        let outcome_shard_root =
+            compute_root_from_path(&light_client_proof.outcome_proof.proof, outcome_hash);
+        println!("Shard outcome root is: {:?}", outcome_shard_root);
+        let block_outcome_root = compute_root_from_path(
+            &light_client_proof.outcome_root_proof,
+            CryptoHash::hash_borsh(&outcome_shard_root),
+        );
+        println!("Block outcome root is: {:?}", block_outcome_root);
+
+        if light_client_proof.block_header_lite.inner_lite.outcome_root != block_outcome_root {
+            println!(
+                "{}",
+                ansi_term::Colour::Red.bold().paint(format!(
+                    "ERROR: computed outcome root: {:?} doesn't match the block one {:?}.",
+                    block_outcome_root,
+                    light_client_proof.block_header_lite.inner_lite.outcome_root
+                ))
+            );
+            return Err(VerifyProofError::InvalidOutcomeRootProof);
+        }
+        let block_hash = light_client_proof.outcome_proof.block_hash;
+
+        if light_client_proof.block_header_lite.hash()
+            != light_client_proof.outcome_proof.block_hash
+        {
+            println!("{}",
+            ansi_term::Colour::Red.bold().paint(format!(
+                "ERROR: block hash from header lite {:?} doesn't match the one from outcome proof {:?}",
+                light_client_proof.block_header_lite.hash(),
+                light_client_proof.outcome_proof.block_hash
+            )));
+            return Err(VerifyProofError::InvalidBlockHashProof);
+        } else {
+            println!(
+                "{}",
+                ansi_term::Colour::Green
+                    .bold()
+                    .paint(format!("Block hash matches {:?}", block_hash))
+            );
+        }
+
+        // And now check that block exists in the light client.
+
+        let light_block_merkle_root =
+            compute_root_from_path(&light_client_proof.block_proof, block_hash);
+
+        println!(
+            "Please verify that your light block has the following block merkle root: {:?}",
+            light_block_merkle_root
+        );
+        println!(
+            "OR verify that block with this hash {:?} is in the chain at this heigth {:?}",
+            block_hash, light_client_proof.block_header_lite.inner_lite.height
+        );
+        Ok((
+            (block_hash, light_client_proof.block_header_lite.inner_lite.height),
+            light_block_merkle_root,
+        ))
+    }
+}
+
+fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, BuildEnvFilterError> {
+    let env_filter = EnvFilterBuilder::from_env().verbose(verbose).finish()?;
+    // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
+    // This is hidden by default so we enable it for sandbox node.
+    let env_filter = if cfg!(feature = "sandbox") {
+        env_filter.add_directive("sandbox=debug".parse().unwrap())
+    } else {
+        env_filter
+    };
+    Ok(env_filter)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn optional_values() {
@@ -624,5 +711,31 @@ mod tests {
             "--fast"
         ])
         .is_err());
+    }
+
+    #[test]
+    fn verify_proof_test() {
+        assert_eq!(
+            VerifyProofSubCommand::verify_json(
+                serde_json::from_slice(include_bytes!("../res/proof_example.json")).unwrap()
+            )
+            .unwrap(),
+            (
+                (
+                    CryptoHash::from_str("HqZHDTHSqH6Az22SZgFUjodGFDtfC2qSt4v9uYFpLuFC").unwrap(),
+                    38 as u64
+                ),
+                CryptoHash::from_str("BWwZdhAhjAgKxZ5ycqn1CvXads5DjPMfj4kRdc1rWit8").unwrap()
+            )
+        );
+
+        // Proof with a wroing outcome (as user specified wrong shard).
+        assert_eq!(
+            VerifyProofSubCommand::verify_json(
+                serde_json::from_slice(include_bytes!("../res/invalid_proof.json")).unwrap()
+            )
+            .unwrap_err(),
+            VerifyProofError::InvalidOutcomeRootProof
+        );
     }
 }

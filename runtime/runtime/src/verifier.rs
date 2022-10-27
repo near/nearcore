@@ -326,8 +326,6 @@ pub fn validate_action(
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
         Action::Stake(a) => validate_stake_action(a),
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        Action::StakeChunkOnly(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
         Action::DeleteAccount(_) => Ok(()),
@@ -395,6 +393,19 @@ fn validate_add_key_action(
     action: &AddKeyAction,
 ) -> Result<(), ActionsValidationError> {
     if let AccessKeyPermission::FunctionCall(fc) = &action.access_key.permission {
+        // Check whether `receiver_id` is a valid account_id. Historically, we
+        // allowed arbitrary strings there!
+        match limit_config.account_id_validity_rules_version {
+            near_vm_logic::AccountIdValidityRulesVersion::V0 => (),
+            near_vm_logic::AccountIdValidityRulesVersion::V1 => {
+                if let Err(_) = fc.receiver_id.parse::<AccountId>() {
+                    return Err(ActionsValidationError::InvalidAccountId {
+                        account_id: truncate_string(&fc.receiver_id, AccountId::MAX_LEN * 2),
+                    });
+                }
+            }
+        }
+
         // Checking method name length limits
         let mut total_number_of_bytes = 0;
         for method_name in &fc.method_names {
@@ -417,6 +428,31 @@ fn validate_add_key_action(
     }
 
     Ok(())
+}
+
+fn truncate_string(s: &str, limit: usize) -> String {
+    for i in (0..=limit).rev() {
+        if let Some(s) = s.get(..i) {
+            return s.to_string();
+        }
+    }
+    unreachable!()
+}
+
+#[test]
+fn test_truncate_string() {
+    fn check(input: &str, limit: usize, want: &str) {
+        let got = truncate_string(input, limit);
+        assert_eq!(got, want)
+    }
+    check("", 10, "");
+    check("hello", 0, "");
+    check("hello", 2, "he");
+    check("hello", 4, "hell");
+    check("hello", 5, "hello");
+    check("hello", 6, "hello");
+    check("hello", 10, "hello");
+    check("привет", 3, "п");
 }
 
 #[cfg(test)]
@@ -481,7 +517,8 @@ mod tests {
         }
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap().0;
-        let (store_update, root) = tries.apply_all(&trie_changes, ShardUId::single_shard());
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
 
         (signer, tries.new_trie_update(ShardUId::single_shard(), root), 100)
@@ -1230,7 +1267,7 @@ mod tests {
         let limit_config = VMLimitConfig::test();
         validate_actions(
             &limit_config,
-            &vec![Action::FunctionCall(FunctionCallAction {
+            &[Action::FunctionCall(FunctionCallAction {
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
                 gas: 100,
@@ -1247,7 +1284,7 @@ mod tests {
         assert_eq!(
             validate_actions(
                 &limit_config,
-                &vec![
+                &[
                     Action::FunctionCall(FunctionCallAction {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
@@ -1274,7 +1311,7 @@ mod tests {
         assert_eq!(
             validate_actions(
                 &limit_config,
-                &vec![
+                &[
                     Action::FunctionCall(FunctionCallAction {
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
@@ -1301,7 +1338,7 @@ mod tests {
         assert_eq!(
             validate_actions(
                 &limit_config,
-                &vec![
+                &[
                     Action::CreateAccount(CreateAccountAction {}),
                     Action::CreateAccount(CreateAccountAction {}),
                 ]
@@ -1321,7 +1358,7 @@ mod tests {
         assert_eq!(
             validate_actions(
                 &limit_config,
-                &vec![
+                &[
                     Action::DeleteAccount(DeleteAccountAction {
                         beneficiary_id: "bob".parse().unwrap()
                     }),
@@ -1340,7 +1377,7 @@ mod tests {
         assert_eq!(
             validate_actions(
                 &limit_config,
-                &vec![
+                &[
                     Action::CreateAccount(CreateAccountAction {}),
                     Action::DeleteAccount(DeleteAccountAction {
                         beneficiary_id: "bob".parse().unwrap()

@@ -34,7 +34,7 @@ pub fn get_epoch_block_producers_view(
 ///                   to and for the next block, and the three blocks must have sequential heights.
 pub fn create_light_client_block_view(
     block_header: &BlockHeader,
-    chain_store: &mut dyn ChainStoreAccess,
+    chain_store: &dyn ChainStoreAccess,
     next_block_producers: Option<Vec<ValidatorStakeView>>,
 ) -> Result<LightClientBlockView, Error> {
     let inner_lite_view = BlockHeaderInnerLiteView {

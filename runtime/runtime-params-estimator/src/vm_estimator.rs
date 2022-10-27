@@ -2,15 +2,13 @@ use crate::config::GasMetric;
 use crate::gas_cost::{GasCost, LeastSquaresTolerance};
 use crate::{utils::read_resource, REAL_CONTRACTS_SAMPLE};
 use near_primitives::contract::ContractCode;
+use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::types::CompiledContractCache;
+use near_primitives::types::{CompiledContract, CompiledContractCache};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::StoreCompiledContractCache;
 use near_vm_logic::VMContext;
 use near_vm_runner::internal::VMKind;
-use near_vm_runner::precompile_contract_vm;
-use std::sync::Arc;
-use walrus::Result;
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
@@ -24,7 +22,7 @@ pub(crate) fn create_context(input: Vec<u8>) -> VMContext {
         signer_account_pk: Vec::from(&SIGNER_ACCOUNT_PK[..]),
         predecessor_account_id: PREDECESSOR_ACCOUNT_ID.parse().unwrap(),
         input,
-        block_index: 10,
+        block_height: 10,
         block_timestamp: 42,
         epoch_height: 0,
         account_balance: 2u128,
@@ -42,27 +40,28 @@ fn measure_contract(
     vm_kind: VMKind,
     gas_metric: GasMetric,
     contract: &ContractCode,
-    cache: Option<&dyn CompiledContractCache>,
+    cache: &dyn CompiledContractCache,
 ) -> GasCost {
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
     let vm_config = runtime_config.wasm_config.clone();
     let start = GasCost::measure(gas_metric);
-    let result = precompile_contract_vm(vm_kind, contract, &vm_config, cache);
+    let vm = vm_kind.runtime(vm_config).unwrap();
+    let result = vm.precompile(contract, cache).unwrap();
     let end = start.elapsed();
-    assert!(result.is_ok(), "Compilation failed");
+    result.unwrap_or_else(|err| panic!("compilation failed, {err}"));
     end
 }
 
 #[derive(Default, Clone)]
-struct MockCompiledContractCache {}
+struct MockCompiledContractCache;
 
 impl CompiledContractCache for MockCompiledContractCache {
-    fn put(&self, _key: &[u8], _value: &[u8]) -> Result<(), std::io::Error> {
+    fn put(&self, _key: &CryptoHash, _value: CompiledContract) -> std::io::Result<()> {
         Ok(())
     }
 
-    fn get(&self, _key: &[u8]) -> Result<Option<Vec<u8>>, std::io::Error> {
+    fn get(&self, _key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
         Ok(None)
     }
 }
@@ -78,19 +77,16 @@ fn precompilation_cost(
     if cfg!(debug_assertions) {
         eprintln!("WARNING: did you pass --release flag, results do not make sense otherwise")
     }
-    let cache_store1: Arc<StoreCompiledContractCache>;
-    let cache_store2: Arc<MockCompiledContractCache>;
-    let cache: Option<&dyn CompiledContractCache>;
-    let use_file_store = true;
-    if use_file_store {
-        let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-        let store = near_store::StoreOpener::with_default_config().home(workdir.path()).open();
-        cache_store1 = Arc::new(StoreCompiledContractCache { store });
-        cache = Some(cache_store1.as_ref());
+    let cache_store1: StoreCompiledContractCache;
+    let cache_store2 = MockCompiledContractCache;
+    let use_store = true;
+    let cache: &dyn CompiledContractCache = if use_store {
+        let store = near_store::test_utils::create_test_store();
+        cache_store1 = StoreCompiledContractCache::new(&store);
+        &cache_store1
     } else {
-        cache_store2 = Arc::new(MockCompiledContractCache {});
-        cache = Some(cache_store2.as_ref());
-    }
+        &cache_store2
+    };
     let mut xs = vec![];
     let mut ys = vec![];
 
@@ -126,11 +122,11 @@ fn precompilation_cost(
     // Contracts binaries are taken from near-sdk-rs examples, ae20fc458858144e4a35faf58be778d13c2b0511.
     let validate_contracts = vec![
         // File 139637.
-        read_resource("test-contract/res/status_message.wasm"),
+        read_resource("res/status_message.wasm"),
         // File 157010.
-        read_resource("test-contract/res/mission_control.wasm"),
+        read_resource("res/mission_control.wasm"),
         // File 218444.
-        read_resource("test-contract/res/fungible_token.wasm"),
+        read_resource("res/fungible_token.wasm"),
     ];
 
     for raw_bytes in validate_contracts {
@@ -155,11 +151,10 @@ pub(crate) fn compile_single_contract_cost(
 ) -> GasCost {
     let contract = ContractCode::new(contract_bytes.to_vec(), None);
 
-    let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-    let store = near_store::StoreOpener::with_default_config().home(workdir.path()).open();
-    let cache = Arc::new(StoreCompiledContractCache { store });
+    let store = near_store::test_utils::create_test_store();
+    let cache = StoreCompiledContractCache::new(&store);
 
-    measure_contract(vm_kind, metric, &contract, Some(cache.as_ref()))
+    measure_contract(vm_kind, metric, &contract, &cache)
 }
 
 pub(crate) fn compute_compile_cost_vm(

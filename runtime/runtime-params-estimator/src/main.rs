@@ -6,19 +6,21 @@ use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::internal::VMKind;
+use replay::ReplayCmd;
 use runtime_params_estimator::config::{Config, GasMetric};
-use runtime_params_estimator::utils::read_resource;
 use runtime_params_estimator::{
     costs_to_runtime_config, CostTable, QemuCommandBuilder, RocksDBTestConfig,
 };
 use std::env;
 use std::fmt::Write;
-use std::fs;
+use std::fs::{self};
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Arc;
 use std::time;
+use tracing_subscriber::Layer;
+
+mod replay;
 
 #[derive(Parser)]
 struct CliArgs {
@@ -42,7 +44,13 @@ struct CliArgs {
     #[clap(long)]
     skip_build_test_contract: bool,
     /// What metric to use.
-    #[clap(long, default_value = "icount", possible_values = &["icount", "time"])]
+    ///
+    /// `time` measures wall-clock time elapsed.
+    /// `icount` counts the CPU instructions and syscall-level IO bytes executed
+    ///  using qemu instrumentation.
+    /// Note that `icount` measurements are not accurate when translating to gas. The main purpose of it is to
+    /// have a stable output that can be used to detect performance regressions.
+    #[clap(long, default_value = "time", possible_values = &["icount", "time"])]
     metric: String,
     /// Which VM to test.
     #[clap(long, possible_values = &["wasmer", "wasmer2", "wasmtime"])]
@@ -80,9 +88,22 @@ struct CliArgs {
     /// Prints hierarchical execution-timing information using the tracing-span-tree crate.
     #[clap(long)]
     tracing_span_tree: bool,
+    /// Records IO events in JSON format and stores it in a given file.
+    #[clap(long)]
+    record_io_trace: Option<PathBuf>,
+    /// Use in-memory test DB, useful to avoid variance caused by DB.
+    #[clap(long)]
+    pub in_memory_db: bool,
     /// Extra configuration parameters for RocksDB specific estimations
     #[clap(flatten)]
     db_test_config: RocksDBTestConfig,
+    #[clap(subcommand)]
+    sub_cmd: Option<CliSubCmd>,
+}
+
+#[derive(clap::Subcommand)]
+enum CliSubCmd {
+    Replay(ReplayCmd),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -90,23 +111,10 @@ fn main() -> anyhow::Result<()> {
 
     let cli_args = CliArgs::parse();
 
-    // TODO: consider implementing the same in Rust to reduce complexity.
-    // Good example: runtime/near-test-contracts/build.rs
-    if !cli_args.skip_build_test_contract {
-        let build_test_contract = "./build.sh";
-        let project_root = project_root();
-        let estimator_dir = project_root.join("runtime/runtime-params-estimator/test-contract");
-        let result = std::process::Command::new(build_test_contract)
-            .current_dir(estimator_dir)
-            .output()
-            .context("could not build test contract")?;
-        if !result.status.success() {
-            anyhow::bail!(
-                "Failed to build test contract, {}, stderr: {}",
-                result.status,
-                String::from_utf8_lossy(&result.stderr)
-            );
-        }
+    if let Some(cmd) = cli_args.sub_cmd {
+        return match cmd {
+            CliSubCmd::Replay(inner) => inner.run(&mut std::io::stdout()),
+        };
     }
 
     let temp_dir;
@@ -118,11 +126,16 @@ fn main() -> anyhow::Result<()> {
         }
     };
     if state_dump_path.read_dir()?.next().is_none() {
-        let contract_code = read_resource(if cfg!(feature = "nightly") {
-            "test-contract/res/nightly_small_contract.wasm"
-        } else {
-            "test-contract/res/stable_small_contract.wasm"
-        });
+        // Every created account gets this smart contract deployed, such that
+        // any account can be used to perform estimations that require this
+        // contract.
+        // Note: This contract no longer has a fixed size, which means that
+        // changes to the test contract might affect all kinds of estimations.
+        // (Larger code = more time spent on reading it from the database, for
+        // example.) But this is generally a sign of a badly designed
+        // estimation, therefore we make no effort to guarantee a fixed size.
+        // Also, continuous estimation should be able to pick up such changes.
+        let contract_code = near_test_contracts::estimator_contract();
 
         nearcore::init_configs(
             &state_dump_path,
@@ -144,19 +157,18 @@ fn main() -> anyhow::Result<()> {
         let near_config = nearcore::load_config(&state_dump_path, GenesisValidationMode::Full)
             .context("Error loading config")?;
         let store =
-            near_store::StoreOpener::new(&near_config.config.store).home(&state_dump_path).open();
-        GenesisBuilder::from_config_and_store(
-            &state_dump_path,
-            Arc::new(near_config.genesis),
-            store,
-        )
-        .add_additional_accounts(cli_args.additional_accounts_num)
-        .add_additional_accounts_contract(contract_code)
-        .print_progress()
-        .build()
-        .unwrap()
-        .dump_state()
-        .unwrap();
+            near_store::NodeStorage::opener(&state_dump_path, &near_config.config.store, None)
+                .open()
+                .unwrap()
+                .get_store(near_store::Temperature::Hot);
+        GenesisBuilder::from_config_and_store(&state_dump_path, near_config, store)
+            .add_additional_accounts(cli_args.additional_accounts_num)
+            .add_additional_accounts_contract(contract_code.to_vec())
+            .print_progress()
+            .build()
+            .unwrap()
+            .dump_state()
+            .unwrap();
     }
 
     if cli_args.docker {
@@ -197,9 +209,33 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    #[cfg(feature = "io_trace")]
+    let mut _maybe_writer_guard = None;
+
     if cli_args.tracing_span_tree {
         tracing_span_tree::span_tree().enable();
-    }
+    } else {
+        use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
+        let log_layer = tracing_subscriber::fmt::layer()
+            .with_filter(tracing_subscriber::EnvFilter::from_default_env());
+        let subscriber = tracing_subscriber::registry().with(log_layer);
+        #[cfg(feature = "io_trace")]
+        let subscriber = subscriber.with(cli_args.record_io_trace.map(|path| {
+            let log_file =
+                fs::File::create(path).expect("unable to create or truncate IO trace output file");
+            let (subscriber, guard) = near_o11y::make_io_tracing_layer(log_file);
+            _maybe_writer_guard = Some(guard);
+            subscriber
+        }));
+
+        #[cfg(not(feature = "io_trace"))]
+        if cli_args.record_io_trace.is_some() {
+            anyhow::bail!("`--record-io-trace` requires `--feature=io_trace`");
+        }
+
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("setting default subscriber failed");
+    };
 
     let warmup_iters_per_block = cli_args.warmup_iters;
     let mut rocksdb_test_config = cli_args.db_test_config;
@@ -234,6 +270,7 @@ fn main() -> anyhow::Result<()> {
         debug: cli_args.debug,
         json_output: cli_args.json_output,
         drop_os_cache: cli_args.drop_os_cache,
+        in_memory_db: cli_args.in_memory_db,
     };
     let cost_table = runtime_params_estimator::run(config);
 
@@ -255,7 +292,13 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Spawns another instance of this binary but inside docker. Most command line args are passed through but `--docker` is removed.
+/// Spawns another instance of this binary but inside docker.
+///
+/// Most command line args are passed through but `--docker` is removed.
+/// We are now also running with an in-memory database to increase turn-around
+/// time and make the results more consistent. Note that this means qemu based
+/// IO estimations are inaccurate. They never really have been very accurate
+/// anyway and qemu is just not the right tool to measure IO costs.
 fn main_docker(
     state_dump_path: &Path,
     full: bool,
@@ -266,10 +309,7 @@ fn main_docker(
     exec("docker --version").context("please install `docker`")?;
 
     let project_root = project_root();
-
-    let image = "rust-emu";
-    let tag = "rust-1.60.0"; //< Update this when Dockerfile changes
-    let tagged_image = format!("{}:{}", image, tag);
+    let tagged_image = docker_image()?;
     if exec(&format!("docker images -q {}", tagged_image))?.is_empty() {
         // Build a docker image if there isn't one already.
         let status = Command::new("docker")
@@ -330,8 +370,17 @@ fn main_docker(
             }
         }
 
+        // test contract has been built by host
         write!(buf, " --skip-build-test-contract").unwrap();
+        // accounts have been inserted to state dump by host
         write!(buf, " --additional-accounts-num 0").unwrap();
+        // We are now always running qemu based estimations with an in-memory DB
+        // because it cannot account for the multi-threaded nature of RocksDB, or
+        // the different latencies for disk and memory. Using in-memory DB at
+        // least gives consistent and quick results.
+        // Note that this still reads all values from the state dump and creates
+        // a new testbed for each estimation, we only switch out the storage backend.
+        write!(buf, " --in-memory-db").unwrap();
 
         buf
     };
@@ -369,6 +418,26 @@ fn main_docker(
 
     cmd.status()?;
     Ok(())
+}
+
+/// Creates a docker image tag that is unique for each rust version to force re-build when it changes.
+fn docker_image() -> Result<String, anyhow::Error> {
+    let image = "rust-emu";
+    let dockerfile =
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("emu-cost/Dockerfile"))?;
+    // The Dockerfile is expected to have a line like this:
+    // ```
+    // FROM rust:x.y.z
+    // ```
+    // and the result should be `rust-x.y.z`
+    let tag = dockerfile
+        .lines()
+        .find_map(|line| line.split_once("FROM "))
+        .context("could not parse rustc version from Dockerfile")?
+        .1
+        .replace(":", "-");
+
+    Ok(format!("{}:{}", image, tag))
 }
 
 fn read_costs_table(path: &Path) -> anyhow::Result<CostTable> {

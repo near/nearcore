@@ -1,4 +1,7 @@
 /// Provides structs used for getting time.
+/// TODO: this module is deprecated and scheduled to be replaced with
+/// chain/network-primitives/time.
+///
 /// WARNING WARNING WARNING
 /// WARNING WARNING WARNING
 /// Use at your own risk. The implementation is not complete, we have a places in code not mocked properly.

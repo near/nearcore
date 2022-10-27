@@ -20,13 +20,14 @@ fn create_runtime_with_expensive_storage() -> RuntimeNode {
     // Set expensive state requirements and add alice more money.
     let mut runtime_config = RuntimeConfig::test();
     runtime_config.storage_amount_per_byte = TESTING_INIT_BALANCE / 1000;
-    match &mut genesis.records.as_mut()[0] {
+    let records = genesis.force_read_records().as_mut();
+    match &mut records[0] {
         StateRecord::Account { account, .. } => account.set_amount(TESTING_INIT_BALANCE * 10000),
         _ => {
             panic!("the first record is expected to be alice account creation!");
         }
     }
-    genesis.records.as_mut().push(StateRecord::Data {
+    records.push(StateRecord::Data {
         account_id: bob_account(),
         data_key: b"test".to_vec(),
         value: b"123".to_vec(),

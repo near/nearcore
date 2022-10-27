@@ -14,6 +14,9 @@ pub(crate) struct EstimateConfig {
     /// temporary directory if unspecified.
     #[clap(long)]
     pub home: Option<String>,
+    /// Comma separated list of metrics to use in estimation.
+    #[clap(long, default_value = "icount,time", possible_values = &["icount", "time"], use_value_delimiter = true)]
+    pub metrics: Vec<String>,
 }
 
 pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result<()> {
@@ -38,9 +41,6 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
     let _env_guard_one = sh.push_env("CARGO_PROFILE_RELEASE_LTO", "fat");
     let _env_guard_two = sh.push_env("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "1");
 
-    // Rebuild test contract
-    cmd!(sh, "{git_root}/runtime/runtime-params-estimator/test-contract/build.sh").run()?;
-
     // Build estimator
     cmd!(sh, "cargo build --release -p runtime-params-estimator --features runtime-params-estimator/required").run()?;
     // Find binary, some users have CARGO_TARGET_DIR pointing to a custom target directory
@@ -57,8 +57,7 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
     let iters = 5.to_string();
     let warmup_iters = 1.to_string();
 
-    // time metric
-    {
+    if config.metrics.iter().any(|m| m == "time") {
         let mut maybe_drop_cache = vec![];
 
         #[cfg(target_family = "unix")]
@@ -80,8 +79,7 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
         )?;
     }
 
-    // icount metric
-    {
+    if config.metrics.iter().any(|m| m == "icount") {
         let estimation_output =
             cmd!(sh,
                 "{estimator_binary} --iters {iters} --warmup-iters {warmup_iters} --json-output --home {estimator_home} --metric icount --docker --full"

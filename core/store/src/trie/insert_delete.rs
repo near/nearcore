@@ -57,7 +57,7 @@ impl NodesStorage {
         StorageValueHandle(self.values.len() - 1)
     }
 
-    pub(crate) fn value_ref(&self, handle: StorageValueHandle) -> &Vec<u8> {
+    pub(crate) fn value_ref(&self, handle: StorageValueHandle) -> &[u8] {
         self.values
             .get(handle.0)
             .expect(INVALID_STORAGE_HANDLE)
@@ -444,13 +444,13 @@ impl Trie {
                     );
                 }
                 TrieNode::Branch(mut children, value) => {
-                    children.iter_mut().for_each(|child| {
+                    for child in children.iter_mut() {
                         if let Some(NodeHandle::InMemory(h)) = child {
                             if let TrieNode::Empty = memory.node_ref(*h).node {
                                 *child = None
                             }
                         }
-                    });
+                    }
                     let num_children = children.iter().filter(|&x| x.is_some()).count();
                     if num_children == 0 {
                         if let Some(value) = value {
@@ -555,7 +555,7 @@ impl Trie {
             let memory_usage = node_with_size.memory_usage;
             let raw_node = match &node_with_size.node {
                 TrieNode::Empty => {
-                    last_hash = Trie::empty_root();
+                    last_hash = Trie::EMPTY_ROOT;
                     continue;
                 }
                 TrieNode::Branch(children, value) => match position {
@@ -620,7 +620,7 @@ impl Trie {
                 }
             };
             let raw_node_with_size = RawTrieNodeWithSize { node: raw_node, memory_usage };
-            raw_node_with_size.encode_into(&mut buffer).expect("Encode can never fail");
+            raw_node_with_size.encode_into(&mut buffer);
             let key = hash(&buffer);
 
             let (_value, rc) =
@@ -637,7 +637,7 @@ impl Trie {
     fn flatten_value(memory: &mut NodesStorage, value: ValueHandle) -> (u32, CryptoHash) {
         match value {
             ValueHandle::InMemory(value_handle) => {
-                let value = memory.value_ref(value_handle).clone();
+                let value = memory.value_ref(value_handle).to_vec();
                 let value_length = value.len() as u32;
                 let value_hash = hash(&value);
                 let (_value, rc) =

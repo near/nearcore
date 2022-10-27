@@ -2,13 +2,13 @@ use near_primitives::shard_layout::ShardUId;
 use std::collections::HashMap;
 
 use near_primitives::transaction::SignedTransaction;
-use near_store::{TrieCache, TrieCachingStorage};
+use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_logic::ExtCosts;
 
 use crate::config::{Config, GasMetric};
 use crate::gas_cost::GasCost;
 use crate::testbed::RuntimeTestbed;
-use crate::utils::get_account_id;
+use genesis_populate::get_account_id;
 
 use super::transaction_builder::TransactionBuilder;
 
@@ -26,7 +26,7 @@ pub(crate) struct CachedCosts {
     pub(crate) deploy_contract_base: Option<GasCost>,
     pub(crate) noop_function_call_cost: Option<GasCost>,
     pub(crate) storage_read_base: Option<GasCost>,
-    pub(crate) action_function_call_base_per_byte_v2: Option<(GasCost, GasCost)>,
+    pub(crate) contract_loading_base_per_byte: Option<(GasCost, GasCost)>,
     pub(crate) compile_cost_base_per_byte: Option<(GasCost, GasCost)>,
     pub(crate) compile_cost_base_per_byte_v2: Option<(GasCost, GasCost)>,
     pub(crate) gas_metering_cost_base_per_op: Option<(GasCost, GasCost)>,
@@ -42,12 +42,15 @@ impl<'c> EstimatorContext<'c> {
     }
 
     pub(crate) fn testbed(&mut self) -> Testbed<'_> {
-        let inner = RuntimeTestbed::from_state_dump(&self.config.state_dump_path);
+        let inner =
+            RuntimeTestbed::from_state_dump(&self.config.state_dump_path, self.config.in_memory_db);
         Testbed {
             config: self.config,
             inner,
             transaction_builder: TransactionBuilder::new(
-                (0..self.config.active_accounts).map(get_account_id).collect(),
+                (0..self.config.active_accounts)
+                    .map(|index| get_account_id(index as u64))
+                    .collect(),
             ),
         }
     }
@@ -62,7 +65,7 @@ pub(crate) struct Testbed<'c> {
     transaction_builder: TransactionBuilder,
 }
 
-impl<'c> Testbed<'c> {
+impl Testbed<'_> {
     pub(crate) fn transaction_builder(&mut self) -> &mut TransactionBuilder {
         &mut self.transaction_builder
     }
@@ -75,8 +78,8 @@ impl<'c> Testbed<'c> {
     /// `block_latency` must be specified and the function will panic if it is
     /// wrong. A latency of 0 means everything is done within a single block.
     #[track_caller]
-    pub(crate) fn measure_blocks<'a>(
-        &'a mut self,
+    pub(crate) fn measure_blocks(
+        &mut self,
         blocks: Vec<Vec<SignedTransaction>>,
         block_latency: usize,
     ) -> Vec<(GasCost, HashMap<ExtCosts, u64>)> {
@@ -108,11 +111,7 @@ impl<'c> Testbed<'c> {
         res
     }
 
-    pub(crate) fn process_block<'a>(
-        &'a mut self,
-        block: Vec<SignedTransaction>,
-        block_latency: usize,
-    ) {
+    pub(crate) fn process_block(&mut self, block: Vec<SignedTransaction>, block_latency: usize) {
         let allow_failures = false;
         self.inner.process_block(&block, allow_failures);
         let extra_blocks = self.inner.process_blocks_until_no_receipts(allow_failures);
@@ -121,12 +120,19 @@ impl<'c> Testbed<'c> {
 
     pub(crate) fn trie_caching_storage(&mut self) -> TrieCachingStorage {
         let store = self.inner.store();
-        let caching_storage =
-            TrieCachingStorage::new(store, TrieCache::new(), ShardUId::single_shard());
+        let is_view = false;
+        let prefetcher = None;
+        let caching_storage = TrieCachingStorage::new(
+            store,
+            TrieCache::new(&TrieConfig::default(), ShardUId::single_shard(), false),
+            ShardUId::single_shard(),
+            is_view,
+            prefetcher,
+        );
         caching_storage
     }
 
-    fn clear_caches(&mut self) {
+    pub(crate) fn clear_caches(&mut self) {
         // Flush out writes hanging in memtable
         self.inner.flush_db_write_buffer();
 

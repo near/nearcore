@@ -2,13 +2,13 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use num_rational::Rational;
+use num_rational::Ratio;
 
 use near_chain::{ChainGenesis, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
-use near_logger_utils::init_integration_logger;
+use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
@@ -21,18 +21,18 @@ fn build_genesis() -> Genesis {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = 2;
     genesis.config.num_blocks_per_year = 2;
-    genesis.config.protocol_reward_rate = Rational::new_raw(1, 10);
-    genesis.config.max_inflation_rate = Rational::new_raw(1, 10);
+    genesis.config.protocol_reward_rate = Ratio::new_raw(1, 10);
+    genesis.config.max_inflation_rate = Ratio::new_raw(1, 10);
     genesis.config.chunk_producer_kickout_threshold = 30;
-    genesis.config.online_min_threshold = Rational::new_raw(0, 1);
-    genesis.config.online_max_threshold = Rational::new_raw(1, 1);
+    genesis.config.online_min_threshold = Ratio::new_raw(0, 1);
+    genesis.config.online_max_threshold = Ratio::new_raw(1, 1);
     genesis
 }
 
 fn setup_env(genesis: &Genesis) -> TestEnv {
     init_integration_logger();
     let store1 = create_test_store();
-    TestEnv::builder(ChainGenesis::from(&genesis))
+    TestEnv::builder(ChainGenesis::new(&genesis))
         .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::test(
             Path::new("."),
             store1,

@@ -13,7 +13,7 @@ use tracing::debug;
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     let env_filter = near_o11y::EnvFilterBuilder::from_env().verbose(Some("")).finish().unwrap();
-    let _subscriber = near_o11y::default_subscriber(env_filter, &Default::default()).await.global();
+    let _subscriber = near_o11y::default_subscriber(env_filter, &Default::default()).global();
     debug!(target: "storage-calculator", "Start");
 
     let genesis = Genesis::from_file("output.json", GenesisValidationMode::Full);
@@ -21,13 +21,13 @@ async fn main() -> std::io::Result<()> {
 
     let config_store = RuntimeConfigStore::new(None);
     let config = config_store.get_config(PROTOCOL_VERSION);
-    let storage_usage = Runtime::new().compute_storage_usage(&genesis.records.0[..], config);
+    let storage_usage = Runtime::new().compute_genesis_storage_usage(&genesis, config);
     debug!(target: "storage-calculator", "Storage usage calculated");
 
     let mut result = Vec::new();
-    for record in genesis.records.0 {
+    genesis.for_each_record(|record| {
         if let StateRecord::Account { account_id, account } = record {
-            let actual_storage_usage = storage_usage.get(&account_id).unwrap();
+            let actual_storage_usage = storage_usage.get(account_id).unwrap();
             let saved_storage_usage = account.storage_usage();
             let delta = actual_storage_usage - saved_storage_usage;
             if delta != 0 {
@@ -35,7 +35,7 @@ async fn main() -> std::io::Result<()> {
                 result.push((account_id.clone(), delta));
             }
         }
-    }
+    });
     serde_json::to_writer_pretty(&File::create("storage_usage_delta.json")?, &result)?;
     Ok(())
 }

@@ -4,12 +4,14 @@ use crate::gas_counter::{FastGasCounter, GasCounter};
 use crate::receipt_manager::ReceiptManager;
 use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
-use crate::{ReceiptMetadata, ValuePtr};
+use crate::{ReceiptMetadata, StorageGetMode, ValuePtr};
 use byteorder::ByteOrder;
 use near_crypto::Secp256K1Signature;
+use near_primitives::checked_feature;
+use near_primitives::config::ViewConfig;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
-use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig, ViewConfig};
+use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::profile::ProfileData;
 use near_primitives_core::runtime::fees::{
     transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig,
@@ -18,7 +20,7 @@ use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
 use near_primitives_core::types::{GasDistribution, GasWeight};
-use near_vm_errors::InconsistentStateError;
+use near_vm_errors::{FunctionCallError, InconsistentStateError};
 use near_vm_errors::{HostError, VMLogicError};
 use std::collections::HashMap;
 use std::mem::size_of;
@@ -626,13 +628,15 @@ impl<'a> VMLogic<'a> {
 
     /// Returns the current block height.
     ///
+    /// It’s only due to historical reasons, this host function is called
+    /// `block_index` rather than `block_height`.
+    ///
     /// # Cost
     ///
     /// `base`
-    // TODO #1903 rename to `block_height`
     pub fn block_index(&mut self) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
-        Ok(self.context.block_index)
+        Ok(self.context.block_height)
     }
 
     /// Returns the current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
@@ -817,7 +821,6 @@ impl<'a> VMLogic<'a> {
     /// `base + write_register_base + write_register_byte * num_bytes +
     ///  alt_bn128_g1_multiexp_base +
     ///  alt_bn128_g1_multiexp_element * num_elements`
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     pub fn alt_bn128_g1_multiexp(
         &mut self,
         value_len: u64,
@@ -861,7 +864,6 @@ impl<'a> VMLogic<'a> {
     ///
     /// `base + write_register_base + write_register_byte * num_bytes +
     /// alt_bn128_g1_sum_base + alt_bn128_g1_sum_element * num_elements`
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     pub fn alt_bn128_g1_sum(
         &mut self,
         value_len: u64,
@@ -906,7 +908,6 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base + write_register_base + write_register_byte * num_bytes + alt_bn128_pairing_base + alt_bn128_pairing_element * num_elements`
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     pub fn alt_bn128_pairing_check(&mut self, value_len: u64, value_ptr: u64) -> Result<u64> {
         self.gas_counter.pay_base(alt_bn128_pairing_check_base)?;
         let data = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
@@ -1118,6 +1119,58 @@ impl<'a> VMLogic<'a> {
         };
 
         Ok(false as u64)
+    }
+
+    /// Verify an ED25519 signature given a message and a public key.
+    /// # Returns
+    /// - 1 meaning the boolean expression true to encode that the signature was properly verified
+    /// - 0 meaning the boolean expression false to encode that the signature failed to be verified
+    ///
+    /// # Cost
+    ///
+    /// Each input can either be in memory or in a register. Set the length of the input to `u64::MAX`
+    /// to declare that the input is a register number and not a pointer.
+    /// Each input has a gas cost input_cost(num_bytes) that depends on whether it is from memory
+    /// or from a register. It is either read_memory_base + num_bytes * read_memory_byte in the
+    /// former case or read_register_base + num_bytes * read_register_byte in the latter. This function
+    /// is labeled as `input_cost` below.
+    ///
+    /// `input_cost(num_bytes_signature) + input_cost(num_bytes_message) + input_cost(num_bytes_public_key) +
+    ///  ed25519_verify_base + ed25519_verify_byte * num_bytes_message`
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    pub fn ed25519_verify(
+        &mut self,
+        sig_len: u64,
+        sig_ptr: u64,
+        msg_len: u64,
+        msg_ptr: u64,
+        pub_key_len: u64,
+        pub_key_ptr: u64,
+    ) -> Result<u64> {
+        use ed25519_dalek::{PublicKey, Signature, Verifier, SIGNATURE_LENGTH};
+
+        self.gas_counter.pay_base(ed25519_verify_base)?;
+        if sig_len != SIGNATURE_LENGTH as u64 {
+            return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
+                msg: "invalid signature length".to_string(),
+            }));
+        }
+        let msg = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
+        let signature_array = self.get_vec_from_memory_or_register(sig_ptr, sig_len)?;
+        let signature = Signature::from_bytes(&signature_array).map_err(|e| {
+            VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput { msg: e.to_string() })
+        })?;
+        let num_bytes = msg.len();
+        self.gas_counter.pay_per(ed25519_verify_byte, num_bytes as _)?;
+
+        let pub_key_array = self.get_vec_from_memory_or_register(pub_key_ptr, pub_key_len)?;
+        let pub_key = PublicKey::from_bytes(&pub_key_array).map_err(|e| {
+            VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput { msg: e.to_string() })
+        })?;
+        match pub_key.verify(&msg, &signature) {
+            Err(_) => Ok(0),
+            Ok(()) => Ok(1),
+        }
     }
 
     /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
@@ -2342,11 +2395,23 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(storage_write_key_byte, key.len() as u64)?;
         self.gas_counter.pay_per(storage_write_value_byte, value.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        let evicted_ptr = self.ext.storage_get(&key)?;
+        // For storage write, we need to first perform a read on the key to calculate the TTN cost.
+        // This storage_get must be performed through trie instead of through FlatStorage
+        let evicted_ptr = self.ext.storage_get(&key, StorageGetMode::Trie)?;
         let evicted =
             Self::deref_value(&mut self.gas_counter, storage_write_evicted_byte, evicted_ptr)?;
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
-        self.gas_counter.add_trie_fees(nodes_delta)?;
+
+        near_o11y::io_trace!(
+            storage_op = "write",
+            key = %near_o11y::pretty::Bytes(&key),
+            size = value_len,
+            evicted_len = evicted.as_ref().map(Vec::len),
+            tn_mem_reads = nodes_delta.mem_reads,
+            tn_db_reads = nodes_delta.db_reads,
+        );
+
+        self.gas_counter.add_trie_fees(&nodes_delta)?;
         self.ext.storage_set(&key, &value)?;
         let storage_config = &self.fees_config.storage_usage_config;
         match evicted {
@@ -2423,10 +2488,21 @@ impl<'a> VMLogic<'a> {
         }
         self.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        let read = self.ext.storage_get(&key);
+        #[cfg(feature = "protocol_feature_flat_state")]
+        let read = self.ext.storage_get(&key, StorageGetMode::FlatStorage);
+        #[cfg(not(feature = "protocol_feature_flat_state"))]
+        let read = self.ext.storage_get(&key, StorageGetMode::Trie);
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
-        self.gas_counter.add_trie_fees(nodes_delta)?;
+        self.gas_counter.add_trie_fees(&nodes_delta)?;
         let read = Self::deref_value(&mut self.gas_counter, storage_read_value_byte, read?)?;
+
+        near_o11y::io_trace!(
+            storage_op = "read",
+            key = %near_o11y::pretty::Bytes(&key),
+            size = read.as_ref().map(Vec::len),
+            tn_db_reads = nodes_delta.db_reads,
+            tn_mem_reads = nodes_delta.mem_reads,
+        );
         match read {
             Some(value) => {
                 self.internal_write_register(register_id, value)?;
@@ -2473,13 +2549,24 @@ impl<'a> VMLogic<'a> {
         }
         self.gas_counter.pay_per(storage_remove_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        let removed_ptr = self.ext.storage_get(&key)?;
+        // To delete a key, we need to first perform a read on the key to calculate the TTN cost.
+        // This storage_get must be performed through trie instead of through FlatStorage
+        let removed_ptr = self.ext.storage_get(&key, StorageGetMode::Trie)?;
         let removed =
             Self::deref_value(&mut self.gas_counter, storage_remove_ret_value_byte, removed_ptr)?;
 
         self.ext.storage_remove(&key)?;
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
-        self.gas_counter.add_trie_fees(nodes_delta)?;
+
+        near_o11y::io_trace!(
+            storage_op = "remove",
+            key = %near_o11y::pretty::Bytes(&key),
+            evicted_len = removed.as_ref().map(Vec::len),
+            tn_mem_reads = nodes_delta.mem_reads,
+            tn_db_reads = nodes_delta.db_reads,
+        );
+
+        self.gas_counter.add_trie_fees(&nodes_delta)?;
         let storage_config = &self.fees_config.storage_usage_config;
         match removed {
             Some(value) => {
@@ -2526,7 +2613,15 @@ impl<'a> VMLogic<'a> {
         let nodes_before = self.ext.get_trie_nodes_count();
         let res = self.ext.storage_has_key(&key);
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
-        self.gas_counter.add_trie_fees(nodes_delta)?;
+
+        near_o11y::io_trace!(
+            storage_op = "exists",
+            key = %near_o11y::pretty::Bytes(&key),
+            tn_mem_reads = nodes_delta.mem_reads,
+            tn_db_reads = nodes_delta.db_reads,
+        );
+
+        self.gas_counter.add_trie_fees(&nodes_delta)?;
         Ok(res? as u64)
     }
 
@@ -2670,9 +2765,17 @@ impl<'a> VMLogic<'a> {
             logs: self.logs,
             profile,
             action_receipts: self.receipt_manager.action_receipts,
+            aborted: None,
         }
     }
 
+    /// Add a cost for loading the contract code in the VM.
+    ///
+    /// This cost does not consider the structure of the contract code, only the
+    /// size. This is currently the only loading fee. A fee that takes the code
+    /// structure into consideration could be added. But since that would have
+    /// to happen after loading, we cannot pre-charge it. This is the main
+    /// motivation to (only) have this simple fee.
     pub fn add_contract_loading_fee(&mut self, code_len: u64) -> Result<()> {
         self.gas_counter.pay_per(contract_loading_bytes, code_len)?;
         self.gas_counter.pay_base(contract_loading_base)
@@ -2689,9 +2792,61 @@ impl<'a> VMLogic<'a> {
         let new_used_gas = self.gas_counter.used_gas();
         self.gas_counter.process_gas_limit(new_burn_gas, new_used_gas)
     }
+
+    /// VM independent setup before loading the executable.
+    ///
+    /// Does VM independent checks that happen after the instantiation of
+    /// VMLogic but before loading the executable. This includes pre-charging gas
+    /// costs for loading the executable, which depends on the size of the WASM code.
+    pub fn before_loading_executable(
+        &mut self,
+        method_name: &str,
+        current_protocol_version: u32,
+        wasm_code_bytes: usize,
+    ) -> std::result::Result<(), near_vm_errors::FunctionCallError> {
+        if method_name.is_empty() {
+            let error = near_vm_errors::FunctionCallError::MethodResolveError(
+                near_vm_errors::MethodResolveError::MethodEmptyName,
+            );
+            return Err(error);
+        }
+        if checked_feature!(
+            "protocol_feature_fix_contract_loading_cost",
+            FixContractLoadingCost,
+            current_protocol_version
+        ) {
+            if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
+                let error = near_vm_errors::FunctionCallError::HostError(
+                    near_vm_errors::HostError::GasExceeded,
+                );
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    /// Legacy code to preserve old gas charging behaviour in old protocol versions.
+    pub fn after_loading_executable(
+        &mut self,
+        current_protocol_version: u32,
+        wasm_code_bytes: usize,
+    ) -> std::result::Result<(), near_vm_errors::FunctionCallError> {
+        if !checked_feature!(
+            "protocol_feature_fix_contract_loading_cost",
+            FixContractLoadingCost,
+            current_protocol_version
+        ) {
+            if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
+                return Err(near_vm_errors::FunctionCallError::HostError(
+                    near_vm_errors::HostError::GasExceeded,
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(PartialEq)]
 pub struct VMOutcome {
     pub balance: Balance,
     pub storage_usage: StorageUsage,
@@ -2702,6 +2857,59 @@ pub struct VMOutcome {
     /// Data collected from making a contract call
     pub profile: ProfileData,
     pub action_receipts: Vec<(AccountId, ReceiptMetadata)>,
+    pub aborted: Option<FunctionCallError>,
+}
+
+impl VMOutcome {
+    /// Consumes the `VMLogic` object and computes the final outcome with the
+    /// given error that stopped execution from finishing successfully.
+    pub fn abort(logic: VMLogic, error: FunctionCallError) -> VMOutcome {
+        let mut outcome = logic.compute_outcome_and_distribute_gas();
+        outcome.aborted = Some(error);
+        outcome
+    }
+
+    /// Consumes the `VMLogic` object and computes the final outcome for a
+    /// successful execution.
+    pub fn ok(logic: VMLogic) -> VMOutcome {
+        logic.compute_outcome_and_distribute_gas()
+    }
+
+    /// Creates an outcome with a no-op outcome.
+    pub fn nop_outcome(error: FunctionCallError) -> VMOutcome {
+        VMOutcome {
+            // Note: Balance and storage fields are ignored on a failed outcome.
+            balance: 0,
+            storage_usage: 0,
+            // Note: Fields below are added or merged when processing the
+            // outcome. With 0 or the empty set, those are no-ops.
+            return_data: ReturnData::None,
+            burnt_gas: 0,
+            used_gas: 0,
+            logs: Vec::new(),
+            profile: ProfileData::default(),
+            action_receipts: Vec::new(),
+            aborted: Some(error),
+        }
+    }
+
+    /// Like `Self::abort()` but without feature `FixContractLoadingCost` it
+    /// will return a NOP outcome. This is used for backwards-compatibility only.
+    pub fn abort_but_nop_outcome_in_old_protocol(
+        logic: VMLogic,
+        error: FunctionCallError,
+        current_protocol_version: u32,
+    ) -> VMOutcome {
+        if checked_feature!(
+            "protocol_feature_fix_contract_loading_cost",
+            FixContractLoadingCost,
+            current_protocol_version
+        ) {
+            Self::abort(logic, error)
+        } else {
+            Self::nop_outcome(error)
+        }
+    }
 }
 
 impl std::fmt::Debug for VMOutcome {
@@ -2715,6 +2923,10 @@ impl std::fmt::Debug for VMOutcome {
             f,
             "VMOutcome: balance {} storage_usage {} return data {} burnt gas {} used gas {}",
             self.balance, self.storage_usage, return_data_str, self.burnt_gas, self.used_gas
-        )
+        )?;
+        if let Some(err) = &self.aborted {
+            write!(f, " failed with {err}")?;
+        }
+        Ok(())
     }
 }

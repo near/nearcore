@@ -1,42 +1,31 @@
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use crate::concurrency::{Ctx, Once, RateLimiter, Scope, WeakMap};
-
-use near_network_primitives::types::{
-    AccountIdOrPeerTrackingShard, NetworkViewClientMessages, NetworkViewClientResponses,
-    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
-};
-
-use actix::{Actor, Context, Handler};
 use log::info;
+use near_network::time;
 use near_network::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
-    PeerManagerAdapter, PeerManagerMessageRequest, WrappedInstant,
+    AccountIdOrPeerTrackingShard, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
+    PartialEncodedChunkResponseMsg, ReasonForBan, StateResponseInfo,
 };
-use near_primitives::block::{Block, BlockHeader, GenesisId};
+use near_network::types::{
+    FullPeerInfo, NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
+};
+use near_o11y::WithSpanContextExt;
+use near_primitives::block::{Approval, Block, BlockHeader};
+use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
+use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::time::Clock;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::views::FinalExecutionOutcomeView;
 use nearcore::config::NearConfig;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::future::Future;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
-use tokio::time;
-
-fn genesis_hash(chain_id: &str) -> CryptoHash {
-    return match chain_id {
-        "mainnet" => "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H",
-        "testnet" => "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
-        "betanet" => "6hy7VoEJhPEUaJr1d5ePBhKdgeDWKCjLoUAn7XS9YPj",
-        _ => {
-            return Default::default();
-        }
-    }
-    .parse()
-    .unwrap();
-}
 
 #[derive(Default, Debug)]
 pub struct Stats {
@@ -68,7 +57,6 @@ pub struct Network {
     pub chunks: Arc<WeakMap<ChunkHash, Once<PartialEncodedChunkResponseMsg>>>,
     data: Mutex<NetworkData>,
 
-    chain_id: String,
     // client_config.min_num_peers
     min_peers: usize,
     // Currently it is equivalent to genesis_config.num_block_producer_seats,
@@ -98,7 +86,7 @@ impl Network {
                     sent_bytes_per_sec: 0,
                     received_bytes_per_sec: 0,
                     known_producers: vec![],
-                    peer_counter: 0,
+                    tier1_accounts: vec![],
                 }),
                 info_futures: Default::default(),
             }),
@@ -106,14 +94,13 @@ impl Network {
             block_headers: WeakMap::new(),
             chunks: WeakMap::new(),
 
-            chain_id: config.client_config.chain_id.clone(),
             min_peers: config.client_config.min_num_peers,
             parts_per_chunk: config.genesis.config.num_block_producer_seats,
             rate_limiter: RateLimiter::new(
-                time::Duration::from_secs(1) / qps_limit,
+                tokio::time::Duration::from_secs(1) / qps_limit,
                 qps_limit as u64,
             ),
-            request_timeout: time::Duration::from_secs(2),
+            request_timeout: tokio::time::Duration::from_secs(2),
         })
     }
 
@@ -138,9 +125,12 @@ impl Network {
                 for peer in peers {
                     // TODO: rate limit per peer.
                     self_.rate_limiter.allow(&ctx).await?;
-                    self_
-                        .network_adapter
-                        .do_send(PeerManagerMessageRequest::NetworkRequests(new_req(peer.clone())));
+                    self_.network_adapter.do_send(
+                        PeerManagerMessageRequest::NetworkRequests(new_req(
+                            peer.full_peer_info.clone(),
+                        ))
+                        .with_span_context(),
+                    );
                     self_.stats.msgs_sent.fetch_add(1, Ordering::Relaxed);
                     ctx.wait(self_.request_timeout).await?;
                 }
@@ -248,7 +238,7 @@ impl Network {
                                 part_ords: (0..ppc).collect(),
                                 tracking_shards: Default::default(),
                             },
-                            create_time: WrappedInstant(Clock::instant()),
+                            create_time: Clock::instant().into(),
                         }
                     })
                 });
@@ -259,94 +249,104 @@ impl Network {
         })
         .await
     }
+}
 
-    fn notify(&self, msg: NetworkClientMessages) {
-        self.stats.msgs_recv.fetch_add(1, Ordering::Relaxed);
-        match msg {
-            NetworkClientMessages::NetworkInfo(info) => {
-                let mut n = self.data.lock().unwrap();
-                n.info_ = Arc::new(info);
-                if n.info_.num_connected_peers < self.min_peers {
-                    info!("connected = {}/{}", n.info_.num_connected_peers, self.min_peers);
-                    return;
-                }
-                for s in n.info_futures.split_off(0) {
-                    s.send(n.info_.clone()).unwrap();
-                }
-            }
-            NetworkClientMessages::Block(block, _, _) => {
-                self.blocks.get(&block.hash().clone()).map(|p| p.set(block));
-            }
-            NetworkClientMessages::BlockHeaders(headers, _) => {
-                if let Some(h) = headers.iter().min_by_key(|h| h.height()) {
-                    let hash = h.prev_hash().clone();
-                    self.block_headers.get(&hash).map(|p| p.set(headers));
-                }
-            }
-            NetworkClientMessages::PartialEncodedChunkResponse(resp, _) => {
-                self.chunks.get(&resp.chunk_hash.clone()).map(|p| p.set(resp));
-            }
-            _ => {}
+#[async_trait::async_trait]
+impl near_network::client::Client for Network {
+    async fn tx_status_request(
+        &self,
+        _account_id: AccountId,
+        _tx_hash: CryptoHash,
+    ) -> Option<Box<FinalExecutionOutcomeView>> {
+        None
+    }
+
+    async fn tx_status_response(&self, _tx_result: FinalExecutionOutcomeView) {}
+
+    async fn state_request_header(
+        &self,
+        _shard_id: ShardId,
+        _sync_hash: CryptoHash,
+    ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
+        Ok(None)
+    }
+
+    async fn state_request_part(
+        &self,
+        _shard_id: ShardId,
+        _sync_hash: CryptoHash,
+        _part_id: u64,
+    ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
+        Ok(None)
+    }
+
+    async fn state_response(&self, _info: StateResponseInfo) {}
+
+    async fn block_approval(&self, _approval: Approval, _peer_id: PeerId) {}
+
+    async fn transaction(&self, _transaction: SignedTransaction, _is_forwarded: bool) {}
+
+    async fn partial_encoded_chunk_request(
+        &self,
+        _req: PartialEncodedChunkRequestMsg,
+        _msg_hash: CryptoHash,
+    ) {
+    }
+
+    async fn partial_encoded_chunk_response(
+        &self,
+        resp: PartialEncodedChunkResponseMsg,
+        _timestamp: time::Instant,
+    ) {
+        self.chunks.get(&resp.chunk_hash.clone()).map(|p| p.set(resp));
+    }
+
+    async fn partial_encoded_chunk(&self, _chunk: PartialEncodedChunk) {}
+
+    async fn partial_encoded_chunk_forward(&self, _msg: PartialEncodedChunkForwardMsg) {}
+
+    async fn block_request(&self, _hash: CryptoHash) -> Option<Box<Block>> {
+        None
+    }
+
+    async fn block_headers_request(&self, _hashes: Vec<CryptoHash>) -> Option<Vec<BlockHeader>> {
+        None
+    }
+
+    async fn block(&self, block: Block, _peer_id: PeerId, _was_requested: bool) {
+        self.blocks.get(&block.hash().clone()).map(|p| p.set(block));
+    }
+
+    async fn block_headers(
+        &self,
+        headers: Vec<BlockHeader>,
+        _peer_id: PeerId,
+    ) -> Result<(), ReasonForBan> {
+        if let Some(h) = headers.iter().min_by_key(|h| h.height()) {
+            let hash = h.prev_hash().clone();
+            self.block_headers.get(&hash).map(|p| p.set(headers));
+        }
+        Ok(())
+    }
+
+    async fn challenge(&self, _challenge: Challenge) {}
+
+    async fn network_info(&self, info: NetworkInfo) {
+        let mut n = self.data.lock().unwrap();
+        n.info_ = Arc::new(info);
+        if n.info_.num_connected_peers < self.min_peers {
+            info!("connected = {}/{}", n.info_.num_connected_peers, self.min_peers);
+            return;
+        }
+        for s in n.info_futures.split_off(0) {
+            s.send(n.info_.clone()).unwrap();
         }
     }
-}
 
-pub struct FakeClientActor {
-    network: Arc<Network>,
-}
-
-impl FakeClientActor {
-    pub fn new(network: Arc<Network>) -> Self {
-        FakeClientActor { network }
-    }
-}
-
-impl Actor for FakeClientActor {
-    type Context = Context<Self>;
-}
-
-impl Handler<NetworkViewClientMessages> for FakeClientActor {
-    type Result = NetworkViewClientResponses;
-    fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Self::Context) -> Self::Result {
-        let name = match msg {
-            NetworkViewClientMessages::TxStatus { .. } => "TxStatus",
-            NetworkViewClientMessages::TxStatusResponse(_) => "TxStatusResponse",
-            NetworkViewClientMessages::ReceiptOutcomeRequest(_) => "ReceiptOutcomeRequest",
-            NetworkViewClientMessages::ReceiptOutcomeResponse(_) => "ReceiptOutputResponse",
-            NetworkViewClientMessages::BlockRequest(_) => "BlockRequest",
-            NetworkViewClientMessages::BlockHeadersRequest(_) => "BlockHeadersRequest",
-            NetworkViewClientMessages::StateRequestHeader { .. } => "StateRequestHeader",
-            NetworkViewClientMessages::StateRequestPart { .. } => "StateRequestPart",
-            NetworkViewClientMessages::EpochSyncRequest { .. } => "EpochSyncRequest",
-            NetworkViewClientMessages::EpochSyncFinalizationRequest { .. } => {
-                "EpochSyncFinalizationRequest"
-            }
-            NetworkViewClientMessages::GetChainInfo => {
-                return NetworkViewClientResponses::ChainInfo {
-                    genesis_id: GenesisId {
-                        chain_id: self.network.chain_id.clone(),
-                        hash: genesis_hash(&self.network.chain_id),
-                    },
-                    height: 0,
-                    tracked_shards: Default::default(),
-                    archival: false,
-                }
-            }
-            NetworkViewClientMessages::AnnounceAccount(_) => {
-                return NetworkViewClientResponses::NoResponse;
-            }
-            #[allow(unreachable_patterns)]
-            _ => "unknown",
-        };
-        info!("view_request: {}", name);
-        return NetworkViewClientResponses::NoResponse;
-    }
-}
-
-impl Handler<NetworkClientMessages> for FakeClientActor {
-    type Result = NetworkClientResponses;
-    fn handle(&mut self, msg: NetworkClientMessages, _ctx: &mut Context<Self>) -> Self::Result {
-        self.network.notify(msg);
-        return NetworkClientResponses::NoResponse;
+    async fn announce_account(
+        &self,
+        accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
+    ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
+        Ok(accounts.into_iter().map(|a| a.0).collect())
     }
 }

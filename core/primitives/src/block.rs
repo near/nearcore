@@ -6,7 +6,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use chrono::DateTime;
 use near_crypto::Signature;
-use num_rational::Rational;
 use primitive_types::U256;
 
 use crate::block::BlockValidityError::{
@@ -17,6 +16,7 @@ pub use crate::block_header::*;
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, verify_path, MerklePath};
+use crate::num_rational::Rational32;
 use crate::sharding::{
     ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
     ShardChunkHeaderV1,
@@ -27,7 +27,6 @@ use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use std::ops::Index;
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct GenesisId {
     /// Chain Id
@@ -36,7 +35,6 @@ pub struct GenesisId {
     pub hash: CryptoHash,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 pub enum BlockValidityError {
     InvalidStateRoot,
@@ -47,7 +45,6 @@ pub enum BlockValidityError {
     InvalidChallengeRoot,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockV1 {
     pub header: BlockHeader,
@@ -59,7 +56,6 @@ pub struct BlockV1 {
     pub vrf_proof: near_crypto::vrf::Proof,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockV2 {
     pub header: BlockHeader,
@@ -73,7 +69,6 @@ pub struct BlockV2 {
 
 /// Versioned Block data structure.
 /// For each next version, document what are the changes between versions.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub enum Block {
     BlockV1(Arc<BlockV1>),
@@ -206,7 +201,7 @@ impl Block {
         next_epoch_id: EpochId,
         epoch_sync_data_hash: Option<CryptoHash>,
         approvals: Vec<Option<Signature>>,
-        gas_price_adjustment_rate: Rational,
+        gas_price_adjustment_rate: Rational32,
         min_gas_price: Balance,
         max_gas_price: Balance,
         minted_amount: Option<Balance>,
@@ -315,7 +310,7 @@ impl Block {
         prev_gas_price: Balance,
         min_gas_price: Balance,
         max_gas_price: Balance,
-        gas_price_adjustment_rate: Rational,
+        gas_price_adjustment_rate: Rational32,
     ) -> bool {
         let gas_used = Self::compute_gas_used(self.chunks().iter(), self.header().height());
         let gas_limit = Self::compute_gas_limit(self.chunks().iter(), self.header().height());
@@ -334,7 +329,7 @@ impl Block {
         prev_gas_price: Balance,
         gas_used: Gas,
         gas_limit: Gas,
-        gas_price_adjustment_rate: Rational,
+        gas_price_adjustment_rate: Rational32,
         min_gas_price: Balance,
         max_gas_price: Balance,
     ) -> Balance {
@@ -536,7 +531,7 @@ impl Block {
 
 pub enum ChunksCollection<'a> {
     V1(Vec<ShardChunkHeader>),
-    V2(&'a Vec<ShardChunkHeader>),
+    V2(&'a [ShardChunkHeader]),
 }
 
 pub struct VersionedChunksIter<'a> {
@@ -584,7 +579,7 @@ impl<'a> ChunksCollection<'a> {
         }
     }
 
-    pub fn iter<'b: 'a>(&'b self) -> VersionedChunksIter<'b> {
+    pub fn iter(&'a self) -> VersionedChunksIter<'a> {
         match self {
             ChunksCollection::V1(chunks) => VersionedChunksIter::new(chunks),
             ChunksCollection::V2(chunks) => VersionedChunksIter::new(chunks),

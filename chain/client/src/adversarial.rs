@@ -6,10 +6,6 @@ mod adv {
     struct Inner {
         disable_header_sync: std::sync::atomic::AtomicBool,
         disable_doomslug: std::sync::atomic::AtomicBool,
-        // Negative values mean None, non-negative values mean Some(sync_height
-        // as u64).  This is only for testig so we can live with not supporting
-        // values over i64::MAX.
-        sync_height: std::sync::atomic::AtomicI64,
         is_archival: bool,
     }
 
@@ -37,20 +33,6 @@ mod adv {
             self.0.disable_doomslug.store(value, Ordering::SeqCst);
         }
 
-        pub fn sync_height(&self) -> Option<u64> {
-            let value = self.0.sync_height.load(Ordering::SeqCst);
-            if value < 0 {
-                None
-            } else {
-                Some(value as u64)
-            }
-        }
-
-        pub fn set_sync_height(&self, height: u64) {
-            let value: i64 = height.try_into().unwrap();
-            self.0.sync_height.store(value, Ordering::SeqCst);
-        }
-
         pub fn is_archival(&self) -> bool {
             self.0.is_archival
         }
@@ -73,10 +55,6 @@ mod adv {
 
         pub const fn disable_doomslug(&self) -> bool {
             false
-        }
-
-        pub const fn sync_height(&self) -> Option<u64> {
-            None
         }
     }
 }

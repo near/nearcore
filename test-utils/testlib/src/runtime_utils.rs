@@ -26,7 +26,8 @@ static DEFAULT_TEST_CONTRACT_HASH: Lazy<CryptoHash> =
 
 pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {
     let mut is_account_record_found = false;
-    for record in genesis.records.as_mut() {
+    let records = genesis.force_read_records().as_mut();
+    for record in records.iter_mut() {
         if let StateRecord::Account { account_id: record_account_id, ref mut account } = record {
             if record_account_id == account_id {
                 is_account_record_found = true;
@@ -35,12 +36,12 @@ pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {
         }
     }
     if !is_account_record_found {
-        genesis.records.as_mut().push(StateRecord::Account {
+        records.push(StateRecord::Account {
             account_id: account_id.clone(),
             account: Account::new(0, 0, *DEFAULT_TEST_CONTRACT_HASH, 0),
         });
     }
-    genesis.records.as_mut().push(StateRecord::Contract {
+    records.push(StateRecord::Contract {
         account_id: account_id.clone(),
         code: near_test_contracts::rs_contract().to_vec(),
     });

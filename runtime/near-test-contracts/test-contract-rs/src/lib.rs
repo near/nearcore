@@ -1,6 +1,3 @@
-#[global_allocator]
-static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
-
 use std::mem::size_of;
 
 #[allow(unused)]
@@ -18,7 +15,6 @@ extern "C" {
     fn signer_account_pk(register_id: u64);
     fn predecessor_account_id(register_id: u64);
     fn input(register_id: u64);
-    // TODO #1903 fn block_height() -> u64;
     fn block_index() -> u64;
     fn block_timestamp() -> u64;
     fn epoch_height() -> u64;
@@ -166,11 +162,11 @@ extern "C" {
     // #################
     // # alt_bn128 API #
     // #################
-    #[cfg(feature = "protocol_feature_alt_bn128")]
+    #[cfg(feature = "latest_protocol")]
     fn alt_bn128_g1_multiexp(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "protocol_feature_alt_bn128")]
+    #[cfg(feature = "latest_protocol")]
     fn alt_bn128_g1_sum(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "protocol_feature_alt_bn128")]
+    #[cfg(feature = "latest_protocol")]
     fn alt_bn128_pairing_check(value_len: u64, value_ptr: u64) -> u64;
 }
 
@@ -1191,7 +1187,7 @@ pub unsafe fn sanity_check() {
     // #################
     // # alt_bn128 API #
     // #################
-    #[cfg(feature = "protocol_feature_alt_bn128")]
+    #[cfg(feature = "latest_protocol")]
     {
         let buffer: [u8; 96] = [
             16, 238, 91, 161, 241, 22, 172, 158, 138, 252, 202, 212, 136, 37, 110, 231, 118, 220,

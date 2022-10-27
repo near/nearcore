@@ -2,7 +2,7 @@
 //! These parameters have been estimated manually and are now hard-coded for a more deterministic estimation of runtime parameters.
 //! This module contains the hard-coded constants as well as the code to manually re-estimate them.
 
-use near_primitives::types::Gas;
+use near_primitives::{hash::CryptoHash, types::Gas};
 use num_rational::Ratio;
 
 use crate::{config::GasMetric, gas_cost::GasCost};
@@ -15,15 +15,18 @@ pub(crate) const GAS_IN_NS: Ratio<Gas> = Ratio::new_raw(1_000_000, 1);
 // time-based and icount-based metric as measured on 3.2Ghz Core i5.
 pub(crate) const GAS_IN_INSTR: Ratio<Gas> = Ratio::new_raw(1_000_000, 8);
 
-// See runtime/runtime-params-estimator/emu-cost/README.md for the motivation of constant values.
-pub(crate) const IO_READ_BYTE_COST: Ratio<Gas> = Ratio::new_raw(27_000_000, 8);
-pub(crate) const IO_WRITE_BYTE_COST: Ratio<Gas> = Ratio::new_raw(47_000_000, 8);
+// IO bytes as measured on the sys_call level are rather unstable when using
+// RocksDB as storage solution. Measuring it for debugging purposes is still useful
+// but a conversion from total read/written bytes to gas is always going to be inaccurate.
+// Consequently, set both values to 0 such that they do not influence gas costs.
+pub(crate) const IO_READ_BYTE_COST: Ratio<Gas> = Ratio::new_raw(0, 1);
+pub(crate) const IO_WRITE_BYTE_COST: Ratio<Gas> = Ratio::new_raw(0, 1);
 
 /// Measure the cost for running a sha256 Rust implementation (on an arbitrary input).
 ///
 /// This runs outside the WASM runtime and is intended to measure the overall hardware capabilities of the test system.
 /// (The motivation is to stay as close as possible to original estimations done with this code:
-/// https://github.com/near/calibrator/blob/c6fbb170a905fbc630ebd84ebc97f7226ec87ead/src/main.rs#L8-L21)
+/// <https://github.com/near/calibrator/blob/c6fbb170a905fbc630ebd84ebc97f7226ec87ead/src/main.rs#L8-L21>)
 pub(crate) fn sha256_cost(metric: GasMetric, repeats: u64) -> GasCost {
     let cpu = measure_operation(repeats, metric, exec_sha256);
     let cpu_per_rep = cpu / repeats;
@@ -31,13 +34,12 @@ pub(crate) fn sha256_cost(metric: GasMetric, repeats: u64) -> GasCost {
 }
 
 fn exec_sha256(repeats: u64) -> i64 {
-    use sha256::digest;
     let mut result = 0;
     for index in 0..repeats {
         let input = "what should I do but tend upon the hours, and times of your desire";
-        let val = digest(input);
-        assert_eq!(val, "9b4d38fd42c985baec11564a84366de0cbd26d3425ec4ce1266e26b7b951ac08");
-        result += val.as_bytes()[(index % 64) as usize] as i64;
+        let val = CryptoHash::hash_bytes(input.as_bytes());
+        assert_eq!(val.to_string(), "BTEVNkcDtaui6SJC19Efnrf7A3dCKT9v8y24NiC3S7RR");
+        result += val.as_bytes()[(index % 32) as usize] as i64;
     }
     result
 }

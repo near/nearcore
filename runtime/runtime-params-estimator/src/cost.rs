@@ -58,7 +58,7 @@ pub enum Cost {
     ///
     /// Estimation: Measure a transaction that creates an account and transfers
     /// an initial balance to it. Subtract the base cost of creating a receipt.
-    /// (TODO[jakmeier] consider also subtracting transfer fee)
+    // TODO(jakmeier): consider also subtracting transfer fee
     ActionCreateAccount,
     // Deploying a new contract for an account on the blockchain stores the WASM
     // code in the trie. Additionally, it also triggers a compilation of the
@@ -79,10 +79,26 @@ pub enum Cost {
     /// a transaction. Subtract base costs and apply least-squares on the
     /// results to find the per-byte costs.
     ActionDeployContractPerByte,
+    /// Estimates `action_creation_config.function_call_cost`, which is the base
+    /// cost for adding a `FunctionCallAction` to a receipt. It aims to account
+    /// for all costs of calling a function that are already known on the caller
+    /// side.
+    ///
+    /// Estimation: Measure the cost to execute a NOP function on a tiny
+    /// contract. To filter out block and general receipt processing overhead,
+    /// the difference between calling it N +1 times and calling it once in a
+    /// transaction is divided by N. Executable loading cost is also subtracted
+    /// from the final result because this is charged separately.
     ActionFunctionCallBase,
+    /// Estimates `action_creation_config.function_call_cost_per_byte`, which is
+    /// the incremental cost for each byte of the method name and method
+    /// arguments cost for adding a `FunctionCallAction` to a receipt.
+    ///
+    /// Estimation: Measure the cost for a transaction with an empty function
+    /// call with a large argument value. Subtract the cost of an empty function
+    /// call with no argument. Divide the difference by the length of the
+    /// argument.
     ActionFunctionCallPerByte,
-    ActionFunctionCallBaseV2,
-    ActionFunctionCallPerByteV2,
     /// Estimates `action_creation_config.transfer_cost` which is charged for
     /// every `Action::Transfer`, the same value for sending and executing.
     ///
@@ -94,8 +110,8 @@ pub enum Cost {
     ///
     /// Estimation: Measure a transaction with only a staking action and
     /// subtract the base cost of creating a sir-receipt.
-    /// (TODO[jakmeier] find out and document the reasoning behind send vs exec
-    /// values in this specific case)
+    // TODO(jakmeier): find out and document the reasoning behind send vs exec
+    // values in this specific case
     ActionStake,
     /// Estimates `action_creation_config.add_key_cost.full_access_cost` which
     /// is charged for every `Action::AddKey` where the key is a full access
@@ -129,14 +145,14 @@ pub enum Cost {
     /// Estimation: Measure a transaction that deletes a full access key and
     /// transfers an initial balance to it. Subtract the base cost of creating a
     /// receipt.
-    /// (TODO[jakmeier] check cost for function call keys with many methods)
+    // TODO(jakmeier): check cost for function call keys with many methods
     ActionDeleteKey,
     /// Estimates `action_creation_config.delete_account_cost` which is charged
     /// for `DeleteAccount` actions, the same value on sending and executing.
     ///
     /// Estimation: Measure a transaction that deletes an existing account.
     /// Subtract the base cost of creating a sir-receipt.
-    /// (TODO[jakmeier] Consider different account states.
+    /// TODO(jakmeier): Consider different account states.
     ActionDeleteAccount,
 
     /// Estimates `wasm_config.ext_costs.base` which is intended to be charged
@@ -338,7 +354,12 @@ pub enum Cost {
     /// function `ecrecover` to verify an ECDSA signature and extract the
     /// signer.
     EcrecoverBase,
-
+    /// Estimates `ed25519_verify_base`, which covers the base cost of the host
+    /// function `ed25519_verify` to verify an ED25519 signatures.
+    Ed25519VerifyBase,
+    /// Estimates `ed25519_verify_byte`, the cost charged per input byte in calls to the
+    /// ed25519_verify host function.
+    Ed25519VerifyByte,
     // `storage_write` records a single key-value pair, initially in the
     // prospective changes in-memory hash map, and then once a full block has
     // been processed, in the on-disk trie. If there was already a value
@@ -556,6 +577,38 @@ pub enum Cost {
     /// around bytes that are not code. Divide this cost by the difference of
     /// bytes.
     DeployBytes,
+    /// Estimates `wasm_contract_loading_base` which is charged once per contract
+    /// that is loaded from the database to execute a method on it.
+    ///
+    /// Estimation: Measure the cost to execute an empty contract method
+    /// directly on a runtime instance, using different sizes of contracts.
+    /// Use least-squares to calculate base and per-byte cost.
+    /// The contract size is scaled by adding more methods to it. This has been
+    /// identified as particular expensive in terms of per-byte loading time.
+    /// This makes it a better scaling strategy than, for example, adding large
+    /// constants in the data section.
+    ContractLoadingBase,
+    /// Estimates the executable loading part of `wasm_contract_loading_bytes`
+    /// which is charged for each byte in a contract when it is loaded as an
+    /// executable.
+    ///
+    /// This cost also has to cover the reading of the code from the database.
+    /// So technically, it covers code loading from database and also executable
+    /// loading. But it is still charged right before executable loading because
+    /// pre-charging for loading from the database is not possible without
+    /// knowing the code size.
+    ///
+    /// Estimation: See `ContractLoadingBase`.
+    ContractLoadingPerByte,
+    /// Estimates the storage loading part of `wasm_contract_loading_bytes`.
+    ///
+    /// See comment on `ContractLoadingPerByte` why these are combined.
+    ///
+    /// Estimation: Measure the cost difference of two transactions calling a
+    /// trivial smart contract method, where one contract has a large data
+    /// section and the other contract is very small. Divide the difference in
+    /// size.
+    FunctionCallPerStorageByte,
     GasMeteringBase,
     GasMeteringOp,
     /// Cost of inserting a new value directly into a RocksDB instance.

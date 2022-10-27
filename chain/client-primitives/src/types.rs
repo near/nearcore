@@ -1,5 +1,6 @@
+use once_cell::sync::OnceCell;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use actix::Message;
@@ -7,22 +8,20 @@ use chrono::DateTime;
 use near_primitives::time::Utc;
 
 use near_chain_configs::ProtocolConfigView;
-use near_network_primitives::types::{AccountOrPeerIdOrHash, KnownProducer, PeerInfo};
-use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
+use near_primitives::network::PeerId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
     TransactionOrReceiptId,
 };
-use near_primitives::utils::generate_random_string;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkView, DebugBlockStatus, EpochInfoView, EpochValidatorInfo,
-    ExecutionOutcomeWithIdView, FinalExecutionOutcomeViewEnum, GasPriceView,
-    LightClientBlockLiteView, LightClientBlockView, QueryRequest, QueryResponse, ReceiptView,
-    StateChangesKindsView, StateChangesRequestView, StateChangesView, TrackedShardsView,
+    BlockView, ChunkView, DownloadStatusView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+    FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
+    QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView, StateChangesKindsView,
+    StateChangesRequestView, StateChangesView, SyncStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use serde::Serialize;
@@ -40,6 +39,13 @@ pub enum Error {
     ChunkProducer(String),
     #[error("Other: {0}")]
     Other(String),
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub enum AccountOrPeerIdOrHash {
+    AccountId(AccountId),
+    PeerId(PeerId),
+    Hash(CryptoHash),
 }
 
 #[derive(Debug, Serialize)]
@@ -68,7 +74,7 @@ impl Clone for DownloadStatus {
 }
 
 /// Various status of syncing a specific shard.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 pub enum ShardSyncStatus {
     StateDownloadHeader,
     StateDownloadParts,
@@ -76,18 +82,82 @@ pub enum ShardSyncStatus {
     StateDownloadApplying,
     StateDownloadComplete,
     StateSplitScheduling,
-    StateSplitApplying,
+    StateSplitApplying(Arc<StateSplitApplyingStatus>),
     StateSyncDone,
 }
 
-#[derive(Clone, Debug, Serialize)]
+/// Manually implement compare for ShardSyncStatus to compare only based on variant name
+impl PartialEq<Self> for ShardSyncStatus {
+    fn eq(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
+impl Eq for ShardSyncStatus {}
+
+impl ToString for ShardSyncStatus {
+    fn to_string(&self) -> String {
+        match self {
+            ShardSyncStatus::StateDownloadHeader => "header".to_string(),
+            ShardSyncStatus::StateDownloadParts => "parts".to_string(),
+            ShardSyncStatus::StateDownloadScheduling => "scheduling".to_string(),
+            ShardSyncStatus::StateDownloadApplying => "applying".to_string(),
+            ShardSyncStatus::StateDownloadComplete => "download complete".to_string(),
+            ShardSyncStatus::StateSplitScheduling => "split scheduling".to_string(),
+            ShardSyncStatus::StateSplitApplying(state_split_status) => {
+                let str = if let Some(total_parts) = state_split_status.total_parts.get() {
+                    format!(
+                        "total parts {} done {}",
+                        total_parts,
+                        state_split_status.done_parts.load(Ordering::Relaxed)
+                    )
+                } else {
+                    "not started".to_string()
+                };
+                format!("split applying {}", str)
+            }
+            ShardSyncStatus::StateSyncDone => "done".to_string(),
+        }
+    }
+}
+
+impl From<&DownloadStatus> for DownloadStatusView {
+    fn from(status: &DownloadStatus) -> Self {
+        DownloadStatusView { done: status.done, error: status.error }
+    }
+}
+
+impl From<ShardSyncDownload> for ShardSyncDownloadView {
+    fn from(download: ShardSyncDownload) -> Self {
+        ShardSyncDownloadView {
+            downloads: download.downloads.iter().map(|x| x.into()).collect(),
+            status: download.status.to_string(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct StateSplitApplyingStatus {
+    /// total number of parts to be applied
+    pub total_parts: OnceCell<u64>,
+    /// number of parts that are done
+    pub done_parts: AtomicU64,
+}
+
+impl StateSplitApplyingStatus {
+    pub fn new() -> Self {
+        StateSplitApplyingStatus { total_parts: OnceCell::new(), done_parts: AtomicU64::new(0) }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct ShardSyncDownload {
     pub downloads: Vec<DownloadStatus>,
     pub status: ShardSyncStatus,
 }
 
 /// Various status sync can be in, whether it's fast sync or archival.
-#[derive(Clone, Debug, strum::AsRefStr, Serialize)]
+#[derive(Clone, Debug, strum::AsRefStr)]
 pub enum SyncStatus {
     /// Initial state. Not enough peers to do anything yet.
     AwaitingPeers,
@@ -98,13 +168,17 @@ pub enum SyncStatus {
     // Bowen: why do we use epoch ordinal instead of epoch id?
     EpochSync { epoch_ord: u64 },
     /// Downloading block headers for fast sync.
-    HeaderSync { current_height: BlockHeight, highest_height: BlockHeight },
+    HeaderSync {
+        start_height: BlockHeight,
+        current_height: BlockHeight,
+        highest_height: BlockHeight,
+    },
     /// State sync, with different states of state sync for different shards.
     StateSync(CryptoHash, HashMap<ShardId, ShardSyncDownload>),
     /// Sync state across all shards is done.
     StateSyncDone,
     /// Catch up on blocks.
-    BodySync { current_height: BlockHeight, highest_height: BlockHeight },
+    BodySync { start_height: BlockHeight, current_height: BlockHeight, highest_height: BlockHeight },
 }
 
 impl SyncStatus {
@@ -127,10 +201,42 @@ impl SyncStatus {
             SyncStatus::NoSync => 0,
             SyncStatus::AwaitingPeers => 1,
             SyncStatus::EpochSync { epoch_ord: _ } => 2,
-            SyncStatus::HeaderSync { current_height: _, highest_height: _ } => 3,
+            SyncStatus::HeaderSync { start_height: _, current_height: _, highest_height: _ } => 3,
             SyncStatus::StateSync(_, _) => 4,
             SyncStatus::StateSyncDone => 5,
-            SyncStatus::BodySync { current_height: _, highest_height: _ } => 6,
+            SyncStatus::BodySync { start_height: _, current_height: _, highest_height: _ } => 6,
+        }
+    }
+
+    pub fn start_height(&self) -> Option<BlockHeight> {
+        match self {
+            SyncStatus::HeaderSync { start_height, .. } => Some(*start_height),
+            SyncStatus::BodySync { start_height, .. } => Some(*start_height),
+            _ => None,
+        }
+    }
+}
+
+impl From<SyncStatus> for SyncStatusView {
+    fn from(status: SyncStatus) -> Self {
+        match status {
+            SyncStatus::AwaitingPeers => SyncStatusView::AwaitingPeers,
+            SyncStatus::NoSync => SyncStatusView::NoSync,
+            SyncStatus::EpochSync { epoch_ord } => SyncStatusView::EpochSync { epoch_ord },
+            SyncStatus::HeaderSync { start_height, current_height, highest_height } => {
+                SyncStatusView::HeaderSync { start_height, current_height, highest_height }
+            }
+            SyncStatus::StateSync(hash, sync_status) => SyncStatusView::StateSync(
+                hash,
+                sync_status
+                    .into_iter()
+                    .map(|(shard_id, shard_sync)| (shard_id, shard_sync.into()))
+                    .collect(),
+            ),
+            SyncStatus::StateSyncDone => SyncStatusView::StateSyncDone,
+            SyncStatus::BodySync { start_height, current_height, highest_height } => {
+                SyncStatusView::BodySync { start_height, current_height, highest_height }
+            }
         }
     }
 }
@@ -176,13 +282,6 @@ impl GetBlock {
 
 impl Message for GetBlock {
     type Result = Result<BlockView, GetBlockError>;
-}
-
-/// Actor message requesting block hash by id, hash or sync state.
-pub struct GetBlockHash(pub BlockReference);
-
-impl Message for GetBlockHash {
-    type Result = Result<CryptoHash, GetBlockError>;
 }
 
 /// Get block with the block merkle tree. Used for testing
@@ -250,14 +349,13 @@ impl From<near_chain_primitives::Error> for GetChunkError {
 /// Queries client for given path / data.
 #[derive(Clone, Debug)]
 pub struct Query {
-    pub query_id: String,
     pub block_reference: BlockReference,
     pub request: QueryRequest,
 }
 
 impl Query {
     pub fn new(block_reference: BlockReference, request: QueryRequest) -> Self {
-        Query { query_id: generate_random_string(10), block_reference, request }
+        Query { block_reference, request }
     }
 }
 
@@ -334,32 +432,6 @@ pub struct Status {
     pub is_health_check: bool,
     // If true - return more detailed information about the current status (recent blocks etc).
     pub detailed: bool,
-}
-
-// Different debug requests that can be sent by HTML pages, via GET.
-pub enum DebugStatus {
-    // Request for the current sync status
-    SyncStatus,
-    // Request currently tracked shards
-    TrackedShards,
-    // Detailed information about last couple epochs.
-    EpochInfo,
-    // Detailed information about last couple blocks.
-    BlockStatus,
-}
-
-impl Message for DebugStatus {
-    type Result = Result<DebugStatusResponse, StatusError>;
-}
-
-#[derive(Serialize, Debug)]
-pub enum DebugStatusResponse {
-    SyncStatus(SyncStatus),
-    TrackedShards(TrackedShardsView),
-    // List of epochs - in descending order (next epoch is first).
-    EpochInfo(Vec<EpochInfoView>),
-    // Detailed information about blocks.
-    BlockStatus(Vec<DebugBlockStatus>),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -485,6 +557,21 @@ impl From<near_chain_primitives::Error> for GetGasPriceError {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct PeerInfo {
+    pub id: PeerId,
+    pub addr: Option<std::net::SocketAddr>,
+    pub account_id: Option<AccountId>,
+}
+
+#[derive(Clone, Debug)]
+pub struct KnownProducer {
+    pub account_id: AccountId,
+    pub addr: Option<std::net::SocketAddr>,
+    pub peer_id: PeerId,
+    pub next_hops: Option<Vec<PeerId>>,
+}
+
 #[derive(Debug)]
 pub struct NetworkInfoResponse {
     pub connected_peers: Vec<PeerInfo>,
@@ -507,24 +594,13 @@ pub struct TxStatus {
 pub enum TxStatusError {
     ChainError(near_chain_primitives::Error),
     MissingTransaction(CryptoHash),
-    InvalidTx(InvalidTxError),
     InternalError(String),
     TimeoutError,
 }
 
-impl From<TxStatusError> for String {
-    fn from(error: TxStatusError) -> Self {
-        match error {
-            TxStatusError::ChainError(err) => format!("Chain error: {}", err),
-            TxStatusError::MissingTransaction(tx_hash) => {
-                format!("Transaction {} doesn't exist", tx_hash)
-            }
-            TxStatusError::InternalError(debug_message) => {
-                format!("Internal error: {}", debug_message)
-            }
-            TxStatusError::TimeoutError => format!("Timeout error"),
-            TxStatusError::InvalidTx(e) => format!("Invalid transaction: {}", e),
-        }
+impl From<near_chain_primitives::Error> for TxStatusError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        Self::ChainError(error)
     }
 }
 
@@ -814,4 +890,26 @@ impl From<near_chain_primitives::Error> for GetProtocolConfigError {
             _ => Self::Unreachable(error.to_string()),
         }
     }
+}
+
+#[cfg(feature = "sandbox")]
+#[derive(Debug)]
+pub enum SandboxMessage {
+    SandboxPatchState(Vec<near_primitives::state_record::StateRecord>),
+    SandboxPatchStateStatus,
+    SandboxFastForward(near_primitives::types::BlockHeightDelta),
+    SandboxFastForwardStatus,
+}
+
+#[cfg(feature = "sandbox")]
+#[derive(Eq, PartialEq, Debug, actix::MessageResponse)]
+pub enum SandboxResponse {
+    SandboxPatchStateFinished(bool),
+    SandboxFastForwardFinished(bool),
+    SandboxFastForwardFailed(String),
+    SandboxNoResponse,
+}
+#[cfg(feature = "sandbox")]
+impl Message for SandboxMessage {
+    type Result = SandboxResponse;
 }

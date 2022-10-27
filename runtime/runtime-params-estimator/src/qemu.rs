@@ -1,6 +1,8 @@
 //! QEMU instrumentation code to get used resources as measured by the QEMU plugin.
 
+use num_rational::Ratio;
 use std::fmt::Write;
+use std::ops;
 use std::os::raw::c_void;
 use std::process::Command;
 
@@ -13,11 +15,11 @@ const HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED: u32 = 1;
 const HYPERCALL_GET_BYTES_READ: u32 = 2;
 const HYPERCALL_GET_BYTES_WRITTEN: u32 = 3;
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) struct QemuMeasurement {
-    pub instructions: u64,
-    pub io_r_bytes: u64,
-    pub io_w_bytes: u64,
+    pub instructions: Ratio<u64>,
+    pub io_r_bytes: Ratio<u64>,
+    pub io_w_bytes: Ratio<u64>,
 }
 
 impl QemuMeasurement {
@@ -26,14 +28,17 @@ impl QemuMeasurement {
     }
 
     pub(crate) fn end_count_instructions() -> QemuMeasurement {
-        let instructions = hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED);
-        let io_r_bytes = hypercall(HYPERCALL_GET_BYTES_READ);
-        let io_w_bytes = hypercall(HYPERCALL_GET_BYTES_WRITTEN);
+        let instructions = hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED).into();
+        let io_r_bytes = hypercall(HYPERCALL_GET_BYTES_READ).into();
+        let io_w_bytes = hypercall(HYPERCALL_GET_BYTES_WRITTEN).into();
 
         QemuMeasurement { instructions, io_r_bytes, io_w_bytes }
     }
-}
 
+    pub(crate) fn zero() -> Self {
+        QemuMeasurement { instructions: 0.into(), io_r_bytes: 0.into(), io_w_bytes: 0.into() }
+    }
+}
 fn hypercall(index: u32) -> u64 {
     let mut result: u64 = 0;
     unsafe {
@@ -108,5 +113,39 @@ impl QemuCommandBuilder {
 impl Default for QemuCommandBuilder {
     fn default() -> Self {
         Self { started: false, on_every_close: false, count_per_thread: false, plugin_log: false }
+    }
+}
+
+impl ops::Div<u64> for QemuMeasurement {
+    type Output = QemuMeasurement;
+
+    fn div(mut self, rhs: u64) -> Self::Output {
+        self.instructions /= rhs;
+        self.io_r_bytes /= rhs;
+        self.io_w_bytes /= rhs;
+        self
+    }
+}
+
+impl ops::Add for QemuMeasurement {
+    type Output = QemuMeasurement;
+
+    fn add(mut self, rhs: QemuMeasurement) -> Self::Output {
+        self.instructions += rhs.instructions;
+        self.io_r_bytes += rhs.io_r_bytes;
+        self.io_w_bytes += rhs.io_w_bytes;
+        self
+    }
+}
+
+impl ops::Mul<u64> for QemuMeasurement {
+    type Output = QemuMeasurement;
+
+    fn mul(self, rhs: u64) -> Self::Output {
+        QemuMeasurement {
+            instructions: self.instructions * rhs,
+            io_r_bytes: self.io_r_bytes * rhs,
+            io_w_bytes: self.io_w_bytes * rhs,
+        }
     }
 }

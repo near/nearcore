@@ -92,6 +92,10 @@ pub struct VMLimitConfig {
     /// If present, stores max number of locals declared globally in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_locals_per_contract: Option<u64>,
+    /// Whether to enforce account_id well-formedness where it wasn't enforced
+    /// historically.
+    #[serde(default = "AccountIdValidityRulesVersion::v0")]
+    pub account_id_validity_rules_version: AccountIdValidityRulesVersion,
 }
 
 fn wasmer2_stack_limit_default() -> i32 {
@@ -105,7 +109,17 @@ fn wasmer2_stack_limit_default() -> i32 {
 /// `0` or `1`. We could have used a `bool` instead, but there's a chance that
 /// our current impl isn't perfect either and would need further tweaks in the
 /// future.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Hash,
+    PartialEq,
+    Eq,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
 pub enum StackLimiterVersion {
     /// Old, buggy version, don't use it unless specifically to support old protocol version.
     V0,
@@ -117,40 +131,29 @@ impl StackLimiterVersion {
     fn v0() -> StackLimiterVersion {
         StackLimiterVersion::V0
     }
-    fn repr(self) -> u32 {
-        match self {
-            StackLimiterVersion::V0 => 0,
-            StackLimiterVersion::V1 => 1,
-        }
-    }
-    fn from_repr(repr: u32) -> Option<StackLimiterVersion> {
-        let res = match repr {
-            0 => StackLimiterVersion::V0,
-            1 => StackLimiterVersion::V1,
-            _ => return None,
-        };
-        Some(res)
-    }
 }
 
-impl Serialize for StackLimiterVersion {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.repr().serialize(serializer)
-    }
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Hash,
+    PartialEq,
+    Eq,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
+pub enum AccountIdValidityRulesVersion {
+    /// Skip account ID validation according to legacy rules.
+    V0,
+    /// Limit `receiver_id` in `FunctionCallPermission` to be a valid account ID.
+    V1,
 }
 
-impl<'de> Deserialize<'de> for StackLimiterVersion {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        u32::deserialize(deserializer).and_then(|repr| {
-            StackLimiterVersion::from_repr(repr)
-                .ok_or_else(|| serde::de::Error::custom("invalid stack_limiter_version"))
-        })
+impl AccountIdValidityRulesVersion {
+    fn v0() -> AccountIdValidityRulesVersion {
+        AccountIdValidityRulesVersion::V0
     }
 }
 
@@ -234,6 +237,7 @@ impl VMLimitConfig {
             // necessary (they only take constant operands indicating the local to access), which
             // is 4 bytes worth of code for each local.
             max_locals_per_contract: Some(max_contract_size / 4),
+            account_id_validity_rules_version: AccountIdValidityRulesVersion::V1,
         }
     }
 }
@@ -304,6 +308,13 @@ pub struct ExtCostsConfig {
     pub ripemd160_base: Gas,
     /// Cost of getting ripemd160 per message block
     pub ripemd160_block: Gas,
+
+    /// Cost of getting ed25519 base
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    pub ed25519_verify_base: Gas,
+    /// Cost of getting ed25519 per byte
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    pub ed25519_verify_byte: Gas,
 
     /// Cost of calling ecrecover
     pub ecrecover_base: Gas,
@@ -400,22 +411,16 @@ pub struct ExtCostsConfig {
     // # Alt BN128 #
     // #############
     /// Base cost for multiexp
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     pub alt_bn128_g1_multiexp_base: Gas,
-    /// byte cost for multiexp
-    #[cfg(feature = "protocol_feature_alt_bn128")]
+    /// Per element cost for multiexp
     pub alt_bn128_g1_multiexp_element: Gas,
     /// Base cost for sum
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     pub alt_bn128_g1_sum_base: Gas,
-    /// byte cost for sum
-    #[cfg(feature = "protocol_feature_alt_bn128")]
+    /// Per element cost for sum
     pub alt_bn128_g1_sum_element: Gas,
     /// Base cost for pairing check
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     pub alt_bn128_pairing_check_base: Gas,
-    /// Cost for pairing check per byte
-    #[cfg(feature = "protocol_feature_alt_bn128")]
+    /// Per element cost for pairing check
     pub alt_bn128_pairing_check_element: Gas,
 }
 
@@ -454,6 +459,10 @@ impl ExtCostsConfig {
             keccak512_base: SAFETY_MULTIPLIER * 1937129412,
             keccak512_byte: SAFETY_MULTIPLIER * 12216567,
             ripemd160_base: SAFETY_MULTIPLIER * 284558362,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
+            ed25519_verify_base: SAFETY_MULTIPLIER * 1513656750,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
+            ed25519_verify_byte: SAFETY_MULTIPLIER * 7157035,
             // Cost per byte is 3542227. There are 64 bytes in a block.
             ripemd160_block: SAFETY_MULTIPLIER * 226702528,
             ecrecover_base: SAFETY_MULTIPLIER * 1121789875000,
@@ -488,17 +497,11 @@ impl ExtCostsConfig {
             validator_total_stake_base: SAFETY_MULTIPLIER * 303944908800,
             _unused1: 0,
             _unused2: 0,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_multiexp_base: 713_000_000_000,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_multiexp_element: 320_000_000_000,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_pairing_check_base: 9_686_000_000_000,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_pairing_check_element: 5_102_000_000_000,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_sum_base: 3_000_000_000,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_sum_element: 5_000_000_000,
         }
     }
@@ -528,6 +531,10 @@ impl ExtCostsConfig {
             keccak512_byte: 0,
             ripemd160_base: 0,
             ripemd160_block: 0,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
+            ed25519_verify_base: 0,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
+            ed25519_verify_byte: 0,
             ecrecover_base: 0,
             log_base: 0,
             log_byte: 0,
@@ -560,17 +567,11 @@ impl ExtCostsConfig {
             validator_total_stake_base: 0,
             _unused1: 0,
             _unused2: 0,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_multiexp_base: 0,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_multiexp_element: 0,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_pairing_check_base: 0,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_pairing_check_element: 0,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_sum_base: 0,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_sum_element: 0,
         }
     }
@@ -603,6 +604,10 @@ pub enum ExtCosts {
     keccak512_byte,
     ripemd160_base,
     ripemd160_block,
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    ed25519_verify_base,
+    #[cfg(feature = "protocol_feature_ed25519_verify")]
+    ed25519_verify_byte,
     ecrecover_base,
     log_base,
     log_byte,
@@ -633,17 +638,11 @@ pub enum ExtCosts {
     promise_return,
     validator_stake_base,
     validator_total_stake_base,
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_multiexp_base,
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_multiexp_element,
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_pairing_check_base,
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_pairing_check_element,
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_sum_base,
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_sum_element,
 }
 
@@ -690,6 +689,10 @@ impl ExtCosts {
             keccak512_byte => config.keccak512_byte,
             ripemd160_base => config.ripemd160_base,
             ripemd160_block => config.ripemd160_block,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
+            ed25519_verify_base => config.ed25519_verify_base,
+            #[cfg(feature = "protocol_feature_ed25519_verify")]
+            ed25519_verify_byte => config.ed25519_verify_byte,
             ecrecover_base => config.ecrecover_base,
             log_base => config.log_base,
             log_byte => config.log_byte,
@@ -720,17 +723,11 @@ impl ExtCosts {
             promise_return => config.promise_return,
             validator_stake_base => config.validator_stake_base,
             validator_total_stake_base => config.validator_total_stake_base,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_multiexp_base => config.alt_bn128_g1_multiexp_base,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_multiexp_element => config.alt_bn128_g1_multiexp_element,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_pairing_check_base => config.alt_bn128_pairing_check_base,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_pairing_check_element => config.alt_bn128_pairing_check_element,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_sum_base => config.alt_bn128_g1_sum_base,
-            #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_sum_element => config.alt_bn128_g1_sum_element,
         }
     }

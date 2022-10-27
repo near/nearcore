@@ -437,11 +437,11 @@ fn test_sha256() {
     let data = b"tesdsst";
 
     logic.sha256(data.len() as _, data.as_ptr() as _, 0).unwrap();
-    let res = &vec![0u8; 32];
-    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    let mut res = [0u8; 32];
+    logic.read_register(0, (&mut res[..]).as_ptr() as _).expect("OK");
     assert_eq!(
         res,
-        &[
+        [
             18, 176, 115, 156, 45, 100, 241, 132, 180, 134, 77, 42, 105, 111, 199, 127, 118, 112,
             92, 255, 88, 43, 83, 147, 122, 55, 26, 36, 42, 156, 160, 158,
         ]
@@ -469,8 +469,8 @@ fn test_keccak256() {
     let data = b"tesdsst";
 
     logic.keccak256(data.len() as _, data.as_ptr() as _, 0).unwrap();
-    let res = &vec![0u8; 32];
-    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    let mut res = [0u8; 32];
+    logic.read_register(0, (&mut res[..]).as_ptr() as _).expect("OK");
     assert_eq!(
         res.as_slice(),
         &[
@@ -501,17 +501,16 @@ fn test_keccak512() {
     let data = b"tesdsst";
 
     logic.keccak512(data.len() as _, data.as_ptr() as _, 0).unwrap();
-    let res = &vec![0u8; 64];
-    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    let mut res = [0u8; 64];
+    logic.read_register(0, (&mut res[..]).as_ptr() as _).expect("OK");
     assert_eq!(
         res,
-        &[
+        [
             55, 134, 96, 137, 168, 122, 187, 95, 67, 76, 18, 122, 146, 11, 225, 106, 117, 194, 154,
             157, 48, 160, 90, 146, 104, 209, 118, 126, 222, 230, 200, 125, 48, 73, 197, 236, 123,
             173, 192, 197, 90, 153, 167, 121, 100, 88, 209, 240, 137, 86, 239, 41, 87, 128, 219,
             249, 136, 203, 220, 109, 46, 168, 234, 190
         ]
-        .to_vec()
     );
     let len = data.len() as u64;
     assert_costs(map! {
@@ -536,11 +535,11 @@ fn test_ripemd160() {
 
     let data = b"tesdsst";
     logic.ripemd160(data.len() as _, data.as_ptr() as _, 0).unwrap();
-    let res = &vec![0u8; 20];
-    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    let mut res = [0u8; 20];
+    logic.read_register(0, (&mut res[..]).as_ptr() as _).expect("OK");
     assert_eq!(
         res,
-        &[21, 102, 156, 115, 232, 3, 58, 215, 35, 84, 129, 30, 143, 86, 212, 104, 70, 97, 14, 225,]
+        [21, 102, 156, 115, 232, 3, 58, 215, 35, 84, 129, 30, 143, 86, 212, 104, 70, 97, 14, 225,]
     );
     let len = data.len() as u64;
     assert_costs(map! {
@@ -626,11 +625,11 @@ fn test_hash256_register() {
     logic.wrapped_internal_write_register(1, data).unwrap();
 
     logic.sha256(u64::MAX, 1, 0).unwrap();
-    let res = &vec![0u8; 32];
-    logic.read_register(0, res.as_ptr() as _).unwrap();
+    let mut res = [0u8; 32];
+    logic.read_register(0, (&mut res[..]).as_ptr() as _).unwrap();
     assert_eq!(
         res,
-        &[
+        [
             18, 176, 115, 156, 45, 100, 241, 132, 180, 134, 77, 42, 105, 111, 199, 127, 118, 112,
             92, 255, 88, 43, 83, 147, 122, 55, 26, 36, 42, 156, 160, 158,
         ]
@@ -857,5 +856,90 @@ fn test_contract_size_limit() {
             limit: logic_builder.config.limit_config.max_contract_size
         }
         .into())
+    );
+}
+
+#[cfg(feature = "protocol_feature_ed25519_verify")]
+#[test]
+fn test_ed25519_verify() {
+    use near_vm_errors::VMLogicError;
+
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
+
+    let signature: [u8; 64] = [
+        145, 193, 203, 18, 114, 227, 14, 117, 33, 213, 121, 66, 130, 14, 25, 4, 36, 120, 46, 142,
+        226, 215, 7, 66, 122, 112, 97, 30, 249, 135, 61, 165, 221, 249, 252, 23, 105, 40, 56, 70,
+        31, 152, 236, 141, 154, 122, 207, 20, 75, 118, 79, 90, 168, 6, 221, 122, 213, 29, 126, 196,
+        216, 104, 191, 6,
+    ];
+
+    let bad_signature: [u8; 64] = [1; 64];
+
+    let public_key: [u8; 32] = [
+        32, 122, 6, 120, 146, 130, 30, 37, 215, 112, 241, 251, 160, 196, 124, 17, 255, 75, 129, 62,
+        84, 22, 46, 206, 158, 184, 57, 224, 118, 35, 26, 182,
+    ];
+
+    // 32 bytes message
+    let message: [u8; 32] = [
+        107, 97, 106, 100, 108, 102, 107, 106, 97, 108, 107, 102, 106, 97, 107, 108, 102, 106, 100,
+        107, 108, 97, 100, 106, 102, 107, 108, 106, 97, 100, 115, 107,
+    ];
+
+    let result = logic
+        .ed25519_verify(
+            signature.len() as _,
+            signature.as_ptr() as _,
+            message.len() as _,
+            message.as_ptr() as _,
+            public_key.len() as _,
+            public_key.as_ptr() as _,
+        )
+        .unwrap();
+
+    assert_eq!(result, 1);
+
+    assert_costs(map! {
+        ExtCosts::read_memory_byte: 128,
+        ExtCosts::read_memory_base: 3,
+        ExtCosts::ed25519_verify_base: 1,
+        ExtCosts::ed25519_verify_byte: 32,
+    });
+
+    let result = logic
+        .ed25519_verify(
+            bad_signature.len() as _,
+            bad_signature.as_ptr() as _,
+            message.len() as _,
+            message.as_ptr() as _,
+            public_key.len() as _,
+            public_key.as_ptr() as _,
+        )
+        .unwrap();
+
+    assert_eq!(result, 0);
+
+    assert_costs(map! {
+        ExtCosts::read_memory_byte: 128,
+        ExtCosts::read_memory_base: 3,
+        ExtCosts::ed25519_verify_base: 1,
+        ExtCosts::ed25519_verify_byte: 32,
+    });
+
+    let result = logic.ed25519_verify(
+        (signature.len() - 1) as _,
+        signature.as_ptr() as _,
+        message.len() as _,
+        message.as_ptr() as _,
+        public_key.len() as _,
+        public_key.as_ptr() as _,
+    );
+
+    assert_eq!(
+        result,
+        Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
+            msg: "invalid signature length".to_string()
+        }))
     );
 }

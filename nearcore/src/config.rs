@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context};
 use near_primitives::time::Clock;
-use num_rational::Rational;
+use num_rational::Rational32;
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use tempfile::tempdir;
@@ -21,8 +21,8 @@ use near_chain_configs::{
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
+use near_network::config::NetworkConfig;
 use near_network::test_utils::open_port;
-use near_network_primitives::types::{NetworkConfig, PeerInfo, ROUTED_MESSAGE_TTL};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 #[cfg(test)]
@@ -101,18 +101,14 @@ pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 120;
 pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 500;
 pub const FAST_EPOCH_LENGTH: BlockHeightDelta = 60;
 
-/// Time to persist Accounts Id in the router without removing them in seconds.
-pub const TTL_ACCOUNT_ID_ROUTER: u64 = 60 * 60;
-/// Maximum amount of routes to store for each account id.
-pub const MAX_ROUTES_TO_STORE: usize = 5;
 /// Expected number of blocks per year
 pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 
 /// Initial gas limit.
 pub const INITIAL_GAS_LIMIT: Gas = 1_000_000_000_000_000;
 
-/// Initial gas price.
-pub const MIN_GAS_PRICE: Balance = 1_000_000_000;
+/// Initial and minimum gas price.
+pub const MIN_GAS_PRICE: Balance = 100_000_000;
 
 /// Protocol treasury account
 pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
@@ -125,9 +121,6 @@ pub const TRANSACTION_VALIDITY_PERIOD: NumBlocks = 100;
 
 /// Number of seats for block producers
 pub const NUM_BLOCK_PRODUCER_SEATS: NumSeats = 50;
-
-/// How much height horizon to give to consider peer up to date.
-pub const HIGHEST_PEER_HORIZON: u64 = 5;
 
 /// The minimum stake required for staking is last seat price divided by this number.
 pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
@@ -146,139 +139,16 @@ pub const NETWORK_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api/nodes"
 /// The rate at which the gas price can be adjusted (alpha in the formula).
 /// The formula is
 /// gas_price_t = gas_price_{t-1} * (1 + (gas_used/gas_limit - 1/2) * alpha))
-pub const GAS_PRICE_ADJUSTMENT_RATE: Rational = Rational::new_raw(1, 100);
+pub const GAS_PRICE_ADJUSTMENT_RATE: Rational32 = Rational32::new_raw(1, 100);
 
 /// Protocol treasury reward
-pub const PROTOCOL_REWARD_RATE: Rational = Rational::new_raw(1, 10);
+pub const PROTOCOL_REWARD_RATE: Rational32 = Rational32::new_raw(1, 10);
 
 /// Maximum inflation rate per year
-pub const MAX_INFLATION_RATE: Rational = Rational::new_raw(1, 20);
+pub const MAX_INFLATION_RATE: Rational32 = Rational32::new_raw(1, 20);
 
 /// Protocol upgrade stake threshold.
-pub const PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational = Rational::new_raw(4, 5);
-
-/// Maximum number of active peers. Hard limit.
-fn default_max_num_peers() -> u32 {
-    40
-}
-/// Minimum outbound connections a peer should have to avoid eclipse attacks.
-fn default_minimum_outbound_connections() -> u32 {
-    5
-}
-/// Lower bound of the ideal number of connections.
-fn default_ideal_connections_lo() -> u32 {
-    30
-}
-/// Upper bound of the ideal number of connections.
-fn default_ideal_connections_hi() -> u32 {
-    35
-}
-/// Peers which last message is was within this period of time are considered active recent peers.
-fn default_peer_recent_time_window() -> Duration {
-    Duration::from_secs(600)
-}
-/// Number of peers to keep while removing a connection.
-/// Used to avoid disconnecting from peers we have been connected since long time.
-fn default_safe_set_size() -> u32 {
-    20
-}
-/// Lower bound of the number of connections to archival peers to keep
-/// if we are an archival node.
-fn default_archival_peer_connections_lower_bound() -> u32 {
-    10
-}
-/// Time to persist Accounts Id in the router without removing them in seconds.
-fn default_ttl_account_id_router() -> Duration {
-    Duration::from_secs(TTL_ACCOUNT_ID_ROUTER)
-}
-/// Period to check on peer status
-fn default_peer_stats_period() -> Duration {
-    Duration::from_secs(5)
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Network {
-    /// Address to listen for incoming connections.
-    pub addr: String,
-    /// Address to advertise to peers for them to connect.
-    /// If empty, will use the same port as the addr, and will introspect on the listener.
-    pub external_address: String,
-    /// Comma separated list of nodes to connect to.
-    pub boot_nodes: String,
-    /// Comma separated list of whitelisted nodes. Inbound connections from the nodes on
-    /// the whitelist are accepted even if the limit of the inbound connection has been reached.
-    /// For each whitelisted node specifying both PeerId and IP:port is required:
-    /// Example:
-    ///   ed25519:86EtEy7epneKyrcJwSWP7zsisTkfDRH5CFVszt4qiQYw@31.192.22.209:24567
-    #[serde(default)]
-    pub whitelist_nodes: String,
-    /// Maximum number of active peers. Hard limit.
-    #[serde(default = "default_max_num_peers")]
-    pub max_num_peers: u32,
-    /// Minimum outbound connections a peer should have to avoid eclipse attacks.
-    #[serde(default = "default_minimum_outbound_connections")]
-    pub minimum_outbound_peers: u32,
-    /// Lower bound of the ideal number of connections.
-    #[serde(default = "default_ideal_connections_lo")]
-    pub ideal_connections_lo: u32,
-    /// Upper bound of the ideal number of connections.
-    #[serde(default = "default_ideal_connections_hi")]
-    pub ideal_connections_hi: u32,
-    /// Peers which last message is was within this period of time are considered active recent peers (in seconds).
-    #[serde(default = "default_peer_recent_time_window")]
-    pub peer_recent_time_window: Duration,
-    /// Number of peers to keep while removing a connection.
-    /// Used to avoid disconnecting from peers we have been connected since long time.
-    #[serde(default = "default_safe_set_size")]
-    pub safe_set_size: u32,
-    /// Lower bound of the number of connections to archival peers to keep
-    /// if we are an archival node.
-    #[serde(default = "default_archival_peer_connections_lower_bound")]
-    pub archival_peer_connections_lower_bound: u32,
-    /// Handshake timeout.
-    pub handshake_timeout: Duration,
-    /// Duration before trying to reconnect to a peer.
-    pub reconnect_delay: Duration,
-    /// Skip waiting for peers before starting node.
-    pub skip_sync_wait: bool,
-    /// Ban window for peers who misbehave.
-    pub ban_window: Duration,
-    /// List of addresses that will not be accepted as valid neighbors.
-    /// It can be IP:Port or IP (to blacklist all connections coming from this address).
-    #[serde(default)]
-    pub blacklist: Vec<String>,
-    /// Time to persist Accounts Id in the router without removing them in seconds.
-    #[serde(default = "default_ttl_account_id_router")]
-    pub ttl_account_id_router: Duration,
-    /// Period to check on peer status
-    #[serde(default = "default_peer_stats_period")]
-    pub peer_stats_period: Duration,
-}
-
-impl Default for Network {
-    fn default() -> Self {
-        Network {
-            addr: "0.0.0.0:24567".to_string(),
-            external_address: "".to_string(),
-            boot_nodes: "".to_string(),
-            whitelist_nodes: "".to_string(),
-            max_num_peers: default_max_num_peers(),
-            minimum_outbound_peers: default_minimum_outbound_connections(),
-            ideal_connections_lo: default_ideal_connections_lo(),
-            ideal_connections_hi: default_ideal_connections_hi(),
-            peer_recent_time_window: default_peer_recent_time_window(),
-            safe_set_size: default_safe_set_size(),
-            archival_peer_connections_lower_bound: default_archival_peer_connections_lower_bound(),
-            handshake_timeout: Duration::from_secs(20),
-            reconnect_delay: Duration::from_secs(60),
-            skip_sync_wait: false,
-            ban_window: Duration::from_secs(3 * 60 * 60),
-            blacklist: vec![],
-            ttl_account_id_router: default_ttl_account_id_router(),
-            peer_stats_period: default_peer_stats_period(),
-        }
-    }
-}
+pub const PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational32 = Rational32::new_raw(4, 5);
 
 /// Serde default only supports functions without parameters.
 fn default_reduce_wait_for_missing_block() -> Duration {
@@ -313,6 +183,10 @@ fn default_sync_step_period() -> Duration {
     Duration::from_millis(10)
 }
 
+fn default_sync_height_threshold() -> u64 {
+    1
+}
+
 fn default_view_client_threads() -> usize {
     4
 }
@@ -327,10 +201,6 @@ fn default_view_client_throttle_period() -> Duration {
 
 fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
-}
-
-fn default_use_checkpoints_for_db_migration() -> bool {
-    true
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -384,6 +254,8 @@ pub struct Consensus {
     /// Time between running doomslug timer.
     #[serde(default = "default_doomslug_step_period")]
     pub doomslug_step_period: Duration,
+    #[serde(default = "default_sync_height_threshold")]
+    pub sync_height_threshold: u64,
 }
 
 impl Default for Consensus {
@@ -410,6 +282,7 @@ impl Default for Consensus {
             sync_check_period: default_sync_check_period(),
             sync_step_period: default_sync_step_period(),
             doomslug_step_period: default_doomslug_step_period(),
+            sync_height_threshold: default_sync_height_threshold(),
         }
     }
 }
@@ -428,10 +301,11 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rosetta_rpc: Option<RosettaRpcConfig>,
     pub telemetry: TelemetryConfig,
-    pub network: Network,
+    pub network: near_network::config_json::Config,
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
+    #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
     pub log_summary_style: LogSummaryStyle,
     /// Garbage collection configuration.
@@ -447,17 +321,28 @@ pub struct Config {
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gas_burnt_view: Option<Gas>,
-    /// Checkpoints let the user recover from interrupted DB migrations.
-    #[serde(default = "default_use_checkpoints_for_db_migration")]
-    pub use_db_migration_snapshot: bool,
-    /// Location of the DB checkpoint for the DB migrations. This can be one of the following:
-    /// * Empty, the checkpoint will be created in the database location, i.e. '$home/data'.
-    /// * Absolute path that points to an existing directory. The checkpoint will be a sub-directory in that directory.
-    /// For example, setting "use_db_migration_snapshot" to "/tmp/" will create a directory "/tmp/db_migration_snapshot" and populate it with the database files.
+    /// Different parameters to configure underlying storage.
+    pub store: near_store::StoreConfig,
+    /// Different parameters to configure underlying cold storage.
+    #[cfg(feature = "cold_store")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cold_store: Option<near_store::StoreConfig>,
+
+    // TODO(mina86): Remove those two altogether at some point.  We need to be
+    // somewhat careful though and make sure that we don’t start silently
+    // ignoring this option without users setting corresponding store option.
+    // For the time being, we’re failing inside of create_db_checkpoint if this
+    // option is set.
+    /// Deprecated; use `store.migration_snapshot` instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub use_db_migration_snapshot: Option<bool>,
+    /// Deprecated; use `store.migration_snapshot` instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub db_migration_snapshot_path: Option<PathBuf>,
-    /// Different parameters to configure/optimize underlying storage.
-    pub store: near_store::StoreConfig,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl Default for Config {
@@ -472,7 +357,7 @@ impl Default for Config {
             #[cfg(feature = "rosetta_rpc")]
             rosetta_rpc: None,
             telemetry: TelemetryConfig::default(),
-            network: Network::default(),
+            network: Default::default(),
             consensus: Consensus::default(),
             tracked_accounts: vec![],
             tracked_shards: vec![],
@@ -485,27 +370,46 @@ impl Default for Config {
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
             db_migration_snapshot_path: None,
-            use_db_migration_snapshot: true,
+            use_db_migration_snapshot: None,
             store: near_store::StoreConfig::default(),
+            #[cfg(feature = "cold_store")]
+            cold_store: None,
         }
     }
 }
 
 impl Config {
     pub fn from_file(path: &Path) -> anyhow::Result<Self> {
-        let mut unrecognised_fields = Vec::new();
-        let s = std::fs::read_to_string(path)
+        let contents = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config from {}", path.display()))?;
-        let config =
-            serde_ignored::deserialize(&mut serde_json::Deserializer::from_str(&s), |path| {
-                unrecognised_fields.push(path.to_string());
-            })
-            .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
-
+        let mut unrecognised_fields = Vec::new();
+        let config = serde_ignored::deserialize(
+            &mut serde_json::Deserializer::from_str(&contents),
+            |field| {
+                let field = field.to_string();
+                // TODO(mina86): Remove this deprecation notice some time by the
+                // end of 2022.
+                if field == "network.external_address" {
+                    warn!(
+                        target: "neard",
+                        "{}: {field} is deprecated; please remove it from the config file",
+                        path.display(),
+                    );
+                } else {
+                    unrecognised_fields.push(field);
+                }
+            },
+        )
+        .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
         if !unrecognised_fields.is_empty() {
-            warn!("{}: encountered unrecognised fields: {:?}", path.display(), unrecognised_fields);
+            let s = if unrecognised_fields.len() > 1 { "s" } else { "" };
+            let fields = unrecognised_fields.join(", ");
+            warn!(
+                target: "neard",
+                "{}: encountered unrecognised field{s}: {fields}",
+                path.display(),
+            );
         }
-
         Ok(config)
     }
 
@@ -653,8 +557,8 @@ impl NearConfig {
         genesis: Genesis,
         network_key_pair: KeyFile,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
-    ) -> Self {
-        NearConfig {
+    ) -> anyhow::Result<Self> {
+        Ok(NearConfig {
             config: config.clone(),
             client_config: ClientConfig {
                 version: Default::default(),
@@ -668,7 +572,7 @@ impl NearConfig {
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: config.consensus.sync_check_period,
                 sync_step_period: config.consensus.sync_step_period,
-                sync_height_threshold: 1,
+                sync_height_threshold: config.consensus.sync_height_threshold,
                 header_sync_initial_timeout: config.consensus.header_sync_initial_timeout,
                 header_sync_progress_timeout: config.consensus.header_sync_progress_timeout,
                 header_sync_stall_ban_timeout: config.consensus.header_sync_stall_ban_timeout,
@@ -702,67 +606,14 @@ impl NearConfig {
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
             },
-            network_config: NetworkConfig {
-                public_key: network_key_pair.public_key,
-                secret_key: network_key_pair.secret_key,
-                account_id: validator_signer.as_ref().map(|vs| vs.validator_id().clone()),
-                addr: if config.network.addr.is_empty() {
-                    None
-                } else {
-                    Some(config.network.addr.parse().unwrap())
-                },
-                boot_nodes: if config.network.boot_nodes.is_empty() {
-                    vec![]
-                } else {
-                    config
-                        .network
-                        .boot_nodes
-                        .split(',')
-                        .map(|chunk| chunk.try_into().expect("Failed to parse PeerInfo"))
-                        .collect()
-                },
-                whitelist_nodes: (|| -> Vec<_> {
-                    let w = &config.network.whitelist_nodes;
-                    if w.is_empty() {
-                        return vec![];
-                    }
-                    let mut peers = vec![];
-                    for peer in w.split(',') {
-                        let peer: PeerInfo = peer.try_into().expect("Failed to parse PeerInfo");
-                        if peer.addr.is_none() {
-                            panic!(
-                                "whitelist_nodes are required to specify both PeerId and IP:port"
-                            )
-                        }
-                        peers.push(peer);
-                    }
-                    peers
-                }()),
-                handshake_timeout: config.network.handshake_timeout,
-                reconnect_delay: config.network.reconnect_delay,
-                bootstrap_peers_period: Duration::from_secs(60),
-                max_num_peers: config.network.max_num_peers,
-                minimum_outbound_peers: config.network.minimum_outbound_peers,
-                ideal_connections_lo: config.network.ideal_connections_lo,
-                ideal_connections_hi: config.network.ideal_connections_hi,
-                peer_recent_time_window: config.network.peer_recent_time_window,
-                safe_set_size: config.network.safe_set_size,
-                archival_peer_connections_lower_bound: config
-                    .network
-                    .archival_peer_connections_lower_bound,
-                ban_window: config.network.ban_window,
-                max_send_peers: 512,
-                peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
-                peer_stats_period: Duration::from_secs(5),
-                ttl_account_id_router: config.network.ttl_account_id_router,
-                routed_message_ttl: ROUTED_MESSAGE_TTL,
-                max_routes_to_store: MAX_ROUTES_TO_STORE,
-                highest_peer_horizon: HIGHEST_PEER_HORIZON,
-                push_info_period: Duration::from_millis(100),
-                blacklist: config.network.blacklist,
-                outbound_disabled: false,
-                archive: config.archive,
-            },
+            network_config: NetworkConfig::new(
+                config.network,
+                network_key_pair.secret_key,
+                validator_signer.clone(),
+                config.archive,
+                // Enable tier1 (currently tier1 discovery only).
+                near_network::config::Features { enable_tier1: true },
+            )?,
             telemetry_config: config.telemetry,
             #[cfg(feature = "json_rpc")]
             rpc_config: config.rpc,
@@ -770,7 +621,7 @@ impl NearConfig {
             rosetta_rpc_config: config.rosetta_rpc,
             genesis,
             validator_signer,
-        }
+        })
     }
 
     pub fn rpc_addr(&self) -> Option<&str> {
@@ -798,7 +649,7 @@ impl NearConfig {
 
         let network_signer = InMemorySigner::from_secret_key(
             "node".parse().unwrap(),
-            self.network_config.secret_key.clone(),
+            self.network_config.node_key.clone(),
         );
         network_signer
             .write_to_file(&dir.join(&self.config.node_key_file))
@@ -952,13 +803,6 @@ fn test_generate_or_load_key() {
     test_err("bad_key", "fred", "");
 }
 
-pub fn mainnet_genesis() -> Genesis {
-    lazy_static_include::lazy_static_include_bytes! {
-        MAINNET_GENESIS_JSON => "res/mainnet_genesis.json",
-    };
-    serde_json::from_slice(*MAINNET_GENESIS_JSON).expect("Failed to deserialize mainnet genesis")
-}
-
 /// Initializes genesis and client configs and stores in the given folder
 pub fn init_configs(
     dir: &Path,
@@ -1019,14 +863,19 @@ pub fn init_configs(
     match chain_id.as_ref() {
         "mainnet" => {
             if test_seed.is_some() {
-                bail!("Test seed is not supported for MainNet");
+                bail!("Test seed is not supported for {chain_id}");
             }
+
+            // Make sure node tracks all shards, see
+            // https://github.com/near/nearcore/issues/7388
+            config.tracked_shards = vec![0];
+
             config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
             config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
             })?;
 
-            let genesis = mainnet_genesis();
+            let genesis = near_mainnet_res::mainnet_genesis();
 
             generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
             generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
@@ -1034,10 +883,15 @@ pub fn init_configs(
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
         }
-        "testnet" | "betanet" => {
+        "testnet" | "betanet" | "shardnet" => {
             if test_seed.is_some() {
-                bail!("Test seed is not supported for official testnet");
+                bail!("Test seed is not supported for {chain_id}");
             }
+
+            // Make sure node tracks all shards, see
+            // https://github.com/near/nearcore/issues/7388
+            config.tracked_shards = vec![0];
+
             config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
             config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
@@ -1140,8 +994,8 @@ pub fn init_configs(
                 gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
                 block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
                 chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
-                online_max_threshold: Rational::new(99, 100),
-                online_min_threshold: Rational::new(BLOCK_PRODUCER_KICKOUT_THRESHOLD as isize, 100),
+                online_max_threshold: Rational32::new(99, 100),
+                online_min_threshold: Rational32::new(BLOCK_PRODUCER_KICKOUT_THRESHOLD as i32, 100),
                 validators: vec![AccountInfo {
                     account_id: signer.account_id.clone(),
                     public_key: signer.public_key(),
@@ -1385,7 +1239,7 @@ impl From<NodeKeyFile> for KeyFile {
 pub fn load_config(
     dir: &Path,
     genesis_validation: GenesisValidationMode,
-) -> Result<NearConfig, anyhow::Error> {
+) -> anyhow::Result<NearConfig> {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     let genesis_file = dir.join(&config.genesis_file);
     let validator_file = dir.join(&config.validator_key_file);
@@ -1402,20 +1256,21 @@ pub fn load_config(
         format!("Failed reading node key file from {}", node_key_path.display())
     })?;
 
-    let genesis_records_file = config.genesis_records_file.clone();
-    Ok(NearConfig::new(
-        config,
-        match genesis_records_file {
-            Some(genesis_records_file) => Genesis::from_files(
-                &genesis_file,
-                &dir.join(genesis_records_file),
-                genesis_validation,
-            ),
-            None => Genesis::from_file(&genesis_file, genesis_validation),
-        },
-        network_signer.into(),
-        validator_signer,
-    ))
+    let genesis = match &config.genesis_records_file {
+        Some(records_file) => {
+            Genesis::from_files(&genesis_file, &dir.join(records_file), genesis_validation)
+        }
+        None => Genesis::from_file(&genesis_file, genesis_validation),
+    };
+
+    if matches!(genesis.config.chain_id.as_ref(), "mainnet" | "testnet" | "betanet" | "shardnet") {
+        // Make sure validators tracks all shards, see
+        // https://github.com/near/nearcore/issues/7388
+        anyhow::ensure!(!config.tracked_shards.is_empty(),
+                        "Validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
+    }
+
+    NearConfig::new(config, genesis, network_signer.into(), validator_signer)
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
@@ -1440,7 +1295,7 @@ pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
         )) as Arc<dyn ValidatorSigner>;
         (signer, Some(validator_signer))
     };
-    NearConfig::new(config, genesis, signer.into(), validator_signer)
+    NearConfig::new(config, genesis, signer.into(), validator_signer).unwrap()
 }
 
 #[test]

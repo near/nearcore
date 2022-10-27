@@ -1,32 +1,30 @@
-use std::sync::Arc;
-
 use actix::Addr;
-
 use near_chain_configs::Genesis;
 use near_client::ViewClientActor;
-
+use near_o11y::WithSpanContextExt;
 use validated_operations::ValidatedOperation;
 
 mod transactions;
 mod validated_operations;
 
 /// NEAR Protocol defines initial state in genesis records and treats the first
-/// block differently (e.g. it cannot contain any transactions: https://stackoverflow.com/a/63347167/1178806).
+/// block differently (e.g. [it cannot contain any
+/// transactions](https://stackoverflow.com/a/63347167/1178806).
 ///
-/// Genesis records can be huge (order of gigabytes of JSON data), and Rosetta
-/// API does not define any pagination, and suggests to use
-/// `other_transactions` to deal with this: https://community.rosetta-api.org/t/how-to-return-data-without-being-able-to-paginate/98
+/// Genesis records can be huge (order of gigabytes of JSON data).  Rosetta API
+/// doesn’t define any pagination and suggests to use `other_transactions` to
+/// deal with this:
+/// <https://community.rosetta-api.org/t/how-to-return-data-without-being-able-to-paginate/98>
 /// We choose to do a proper implementation for the genesis block later.
 async fn convert_genesis_records_to_transaction(
-    genesis: Arc<Genesis>,
-    view_client_addr: Addr<ViewClientActor>,
+    genesis: &Genesis,
+    view_client_addr: &Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
 ) -> crate::errors::Result<crate::models::Transaction> {
-    let genesis_account_ids = genesis.records.as_ref().iter().filter_map(|record| {
+    let mut genesis_account_ids = std::collections::HashSet::new();
+    genesis.for_each_record(|record| {
         if let near_primitives::state_record::StateRecord::Account { account_id, .. } = record {
-            Some(account_id)
-        } else {
-            None
+            genesis_account_ids.insert(account_id.clone());
         }
     });
     // Collect genesis accounts into a BTreeMap rather than a HashMap so that
@@ -35,7 +33,7 @@ async fn convert_genesis_records_to_transaction(
     // stay the same).
     let genesis_accounts: std::collections::BTreeMap<_, _> = crate::utils::query_accounts(
         &near_primitives::types::BlockId::Hash(block.header.hash).into(),
-        genesis_account_ids,
+        genesis_account_ids.iter(),
         &view_client_addr,
     )
     .await?;
@@ -56,6 +54,7 @@ async fn convert_genesis_records_to_transaction(
                 account: crate::models::AccountIdentifier {
                     address: account_id.clone(),
                     sub_account: None,
+                    metadata: None,
                 },
                 amount: Some(crate::models::Amount::from_yoctonear(account_balances.liquid)),
                 type_: crate::models::OperationType::Transfer,
@@ -71,6 +70,7 @@ async fn convert_genesis_records_to_transaction(
                 account: crate::models::AccountIdentifier {
                     address: account_id.clone(),
                     sub_account: Some(crate::models::SubAccount::LiquidBalanceForStorage.into()),
+                    metadata: None,
                 },
                 amount: Some(crate::models::Amount::from_yoctonear(
                     account_balances.liquid_for_storage,
@@ -88,6 +88,7 @@ async fn convert_genesis_records_to_transaction(
                 account: crate::models::AccountIdentifier {
                     address: account_id.clone(),
                     sub_account: Some(crate::models::SubAccount::Locked.into()),
+                    metadata: None,
                 },
                 amount: Some(crate::models::Amount::from_yoctonear(account_balances.locked)),
                 type_: crate::models::OperationType::Transfer,
@@ -111,11 +112,14 @@ async fn convert_genesis_records_to_transaction(
 }
 
 pub(crate) async fn convert_block_to_transactions(
-    view_client_addr: Addr<ViewClientActor>,
+    view_client_addr: &Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     let state_changes = view_client_addr
-        .send(near_client::GetStateChangesInBlock { block_hash: block.header.hash })
+        .send(
+            near_client::GetStateChangesInBlock { block_hash: block.header.hash }
+                .with_span_context(),
+        )
         .await?
         .unwrap();
 
@@ -147,33 +151,38 @@ pub(crate) async fn convert_block_to_transactions(
             .await?;
 
     let accounts_changes = view_client_addr
-        .send(near_client::GetStateChanges {
-            block_hash: block.header.hash,
-            state_changes_request:
-                near_primitives::views::StateChangesRequestView::AccountChanges {
-                    account_ids: touched_account_ids,
-                },
-        })
+        .send(
+            near_client::GetStateChanges {
+                block_hash: block.header.hash,
+                state_changes_request:
+                    near_primitives::views::StateChangesRequestView::AccountChanges {
+                        account_ids: touched_account_ids,
+                    },
+            }
+            .with_span_context(),
+        )
         .await??;
 
     let runtime_config = crate::utils::query_protocol_config(block.header.hash, &view_client_addr)
         .await?
         .runtime_config;
     let exec_to_rx =
-        transactions::ExecutionToReceipts::for_block(view_client_addr, block.header.hash).await?;
+        transactions::ExecutionToReceipts::for_block(&view_client_addr, block.header.hash).await?;
     transactions::convert_block_changes_to_transactions(
+        &view_client_addr,
         &runtime_config,
         &block.header.hash,
         accounts_changes,
         accounts_previous_state,
         exec_to_rx,
     )
+    .await
     .map(|dict| dict.into_values().collect())
 }
 
 pub(crate) async fn collect_transactions(
-    genesis: Arc<Genesis>,
-    view_client_addr: Addr<ViewClientActor>,
+    genesis: &Genesis,
+    view_client_addr: &Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     if block.header.prev_hash == Default::default() {
@@ -318,6 +327,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                         validated_operations::TransferOperation {
                             account: sender_account_identifier.clone(),
                             amount: -transfer_amount.clone(),
+                            predecessor_id: Some(sender_account_identifier.clone()),
                         }
                         .into_operation(sender_transfer_operation_id.clone()),
                     );
@@ -326,6 +336,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                         validated_operations::TransferOperation {
                             account: receiver_account_identifier.clone(),
                             amount: transfer_amount,
+                            predecessor_id: Some(sender_account_identifier.clone()),
                         }
                         .into_related_operation(
                             crate::models::OperationIdentifier::new(&operations),
@@ -335,18 +346,6 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                 }
 
                 near_primitives::transaction::Action::Stake(action) => {
-                    operations.push(
-                        validated_operations::StakeOperation {
-                            account: receiver_account_identifier.clone(),
-                            amount: action.stake,
-                            public_key: (&action.public_key).into(),
-                        }
-                        .into_operation(crate::models::OperationIdentifier::new(&operations)),
-                    );
-                }
-
-                #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                near_primitives::transaction::Action::StakeChunkOnly(action) => {
                     operations.push(
                         validated_operations::StakeOperation {
                             account: receiver_account_identifier.clone(),
@@ -390,6 +389,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                             validated_operations::TransferOperation {
                                 account: sender_account_identifier.clone(),
                                 amount: -attached_amount.clone(),
+                                predecessor_id: Some(sender_account_identifier.clone()),
                             }
                             .into_operation(fund_transfer_operation_id.clone()),
                         );
@@ -690,128 +690,141 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
+    use actix::System;
+    use near_actix_test_utils::run_actix;
+    use near_client::test_utils::setup_no_network;
 
     #[test]
     fn test_convert_block_changes_to_transactions() {
-        let runtime_config = near_primitives::runtime::config::RuntimeConfig::test();
-        let block_hash = near_primitives::hash::CryptoHash::default();
-        let nfvalidator1_receipt_processing_hash = near_primitives::hash::CryptoHash([1u8; 32]);
-        let nfvalidator2_action_receipt_gas_reward_hash =
-            near_primitives::hash::CryptoHash([2u8; 32]);
-        let accounts_changes = vec![
-            near_primitives::views::StateChangeWithCauseView {
-                cause: near_primitives::views::StateChangeCauseView::ValidatorAccountsUpdate,
-                value: near_primitives::views::StateChangeValueView::AccountUpdate {
-                    account_id: "nfvalidator1.near".parse().unwrap(),
-                    account: near_primitives::views::AccountView {
-                        amount: 5000000000000000000,
-                        code_hash: near_primitives::hash::CryptoHash::default(),
-                        locked: 400000000000000000000000000000,
-                        storage_paid_at: 0,
-                        storage_usage: 200000,
+        run_actix(async {
+            let runtime_config = near_primitives::runtime::config::RuntimeConfig::test();
+            let (_client, view_client) = setup_no_network(
+                vec!["test".parse().unwrap()],
+                "other".parse().unwrap(),
+                true,
+                false,
+            );
+            let block_hash = near_primitives::hash::CryptoHash::default();
+            let nfvalidator1_receipt_processing_hash = near_primitives::hash::CryptoHash([1u8; 32]);
+            let nfvalidator2_action_receipt_gas_reward_hash =
+                near_primitives::hash::CryptoHash([2u8; 32]);
+            let accounts_changes = vec![
+                near_primitives::views::StateChangeWithCauseView {
+                    cause: near_primitives::views::StateChangeCauseView::ValidatorAccountsUpdate,
+                    value: near_primitives::views::StateChangeValueView::AccountUpdate {
+                        account_id: "nfvalidator1.near".parse().unwrap(),
+                        account: near_primitives::views::AccountView {
+                            amount: 5000000000000000000,
+                            code_hash: near_primitives::hash::CryptoHash::default(),
+                            locked: 400000000000000000000000000000,
+                            storage_paid_at: 0,
+                            storage_usage: 200000,
+                        },
                     },
                 },
-            },
-            near_primitives::views::StateChangeWithCauseView {
-                cause: near_primitives::views::StateChangeCauseView::ReceiptProcessing {
-                    receipt_hash: nfvalidator1_receipt_processing_hash,
-                },
-                value: near_primitives::views::StateChangeValueView::AccountUpdate {
-                    account_id: "nfvalidator1.near".parse().unwrap(),
-                    account: near_primitives::views::AccountView {
-                        amount: 4000000000000000000,
-                        code_hash: near_primitives::hash::CryptoHash::default(),
-                        locked: 400000000000000000000000000000,
-                        storage_paid_at: 0,
-                        storage_usage: 200000,
+                near_primitives::views::StateChangeWithCauseView {
+                    cause: near_primitives::views::StateChangeCauseView::ReceiptProcessing {
+                        receipt_hash: nfvalidator1_receipt_processing_hash,
+                    },
+                    value: near_primitives::views::StateChangeValueView::AccountUpdate {
+                        account_id: "nfvalidator1.near".parse().unwrap(),
+                        account: near_primitives::views::AccountView {
+                            amount: 4000000000000000000,
+                            code_hash: near_primitives::hash::CryptoHash::default(),
+                            locked: 400000000000000000000000000000,
+                            storage_paid_at: 0,
+                            storage_usage: 200000,
+                        },
                     },
                 },
-            },
-            near_primitives::views::StateChangeWithCauseView {
-                cause: near_primitives::views::StateChangeCauseView::ValidatorAccountsUpdate,
-                value: near_primitives::views::StateChangeValueView::AccountUpdate {
-                    account_id: "nfvalidator2.near".parse().unwrap(),
-                    account: near_primitives::views::AccountView {
-                        amount: 7000000000000000000,
-                        code_hash: near_primitives::hash::CryptoHash::default(),
-                        locked: 400000000000000000000000000000,
-                        storage_paid_at: 0,
-                        storage_usage: 200000,
+                near_primitives::views::StateChangeWithCauseView {
+                    cause: near_primitives::views::StateChangeCauseView::ValidatorAccountsUpdate,
+                    value: near_primitives::views::StateChangeValueView::AccountUpdate {
+                        account_id: "nfvalidator2.near".parse().unwrap(),
+                        account: near_primitives::views::AccountView {
+                            amount: 7000000000000000000,
+                            code_hash: near_primitives::hash::CryptoHash::default(),
+                            locked: 400000000000000000000000000000,
+                            storage_paid_at: 0,
+                            storage_usage: 200000,
+                        },
                     },
                 },
-            },
-            near_primitives::views::StateChangeWithCauseView {
-                cause: near_primitives::views::StateChangeCauseView::ActionReceiptGasReward {
-                    receipt_hash: nfvalidator2_action_receipt_gas_reward_hash,
-                },
-                value: near_primitives::views::StateChangeValueView::AccountUpdate {
-                    account_id: "nfvalidator2.near".parse().unwrap(),
-                    account: near_primitives::views::AccountView {
-                        amount: 8000000000000000000,
-                        code_hash: near_primitives::hash::CryptoHash::default(),
-                        locked: 400000000000000000000000000000,
-                        storage_paid_at: 0,
-                        storage_usage: 200000,
+                near_primitives::views::StateChangeWithCauseView {
+                    cause: near_primitives::views::StateChangeCauseView::ActionReceiptGasReward {
+                        receipt_hash: nfvalidator2_action_receipt_gas_reward_hash,
+                    },
+                    value: near_primitives::views::StateChangeValueView::AccountUpdate {
+                        account_id: "nfvalidator2.near".parse().unwrap(),
+                        account: near_primitives::views::AccountView {
+                            amount: 8000000000000000000,
+                            code_hash: near_primitives::hash::CryptoHash::default(),
+                            locked: 400000000000000000000000000000,
+                            storage_paid_at: 0,
+                            storage_usage: 200000,
+                        },
                     },
                 },
-            },
-        ];
-        let mut accounts_previous_state = std::collections::HashMap::new();
-        accounts_previous_state.insert(
-            "nfvalidator1.near".parse().unwrap(),
-            near_primitives::views::AccountView {
-                amount: 4000000000000000000,
-                code_hash: near_primitives::hash::CryptoHash::default(),
-                locked: 400000000000000000000000000000,
-                storage_paid_at: 0,
-                storage_usage: 200000,
-            },
-        );
-        accounts_previous_state.insert(
-            "nfvalidator2.near".parse().unwrap(),
-            near_primitives::views::AccountView {
-                amount: 6000000000000000000,
-                code_hash: near_primitives::hash::CryptoHash::default(),
-                locked: 400000000000000000000000000000,
-                storage_paid_at: 0,
-                storage_usage: 200000,
-            },
-        );
-        let transactions = super::transactions::convert_block_changes_to_transactions(
-            &runtime_config,
-            &block_hash,
-            accounts_changes,
-            accounts_previous_state,
-            super::transactions::ExecutionToReceipts::empty(),
-        )
-        .unwrap();
-        assert_eq!(transactions.len(), 3);
-        assert!(transactions.iter().all(|(transaction_hash, transaction)| {
-            &transaction.transaction_identifier.hash == transaction_hash
-        }));
+            ];
+            let mut accounts_previous_state = std::collections::HashMap::new();
+            accounts_previous_state.insert(
+                "nfvalidator1.near".parse().unwrap(),
+                near_primitives::views::AccountView {
+                    amount: 4000000000000000000,
+                    code_hash: near_primitives::hash::CryptoHash::default(),
+                    locked: 400000000000000000000000000000,
+                    storage_paid_at: 0,
+                    storage_usage: 200000,
+                },
+            );
+            accounts_previous_state.insert(
+                "nfvalidator2.near".parse().unwrap(),
+                near_primitives::views::AccountView {
+                    amount: 6000000000000000000,
+                    code_hash: near_primitives::hash::CryptoHash::default(),
+                    locked: 400000000000000000000000000000,
+                    storage_paid_at: 0,
+                    storage_usage: 200000,
+                },
+            );
+            let transactions = super::transactions::convert_block_changes_to_transactions(
+                &view_client,
+                &runtime_config,
+                &block_hash,
+                accounts_changes,
+                accounts_previous_state,
+                super::transactions::ExecutionToReceipts::empty(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(transactions.len(), 3);
+            assert!(transactions.iter().all(|(transaction_hash, transaction)| {
+                &transaction.transaction_identifier.hash == transaction_hash
+            }));
 
-        let validators_update_transaction =
-            &transactions[&format!("block-validators-update:{}", block_hash)];
-        insta::assert_debug_snapshot!(
-            "validators_update_transaction",
-            validators_update_transaction
-        );
+            let validators_update_transaction =
+                &transactions[&format!("block-validators-update:{}", block_hash)];
+            insta::assert_debug_snapshot!(
+                "validators_update_transaction",
+                validators_update_transaction
+            );
 
-        let nfvalidator1_receipt_processing_transaction =
-            &transactions[&format!("receipt:{}", nfvalidator1_receipt_processing_hash)];
-        insta::assert_debug_snapshot!(
-            "nfvalidator1_receipt_processing_transaction",
-            nfvalidator1_receipt_processing_transaction
-        );
+            let nfvalidator1_receipt_processing_transaction =
+                &transactions[&format!("receipt:{}", nfvalidator1_receipt_processing_hash)];
+            insta::assert_debug_snapshot!(
+                "nfvalidator1_receipt_processing_transaction",
+                nfvalidator1_receipt_processing_transaction
+            );
 
-        let nfvalidator2_action_receipt_gas_reward_transaction =
-            &transactions[&format!("receipt:{}", nfvalidator2_action_receipt_gas_reward_hash)];
-        insta::assert_debug_snapshot!(
-            "nfvalidator2_action_receipt_gas_reward_transaction",
-            nfvalidator2_action_receipt_gas_reward_transaction
-        );
+            let nfvalidator2_action_receipt_gas_reward_transaction =
+                &transactions[&format!("receipt:{}", nfvalidator2_action_receipt_gas_reward_hash)];
+            insta::assert_debug_snapshot!(
+                "nfvalidator2_action_receipt_gas_reward_transaction",
+                nfvalidator2_action_receipt_gas_reward_transaction
+            );
+            System::current().stop();
+        });
     }
 
     #[test]

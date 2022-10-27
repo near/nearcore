@@ -82,7 +82,7 @@ impl StandaloneRuntime {
         );
 
         let apply_state = ApplyState {
-            block_index: 1,
+            block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
             epoch_id: Default::default(),
@@ -117,22 +117,24 @@ impl StandaloneRuntime {
         let apply_result = self
             .runtime
             .apply(
-                self.tries.get_trie_for_shard(ShardUId::single_shard()),
-                self.root,
+                self.tries.get_trie_for_shard(ShardUId::single_shard(), self.root.clone()),
                 &None,
                 &self.apply_state,
                 receipts,
                 transactions,
                 &self.epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
 
-        let (store_update, root) =
-            self.tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard());
-        self.root = root;
+        let mut store_update = self.tries.store_update();
+        self.root = self.tries.apply_all(
+            &apply_result.trie_changes,
+            ShardUId::single_shard(),
+            &mut store_update,
+        );
         store_update.commit().unwrap();
-        self.apply_state.block_index += 1;
+        self.apply_state.block_height += 1;
 
         (apply_result.outgoing_receipts, apply_result.outcomes)
     }

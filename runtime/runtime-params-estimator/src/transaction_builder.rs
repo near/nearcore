@@ -1,24 +1,32 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
+use genesis_populate::get_account_id;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::AccountId;
 use rand::prelude::ThreadRng;
+use rand::seq::SliceRandom;
 use rand::Rng;
 
-use crate::utils::get_account_id;
 /// A helper to create transaction for processing by a `TestBed`.
 #[derive(Clone)]
 pub(crate) struct TransactionBuilder {
     accounts: Vec<AccountId>,
     nonces: HashMap<AccountId, u64>,
-    used_accounts: HashSet<AccountId>,
+    unused_accounts: Vec<usize>,
+    unused_index: usize,
 }
 
 impl TransactionBuilder {
     pub(crate) fn new(accounts: Vec<AccountId>) -> TransactionBuilder {
-        TransactionBuilder { accounts, nonces: HashMap::new(), used_accounts: HashSet::new() }
+        let n = accounts.len();
+        let mut rng = rand::thread_rng();
+        let mut unused_accounts: Vec<usize> = Vec::from_iter(0..n);
+        unused_accounts.shuffle(&mut rng);
+        let unused_index: usize = 0;
+
+        TransactionBuilder { accounts, nonces: HashMap::new(), unused_accounts, unused_index }
     }
 
     pub(crate) fn transaction_from_actions(
@@ -87,20 +95,20 @@ impl TransactionBuilder {
         rand::thread_rng()
     }
 
-    pub(crate) fn account(&mut self, account_index: usize) -> AccountId {
+    pub(crate) fn account(&mut self, account_index: u64) -> AccountId {
         get_account_id(account_index)
     }
     pub(crate) fn random_account(&mut self) -> AccountId {
-        let account_index = self.rng().gen_range(0, self.accounts.len());
+        let account_index = self.rng().gen_range(0..self.accounts.len());
         self.accounts[account_index].clone()
     }
     pub(crate) fn random_unused_account(&mut self) -> AccountId {
-        loop {
-            let account = self.random_account();
-            if self.used_accounts.insert(account.clone()) {
-                return account;
-            }
+        if self.unused_index >= self.unused_accounts.len() {
+            panic!("All accounts used. Try running with a higher value for the parameter `--accounts-num <NUM>`.")
         }
+        let tmp = self.unused_index;
+        self.unused_index += 1;
+        return self.accounts[self.unused_accounts[tmp]].clone();
     }
     pub(crate) fn random_account_pair(&mut self) -> (AccountId, AccountId) {
         let first = self.random_account();

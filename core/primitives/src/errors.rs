@@ -1,4 +1,4 @@
-use crate::serialize::u128_dec_format;
+use crate::serialize::dec_format;
 use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
@@ -7,15 +7,14 @@ use std::fmt::{Debug, Display};
 
 use crate::hash::CryptoHash;
 use near_rpc_error_macro::RpcError;
-use near_vm_errors::{CompilationError, FunctionCallErrorSer, MethodResolveError};
+use near_vm_errors::FunctionCallErrorSer;
 
 /// Error returned in the ExecutionOutcome in case of failure
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
 pub enum TxExecutionError {
-    /// An error happened during Acton execution
+    /// An error happened during Action execution
     ActionError(ActionError),
     /// An error happened during Transaction execution
     InvalidTxError(InvalidTxError),
@@ -84,6 +83,8 @@ pub enum StorageError {
     /// panic in every place that produces this error.
     /// We can check if db is corrupted by verifying everything in the state trie.
     StorageInconsistentState(String),
+    /// Error from flat storage
+    FlatStorageError(String),
 }
 
 impl std::fmt::Display for StorageError {
@@ -95,7 +96,6 @@ impl std::fmt::Display for StorageError {
 impl std::error::Error for StorageError {}
 
 /// An error happened during TX execution
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -117,9 +117,9 @@ pub enum InvalidTxError {
     /// Account does not have enough balance to cover TX cost
     NotEnoughBalance {
         signer_id: AccountId,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         balance: Balance,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         cost: Balance,
     },
     /// Signer account doesn't have enough balance after transaction.
@@ -127,7 +127,7 @@ pub enum InvalidTxError {
         /// An account which doesn't have enough balance to cover storage.
         signer_id: AccountId,
         /// Required balance to cover the state.
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         amount: Balance,
     },
     /// An integer overflow occurred during transaction cost estimation.
@@ -144,7 +144,6 @@ pub enum InvalidTxError {
 
 impl std::error::Error for InvalidTxError {}
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -161,9 +160,9 @@ pub enum InvalidAccessKeyError {
     NotEnoughAllowance {
         account_id: AccountId,
         public_key: PublicKey,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         allowance: Balance,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         cost: Balance,
     },
     /// Having a deposit with a function call action is not allowed with a function call access key.
@@ -171,7 +170,6 @@ pub enum InvalidAccessKeyError {
 }
 
 /// Describes the error for validating a list of actions.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
 )]
@@ -189,7 +187,7 @@ pub enum ActionsValidationError {
     /// Integer overflow during a compute.
     IntegerOverflow,
     /// Invalid account ID.
-    InvalidAccountId { account_id: AccountId },
+    InvalidAccountId { account_id: String },
     /// The size of the contract code exceeded the limit in a DeployContract action.
     ContractSizeExceeded { size: u64, limit: u64 },
     /// The length of the method name exceeded the limit in a Function Call action.
@@ -203,7 +201,6 @@ pub enum ActionsValidationError {
 }
 
 /// Describes the error for validating a receipt.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
 )]
@@ -323,8 +320,7 @@ impl Display for ActionsValidationError {
 
 impl std::error::Error for ActionsValidationError {}
 
-/// An error happened during Acton execution
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+/// An error happened during Action execution
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -338,46 +334,6 @@ pub struct ActionError {
 
 impl std::error::Error for ActionError {}
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Debug, Clone, PartialEq, Eq, RpcError)]
-pub enum ContractCallError {
-    MethodResolveError(MethodResolveError),
-    CompilationError(CompilationError),
-    ExecutionError { msg: String },
-}
-
-impl From<ContractCallError> for FunctionCallErrorSer {
-    fn from(e: ContractCallError) -> Self {
-        match e {
-            ContractCallError::CompilationError(e) => FunctionCallErrorSer::CompilationError(e),
-            ContractCallError::MethodResolveError(e) => FunctionCallErrorSer::MethodResolveError(e),
-            ContractCallError::ExecutionError { msg } => FunctionCallErrorSer::ExecutionError(msg),
-        }
-    }
-}
-
-impl From<FunctionCallErrorSer> for ContractCallError {
-    fn from(e: FunctionCallErrorSer) -> Self {
-        match e {
-            FunctionCallErrorSer::CompilationError(e) => ContractCallError::CompilationError(e),
-            FunctionCallErrorSer::MethodResolveError(e) => ContractCallError::MethodResolveError(e),
-            FunctionCallErrorSer::ExecutionError(msg) => ContractCallError::ExecutionError { msg },
-            FunctionCallErrorSer::LinkError { msg } => ContractCallError::ExecutionError { msg },
-            FunctionCallErrorSer::WasmUnknownError => {
-                ContractCallError::ExecutionError { msg: "unknown error".to_string() }
-            }
-            FunctionCallErrorSer::_EVMError => unreachable!(),
-            FunctionCallErrorSer::WasmTrap(e) => {
-                ContractCallError::ExecutionError { msg: format!("WASM: {:?}", e) }
-            }
-            FunctionCallErrorSer::HostError(e) => {
-                ContractCallError::ExecutionError { msg: format!("Host: {:?}", e) }
-            }
-        }
-    }
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -408,7 +364,7 @@ pub enum ActionErrorKind {
         /// An account which needs balance
         account_id: AccountId,
         /// Balance required to complete an action.
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         amount: Balance,
     },
     /// Account is not yet staked, but tries to unstake
@@ -416,18 +372,18 @@ pub enum ActionErrorKind {
     /// The account doesn't have enough balance to increase the stake.
     TriesToStake {
         account_id: AccountId,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         stake: Balance,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         locked: Balance,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         balance: Balance,
     },
     InsufficientStake {
         account_id: AccountId,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         stake: Balance,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         minimum_stake: Balance,
     },
     /// An error occurred during a `FunctionCall` Action, parameter is debug message.
@@ -558,30 +514,30 @@ impl std::error::Error for InvalidAccessKeyError {}
 )]
 pub struct BalanceMismatchError {
     // Input balances
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub incoming_validator_rewards: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub initial_accounts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub incoming_receipts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub processed_delayed_receipts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub initial_postponed_receipts_balance: Balance,
     // Output balances
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub final_accounts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub outgoing_receipts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub new_delayed_receipts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub final_postponed_receipts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub tx_burnt_amount: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub slashed_burnt_amount: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub other_burnt_amount: Balance,
 }
 

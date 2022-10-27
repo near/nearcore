@@ -1,111 +1,94 @@
 /// This file is contains all types used for communication between `Actors` within this crate.
 /// They are not meant to be used outside.
-use crate::network_protocol::PeerMessage;
-use crate::peer::peer_actor::PeerActor;
-use actix::{Addr, Message};
-use conqueue::QueueSender;
-use near_network_primitives::types::{
-    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerType, SimpleEdge,
-};
+use crate::network_protocol::{Edge, PartialEdgeInfo, PeerInfo, PeerMessage};
+use crate::peer_manager::connection;
+use crate::types::ReasonForBan;
 use near_primitives::network::PeerId;
-use near_primitives::version::ProtocolVersion;
-use near_rate_limiter::ThrottleController;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Mutex};
 
+/// Received new peers from another peer.
+#[derive(Debug, Clone)]
+pub(crate) struct PeersResponse {
+    pub(crate) peers: Vec<PeerInfo>,
+}
+
+#[derive(actix::Message, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
+#[rtype(result = "PeerToManagerMsgResp")]
+pub(crate) enum PeerToManagerMsg {
+    RegisterPeer(RegisterPeer),
+    PeersRequest(PeersRequest),
+    PeersResponse(PeersResponse),
+    RequestUpdateNonce(PeerId, PartialEdgeInfo),
+    ResponseUpdateNonce(Edge),
+    // PeerRequest
+    UpdatePeerInfo(PeerInfo),
+}
+
+/// List of all replies to messages to `PeerManager`. See `PeerManagerMessageRequest` for more details.
+#[derive(actix::MessageResponse, Debug)]
+pub(crate) enum PeerToManagerMsgResp {
+    RegisterPeer(RegisterPeerResponse),
+    PeersRequest(PeerRequestResult),
+
+    // RequestUpdateNonce
+    // ResponseUpdateNonce
+    EdgeUpdate(Box<Edge>),
+    BanPeer(ReasonForBan),
+
+    // PeerResponse
+    Empty,
+}
 /// Actor message which asks `PeerManagerActor` to register peer.
 /// Returns `RegisterPeerResult` with `Accepted` if connection should be kept
 /// or a reject response otherwise.
 #[derive(actix::Message, Clone, Debug)]
 #[rtype(result = "RegisterPeerResponse")]
-pub struct RegisterPeer {
-    pub(crate) actor: Addr<PeerActor>,
-    pub(crate) peer_info: PeerInfo,
-    pub(crate) peer_type: PeerType,
-    pub(crate) chain_info: PeerChainInfoV2,
-    /// Edge information from this node.
-    /// If this is None it implies we are outbound connection, so we need to create our
-    /// EdgeInfo part and send it to the other peer.
-    pub(crate) this_edge_info: Option<PartialEdgeInfo>,
-    /// Edge information from other node.
-    pub(crate) other_edge_info: PartialEdgeInfo,
-    /// Protocol version of new peer. May be higher than ours.
-    pub(crate) peer_protocol_version: ProtocolVersion,
-    /// A helper data structure for limiting reading, reporting bandwidth stats.
-    pub(crate) throttle_controller: ThrottleController,
+pub(crate) struct RegisterPeer {
+    pub connection: Arc<connection::Connection>,
 }
 
-/// Addr<PeerActor> doesn't implement `DeepSizeOf` waiting for `deepsize` > 0.2.0.
-#[cfg(feature = "deepsize_feature")]
-impl deepsize::DeepSizeOf for RegisterPeer {
-    fn deep_size_of_children(&self, context: &mut deepsize::Context) -> usize {
-        self.peer_info.deep_size_of_children(context)
-            + self.peer_type.deep_size_of_children(context)
-            + self.chain_info.deep_size_of_children(context)
-            + self.this_edge_info.deep_size_of_children(context)
-            + self.other_edge_info.deep_size_of_children(context)
-            + self.peer_protocol_version.deep_size_of_children(context)
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RegisterPeerError {
+    Blacklisted,
+    Banned,
+    PoolError(connection::PoolError),
+    ConnectionLimitExceeded,
 }
 
 #[derive(actix::MessageResponse, Debug)]
-pub enum RegisterPeerResponse {
-    Accept(Option<PartialEdgeInfo>),
-    InvalidNonce(Box<Edge>),
-    Reject,
+pub(crate) enum RegisterPeerResponse {
+    Accept,
+    Reject(RegisterPeerError),
 }
 
 /// Unregister message from Peer to PeerManager.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Message, Debug)]
+#[derive(actix::Message, Debug, PartialEq, Eq, Clone)]
 #[rtype(result = "()")]
-pub struct Unregister {
-    pub(crate) peer_id: PeerId,
-    pub(crate) peer_type: PeerType,
-    pub(crate) remove_from_peer_store: bool,
-}
-
-/// Requesting peers from peer manager to communicate to a peer.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(actix::Message, Clone, Debug)]
-#[rtype(result = "PeerRequestResult")]
-pub struct PeersRequest {}
-
-#[derive(Debug, actix::MessageResponse)]
-pub struct PeerRequestResult {
-    pub peers: Vec<PeerInfo>,
-}
-
-#[derive(Message)]
-#[rtype(result = "()")]
-pub(crate) struct StopMsg {}
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(actix::Message, Clone, Debug)]
-#[cfg(feature = "test_features")]
-#[rtype(result = "()")]
-pub struct StartRoutingTableSync {
+pub(crate) struct Unregister {
     pub peer_id: PeerId,
 }
 
-#[cfg(feature = "test_features")]
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+/// Requesting peers from peer manager to communicate to a peer.
 #[derive(actix::Message, Clone, Debug)]
-#[rtype(result = "GetPeerIdResult")]
-pub struct GetPeerId {}
+#[rtype(result = "PeerRequestResult")]
+pub(crate) struct PeersRequest {}
 
-#[derive(Message, Clone, Debug)]
-#[rtype(result = "()")]
-pub struct SendMessage {
-    pub(crate) message: PeerMessage,
+#[derive(Debug, actix::MessageResponse)]
+pub(crate) struct PeerRequestResult {
+    pub peers: Vec<PeerInfo>,
 }
 
-#[cfg(feature = "test_features")]
-#[derive(actix::MessageResponse, Debug, serde::Serialize)]
-pub struct GetPeerIdResult {
-    pub(crate) peer_id: PeerId,
+#[derive(actix::Message)]
+#[rtype(result = "()")]
+pub(crate) struct StopMsg {}
+
+#[derive(actix::Message, Clone, Debug)]
+#[rtype(result = "()")]
+pub(crate) struct SendMessage {
+    pub message: Arc<PeerMessage>,
 }
 
 impl Debug for ValidateEdgeList {
@@ -114,32 +97,39 @@ impl Debug for ValidateEdgeList {
     }
 }
 
-/// List of `Edges`, which we received from `source_peer_id` gor purpose of validation.
-/// Those are list of edges received through `NetworkRequests::Sync` or `NetworkRequests::IbfMessage`.
+/// List of `Edges`, which we received from `source_peer_id` to validate.
+/// Those are list of edges received through `NetworkRequests::Sync`.
 #[derive(actix::Message)]
 #[rtype(result = "bool")]
-pub struct ValidateEdgeList {
+pub(crate) struct ValidateEdgeList {
     /// The list of edges is provided by `source_peer_id`, that peer will be banned
     ///if any of these edges are invalid.
-    pub(crate) source_peer_id: PeerId,
+    pub source_peer_id: PeerId,
     /// List of Edges, which will be sent to `EdgeValidatorActor`.
-    pub(crate) edges: Vec<Edge>,
+    pub edges: Vec<Edge>,
     /// A set of edges, which have been verified. This is a cache with all verified edges.
     /// `EdgeValidatorActor`, and is a source of memory leak.
     /// TODO(#5254): Simplify this process.
-    pub(crate) edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
+    pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
     /// A concurrent queue. After edge become validated it will be sent from `EdgeValidatorActor` back to
     /// `PeerManagetActor`, and then send to `RoutingTableActor`. And then `RoutingTableActor`
     /// will add them.
     /// TODO(#5254): Simplify this process.
-    pub(crate) sender: QueueSender<Edge>,
-    #[cfg(feature = "test_features")]
-    /// Feature to disable edge validation for purpose of testing.
-    pub(crate) adv_disable_edge_signature_verification: bool,
+    pub sender: crossbeam_channel::Sender<Edge>,
 }
 
-#[derive(actix::MessageResponse, Debug)]
-#[cfg_attr(feature = "test_features", derive(serde::Serialize))]
-pub struct GetRoutingTableResult {
-    pub edges_info: Vec<SimpleEdge>,
+impl PeerToManagerMsgResp {
+    pub fn unwrap_consolidate_response(self) -> RegisterPeerResponse {
+        match self {
+            Self::RegisterPeer(item) => item,
+            _ => panic!("expected PeerMessageRequest::ConsolidateResponse"),
+        }
+    }
+
+    pub fn unwrap_peers_request_result(self) -> PeerRequestResult {
+        match self {
+            PeerToManagerMsgResp::PeersRequest(item) => item,
+            _ => panic!("expected PeerMessageRequest::PeerRequestResult"),
+        }
+    }
 }

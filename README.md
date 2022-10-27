@@ -11,7 +11,7 @@
 
 ## Reference implementation of NEAR Protocol
 
-![Buildkite](https://img.shields.io/buildkite/0eae07525f8e44a19b48fa937813e2c21ee04aa351361cd851) 
+![Buildkite](https://img.shields.io/buildkite/0eae07525f8e44a19b48fa937813e2c21ee04aa351361cd851)
 ![Stable Status][stable-release]
 ![Prerelease Status][prerelease]
 [![codecov][codecov-badge]][codecov-url]
@@ -44,14 +44,14 @@ Overall, *NEAR* provides a wide range of tools for developers to easily build ap
  - [Numerous examples][examples-url] with links to hack on them right inside your browser.
  - [Lots of documentation][docs-url], with [Tutorials][tutorials-url] and [API docs][api-docs-url].
 
-[open-web-url]: https://techcrunch.com/2016/04/10/1301496/ 
-[js-api]: https://github.com/near/near-api-js 
+[open-web-url]: https://techcrunch.com/2016/04/10/1301496/
+[js-api]: https://github.com/near/near-api-js
 [rust-sdk]: https://github.com/near/near-sdk-rs
 [as-sdk]: https://github.com/near/near-sdk-as
 [examples-url]: https://near.dev
 [docs-url]: https://docs.near.org
-[tutorials-url]: https://docs.near.org/docs/tutorials/overview
-[api-docs-url]: https://docs.near.org/docs/api/overview
+[tutorials-url]: https://docs.near.org/tutorials/welcome
+[api-docs-url]: https://docs.near.org/api/rpc/introduction
 
 ## Join the Network
 
@@ -66,7 +66,7 @@ You can join all the active networks:
 * testnet: `nearup run testnet`
 * betanet: `nearup run betanet`
 
-Check the `nearup` repository for [more details](https://github.com/near/nearup) how to run with or without docker.
+Check the `nearup` repository for [more details](https://github.com/near/nearup) on how to run with or without docker.
 
 To learn how to become validator, checkout [documentation](https://docs.near.org/docs/develop/node/validator/staking-and-delegation).
 

@@ -114,6 +114,10 @@ fn ext_costs_config(cost_table: &CostTable) -> anyhow::Result<ExtCostsConfig> {
         ripemd160_base: get(Cost::Ripemd160Base)?,
         ripemd160_block: get(Cost::Ripemd160Block)?,
         ecrecover_base: get(Cost::EcrecoverBase)?,
+        #[cfg(feature = "protocol_feature_ed25519_verify")]
+        ed25519_verify_base: get(Cost::Ed25519VerifyBase)?,
+        #[cfg(feature = "protocol_feature_ed25519_verify")]
+        ed25519_verify_byte: get(Cost::Ed25519VerifyByte)?,
         log_base: get(Cost::LogBase)?,
         log_byte: get(Cost::LogByte)?,
         storage_write_base: get(Cost::StorageWriteBase)?,
@@ -148,17 +152,11 @@ fn ext_costs_config(cost_table: &CostTable) -> anyhow::Result<ExtCostsConfig> {
         validator_total_stake_base: 303944908800,
         _unused1: 0,
         _unused2: 0,
-        #[cfg(feature = "protocol_feature_alt_bn128")]
         alt_bn128_g1_sum_base: get(Cost::AltBn128G1SumBase)?,
-        #[cfg(feature = "protocol_feature_alt_bn128")]
         alt_bn128_g1_sum_element: get(Cost::AltBn128G1SumElement)?,
-        #[cfg(feature = "protocol_feature_alt_bn128")]
         alt_bn128_g1_multiexp_base: get(Cost::AltBn128G1MultiexpBase)?,
-        #[cfg(feature = "protocol_feature_alt_bn128")]
         alt_bn128_g1_multiexp_element: get(Cost::AltBn128G1MultiexpElement)?,
-        #[cfg(feature = "protocol_feature_alt_bn128")]
         alt_bn128_pairing_check_base: get(Cost::AltBn128PairingCheckBase)?,
-        #[cfg(feature = "protocol_feature_alt_bn128")]
         alt_bn128_pairing_check_element: get(Cost::AltBn128PairingCheckElement)?,
     };
 

@@ -1,5 +1,6 @@
+use super::test_builder::test_builder;
 use crate::prepare::prepare_contract;
-use crate::vm_kind::VMKind;
+use expect_test::expect;
 use near_vm_logic::VMConfig;
 
 static SIMD: &str = r#"
@@ -110,13 +111,9 @@ fn ensure_fails_verification() {
 
 #[test]
 fn ensure_fails_execution() {
-    crate::tests::with_vm_variants(|vm_kind: VMKind| {
-        for (feature_name, wat) in EXPECTED_UNSUPPORTED {
-            let wasm = wat::parse_str(wat).expect("parsing test wat should succeed");
-            let (_, err) = crate::tests::make_simple_contract_call_vm(&wasm, "entry", vm_kind);
-            if err.is_none() {
-                panic!("wasm containing use of {} feature did not fail to prepare", feature_name);
-            }
-        }
-    });
+    for (_feature_name, wat) in EXPECTED_UNSUPPORTED {
+        test_builder().wat(wat).opaque_error().opaque_outcome().expect(expect![[r#"
+            Err: ...
+        "#]]);
+    }
 }

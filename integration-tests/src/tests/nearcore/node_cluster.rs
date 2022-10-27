@@ -5,8 +5,8 @@ use futures::future;
 use near_actix_test_utils::{run_actix, spawn_interruptible};
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, ViewClientActor};
-use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port};
+use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards};
 use nearcore::{config::GenesisExt, load_test_config, start_with_config};
 
@@ -44,7 +44,7 @@ fn start_nodes(
         rpc_addrs.push(near_config.rpc_addr().unwrap().to_owned());
         near_config.client_config.min_num_peers = (num_nodes as usize) - 1;
         if i > 0 {
-            near_config.network_config.boot_nodes =
+            near_config.network_config.peer_store.boot_nodes =
                 convert_boot_nodes(vec![("near.0", first_node)]);
         }
         // if non validator, track all shards

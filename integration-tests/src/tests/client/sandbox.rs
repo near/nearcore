@@ -6,7 +6,7 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::Account;
-use near_primitives::serialize::{from_base64, to_base64};
+use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
@@ -80,17 +80,17 @@ fn send_tx(
 fn test_patch_state() {
     let (mut env, _signer) = test_setup();
 
-    let state = env.query_state("test0".parse().unwrap());
-    env.clients[0].chain.patch_state(vec![StateRecord::Data {
+    let state_item = env.query_state("test0".parse().unwrap()).swap_remove(0);
+    env.clients[0].chain.patch_state(SandboxStatePatch::new(vec![StateRecord::Data {
         account_id: "test0".parse().unwrap(),
-        data_key: from_base64(&state[0].key).unwrap(),
+        data_key: state_item.key,
         value: b"world".to_vec(),
-    }]);
+    }]));
 
     do_blocks(&mut env, 9, 20);
-    let state2 = env.query_state("test0".parse().unwrap());
-    assert_eq!(state2.len(), 1);
-    assert_eq!(state2[0].value, to_base64(b"world"));
+    let state = env.query_state("test0".parse().unwrap());
+    assert_eq!(state.len(), 1);
+    assert_eq!(state[0].value, b"world");
 }
 
 #[test]
@@ -99,10 +99,10 @@ fn test_patch_account() {
     let mut test1: Account = env.query_account("test1".parse().unwrap()).into();
     test1.set_amount(10);
 
-    env.clients[0].chain.patch_state(vec![StateRecord::Account {
+    env.clients[0].chain.patch_state(SandboxStatePatch::new(vec![StateRecord::Account {
         account_id: "test1".parse().unwrap(),
         account: test1,
-    }]);
+    }]));
     do_blocks(&mut env, 9, 20);
     let test1_after = env.query_account("test1".parse().unwrap());
     assert_eq!(test1_after.amount, 10);

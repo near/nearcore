@@ -5,7 +5,7 @@ use std::fs::File;
 use std::time::Duration;
 
 fn do_fuzz(scenario: &Scenario) -> Result<(), String> {
-    let stats = scenario.run().result.map_err(|e| format!("{}", e))?;
+    let stats = scenario.run().result.map_err(|e| e.to_string())?;
     for block_stats in stats.blocks_stats {
         if block_stats.block_production_time > Duration::from_secs(2) {
             return Err(format!(

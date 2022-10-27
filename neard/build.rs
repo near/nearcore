@@ -79,7 +79,13 @@ fn get_git_version() -> Result<String> {
         println!("cargo:rerun-if-changed={}", path.display());
     }
 
-    let out = command("git", &["describe", "--always", "--dirty=-modified"], None)?;
+    // * --always → if there is no matching tag, use commit hash
+    // * --dirty=-modified → append ‘-modified’ if there are local changes
+    // * --tags → consider tags even if they are unnanotated
+    // * --match=[0-9]* → only consider tags starting with a digit; this
+    //   prevents tags such as `crates-0.14.0` from being considered
+    let args = &["describe", "--always", "--dirty=-modified", "--tags", "--match=[0-9]*"];
+    let out = command("git", args, None)?;
     match String::from_utf8_lossy(&out) {
         std::borrow::Cow::Borrowed(version) => Ok(version.trim().to_string()),
         std::borrow::Cow::Owned(version) => Err(anyhow!("git: invalid output: {}", version)),

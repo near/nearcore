@@ -2,9 +2,24 @@
 
 <head>
     <style>
+        .explanation {
+            color: gray;
+        }
+
+        .missed-blocks,
+        .missed-chunks {
+            margin-top: 10px;
+            margin-bottom: 10px;
+        }
+
+        button {
+            margin-right: 8px;
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
+            margin-top: 10px;
         }
 
         table,
@@ -15,130 +30,111 @@
 
         td {
             text-align: left;
-            vertical-align: top;
             padding: 8px;
+            vertical-align: middle;
+        }
+
+        .graph-node-cell {
+            border: none;
+            text-align: center;
         }
 
         th {
             text-align: center;
-            vertical-align: center;
+            vertical-align: middle;
             padding: 8px;
             background-color: lightgrey;
         }
 
-        tr.active {
-            background-color: #eff8bf;
+        .skipped-chunk {
+            background-color: lightgray;
+        }
+
+        .hash-element {
+            font-family: monospace;
+            cursor: pointer;
+        }
+
+        .validator-unavailable {
+            color: red;
+        }
+
+        .error {
+            color: red;
+            white-space: pre;
+        }
+
+        .not-on-canonical-chain {
+            color: gray;
+        }
+
+        .missed-height {
+            color: gray;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .graph-dot {
+            width: 12px;
+            height: 12px;
+            background-color: black;
+            border-radius: 100%;
+            display: inline-block;
+        }
+
+        .graph-dot-col-1 {
+            margin-left: 24px;
+        }
+
+        .graph-dot-col-0.graph-dot-total-2 {
+            margin-right: 24px;
+        }
+
+        .not-on-canonical-chain .graph-dot {
+            background-color: gray;
+        }
+
+        .head-label,
+        .header-head-label {
+            font-size: 10px;
+            font-family: Arial, Helvetica, sans-serif;
+            font-weight: bold;
+            color: white;
+            border-radius: 4px;
+            text-align: center;
+            padding: 4px;
+            margin-top: 2px;
+        }
+
+        .head-label {
+            background-color: rgb(76, 208, 0);
+        }
+
+        .header-head-label {
+            background-color: rgb(235, 215, 0);
         }
     </style>
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/react@18.2.0/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/lodash@4.17.21/lodash.min.js"></script>
+    <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
     <script>
-        function createHashElement(hashValue, creator) {
-            var element = $('<span>');
-            element.addClass('hashElem');
-            element.attr("hashValue", hashValue);
-            element.attr("creator", creator);
-            element.css("font-family", "monospace");
-            var suffix = "...";
-            if (creator.length <= 10) {
-                suffix = "";
-            }
-            element.text(hashValue.substring(0, 5) + "... " + creator.substring(0, 10) + suffix);
-            element.click(function () {
-                element.text(hashValue + " " + creator);
-            })
-            return element;
-        }
-
-        $(document).ready(function () {
-            $(".expand_all").click(function () {
-                $(".hashElem").click();
-            })
-
-            var root = $("#blocks_table_tbody");
-            root.html("Loading...");
-            $.ajax({
-                type: "GET",
-                url: "/debug/api/block_status",
-                success: function (data) {
-                    var root = $("#blocks_table_tbody");
-                    root.html("");
-                    var max_shard = 0;
-                    data.status_response.BlockStatus.forEach(element => {
-                        element.chunks.forEach(chunk => {
-                            if (chunk.shard_id > max_shard) {
-                                max_shard = chunk.shard_id;
-                            }
-                        });
-                    });
-
-                    prepareTableHeader(max_shard);
-                    data.status_response.BlockStatus.forEach(element => {
-                        var row = $('<tr>');
-
-                        row.append($('<td>').text(element.block_height));
-                        row.append($('<td>').append(createHashElement(element.block_hash, element.block_producer)));
-
-                        row.append($('<td>').text(element.processing_time_ms));
-                        row.append($('<td>').text((element.timestamp_delta / 1000000000).toFixed(3)));
-                        row.append($('<td>').text(element.gas_price_ratio));
-
-
-                        let shards_cells = []
-                        for (let i = 0; i < (max_shard + 1) * 3; i += 1) {
-                            shards_cells.push($('<td>'));
-                        }
-                        element.chunks.forEach(chunk => {
-                            shards_cells[chunk.shard_id * 3].append(createHashElement(chunk.chunk_hash, chunk.chunk_producer));
-                            shards_cells[chunk.shard_id * 3 + 1].text((chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1));
-                            shards_cells[chunk.shard_id * 3 + 2].text(chunk.processing_time_ms);
-                        });
-
-                        for (let i = 0; i < shards_cells.length; i += 1) {
-                            row.append(shards_cells[i]);
-                        }
-                        root.append(row);
-
-                    });
-                    return;
-                },
-                dataType: "json",
-                error: function (errMsg, textStatus, errorThrown) {
-                    if (errMsg.status == 405) {
-                        // Method not allowd.
-                        alert("debug not allowed - did you set enable_debug_rpc: true in your config?")
-                    } else {
-                        alert("Failed: " + textStatus + " :" + errorThrown);
-                    }
-                },
-                contentType: "application/json; charset=utf-8",
-            })
-
-        });
-
-        function prepareTableHeader(max_shard) {
-            var headers = '<th>Block id</th> <th>Block hash</th>' +
-                '<th>Processing Time(ms)</th> <th>Next block time(s)</th> <th>Gas price ratio</th>';
-            for (let i = 0; i < max_shard + 1; i += 1) {
-                headers += `<th colspan=3>Shard ${i} (hash/gas(Tgas)/time(ms))</th>`;
-            }
-            $("#blocks_table_thead")[0].innerHTML = headers;
-        }
+        // react-xarrows expects dependencies to be named differently... so let's do that.
+        window.react = React;
+        window['prop-types'] = PropTypes;
+        window.lodash = _;
     </script>
+    <script src="https://unpkg.com/react-xarrows@2.0.2/lib/index.js"></script>
 </head>
 
 <body>
-    <h1>
-        Most recent blocks.
-    </h1>
-    <button class="expand_all">Expand all</button><br>
-    <div id="blocks_table">
-        <table>
-            <thead id="blocks_table_thead">
-            </thead>
-            <tbody id="blocks_table_tbody">
-            </tbody>
-        </table>
-    </div>
+    <div id="react-container"></div>
+
+    <script type="text/jsx" src="last_blocks.js"></script>
 </body>
 
 </html>

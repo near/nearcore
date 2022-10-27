@@ -8,17 +8,19 @@ use futures::{future, FutureExt};
 use crate::genesis_helpers::genesis_block;
 use crate::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
-use near_chain::{Block, Chain};
+use near_chain::Block;
 use near_chain_configs::Genesis;
+use near_client::adapter::NetworkClientMessages;
 use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType};
-use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
-use near_network::types::NetworkClientMessages;
-use near_network_primitives::types::PeerInfo;
+use near_network::types::PeerInfo;
+use near_o11y::testonly::init_integration_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::Approval;
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
-use near_primitives::num_rational::Rational;
+use near_primitives::num_rational::Ratio;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeightDelta, EpochId};
@@ -50,21 +52,11 @@ fn add_blocks(
         let next_epoch_id = EpochId(
             *blocks[(((prev.header().height()) / epoch_length) * epoch_length) as usize].hash(),
         );
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        let next_bp_hash = Chain::compute_collection_hash(vec![ValidatorStake::new(
+        let next_bp_hash = CryptoHash::hash_borsh_iter([ValidatorStake::new(
             "other".parse().unwrap(),
             signer.public_key(),
             TESTING_INIT_STAKE,
-            false,
-        )])
-        .unwrap();
-        #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
-        let next_bp_hash = Chain::compute_collection_hash(vec![ValidatorStake::new(
-            "other".parse().unwrap(),
-            signer.public_key(),
-            TESTING_INIT_STAKE,
-        )])
-        .unwrap();
+        )]);
         let block = Block::produce(
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
@@ -84,7 +76,7 @@ fn add_blocks(
                 )
                 .signature,
             )],
-            Rational::from_integer(0),
+            Ratio::from_integer(0),
             0,
             1000,
             Some(0),
@@ -96,11 +88,10 @@ fn add_blocks(
             None,
         );
         block_merkle_tree.insert(*block.hash());
-        let _ = client.do_send(NetworkClientMessages::Block(
-            block.clone(),
-            PeerInfo::random().id,
-            false,
-        ));
+        let _ = client.do_send(
+            NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, false)
+                .with_span_context(),
+        );
         blocks.push(block);
         prev = &blocks[blocks.len() - 1];
     }
@@ -114,11 +105,11 @@ fn setup_configs() -> (Genesis, Block, NearConfig, NearConfig) {
 
     let (port1, port2) = (open_port(), open_port());
     let mut near1 = load_test_config("test1", port1, genesis.clone());
-    near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
+    near1.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
     near1.client_config.min_num_peers = 1;
     near1.client_config.epoch_sync_enabled = false;
     let mut near2 = load_test_config("test2", port2, genesis.clone());
-    near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
+    near2.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
     near2.client_config.min_num_peers = 1;
     near2.client_config.epoch_sync_enabled = false;
     (genesis, genesis_block, near1, near2)
@@ -152,14 +143,16 @@ fn sync_nodes() {
 
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
-                    actix::spawn(view_client2.send(GetBlock::latest()).then(|res| {
+                    let actor = view_client2.send(GetBlock::latest().with_span_context());
+                    let actor = actor.then(|res| {
                         match &res {
                             Ok(Ok(b)) if b.header.height == 13 => System::current().stop(),
                             Err(_) => return future::ready(()),
                             _ => {}
                         };
                         future::ready(())
-                    }));
+                    });
+                    actix::spawn(actor);
                 }),
                 100,
                 60000,
@@ -208,7 +201,8 @@ fn sync_after_sync_nodes() {
                     let client11 = client1.clone();
                     let signer1 = signer.clone();
                     let next_step1 = next_step.clone();
-                    actix::spawn(view_client2.send(GetBlock::latest()).then(move |res| {
+                    let actor = view_client2.send(GetBlock::latest().with_span_context());
+                    let actor = actor.then(move |res| {
                         match &res {
                             Ok(Ok(b)) if b.header.height == 13 => {
                                 if !next_step1.load(Ordering::Relaxed) {
@@ -222,7 +216,8 @@ fn sync_after_sync_nodes() {
                             _ => {}
                         };
                         future::ready(())
-                    }));
+                    });
+                    actix::spawn(actor);
                 }),
                 100,
                 60000,
@@ -246,12 +241,12 @@ fn sync_state_stake_change() {
 
         let (port1, port2) = (open_port(), open_port());
         let mut near1 = load_test_config("test1", port1, genesis.clone());
-        near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
+        near1.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
         near1.client_config.min_num_peers = 0;
         near1.client_config.min_block_production_delay = Duration::from_millis(200);
         near1.client_config.epoch_sync_enabled = false;
         let mut near2 = load_test_config("test2", port2, genesis.clone());
-        near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
+        near2.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
         near2.client_config.min_block_production_delay = Duration::from_millis(200);
         near2.client_config.min_num_peers = 1;
         near2.client_config.skip_sync_wait = false;
@@ -281,11 +276,14 @@ fn sync_state_stake_change() {
             );
             actix::spawn(
                 client1
-                    .send(NetworkClientMessages::Transaction {
-                        transaction: unstake_transaction,
-                        is_forwarded: false,
-                        check_only: false,
-                    })
+                    .send(
+                        NetworkClientMessages::Transaction {
+                            transaction: unstake_transaction,
+                            is_forwarded: false,
+                            check_only: false,
+                        }
+                        .with_span_context(),
+                    )
                     .map(drop),
             );
 
@@ -299,7 +297,8 @@ fn sync_state_stake_change() {
                     let near2_copy = near2.clone();
                     let dir2_path_copy = dir2_path.clone();
                     let arbiters_holder2 = arbiters_holder2.clone();
-                    actix::spawn(view_client1.send(GetBlock::latest()).then(move |res| {
+                    let actor = view_client1.send(GetBlock::latest().with_span_context());
+                    let actor = actor.then(move |res| {
                         let latest_height =
                             if let Ok(Ok(block)) = res { block.header.height } else { 0 };
                         if !started_copy.load(Ordering::SeqCst) && latest_height > 10 {
@@ -311,16 +310,18 @@ fn sync_state_stake_change() {
 
                             WaitOrTimeoutActor::new(
                                 Box::new(move |_ctx| {
-                                    actix::spawn(view_client2.send(GetBlock::latest()).then(
-                                        move |res| {
-                                            if let Ok(Ok(block)) = res {
-                                                if block.header.height > latest_height + 1 {
-                                                    System::current().stop()
+                                    actix::spawn(
+                                        view_client2
+                                            .send(GetBlock::latest().with_span_context())
+                                            .then(move |res| {
+                                                if let Ok(Ok(block)) = res {
+                                                    if block.header.height > latest_height + 1 {
+                                                        System::current().stop()
+                                                    }
                                                 }
-                                            }
-                                            future::ready(())
-                                        },
-                                    ));
+                                                future::ready(())
+                                            }),
+                                    );
                                 }),
                                 100,
                                 30000,
@@ -328,7 +329,8 @@ fn sync_state_stake_change() {
                             .start();
                         }
                         future::ready(())
-                    }));
+                    });
+                    actix::spawn(actor);
                 }),
                 100,
                 35000,

@@ -1,7 +1,8 @@
-use near_metrics::{
-    try_create_counter, try_create_gauge, try_create_histogram, try_create_histogram_vec,
-    try_create_int_counter, try_create_int_counter_vec, try_create_int_gauge, Counter, Gauge,
-    Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+use near_o11y::metrics::{
+    exponential_buckets, try_create_counter, try_create_gauge, try_create_histogram,
+    try_create_histogram_vec, try_create_int_counter, try_create_int_counter_vec,
+    try_create_int_gauge, try_create_int_gauge_vec, Counter, Gauge, Histogram, HistogramVec,
+    IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
 
@@ -90,7 +91,7 @@ pub(crate) static TGAS_USAGE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
 });
 
 pub(crate) static VALIDATORS_CHUNKS_PRODUCED: Lazy<IntGaugeVec> = Lazy::new(|| {
-    near_metrics::try_create_int_gauge_vec(
+    try_create_int_gauge_vec(
         "near_validators_chunks_produced",
         "Number of chunks produced by a validator",
         &["account_id"],
@@ -99,7 +100,7 @@ pub(crate) static VALIDATORS_CHUNKS_PRODUCED: Lazy<IntGaugeVec> = Lazy::new(|| {
 });
 
 pub(crate) static VALIDATORS_CHUNKS_EXPECTED: Lazy<IntGaugeVec> = Lazy::new(|| {
-    near_metrics::try_create_int_gauge_vec(
+    try_create_int_gauge_vec(
         "near_validators_chunks_expected",
         "Number of chunks expected to be produced by a validator",
         &["account_id"],
@@ -108,7 +109,7 @@ pub(crate) static VALIDATORS_CHUNKS_EXPECTED: Lazy<IntGaugeVec> = Lazy::new(|| {
 });
 
 pub(crate) static VALIDATORS_BLOCKS_PRODUCED: Lazy<IntGaugeVec> = Lazy::new(|| {
-    near_metrics::try_create_int_gauge_vec(
+    try_create_int_gauge_vec(
         "near_validators_blocks_produced",
         "Number of blocks produced by a validator",
         &["account_id"],
@@ -117,7 +118,7 @@ pub(crate) static VALIDATORS_BLOCKS_PRODUCED: Lazy<IntGaugeVec> = Lazy::new(|| {
 });
 
 pub(crate) static VALIDATORS_BLOCKS_EXPECTED: Lazy<IntGaugeVec> = Lazy::new(|| {
-    near_metrics::try_create_int_gauge_vec(
+    try_create_int_gauge_vec(
         "near_validators_blocks_expected",
         "Number of blocks expected to be produced by a validator",
         &["account_id"],
@@ -152,7 +153,7 @@ pub(crate) static CHUNK_SKIPPED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
 
 pub(crate) static PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram(
-        "partial_encoded_chunk_response_delay",
+        "near_partial_encoded_chunk_response_delay",
         "Delay between when a partial encoded chunk response is sent from PeerActor and when it is received by ClientActor",
     )
         .unwrap()
@@ -172,7 +173,7 @@ pub(crate) static CLIENT_MESSAGES_PROCESSING_TIME: Lazy<HistogramVec> = Lazy::ne
         "near_client_messages_processing_time",
         "Processing time of messages that client actor received, sorted by message type",
         &["type"],
-        Some(prometheus::exponential_buckets(0.0001, 1.6, 20).unwrap()),
+        Some(exponential_buckets(0.0001, 1.6, 20).unwrap()),
     )
     .unwrap()
 });
@@ -190,7 +191,7 @@ pub(crate) static CLIENT_TRIGGER_TIME_BY_TYPE: Lazy<HistogramVec> = Lazy::new(||
         "near_client_triggers_time_by_type",
         "Time spent on the different triggers in client",
         &["trigger"],
-        Some(prometheus::exponential_buckets(0.0001, 1.6, 20).unwrap()),
+        Some(exponential_buckets(0.0001, 1.6, 20).unwrap()),
     )
     .unwrap()
 });
@@ -273,14 +274,53 @@ pub(crate) static NODE_PROTOCOL_VERSION: Lazy<IntGauge> = Lazy::new(|| {
         .unwrap()
 });
 
+pub(crate) static NODE_PROTOCOL_UPGRADE_VOTING_START: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_node_protocol_upgrade_voting_start",
+        "Time in seconds since Unix epoch determining when node will start voting for the protocol upgrade; zero if there is no schedule for the voting")
+        .unwrap()
+});
+
+pub static PRODUCE_CHUNK_TIME: Lazy<near_o11y::metrics::HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_produce_chunk_time",
+        "Time taken to produce a chunk",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 2.0, 16).unwrap()),
+    )
+    .unwrap()
+});
+
+pub static VIEW_CLIENT_MESSAGE_TIME: Lazy<near_o11y::metrics::HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_view_client_messages_processing_time",
+        "Time that view client takes to handle different messages",
+        &["message"],
+        Some(exponential_buckets(0.001, 2.0, 16).unwrap()),
+    )
+    .unwrap()
+});
+
+pub static PRODUCE_AND_DISTRIBUTE_CHUNK_TIME: Lazy<near_o11y::metrics::HistogramVec> =
+    Lazy::new(|| {
+        try_create_histogram_vec(
+            "near_produce_and_distribute_chunk_time",
+            "Time to produce a chunk and distribute it to peers",
+            &["shard_id"],
+            Some(exponential_buckets(0.001, 2.0, 16).unwrap()),
+        )
+        .unwrap()
+    });
 /// Exports neard, protocol and database versions via Prometheus metrics.
 ///
 /// Sets metrics which export node’s max supported protocol version, used
 /// database version and build information.  The latter is taken from
 /// `neard_version` argument.
 pub(crate) fn export_version(neard_version: &near_primitives::version::Version) {
-    NODE_PROTOCOL_VERSION.set(near_primitives::version::PROTOCOL_VERSION as i64);
-    NODE_DB_VERSION.set(near_primitives::version::DB_VERSION as i64);
+    NODE_PROTOCOL_VERSION.set(near_primitives::version::PROTOCOL_VERSION.into());
+    NODE_PROTOCOL_UPGRADE_VOTING_START
+        .set(near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE.timestamp());
+    NODE_DB_VERSION.set(near_store::metadata::DB_VERSION.into());
     NODE_BUILD_INFO.reset();
     NODE_BUILD_INFO
         .with_label_values(&[

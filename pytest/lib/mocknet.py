@@ -320,7 +320,7 @@ def send_transaction(node, tx, tx_hash, account_id, timeout=120):
         elif 'does not exist' in error_data:
             missing_count += 1
             logger.warning(
-                f'transaction {tx_hash} falied to be recieved by the node, checking again.'
+                f'transaction {tx_hash} failed to be received by the node, checking again.'
             )
             if missing_count < 20:
                 time.sleep(5)
@@ -446,7 +446,7 @@ def create_and_upload_genesis(validator_nodes,
                               node_pks=None,
                               increasing_stakes=0.0,
                               num_seats=100,
-                              sharding=True,
+                              single_shard=False,
                               all_node_pks=None,
                               node_ips=None):
     logger.info(
@@ -472,8 +472,9 @@ def create_and_upload_genesis(validator_nodes,
                 '/home/ubuntu/.near/records.json', config_filename_in,
                 '/home/ubuntu/.near/config.json', chain_id,
                 validator_node_names, rpc_node_names, done_filename,
-                epoch_length, node_pks, increasing_stakes, num_seats, sharding,
-                all_node_pks, node_ips), validator_nodes + rpc_nodes)
+                epoch_length, node_pks, increasing_stakes, num_seats,
+                single_shard, all_node_pks, node_ips),
+            validator_nodes + rpc_nodes)
         pmap(lambda node: wait_genesis_updater_done(node, done_filename),
              validator_nodes + rpc_nodes)
 
@@ -490,7 +491,7 @@ def create_genesis_file(validator_node_names,
                         node_pks=None,
                         increasing_stakes=0.0,
                         num_seats=None,
-                        sharding=True):
+                        single_shard=False):
     logger.info(
         f'create_genesis_file: validator_node_names: {validator_node_names}')
     logger.info(f'create_genesis_file: rpc_node_names: {rpc_node_names}')
@@ -704,21 +705,7 @@ def create_genesis_file(validator_node_names,
     # The default value of this parameter is 90.
     genesis_config['block_producer_kickout_threshold'] = 10
 
-    if sharding:
-        shard_layout = {
-            'V1': {
-                'fixed_shards': [],
-                'boundary_accounts': [
-                    'aurora', 'aurora-0', 'kkuuue2akv_1630967379.near'
-                ],
-                'shards_split_map': [[0, 1, 2, 3]],
-                'to_parent_shard_map': [0, 0, 0, 0],
-                'version': 1
-            }
-        }
-        genesis_config['shard_layout'] = shard_layout
-        genesis_config['simple_nightshade_shard_layout'] = shard_layout
-    else:
+    if single_shard:
         genesis_config['shard_layout'] = {'V0': {'num_shards': 1, 'version': 0}}
         genesis_config['simple_nightshade_shard_layout'] = {}
 
@@ -767,6 +754,7 @@ def update_config_file(config_filename_in, config_filename_out, all_node_pks,
     config_json['archival_peer_connections_lower_bound'] = 1
     config_json['network']['boot_nodes'] = ','.join(node_addresses)
     config_json['rpc']['addr'] = '0.0.0.0:3030'
+    config_json['telemetry'] = {}
 
     with open(config_filename_out, 'w') as f:
         json.dump(config_json, f, indent=2)
@@ -845,7 +833,7 @@ def start_genesis_updater_script(
         script, genesis_filename_in, genesis_filename_out, records_filename_in,
         records_filename_out, config_filename_in, config_filename_out, chain_id,
         validator_nodes, rpc_nodes, done_filename, epoch_length, node_pks,
-        increasing_stakes, num_seats, sharding, all_node_pks, node_ips):
+        increasing_stakes, num_seats, single_shard, all_node_pks, node_ips):
     cmd = ' '.join([
         shlex.quote(str(arg)) for arg in [
             'nohup', './venv/bin/python', script, genesis_filename_in,
@@ -853,7 +841,7 @@ def start_genesis_updater_script(
             config_filename_in, config_filename_out, chain_id, ','.join(
                 validator_nodes), ','.join(rpc_nodes), done_filename,
             epoch_length, ','.join(node_pks), increasing_stakes, num_seats,
-            sharding, ','.join(all_node_pks), ','.join(node_ips)
+            single_shard, ','.join(all_node_pks), ','.join(node_ips)
         ]
     ])
     return '''
@@ -867,8 +855,8 @@ def start_genesis_updater(node, script, genesis_filename_in,
                           records_filename_out, config_filename_in,
                           config_filename_out, chain_id, validator_nodes,
                           rpc_nodes, done_filename, epoch_length, node_pks,
-                          increasing_stakes, num_seats, sharding, all_node_pks,
-                          node_ips):
+                          increasing_stakes, num_seats, single_shard,
+                          all_node_pks, node_ips):
     logger.info(f'Starting genesis_updater on {node.instance_name}')
     node.machine.run('bash',
                      input=start_genesis_updater_script(
@@ -877,7 +865,7 @@ def start_genesis_updater(node, script, genesis_filename_in,
                          config_filename_in, config_filename_out, chain_id,
                          validator_nodes, rpc_nodes, done_filename,
                          epoch_length, node_pks, increasing_stakes, num_seats,
-                         sharding, all_node_pks, node_ips))
+                         single_shard, all_node_pks, node_ips))
 
 
 def start_genesis_update_waiter_script(done_filename):

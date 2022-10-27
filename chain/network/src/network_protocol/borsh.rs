@@ -1,23 +1,19 @@
-/// Contains types that belong to the `network protocol.
-///
-/// WARNING WARNING WARNING
-/// WARNING WARNING WARNING
-/// We need to maintain backwards compatibility, all changes to this file needs to be reviews.
+//! Contains types that belong to the `network protocol.
+//!
+//! WARNING WARNING WARNING
+//! WARNING WARNING WARNING
+//! We need to maintain backwards compatibility, all changes to this file needs to be reviews.
+use crate::network_protocol::edge::{Edge, PartialEdgeInfo};
+use crate::network_protocol::{PeerChainInfoV2, PeerInfo, RoutedMessage};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_network_primitives::types::{
-    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, RoutedMessage,
-};
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::EpochId;
 use std::fmt;
 use std::fmt::Formatter;
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
 /// Structure representing handshake between peers.
 /// This replaces deprecated handshake `HandshakeV2`.
@@ -80,28 +76,12 @@ impl From<HandshakeAutoDes> for Handshake {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct RoutingTableUpdate {
-    pub(crate) edges: Vec<Edge>,
-    pub(crate) accounts: Vec<AnnounceAccount>,
+#[derive(Default, BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub(super) struct RoutingTableUpdate {
+    pub edges: Vec<Edge>,
+    pub accounts: Vec<AnnounceAccount>,
 }
 
-impl RoutingTableUpdate {
-    pub(crate) fn from_edges(edges: Vec<Edge>) -> Self {
-        Self { edges, accounts: Vec::new() }
-    }
-
-    pub fn from_accounts(accounts: Vec<AnnounceAccount>) -> Self {
-        Self { edges: Vec::new(), accounts }
-    }
-
-    pub(crate) fn new(edges: Vec<Edge>, accounts: Vec<AnnounceAccount>) -> Self {
-        Self { edges, accounts }
-    }
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum HandshakeFailureReason {
     ProtocolVersionMismatch { version: u32, oldest_supported_version: u32 },
@@ -124,11 +104,10 @@ impl std::error::Error for HandshakeFailureReason {}
 /// Warning, position of each message type in this enum defines the protocol due to serialization.
 /// DO NOT MOVE, REORDER, DELETE items from the list. Only add new items to the end.
 /// If need to remove old items - replace with `None`.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, strum::AsRefStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
-pub enum PeerMessage {
+pub(super) enum PeerMessage {
     Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
@@ -153,46 +132,13 @@ pub enum PeerMessage {
     /// Gracefully disconnect from other peer.
     Disconnect,
     Challenge(Challenge),
-    _HandshakeV2,
-    EpochSyncRequest(EpochId),
-    EpochSyncResponse(Box<EpochSyncResponse>),
-    EpochSyncFinalizationRequest(EpochId),
-    EpochSyncFinalizationResponse(Box<EpochSyncFinalizationResponse>),
 
-    RoutingTableSyncV2(RoutingSyncV2),
+    _HandshakeV2,
+    _EpochSyncRequest,
+    _EpochSyncResponse,
+    _EpochSyncFinalizationRequest,
+    _EpochSyncFinalizationResponse,
+    _RoutingTableSyncV2,
 }
 #[cfg(target_arch = "x86_64")] // Non-x86_64 doesn't match this requirement yet but it's not bad as it's not production-ready
 const _: () = assert!(std::mem::size_of::<PeerMessage>() <= 1144, "PeerMessage > 1144 bytes");
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub enum RoutingSyncV2 {
-    Version2(RoutingVersion2),
-}
-const _: () = assert!(std::mem::size_of::<RoutingSyncV2>() <= 80, "RoutingSyncV2 > 80 bytes");
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct PartialSync {
-    pub(crate) ibf_level: crate::routing::ibf_peer_set::ValidIBFLevel,
-    pub(crate) ibf: Vec<crate::routing::ibf::IbfBox>,
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub enum RoutingState {
-    PartialSync(PartialSync),
-    RequestAllEdges,
-    Done,
-    RequestMissingEdges(Vec<u64>),
-    InitializeIbf,
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct RoutingVersion2 {
-    pub(crate) known_edges: u64,
-    pub(crate) seed: u64,
-    pub(crate) edges: Vec<Edge>,
-    pub(crate) routing_state: RoutingState,
-}
