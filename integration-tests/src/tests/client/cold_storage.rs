@@ -1,9 +1,11 @@
 use crate::tests::client::process_blocks::create_nightshade_runtimes;
+use borsh::BorshDeserialize;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_test_logger;
+use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -22,11 +24,24 @@ fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) 
     assert_eq!(first_res.unwrap(), second_res.unwrap());
 }
 
-fn check_iter(first_store: &Store, second_store: &Store, col: DBCol) -> u64 {
+fn check_iter(
+    first_store: &Store,
+    second_store: &Store,
+    col: DBCol,
+    no_check_rules: &Vec<Box<dyn Fn(DBCol, &Box<[u8]>) -> bool>>,
+) -> u64 {
     let mut num_checks = 0;
-    for (key, _) in first_store.iter(col).map(Result::unwrap) {
-        check_key(first_store, second_store, col, &key);
-        num_checks += 1;
+    for (key, value) in first_store.iter(col).map(Result::unwrap) {
+        let mut check = true;
+        for no_check in no_check_rules {
+            if no_check(col, &value) {
+                check = false;
+            }
+        }
+        if check {
+            check_key(first_store, second_store, col, &key);
+            num_checks += 1;
+        }
     }
     num_checks
 }
@@ -139,10 +154,32 @@ fn test_storage_after_commit_of_cold_update() {
 
     let cold_store = NodeStorage::new(cold_db).get_store(Temperature::Hot);
 
+    // We still need to filter out one chunk
+    let mut no_check_rules: Vec<Box<dyn Fn(DBCol, &Box<[u8]>) -> bool>> = vec![];
+    no_check_rules.push(Box::new(move |col, value| -> bool {
+        if col == DBCol::Chunks {
+            let chunk = ShardChunk::try_from_slice(&*value).unwrap();
+            if *chunk.prev_block() == last_hash {
+                return true;
+            }
+        }
+        false
+    }));
+
     for col in DBCol::iter() {
         if col.is_cold() {
+            let num_checks = check_iter(
+                &env.clients[0].runtime_adapter.store(),
+                &cold_store,
+                col,
+                &no_check_rules,
+            );
             // assert that this test actually checks something
-            assert!(check_iter(&env.clients[0].runtime_adapter.store(), &cold_store, col) > 0);
+            assert!(
+                col == DBCol::StateChangesForSplitStates
+                    || col == DBCol::StateHeaders
+                    || num_checks > 0
+            );
         }
     }
 }
