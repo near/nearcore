@@ -156,6 +156,9 @@ fn get_keys_from_store(
             key_type,
             match key_type {
                 DBKeyType::BlockHash => vec![block_hash_key.clone()],
+                DBKeyType::PreviousBlockHash => {
+                    vec![block.header().prev_hash().as_bytes().to_vec()]
+                }
                 DBKeyType::ShardId => {
                     (0..shard_layout.num_shards()).map(|si| si.to_le_bytes().to_vec()).collect()
                 }
