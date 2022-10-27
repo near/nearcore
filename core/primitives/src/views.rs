@@ -479,8 +479,18 @@ pub enum BlockProcessingStatus {
     Orphan,
     WaitingForChunks,
     InProcessing,
-    Processed,
+    Accepted,
+    Error(String),
+    Dropped(DroppedReason),
     Unknown,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum DroppedReason {
+    // If the node has already processed a block at this height
+    HeightProcessed,
+    // If the block processing pool is full
+    TooManyProcessingBlocks,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
