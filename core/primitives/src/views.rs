@@ -252,7 +252,7 @@ pub struct KnownPeerStateView {
     pub addr: String,
     pub first_seen: i64,
     pub last_seen: i64,
-    pub last_attempt: Option<i64>,
+    pub last_attempt: Option<(i64, String)>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
