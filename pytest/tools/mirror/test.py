@@ -46,7 +46,7 @@ def ordinal_to_port(port, ordinal):
     return f'0.0.0.0:{port + 10 + ordinal}'
 
 
-def copy_genesis(neard, home):
+def copy_genesis(home):
     shutil.copy(dot_near() / 'test0/forked/genesis.json', home / 'genesis.json')
     shutil.copy(dot_near() / 'test0/forked/records.json', home / 'records.json')
 
@@ -169,8 +169,8 @@ def create_forked_chain(config, near_root):
         sys.exit(f'"amend-genesis" command failed: output: {e.stdout}')
 
     for d in dirs:
-        copy_genesis(neard, d)
-    copy_genesis(neard, target_dir)
+        copy_genesis(d)
+    copy_genesis(target_dir)
 
     return [str(d) for d in dirs], target_dir
 

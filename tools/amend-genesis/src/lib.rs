@@ -244,8 +244,7 @@ pub struct GenesisChanges {
     pub chunk_producer_kickout_threshold: Option<u8>,
 }
 
-// TODO:
-// epoch_length=None,
+/// Amend a genesis/records file created by `dump-state`.
 pub fn amend_genesis<P: AsRef<Path>>(
     genesis_file_in: P,
     genesis_file_out: P,
