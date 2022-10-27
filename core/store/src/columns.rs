@@ -381,6 +381,8 @@ impl DBCol {
             | DBCol::Receipts
             | DBCol::State
             | DBCol::StateChanges
+            | DBCol::StateChangesForSplitStates
+            | DBCol::StateHeaders
             | DBCol::TransactionResultForBlock
             | DBCol::Transactions => true,
             _ => false,

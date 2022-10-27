@@ -175,7 +175,11 @@ fn test_storage_after_commit_of_cold_update() {
                 &no_check_rules,
             );
             // assert that this test actually checks something
-            assert!(num_checks > 0);
+            assert!(
+                col == DBCol::StateChangesForSplitStates
+                    || col == DBCol::StateHeaders
+                    || num_checks > 0
+            );
         }
     }
 }
