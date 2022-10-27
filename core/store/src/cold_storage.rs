@@ -4,7 +4,10 @@ use crate::trie::TrieRefcountChange;
 use crate::{DBCol, DBTransaction, Database, Store, TrieChanges};
 
 use borsh::BorshDeserialize;
+use near_primitives::block::Block;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::sharding::ShardChunk;
 use near_primitives::types::BlockHeight;
 use std::collections::HashMap;
 use std::io;
@@ -139,11 +142,23 @@ fn get_keys_from_store(
     let height_key = height.to_le_bytes();
     let block_hash_key = store.get_or_err(DBCol::BlockHeight, &height_key)?.as_slice().to_vec();
 
+    let block: Block = store.get_ser_or_err(DBCol::Block, &block_hash_key)?;
+    let chunks = block
+        .chunks()
+        .iter()
+        .map(|chunk_header| {
+            store.get_ser_or_err(DBCol::Chunks, chunk_header.chunk_hash().as_bytes())
+        })
+        .collect::<io::Result<Vec<ShardChunk>>>()?;
+
     for key_type in DBKeyType::iter() {
         key_type_to_keys.insert(
             key_type,
             match key_type {
                 DBKeyType::BlockHash => vec![block_hash_key.clone()],
+                DBKeyType::ShardId => {
+                    (0..shard_layout.num_shards()).map(|si| si.to_le_bytes().to_vec()).collect()
+                }
                 DBKeyType::ShardUId => shard_layout
                     .get_shard_uids()
                     .iter()
@@ -186,6 +201,36 @@ fn get_keys_from_store(
                         },
                     )?;
                     keys
+                }
+                DBKeyType::TransactionHash => chunks
+                    .iter()
+                    .flat_map(|c| c.transactions().iter().map(|t| t.get_hash().as_bytes().to_vec()))
+                    .collect(),
+                DBKeyType::ReceiptHash => chunks
+                    .iter()
+                    .flat_map(|c| c.receipts().iter().map(|r| r.get_hash().as_bytes().to_vec()))
+                    .collect(),
+                DBKeyType::OutcomeId => {
+                    debug_assert_eq!(
+                        DBCol::OutcomeIds.key_type(),
+                        &[DBKeyType::BlockHash, DBKeyType::ShardId]
+                    );
+                    (0..shard_layout.num_shards())
+                        .map(|shard_id| {
+                            store.get_ser(
+                                DBCol::OutcomeIds,
+                                &join_two_keys(&block_hash_key, &shard_id.to_le_bytes()),
+                            )
+                        })
+                        .collect::<io::Result<Vec<Option<Vec<CryptoHash>>>>>()?
+                        .into_iter()
+                        .flat_map(|hashes| {
+                            hashes
+                                .unwrap_or_default()
+                                .into_iter()
+                                .map(|hash| hash.as_bytes().to_vec())
+                        })
+                        .collect()
                 }
                 _ => {
                     vec![]
