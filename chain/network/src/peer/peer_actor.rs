@@ -864,9 +864,7 @@ impl PeerActor {
             }
             PeerMessage::PeersRequest => {
                 ctx.spawn(wrap_future(
-                    {
-                        self.network_state.peer_manager_addr.send(PeerToManagerMsg::PeersRequest(PeersRequest {}).with_span_context())
-                    }.in_current_span()
+                        self.network_state.peer_manager_addr.send(PeerToManagerMsg::PeersRequest(PeersRequest {}).with_span_context()).in_current_span()
                 ).then(|res, act: &mut PeerActor, _ctx| {
                     if let Ok(peers) = res.map(|f|f.unwrap_peers_request_result()) {
                         if !peers.peers.is_empty() {
@@ -888,16 +886,16 @@ impl PeerActor {
             PeerMessage::RequestUpdateNonce(edge_info) => {
                 ctx.spawn(
                     wrap_future(
-                        {
-                            self.network_state.peer_manager_addr.send(
+                        self.network_state
+                            .peer_manager_addr
+                            .send(
                                 PeerToManagerMsg::RequestUpdateNonce(
                                     self.other_peer_id().unwrap().clone(),
                                     edge_info,
                                 )
                                 .with_span_context(),
                             )
-                        }
-                        .in_current_span(),
+                            .in_current_span(),
                     )
                     .then(|res, act: &mut PeerActor, ctx| {
                         match res.map(|f| f) {
@@ -917,12 +915,10 @@ impl PeerActor {
             PeerMessage::ResponseUpdateNonce(edge) => {
                 ctx.spawn(
                     wrap_future(
-                        {
-                            self.network_state.peer_manager_addr.send(
-                                PeerToManagerMsg::ResponseUpdateNonce(edge).with_span_context(),
-                            )
-                        }
-                        .in_current_span(),
+                        self.network_state
+                            .peer_manager_addr
+                            .send(PeerToManagerMsg::ResponseUpdateNonce(edge).with_span_context())
+                            .in_current_span(),
                     )
                     .then(|res, act: &mut PeerActor, ctx| {
                         match res {

@@ -1306,10 +1306,6 @@ impl PeerManagerActor {
         msg: PeerManagerMessageRequest,
         ctx: &mut Context<Self>,
     ) -> PeerManagerMessageResponse {
-        let msg_type: &str = (&msg).into();
-        let _span =
-            tracing::trace_span!(target: "network", "handle_peer_manager_message", msg_type)
-                .entered();
         match msg {
             PeerManagerMessageRequest::NetworkRequests(msg) => {
                 PeerManagerMessageResponse::NetworkResponses(
