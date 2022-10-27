@@ -72,7 +72,6 @@ use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
 pub mod errors;
-use std::str::FromStr;
 
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
@@ -1640,7 +1639,7 @@ mod test {
     use num_rational::Ratio;
 
     use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-    use near_chain_configs::{GenesisValidationMode, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
+    use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_epoch_manager::EpochManagerAdapter;
     use near_o11y::testonly::init_test_logger;
@@ -3256,14 +3255,14 @@ mod test {
     /// Check that mainnet genesis hash still matches, to make sure that we're still backwards compatible.
     #[test]
     fn test_genesis_hash() {
-        let genesis = Genesis::from_file("res/mainnet_genesis.json", GenesisValidationMode::Full);
+        let genesis = near_mainnet_res::mainnet_genesis();
         let chain_genesis = ChainGenesis::new(&genesis);
-        let (tempdir, opener) = near_store::NodeStorage::test_opener();
-        let store = opener.open().unwrap();
+        let store = near_store::test_utils::create_test_store();
 
+        let tempdir = tempfile::tempdir().unwrap();
         let runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
             tempdir.path(),
-            store.get_store(Temperature::Hot),
+            store.clone(),
             &genesis,
             TrackedConfig::new_empty(),
             RuntimeConfigStore::new(None),
@@ -3271,21 +3270,13 @@ mod test {
 
         let block = Chain::make_genesis_block(&*runtime, &chain_genesis).unwrap();
         assert_eq!(
-            block.header().hash(),
-            &CryptoHash::from_str("EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H").unwrap()
+            block.header().hash().to_string(),
+            "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H"
         );
 
-        let epoch_manager = EpochManager::new_from_genesis_config(
-            store.get_store(Temperature::Hot),
-            &genesis.config,
-        )
-        .unwrap();
+        let epoch_manager = EpochManager::new_from_genesis_config(store, &genesis.config).unwrap();
         let epoch_info = epoch_manager.get_epoch_info(&EpochId::default()).unwrap();
-
-        println!("{:?}", epoch_info.block_producers_settlement());
-
-        println!("{:?}", epoch_manager.get_epoch_info(&EpochId::default()));
-
+        // Verify the order of the block producers.
         assert_eq!(
             [
                 1, 0, 1, 0, 0, 3, 3, 2, 2, 3, 0, 2, 0, 0, 1, 1, 1, 1, 3, 2, 3, 2, 0, 3, 3, 3, 0, 3,
@@ -3295,7 +3286,5 @@ mod test {
             ],
             epoch_info.block_producers_settlement()
         );
-
-        //assert_eq!(1, 2);
     }
 }
