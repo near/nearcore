@@ -260,7 +260,7 @@ impl ViewClientActor {
         Ok(Temperature::Hot)
     }
 
-    /// Determines temperature of a chunk with given chunk hash.
+    /// Determines temperature of a chunk with given epoch id.
     fn get_temperature_by_epoch_id(
         &self,
         _epoch_id: &EpochId,
