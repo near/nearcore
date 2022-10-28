@@ -583,24 +583,24 @@ impl PeerManagerActor {
     }
 
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
+        let tier1 = self.state.tier1.load();
         let tier2 = self.state.tier2.load();
+        let now = self.clock.now();
+        let connected_peer = |cp:&Arc<connection::Connection>| ConnectedPeerInfo {
+            full_peer_info: cp.full_peer_info(),
+            received_bytes_per_sec: cp.stats.received_bytes_per_sec.load(Ordering::Relaxed),
+            sent_bytes_per_sec: cp.stats.sent_bytes_per_sec.load(Ordering::Relaxed),
+            last_time_peer_requested: cp
+                .last_time_peer_requested
+                .load()
+                .unwrap_or(now),
+            last_time_received_message: cp.last_time_received_message.load(),
+            connection_established_time: cp.established_time,
+            peer_type: cp.peer_type,
+        };
         NetworkInfo {
-            connected_peers: tier2
-                .ready
-                .values()
-                .map(|cp| ConnectedPeerInfo {
-                    full_peer_info: cp.full_peer_info(),
-                    received_bytes_per_sec: cp.stats.received_bytes_per_sec.load(Ordering::Relaxed),
-                    sent_bytes_per_sec: cp.stats.sent_bytes_per_sec.load(Ordering::Relaxed),
-                    last_time_peer_requested: cp
-                        .last_time_peer_requested
-                        .load()
-                        .unwrap_or(self.clock.now()),
-                    last_time_received_message: cp.last_time_received_message.load(),
-                    connection_established_time: cp.established_time,
-                    peer_type: cp.peer_type,
-                })
-                .collect(),
+            connected_peers: tier2.ready.values().map(connected_peer).collect(),
+            tier1_connections: tier1.ready.values().map(connected_peer).collect(),
             num_connected_peers: tier2.ready.len(),
             peer_max_count: self.state.max_num_peers.load(),
             highest_height_peers: self.highest_height_peers(),

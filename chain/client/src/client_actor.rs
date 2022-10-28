@@ -190,6 +190,7 @@ impl ClientActor {
             node_id,
             network_info: NetworkInfo {
                 connected_peers: vec![],
+                tier1_connections: vec![],
                 num_connected_peers: 0,
                 peer_max_count: 0,
                 highest_height_peers: vec![],

@@ -376,6 +376,7 @@ pub struct NetworkInfoView {
     pub connected_peers: Vec<PeerInfoView>,
     pub known_producers: Vec<KnownProducerView>,
     pub tier1_accounts_data: Vec<AccountDataView>,
+    pub tier1_connections: Vec<PeerInfoView>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]

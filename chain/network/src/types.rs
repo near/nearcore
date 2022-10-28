@@ -344,6 +344,7 @@ pub struct NetworkInfo {
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
     pub tier1_accounts_data: Vec<Arc<SignedAccountData>>,
+    pub tier1_connections: Vec<ConnectedPeerInfo>,
 }
 
 impl From<NetworkInfo> for NetworkInfoView {
@@ -382,6 +383,11 @@ impl From<NetworkInfo> for NetworkInfoView {
                     timestamp: chrono::DateTime::from_utc(
                         chrono::NaiveDateTime::from_timestamp(d.timestamp.unix_timestamp(), 0), chrono::Utc),
                 }).collect(),
+            tier1_connections: network_info
+                .tier1_connections
+                .iter()
+                .map(|full_peer_info| full_peer_info.into())
+                .collect::<Vec<_>>(),
         }
     }
 }
