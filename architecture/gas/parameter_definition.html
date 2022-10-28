@@ -142,15 +142,73 @@
                     <main>
                         <h1 id="parameter-definitions"><a class="header" href="#parameter-definitions">Parameter Definitions</a></h1>
 <p>Gas parameters are a subset of runtime parameters that are defined in
-<a href="https://github.com/near/nearcore/blob/master/core/primitives/res/runtime_configs/parameters.txt">core/primitives/res/runtime_configs/parameters.txt</a>.
+<a href="https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/res/runtime_configs/parameters.txt">core/primitives/res/runtime_configs/parameters.txt</a>.
 IMPORTANT: This is not the final list of parameters, it contains the base values
 which can be overwritten per protocol version. For example,
-<a href="core/primitives/res/runtime_configs/53.txt">53.txt</a> changes several parameters
+<a href="https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/res/runtime_configs/53.txt">53.txt</a>
+changes several parameters
 starting from version 53. To see all parameter values for a specific version at
-once, check out list of JSON snapshots generated in this directory:
-<a href="https://github.com/near/nearcore/blob/master/core/primitives/src/runtime/snapshots">core/primitives/src/runtime/snapshots</a>.</p>
-<!-- TODO: How to add a new parameter -->
+once, check out the list of JSON snapshots generated in this directory:
+<a href="https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/src/runtime/snapshots">core/primitives/src/runtime/snapshots</a>.</p>
 <!-- TODO: Runtime Config Store -->
+<h2 id="how-to-add-a-new-parameter"><a class="header" href="#how-to-add-a-new-parameter">How to Add a New Parameter</a></h2>
+<p>First and foremost, if you are feeling lost, open a topic in our Zulip chat
+(<a href="https://near.zulipchat.com/#narrow/stream/295306-pagoda.2Fcontract-runtime">pagoda/contract-runtime</a>).
+We are here to help.</p>
+<h3 id="principles"><a class="header" href="#principles">Principles</a></h3>
+<p>Before adding anything, please review the basic principles for gas parameters.</p>
+<ul>
+<li>A parameter must correspond to a clearly defined workload.</li>
+<li>When the workload is scalable by a factor <code>N</code> that depends on user input,
+likely it will require a base parameter and a second parameter that is
+multiplied by <code>N</code>. (Example: <code>N</code> = number of bytes when reading a value from
+storage.)</li>
+<li>Charge gas before executing the workload.</li>
+<li>Parameters should be independent form specific implementation choices in
+nearcore.</li>
+<li>Ideally, contract developers can easily understand what the cost is simply by
+reading the name in a gas profile.</li>
+</ul>
+<p>The section on <a href="./gas_profile.html#charging-gas">Gas Profiles</a> explains how to
+charge gas, please also take that into considerations when defining a new
+parameter.</p>
+<h3 id="necessary-code-changes"><a class="header" href="#necessary-code-changes">Necessary Code Changes</a></h3>
+<p>Adding the parameter in code involves several steps.</p>
+<ol>
+<li>Define the parameter by adding it to the list in <code>core/primitives/res/runtime_configs/parameters.txt.</code></li>
+<li>Update the Rust view of parameters by adding a variant to <code>enum Parameter</code>
+in <code>core/primitives-core/src/parameter.rs</code>. In the same file, update
+<code>enum FeeParameter</code> if you add an action cost or update <code>ext_costs()</code>
+if you add a cost inside function calls.</li>
+<li>Update <code>RuntimeConfig</code>, the configuration used to reference parameters in
+code. Depending on the type of parameter, you will need to update
+<code>RuntimeFeesConfig</code> (for action costs) or <code>ExtCostsConfig</code> (for gas costs).</li>
+<li>Update the list used for gas profiles. This is defined by <code>enum Cost</code> in
+<code>core/primitives-core/src/profile.rs</code>. You need to add a variant to either
+<code>enum ActionCosts</code> or <code>enum ExtCost</code>. Please also update <code>fn index()</code> that
+maps each profile entry to a unique position in serialized gas profiles.</li>
+<li>The parameter should be available to use in the code section you need it. Now
+is a good time to ensure <code>cargo check</code> and <code>cargo test --no-run</code> pass. Most
+likely you have to update some testing code, such as
+<code>ExtCostsConfig::test()</code>.</li>
+<li>To merge your changes into nearcore, you will have to hide your parameter
+behind a feature flag. Add the feature to the <code>Cargo.toml</code> of each crate
+touched in step 3 and 4 and hide the code behind <code>#[cfg(feature = &quot;protocol_feature_MY_NEW_FEATURE&quot;)]</code>. Do not hide code in step 2 so that
+non-nightly builds can still read <code>parameters.txt</code>. Also add your feature as
+a dependency on <code>nightly</code> in <code>core/primitives/Cargo.toml</code> to make sure it
+gets included when compiling for nightly. After that, check <code>cargo check</code> and
+<code>cargo test --no-run</code> with and without <code>features=nightly</code>.</li>
+</ol>
+<h3 id="what-gas-value-should-the-parameter-have"><a class="header" href="#what-gas-value-should-the-parameter-have">What Gas Value Should the Parameter Have?</a></h3>
+<p>For a first draft, the exact gas value used in the parameter is not crucial.
+Make sure the right set of parameters exists and try to set a number that roughly
+makes sense. This should be enough to enable discussions on the NEP around
+feasibility and usefulness of the proposed feature. If you are not sure, a good
+rule of thumb is 0.1 Tgas for each disk operation and at least 1 Tgas for each
+ms of CPU time. Then round it up generously.</p>
+<p>The value will have to be refined later. This is usually the last step, after
+the implementation is complete and reviewed. Have a look at the section on
+<a href="./estimator.html">estimating gas parameters</a> of the book.</p>
 
                     </main>
 
