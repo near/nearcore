@@ -6,7 +6,7 @@ process faster.
 
 Optimizing build times is a bit of a black art, so please do benchmarks on your
 machine to verify that the improvements work for you. Changing some configuration
-and making some type, which prevents it from improving build times is an
+and making a typo, which prevents it from improving build times is an
 extremely common failure mode!
 
 [Rust Perf Book](https://nnethercote.github.io/perf-book/compile-times.html)
