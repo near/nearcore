@@ -6,7 +6,7 @@ use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::peer_manager::testonly::Event;
 use crate::tcp;
-use crate::testonly::{make_rng, Rng};
+use crate::testonly::{AsSet as _, make_rng, Rng};
 use crate::time;
 use crate::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
@@ -92,6 +92,41 @@ async fn test_clique(rng: &mut Rng, pms: &[&peer_manager::testonly::ActorHandler
     }
 }
 
+// In case a node is its own proxy, it should advertise its address as soon as
+// it becomes a TIER1 node.
+#[tokio::test]
+async fn first_proxy_advertisement() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+    let mut events = pm.events.from_now();
+    let chain_info = peer_manager::testonly::make_chain_info(&data::make_epoch_id(rng), &chain, &[&pm]);
+    pm.set_chain_info(chain_info).await;
+    // TODO(gprusak): The default config constructed via chain.make_config(),
+    // currently returns a validator config with its own server addr in the list of TIER1 proxies.
+    // You might want to set it explicitly within this test to not rely on defaults. 
+    let got = events.recv_until(|ev|match ev {
+        // Currently a PeerManager may advertise the same list of proxies for both
+        // multiple (current and next) epochs. That's why Tier1AdvertiseProxies may contain
+        // multiple entries. Any entry would do, so we take the first one.
+        Event::PeerManager(PME::Tier1AdvertiseProxies(data)) => Some(data[0].clone()),
+        _ => None,
+    }).await;
+    assert!(got.proxies.as_set().contains(&PeerAddr{
+        peer_id: pm.cfg.node_id(),
+        addr: pm.cfg.node_addr.unwrap(),
+    }));
+}
+
 #[tokio::test]
 async fn direct_connections() {
     init_test_logger();
@@ -101,7 +136,7 @@ async fn direct_connections() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     let mut pms = vec![];
-    for _ in 0..5 {
+    for _ in 0..1 {
         pms.push(
             peer_manager::testonly::start(
                 clock.clock(),

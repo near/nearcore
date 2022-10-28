@@ -74,12 +74,6 @@ async fn loop_connection() {
     let mut cfg = chain.make_config(rng);
     cfg.node_key = pm.cfg.node_key.clone();
 
-    // Loop connection on TIER1 should be accepted.
-    let chain_info =
-        peer_manager::testonly::make_chain_info(&data::make_epoch_id(rng), &chain, &[&pm]);
-    pm.set_chain_info(chain_info).await;
-    pm.connect_to(&pm.peer_info(), tcp::Tier::T1).await;
-
     // Starting an outbound loop connection on TIER2 should be stopped without sending the handshake.
     let conn = pm.start_outbound(chain.clone(), cfg, tcp::Tier::T2).await;
     assert_eq!(

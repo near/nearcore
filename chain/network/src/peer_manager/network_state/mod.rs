@@ -76,6 +76,14 @@ pub(crate) struct WhitelistNode {
 }
 
 pub(crate) struct NetworkState {
+    /// Arbiter for executing mutable operation on NetworkState.
+    /// Async methods of NetworkState are not cancellable,
+    /// so calling them from, for example, PeerActor is dangerous because
+    /// PeerActor can be stopped at any moment.
+    /// WARNING: DO NOT spawn infinite futures/background loops on this arbiter,
+    /// as it will be automatically closed only when the NetworkState is dropped.
+    // TODO(gprusak): make arbiter private, and spawn relevant futures from
+    // within the NetworkState async methods, rather than from outside.
     pub arbiter: actix::ArbiterHandle,
     /// PeerManager config.
     pub config: Arc<config::VerifiedConfig>,
@@ -132,6 +140,9 @@ pub(crate) struct NetworkState {
     /// TODO(gprusak): determine why tests need to change that dynamically
     /// in the first place.
     pub max_num_peers: AtomicCell<u32>,
+
+    /// Mutex which prevents overlapping calls to tier1_advertise_proxies.
+    tier1_advertise_proxies_mutex: tokio::sync::Mutex<()>,
 }
 
 impl Drop for NetworkState {
@@ -181,6 +192,7 @@ impl NetworkState {
             max_num_peers: AtomicCell::new(config.max_num_peers),
             config,
             start_time: clock.now(),
+            tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
         }
     }
 

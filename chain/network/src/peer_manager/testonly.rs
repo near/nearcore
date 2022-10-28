@@ -291,7 +291,12 @@ impl ActorHandler {
     }
 
     pub async fn set_chain_info(&self, chain_info: ChainInfo) {
+        let mut events = self.events.from_now();
         self.actix.addr.send(SetChainInfo(chain_info).with_span_context()).await.unwrap();
+        events.recv_until(|ev|match ev {
+            Event::PeerManager(PME::SetChainInfo) => Some(()),
+            _ => None
+        }).await;
     }
 
     pub async fn tier1_advertise_proxies(
@@ -376,6 +381,6 @@ pub(crate) async fn start(
     let mut h = ActorHandler { cfg, actix, events: recv };
     // Wait for the server to start.
     assert_eq!(Event::PeerManager(PME::ServerStarted), h.events.recv().await);
-    h.actix.addr.send(SetChainInfo(chain.get_chain_info()).with_span_context()).await.unwrap();
+    h.set_chain_info(chain.get_chain_info()).await;
     h
 }

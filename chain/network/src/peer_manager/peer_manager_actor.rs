@@ -2,6 +2,7 @@ use crate::client;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
+    SignedAccountData,
     AccountOrPeerIdOrHash, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage,
     RoutedMessageBody, StateResponseInfo, SyncAccountsData,
 };
@@ -112,6 +113,8 @@ pub enum Event {
     // actually complete. Currently this event is reported only for some message types,
     // feel free to add support for more.
     MessageProcessed(tcp::Tier, PeerMessage),
+    // Reported every time a new list of proxies has been constructed.
+    Tier1AdvertiseProxies(Vec<Arc<SignedAccountData>>),
     // Reported when a handshake has been started.
     HandshakeStarted(crate::peer::peer_actor::HandshakeStartedEvent),
     // Reported when a handshake has been successfully completed.
@@ -124,63 +127,6 @@ impl actix::Actor for PeerManagerActor {
     type Context = actix::Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        // Start server if address provided.
-        if let Some(server_addr) = self.config.node_addr {
-            tracing::debug!(target: "network", at = ?server_addr, "starting public server");
-            let clock = self.clock.clone();
-            let state = self.state.clone();
-            ctx.spawn(wrap_future(async move {
-                let mut listener = match tcp::Listener::bind(server_addr).await {
-                    Ok(it) => it,
-                    Err(e) => {
-                        panic!("failed to start listening on server_addr={server_addr:?} e={e:?}")
-                    }
-                };
-                state.config.event_sink.push(Event::ServerStarted);
-                loop {
-                    if let Ok(stream) = listener.accept().await {
-                        // Always let the new peer to send a handshake message.
-                        // Only then we can decide whether we should accept a connection.
-                        // It is expected to be reasonably cheap: eventually, for TIER2 network
-                        // we would like to exchange set of connected peers even without establishing
-                        // a proper connection.
-                        tracing::debug!(target: "network", from = ?stream.peer_addr, "got new connection");
-                        if let Err(err) =
-                            PeerActor::spawn(clock.clone(), stream, None, state.clone())
-                        {
-                            tracing::info!(target:"network", ?err, "PeerActor::spawn()");
-                        }
-                    }
-                }
-            }));
-        }
-
-        if let Some(cfg) = self.state.config.features.tier1.clone() {
-            // Update TIER1 connections periodically.
-            let clock = self.clock.clone();
-            let state = self.state.clone();
-            ctx.spawn(wrap_future(async move {
-                let mut interval = tokio::time::interval(cfg.connect_interval.try_into().unwrap());
-                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                loop {
-                    state.tier1_connect(&clock).await;
-                    interval.tick().await;
-                }
-            }));
-            // Update and broadcast the list of TIER1 proxies periodically.
-            let clock = self.clock.clone();
-            let state = self.state.clone();
-            ctx.spawn(wrap_future(async move {
-                let mut interval =
-                    tokio::time::interval(cfg.advertise_proxies_interval.try_into().unwrap());
-                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                loop {
-                    state.tier1_advertise_proxies(&clock).await;
-                    interval.tick().await;
-                }
-            }));
-        }
-
         // Periodically push network information to client.
         self.push_network_info_trigger(ctx, self.config.push_info_period);
 
@@ -267,21 +213,91 @@ impl PeerManagerActor {
         };
         let my_peer_id = config.node_id();
         let config = Arc::new(config);
-        let arbiter = actix::Arbiter::new();
-        Ok(Self::start_in_arbiter(&arbiter.handle(), move |_ctx| Self {
+        let arbiter = actix::Arbiter::new().handle();
+        let clock = clock.clone();
+        let state = Arc::new(NetworkState::new(
+            &clock,
+            store.clone(),
+            peer_store,
+            config.clone(),
+            genesis_id,
+            client,
+            whitelist_nodes,
+        ));
+        arbiter.spawn({
+            let arbiter = arbiter.clone();
+            let state = state.clone();
+            let clock = clock.clone();
+            async move {
+                // Start server if address provided. 
+                if let Some(server_addr) = state.config.node_addr {
+                    tracing::debug!(target: "network", at = ?server_addr, "starting public server");
+                    let mut listener = match tcp::Listener::bind(server_addr).await {
+                        Ok(it) => it,
+                        Err(e) => {
+                            panic!("failed to start listening on server_addr={server_addr:?} e={e:?}")
+                        }
+                    };
+                    state.config.event_sink.push(Event::ServerStarted);
+                    arbiter.spawn({
+                        let clock = clock.clone();
+                        let state = state.clone();
+                        async move {
+                            loop {
+                                if let Ok(stream) = listener.accept().await {
+                                    // Always let the new peer to send a handshake message.
+                                    // Only then we can decide whether we should accept a connection.
+                                    // It is expected to be reasonably cheap: eventually, for TIER2 network
+                                    // we would like to exchange set of connected peers even without establishing
+                                    // a proper connection.
+                                    tracing::debug!(target: "network", from = ?stream.peer_addr, "got new connection");
+                                    if let Err(err) =
+                                        PeerActor::spawn(clock.clone(), stream, None, state.clone())
+                                    {
+                                        tracing::info!(target:"network", ?err, "PeerActor::spawn()");
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+                if let Some(cfg) = state.config.features.tier1.clone() {
+                    // Connect to TIER1 proxies and broadcast the list those connections periodically.
+                    arbiter.spawn({
+                        let clock = clock.clone();
+                        let state = state.clone();
+                        let mut interval = tokio::time::interval(cfg.advertise_proxies_interval.try_into().unwrap());
+                        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                        async move {
+                            loop {
+                                interval.tick().await;
+                                state.tier1_advertise_proxies(&clock).await;
+                                tracing::info!(target:"dupa", "tier1_advertise_proxies DONE");
+                            }
+                        }
+                    });
+                    // Update TIER1 connections periodically.
+                    arbiter.spawn({
+                        let clock = clock.clone();
+                        let state = state.clone();
+                        let mut interval = tokio::time::interval(cfg.connect_interval.try_into().unwrap());
+                        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                        async move {
+                            loop {
+                                interval.tick().await;
+                                state.tier1_connect(&clock).await;
+                            }
+                        }
+                    });
+                }
+            }
+        });
+        Ok(Self::start_in_arbiter(&arbiter, move |_ctx| Self {
             my_peer_id: my_peer_id.clone(),
             config: config.clone(),
             started_connect_attempts: false,
             last_peer_outbound_attempt: Default::default(),
-            state: Arc::new(NetworkState::new(
-                &clock,
-                store.clone(),
-                peer_store,
-                config.clone(),
-                genesis_id,
-                client,
-                whitelist_nodes,
-            )),
+            state, 
             clock,
         }))
     }
@@ -927,7 +943,7 @@ impl actix::Handler<WithSpanContext<GetNetworkInfo>> for PeerManagerActor {
 
 impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
     type Result = ();
-    fn handle(&mut self, msg: WithSpanContext<SetChainInfo>, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: WithSpanContext<SetChainInfo>, ctx: &mut Self::Context) {
         let (_span, info) = handler_trace_span!(target: "network", msg);
         let _timer =
             metrics::PEER_MANAGER_MESSAGES_TIME.with_label_values(&["SetChainInfo"]).start_timer();
@@ -949,14 +965,25 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
         if !state.accounts_data.set_keys(info.tier1_accounts.clone()) {
             return;
         }
-        // The set of tier1 accounts has changed.
-        // We might miss some data, so we start a full sync with the tier2 peers.
-        state.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
-            incremental: false,
-            requesting_full_sync: true,
-            accounts_data: state.accounts_data.load().data.values().cloned().collect(),
-        })));
-        state.config.event_sink.push(Event::SetChainInfo);
+        let clock = self.clock.clone();
+        ctx.spawn(wrap_future(async move {
+            // This node might have become a TIER1 node due to the change of the key set.
+            // If so we should recompute and readvertise the list of proxies.
+            // This is mostly important in case a node is its own proxy. In all other cases
+            // (when proxies are different nodes) the update of the key set happens asynchronously
+            // and this node won't be able to connect to proxies until it happens (and only the
+            // connected proxies are included in the advertisement). We run tier1_advertise_proxies
+            // periodically in the background anyway to cover those cases.
+            state.tier1_advertise_proxies(&clock).await;
+            // The set of tier1 accounts has changed.
+            // We might miss some data, so we start a full sync with the tier2 peers.
+            state.tier2.broadcast_message(Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData {
+                incremental: false,
+                requesting_full_sync: true,
+                accounts_data: state.accounts_data.load().data.values().cloned().collect(),
+            })));
+            state.config.event_sink.push(Event::SetChainInfo);
+        }));
     }
 }
 

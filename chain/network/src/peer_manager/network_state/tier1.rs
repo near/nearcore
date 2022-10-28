@@ -5,6 +5,7 @@ use crate::network_protocol::{
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::tcp;
 use crate::time;
 use crate::types::PeerType;
@@ -37,6 +38,13 @@ impl super::NetworkState {
         self: &Arc<Self>,
         clock: &time::Clock,
     ) -> Vec<Arc<SignedAccountData>> {
+        // Tier1 advertise proxies calls should be disjoint,
+        // to avoid a race condition while connecting to the proxies.
+        // TODO(gprusak): there are more corner cases to cover, because
+        // tier1_connect may also spawn TIER1 connections conflicting with
+        // tier1_advertise_proxies. It would be better to be able to await
+        // handshake on connection attempts, even if another call spawned them.
+        let _lock = self.tier1_advertise_proxies_mutex.lock().await;
         let accounts_data = self.accounts_data.load();
         let tier1 = self.tier1.load();
         let vc = match self.tier1_validator_config(&accounts_data) {
@@ -165,6 +173,7 @@ impl super::NetworkState {
             requesting_full_sync: false,
             accounts_data: new_data.clone(),
         })));
+        self.config.event_sink.push(Event::Tier1AdvertiseProxies(new_data.clone()));
         new_data
     }
 
