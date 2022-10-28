@@ -13,6 +13,9 @@ once, check out the list of JSON snapshots generated in this directory:
 
 ## How to Add a New Parameter
 
+First and foremost, if you are feeling lost, open a topic in our Zulip chat
+([pagoda/contract-runtime](https://near.zulipchat.com/#narrow/stream/295306-pagoda.2Fcontract-runtime)).
+
 ### Principles
 Before adding anything, please review the basic principles for gas parameters.
 - A parameter must correspond to a clearly defined workload.
@@ -25,6 +28,10 @@ Before adding anything, please review the basic principles for gas parameters.
   nearcore.
 - Ideally, contract developers can easily understand what the cost is simply by
   reading the name in a gas profile.
+
+The section on [Gas Profiles](./gas_profile.md#charging-gas) explains how to
+charge gas, please also take that into considerations when defining a new
+parameter.
 
 ### Necessary Code Changes
 Adding the parameter in code involves several steps.
@@ -58,7 +65,7 @@ For a first draft, the exact gas value used in the parameter is not crucial.
 Make sure the right set of parameters exists and try to set a number that roughly
 makes sense. This should be enough to enable discussions on the NEP around
 feasibility and usefulness of the proposed feature. If you are not sure, a good
-rule of thumb is 0.1 Tgas for each disk operation and at least 1 Tgas for each 
+rule of thumb is 0.1 Tgas for each disk operation and at least 1 Tgas for each
 ms of CPU time. Then round it up generously.
 
 The value will have to be refined later. This is usually the last step, after
