@@ -101,11 +101,22 @@ impl NetworkState {
         }
     }
 
-    pub fn propose_edge(&self, peer1: &PeerId, with_nonce: Option<u64>) -> PartialEdgeInfo {
+    pub fn propose_edge(
+        &self,
+        clock: &time::Clock,
+        peer1: &PeerId,
+        with_nonce: Option<u64>,
+    ) -> PartialEdgeInfo {
         // When we create a new edge we increase the latest nonce by 2 in case we miss a removal
         // proposal from our partner.
         let nonce = with_nonce.unwrap_or_else(|| {
-            self.routing_table_view.get_local_edge(peer1).map_or(1, |edge| edge.next())
+            let nonce = Edge::create_fresh_nonce(clock);
+            // If we already had a connection to this peer - check that edge's nonce.
+            // And use either that one or the one from the current timestamp.
+            // We would use existing edge's nonce, if we were trying to connect to a given peer multiple times per second.
+            self.routing_table_view
+                .get_local_edge(peer1)
+                .map_or(nonce, |edge| std::cmp::max(edge.next(), nonce))
         });
         PartialEdgeInfo::new(&self.config.node_id(), peer1, nonce, &self.config.node_key)
     }

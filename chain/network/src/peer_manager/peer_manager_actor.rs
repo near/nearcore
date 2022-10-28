@@ -78,6 +78,10 @@ const PRUNE_UNREACHABLE_PEERS_AFTER: time::Duration = time::Duration::hours(1);
 /// Remove the edges that were created more that this duration ago.
 const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 
+/// How often should we refresh a nonce from a peer.
+/// It should be smaller than PRUNE_EDGES_AFTER.
+const REFRESH_NONCE_PERIOD: time::Duration = time::Duration::minutes(10);
+
 /// If a peer is more than these blocks behind (comparing to our current head) - don't route any messages through it.
 /// We are updating the list of unreliable peers every MONITOR_PEER_MAX_DURATION (60 seconds) - so the current
 /// horizon value is roughly matching this threshold (if the node is 60 blocks behind, it will take it a while to recover).
@@ -514,7 +518,7 @@ impl PeerManagerActor {
         if let Err(err) = self.state.peer_store.peer_connected(&self.clock, peer_info) {
             error!(target: "network", ?err, "Failed to save peer data");
         }
-        self.state.add_verified_edges_to_routing_table(vec![connection.edge.clone()]);
+        self.state.add_verified_edges_to_routing_table(vec![connection.edge.load()]);
         Ok(())
     }
 
@@ -630,6 +634,7 @@ impl PeerManagerActor {
         edge: &Edge,
         other: &PeerId,
     ) {
+        // FIXME: how to make sure we don't end up in a loop..
         let nonce = edge.next();
 
         if let Some(last_nonce) = self.local_peer_pending_update_nonce_request.get(other) {
@@ -667,6 +672,38 @@ impl PeerManagerActor {
                 }
             },
         );
+    }
+
+    fn refresh_peer_nonces(&self) {
+        let tier2 = self.state.tier2.load();
+        let peers_to_refresh = tier2
+            .ready
+            .values()
+            .filter(|connection| {
+                connection
+                    .edge
+                    .load()
+                    .is_edge_older_than(self.clock.now_utc() - REFRESH_NONCE_PERIOD)
+                    && connection.peer_type == PeerType::Outbound
+            })
+            .collect::<Vec<_>>();
+        if peers_to_refresh.len() > 0 {
+            debug!(target:"network", "Refreshing nonces for {:?} peers.", peers_to_refresh.len());
+
+            for peer in peers_to_refresh {
+                let other = &peer.peer_info.id;
+                let nonce = Edge::create_fresh_nonce(&self.clock);
+                self.state.tier2.send_message(
+                    other.clone(),
+                    Arc::new(PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
+                        &self.my_peer_id,
+                        other,
+                        nonce,
+                        &self.config.node_key,
+                    ))),
+                );
+            }
+        }
     }
 
     /// Check if the number of connections (excluding whitelisted ones) exceeds ideal_connections_hi.
@@ -823,6 +860,8 @@ impl PeerManagerActor {
 
         // If there are too many active connections try to remove some connections
         self.maybe_stop_active_connection();
+
+        self.refresh_peer_nonces();
 
         if let Err(err) = self.state.peer_store.remove_expired(&self.clock) {
             error!(target: "network", ?err, "Failed to remove expired peers");
@@ -1284,6 +1323,7 @@ impl PeerManagerActor {
                     );
 
                     self.state.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
+                    self.state.tier2.update_edge(&new_edge);
                     PeerToManagerMsgResp::EdgeUpdate(Box::new(new_edge))
                 } else {
                     PeerToManagerMsgResp::BanPeer(ReasonForBan::InvalidEdge)
@@ -1312,6 +1352,7 @@ impl PeerManagerActor {
                             }
                         }
                         self.state.add_verified_edges_to_routing_table(vec![edge.clone()]);
+                        self.state.tier2.update_edge(&edge);
                         PeerToManagerMsgResp::Empty
                     } else {
                         PeerToManagerMsgResp::BanPeer(ReasonForBan::InvalidEdge)

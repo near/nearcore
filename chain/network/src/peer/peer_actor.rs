@@ -194,7 +194,7 @@ impl PeerActor {
                     .start_outbound(peer_id.clone())
                     .map_err(ClosingReason::OutboundNotAllowed)?,
                 handshake_spec: HandshakeSpec {
-                    partial_edge_info: network_state.propose_edge(peer_id, None),
+                    partial_edge_info: network_state.propose_edge(&clock, peer_id, None),
                     protocol_version: PROTOCOL_VERSION,
                     peer_id: peer_id.clone(),
                 },
@@ -467,7 +467,7 @@ impl PeerActor {
                 handshake_spec.partial_edge_info.clone()
             }
             ConnectingStatus::Inbound { .. } => {
-                self.network_state.propose_edge(&handshake.sender_peer_id, Some(nonce))
+                self.network_state.propose_edge(&self.clock, &handshake.sender_peer_id, Some(nonce))
             }
         };
         let edge = Edge::new(
@@ -498,7 +498,7 @@ impl PeerActor {
             peer_info: peer_info.clone(),
             initial_chain_info: handshake.sender_chain_info.clone(),
             chain_height: AtomicU64::new(handshake.sender_chain_info.height),
-            edge,
+            edge: AtomicCell::new(edge),
             peer_type: self.peer_type,
             stats: self.stats.clone(),
             _peer_connections_metric: metrics::PEER_CONNECTIONS.new_point(&metrics::Connection {
@@ -583,7 +583,7 @@ impl PeerActor {
                             }));
                             // Only broadcast the new edge from the outbound endpoint.
                             act.network_state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-                                RoutingTableUpdate::from_edges(vec![conn.edge.clone()]),
+                                RoutingTableUpdate::from_edges(vec![conn.edge.load()]),
                             )));
                         }
                         // Sync the RoutingTable.
@@ -603,7 +603,7 @@ impl PeerActor {
                         }));
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
-                            edge: conn.edge.clone(),
+                            edge: conn.edge.load(),
                         }));
                     },
                     Ok(RegisterPeerResponse::Reject(err)) => {
@@ -704,8 +704,12 @@ impl PeerActor {
                     return;
                 }
                 // Recreate the edge with a newer nonce.
-                handshake_spec.partial_edge_info =
-                    self.network_state.propose_edge(&handshake_spec.peer_id, Some(edge.next()));
+                handshake_spec.partial_edge_info = self.network_state.propose_edge(
+                    &self.clock,
+                    &handshake_spec.peer_id,
+                    // FIXME !!
+                    Some(edge.next()),
+                );
                 let spec = handshake_spec.clone();
                 ctx.wait(actix::fut::ready(()).then(move |_, act: &mut Self, _| {
                     act.send_handshake(spec);
