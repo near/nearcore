@@ -1,13 +1,14 @@
 # Parameter Definitions
 
 Gas parameters are a subset of runtime parameters that are defined in
-[core/primitives/res/runtime_configs/parameters.txt](https://github.com/near/nearcore/blob/master/core/primitives/res/runtime_configs/parameters.txt).
+[core/primitives/res/runtime_configs/parameters.txt](https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/res/runtime_configs/parameters.txt).
 IMPORTANT: This is not the final list of parameters, it contains the base values
 which can be overwritten per protocol version. For example,
-[53.txt](core/primitives/res/runtime_configs/53.txt) changes several parameters
+[53.txt](https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/res/runtime_configs/53.txt)
+changes several parameters
 starting from version 53. To see all parameter values for a specific version at
 once, check out the list of JSON snapshots generated in this directory:
-[core/primitives/src/runtime/snapshots](https://github.com/near/nearcore/blob/master/core/primitives/src/runtime/snapshots).
+[core/primitives/src/runtime/snapshots](https://github.com/near/nearcore/blob/d0dc37bf81f7e7bde9c560403b085fae04108659/core/primitives/src/runtime/snapshots).
 
 <!-- TODO: Runtime Config Store -->
 
@@ -15,6 +16,7 @@ once, check out the list of JSON snapshots generated in this directory:
 
 First and foremost, if you are feeling lost, open a topic in our Zulip chat
 ([pagoda/contract-runtime](https://near.zulipchat.com/#narrow/stream/295306-pagoda.2Fcontract-runtime)).
+We are here to help.
 
 ### Principles
 Before adding anything, please review the basic principles for gas parameters.
@@ -35,7 +37,7 @@ parameter.
 
 ### Necessary Code Changes
 Adding the parameter in code involves several steps.
-1. Define the parameter by adding it to the list in `parameters.txt.`
+1. Define the parameter by adding it to the list in `core/primitives/res/runtime_configs/parameters.txt.`
 2. Update the Rust view of parameters by adding a variant to `enum Parameter`
    in `core/primitives-core/src/parameter.rs`. In the same file, update
    `enum FeeParameter` if you add an action cost or update `ext_costs()`
