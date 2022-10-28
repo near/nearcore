@@ -252,7 +252,7 @@ pub struct KnownPeerStateView {
     pub addr: String,
     pub first_seen: i64,
     pub last_seen: i64,
-    pub last_attempt: Option<i64>,
+    pub last_attempt: Option<(i64, String)>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -479,8 +479,18 @@ pub enum BlockProcessingStatus {
     Orphan,
     WaitingForChunks,
     InProcessing,
-    Processed,
+    Accepted,
+    Error(String),
+    Dropped(DroppedReason),
     Unknown,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum DroppedReason {
+    // If the node has already processed a block at this height
+    HeightProcessed,
+    // If the block processing pool is full
+    TooManyProcessingBlocks,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

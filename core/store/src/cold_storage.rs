@@ -4,7 +4,10 @@ use crate::trie::TrieRefcountChange;
 use crate::{DBCol, DBTransaction, Database, Store, TrieChanges};
 
 use borsh::BorshDeserialize;
+use near_primitives::block::Block;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::sharding::ShardChunk;
 use near_primitives::types::BlockHeight;
 use std::collections::HashMap;
 use std::io;
@@ -139,11 +142,26 @@ fn get_keys_from_store(
     let height_key = height.to_le_bytes();
     let block_hash_key = store.get_or_err(DBCol::BlockHeight, &height_key)?.as_slice().to_vec();
 
+    let block: Block = store.get_ser_or_err(DBCol::Block, &block_hash_key)?;
+    let chunks = block
+        .chunks()
+        .iter()
+        .map(|chunk_header| {
+            store.get_ser_or_err(DBCol::Chunks, chunk_header.chunk_hash().as_bytes())
+        })
+        .collect::<io::Result<Vec<ShardChunk>>>()?;
+
     for key_type in DBKeyType::iter() {
         key_type_to_keys.insert(
             key_type,
             match key_type {
                 DBKeyType::BlockHash => vec![block_hash_key.clone()],
+                DBKeyType::PreviousBlockHash => {
+                    vec![block.header().prev_hash().as_bytes().to_vec()]
+                }
+                DBKeyType::ShardId => {
+                    (0..shard_layout.num_shards()).map(|si| si.to_le_bytes().to_vec()).collect()
+                }
                 DBKeyType::ShardUId => shard_layout
                     .get_shard_uids()
                     .iter()
@@ -172,6 +190,53 @@ fn get_keys_from_store(
                         }
                     }
                     keys
+                }
+                // TODO: write StateChanges values to colddb directly, not to cache.
+                DBKeyType::TrieKey => {
+                    let mut keys = vec![];
+                    store.iter_prefix_with_callback(
+                        DBCol::StateChanges,
+                        &block_hash_key,
+                        |full_key| {
+                            let mut full_key = Vec::from(full_key);
+                            full_key.drain(..block_hash_key.len());
+                            keys.push(full_key);
+                        },
+                    )?;
+                    keys
+                }
+                DBKeyType::TransactionHash => chunks
+                    .iter()
+                    .flat_map(|c| c.transactions().iter().map(|t| t.get_hash().as_bytes().to_vec()))
+                    .collect(),
+                DBKeyType::ReceiptHash => chunks
+                    .iter()
+                    .flat_map(|c| c.receipts().iter().map(|r| r.get_hash().as_bytes().to_vec()))
+                    .collect(),
+                DBKeyType::ChunkHash => {
+                    chunks.iter().map(|c| c.chunk_hash().as_bytes().to_vec()).collect()
+                }
+                DBKeyType::OutcomeId => {
+                    debug_assert_eq!(
+                        DBCol::OutcomeIds.key_type(),
+                        &[DBKeyType::BlockHash, DBKeyType::ShardId]
+                    );
+                    (0..shard_layout.num_shards())
+                        .map(|shard_id| {
+                            store.get_ser(
+                                DBCol::OutcomeIds,
+                                &join_two_keys(&block_hash_key, &shard_id.to_le_bytes()),
+                            )
+                        })
+                        .collect::<io::Result<Vec<Option<Vec<CryptoHash>>>>>()?
+                        .into_iter()
+                        .flat_map(|hashes| {
+                            hashes
+                                .unwrap_or_default()
+                                .into_iter()
+                                .map(|hash| hash.as_bytes().to_vec())
+                        })
+                        .collect()
                 }
                 _ => {
                     vec![]
@@ -239,6 +304,20 @@ where
 
 #[allow(dead_code)]
 impl StoreWithCache<'_> {
+    pub fn iter_prefix_with_callback(
+        &mut self,
+        col: DBCol,
+        key_prefix: &[u8],
+        mut callback: impl FnMut(Box<[u8]>),
+    ) -> io::Result<()> {
+        for iter_result in self.store.iter_prefix(col, key_prefix) {
+            let (key, value) = iter_result?;
+            self.cache.insert((col, key.to_vec()), Some(value.into()));
+            callback(key);
+        }
+        Ok(())
+    }
+
     pub fn get(&mut self, column: DBCol, key: &[u8]) -> io::Result<StoreValue> {
         if !self.cache.contains_key(&(column, key.to_vec())) {
             crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(column)]).inc();
