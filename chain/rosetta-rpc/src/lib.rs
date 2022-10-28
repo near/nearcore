@@ -741,7 +741,7 @@ async fn construction_submit(
     let transaction_hash = signed_transaction.as_ref().get_hash();
     let transaction_submittion = client_addr
         .send(
-            near_network::types::NetworkClientMessages::Transaction {
+            near_client::ProcessTxRequest {
                 transaction: signed_transaction.into_inner(),
                 is_forwarded: false,
                 check_only: false,
@@ -750,15 +750,14 @@ async fn construction_submit(
         )
         .await?;
     match transaction_submittion {
-        near_network::types::NetworkClientResponses::ValidTx
-        | near_network::types::NetworkClientResponses::RequestRouted => {
+        near_client::ProcessTxResponse::ValidTx | near_client::ProcessTxResponse::RequestRouted => {
             Ok(Json(models::TransactionIdentifierResponse {
                 transaction_identifier: models::TransactionIdentifier::transaction(
                     &transaction_hash,
                 ),
             }))
         }
-        near_network::types::NetworkClientResponses::InvalidTx(error) => {
+        near_client::ProcessTxResponse::InvalidTx(error) => {
             Err(errors::ErrorKind::InvalidInput(error.to_string()).into())
         }
         _ => Err(errors::ErrorKind::InternalInvariantError(format!(

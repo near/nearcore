@@ -8,10 +8,10 @@ use near_chunks::{
     CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
 };
 use near_client::test_utils::setup_mock_all_validators;
-use near_client::{ClientActor, GetBlock, ViewClientActor};
+use near_client::{ClientActor, GetBlock, ProcessTxRequest, ViewClientActor};
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{AccountIdOrPeerTrackingShard, PeerInfo};
-use near_network::types::{NetworkClientMessages, NetworkRequests, NetworkResponses};
+use near_network::types::{NetworkRequests, NetworkResponses};
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
@@ -252,7 +252,7 @@ impl Test {
             let block_hash = res.unwrap().unwrap().header.hash;
             let connectors_ = connectors.write().unwrap();
             connectors_[0].0.do_send(
-                NetworkClientMessages::Transaction {
+                ProcessTxRequest {
                     transaction: SignedTransaction::empty(block_hash),
                     is_forwarded: false,
                     check_only: false,
@@ -260,7 +260,7 @@ impl Test {
                 .with_span_context(),
             );
             connectors_[1].0.do_send(
-                NetworkClientMessages::Transaction {
+                ProcessTxRequest {
                     transaction: SignedTransaction::empty(block_hash),
                     is_forwarded: false,
                     check_only: false,
@@ -268,7 +268,7 @@ impl Test {
                 .with_span_context(),
             );
             connectors_[2].0.do_send(
-                NetworkClientMessages::Transaction {
+                ProcessTxRequest {
                     transaction: SignedTransaction::empty(block_hash),
                     is_forwarded: false,
                     check_only: false,

@@ -30,7 +30,7 @@ fn main() {
     let near_config = load_config(home_dir, GenesisValidationMode::Full)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-    let store = near_store::NodeStorage::opener(home_dir, &near_config.config.store)
+    let store = near_store::NodeStorage::opener(home_dir, &near_config.config.store, None)
         .open()
         .unwrap()
         .get_store(near_store::Temperature::Hot);

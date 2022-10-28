@@ -45,6 +45,7 @@ members = [
     "tools/chainsync-loadtest",
     "tools/delay-detector",
     "tools/indexer/example",
+    "tools/mirror",
     "tools/mock-node",
     "tools/restaked",
     "tools/rpctypegen/core",
@@ -73,6 +74,7 @@ arc-swap = "1.5"
 arrayref = "0.3"
 assert_matches = "1.5.0"
 async-recursion = "0.3.2"
+async-trait = "0.1.58"
 atty = "0.2"
 awc = { version = "3", features = ["openssl"] }
 backtrace = "0.3.64"
@@ -111,6 +113,7 @@ fs2 = "0.4"
 futures = "0.3.5"
 futures-util = "0.3"
 hex = { version = "0.4.2", features = ["serde"] }
+hkdf = "0.12.3"
 hyper = { version = "0.14", features = ["full"] }
 hyper-tls = "0.5.0"
 im = "15"
@@ -148,6 +151,7 @@ protobuf-codegen = "3.0.1"
 quote = "1.0"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
+rand_core = "0.5"
 rand_hc = "0.3.1"
 rand_xorshift = "0.3"
 rayon = "1.5"
@@ -203,12 +207,21 @@ xz2 = "0.1.6"
 # "test" profile inherits from "dev" profile.
 # https://doc.rust-lang.org/cargo/reference/profiles.html#test
 
+[profile.dev]
+panic = 'abort'
+
 [profile.release]
 overflow-checks = true
 panic = 'abort'
+lto = "fat"
+codegen-units = 1
 
-[profile.dev]
-panic = 'abort'
+# A much faster to compile version of `release`.
+[profile.quick-release]
+inherits = "release"
+lto = false
+codegen-units = 16
+
 
 # Compile some dependencies with optimizations to speed up tests.
 [profile.dev.package.hex]

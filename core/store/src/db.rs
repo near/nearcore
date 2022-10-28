@@ -2,12 +2,15 @@ use std::io;
 
 use crate::DBCol;
 
+#[cfg(feature = "cold_store")]
 mod colddb;
 pub mod refcount;
 pub(crate) mod rocksdb;
 mod slice;
 mod testdb;
 
+#[cfg(feature = "cold_store")]
+pub use self::colddb::ColdDB;
 pub use self::rocksdb::RocksDB;
 pub use self::slice::DBSlice;
 pub use self::testdb::TestDB;

@@ -46,9 +46,9 @@ use near_primitives::types::{
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::views::{
-    BlockStatusView, ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
-    FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
-    SignedTransactionView,
+    BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
+    FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
+    LightClientBlockView, SignedTransactionView,
 };
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::{flat_state, StorageError};
@@ -1624,14 +1624,10 @@ impl Chain {
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), Error> {
         let block_received_time = Clock::instant();
-        self.blocks_delay_tracker.mark_block_received(
-            block.get_inner(),
-            block_received_time,
-            Clock::utc(),
-        );
         metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
 
         let block_height = block.header().height();
+        let hash = *block.hash();
         let res = self.start_process_block_impl(
             me,
             block,
@@ -1641,6 +1637,10 @@ impl Chain {
             block_received_time,
         );
 
+        if matches!(res, Err(Error::TooManyProcessingBlocks)) {
+            self.blocks_delay_tracker
+                .mark_block_dropped(&hash, DroppedReason::TooManyProcessingBlocks);
+        }
         // Save the block as processed even if it failed. This is used to filter out the
         // incoming blocks that are not requested on heights which we already processed.
         // If there is a new incoming block that we didn't request and we already have height
@@ -2066,6 +2066,20 @@ impl Chain {
         }
     }
 
+    fn postprocess_block_only(
+        &mut self,
+        me: &Option<AccountId>,
+        block: &Block,
+        block_preprocess_info: BlockPreprocessInfo,
+        apply_results: Vec<Result<ApplyChunkResult, Error>>,
+    ) -> Result<Option<Tip>, Error> {
+        let mut chain_update = self.chain_update();
+        let new_head =
+            chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results)?;
+        chain_update.commit()?;
+        Ok(new_head)
+    }
+
     /// Run postprocessing on this block, which stores the block on chain.
     /// Check that if accepting the block unlocks any orphans in the orphan pool and start
     /// the processing of those blocks.
@@ -2092,12 +2106,16 @@ impl Chain {
         .entered();
 
         let prev_head = self.store.head()?;
-        let mut chain_update = self.chain_update();
         let provenance = block_preprocess_info.provenance.clone();
         let block_start_processing_time = block_preprocess_info.block_start_processing_time.clone();
         let new_head =
-            chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results)?;
-        chain_update.commit()?;
+            match self.postprocess_block_only(me, &block, block_preprocess_info, apply_results) {
+                Err(err) => {
+                    self.blocks_delay_tracker.mark_block_errored(&block_hash, err.to_string());
+                    return Err(err);
+                }
+                Ok(new_head) => new_head,
+            };
 
         // Update flat storage head to be the last final block. Note that this update happens
         // in a separate db transaction from the update from block processing. This is intentional
@@ -3232,7 +3250,12 @@ impl Chain {
         let block = self.store.get_block(block_hash)?;
         let prev_block = self.store.get_block(block.header().prev_hash())?;
         let mut chain_update = self.chain_update();
-        chain_update.apply_chunk_postprocessing(me, &block, &prev_block, results)?;
+        chain_update.apply_chunk_postprocessing(
+            me,
+            &block,
+            &prev_block,
+            results.into_iter().collect::<Result<Vec<_>, Error>>()?,
+        )?;
         chain_update.commit()?;
         Ok(())
     }
@@ -3391,7 +3414,7 @@ impl Chain {
     }
 
     pub fn check_blocks_final_and_canonical(
-        &mut self,
+        &self,
         block_headers: &[&BlockHeader],
     ) -> Result<(), Error> {
         let last_final_block_hash = *self.head_header()?.last_final_block();
@@ -4577,13 +4600,13 @@ impl<'a> ChainUpdate<'a> {
         me: &Option<AccountId>,
         block: &Block,
         prev_block: &Block,
-        apply_results: Vec<Result<ApplyChunkResult, Error>>,
+        apply_results: Vec<ApplyChunkResult>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing").entered();
         for result in apply_results {
             self.process_apply_chunk_result(
                 me,
-                result?,
+                result,
                 *block.hash(),
                 block.header().height(),
                 *prev_block.hash(),
@@ -4867,7 +4890,13 @@ impl<'a> ChainUpdate<'a> {
     ) -> Result<Option<Tip>, Error> {
         let prev_hash = block.header().prev_hash();
         let prev_block = self.chain_store_update.get_block(prev_hash)?;
-        self.apply_chunk_postprocessing(me, block, &prev_block, apply_chunks_results)?;
+        let results = apply_chunks_results.into_iter().map(|x| {
+            if let Err(err) = &x {
+                warn!(target:"chain", hash = %block.hash(), error = %err, "Error in applying chunks for block");
+            }
+            x
+        }).collect::<Result<Vec<_>, Error>>()?;
+        self.apply_chunk_postprocessing(me, block, &prev_block, results)?;
 
         let BlockPreprocessInfo {
             is_caught_up,

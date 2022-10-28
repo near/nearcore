@@ -128,11 +128,18 @@
                 type: "GET",
                 url: "/debug/api/epoch_info",
                 success: data => {
+                    let epoch_found = false;
                     data.status_response.EpochInfo.forEach(element => {
                         if (element.epoch_id == epoch_id) {
+                            epoch_found = true;
                             producers_callback(element.block_producers, element.chunk_only_producers);
                         }
                     });
+                    // This can happen if we're in sync mode - in such case, still print the list of peers,
+                    // but don't show producers.
+                    if (epoch_found == false) {
+                        producers_callback([], []);
+                    }
                 },
                 dataType: "json",
                 error: function (errMsg, textStatus, errorThrown) {
@@ -314,11 +321,13 @@
                             row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['first_seen'])));
                         row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_seen'])));
                         if (element['last_attempt'] != null) {
-                            row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_attempt'])));
+                            row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_attempt'][0])));
+                            row.append($("<td>").append(element['status'] + " Last attempt: " + element['last_attempt'][1]));
                         } else {
                             row.append($("<td>"));
+                            row.append($("<td>").append(element['status']));
                         }
-                        row.append($("<td>").append(element['status']));
+
                         $(".tbody-detailed-peer-storage").append(row);
                     });
                     $(".detailed-peer-storage-div").show();

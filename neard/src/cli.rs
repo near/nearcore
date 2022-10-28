@@ -1,8 +1,10 @@
 use crate::log_config_watcher::{LogConfigWatcher, UpdateBehavior};
 use anyhow::Context;
 use clap::{Args, Parser};
+use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
+use near_mirror::MirrorCommand;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
     default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
@@ -35,7 +37,7 @@ pub(super) struct NeardCmd {
 }
 
 impl NeardCmd {
-    pub(super) fn parse_and_run() -> Result<(), RunError> {
+    pub(super) fn parse_and_run() -> anyhow::Result<()> {
         let neard_cmd = Self::parse();
 
         // Enable logging of the current thread.
@@ -93,17 +95,15 @@ impl NeardCmd {
             NeardSubCommand::VerifyProof(cmd) => {
                 cmd.run();
             }
+            NeardSubCommand::Mirror(cmd) => {
+                cmd.run()?;
+            }
+            NeardSubCommand::AmendGenesis(cmd) => {
+                cmd.run()?;
+            }
         };
         Ok(())
     }
-}
-
-#[derive(thiserror::Error, Debug)]
-pub(crate) enum RunError {
-    #[error("invalid logging directives provided")]
-    EnvFilter(#[source] BuildEnvFilterError),
-    #[error("could not install a rayon thread pool")]
-    RayonInstall(#[source] rayon::ThreadPoolBuildError),
 }
 
 #[derive(Parser)]
@@ -189,6 +189,13 @@ pub(super) enum NeardSubCommand {
     /// Verify proofs
     #[clap(alias = "verify_proof")]
     VerifyProof(VerifyProofSubCommand),
+
+    /// Mirror transactions from a source chain to a test chain with state forked
+    /// from it, reproducing traffic and state as closely as possible.
+    Mirror(MirrorCommand),
+
+    /// Amend a genesis/records file created by `dump-state`.
+    AmendGenesis(AmendGenesisCommand),
 }
 
 #[derive(Parser)]
@@ -366,7 +373,7 @@ impl RunCmd {
         }
         if let Some(boot_nodes) = self.boot_nodes {
             if !boot_nodes.is_empty() {
-                near_config.network_config.boot_nodes = boot_nodes
+                near_config.network_config.peer_store.boot_nodes = boot_nodes
                     .split(',')
                     .map(|chunk| chunk.parse().expect("Failed to parse PeerInfo"))
                     .collect();
@@ -671,9 +678,8 @@ impl VerifyProofSubCommand {
     }
 }
 
-fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, RunError> {
-    let env_filter =
-        EnvFilterBuilder::from_env().verbose(verbose).finish().map_err(RunError::EnvFilter)?;
+fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, BuildEnvFilterError> {
+    let env_filter = EnvFilterBuilder::from_env().verbose(verbose).finish()?;
     // Sandbox node can log to sandbox logging target via sandbox_debug_log host function.
     // This is hidden by default so we enable it for sandbox node.
     let env_filter = if cfg!(feature = "sandbox") {

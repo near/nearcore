@@ -1,5 +1,4 @@
 use crate::broadcast;
-use crate::client;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
@@ -9,10 +8,9 @@ use crate::network_protocol::{
 use crate::peer::peer_actor::{ClosingReason, PeerActor};
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
+use crate::peer_manager::peer_store;
 use crate::private_actix::{PeerRequestResult, RegisterPeerResponse, SendMessage};
 use crate::private_actix::{PeerToManagerMsg, PeerToManagerMsgResp};
-use crate::routing;
-use crate::routing::routing_table_view::RoutingTableView;
 use crate::store;
 use crate::tcp;
 use crate::testonly::actix::ActixSystem;
@@ -23,7 +21,6 @@ use actix::{Actor, Context, Handler};
 use near_crypto::{InMemorySigner, Signature};
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_primitives::network::PeerId;
-use parking_lot::RwLock;
 use std::sync::Arc;
 
 pub struct PeerConfig {
@@ -93,7 +90,6 @@ impl Handler<WithSpanContext<PeerToManagerMsg>> for FakePeerManagerActor {
                 })
             }
             PeerToManagerMsg::PeersResponse(..) => PeerToManagerMsgResp::Empty,
-            PeerToManagerMsg::Unregister(_) => PeerToManagerMsgResp::Empty,
             _ => panic!("unsupported message"),
         }
     }
@@ -161,14 +157,25 @@ impl PeerHandle {
         let (send, recv) = broadcast::unbounded_channel();
         let actix = ActixSystem::spawn(move || {
             let fpm = FakePeerManagerActor { cfg: cfg.clone() }.start();
-            let fc = fake_client::start(send.sink().compose(Event::Client));
+            let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
             let store = store::Store::from(near_store::db::TestDB::new());
-            let routing_table_view = RoutingTableView::new(store.clone(), cfg.id());
+            let mut network_cfg = cfg.network.clone();
+            network_cfg.event_sink = send.sink().compose(Event::Network);
+            let network_state = Arc::new(NetworkState::new(
+                &clock,
+                store.clone(),
+                peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone(), store.clone())
+                    .unwrap(),
+                Arc::new(network_cfg.verify().unwrap()),
+                cfg.chain.genesis_id.clone(),
+                fc,
+                fpm.recipient(),
+            ));
             // WARNING: this is a hack to make PeerActor use a specific nonce
             if let (Some(nonce), tcp::StreamType::Outbound { peer_id }) =
                 (&cfg.nonce, &stream.type_)
             {
-                routing_table_view.add_local_edges(&[Edge::new(
+                network_state.routing_table_view.add_local_edges(&[Edge::new(
                     cfg.id(),
                     peer_id.clone(),
                     nonce - 1,
@@ -176,20 +183,6 @@ impl PeerHandle {
                     Signature::default(),
                 )]);
             }
-            let mut network_cfg = cfg.network.clone();
-            network_cfg.event_sink = send.sink().compose(Event::Network);
-            let network_graph =
-                Arc::new(RwLock::new(routing::GraphWithCache::new(network_cfg.node_id().clone())));
-            let routing_table_addr =
-                routing::Actor::spawn(clock.clone(), store.clone(), network_graph.clone());
-            let network_state = Arc::new(NetworkState::new(
-                Arc::new(network_cfg.verify().unwrap()),
-                cfg.chain.genesis_id.clone(),
-                client::Client::new(fc.clone().recipient(), fc.clone().recipient()),
-                fpm.recipient(),
-                routing_table_addr,
-                routing_table_view,
-            ));
             PeerActor::spawn(clock, stream, cfg.force_encoding, network_state).unwrap()
         })
         .await;

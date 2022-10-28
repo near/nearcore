@@ -1632,6 +1632,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 mod test {
     use std::collections::BTreeSet;
 
+    use near_chain::{Chain, ChainGenesis};
     use near_primitives::types::validator_stake::ValidatorStake;
     use num_rational::Ratio;
 
@@ -3247,5 +3248,41 @@ mod test {
 
         let view_state_value = view_state.get(&key).unwrap().unwrap();
         assert_eq!(state_value, view_state_value);
+    }
+
+    /// Check that mainnet genesis hash still matches, to make sure that we're still backwards compatible.
+    #[test]
+    fn test_genesis_hash() {
+        let genesis = near_mainnet_res::mainnet_genesis();
+        let chain_genesis = ChainGenesis::new(&genesis);
+        let store = near_store::test_utils::create_test_store();
+
+        let tempdir = tempfile::tempdir().unwrap();
+        let runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
+            tempdir.path(),
+            store.clone(),
+            &genesis,
+            TrackedConfig::new_empty(),
+            RuntimeConfigStore::new(None),
+        ));
+
+        let block = Chain::make_genesis_block(&*runtime, &chain_genesis).unwrap();
+        assert_eq!(
+            block.header().hash().to_string(),
+            "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H"
+        );
+
+        let epoch_manager = EpochManager::new_from_genesis_config(store, &genesis.config).unwrap();
+        let epoch_info = epoch_manager.get_epoch_info(&EpochId::default()).unwrap();
+        // Verify the order of the block producers.
+        assert_eq!(
+            [
+                1, 0, 1, 0, 0, 3, 3, 2, 2, 3, 0, 2, 0, 0, 1, 1, 1, 1, 3, 2, 3, 2, 0, 3, 3, 3, 0, 3,
+                1, 3, 1, 0, 1, 2, 3, 0, 1, 0, 0, 0, 2, 2, 2, 3, 3, 3, 3, 1, 2, 0, 1, 0, 1, 0, 3, 2,
+                1, 2, 0, 1, 3, 3, 1, 2, 1, 2, 1, 0, 2, 3, 1, 2, 1, 2, 3, 2, 0, 3, 3, 2, 0, 0, 2, 3,
+                0, 3, 0, 2, 3, 1, 1, 2, 1, 0, 1, 2, 2, 1, 2, 0
+            ],
+            epoch_info.block_producers_settlement()
+        );
     }
 }

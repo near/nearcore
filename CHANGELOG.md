@@ -57,6 +57,16 @@
   to set limits on the trie cache. Deprecates the never announced 
   `store.trie_cache_capacities` option which was mentioned in previous change.
   [#7578](https://github.com/near/nearcore/pull/7578)
+* Tracing of work across actix workers within a process:
+  [#7866](https://github.com/near/nearcore/pull/7866),
+  [#7819](https://github.com/near/nearcore/pull/7819),
+  [#7773](https://github.com/near/nearcore/pull/7773).
+* Scope of collected tracing information can be configured at run-time:
+  [#7701](https://github.com/near/nearcore/pull/7701).
+* Attach node's `chain_id`, `node_id`, and `account_id` values to tracing
+  information: [#7711](https://github.com/near/nearcore/pull/7711).
+* Change exporter of tracing information from `opentelemetry-jaeger` to
+  `opentelemetry-otlp`: [#7563](https://github.com/near/nearcore/pull/7563).
 
 ## 1.29.0 [2022-08-15]
 

@@ -32,8 +32,10 @@ tokio.workspace = true
 tracing.workspace = true
 
 nearcore = { path = "../nearcore" }
+near-amend-genesis = { path = "../tools/amend-genesis" }
 near-chain-configs = { path = "../core/chain-configs" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
+near-mirror = { path = "../tools/mirror" }
 near-primitives = { path = "../core/primitives" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
 near-state-viewer = { path = "../tools/state-viewer", package = "state-viewer" }
@@ -58,6 +60,7 @@ rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
 protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
+cold_store = ["nearcore/cold_store", "near-store/cold_store"]
 
 nightly = [
   "nightly_protocol",
