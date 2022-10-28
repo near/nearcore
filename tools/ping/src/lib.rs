@@ -392,7 +392,7 @@ async fn ping_via_node(
         chain_id,
         genesis_hash,
         head_height,
-        recv_timeout_seconds,
+        time::Duration::seconds(recv_timeout_seconds.into()),
     )
     .await
     {

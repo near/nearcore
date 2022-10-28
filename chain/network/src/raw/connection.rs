@@ -27,7 +27,7 @@ pub struct Connection {
     secret_key: SecretKey,
     stream: TcpStream,
     buf: BytesMut,
-    recv_timeout_seconds: u32,
+    recv_timeout: Duration,
 }
 
 /// The types of messages it's possible to receive from a `Peer`. Any PeerMessage
@@ -87,19 +87,17 @@ impl Connection {
         chain_id: &str,
         genesis_hash: CryptoHash,
         head_height: BlockHeight,
-        recv_timeout_seconds: u32,
+        recv_timeout: Duration,
     ) -> Result<Self, ConnectError> {
         let secret_key = SecretKey::from_random(KeyType::ED25519);
         let my_peer_id = PeerId::new(secret_key.public_key());
 
         let start = Instant::now();
-        let stream = tokio::time::timeout(
-            (recv_timeout_seconds * Duration::SECOND).try_into().unwrap(),
-            TcpStream::connect(addr),
-        )
-        .await
-        .map_err(|e| ConnectError::IO(e.into()))?
-        .map_err(ConnectError::IO)?;
+        let stream =
+            tokio::time::timeout(recv_timeout.try_into().unwrap(), TcpStream::connect(addr))
+                .await
+                .map_err(|e| ConnectError::IO(e.into()))?
+                .map_err(ConnectError::IO)?;
         tracing::info!(
             target: "network", "Connection to {}@{:?} established. latency: {}",
             &peer_id, &addr, start.elapsed(),
@@ -111,7 +109,7 @@ impl Connection {
             buf: BytesMut::with_capacity(1024),
             secret_key,
             my_peer_id,
-            recv_timeout_seconds,
+            recv_timeout,
         };
         peer.do_handshake(
             my_protocol_version.unwrap_or(PROTOCOL_VERSION),
@@ -182,7 +180,7 @@ impl Connection {
 
     async fn do_read(&mut self) -> io::Result<()> {
         let n = tokio::time::timeout(
-            (self.recv_timeout_seconds * Duration::SECOND).try_into().unwrap(),
+            self.recv_timeout.try_into().unwrap(),
             self.stream.read_buf(&mut self.buf),
         )
         .await??;

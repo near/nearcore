@@ -32,7 +32,7 @@ async fn test_raw_conn_pings() {
         &genesis_id.chain_id,
         genesis_id.hash,
         0,
-        1,
+        time::Duration::SECOND,
     )
     .await
     .unwrap();
