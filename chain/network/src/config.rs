@@ -157,7 +157,7 @@ pub struct NetworkConfig {
     /// are satisfied.
     /// This flag should be ALWAYS FALSE. Only set to true for testing purposes.
     pub outbound_disabled: bool,
-    // Flag to disable inbound connections. When true, all the incoming handshake/connection requests will be rejected.
+    /// Flag to disable inbound connections. When true, all the incoming handshake/connection requests will be rejected.
     pub inbound_disabled: bool,
     /// Whether this is an archival node.
     pub archive: bool,
@@ -197,6 +197,23 @@ impl NetworkConfig {
         }
         if cfg.public_addrs.len() > 0 && cfg.trusted_stun_servers.len() > 0 {
             anyhow::bail!("you cannot specify both public_addrs and trusted_stun_servers");
+        }
+        for proxy in &cfg.public_addrs {
+            let ip = proxy.addr.ip();
+            if cfg.allow_private_ip_in_public_addrs {
+                if ip.is_unspecified() {
+                    anyhow::bail!("public_addrs: {ip} is not a valid IP. If you wanted to specify a loopback IP, use 127.0.0.1 instead.");
+                }
+            } else {
+                // TODO(gprusak): use !ip.is_global() instead, once it is stable.
+                if ip.is_loopback() || ip.is_unspecified() || match ip {
+                    std::net::IpAddr::V4(ip) => ip.is_private(),
+                    // TODO(gprusak): use ip.is_unique_local() once stable.
+                    std::net::IpAddr::V6(_) => false, 
+                } {
+                    anyhow::bail!("public_addrs: {ip} is not a public IP.");
+                }
+            }
         }
         let this = Self {
             node_key,
@@ -381,6 +398,9 @@ impl NetworkConfig {
         self.accounts_data_broadcast_rate_limit
             .validate()
             .context("accounts_Data_broadcast_rate_limit")?;
+        self.routing_table_update_rate_limit
+            .validate()
+            .context("routing_table_update_rate_limit")?;
         Ok(VerifiedConfig { node_id: self.node_id(), inner: self })
     }
 }

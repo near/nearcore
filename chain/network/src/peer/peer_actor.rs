@@ -1163,7 +1163,7 @@ impl PeerActor {
                         .network_state
                         .recent_routed_messages
                         .lock()
-                        .put(CryptoHash::hash_borsh(msg.body), ())
+                        .put(CryptoHash::hash_borsh(&msg.body), ())
                         .is_none();
                     metrics::record_routed_msg_latency(&self.clock, &msg, conn.tier, fastest);
                 }
