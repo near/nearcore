@@ -3,6 +3,7 @@ import os
 import random
 import os.path
 import shlex
+import subprocess
 import tempfile
 import time
 
@@ -28,6 +29,7 @@ PUBLIC_KEY = 'ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN'
 TX_OUT_FILE = '/home/ubuntu/tx_events'
 WASM_FILENAME = 'simple_contract.wasm'
 
+TREASURY_ACCOUNT = 'test.near'
 MASTER_ACCOUNT = 'near'
 SKYWARD_ACCOUNT = 'skyward.near'
 SKYWARD_TOKEN_ACCOUNT = 'token.skyward.near'
@@ -72,6 +74,16 @@ MAINNET_STAKES = [
     3905980, 3898791, 3886957, 3851553, 3831536, 3790646, 3784485, 3777647,
     3760931, 3746129, 3741225, 3727313, 3699201, 3620341
 ]
+
+ACCOUNTS = {
+    TREASURY_ACCOUNT: (10**7) * ONE_NEAR,
+    MASTER_ACCOUNT: (10**7) * ONE_NEAR,
+    SKYWARD_ACCOUNT: (10**6) * ONE_NEAR,
+    TOKEN1_ACCOUNT: (10**6) * ONE_NEAR,
+    TOKEN2_ACCOUNT: (10**6) * ONE_NEAR,
+    TOKEN2_OWNER_ACCOUNT: (10**6) * ONE_NEAR,
+    ACCOUNT1_ACCOUNT: (10**6) * ONE_NEAR,
+}
 
 
 def get_node(hostname):
@@ -320,7 +332,7 @@ def send_transaction(node, tx, tx_hash, account_id, timeout=120):
         elif 'does not exist' in error_data:
             missing_count += 1
             logger.warning(
-                f'transaction {tx_hash} falied to be recieved by the node, checking again.'
+                f'transaction {tx_hash} failed to be received by the node, checking again.'
             )
             if missing_count < 20:
                 time.sleep(5)
@@ -437,6 +449,30 @@ def compress_and_upload(nodes, src_filename, dst_filename):
          nodes)
 
 
+# check each of /home/ubuntu/neard and /home/ubuntu/neard.upgrade to see
+# whether the amend-genesis command is avaialable. If it is, then we'll use that
+# to update the genesis files, otherwise we'll use the python create_genesis_file()
+# function. We can't just check this individually on each machine since the two
+# functions have slightly different behavior (for example, neard amend-genesis will
+# set the storage usage fields in account records), so the resulting genesis block
+# hashes will not match up.
+#
+# Return value is None if it's not available, otherwise the path
+# to the binary where it should be available
+def neard_amend_genesis_path(node):
+    r = node.machine.run('/home/ubuntu/neard amend-genesis --help',
+                         stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+    if r.exitcode == 0:
+        return '/home/ubuntu/neard'
+    r = node.machine.run('/home/ubuntu/neard.upgrade amend-genesis --help',
+                         stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+    if r.exitcode == 0:
+        return '/home/ubuntu/neard.upgrade'
+    return None
+
+
 # We assume that the nodes already have the .near directory with the files
 # node_key.json, validator_key.json and config.json.
 def create_and_upload_genesis(validator_nodes,
@@ -465,96 +501,28 @@ def create_and_upload_genesis(validator_nodes,
         config_filename_in = f'/home/ubuntu/.near/{chain_id_in}-genesis/config.json'
         stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
         done_filename = f'/home/ubuntu/genesis_update_done_{stamp}.txt'
+        neard = neard_amend_genesis_path(validator_nodes[1])
         pmap(
             lambda node: start_genesis_updater(
                 node, 'genesis_updater.py', genesis_filename_in,
-                '/home/ubuntu/.near/genesis.json', records_filename_in,
-                '/home/ubuntu/.near/records.json', config_filename_in,
-                '/home/ubuntu/.near/config.json', chain_id,
-                validator_node_names, rpc_node_names, done_filename,
+                records_filename_in, config_filename_in, '/home/ubuntu/.near/',
+                chain_id, validator_node_names, rpc_node_names, done_filename,
                 epoch_length, node_pks, increasing_stakes, num_seats,
-                single_shard, all_node_pks, node_ips),
+                single_shard, all_node_pks, node_ips, neard),
             validator_nodes + rpc_nodes)
         pmap(lambda node: wait_genesis_updater_done(node, done_filename),
              validator_nodes + rpc_nodes)
 
 
-def create_genesis_file(validator_node_names,
-                        genesis_filename_in,
-                        genesis_filename_out,
-                        records_filename_in,
-                        records_filename_out,
-                        rpc_node_names=None,
-                        chain_id=None,
-                        append=False,
-                        epoch_length=None,
-                        node_pks=None,
-                        increasing_stakes=0.0,
-                        num_seats=None,
-                        single_shard=False):
-    logger.info(
-        f'create_genesis_file: validator_node_names: {validator_node_names}')
-    logger.info(f'create_genesis_file: rpc_node_names: {rpc_node_names}')
-    with open(genesis_filename_in) as f:
-        genesis_config = json.load(f)
-    with open(records_filename_in) as f:
-        records = json.load(f)
+def extra_genesis_records(validator_node_names, rpc_node_names, node_pks,
+                          seen_accounts, num_seats, increasing_stakes):
+    records = []
 
     VALIDATOR_BALANCE = (10**2) * ONE_NEAR
     RPC_BALANCE = (10**1) * ONE_NEAR
-    TREASURY_ACCOUNT = 'test.near'
-    TREASURY_BALANCE = (10**7) * ONE_NEAR
     LOAD_TESTER_BALANCE = (10**4) * ONE_NEAR
 
-    SKYWARD_CONTRACT_BALANCE = (10**6) * ONE_NEAR
-    TOKEN1_BALANCE = (10**6) * ONE_NEAR
-    TOKEN2_BALANCE = (10**6) * ONE_NEAR
-    TOKEN2_OWNER_BALANCE = (10**6) * ONE_NEAR
-    ACCOUNT1_BALANCE = (10**6) * ONE_NEAR
-
-    if chain_id:
-        if append:
-            assert genesis_config[
-                'chain_id'] != chain_id, 'Can only append to the original genesis once'
-
-        genesis_config['chain_id'] = chain_id
-
-    if append:
-        # Unstake all tokens from all existing accounts.
-        for record in records:
-            if 'Account' in record:
-                account = record['Account'].get('account', {})
-                locked = int(account.get('locked', 0))
-                if locked > 0:
-                    amount = int(account.get('amount', 0))
-                    account['amount'] = str(amount + locked)
-                    account['locked'] = 0
-
-    else:
-        records = []
-
-    master_balance = 10**7
-    assert master_balance > 0
-    accounts = {
-        TREASURY_ACCOUNT: TREASURY_BALANCE,
-        MASTER_ACCOUNT: master_balance,
-        SKYWARD_ACCOUNT: SKYWARD_CONTRACT_BALANCE,
-        TOKEN1_ACCOUNT: TOKEN1_BALANCE,
-        TOKEN2_ACCOUNT: TOKEN2_BALANCE,
-        TOKEN2_OWNER_ACCOUNT: TOKEN2_OWNER_BALANCE,
-        ACCOUNT1_ACCOUNT: ACCOUNT1_BALANCE
-    }
-    seen_accounts = set()
-    for record in records:
-        if 'Account' in record:
-            account_record = record['Account']
-            account_id = account_record.get('account_id', '')
-            if account_id in accounts:
-                seen_accounts.add(account_id)
-                account = account_record.get('account', {})
-                account['amount'] = str(accounts[account_id])
-
-    for account_id, balance in accounts.items():
+    for account_id, balance in ACCOUNTS.items():
         if account_id not in seen_accounts:
             records.append({
                 'Account': {
@@ -673,19 +641,137 @@ def create_genesis_file(validator_node_names,
             }
         })
 
-    genesis_config['validators'] = []
+    validators = []
     seats = compute_seats(stakes, num_seats)
     seats_taken = 0
     for seats, staked, account_id in seats:
         if seats + seats_taken > num_seats:
             break
-        genesis_config['validators'].append({
+        validators.append({
             'account_id': account_id,
             'public_key': PUBLIC_KEY,
             'amount': str(staked),
         })
         seats_taken += seats
 
+    return records, validators
+
+
+def neard_amend_genesis(neard, validator_node_names, genesis_filename_in,
+                        records_filename_in, out_dir, rpc_node_names, chain_id,
+                        epoch_length, node_pks, increasing_stakes, num_seats,
+                        single_shard):
+    extra_records, validators = extra_genesis_records(validator_node_names,
+                                                      rpc_node_names, node_pks,
+                                                      set(), num_seats,
+                                                      increasing_stakes)
+
+    validators_filename = os.path.join(out_dir, 'validators.json')
+    extra_records_filename = os.path.join(out_dir, 'extra-records.json')
+    genesis_filename_out = os.path.join(out_dir, 'genesis.json')
+    records_filename_out = os.path.join(out_dir, 'records.json')
+
+    with open(validators_filename, 'w') as f:
+        json.dump(validators, f)
+    with open(extra_records_filename, 'w') as f:
+        json.dump(extra_records, f)
+
+    cmd = [
+        neard,
+        'amend-genesis',
+        '--genesis-file-in',
+        genesis_filename_in,
+        '--records-file-in',
+        records_filename_in,
+        '--extra-records',
+        extra_records_filename,
+        '--validators',
+        validators_filename,
+        '--genesis-file-out',
+        genesis_filename_out,
+        '--records-file-out',
+        records_filename_out,
+        '--num-seats',
+        str(int(num_seats)),
+        '--transaction-validity-period',
+        str(10**9),
+        '--protocol-version',
+        '49',
+    ]
+    if chain_id is not None:
+        cmd.extend(['--chain-id', chain_id])
+    if epoch_length is not None:
+        cmd.extend(['--epoch-length', str(epoch_length)])
+    if single_shard:
+        shard_layout_filename = os.path.join(out_dir, 'shard_layout.json')
+        with open(shard_layout_filename, 'w') as f:
+            json.dump({'V0': {'num_shards': 1, 'version': 0}}, f)
+
+        cmd.extend(['--shard-layout-file', shard_layout_filename])
+
+    subprocess.run(cmd, text=True)
+
+
+def do_create_genesis_file(validator_node_names,
+                           genesis_filename_in,
+                           genesis_filename_out,
+                           records_filename_in,
+                           records_filename_out,
+                           rpc_node_names=None,
+                           chain_id=None,
+                           append=False,
+                           epoch_length=None,
+                           node_pks=None,
+                           increasing_stakes=0.0,
+                           num_seats=None,
+                           single_shard=False):
+    logger.info(
+        f'create_genesis_file: validator_node_names: {validator_node_names}')
+    logger.info(f'create_genesis_file: rpc_node_names: {rpc_node_names}')
+    with open(genesis_filename_in) as f:
+        genesis_config = json.load(f)
+    if append:
+        with open(records_filename_in) as f:
+            records = json.load(f)
+    else:
+        records = []
+
+    if chain_id:
+        if append:
+            assert genesis_config[
+                'chain_id'] != chain_id, 'Can only append to the original genesis once'
+
+        genesis_config['chain_id'] = chain_id
+
+    if append:
+        # Unstake all tokens from all existing accounts.
+        for record in records:
+            if 'Account' in record:
+                account = record['Account'].get('account', {})
+                locked = int(account.get('locked', 0))
+                if locked > 0:
+                    amount = int(account.get('amount', 0))
+                    account['amount'] = str(amount + locked)
+                    account['locked'] = 0
+
+    seen_accounts = set()
+    for record in records:
+        if 'Account' in record:
+            account_record = record['Account']
+            account_id = account_record.get('account_id', '')
+            if account_id in ACCOUNTS:
+                seen_accounts.add(account_id)
+                account = account_record.get('account', {})
+                account['amount'] = str(ACCOUNTS[account_id])
+
+    extra_records, validators = extra_genesis_records(validator_node_names,
+                                                      rpc_node_names, node_pks,
+                                                      seen_accounts, num_seats,
+                                                      increasing_stakes)
+
+    records.extend(extra_records)
+
+    genesis_config['validators'] = validators
     total_supply = 0
     for record in records:
         account = record.get('Account', {}).get('account', {})
@@ -714,6 +800,34 @@ def create_genesis_file(validator_node_names,
         json.dump(genesis_config, f, indent=2)
     with open(records_filename_out, 'w') as f:
         json.dump(records, f)
+
+
+def create_genesis_file(validator_node_names,
+                        genesis_filename_in,
+                        records_filename_in,
+                        out_dir,
+                        rpc_node_names=None,
+                        chain_id=None,
+                        append=False,
+                        epoch_length=None,
+                        node_pks=None,
+                        increasing_stakes=0.0,
+                        num_seats=None,
+                        single_shard=False,
+                        neard=None):
+    if append and neard is not None:
+        neard_amend_genesis(neard, validator_node_names, genesis_filename_in,
+                            records_filename_in, out_dir, rpc_node_names,
+                            chain_id, epoch_length, node_pks, increasing_stakes,
+                            num_seats, single_shard)
+    else:
+        genesis_filename_out = os.path.join(out_dir, 'genesis.json')
+        records_filename_out = os.path.join(out_dir, 'records.json')
+        do_create_genesis_file(validator_node_names, genesis_filename_in,
+                               genesis_filename_out, records_filename_in,
+                               records_filename_out, rpc_node_names, chain_id,
+                               append, epoch_length, node_pks,
+                               increasing_stakes, num_seats, single_shard)
 
 
 def download_and_read_json(node, filename):
@@ -829,19 +943,20 @@ def reset_data(node, retries=0):
             )
 
 
-def start_genesis_updater_script(
-        script, genesis_filename_in, genesis_filename_out, records_filename_in,
-        records_filename_out, config_filename_in, config_filename_out, chain_id,
-        validator_nodes, rpc_nodes, done_filename, epoch_length, node_pks,
-        increasing_stakes, num_seats, single_shard, all_node_pks, node_ips):
+def start_genesis_updater_script(script, genesis_filename_in,
+                                 records_filename_in, config_filename_in,
+                                 out_dir, chain_id, validator_nodes, rpc_nodes,
+                                 done_filename, epoch_length, node_pks,
+                                 increasing_stakes, num_seats, single_shard,
+                                 all_node_pks, node_ips, neard):
     cmd = ' '.join([
         shlex.quote(str(arg)) for arg in [
             'nohup', './venv/bin/python', script, genesis_filename_in,
-            genesis_filename_out, records_filename_in, records_filename_out,
-            config_filename_in, config_filename_out, chain_id, ','.join(
-                validator_nodes), ','.join(rpc_nodes), done_filename,
+            records_filename_in, config_filename_in, out_dir, chain_id,
+            ','.join(validator_nodes), ','.join(rpc_nodes), done_filename,
             epoch_length, ','.join(node_pks), increasing_stakes, num_seats,
-            single_shard, ','.join(all_node_pks), ','.join(node_ips)
+            single_shard, ','.join(all_node_pks), ','.join(
+                node_ips), neard if neard is not None else 'None'
         ]
     ])
     return '''
@@ -851,21 +966,18 @@ def start_genesis_updater_script(
 
 
 def start_genesis_updater(node, script, genesis_filename_in,
-                          genesis_filename_out, records_filename_in,
-                          records_filename_out, config_filename_in,
-                          config_filename_out, chain_id, validator_nodes,
-                          rpc_nodes, done_filename, epoch_length, node_pks,
-                          increasing_stakes, num_seats, single_shard,
-                          all_node_pks, node_ips):
+                          records_filename_in, config_filename_in, out_dir,
+                          chain_id, validator_nodes, rpc_nodes, done_filename,
+                          epoch_length, node_pks, increasing_stakes, num_seats,
+                          single_shard, all_node_pks, node_ips, neard):
     logger.info(f'Starting genesis_updater on {node.instance_name}')
     node.machine.run('bash',
                      input=start_genesis_updater_script(
-                         script, genesis_filename_in, genesis_filename_out,
-                         records_filename_in, records_filename_out,
-                         config_filename_in, config_filename_out, chain_id,
-                         validator_nodes, rpc_nodes, done_filename,
-                         epoch_length, node_pks, increasing_stakes, num_seats,
-                         single_shard, all_node_pks, node_ips))
+                         script, genesis_filename_in, records_filename_in,
+                         config_filename_in, out_dir, chain_id, validator_nodes,
+                         rpc_nodes, done_filename, epoch_length, node_pks,
+                         increasing_stakes, num_seats, single_shard,
+                         all_node_pks, node_ips, neard))
 
 
 def start_genesis_update_waiter_script(done_filename):

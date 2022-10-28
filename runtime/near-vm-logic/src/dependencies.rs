@@ -35,6 +35,12 @@ pub trait MemoryLike {
     fn write_memory(&mut self, offset: u64, buffer: &[u8]);
 }
 
+/// This enum represents if a storage_get call will be performed through flat storage or trie
+pub enum StorageGetMode {
+    FlatStorage,
+    Trie,
+}
+
 pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 
 /// Logical pointer to a value in storage.
@@ -74,6 +80,7 @@ pub trait External {
     ///
     /// * `key` - the key to read
     ///
+    /// * `mode`- whether the lookup will be performed through flat storage or trie
     /// # Errors
     ///
     /// This function could return [`near_vm_errors::VMRunnerError::ExternalError`].
@@ -81,15 +88,19 @@ pub trait External {
     /// # Example
     /// ```
     /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::{External, ValuePtr};
+    /// # use near_vm_logic::{External, StorageGetMode, ValuePtr};
     ///
     /// # let mut external = MockedExternal::new();
     /// external.storage_set(b"key42", b"value1337").unwrap();
-    /// assert_eq!(external.storage_get(b"key42").unwrap().map(|ptr| ptr.deref().unwrap()), Some(b"value1337".to_vec()));
+    /// assert_eq!(external.storage_get(b"key42", StorageGetMode::Trie).unwrap().map(|ptr| ptr.deref().unwrap()), Some(b"value1337".to_vec()));
     /// // Returns Ok(None) if there is no value for a key
-    /// assert_eq!(external.storage_get(b"no_key").unwrap().map(|ptr| ptr.deref().unwrap()), None);
+    /// assert_eq!(external.storage_get(b"no_key", StorageGetMode::Trie).unwrap().map(|ptr| ptr.deref().unwrap()), None);
     /// ```
-    fn storage_get<'a>(&'a self, key: &[u8]) -> Result<Option<Box<dyn ValuePtr + 'a>>>;
+    fn storage_get<'a>(
+        &'a self,
+        key: &[u8],
+        mode: StorageGetMode,
+    ) -> Result<Option<Box<dyn ValuePtr + 'a>>>;
 
     /// Removes the `key` from the storage trie associated with the current account.
     ///

@@ -12,24 +12,25 @@ use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::private_actix::{
     PeerToManagerMsg, PeerToManagerMsgResp, PeersRequest, PeersResponse, RegisterPeer,
-    RegisterPeerError, RegisterPeerResponse, SendMessage, Unregister,
+    RegisterPeerError, RegisterPeerResponse, SendMessage,
 };
 use crate::routing::edge::verify_nonce;
 use crate::stats::metrics;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    Ban, Handshake, HandshakeFailureReason, PeerIdOrHash, PeerMessage, PeerType, ReasonForBan,
+    Handshake, HandshakeFailureReason, PeerIdOrHash, PeerMessage, PeerType, ReasonForBan,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor, ActorContext, ActorFutureExt, AsyncContext, Context, Handler, Running};
 use lru::LruCache;
 use near_crypto::Signature;
-use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContextExt};
-use near_o11y::{log_assert, WithSpanContext};
+use near_o11y::{
+    handler_debug_span, log_assert, pretty, OpenTelemetrySpanExt, WithSpanContext,
+    WithSpanContextExt,
+};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
-use near_primitives::logging;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::EpochId;
 use near_primitives::utils::DisplayOption;
@@ -277,14 +278,8 @@ impl PeerActor {
     }
 
     fn send_message(&self, msg: &PeerMessage) {
-        // Rate limit PeersRequest messages.
-        // TODO(gprusak): upgrade it to a more general rate limiting.
         if let (PeerStatus::Ready(conn), PeerMessage::PeersRequest) = (&self.peer_status, msg) {
-            let now = self.clock.now();
-            match conn.last_time_peer_requested.load() {
-                Some(last) if now < last + REQUEST_PEERS_INTERVAL => return,
-                _ => conn.last_time_peer_requested.store(Some(now)),
-            }
+            conn.last_time_peer_requested.store(Some(self.clock.now()));
         }
         if let Some(enc) = self.encoding() {
             return self.send_message_with_encoding(msg, enc);
@@ -586,7 +581,26 @@ impl PeerActor {
                                 incremental: false,
                                 requesting_full_sync: true,
                             }));
+                            // Only broadcast the new edge from the outbound endpoint.
+                            act.network_state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                                RoutingTableUpdate::from_edges(vec![conn.edge.clone()]),
+                            )));
                         }
+                        // Sync the RoutingTable.
+                        act.sync_routing_table();
+                        // Exchange peers periodically.
+                        ctx.spawn(wrap_future({
+                            let conn = conn.clone();
+                            async move {
+                                let mut interval =
+                                    tokio::time::interval(REQUEST_PEERS_INTERVAL.try_into().unwrap());
+                                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                                loop {
+                                    interval.tick().await;
+                                    conn.send_message(Arc::new(PeerMessage::PeersRequest));
+                                }
+                            }
+                        }));
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
                             edge: conn.edge.clone(),
@@ -605,6 +619,21 @@ impl PeerActor {
                 actix::fut::ready(())
             })
         );
+    }
+
+    // Send full RoutingTable.
+    fn sync_routing_table(&self) {
+        let mut known_edges: Vec<Edge> =
+            self.network_state.graph.read().edges().values().cloned().collect();
+        if self.network_state.config.skip_tombstones.is_some() {
+            known_edges.retain(|edge| edge.removal_info().is_none());
+            metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
+        }
+        let known_accounts = self.network_state.routing_table_view.get_announce_accounts();
+        self.send_message_or_log(&PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
+            known_edges,
+            known_accounts,
+        )));
     }
 
     fn handle_msg_connecting(&mut self, ctx: &mut actix::Context<Self>, msg: PeerMessage) {
@@ -703,10 +732,10 @@ impl PeerActor {
             RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => network_state
                 .client
                 .tx_status_request(account_id, tx_hash)
-                .await?
-                .map(RoutedMessageBody::TxStatusResponse),
+                .await
+                .map(|v| RoutedMessageBody::TxStatusResponse(*v)),
             RoutedMessageBody::TxStatusResponse(tx_result) => {
-                network_state.client.tx_status_response(tx_result).await?;
+                network_state.client.tx_status_response(tx_result).await;
                 None
             }
             RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => network_state
@@ -720,31 +749,31 @@ impl PeerActor {
                 .await?
                 .map(RoutedMessageBody::VersionedStateResponse),
             RoutedMessageBody::VersionedStateResponse(info) => {
-                network_state.client.state_response(info).await?;
+                network_state.client.state_response(info).await;
                 None
             }
             RoutedMessageBody::BlockApproval(approval) => {
-                network_state.client.block_approval(approval, peer_id).await?;
+                network_state.client.block_approval(approval, peer_id).await;
                 None
             }
             RoutedMessageBody::ForwardTx(transaction) => {
-                network_state.client.transaction(transaction, /*is_forwarded=*/ true).await?;
+                network_state.client.transaction(transaction, /*is_forwarded=*/ true).await;
                 None
             }
             RoutedMessageBody::PartialEncodedChunkRequest(request) => {
-                network_state.client.partial_encoded_chunk_request(request, msg_hash).await?;
+                network_state.client.partial_encoded_chunk_request(request, msg_hash).await;
                 None
             }
             RoutedMessageBody::PartialEncodedChunkResponse(response) => {
-                network_state.client.partial_encoded_chunk_response(response, clock.now()).await?;
+                network_state.client.partial_encoded_chunk_response(response, clock.now()).await;
                 None
             }
             RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
-                network_state.client.partial_encoded_chunk(chunk).await?;
+                network_state.client.partial_encoded_chunk(chunk).await;
                 None
             }
             RoutedMessageBody::PartialEncodedChunkForward(msg) => {
-                network_state.client.partial_encoded_chunk_forward(msg).await?;
+                network_state.client.partial_encoded_chunk_forward(msg).await;
                 None
             }
             RoutedMessageBody::ReceiptOutcomeRequest(_) => {
@@ -801,17 +830,17 @@ impl PeerActor {
                     )
                 }
                 PeerMessage::BlockRequest(hash) => {
-                    network_state.client.block_request(hash).await?.map(PeerMessage::Block)
+                    network_state.client.block_request(hash).await.map(|b|PeerMessage::Block(*b))
                 }
                 PeerMessage::BlockHeadersRequest(hashes) => {
-                    network_state.client.block_headers_request(hashes).await?.map(PeerMessage::BlockHeaders)
+                    network_state.client.block_headers_request(hashes).await.map(PeerMessage::BlockHeaders)
                 }
                 PeerMessage::Block(block) => {
-                    network_state.client.block(block, peer_id, was_requested).await?;
+                    network_state.client.block(block, peer_id, was_requested).await;
                     None
                 }
                 PeerMessage::Transaction(transaction) => {
-                    network_state.client.transaction(transaction, /*is_forwarded=*/ false).await?;
+                    network_state.client.transaction(transaction, /*is_forwarded=*/ false).await;
                     None
                 }
                 PeerMessage::BlockHeaders(headers) => {
@@ -819,7 +848,7 @@ impl PeerActor {
                     None
                 }
                 PeerMessage::Challenge(challenge) => {
-                    network_state.client.challenge(challenge).await?;
+                    network_state.client.challenge(challenge).await;
                     None
                 }
                 msg => {
@@ -1020,9 +1049,7 @@ impl PeerActor {
                                 .event_sink
                                 .push(Event::MessageProcessed(PeerMessage::Routed(msg)));
                         }
-                        _ => {
-                            self.receive_message(ctx, conn, PeerMessage::Routed(msg.clone()));
-                        }
+                        _ => self.receive_message(ctx, conn, PeerMessage::Routed(msg.clone())),
                     }
                 } else {
                     if msg.decrease_ttl() {
@@ -1122,28 +1149,14 @@ impl Actor for PeerActor {
             // so there is nothing to be done.
             PeerStatus::Connecting(..) => {}
             // Clean up the Connection from the NetworkState.
-            PeerStatus::Ready(conn) => {
-                self.network_state.unregister(conn);
-                // Save the fact that we are disconnecting to the PeerStore.
-                match &self.closing_reason {
-                    Some(ClosingReason::Ban(ban_reason)) => {
-                        warn!(target: "network", "Banning peer {} for {:?}", self.peer_info, ban_reason);
-                        self.network_state.peer_manager_addr.do_send(
-                            PeerToManagerMsg::Ban(Ban {
-                                peer_id: conn.peer_info.id.clone(),
-                                ban_reason: *ban_reason,
-                            })
-                            .with_span_context(),
-                        );
-                    }
-                    _ => self.network_state.peer_manager_addr.do_send(
-                        PeerToManagerMsg::Unregister(Unregister {
-                            peer_id: conn.peer_info.id.clone(),
-                        })
-                        .with_span_context(),
-                    ),
-                }
-            }
+            PeerStatus::Ready(conn) => self.network_state.unregister(
+                &self.clock,
+                conn,
+                match self.closing_reason {
+                    Some(ClosingReason::Ban(reason)) => Some(reason),
+                    _ => None,
+                },
+            ),
         }
         Running::Stop
     }
@@ -1208,7 +1221,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
         let mut peer_msg = match self.parse_message(&msg) {
             Ok(msg) => msg,
             Err(err) => {
-                debug!(target: "network", "Received invalid data {:?} from {}: {}", logging::pretty_vec(&msg), self.peer_info, err);
+                debug!(target: "network", "Received invalid data {} from {}: {}", pretty::AbbrBytes(&msg), self.peer_info, err);
                 return;
             }
         };

@@ -1,7 +1,7 @@
 //! Provides functions for setting up a mock network from configs and home dirs.
 
 use crate::{MockNetworkConfig, MockPeerManagerActor};
-use actix::{Actor, Addr, Arbiter, Recipient};
+use actix::{Actor, Addr, Arbiter};
 use anyhow::Context;
 use near_chain::ChainStoreUpdate;
 use near_chain::{
@@ -10,8 +10,7 @@ use near_chain::{
 use near_chain_configs::GenesisConfig;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_network::types::{NetworkClientMessages, NetworkRecipient};
-use near_o11y::WithSpanContext;
+use near_network::types::NetworkRecipient;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::BlockHeight;
@@ -33,7 +32,7 @@ fn setup_runtime(
     let store = if in_memory_storage {
         create_test_store()
     } else {
-        near_store::NodeStorage::opener(home_dir, &config.config.store)
+        near_store::NodeStorage::opener(home_dir, &config.config.store, None)
             .open()
             .unwrap()
             .get_store(near_store::Temperature::Hot)
@@ -44,7 +43,7 @@ fn setup_runtime(
 
 fn setup_mock_peer_manager_actor(
     chain: Chain,
-    client_addr: Recipient<WithSpanContext<NetworkClientMessages>>,
+    client: Arc<dyn near_network::client::Client>,
     genesis_config: &GenesisConfig,
     block_production_delay: Duration,
     client_start_height: BlockHeight,
@@ -58,7 +57,7 @@ fn setup_mock_peer_manager_actor(
         Some(it) => it,
     };
     MockPeerManagerActor::new(
-        client_addr,
+        client,
         genesis_config,
         chain,
         client_start_height,
@@ -260,6 +259,7 @@ pub fn setup_mock_node(
 
     let arbiter = Arbiter::new();
     let client1 = client.clone();
+    let view_client1 = view_client.clone();
     let genesis_config = config.genesis.config.clone();
     let archival = config.client_config.archive;
     let network_config = network_config.clone();
@@ -278,7 +278,7 @@ pub fn setup_mock_node(
         MockPeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
             setup_mock_peer_manager_actor(
                 chain,
-                client1.recipient(),
+                Arc::new(near_client::adapter::Adapter::new(client1, view_client1)),
                 &genesis_config,
                 block_production_delay,
                 client_start_height,
@@ -295,6 +295,7 @@ pub fn setup_mock_node(
             config.genesis.config,
             client.clone(),
             view_client.clone(),
+            None,
         )
     });
 
@@ -309,10 +310,9 @@ mod tests {
     use futures::{future, FutureExt};
     use near_actix_test_utils::{run_actix, spawn_interruptible};
     use near_chain_configs::Genesis;
-    use near_client::GetBlock;
+    use near_client::{GetBlock, ProcessTxRequest};
     use near_crypto::{InMemorySigner, KeyType};
     use near_network::test_utils::{open_port, WaitOrTimeoutActor};
-    use near_network::types::NetworkClientMessages;
     use near_o11y::testonly::init_integration_logger;
     use near_o11y::WithSpanContextExt;
     use near_primitives::hash::CryptoHash;
@@ -383,7 +383,7 @@ mod tests {
                                         spawn_interruptible(
                                             client1
                                                 .send(
-                                                    NetworkClientMessages::Transaction {
+                                                    ProcessTxRequest {
                                                         transaction,
                                                         is_forwarded: false,
                                                         check_only: false,

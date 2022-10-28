@@ -1,5 +1,5 @@
 use crate::gas_counter::GasCounter;
-use crate::{External, ValuePtr};
+use crate::{External, StorageGetMode, ValuePtr};
 use near_primitives::config::ExtCosts;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::TrieNodesCount;
@@ -51,7 +51,7 @@ impl External for MockedExternal {
         Ok(())
     }
 
-    fn storage_get(&self, key: &[u8]) -> Result<Option<Box<dyn ValuePtr>>> {
+    fn storage_get(&self, key: &[u8], _mode: StorageGetMode) -> Result<Option<Box<dyn ValuePtr>>> {
         Ok(self
             .fake_trie
             .get(key)

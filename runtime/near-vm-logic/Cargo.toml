@@ -47,6 +47,7 @@ protocol_feature_ed25519_verify = [
 protocol_feature_get_block_by_hash = [
     "near-primitives/protocol_feature_get_block_by_hash"
 ]
+protocol_feature_flat_state = []
 io_trace = ["tracing"]
 
 # Use this feature to enable counting of fees and costs applied.

@@ -3,27 +3,20 @@ use near_network::time;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use actix::actors::mocker::Mocker;
 use actix::Actor;
 use actix::System;
 use futures::{future, FutureExt};
 use near_primitives::block::GenesisId;
 
 use near_actix_test_utils::run_actix;
-use near_client::{ClientActor, ViewClientActor};
 use near_o11y::testonly::init_test_logger;
 
 use near_network::config;
 use near_network::test_utils::{
     convert_boot_nodes, open_port, wait_or_timeout, GetInfo, StopSignal, WaitOrTimeoutActor,
 };
-use near_network::types::NetworkClientResponses;
-use near_network::types::NetworkViewClientResponses;
 use near_network::PeerManagerActor;
 use near_o11y::WithSpanContextExt;
-
-type ClientMock = Mocker<ClientActor>;
-type ViewClientMock = Mocker<ViewClientActor>;
 
 #[cfg(test)]
 fn make_peer_manager(
@@ -33,24 +26,16 @@ fn make_peer_manager(
     peer_max_count: u32,
 ) -> actix::Addr<PeerManagerActor> {
     let mut config = config::NetworkConfig::from_seed(seed, port);
-    config.boot_nodes = convert_boot_nodes(boot_nodes);
+    config.peer_store.boot_nodes = convert_boot_nodes(boot_nodes);
     config.max_num_peers = peer_max_count;
     config.ideal_connections_hi = peer_max_count;
     config.ideal_connections_lo = peer_max_count;
-    let client_addr = ClientMock::mock(Box::new(move |_msg, _ctx| {
-        Box::new(Some(NetworkClientResponses::NoResponse))
-    }))
-    .start();
-    let view_client_addr = ViewClientMock::mock(Box::new(|_msg, _ctx| {
-        Box::new(Some(NetworkViewClientResponses::NoResponse))
-    }))
-    .start();
 
     PeerManagerActor::spawn(
         time::Clock::real(),
         near_store::db::TestDB::new(),
         config,
-        near_network::client::Client::new(client_addr.recipient(), view_client_addr.recipient()),
+        Arc::new(near_network::client::Noop),
         GenesisId::default(),
     )
     .unwrap()

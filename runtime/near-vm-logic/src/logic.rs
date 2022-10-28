@@ -4,7 +4,7 @@ use crate::gas_counter::{FastGasCounter, GasCounter};
 use crate::receipt_manager::ReceiptManager;
 use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
-use crate::{ReceiptMetadata, ValuePtr};
+use crate::{ReceiptMetadata, StorageGetMode, ValuePtr};
 use byteorder::ByteOrder;
 use near_crypto::Secp256K1Signature;
 use near_primitives::checked_feature;
@@ -2416,7 +2416,9 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(storage_write_key_byte, key.len() as u64)?;
         self.gas_counter.pay_per(storage_write_value_byte, value.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        let evicted_ptr = self.ext.storage_get(&key)?;
+        // For storage write, we need to first perform a read on the key to calculate the TTN cost.
+        // This storage_get must be performed through trie instead of through FlatStorage
+        let evicted_ptr = self.ext.storage_get(&key, StorageGetMode::Trie)?;
         let evicted =
             Self::deref_value(&mut self.gas_counter, storage_write_evicted_byte, evicted_ptr)?;
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
@@ -2507,7 +2509,10 @@ impl<'a> VMLogic<'a> {
         }
         self.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        let read = self.ext.storage_get(&key);
+        #[cfg(feature = "protocol_feature_flat_state")]
+        let read = self.ext.storage_get(&key, StorageGetMode::FlatStorage);
+        #[cfg(not(feature = "protocol_feature_flat_state"))]
+        let read = self.ext.storage_get(&key, StorageGetMode::Trie);
         let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
         self.gas_counter.add_trie_fees(&nodes_delta)?;
         let read = Self::deref_value(&mut self.gas_counter, storage_read_value_byte, read?)?;
@@ -2565,7 +2570,9 @@ impl<'a> VMLogic<'a> {
         }
         self.gas_counter.pay_per(storage_remove_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        let removed_ptr = self.ext.storage_get(&key)?;
+        // To delete a key, we need to first perform a read on the key to calculate the TTN cost.
+        // This storage_get must be performed through trie instead of through FlatStorage
+        let removed_ptr = self.ext.storage_get(&key, StorageGetMode::Trie)?;
         let removed =
             Self::deref_value(&mut self.gas_counter, storage_remove_ret_value_byte, removed_ptr)?;
 

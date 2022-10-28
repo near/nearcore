@@ -8,10 +8,11 @@ use near_primitives::types::{
 };
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
-use near_store::{get_code, TrieUpdate, TrieUpdateValuePtr};
+use near_store::{get_code, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
 use near_vm_errors::{AnyError, VMLogicError};
 use near_vm_logic::gas_counter::GasCounter;
 use near_vm_logic::{ExtCosts, External, ValuePtr};
+use near_vm_logic::{External, StorageGetMode, ValuePtr};
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
@@ -116,10 +117,18 @@ impl<'a> External for RuntimeExt<'a> {
         Ok(())
     }
 
-    fn storage_get<'b>(&'b self, key: &[u8]) -> ExtResult<Option<Box<dyn ValuePtr + 'b>>> {
+    fn storage_get<'b>(
+        &'b self,
+        key: &[u8],
+        mode: StorageGetMode,
+    ) -> ExtResult<Option<Box<dyn ValuePtr + 'b>>> {
         let storage_key = self.create_storage_key(key);
+        let mode = match mode {
+            StorageGetMode::FlatStorage => KeyLookupMode::FlatStorage,
+            StorageGetMode::Trie => KeyLookupMode::Trie,
+        };
         self.trie_update
-            .get_ref(&storage_key)
+            .get_ref(&storage_key, mode)
             .map_err(wrap_storage_error)
             .map(|option| option.map(|ptr| Box::new(RuntimeExtValuePtr(ptr)) as Box<_>))
     }
@@ -132,7 +141,10 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn storage_has_key(&mut self, key: &[u8]) -> ExtResult<bool> {
         let storage_key = self.create_storage_key(key);
-        self.trie_update.get_ref(&storage_key).map(|x| x.is_some()).map_err(wrap_storage_error)
+        self.trie_update
+            .get_ref(&storage_key, KeyLookupMode::FlatStorage)
+            .map(|x| x.is_some())
+            .map_err(wrap_storage_error)
     }
 
     fn storage_remove_subtree(&mut self, prefix: &[u8]) -> ExtResult<()> {
