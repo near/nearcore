@@ -117,7 +117,7 @@ fn test_ed25519_verify_behavior_and_errors() {
                 msg: "invalid public key length".to_string(),
             })),
             map! {
-                ExtCosts::read_memory_byte: 128,
+                ExtCosts::read_memory_byte: 127,
                 ExtCosts::read_memory_base: 3,
                 ExtCosts::ed25519_verify_base: 1,
                 ExtCosts::ed25519_verify_byte: 32,
@@ -149,10 +149,9 @@ fn test_ed25519_verify_behavior_and_errors() {
                 msg: "invalid signature length".to_string(),
             })),
             map! {
-                ExtCosts::read_memory_byte: 128,
-                ExtCosts::read_memory_base: 3,
+                ExtCosts::read_memory_base: 1,
+                ExtCosts::read_memory_byte: 63,
                 ExtCosts::ed25519_verify_base: 1,
-                ExtCosts::ed25519_verify_byte: 32,
             },
         ),
         (
@@ -164,10 +163,9 @@ fn test_ed25519_verify_behavior_and_errors() {
             public_key.clone(),
             Ok(0),
             map! {
-                ExtCosts::read_memory_byte: 128,
-                ExtCosts::read_memory_base: 3,
+                ExtCosts::read_memory_base: 1,
+                ExtCosts::read_memory_byte: 64,
                 ExtCosts::ed25519_verify_base: 1,
-                ExtCosts::ed25519_verify_byte: 32,
             },
         ),
         (
@@ -179,10 +177,9 @@ fn test_ed25519_verify_behavior_and_errors() {
             public_key.clone(),
             Ok(0),
             map! {
-                ExtCosts::read_memory_byte: 128,
-                ExtCosts::read_memory_base: 3,
+                ExtCosts::read_memory_base: 1,
+                ExtCosts::read_memory_byte: 64,
                 ExtCosts::ed25519_verify_base: 1,
-                ExtCosts::ed25519_verify_byte: 32,
             },
         ),
     ];
