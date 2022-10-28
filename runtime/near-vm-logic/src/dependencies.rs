@@ -1,9 +1,12 @@
 //! External dependencies of the near-vm-logic.
 
+use near_primitives::config::ExtCosts;
 use near_primitives::types::TrieNodesCount;
 use near_primitives::{hash::CryptoHash, types::BlockHeight};
 use near_primitives_core::types::{AccountId, Balance};
 use near_vm_errors::VMLogicError;
+
+use crate::gas_counter::GasCounter;
 
 /// An abstraction over the memory of the smart contract.
 pub trait MemoryLike {
@@ -177,5 +180,10 @@ pub trait External {
 
     /// Returns the BlockHash given a block height if the block is available
     /// within the latest 256 produced blocks.
-    fn block_hash(&self, height_number: BlockHeight) -> (usize, Option<CryptoHash>);
+    fn block_hash(
+        &self,
+        height_number: BlockHeight,
+        gas_counter: &mut GasCounter,
+        block_hash_base: ExtCosts,
+    ) -> Result<Option<CryptoHash>>;
 }

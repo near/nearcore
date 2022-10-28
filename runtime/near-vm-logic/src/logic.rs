@@ -649,8 +649,8 @@ impl<'a> VMLogic<'a> {
     #[cfg(feature = "protocol_feature_get_block_by_hash")]
     pub fn block_hash(&mut self, height_number: BlockHeight, register_id: u64) -> Result<u64> {
         self.gas_counter.pay_base(block_hash_base)?;
-        let (iterations, block_hash) = self.ext.block_hash(height_number);
-        self.gas_counter.pay_per(iter_block_hash_next_block, iterations as _)?;
+        let gas_counter = &mut self.gas_counter;
+        let block_hash = self.ext.block_hash(height_number, gas_counter, block_hash_base)?;
         match block_hash {
             None => Ok(0),
             Some(block_hash) => {

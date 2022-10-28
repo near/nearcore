@@ -1,4 +1,6 @@
+use crate::gas_counter::GasCounter;
 use crate::{External, ValuePtr};
+use near_primitives::config::ExtCosts;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::TrieNodesCount;
 use near_primitives_core::types::{AccountId, Balance};
@@ -93,7 +95,9 @@ impl External for MockedExternal {
     fn block_hash(
         &self,
         _height_number: near_primitives::types::BlockHeight,
-    ) -> (usize, Option<CryptoHash>) {
-        (12, Some(CryptoHash::default()))
+        _gas_counter: &mut GasCounter,
+        _block_hash_base: ExtCosts,
+    ) -> Result<Option<CryptoHash>> {
+        Ok(Some(CryptoHash::default()))
     }
 }

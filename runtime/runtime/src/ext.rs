@@ -10,7 +10,8 @@ use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
 use near_store::{get_code, TrieUpdate, TrieUpdateValuePtr};
 use near_vm_errors::{AnyError, VMLogicError};
-use near_vm_logic::{External, ValuePtr};
+use near_vm_logic::gas_counter::GasCounter;
+use near_vm_logic::{ExtCosts, External, ValuePtr};
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
@@ -185,35 +186,42 @@ impl<'a> External for RuntimeExt<'a> {
             .map_err(|e| ExternalError::ValidatorError(e).into())
     }
 
-    fn block_hash(&self, height_number: BlockHeight) -> (usize, Option<CryptoHash>) {
+    fn block_hash(
+        &self,
+        height_number: BlockHeight,
+        gas_counter: &mut GasCounter,
+        block_hash_base: ExtCosts,
+    ) -> ExtResult<Option<CryptoHash>> {
+        gas_counter.pay_base(block_hash_base)?;
         let chain_store = self.chain_store;
         let tip = chain_store.header_head().expect("handle this properly");
         // requested height isn't available
         if tip.height < height_number {
-            return (0, None);
+            return Ok(None);
         }
 
         if tip.height == height_number {
-            return (0, Some(tip.last_block_hash));
+            return Ok(Some(tip.last_block_hash));
         }
         let mut previous_block_hash = tip.prev_block_hash;
         if previous_block_hash == CryptoHash::default() {
             // this indicates it's the genesis block
-            return (0, None);
+            return Ok(None);
         }
         // iterate up to 255 times more
         for iteration in 1..256 {
             let block_header =
                 chain_store.get_block_header(&previous_block_hash).expect("handle this properly");
+            gas_counter.pay_base(block_hash_base)?;
 
             match block_header.height().cmp(&height_number) {
                 std::cmp::Ordering::Less => {
                     // User requested block height which does not exist, i.e. a block height
                     // has been skipped
-                    return (iteration, None);
+                    return Ok(None);
                 }
                 std::cmp::Ordering::Equal => {
-                    return (iteration, Some(*block_header.hash()));
+                    return Ok(Some(*block_header.hash()));
                 }
                 std::cmp::Ordering::Greater => {
                     // Still need to continue going back.
@@ -221,6 +229,6 @@ impl<'a> External for RuntimeExt<'a> {
                 }
             }
         }
-        (256, None)
+        Ok(None)
     }
 }
