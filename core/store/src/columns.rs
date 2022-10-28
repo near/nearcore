@@ -395,7 +395,7 @@ impl DBCol {
 
     /// Whether this column exists in cold storage.
     const fn is_in_colddb(&self) -> bool {
-        matches!(col, DBCol::DbVersion | DBCol::BlockMisc) || col.is_cold()
+        matches!(*self, DBCol::DbVersion | DBCol::BlockMisc) || self.is_cold()
     }
 
     /// Vector of DBKeyType s concatenation of which results in key for the column.
