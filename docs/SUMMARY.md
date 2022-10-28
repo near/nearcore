@@ -12,6 +12,7 @@
   - [Transaction Routing](./architecture/how/tx_routing.md)
   - [Transactions And Receipts](./architecture/how/tx_receipts.md)
   - [Serialization: Borsh, Json, ProtoBuf](./architecture/how/serialization.md)
+  - [Proofs](./architecture/how/proofs.md)
 - [Trie](./architecture/trie.md)
 - [Network](./architecture/network.md)
 - [Gas Cost Parameters](./architecture/gas/README.md)
