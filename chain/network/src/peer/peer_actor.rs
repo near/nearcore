@@ -1159,13 +1159,13 @@ impl PeerActor {
                     msg.target);
                 let for_me = self.network_state.message_for_me(&msg.target);
                 if for_me {
-                    let first = self
+                    let fastest = self
                         .network_state
                         .recent_routed_messages
                         .lock()
-                        .put(msg.signature.clone(), ())
+                        .put(CryptoHash::hash_borsh(msg.body), ())
                         .is_none();
-                    metrics::record_routed_msg_latency(&self.clock, &msg, conn.tier, first);
+                    metrics::record_routed_msg_latency(&self.clock, &msg, conn.tier, fastest);
                 }
 
                 // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms

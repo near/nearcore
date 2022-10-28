@@ -21,7 +21,6 @@ use crate::tcp;
 use crate::time;
 use crate::types::{ChainInfo, PeerType, ReasonForBan};
 use arc_swap::ArcSwap;
-use near_crypto::Signature;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
@@ -116,11 +115,9 @@ pub(crate) struct NetworkState {
     /// Full routing table (that currently includes information about all edges in the graph) is now inside Routing Table.
     pub routing_table_view: RoutingTableView,
 
-    /// Signatures of the recently received routed messages.
-    /// We use signatures instead of hashes, because we expect identical messages
-    /// (like BlockApproval) signed by different keys.
+    /// Hashes of the body of recently received routed messages.
     /// It allows us to determine whether messages arrived faster over TIER1 or TIER2 network.
-    pub recent_routed_messages: Mutex<lru::LruCache<Signature, ()>>,
+    pub recent_routed_messages: Mutex<lru::LruCache<CryptoHash, ()>>,
 
     /// Hash of messages that requires routing back to respective previous hop.
     pub tier1_route_back: Mutex<RouteBackCache>,

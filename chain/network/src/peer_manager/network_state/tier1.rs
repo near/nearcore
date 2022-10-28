@@ -128,12 +128,14 @@ impl super::NetworkState {
                         Some(conn) if conn.peer_info.addr == Some(proxy.addr) => {
                             connected_proxies.push(proxy.clone());
                         }
+                        Some(conn) => tracing::info!(target:"network", "connected to {}, but got addr {:?}, while want {}",conn.peer_info.id,conn.peer_info.addr,proxy.addr),
                         _ => {}
                     }
                 }
                 connected_proxies
             }
         };
+        tracing::info!(target:"network","connected to proxies {my_proxies:?}");
         let now = clock.now_utc();
         let my_data = self
             .accounts_data
