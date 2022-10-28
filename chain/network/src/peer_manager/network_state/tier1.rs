@@ -49,8 +49,12 @@ impl super::NetworkState {
         let tier1 = self.tier1.load();
         let vc = match self.tier1_validator_config(&accounts_data) {
             Some(it) => it,
-            None => return vec![],
+            None => {
+                tracing::info!(target:"network","This IS NOT a TIER1 node");
+                return vec![];
+            }
         };
+        tracing::info!(target:"network","This IS a TIER1 node");
         let proxies = match &vc.proxies {
             config::ValidatorProxies::Dynamic(_) => {
                 // TODO(gprusak): If Dynamic are specified,
@@ -70,27 +74,24 @@ impl super::NetworkState {
                 continue;
             }
             handles.push(async move {
-                let stream = tcp::Stream::connect(
-                    &PeerInfo {
-                        id: proxy.peer_id.clone(),
-                        addr: Some(proxy.addr),
-                        account_id: None,
-                    },
-                    tcp::Tier::T1,
-                )
-                .await?;
-                tracing::debug!(target:"test","spawning connection to {proxy:?}");
-                anyhow::Ok(
-                    PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone())
-                        .await?,
-                )
+                let res = async {
+                    let stream = tcp::Stream::connect(
+                        &PeerInfo {
+                            id: proxy.peer_id.clone(),
+                            addr: Some(proxy.addr),
+                            account_id: None,
+                        },
+                        tcp::Tier::T1,
+                    )
+                    .await?;
+                    anyhow::Ok(PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone()).await?)
+                }.await;
+                if let Err(err) = res {
+                    tracing::info!(target:"network", ?err, "failed to establish connection to TIER1 proxy {:?}",proxy);
+                }
             });
         }
-        for res in futures_util::future::join_all(handles).await {
-            if let Err(err) = res {
-                tracing::info!(target:"network", ?err, "failed to establish a TIER1 proxy");
-            }
-        }
+        futures_util::future::join_all(handles).await;
 
         // Snapshot tier1 connections again before broadcasting.
         let tier1 = self.tier1.load();
