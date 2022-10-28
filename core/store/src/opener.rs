@@ -155,9 +155,10 @@ struct DBOpener<'a> {
 
     /// Temperature of the database.
     ///
-    /// This affects whether refcount merge operator is configured on reference
-    /// counted column.  It’s important that the value is correct.  RPC and
-    /// Archive databases are considered hot.
+    /// This affects which column families are configured in the database and
+    /// whether refcount merge operator is set up on reference counted column.
+    /// It’s important that the value is correct.  RPC and Archive databases are
+    /// considered hot.
     temp: Temperature,
 }
 

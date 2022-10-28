@@ -45,34 +45,24 @@ impl<D> ColdDB<D> {
         Self { hot, cold }
     }
 
-    /// Checks which database columns should be accessed from.
+    /// Checks whether data in given column should be read from hot database.
     ///
     /// For columns present in cold database (see [`DBCol::is_in_colddb`],
     /// returns false.  For [`DBCol::BlockHeader`] and [`DBCol::EpochInfo`]
-    /// returns true.  For other (hot) columns logs an error and returns false
-    /// (i.e. they are still read from cold database which will result in empty
-    /// read).
+    /// returns true.
+    ///
+    /// For all other columns returns false.  Note that if the column is not
+    /// present in cold database, attempting to read it will result in panic in
+    /// RocksDB layer.
     fn is_hot_column(col: DBCol) -> bool {
-        if matches!(col, DBCol::BlockHeader | DBCol::EpochInfo) {
-            // TODO(#3488): Remove BlockHeader from this case once it becomes
-            // garbage collected.
-            //
-            // Note that at that point it might be beneficial to rather than
-            // storing BlockHeader in cold database to translate all accesses to
-            // the column to read data from DBCol::Block instead (since headers
-            // are embedded within a block).
-            true
-        } else {
-            // TODO: Convert this to near_o11y::log_assert!(col.is_in_colddb(),
-            // ...)  once all cold columns are marked as such.
-            if !col.is_in_colddb() {
-                tracing::debug!(
-                    target: "store",
-                    %col, "Trying to read hot column from cold storage"
-                );
-            }
-            false
-        }
+        // TODO(#3488): Remove BlockHeader from this case once it becomes
+        // garbage collected.
+        //
+        // Note that at that point it might be beneficial to rather than storing
+        // BlockHeader in cold database to translate all accesses to the column
+        // to read data from DBCol::Block instead (since headers are embedded
+        // within a block).
+        matches!(col, DBCol::BlockHeader | DBCol::EpochInfo)
     }
 }
 
@@ -127,15 +117,19 @@ impl<D: Database> super::Database for ColdDB<D> {
     /// Furthermore, because key of ChunkHashesByHeight is modified in cold
     /// storage, the order of iteration of that column is different than if it
     /// would be in hot storage.
-    fn iter<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
-        match column {
-            DBCol::BlockHeader | DBCol::EpochInfo => return self.hot.iter(column),
-            // Those are the only columns we’re ever iterating over.
-            DBCol::Block | DBCol::ChunkHashesByHeight => (),
-            _ => panic!("iter on cold storage is not supported for {column}"),
+    fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+        assert!(
+            matches!(
+                col,
+                DBCol::Block | DBCol::BlockHeader | DBCol::ChunkHashesByHeight | DBCol::EpochInfo
+            ),
+            "ColdDB::iter isn’t supported for {col}"
+        );
+        if Self::is_hot_column(col) {
+            return self.hot.iter(col);
         }
-        let it = self.cold.iter_raw_bytes(column);
-        if column == DBCol::ChunkHashesByHeight {
+        let it = self.cold.iter_raw_bytes(col);
+        if col == DBCol::ChunkHashesByHeight {
             // For the column we need to swap bytes in the key.
             Box::new(it.map(|result| {
                 let (mut key, value) = result?;
@@ -155,12 +149,7 @@ impl<D: Database> super::Database for ColdDB<D> {
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
         // We only ever call iter_prefix on DBCol::StateChanges so we don’t need
         // to worry about implementing it for any other column.
-        assert_eq!(
-            DBCol::StateChanges,
-            col,
-            "iter_prefix on cold storage is supported for StateChanges only; \
-             tried to iterate over {col}"
-        );
+        assert_eq!(DBCol::StateChanges, col, "ColdDB::iter_prefix isn’t supported for {col}");
         // StateChanges is neither reference counted, nor do we do any
         // adjustments to that column’s keys so we can pass the iter_prefix
         // request directly to the underlying database.

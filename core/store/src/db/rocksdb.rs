@@ -56,16 +56,20 @@ impl RocksDB {
     /// doesn’t exist nor any migrations will be performed if the database has
     /// database version different than expected.
     ///
-    /// `temp` specifies whether the database is cold or hot which affects
-    /// whether refcount merge operator is configured on reference counted
-    /// column.
+    /// `temp` specifies whether the database is cold or hot which affects which
+    /// column families are configured in the database and whether refcount
+    /// merge operator is set up on reference counted column.
     pub fn open(
         path: &Path,
         store_config: &StoreConfig,
         mode: Mode,
         temp: Temperature,
     ) -> io::Result<Self> {
-        let columns: Vec<DBCol> = DBCol::iter().collect();
+        let columns: Vec<DBCol> = if temp == Temperature::Hot {
+            DBCol::iter().collect()
+        } else {
+            DBCol::iter().filter(DBCol::is_in_colddb).collect()
+        };
         Self::open_with_columns(path, store_config, mode, temp, &columns)
     }
 
