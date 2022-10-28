@@ -40,6 +40,8 @@ pub struct EncodedChunksCacheEntry {
     pub receipts: HashMap<ShardId, ReceiptProof>,
     /// whether this entry has all parts and receipts
     pub complete: bool,
+    /// whether this chunk is ready for inclusion for producing a block
+    pub ready_for_inclusion: bool,
     /// Whether the header has been **fully** validated.
     /// Every entry added to the cache already has their header "partially" validated
     /// by validate_chunk_header. When the previous block is accepted, they must be
@@ -65,9 +67,6 @@ pub struct EncodedChunksCache {
     /// A map from a block hash to a set of incomplete chunks (does not have all parts and receipts yet)
     /// whose previous block is the block hash.
     incomplete_chunks: HashMap<CryptoHash, HashSet<ChunkHash>>,
-    /// A sized cache mapping a block hash to the chunk headers that are ready
-    /// to be included when producing the next block after the block.
-    prev_block_to_chunks_ready_for_inclusion: HashMap<CryptoHash, HashSet<ChunkHash>>,
 }
 
 impl EncodedChunksCacheEntry {
@@ -77,6 +76,7 @@ impl EncodedChunksCacheEntry {
             parts: HashMap::new(),
             receipts: HashMap::new(),
             complete: false,
+            ready_for_inclusion: false,
             header_fully_validated: false,
         }
     }
@@ -112,7 +112,6 @@ impl EncodedChunksCache {
             height_map: HashMap::new(),
             height_to_shard_to_chunk: HashMap::new(),
             incomplete_chunks: HashMap::new(),
-            prev_block_to_chunks_ready_for_inclusion: HashMap::new(),
         }
     }
 
@@ -249,9 +248,7 @@ impl EncodedChunksCache {
             if let Some(chunks_to_remove) = self.height_map.remove(&height) {
                 for chunk_hash in chunks_to_remove {
                     if !requested_chunks.contains_key(&chunk_hash) {
-                        if let Some(entry) = self.remove(&chunk_hash) {
-                            self.remove_chunk_header(&entry.header);
-                        }
+                        self.remove(&chunk_hash);
                     }
                 }
             }
@@ -259,35 +256,16 @@ impl EncodedChunksCache {
         }
     }
 
-    /// Remove the chunk header from the `block_hash_to_chunk_headers` map.
-    fn remove_chunk_header(&mut self, header: &ShardChunkHeader) {
-        let prev_block_hash = header.prev_block_hash();
-        let chunk_hash = header.chunk_hash();
-        if let Some(chunk_headers) =
-            self.prev_block_to_chunks_ready_for_inclusion.get_mut(prev_block_hash)
-        {
-            chunk_headers.remove(&chunk_hash);
-            if chunk_headers.is_empty() {
-                self.prev_block_to_chunks_ready_for_inclusion.remove(prev_block_hash);
-            }
+    /// Marks the chunk for inclusion in a block; returns true if we haven't already
+    /// called for this chunk. Requires that the chunk is already in the cache.
+    pub fn mark_chunk_for_inclusion(&mut self, chunk_hash: &ChunkHash) -> bool {
+        let entry = self.encoded_chunks.get_mut(chunk_hash).unwrap();
+        if entry.ready_for_inclusion {
+            false
+        } else {
+            entry.ready_for_inclusion = true;
+            true
         }
-    }
-
-    /// Inserts the chunk for inclusion in a block; returns true if we haven't already
-    /// called for this chunk, and the chunk and within height horizon.
-    pub fn insert_chunk_for_inclusion(&mut self, header: &ShardChunkHeader) -> bool {
-        let height = header.height_created();
-        if height >= self.largest_seen_height.saturating_sub(CHUNK_HEADER_HEIGHT_HORIZON)
-            && height <= self.largest_seen_height + MAX_HEIGHTS_AHEAD
-        {
-            let prev_block_hash = header.prev_block_hash().clone();
-            return self
-                .prev_block_to_chunks_ready_for_inclusion
-                .entry(prev_block_hash)
-                .or_default()
-                .insert(header.chunk_hash());
-        }
-        false
     }
 }
 
@@ -355,13 +333,10 @@ mod tests {
         let partial_encoded_chunk =
             PartialEncodedChunkV2 { header: header.clone(), parts: vec![], receipts: vec![] };
         cache.merge_in_partial_encoded_chunk(&partial_encoded_chunk);
-        assert!(cache.insert_chunk_for_inclusion(&header));
         assert!(!cache.height_map.is_empty());
-        assert!(!cache.insert_chunk_for_inclusion(&header));
 
         cache.update_largest_seen_height::<ChunkRequestInfo>(2000, &HashMap::default());
         assert!(cache.encoded_chunks.is_empty());
         assert!(cache.height_map.is_empty());
-        assert!(cache.prev_block_to_chunks_ready_for_inclusion.is_empty());
     }
 }

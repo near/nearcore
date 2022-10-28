@@ -44,7 +44,9 @@ impl<A: MsgRecipient<WithSpanContext<ShardsManagerResponse>>> ClientAdapterForSh
         self.do_send(ShardsManagerResponse::InvalidChunk(chunk).with_span_context());
     }
     fn chunk_header_ready_for_inclusion(&self, chunk_header: ShardChunkHeader) {
-        self.do_send(ShardsManagerResponse::ChunkHeaderReadyForInclusion(chunk_header));
+        self.do_send(
+            ShardsManagerResponse::ChunkHeaderReadyForInclusion(chunk_header).with_span_context(),
+        );
     }
 }
 

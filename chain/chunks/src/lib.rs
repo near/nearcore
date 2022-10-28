@@ -1798,7 +1798,7 @@ impl ShardsManager {
         // self.seals_mgr.track_seals();
 
         if have_all_parts && self.seals_mgr.should_trust_chunk_producer(&chunk_producer) {
-            if self.encoded_chunks.insert_chunk_for_inclusion(header) {
+            if self.encoded_chunks.mark_chunk_for_inclusion(&chunk_hash) {
                 self.client_adapter.chunk_header_ready_for_inclusion(header.clone());
             }
         }
@@ -2159,7 +2159,7 @@ impl ShardsManager {
 
         // Add it to the set of chunks to be included in the next block
         self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_chunk.clone().into());
-        self.encoded_chunks.insert_chunk_for_inclusion(&chunk_header);
+        self.encoded_chunks.mark_chunk_for_inclusion(&chunk_header.chunk_hash());
 
         Ok(())
     }
