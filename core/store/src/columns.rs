@@ -368,7 +368,23 @@ impl DBCol {
     /// Whether this column should be copied to the cold storage.
     pub const fn is_cold(&self) -> bool {
         match self {
-            DBCol::Block | DBCol::State | DBCol::StateChanges => true,
+            DBCol::Block
+            | DBCol::BlockExtra
+            | DBCol::BlockInfo
+            | DBCol::ChunkExtra
+            | DBCol::Chunks
+            | DBCol::IncomingReceipts
+            | DBCol::NextBlockHashes
+            | DBCol::OutcomeIds
+            | DBCol::OutgoingReceipts
+            | DBCol::ReceiptIdToShardId
+            | DBCol::Receipts
+            | DBCol::State
+            | DBCol::StateChanges
+            | DBCol::StateChangesForSplitStates
+            | DBCol::StateHeaders
+            | DBCol::TransactionResultForBlock
+            | DBCol::Transactions => true,
             _ => false,
         }
     }

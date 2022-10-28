@@ -873,59 +873,53 @@ impl Handler<WithSpanContext<GetExecutionOutcome>> for ViewClientActor {
                     &outcome_proof.block_hash,
                     target_shard_id,
                 )?;
-                match res {
-                    Some((h, target_shard_id)) => {
-                        outcome_proof.block_hash = h;
-                        // Here we assume the number of shards is small so this reconstruction
-                        // should be fast
-                        let outcome_roots = self
-                            .chain
-                            .get_block(&h)?
-                            .chunks()
-                            .iter()
-                            .map(|header| header.outcome_root())
-                            .collect::<Vec<_>>();
-                        if target_shard_id >= (outcome_roots.len() as u64) {
-                            return Err(GetExecutionOutcomeError::InconsistentState {
-                                number_or_shards: outcome_roots.len(),
-                                execution_outcome_shard_id: target_shard_id,
-                            });
-                        }
-                        Ok(GetExecutionOutcomeResponse {
-                            outcome_proof: outcome_proof.into(),
-                            outcome_root_proof: merklize(&outcome_roots).1
-                                [target_shard_id as usize]
-                                .clone(),
-                        })
+                if let Some((h, target_shard_id)) = res {
+                    outcome_proof.block_hash = h;
+                    // Here we assume the number of shards is small so this reconstruction
+                    // should be fast
+                    let outcome_roots = self
+                        .chain
+                        .get_block(&h)?
+                        .chunks()
+                        .iter()
+                        .map(|header| header.outcome_root())
+                        .collect::<Vec<_>>();
+                    if target_shard_id >= (outcome_roots.len() as u64) {
+                        return Err(GetExecutionOutcomeError::InconsistentState {
+                            number_or_shards: outcome_roots.len(),
+                            execution_outcome_shard_id: target_shard_id,
+                        });
                     }
-                    None => Err(GetExecutionOutcomeError::NotConfirmed {
-                        transaction_or_receipt_id: id,
-                    }),
+                    Ok(GetExecutionOutcomeResponse {
+                        outcome_proof: outcome_proof.into(),
+                        outcome_root_proof: merklize(&outcome_roots).1[target_shard_id as usize]
+                            .clone(),
+                    })
+                } else {
+                    Err(GetExecutionOutcomeError::NotConfirmed { transaction_or_receipt_id: id })
                 }
             }
-            Err(e) => match e {
-                near_chain::Error::DBNotFoundErr(_) => {
-                    let head = self.chain.head()?;
-                    let target_shard_id =
-                        self.runtime_adapter.account_id_to_shard_id(&account_id, &head.epoch_id)?;
-                    if self.runtime_adapter.cares_about_shard(
-                        self.validator_account_id.as_ref(),
-                        &head.last_block_hash,
-                        target_shard_id,
-                        true,
-                    ) {
-                        Err(GetExecutionOutcomeError::UnknownTransactionOrReceipt {
-                            transaction_or_receipt_id: id,
-                        })
-                    } else {
-                        Err(GetExecutionOutcomeError::UnavailableShard {
-                            transaction_or_receipt_id: id,
-                            shard_id: target_shard_id,
-                        })
-                    }
+            Err(near_chain::Error::DBNotFoundErr(_)) => {
+                let head = self.chain.head()?;
+                let target_shard_id =
+                    self.runtime_adapter.account_id_to_shard_id(&account_id, &head.epoch_id)?;
+                if self.runtime_adapter.cares_about_shard(
+                    self.validator_account_id.as_ref(),
+                    &head.last_block_hash,
+                    target_shard_id,
+                    true,
+                ) {
+                    Err(GetExecutionOutcomeError::UnknownTransactionOrReceipt {
+                        transaction_or_receipt_id: id,
+                    })
+                } else {
+                    Err(GetExecutionOutcomeError::UnavailableShard {
+                        transaction_or_receipt_id: id,
+                        shard_id: target_shard_id,
+                    })
                 }
-                _ => Err(e.into()),
-            },
+            }
+            Err(err) => Err(err.into()),
         }
     }
 }
