@@ -52,6 +52,11 @@
   a hard limit but instead sets a memory consumption limit. For large trie nodes,
   the limits are close to equivalent. For small values, there can now fit more
   in the cache than previously.
+  [#7749](https://github.com/near/nearcore/pull/7749)
+* New options `store.trie_cache` and `store.view_trie_cache` in `config.json`
+  to set limits on the trie cache. Deprecates the never announced 
+  `store.trie_cache_capacities` option which was mentioned in previous change.
+  [#7578](https://github.com/near/nearcore/pull/7578)
 * Tracing of work across actix workers within a process:
   [#7866](https://github.com/near/nearcore/pull/7866),
   [#7819](https://github.com/near/nearcore/pull/7819),
