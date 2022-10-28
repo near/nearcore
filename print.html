@@ -2124,28 +2124,27 @@ to the label, such as the <code>itoa</code> crate.</p>
 incrementing metrics before. Avoid runtime costs of incrementing metrics too
 often.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="documentation-1"><a class="header" href="#documentation-1">Documentation</a></h1>
-<p>This chapter describes nearcore's approach to documentation. In general,
-there are three primary types of documentations to keep in mind:</p>
+<p>This chapter describes nearcore's approach to documentation. There are three
+primary types of documentation to keep in mind:</p>
 <ul>
-<li><strong>Protocol specification</strong> (<a href="https://github.com/near/NEPs">source</a>,
-<a href="https://nomicon.io">rendered</a>) is a formal description of the NEAR protocol.
-It can be used to implement alternative NEAR clients.</li>
-<li><strong>User docs</strong> (<a href="https://docs.near.org">rendered</a>) explain how to use the near
-network. User docs are also split into documentation for validators (that is,
-how to run your own near node) and documentation for smart contract
-developers.</li>
-<li><strong>Internal development docs</strong> (<a href="https://near.github.io/nearcore/">rendered</a>,
-<a href="https://github.com/near/nearcore/tree/master/docs">source</a>) is the book you
-are reading right now! The target audience here are nearcore contributors.</li>
+<li><a href="https://nomicon.io"><strong>The NEAR Protocol Specification</strong></a> (<a href="https://github.com/near/NEPs">source</a>) is the
+formal description of the NEAR protocol. The reference nearcore implementation
+and any other NEAR client implementations must follow this specification.</li>
+<li><a href="https://docs.near.org"><strong>User docs</strong></a> (<a href="https://github.com/near/docs">source</a>) explain what is NEAR and
+how to participate in the network. In particular, they contain information
+pertinent to the users of NEAR: validators and smart contract developers.</li>
+<li><a href="https://near.github.io/nearcore/"><strong>Documentation for nearcore developers</strong></a> (<a href="https://github.com/near/nearcore/tree/master/docs">source</a>) is the
+book you are reading right now! The target audience here are the contributors
+to the main implementation of the NEAR protocol (nearcore).</li>
 </ul>
 <h2 id="overview-2"><a class="header" href="#overview-2">Overview</a></h2>
-<p>The bulk of the internal docs is this book. If you want to write some kind of a
-document, add it here! The <a href="practices/../architecture/">architecture</a> and
-<a href="practices/../practices/">practices</a> chapter are intended for somewhat up-to-date
-normative documents, but in the <a href="practices/../misc/">misc</a> anything goes.</p>
-<p>These are internal docs, not user-facing ones, so don't worry about proper
-English, typos, or beautiful diagrams -- just write stuff! It can easily be
-improved over time with pull requests. For docs, we use a light-weight review
+<p>The bulk of the internal docs is within this book. If you want to write some
+kind of a document, add it here! The <a href="practices/../architecture/">architecture</a> and
+<a href="practices/../practices/">practices</a> chapters are intended for somewhat up-to-date
+normative documents. The <a href="practices/../misc/">misc</a> chapter holds everything else.</p>
+<p>This book is not intended for user-facing documentation, so don't worry about
+proper English, typos, or beautiful diagrams -- just write stuff! It can easily
+be improved over time with pull requests. For docs, we use a light-weight review
 process and try to merge any improvement as quickly as possible. Rather than
 blocking a PR on some stylistic changes, just merge it and submit a follow up.</p>
 <p>Note the &quot;edit&quot; button at the top-right corner -- super useful for fixing any
@@ -2153,23 +2152,20 @@ typos you spot!</p>
 <p>In addition to the book, we also have some &quot;inline&quot; documentation in the code.
 For Rust, it is customary to have a per-crate <code>README.md</code> file and include it as
 a doc comment via <code>#![doc = include_str!(&quot;../README.md&quot;)]</code> in <code>lib.rs</code>. We don't
-<em>require</em> every <code>struct</code> and <code>function</code> to be documented, but we certainly
-encourage documenting as much as possible. If you spend some time refactoring or
-fixing a function, consider adding a doc comment (<code>///</code>) to it as a drive-by
-improvement.</p>
-<p>We currently don't render <code>rustdoc</code>, see
-<a href="https://github.com/near/nearcore/issues/7836">#7836</a>.</p>
+<em>require</em> every item to be documented, but we certainly encourage documenting as
+much as possible. If you spend some time refactoring or fixing a function,
+consider adding a doc comment (<code>///</code>) to it as a drive-by improvement.</p>
+<p>We currently don't render <code>rustdoc</code>, see <a href="https://github.com/near/nearcore/issues/7836">#7836</a>.</p>
 <h2 id="book-how-to"><a class="header" href="#book-how-to">Book How To</a></h2>
-<p>We use mdBook to render a bunch of markdown files as a nice doc with table of
-contents, search and themes. Full docs are
-<a href="https://rust-lang.github.io/mdBook/">here</a>, but the basics are very simple.</p>
-<p>To add a new page:</p>
+<p>We use mdBook to render a bunch of markdown files as a static website with table
+of contents, search and themes. Full docs are <a href="https://rust-lang.github.io/mdBook/">here</a>, but the basics are
+very simple.</p>
+<p>To add a new page to the book:</p>
 <ol>
 <li>Add an <code>.md</code> file somewhere in the
 <a href="https://github.com/near/nearcore/tree/master/docs"><code>./docs</code></a> folder.</li>
-<li>Add an entry to
-<a href="https://github.com/near/nearcore/blob/master/docs/SUMMARY.md"><code>SUMMARY.md</code></a>
-file.</li>
+<li>Add a link to this page to the
+<a href="https://github.com/near/nearcore/blob/master/docs/SUMMARY.md"><code>SUMMARY.md</code></a>.</li>
 <li>Submit a PR (again, we promise to merge it without much ceremony).</li>
 </ol>
 <p>The doc itself is vanilla markdown.</p>
@@ -2178,28 +2174,27 @@ file.</li>
 $ cargo install mdbook
 $ mdbook serve --open ./docs
 </code></pre>
-<p>This will convert <code>.md</code> file from the docs folder to <code>.html</code>, open a browser,
-and start a file watcher to rebuild and reload on change.</p>
-<p>Note that GitHub's default rendering mostly just works as well, so you don't
-need special preview when reviewing pull requests to docs.</p>
-<p>The book deployed via this GitHub Action:
-<a href="https://github.com/near/nearcore/blob/master/.github/workflows/book.yml">.github/workflows/book.yml</a>.
-It just runs mdBook and then deploys the result to
-https://near.github.io/nearcore/.</p>
+<p>This will generate the book from the docs folder, open it in a browser and
+start a file watcher to rebuild the book every time the source files change.</p>
+<p>Note that GitHub's default rendering mostly works just as well, so you don't
+need to go out of your way to preview your changes when drafting a page or
+reviewing pull requests to this book.</p>
+<p>The book is deployed via the <a href="https://github.com/near/nearcore/blob/master/.github/workflows/book.yml">book GitHub Action workflow</a>. This workflow
+runs mdBook and then deploys the result to <a href="https://docs.github.com/en/pages/getting-started-with-github-pages/about-github-pages">GitHub Pages</a>.</p>
 <p>For internal docs, you often want to have pretty pictures. We don't currently
 have a recommended workflow, but here are some tips:</p>
 <ul>
 <li>
-<p>Don't add binary media files to Git to avoid inflating repository size. 
-Rather, upload images as comments to this super-secret issue 
-<a href="https://github.com/near/nearcore/issues/7821">#7821</a>, and then link to 
+<p>Don't add binary media files to Git to avoid inflating repository size.
+Rather, upload images as comments to this super-secret issue
+<a href="https://github.com/near/nearcore/issues/7821">#7821</a>, and then link to
 the images as</p>
 <pre><code>![image](https://user-images.githubusercontent.com/1711539/195626792-7697129b-7f9c-4953-b939-0b9bcacaf72c.png)
 </code></pre>
 <p>Use single comment per page with multiple images.</p>
 </li>
 <li>
-<p>Google Doc is an OK way to create technical drawings, you can add a link to
+<p>Google Docs is an OK way to create technical drawings, you can add a link to
 the doc with source to that secret issue as well.</p>
 </li>
 <li>
