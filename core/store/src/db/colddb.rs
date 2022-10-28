@@ -47,10 +47,10 @@ impl<D> ColdDB<D> {
 
     /// Checks which database columns should be accessed from.
     ///
-    /// For cold columns (see [`DBCol::is_cold`], returns false temperature.
-    /// For [`DBCol::BlockHeader`] returns true.  For other hot columns logs an
-    /// error and returns false (i.e. they are still read from cold database
-    /// which will result in empty read).
+    /// For columns present in cold database (see [`DBCol::is_in_colddb`],
+    /// returns false.  For [`DBCol::BlockHeader`] returns true.  For other
+    /// (hot) columns logs an error and returns false (i.e. they are still read
+    /// from cold database which will result in empty read).
     fn is_hot_column(col: DBCol) -> bool {
         if col == DBCol::BlockHeader {
             // TODO(#3488): Remove this special case once BlockHeader becomes
@@ -63,11 +63,13 @@ impl<D> ColdDB<D> {
             // are embedded within a block).
             true
         } else {
-            // TODO: Convert this to near_o11y::log_assert!(col.is_cold(), ...)
-            // once all cold columns are marked as such.
-            if !col.is_cold() {
-                tracing::debug!(target: "store",
-                                %col, "Trying to read hot from cold storage");
+            // TODO: Convert this to near_o11y::log_assert!(col.is_in_colddb(),
+            // ...)  once all cold columns are marked as such.
+            if !col.is_in_colddb() {
+                tracing::debug!(
+                    target: "store",
+                    %col, "Trying to read hot column from cold storage"
+                );
             }
             false
         }
