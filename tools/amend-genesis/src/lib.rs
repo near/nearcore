@@ -35,7 +35,6 @@ struct AccountRecords {
 }
 
 // set the total balance to what's in src, keeping the locked amount the same
-// must only be called if self.account.is_some()
 fn set_total_balance(dst: &mut Account, src: &Account) {
     let total = src.amount() + src.locked();
     if total > dst.locked() {
