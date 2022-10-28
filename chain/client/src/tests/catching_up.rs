@@ -6,7 +6,7 @@ use actix::{Addr, System};
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::{future, FutureExt};
 
-use crate::adapter::NetworkClientMessages;
+use crate::adapter::ProcessTxRequest;
 use crate::test_utils::setup_mock_all_validators;
 use crate::{ClientActor, Query, ViewClientActor};
 use near_actix_test_utils::run_actix;
@@ -71,7 +71,7 @@ fn send_tx(
 ) {
     let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     connector.do_send(
-        NetworkClientMessages::Transaction {
+        ProcessTxRequest {
             transaction: SignedTransaction::send_money(
                 nonce, from, to, &signer, amount, block_hash,
             ),

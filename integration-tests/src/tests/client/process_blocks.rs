@@ -21,11 +21,13 @@ use near_chain::{
 };
 use near_chain_configs::{ClientConfig, Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chunks::{ChunkStatus, ShardsManager};
-use near_client::adapter::{NetworkClientMessages, NetworkClientResponses};
 use near_client::test_utils::{
     create_chunk_on_height, setup_client, setup_mock, setup_mock_all_validators, TestEnv,
 };
-use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
+use near_client::{
+    BlockApproval, BlockResponse, Client, GetBlock, GetBlockWithMerkleTree, ProcessTxRequest,
+    ProcessTxResponse, SetNetworkInfo,
+};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
@@ -325,7 +327,7 @@ fn produce_blocks_with_tx() {
         let actor = actor.then(move |res| {
             let block_hash = res.unwrap().unwrap().header.hash;
             client.do_send(
-                NetworkClientMessages::Transaction {
+                ProcessTxRequest {
                     transaction: SignedTransaction::empty(block_hash),
                     is_forwarded: false,
                     check_only: false,
@@ -402,7 +404,7 @@ fn receive_network_block() {
                 None,
             );
             client.do_send(
-                NetworkClientMessages::Block(block, PeerInfo::random().id, false)
+                BlockResponse { block, peer_id: PeerInfo::random().id, was_requested: false }
                     .with_span_context(),
             );
             future::ready(())
@@ -485,8 +487,12 @@ fn produce_block_with_approvals() {
                 None,
             );
             client.do_send(
-                NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, false)
-                    .with_span_context(),
+                BlockResponse {
+                    block: block.clone(),
+                    peer_id: PeerInfo::random().id,
+                    was_requested: false,
+                }
+                .with_span_context(),
             );
 
             for i in 3..11 {
@@ -504,10 +510,7 @@ fn produce_block_with_approvals() {
                     10, // the height at which "test1" is producing
                     &signer,
                 );
-                client.do_send(
-                    NetworkClientMessages::BlockApproval(approval, PeerInfo::random().id)
-                        .with_span_context(),
-                );
+                client.do_send(BlockApproval(approval, PeerInfo::random().id).with_span_context());
             }
 
             future::ready(())
@@ -558,11 +561,11 @@ fn produce_block_with_approvals_arrived_early() {
                                 for (i, (client, _)) in conns.iter().enumerate() {
                                     if i > 0 {
                                         client.do_send(
-                                            NetworkClientMessages::Block(
-                                                block.clone(),
-                                                PeerInfo::random().id,
-                                                false,
-                                            )
+                                            BlockResponse {
+                                                block: block.clone(),
+                                                peer_id: PeerInfo::random().id,
+                                                was_requested: false,
+                                            }
                                             .with_span_context(),
                                         )
                                     }
@@ -583,11 +586,11 @@ fn produce_block_with_approvals_arrived_early() {
                             if approval_counter == 3 {
                                 let block = block_holder.read().unwrap().clone().unwrap();
                                 conns[0].0.do_send(
-                                    NetworkClientMessages::Block(
-                                        block,
-                                        PeerInfo::random().id,
-                                        false,
-                                    )
+                                    BlockResponse {
+                                        block: block,
+                                        peer_id: PeerInfo::random().id,
+                                        was_requested: false,
+                                    }
                                     .with_span_context(),
                                 );
                             }
@@ -701,8 +704,12 @@ fn invalid_blocks_common(is_requested: bool) {
             block.mut_header().get_mut().inner_rest.chunk_mask = vec![];
             block.mut_header().get_mut().init();
             client.do_send(
-                NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, is_requested)
-                    .with_span_context(),
+                BlockResponse {
+                    block: block.clone(),
+                    peer_id: PeerInfo::random().id,
+                    was_requested: is_requested,
+                }
+                .with_span_context(),
             );
 
             // Send blocks with invalid protocol version
@@ -713,11 +720,11 @@ fn invalid_blocks_common(is_requested: bool) {
                     PROTOCOL_VERSION - 1;
                 block.mut_header().get_mut().init();
                 client.do_send(
-                    NetworkClientMessages::Block(
-                        block.clone(),
-                        PeerInfo::random().id,
-                        is_requested,
-                    )
+                    BlockResponse {
+                        block: block.clone(),
+                        peer_id: PeerInfo::random().id,
+                        was_requested: is_requested,
+                    }
                     .with_span_context(),
                 );
             }
@@ -739,26 +746,34 @@ fn invalid_blocks_common(is_requested: bool) {
             };
             block.set_chunks(chunks);
             client.do_send(
-                NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, is_requested)
-                    .with_span_context(),
+                BlockResponse {
+                    block: block.clone(),
+                    peer_id: PeerInfo::random().id,
+                    was_requested: is_requested,
+                }
+                .with_span_context(),
             );
 
             // Send proper block.
             let block2 = valid_block;
             client.do_send(
-                NetworkClientMessages::Block(block2.clone(), PeerInfo::random().id, is_requested)
-                    .with_span_context(),
+                BlockResponse {
+                    block: block2.clone(),
+                    peer_id: PeerInfo::random().id,
+                    was_requested: is_requested,
+                }
+                .with_span_context(),
             );
             if is_requested {
                 let mut block3 = block2;
                 block3.mut_header().get_mut().inner_rest.chunk_headers_root = hash(&[1]);
                 block3.mut_header().get_mut().init();
                 client.do_send(
-                    NetworkClientMessages::Block(
-                        block3.clone(),
-                        PeerInfo::random().id,
-                        is_requested,
-                    )
+                    BlockResponse {
+                        block: block3.clone(),
+                        peer_id: PeerInfo::random().id,
+                        was_requested: is_requested,
+                    }
                     .with_span_context(),
                 );
             }
@@ -871,11 +886,11 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                 for (i, (client, _)) in conns.clone().into_iter().enumerate() {
                                     if i != block_producer_idx {
                                         client.do_send(
-                                            NetworkClientMessages::Block(
-                                                block_mut.clone(),
-                                                PeerInfo::random().id,
-                                                false,
-                                            )
+                                            BlockResponse {
+                                                block: block_mut.clone(),
+                                                peer_id: PeerInfo::random().id,
+                                                was_requested: false,
+                                            }
                                             .with_span_context(),
                                         )
                                     }
@@ -1010,7 +1025,7 @@ fn client_sync_headers() {
             }),
         );
         client.do_send(
-            NetworkClientMessages::NetworkInfo(NetworkInfo {
+            SetNetworkInfo(NetworkInfo {
                 connected_peers: vec![ConnectedPeerInfo::from(&FullPeerInfo {
                     peer_info: peer_info2.clone(),
                     chain_info: PeerChainInfoV2 {
@@ -1070,7 +1085,7 @@ fn test_process_invalid_tx() {
     }
     assert_eq!(
         env.clients[0].process_tx(tx, false, false),
-        NetworkClientResponses::InvalidTx(InvalidTxError::Expired)
+        ProcessTxResponse::InvalidTx(InvalidTxError::Expired)
     );
     let tx2 = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
@@ -1085,7 +1100,7 @@ fn test_process_invalid_tx() {
     );
     assert_eq!(
         env.clients[0].process_tx(tx2, false, false),
-        NetworkClientResponses::InvalidTx(InvalidTxError::Expired)
+        ProcessTxResponse::InvalidTx(InvalidTxError::Expired)
     );
 }
 
