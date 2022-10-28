@@ -90,7 +90,7 @@ impl External for MockedExternal {
         Ok(self.validators.values().sum())
     }
 
-    fn get_block_hash_by_height(
+    fn block_hash(
         &self,
         _height_number: near_primitives::types::BlockHeight,
     ) -> (usize, Option<CryptoHash>) {

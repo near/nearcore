@@ -946,11 +946,12 @@ fn test_ed25519_verify() {
     );
 }
 
+#[cfg(feature = "protocol_feature_get_block_by_hash")]
 #[test]
 fn test_get_block_hash_by_height() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
-    assert_eq!(logic.get_block_hash_by_height(BlockHeight::default(), 0).unwrap(), 1);
+    assert_eq!(logic.block_hash(BlockHeight::default(), 0).unwrap(), 1);
     let mut res = [0u8; 32];
     logic.read_register(0, (&mut res[..]).as_ptr() as _).expect("OK");
     assert_eq!(res.as_ref(), CryptoHash::default().as_bytes());

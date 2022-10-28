@@ -9,6 +9,7 @@ use byteorder::ByteOrder;
 use near_crypto::Secp256K1Signature;
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
+#[cfg(feature = "protocol_feature_get_block_by_hash")]
 use near_primitives::types::BlockHeight;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
@@ -646,14 +647,10 @@ impl<'a> VMLogic<'a> {
     ///
     /// `base`
     #[cfg(feature = "protocol_feature_get_block_by_hash")]
-    pub fn get_block_hash_by_height(
-        &mut self,
-        height_number: BlockHeight,
-        register_id: u64,
-    ) -> Result<u64> {
-        self.gas_counter.pay_base(storage_block_hash_base)?;
-        let (iterations, block_hash) = self.ext.get_block_hash_by_height(height_number);
-        self.gas_counter.pay_per(storage_iter_next_block_hash, iterations as _)?;
+    pub fn block_hash(&mut self, height_number: BlockHeight, register_id: u64) -> Result<u64> {
+        self.gas_counter.pay_base(block_hash_base)?;
+        let (iterations, block_hash) = self.ext.block_hash(height_number);
+        self.gas_counter.pay_per(iter_block_hash_next_block, iterations as _)?;
         match block_hash {
             None => Ok(0),
             Some(block_hash) => {

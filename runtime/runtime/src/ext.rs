@@ -185,7 +185,7 @@ impl<'a> External for RuntimeExt<'a> {
             .map_err(|e| ExternalError::ValidatorError(e).into())
     }
 
-    fn get_block_hash_by_height(&self, height_number: BlockHeight) -> (usize, Option<CryptoHash>) {
+    fn block_hash(&self, height_number: BlockHeight) -> (usize, Option<CryptoHash>) {
         let chain_store = self.chain_store;
         let tip = chain_store.header_head().expect("handle this properly");
         // requested height isn't available

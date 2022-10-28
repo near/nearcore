@@ -374,8 +374,8 @@ pub struct ExtCostsConfig {
     /// Trie iterator next key byte cost
     pub storage_iter_next_value_byte: Gas,
 
-    pub storage_block_hash_base: Gas,
-    pub storage_iter_next_block_hash: Gas,
+    pub block_hash_base: Gas,
+    pub iter_block_hash_next_block: Gas,
 
     /// Cost per reading trie node from DB
     pub touching_trie_node: Gas,
@@ -491,8 +491,8 @@ impl ExtCostsConfig {
             storage_iter_next_base: SAFETY_MULTIPLIER * 0,
             storage_iter_next_key_byte: SAFETY_MULTIPLIER * 0,
             storage_iter_next_value_byte: SAFETY_MULTIPLIER * 0,
-            storage_block_hash_base: 300_000_000,
-            storage_iter_next_block_hash: 100_000_000_000,
+            block_hash_base: 300_000_000,
+            iter_block_hash_next_block: 100_000_000_000,
             touching_trie_node: SAFETY_MULTIPLIER * 5367318642,
             read_cached_trie_node: default_read_cached_trie_node(),
             promise_and_base: SAFETY_MULTIPLIER * 488337800,
@@ -563,8 +563,8 @@ impl ExtCostsConfig {
             storage_iter_next_base: 0,
             storage_iter_next_key_byte: 0,
             storage_iter_next_value_byte: 0,
-            storage_block_hash_base: 0,
-            storage_iter_next_block_hash: 0,
+            block_hash_base: 0,
+            iter_block_hash_next_block: 0,
             touching_trie_node: 0,
             read_cached_trie_node: 0,
             promise_and_base: 0,
@@ -639,9 +639,9 @@ pub enum ExtCosts {
     storage_iter_next_key_byte,
     storage_iter_next_value_byte,
     #[cfg(feature = "protocol_feature_get_block_by_hash")]
-    storage_block_hash_base,
+    block_hash_base,
     #[cfg(feature = "protocol_feature_get_block_by_hash")]
-    storage_iter_next_block_hash,
+    iter_block_hash_next_block,
     touching_trie_node,
     read_cached_trie_node,
     promise_and_base,
@@ -727,8 +727,10 @@ impl ExtCosts {
             storage_iter_next_base => config.storage_iter_next_base,
             storage_iter_next_key_byte => config.storage_iter_next_key_byte,
             storage_iter_next_value_byte => config.storage_iter_next_value_byte,
-            storage_block_hash_base => config.storage_block_hash_base,
-            storage_iter_next_block_hash => config.storage_iter_next_block_hash,
+            #[cfg(feature = "protocol_feature_get_block_by_hash")]
+            block_hash_base => config.block_hash_base,
+            #[cfg(feature = "protocol_feature_get_block_by_hash")]
+            iter_block_hash_next_block => config.iter_block_hash_next_block,
             touching_trie_node => config.touching_trie_node,
             read_cached_trie_node => config.read_cached_trie_node,
             promise_and_base => config.promise_and_base,

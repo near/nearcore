@@ -177,5 +177,5 @@ pub trait External {
 
     /// Returns the BlockHash given a block height if the block is available
     /// within the latest 256 produced blocks.
-    fn get_block_hash_by_height(&self, height_number: BlockHeight) -> (usize, Option<CryptoHash>);
+    fn block_hash(&self, height_number: BlockHeight) -> (usize, Option<CryptoHash>);
 }
