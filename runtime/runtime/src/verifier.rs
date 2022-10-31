@@ -344,17 +344,9 @@ fn validate_delegate_action(
     limit_config: &VMLimitConfig,
     signed_delegate_action: &SignedDelegateAction,
 ) -> Result<(), ActionsValidationError> {
-    let delegate_actions = signed_delegate_action.delegate_action.get_actions();
-    if let Ok(delegate_actions) = &delegate_actions {
-        // DelegateAction shouldn't contain a nested DelegateAction
-        if delegate_actions.iter().any(|a| matches!(a, Action::Delegate(_))) {
-            return Err(ActionsValidationError::DelegateActionCantContainNestedOne);
-        }
-        validate_actions(limit_config, &delegate_actions)?;
-        Ok(())
-    } else {
-        Err(ActionsValidationError::DelegateActionDeserializeError)
-    }
+    let actions = signed_delegate_action.delegate_action.get_actions();
+    validate_actions(limit_config, &actions)?;
+    Ok(())
 }
 
 /// Validates `DeployContractAction`. Checks that the given contract size doesn't exceed the limit.

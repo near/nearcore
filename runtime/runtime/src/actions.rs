@@ -650,7 +650,7 @@ pub(crate) fn apply_delegate_action(
         return Ok(());
     }
 
-    let actions = delegate_action.get_actions().unwrap();
+    let actions = delegate_action.get_actions();
 
     let new_receipt = Receipt::new_delegate_actions(
         &action_receipt.signer_id,
@@ -735,7 +735,7 @@ fn validate_delegate_action_key(
 
     access_key.nonce = delegate_action.nonce;
 
-    let actions = delegate_action.get_actions().unwrap();
+    let actions = delegate_action.get_actions();
 
     if let AccessKeyPermission::FunctionCall(ref function_call_permission) = access_key.permission {
         if actions.len() != 1 {

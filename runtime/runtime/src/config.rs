@@ -132,7 +132,7 @@ pub fn total_send_fees(
                     + 2 * total_send_fees(
                         config,
                         sender_is_receiver,
-                        &delegate_action.get_actions().unwrap(),
+                        &delegate_action.get_actions(),
                         &delegate_action.receiver_id,
                         current_protocol_version,
                     )?
@@ -259,7 +259,7 @@ pub fn total_prepaid_exec_fees(
     for action in actions {
         let mut delta;
         if let Action::Delegate(signed_delegate_action) = action {
-            let actions = signed_delegate_action.delegate_action.get_actions().unwrap();
+            let actions = signed_delegate_action.delegate_action.get_actions();
             delta = total_prepaid_exec_fees(
                 config,
                 &actions,
@@ -289,7 +289,7 @@ pub fn total_deposit(actions: &[Action]) -> Result<Balance, IntegerOverflowError
     for action in actions {
         let action_balance;
         if let Action::Delegate(signed_delegate_action) = action {
-            let actions = signed_delegate_action.delegate_action.get_actions().unwrap();
+            let actions = signed_delegate_action.delegate_action.get_actions();
             action_balance = total_deposit(&actions)?;
         } else {
             action_balance = action.get_deposit_balance();
@@ -305,7 +305,7 @@ pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, IntegerOverflowError
     for action in actions {
         let action_gas;
         if let Action::Delegate(signed_delegate_action) = action {
-            let actions = signed_delegate_action.delegate_action.get_actions().unwrap();
+            let actions = signed_delegate_action.delegate_action.get_actions();
             action_gas = total_prepaid_gas(&actions)?;
         } else {
             action_gas = action.get_prepaid_gas();

@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::io::Error;
+use std::io::{Error, ErrorKind};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
@@ -223,10 +223,27 @@ impl From<DeleteAccountAction> for Action {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
-pub struct ActionArraySerde {
-    /// A list of actions to be applied
-    actions: Vec<Action>,
+#[derive(Serialize, BorshSerialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+pub struct NonDelegateAction(Action);
+
+const ACTION_DELEGATE_NUMBER: u8 = 8;
+
+impl From<&NonDelegateAction> for Action {
+    fn from(action: &NonDelegateAction) -> Self {
+        action.0.clone()
+    }
+}
+
+impl borsh::de::BorshDeserialize for NonDelegateAction {
+    fn deserialize(buf: &mut &[u8]) -> ::core::result::Result<Self, borsh::maybestd::io::Error> {
+        match buf[0] {
+            ACTION_DELEGATE_NUMBER => Err(Error::new(
+                ErrorKind::InvalidInput,
+                "DelegateAction mustn't contain a nested one",
+            )),
+            _ => Ok(Self(borsh::BorshDeserialize::deserialize(buf)?)),
+        }
+    }
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -237,9 +254,7 @@ pub struct DelegateAction {
     /// Receiver of the delegated actions.
     pub receiver_id: AccountId,
     /// List of actions to be executed.
-    // This is a workaround to avoid a type recursion. 'actions[Action]' is deserialized in runtime.
-    // This field contains serialized ActionArraySerde structure.
-    pub action_array_serde: Vec<u8>,
+    pub actions: Vec<NonDelegateAction>,
     /// Nonce to ensure that the same delegate action is not sent twice by a relayer and should match for given account's `public_key`.
     /// After this action is processed it will increment.
     pub nonce: Nonce,
@@ -272,9 +287,8 @@ impl From<SignedDelegateAction> for Action {
 }
 
 impl DelegateAction {
-    pub fn get_actions(&self) -> Result<Vec<Action>, Error> {
-        let a = ActionArraySerde::try_from_slice(&self.action_array_serde)?;
-        Ok(a.actions)
+    pub fn get_actions(&self) -> Vec<Action> {
+        self.actions.iter().map(|a| a.into()).collect()
     }
 
     pub fn get_hash(&self) -> CryptoHash {
