@@ -730,6 +730,7 @@ fn test_chunk_forwarding_optimization() {
         }
         debug!(target: "test", "======= Height {} ======", height + 1);
         test.process_network_messages();
+        test.env.process_shards_manager_responses(0);
 
         let block = test.env.clients[0].produce_block(height + 1).unwrap().unwrap();
         if block.header().height() > 1 {
