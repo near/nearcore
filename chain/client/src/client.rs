@@ -59,7 +59,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
-const CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE: usize = 100;
+const CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE: usize = 2048;
 
 /// The time we wait for the response to a Epoch Sync request before retrying
 // TODO #3488 set 30_000

@@ -28,8 +28,6 @@ use tracing::warn;
 const HEIGHT_HORIZON: BlockHeightDelta = 1024;
 /// A chunk is out of horizon if its height > HEIGHT_HORIZON + largest_seen_height
 const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
-/// A chunk header is out of horizon if its height + CHUNK_HEADER_HORIZON < largest_seen_height
-const CHUNK_HEADER_HEIGHT_HORIZON: BlockHeightDelta = 10;
 
 /// EncodedChunksCacheEntry stores the consolidated parts and receipts received for a chunk
 /// When a PartialEncodedChunk is received, it can be merged to the existing EncodedChunksCacheEntry
