@@ -8,7 +8,7 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::time::Utc;
 use num_rational::Rational32;
 
-use crate::{metrics, ChainStore};
+use crate::metrics;
 use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
 use near_client_primitives::types::StateSplitApplyingStatus;

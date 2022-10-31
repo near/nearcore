@@ -56,7 +56,7 @@ use crate::store::ChainStoreAccess;
 use crate::types::{
     AcceptedBlock, ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ChainGenesis,
 };
-use crate::{BlockHeader, ChainStore, DoomslugThresholdMode, RuntimeAdapter};
+use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
 use crate::{BlockProcessingArtifact, Provenance};
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::time::Clock;

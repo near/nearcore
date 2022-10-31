@@ -16,7 +16,9 @@ use near_primitives::{
     types::{EpochId, StateChangeCause},
     version::PROTOCOL_VERSION,
 };
-use near_store::{set_account, NibbleSlice, RawTrieNode, RawTrieNodeWithSize};
+use near_store::{
+    set_account, test_utils::create_test_store, NibbleSlice, RawTrieNode, RawTrieNodeWithSize,
+};
 use node_runtime::state_viewer::errors;
 use node_runtime::state_viewer::*;
 use testlib::runtime_utils::{alice_account, encode_int};
@@ -120,6 +122,7 @@ fn test_view_call() {
         &[],
         &mut logs,
         &MockEpochInfoProvider::default(),
+        create_test_store(),
     );
 
     assert_eq!(result.unwrap(), encode_int(10));
@@ -148,6 +151,7 @@ fn test_view_call_try_changing_storage() {
         &[],
         &mut logs,
         &MockEpochInfoProvider::default(),
+        create_test_store(),
     );
     let err = result.unwrap_err();
     assert!(
@@ -180,6 +184,7 @@ fn test_view_call_with_args() {
         &args,
         &mut logs,
         &MockEpochInfoProvider::default(),
+        create_test_store(),
     );
     assert_eq!(view_call_result.unwrap(), 3u64.to_le_bytes().to_vec());
 }
@@ -402,6 +407,7 @@ fn test_log_when_panic() {
             &[],
             &mut logs,
             &MockEpochInfoProvider::default(),
+            create_test_store(),
         )
         .unwrap_err();
 
