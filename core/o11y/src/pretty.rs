@@ -101,6 +101,40 @@ impl<'a> std::fmt::Display for StorageKey<'a> {
     }
 }
 
+/// A wrapper for slices which formats the slice limiting the length.
+///
+/// If the slice has no more than five elements, it’s printed in full.
+/// Otherwise, only the first two and last two elements are printed to limit the
+/// length of the formatted value.
+pub struct Slice<'a, T>(pub &'a [T]);
+
+impl<'a, T: std::fmt::Debug> std::fmt::Debug for Slice<'a, T> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let slice = self.0;
+        let len = slice.len();
+        if len <= 5 {
+            return std::fmt::Debug::fmt(&slice, fmt);
+        }
+
+        struct Ellipsis;
+
+        impl std::fmt::Debug for Ellipsis {
+            fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                fmt.write_str("…")
+            }
+        }
+
+        write!(fmt, "({len})")?;
+        fmt.debug_list()
+            .entry(&slice[0])
+            .entry(&slice[1])
+            .entry(&Ellipsis)
+            .entry(&slice[len - 2])
+            .entry(&slice[len - 1])
+            .finish()
+    }
+}
+
 /// Implementation of [`Bytes`] and [`StorageKey`] formatting.
 ///
 /// If the `consider_hash` argument is false, formats bytes as described in
@@ -211,4 +245,22 @@ fn test_truncated_bytes() {
 #[test]
 fn test_storage_key() {
     do_test_bytes_formatting!(StorageKey, true, false);
+}
+
+#[test]
+fn test_slice() {
+    macro_rules! test {
+        ($want:literal, $fmt:literal, $len:expr) => {
+            assert_eq!(
+                $want,
+                format!($fmt, Slice(&[0u8, 11, 22, 33, 44, 55, 66, 77, 88, 99][..$len]))
+            )
+        };
+    }
+
+    test!("[]", "{:?}", 0);
+    test!("[0, 11, 22, 33]", "{:?}", 4);
+    test!("[0, b, 16, 21]", "{:x?}", 4);
+    test!("(10)[0, 11, …, 88, 99]", "{:?}", 10);
+    test!("(10)[0, b, …, 58, 63]", "{:x?}", 10);
 }

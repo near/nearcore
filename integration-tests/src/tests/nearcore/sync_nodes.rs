@@ -10,8 +10,7 @@ use crate::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain::Block;
 use near_chain_configs::Genesis;
-use near_client::adapter::NetworkClientMessages;
-use near_client::{ClientActor, GetBlock};
+use near_client::{BlockResponse, ClientActor, GetBlock, ProcessTxRequest};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
 use near_network::types::PeerInfo;
@@ -89,8 +88,12 @@ fn add_blocks(
         );
         block_merkle_tree.insert(*block.hash());
         let _ = client.do_send(
-            NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, false)
-                .with_span_context(),
+            BlockResponse {
+                block: block.clone(),
+                peer_id: PeerInfo::random().id,
+                was_requested: false,
+            }
+            .with_span_context(),
         );
         blocks.push(block);
         prev = &blocks[blocks.len() - 1];
@@ -277,7 +280,7 @@ fn sync_state_stake_change() {
             actix::spawn(
                 client1
                     .send(
-                        NetworkClientMessages::Transaction {
+                        ProcessTxRequest {
                             transaction: unstake_transaction,
                             is_forwarded: false,
                             check_only: false,
