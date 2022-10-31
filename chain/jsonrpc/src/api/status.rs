@@ -41,6 +41,11 @@ impl RpcFrom<near_client_primitives::debug::DebugStatusResponse>
             near_client_primitives::debug::DebugStatusResponse::ValidatorStatus(x) => {
                 near_jsonrpc_primitives::types::status::DebugStatusResponse::ValidatorStatus(x)
             }
+            near_client_primitives::debug::DebugStatusResponse::ChainProcessingStatus(x) => {
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::ChainProcessingStatus(
+                    x,
+                )
+            }
         }
     }
 }
