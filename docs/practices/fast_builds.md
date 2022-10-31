@@ -1,32 +1,36 @@
 # Fast Builds
 
 nearcore is implemented in Rust and is a fairly sizable project, so it takes a
-while to build. This chapter collects various tips to make the process faster.
+while to build. This chapter collects various tips to make the development
+process faster.
 
 Optimizing build times is a bit of a black art, so please do benchmarks on your
-machine to verify that the improvement work for you. Changing some configuration
-and making some type, which prevents it from improving build times is an
+machine to verify that the improvements work for you. Changing some configuration
+and making a typo, which prevents it from improving build times is an
 extremely common failure mode!
 
 [Rust Perf Book](https://nnethercote.github.io/perf-book/compile-times.html)
-contains a section on compilation time as well!
+contains a section on compilation times as well!
 
 ## Release Builds and Link Time Optimization
 
-Obviously, `cargo build --release` is slower than `cargo build`. What's not
-entirely obvious is that `cargo build -r` is not as slow as it could be: our
-`--release` profile is somewhat optimized for fast builds, as it doesn't enable
-full LTO.
+Obviously, `cargo build --release` is slower than `cargo build`. We enable full
+lto (link time optimization), so our `-r` builds are very slow, use a lot of
+RAM, and don't utilize the available parallelism fully.
 
-When building production binaries, we use `lto=true` and `codegen-units=1`
-options, which make the build significantly slower (but the resulting binary
-somewhat faster). Keep this in mind when running benchmarks or parameter
-estimation.
+As debug builds are much too slow at runtime for many purposes, we have a custom
+profile `--profile quick-release` which is equivalent to `-r`, except that time
+consuming options such as LTO are disabled.
+
+Use `--profile quick-release` when doing comparative benchmarking, or when
+connecting a locally built node to a network. Use `-r` if you want to get
+absolute performance numbers.
 
 ## Linker
 
-By default, `rustc` uses system's linker, which might be quite slow. Using `lld`
-(LLVM linker) or `mold` (very new, very fast linker) is usually a big win.
+By default, `rustc` uses the default system linker, which tends to be quite
+slow. Using `lld` (LLVM linker) or `mold` (very new, very fast linker) provides
+big wins for many setups.
 
 I don't know what's the official source of truth for using alternative linkers,
 I usually refer to [this
@@ -45,21 +49,22 @@ lld itself can be installed with `sudo apt install lld`.
 
 ## Prebuilt RocksDB
 
-By default, we compile RocksDB (a C++ project) from source, which takes a lot of
-time. A faster alternative is to link to a prebuilt copy of RocksDB. This is a
-huge win, especially if you clean `./target` directory frequently.
+By default, we compile RocksDB (a C++ project) from source during the neard
+build. By linking to a prebuilt copy of RocksDB this work can be avoided
+entirely. This is a huge win, especially if you clean the `./target` directory
+frequently.
 
-To use prebuilt RocksDB set `ROCKSDB_LIB_DIR` environment variable to location
-where `librocksdb.a` file is installed:
+In order to use prebuilt RocksDB, set `ROCKSDB_LIB_DIR` environment variable to
+a location containing `librocksdb.a`:
 
 ```console
 $ export ROCKSDB_LIB_DIR=/usr/lib/x86_64-linux-gnu
 $ cargo build -p neard
 ```
 
-Note that the system must provide a recent version of the library which,
+Note, that the system must provide a recent version of the library which,
 depending on operating system you’re using, may require installing packages from
-testing branches.  For example, on Debian it requires installing
+a testing branch.  For example, on Debian it requires installing
 `librocksdb-dev` from `experimental` version:
 
 ```bash
@@ -74,11 +79,13 @@ export ROCKSDB_LIB_DIR
 
 ## Global Compilation Cache
 
-By default, Rust uses incremental compilation, with intermediate artifacts
-stored in the project-local `./target` directory.
+By default, Rust compiles incrementally, with the incremental cache and
+intermediate outputs stored in the project-local `./target` directory.
 
-[`sccache`](https://github.com/mozilla/sccache) utility can be used to add a
-global compilation to the mix:
+[`sccache`](https://github.com/mozilla/sccache) utility can be used to share
+these artifacts between machines or checkouts within the same machine. `sccache`
+works by intercepting calls to `rustc` and will fetch the cached outputs from
+the global cache whenever possible. This tool can be set up as such:
 
 ```console
 $ cargo install sccache
@@ -87,19 +94,19 @@ $ export SCCACHE_CACHE_SIZE="30G"
 $ cargo build -p neard
 ```
 
-`sccache` intercepts calls to `rustc` and pattern-matches compiler's command
-line to get a cached result.
+Refer to the [project’s README](https://github.com/mozilla/sccache) for further
+configuration options.
 
 ## IDEs Are Bad For Environment
 
 Generally, the knobs in this section are controlled either via global
-configuration in `~/.cargo/config` or environmental variables.
+configuration in `~/.cargo/config` or environment variables.
 
-Environmental variables are notoriously easy to lose, especially if you are
-working both from a command line and from a graphical IDE. Double check that you
-are not missing any of our build optimizations, the failure mode here is nasty,
-as the stuff just takes longer to compile without givin any visual indication of
-an error.
+Environment variables are notoriously easy to lose, especially if you are
+working both from a command line and graphical IDE. Double check that the
+environment within which builds are executed is identical in order to avoid
+nasty failure modes such as full cache invalidation when switching
+from the CLI to an IDE or vice-versa.
 
 [`direnv`](https://direnv.net) sometimes can be used to conveniently manage
-project-specific environmentalvariable.
+project-specific environment variables.
