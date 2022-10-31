@@ -1123,7 +1123,7 @@ impl<'a> VMLogic<'a> {
 
     /// Verify an ED25519 signature given a message and a public key.
     ///
-    /// Returns a bool indicating success or failure as a `u64`.
+    /// Returns a bool indicating success (1) or failure (0) as a `u64`.
     ///
     /// # Errors
     ///
