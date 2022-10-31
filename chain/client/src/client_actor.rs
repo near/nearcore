@@ -845,7 +845,6 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
                     .config
                     .min_block_production_delay
                     .as_millis() as u64,
-                chain_processing_info: self.client.chain.get_chain_processing_info(),
             })
         } else {
             None
