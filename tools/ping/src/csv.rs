@@ -1,3 +1,4 @@
+use near_network::time;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use std::fs::{File, OpenOptions};
@@ -5,7 +6,6 @@ use std::io;
 use std::io::BufWriter;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
-use std::time::Duration;
 
 pub struct LatenciesCsv {
     out: BufWriter<File>,
@@ -74,10 +74,16 @@ impl LatenciesCsv {
         &mut self,
         peer_id: &PeerId,
         account_id: Option<&AccountId>,
-        latency: Duration,
+        latency: time::Duration,
     ) -> io::Result<()> {
         let id = account_id.map_or_else(|| format!("{}", peer_id), |a| format!("{}", a));
-        write!(self.out, "{:?},{},{}\n", chrono::offset::Utc::now(), id, latency.as_micros())?;
+        write!(
+            self.out,
+            "{:?},{},{}\n",
+            chrono::offset::Utc::now(),
+            id,
+            latency.whole_microseconds()
+        )?;
         Ok(())
     }
 
