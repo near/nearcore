@@ -1,6 +1,7 @@
 use crate::log_config_watcher::{LogConfigWatcher, UpdateBehavior};
 use anyhow::Context;
 use clap::{Args, Parser};
+use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
@@ -97,6 +98,9 @@ impl NeardCmd {
             NeardSubCommand::Mirror(cmd) => {
                 cmd.run()?;
             }
+            NeardSubCommand::AmendGenesis(cmd) => {
+                cmd.run()?;
+            }
         };
         Ok(())
     }
@@ -189,6 +193,9 @@ pub(super) enum NeardSubCommand {
     /// Mirror transactions from a source chain to a test chain with state forked
     /// from it, reproducing traffic and state as closely as possible.
     Mirror(MirrorCommand),
+
+    /// Amend a genesis/records file created by `dump-state`.
+    AmendGenesis(AmendGenesisCommand),
 }
 
 #[derive(Parser)]

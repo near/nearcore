@@ -2819,6 +2819,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-amend-genesis"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "borsh",
+ "clap 3.1.18",
+ "near-chain",
+ "near-chain-configs",
+ "near-crypto",
+ "near-epoch-manager",
+ "near-network",
+ "near-primitives",
+ "near-primitives-core",
+ "near-store",
+ "near-test-contracts",
+ "nearcore",
+ "node-runtime",
+ "num-rational",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
 name = "near-cache"
 version = "0.0.0"
 dependencies = [
@@ -3674,6 +3699,7 @@ dependencies = [
  "anyhow",
  "clap 3.1.18",
  "futures",
+ "near-amend-genesis",
  "near-chain-configs",
  "near-jsonrpc-primitives",
  "near-mirror",
@@ -5340,6 +5366,23 @@ checksum = "66d72b759436ae32898a2af0a14218dbf55efde3feeb170eb623637db85ee1e0"
 dependencies = [
  "libc",
  "winapi",
+]
+
+[[package]]
+name = "speedy_sync"
+version = "0.0.0"
+dependencies = [
+ "borsh",
+ "clap 3.1.18",
+ "near-chain",
+ "near-chain-configs",
+ "near-chain-primitives",
+ "near-epoch-manager",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
