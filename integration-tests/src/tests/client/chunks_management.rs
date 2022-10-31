@@ -425,6 +425,7 @@ fn chunks_produced_and_distributed_one_val_shard_cop() {
 
 /// `test4` can't talk to `test1`, so it'll fetch the chunk for first shard from `cop1`.
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn chunks_recovered_from_others_cop() {
     Test {
         validator_groups: 1,
@@ -439,6 +440,7 @@ fn chunks_recovered_from_others_cop() {
 /// `test4` can't talk neither to `cop1` nor to `test1`, so it can't fetch chunk
 /// from chunk producers and has to reconstruct it.
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 #[should_panic]
 fn chunks_recovered_from_full_timeout_too_short_cop() {
     Test {
@@ -453,6 +455,7 @@ fn chunks_recovered_from_full_timeout_too_short_cop() {
 
 /// Same as above, but with longer block production timeout which should allow for full reconstruction.
 #[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn chunks_recovered_from_full_cop() {
     Test {
         validator_groups: 4,
