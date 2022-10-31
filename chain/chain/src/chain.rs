@@ -3303,6 +3303,8 @@ impl Chain {
                 let is_refund = receipt.predecessor_id.is_system();
                 if !is_refund {
                     results.extend(self.get_recursive_transaction_results(receipt_id)?);
+                } else {
+                    self.get_recursive_transaction_results(receipt_id)?;
                 }
             }
         }
