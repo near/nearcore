@@ -957,12 +957,6 @@ impl ClientActor {
     /// Check if client Account Id should be sent and send it.
     /// Account Id is sent when is not current a validator but are becoming a validator soon.
     fn check_send_announce_account(&mut self, prev_block_hash: CryptoHash) {
-        // If no peers, there is no one to announce to.
-        if self.network_info.num_connected_peers == 0 {
-            debug!(target: "client", "No peers: skip account announce");
-            return;
-        }
-
         // First check that we currently have an AccountId
         let validator_signer = match self.client.validator_signer.as_ref() {
             None => return,

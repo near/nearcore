@@ -156,7 +156,10 @@ impl RoutingTableView {
         let mut inner = self.0.lock();
         let mut res = vec![];
         for aa in aas {
-            match inner.get_announce(&aa.account_id) {
+            // Broadcast should happen iff we don't have the account in cache.
+            // If it was in storage but not in cache, it means that we haven't
+            // included it in the initial sync.
+            match inner.account_peers.get(&aa.account_id) {
                 Some(old) if old.epoch_id == aa.epoch_id => continue,
                 _ => {}
             }

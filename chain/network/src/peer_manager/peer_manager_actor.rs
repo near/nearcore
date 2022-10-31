@@ -272,7 +272,6 @@ impl PeerManagerActor {
                             loop {
                                 interval.tick().await;
                                 state.tier1_advertise_proxies(&clock).await;
-                                tracing::info!(target:"dupa", "tier1_advertise_proxies DONE");
                             }
                         }
                     });
@@ -738,6 +737,7 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::AnnounceAccount(announce_account) => {
+                tracing::debug!(target:"dupa","announcing {announce_account:?}");
                 let state = self.state.clone();
                 self.state.arbiter.spawn(async move {
                     state.broadcast_accounts(vec![announce_account]).await;
