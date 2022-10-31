@@ -68,7 +68,7 @@
             row.append("<th>In Progress for</th>");
             row.append("<th>In Orphan for</th>");
             row.append("<th>Missing Chunks for</th>");
-            for (i = 0; i < num_shards; i += 1) {
+            for (i = 0; i < num_shards; ++i) {
                 row.append("<th>Shard " + i + "</th>");
             }
             $('.js-blocks-thead').append(row);
