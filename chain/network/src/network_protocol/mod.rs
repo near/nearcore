@@ -300,10 +300,10 @@ pub enum PeerMessage {
 
     Transaction(SignedTransaction),
     Routed(Box<RoutedMessageV2>),
-    Challenge(Challenge),
 
     /// Gracefully disconnect from other peer.
     Disconnect,
+    Challenge(Challenge),
 }
 
 impl fmt::Display for PeerMessage {

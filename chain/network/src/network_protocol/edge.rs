@@ -148,7 +148,7 @@ impl Edge {
         Edge(Arc::new(edge))
     }
 
-    pub fn hash(&self) -> CryptoHash {
+    fn hash(&self) -> CryptoHash {
         Edge::build_hash(&self.key().0, &self.key().1, self.nonce())
     }
 

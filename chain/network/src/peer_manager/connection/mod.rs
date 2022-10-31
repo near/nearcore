@@ -374,8 +374,6 @@ impl Pool {
         })
     }
 
-    // TODO: accept Arc<Connection> as an argument,
-    // so that we can add support for removing loop connections.
     pub fn remove(&self, conn: &Arc<Connection>) {
         self.0.update(|pool| {
             match pool.ready.entry(conn.peer_info.id.clone()) {

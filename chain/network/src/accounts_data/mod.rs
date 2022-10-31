@@ -78,12 +78,6 @@ impl CacheSnapshot {
         self.epochs(account_id, key).len() > 0
     }
 
-    /// Finds if peer_id is currently a TIER1 peer, according to the collected account data.
-    /// Complexity: O(data.len()).
-    /*pub fn is_tier1_peer(&self, peer_id: &PeerId) -> bool {
-        self.data.values().filter(|d| d.peer_id.as_ref() == Some(peer_id)).count() > 0
-    }*/
-
     fn is_new(&self, d: &SignedAccountData) -> bool {
         let id = (d.epoch_id.clone(), d.account_id.clone());
         self.keys.contains_key(&id)

@@ -479,7 +479,7 @@ impl PeerActor {
         tier: tcp::Tier,
         handshake: Handshake,
     ) {
-        //tracing::debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
+        tracing::debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
         let cs = match &self.peer_status {
             PeerStatus::Connecting(_, it) => it,
             _ => panic!("process_handshake called in non-connecting state"),
