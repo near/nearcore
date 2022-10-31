@@ -253,7 +253,7 @@ impl AppInfo {
             .unwrap();
         assert!(pending_pings.remove(&t.nonce).is_some());
         println!(
-            "{} timeout after {:?} ---------",
+            "{} timeout after {} ---------",
             peer_str(&t.peer_id, state.account_id.as_ref()),
             PING_TIMEOUT
         );
