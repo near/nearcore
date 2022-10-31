@@ -35,7 +35,6 @@ struct AccountRecords {
 }
 
 // set the total balance to what's in src, keeping the locked amount the same
-// must only be called if self.account.is_some()
 fn set_total_balance(dst: &mut Account, src: &Account) {
     let total = src.amount() + src.locked();
     if total > dst.locked() {
@@ -354,8 +353,6 @@ pub fn amend_genesis<P: AsRef<Path>>(
     if let Some(t) = genesis_changes.chunk_producer_kickout_threshold {
         genesis.config.chunk_producer_kickout_threshold = t;
     }
-    genesis.config.protocol_reward_rate = num_rational::Rational32::new(1, 10);
-    genesis.config.block_producer_kickout_threshold = 10;
     genesis.to_file(genesis_file_out);
     records_seq.end()?;
     Ok(())
