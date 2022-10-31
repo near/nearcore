@@ -2,7 +2,7 @@ use near_client_primitives::debug::{
     DebugBlockStatusData, EpochInfoView, TrackedShardsView, ValidatorStatus,
 };
 use near_primitives::views::{
-    CatchupStatusView, ChainProcessingInfo, PeerStoreView, SyncStatusView,
+    CatchupStatusView, ChainProcessingInfo, NetworkGraphView, PeerStoreView, SyncStatusView,
 };
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +25,7 @@ pub enum DebugStatusResponse {
     ValidatorStatus(ValidatorStatus),
     PeerStore(PeerStoreView),
     ChainProcessingStatus(ChainProcessingInfo),
+    NetworkGraph(NetworkGraphView),
 }
 
 #[cfg(feature = "debug_types")]
