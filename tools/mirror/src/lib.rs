@@ -2,8 +2,8 @@ use actix::Addr;
 use anyhow::Context;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_configs::GenesisValidationMode;
-use near_client::adapter::{NetworkClientMessages, NetworkClientResponses};
 use near_client::{ClientActor, ViewClientActor};
+use near_client::{ProcessTxRequest, ProcessTxResponse};
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunk, GetChunkError, GetExecutionOutcome,
     GetExecutionOutcomeError, GetExecutionOutcomeResponse, Query, QueryError,
@@ -492,7 +492,7 @@ impl TxMirror {
                         match self
                             .target_client
                             .send(
-                                NetworkClientMessages::Transaction {
+                                ProcessTxRequest {
                                     transaction: tx.target_tx.clone(),
                                     is_forwarded: false,
                                     check_only: false,
@@ -501,11 +501,11 @@ impl TxMirror {
                             )
                             .await?
                         {
-                            NetworkClientResponses::RequestRouted => {
+                            ProcessTxResponse::RequestRouted => {
                                 crate::metrics::TRANSACTIONS_SENT.with_label_values(&["ok"]).inc();
                                 txs.push(tx);
                             }
-                            NetworkClientResponses::InvalidTx(e) => {
+                            ProcessTxResponse::InvalidTx(e) => {
                                 // TODO: here if we're getting an error because the tx was already included, it is possible
                                 // that some other instance of this code ran and made progress already. For now we can assume
                                 // only once instance of this code will run, but this is the place to detect if that's not the case.

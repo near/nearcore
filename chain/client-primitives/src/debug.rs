@@ -6,7 +6,9 @@ use std::collections::HashMap;
 use crate::types::StatusError;
 use actix::Message;
 use chrono::DateTime;
-use near_primitives::views::{CatchupStatusView, EpochValidatorInfo, SyncStatusView};
+use near_primitives::views::{
+    CatchupStatusView, ChainProcessingInfo, EpochValidatorInfo, SyncStatusView,
+};
 use near_primitives::{
     block_header::ApprovalInner,
     hash::CryptoHash,
@@ -47,15 +49,31 @@ pub struct DebugChunkStatus {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DebugBlockStatus {
     pub block_hash: CryptoHash,
+    pub prev_block_hash: CryptoHash,
     pub block_height: u64,
+    pub block_timestamp: u64,
     pub block_producer: Option<AccountId>,
+    pub full_block_missing: bool, // only header available
+    pub is_on_canonical_chain: bool,
     pub chunks: Vec<DebugChunkStatus>,
     // Time that was spent processing a given block.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub processing_time_ms: Option<u64>,
-    // Time between this block and the next one in chain.
-    pub timestamp_delta: u64,
     pub gas_price_ratio: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MissedHeightInfo {
+    pub block_height: u64,
+    pub block_producer: Option<AccountId>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DebugBlockStatusData {
+    pub blocks: Vec<DebugBlockStatus>,
+    pub missed_heights: Vec<MissedHeightInfo>,
+    pub head: CryptoHash,
+    pub header_head: CryptoHash,
 }
 
 // Information about the approval created by this node.
@@ -157,11 +175,13 @@ pub enum DebugStatus {
     // Detailed information about last couple epochs.
     EpochInfo,
     // Detailed information about last couple blocks.
-    BlockStatus,
+    BlockStatus(Option<BlockHeight>),
     // Consensus related information.
     ValidatorStatus,
     // Request for the current catchup status
     CatchupStatus,
+    // Request for the current state of chain processing (blocks in progress etc).
+    ChainProcessingStatus,
 }
 
 impl Message for DebugStatus {
@@ -176,7 +196,9 @@ pub enum DebugStatusResponse {
     // List of epochs - in descending order (next epoch is first).
     EpochInfo(Vec<EpochInfoView>),
     // Detailed information about blocks.
-    BlockStatus(Vec<DebugBlockStatus>),
+    BlockStatus(DebugBlockStatusData),
     // Detailed information about the validator (approvals, block & chunk production etc.)
     ValidatorStatus(ValidatorStatus),
+    // Detailed information about chain processing (blocks in progress etc).
+    ChainProcessingStatus(ChainProcessingInfo),
 }
