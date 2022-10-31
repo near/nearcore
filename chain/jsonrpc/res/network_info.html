@@ -258,7 +258,8 @@
                                 .append($('<td>').append(JSON.stringify(peer.tracked_shards)))
                                 .append($('<td>').append(JSON.stringify(peer.archival)))
                                 .append($('<td>').append(((peer.is_outbound_peer) ? 'OUT' : 'IN')))
-                                .append($('<td>').append(peer.nonce))
+                                // If this is a new style nonce - show the approx time since it was created.
+                                .append($('<td>').append(peer.nonce + " <br> " + ((peer.nonce > 1660000000) ? convertTime(Date.now() - peer.nonce * 1000) : "old style nonce")))
                                 .append($('<td>').append(convertTime(peer.connection_established_time_millis)))
                                 .append($('<td>').append(computeTraffic(peer.received_bytes_per_sec, peer.sent_bytes_per_sec)))
                                 .append($('<td>').append(routedValidator.join(",")))
