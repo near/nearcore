@@ -302,7 +302,7 @@ impl ViewClientActor {
             })?;
 
         let state_root = chunk_extra.state_root();
-        let chain_store = self.chain.store();
+        let chain_store = self.chain.store().store().clone();
         match self.runtime_adapter.query(
             shard_uid,
             state_root,

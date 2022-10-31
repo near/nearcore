@@ -117,6 +117,7 @@ impl RuntimeTestbed {
                 transactions,
                 &self.epoch_info_provider,
                 Default::default(),
+                near_store::test_utils::create_test_store(),
             )
             .unwrap();
 

@@ -1,5 +1,4 @@
 use crate::near_primitives::shard_layout::ShardUId;
-use near_chain::ChainStore;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
@@ -9,6 +8,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::ViewStateResult;
+use near_store::Store;
 
 /// Adapter for querying runtime.
 pub trait ViewRuntimeAdapter {
@@ -42,7 +42,7 @@ pub trait ViewRuntimeAdapter {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
-        chain_store: &ChainStore,
+        chain_store: Store,
     ) -> Result<Vec<u8>, crate::state_viewer::errors::CallFunctionError>;
 
     fn view_access_key(

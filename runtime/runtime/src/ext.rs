@@ -1,4 +1,5 @@
-use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain::types::Tip;
+use near_chain::BlockHeader;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
@@ -8,11 +9,13 @@ use near_primitives::types::{
 };
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
-use near_store::{get_code, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
+use near_store::{
+    get_code, DBCol, KeyLookupMode, Store, TrieUpdate, TrieUpdateValuePtr, HEADER_HEAD_KEY,
+};
 use near_vm_errors::{AnyError, VMLogicError};
 use near_vm_logic::gas_counter::GasCounter;
+use near_vm_logic::StorageGetMode;
 use near_vm_logic::{ExtCosts, External, ValuePtr};
-use near_vm_logic::{External, StorageGetMode, ValuePtr};
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
@@ -23,7 +26,7 @@ pub struct RuntimeExt<'a> {
     prev_block_hash: &'a CryptoHash,
     last_block_hash: &'a CryptoHash,
     epoch_info_provider: &'a dyn EpochInfoProvider,
-    chain_store: &'a ChainStore,
+    chain_store: Store,
     current_protocol_version: ProtocolVersion,
 }
 
@@ -64,7 +67,7 @@ impl<'a> RuntimeExt<'a> {
         prev_block_hash: &'a CryptoHash,
         last_block_hash: &'a CryptoHash,
         epoch_info_provider: &'a dyn EpochInfoProvider,
-        chain_store: &'a ChainStore,
+        chain_store: Store,
         current_protocol_version: ProtocolVersion,
     ) -> Self {
         RuntimeExt {
@@ -205,8 +208,11 @@ impl<'a> External for RuntimeExt<'a> {
         block_hash_base: ExtCosts,
     ) -> ExtResult<Option<CryptoHash>> {
         gas_counter.pay_base(block_hash_base)?;
-        let chain_store = self.chain_store;
-        let tip = chain_store.header_head().expect("handle this properly");
+        let tip: Tip = self
+            .chain_store
+            .get_ser(DBCol::BlockMisc, HEADER_HEAD_KEY)
+            .unwrap()
+            .expect("handle this properly");
         // requested height isn't available
         if tip.height < height_number {
             return Ok(None);
@@ -220,10 +226,14 @@ impl<'a> External for RuntimeExt<'a> {
             // this indicates it's the genesis block
             return Ok(None);
         }
+
         // iterate up to 255 times more
-        for iteration in 1..256 {
-            let block_header =
-                chain_store.get_block_header(&previous_block_hash).expect("handle this properly");
+        for _ in 1..256 {
+            let block_header = self
+                .chain_store
+                .get_ser::<BlockHeader>(DBCol::BlockHeader, previous_block_hash.as_ref())
+                .unwrap()
+                .expect("handle properly");
             gas_counter.pay_base(block_hash_base)?;
 
             match block_header.height().cmp(&height_number) {

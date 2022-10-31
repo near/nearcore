@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use near_chain::ChainStore;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use tracing::debug;
 
@@ -46,7 +45,7 @@ use near_primitives::{
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
     set_account, set_postponed_receipt, set_received_data, PartialStorage, ShardTries,
-    StorageError, Trie, TrieChanges, TrieUpdate,
+    StorageError, Store, Trie, TrieChanges, TrieUpdate,
 };
 use near_store::{set_access_key, set_code};
 use near_vm_logic::types::PromiseResult;
@@ -300,7 +299,7 @@ impl Runtime {
         action_index: usize,
         actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
-        chain_store: &ChainStore,
+        chain_store: Store,
     ) -> Result<ActionResult, RuntimeError> {
         // println!("enter apply_action");
         let mut result = ActionResult::default();
@@ -460,7 +459,7 @@ impl Runtime {
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
-        chain_store: &ChainStore,
+        chain_store: Store,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
         let action_receipt = match &receipt.receipt {
             ReceiptEnum::Action(action_receipt) => action_receipt,
@@ -524,7 +523,7 @@ impl Runtime {
                 action_index,
                 &action_receipt.actions,
                 epoch_info_provider,
-                chain_store,
+                chain_store.clone(),
             )?;
             if new_result.result.is_ok() {
                 if let Err(e) = new_result.new_receipts.iter().try_for_each(|receipt| {
@@ -824,7 +823,7 @@ impl Runtime {
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
-        chain_store: &ChainStore,
+        chain_store: Store,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
@@ -1160,7 +1159,7 @@ impl Runtime {
         transactions: &[SignedTransaction],
         epoch_info_provider: &dyn EpochInfoProvider,
         state_patch: SandboxStatePatch,
-        chain_store: &ChainStore,
+        chain_store: Store,
     ) -> Result<ApplyResult, RuntimeError> {
         // state_patch must be empty unless this is sandbox build.  Thanks to
         // conditional compilation this always resolves to true so technically
@@ -1281,7 +1280,7 @@ impl Runtime {
                 &mut validator_proposals,
                 &mut stats,
                 epoch_info_provider,
-                chain_store,
+                chain_store.clone(),
             );
             tracing::debug!(target: "runtime", node_counter = ?state_update.trie().get_trie_nodes_count());
             if let Some(outcome_with_id) = result? {
@@ -1548,6 +1547,10 @@ mod tests {
         }]
     }
 
+    fn create_test_store() -> Store {
+        near_store::test_utils::create_test_store()
+    }
+
     #[test]
     fn test_get_and_set_accounts() {
         let tries = create_tries();
@@ -1650,6 +1653,7 @@ mod tests {
                 &[],
                 &epoch_info_provider,
                 Default::default(),
+                create_test_store(),
             )
             .unwrap();
     }
@@ -1679,6 +1683,7 @@ mod tests {
                 &[],
                 &epoch_info_provider,
                 Default::default(),
+                create_test_store(),
             )
             .unwrap();
     }
@@ -1707,6 +1712,7 @@ mod tests {
                     &[],
                     &epoch_info_provider,
                     Default::default(),
+                    create_test_store(),
                 )
                 .unwrap();
             let mut store_update = tries.store_update();
@@ -1752,6 +1758,7 @@ mod tests {
                     &[],
                     &epoch_info_provider,
                     Default::default(),
+                    create_test_store(),
                 )
                 .unwrap();
             let mut store_update = tries.store_update();
@@ -1805,6 +1812,7 @@ mod tests {
                     &[],
                     &epoch_info_provider,
                     Default::default(),
+                    create_test_store(),
                 )
                 .unwrap();
             let mut store_update = tries.store_update();
@@ -1868,6 +1876,7 @@ mod tests {
                     &[],
                     &epoch_info_provider,
                     Default::default(),
+                    create_test_store(),
                 )
                 .unwrap();
             let mut store_update = tries.store_update();
@@ -1973,6 +1982,7 @@ mod tests {
                 &local_transactions[0..4],
                 &epoch_info_provider,
                 Default::default(),
+                create_test_store(),
             )
             .unwrap();
         let mut store_update = tries.store_update();
@@ -2025,6 +2035,7 @@ mod tests {
                 &local_transactions[4..5],
                 &epoch_info_provider,
                 Default::default(),
+                create_test_store(),
             )
             .unwrap();
         let mut store_update = tries.store_update();
@@ -2069,6 +2080,7 @@ mod tests {
                 &local_transactions[5..9],
                 &epoch_info_provider,
                 Default::default(),
+                create_test_store(),
             )
             .unwrap();
         let mut store_update = tries.store_update();
@@ -2121,6 +2133,7 @@ mod tests {
                 &[],
                 &epoch_info_provider,
                 Default::default(),
+                create_test_store(),
             )
             .unwrap();
         let mut store_update = tries.store_update();
@@ -2158,6 +2171,7 @@ mod tests {
                 &[],
                 &epoch_info_provider,
                 Default::default(),
+                create_test_store(),
             )
             .unwrap();
 
@@ -2196,6 +2210,7 @@ mod tests {
                 &[],
                 &epoch_info_provider,
                 Default::default(),
+                create_test_store(),
             )
             .unwrap();
         assert_eq!(result.stats.gas_deficit_amount, result.stats.tx_burnt_amount * 9)
@@ -2255,6 +2270,7 @@ mod tests {
                 &[],
                 &epoch_info_provider,
                 Default::default(),
+                create_test_store(),
             )
             .unwrap();
         // We used part of the prepaid gas to paying extra fees.
@@ -2324,6 +2340,7 @@ mod tests {
                 &[],
                 &epoch_info_provider,
                 Default::default(),
+                create_test_store(),
             )
             .unwrap();
         // Used full prepaid gas, but it still not enough to cover deficit.
@@ -2360,6 +2377,7 @@ mod tests {
                 &[],
                 &epoch_info_provider,
                 Default::default(),
+                create_test_store(),
             )
             .unwrap();
         let mut store_update = tries.store_update();
@@ -2406,6 +2424,7 @@ mod tests {
                 &[],
                 &epoch_info_provider,
                 Default::default(),
+                create_test_store(),
             )
             .unwrap();
         let mut store_update = tries.store_update();
@@ -2445,6 +2464,7 @@ mod tests {
                 &[],
                 &epoch_info_provider,
                 Default::default(),
+                create_test_store(),
             )
             .unwrap();
         let mut store_update = tries.store_update();

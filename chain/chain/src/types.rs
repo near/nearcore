@@ -559,7 +559,7 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         request: &QueryRequest,
-        chain_store: &ChainStore,
+        chain_store: Store,
     ) -> Result<QueryResponse, near_chain_primitives::error::QueryError>;
 
     /// Get the part of the state from given state root.

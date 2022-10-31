@@ -64,7 +64,7 @@ use node_runtime::{
     ValidatorAccountsUpdate,
 };
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
@@ -391,6 +391,7 @@ impl NightshadeRuntime {
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
         state_patch: SandboxStatePatch,
+        chain_store: Store,
     ) -> Result<ApplyTransactionResult, Error> {
         let _span = tracing::debug_span!(target: "runtime", "process_state_update").entered();
         let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
@@ -511,6 +512,7 @@ impl NightshadeRuntime {
                 transactions,
                 &self.epoch_manager,
                 state_patch,
+                chain_store,
             )
             .map_err(|e| match e {
                 RuntimeError::InvalidTxError(err) => {
@@ -1085,6 +1087,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             is_new_chunk,
             is_first_block_with_chunk_of_version,
             states_to_patch,
+            self.store.clone(),
         ) {
             Ok(result) => Ok(result),
             Err(e) => match e {
@@ -1134,6 +1137,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             is_new_chunk,
             is_first_block_with_chunk_of_version,
             Default::default(),
+            self.store.clone(),
         )
     }
 
@@ -1147,7 +1151,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_hash: &CryptoHash,
         epoch_id: &EpochId,
         request: &QueryRequest,
-        chain_store: &ChainStore,
+        chain_store: Store,
     ) -> Result<QueryResponse, near_chain::near_chain_primitives::error::QueryError> {
         match request {
             QueryRequest::ViewAccount { account_id } => {
@@ -1574,7 +1578,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
-        chain_store: &ChainStore,
+        chain_store: Store,
     ) -> Result<Vec<u8>, node_runtime::state_viewer::errors::CallFunctionError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         let view_state = ViewApplyState {

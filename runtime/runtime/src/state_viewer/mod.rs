@@ -1,6 +1,5 @@
 use crate::near_primitives::version::PROTOCOL_VERSION;
 use crate::{actions::execute_function_call, ext::RuntimeExt};
-use near_chain::ChainStore;
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::{
@@ -18,7 +17,7 @@ use near_primitives::{
     types::{AccountId, EpochInfoProvider, Gas},
     views::{StateItem, ViewApplyState, ViewStateResult},
 };
-use near_store::{get_access_key, get_account, get_code, TrieUpdate};
+use near_store::{get_access_key, get_account, get_code, Store, TrieUpdate};
 use near_vm_logic::{ReturnData, ViewConfig};
 use std::{str, sync::Arc, time::Instant};
 use tracing::debug;
@@ -168,7 +167,7 @@ impl TrieViewer {
         args: &[u8],
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
-        chain_store: &ChainStore,
+        chain_store: Store,
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
         let now = Instant::now();
         let root = state_update.get_root().clone();
@@ -189,6 +188,7 @@ impl TrieViewer {
             &view_state.prev_block_hash,
             &view_state.block_hash,
             epoch_info_provider,
+            chain_store,
             view_state.current_protocol_version,
         );
         let config_store = RuntimeConfigStore::new(None);
@@ -237,7 +237,6 @@ impl TrieViewer {
             config,
             true,
             Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view }),
-            chain_store,
         )
         .map_err(|e| errors::CallFunctionError::InternalError { error_message: e.to_string() })?;
         let elapsed = now.elapsed();

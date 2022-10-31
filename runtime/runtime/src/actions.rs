@@ -2,7 +2,6 @@ use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::{metrics, ActionResult, ApplyState};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_chain::ChainStore;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::checked_feature;
@@ -26,7 +25,7 @@ use near_primitives::version::{
 };
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
-    StorageError, TrieUpdate,
+    StorageError, Store, TrieUpdate,
 };
 use near_vm_errors::{
     CompilationError, FunctionCallError, FunctionCallErrorSer, InconsistentStateError,
@@ -49,7 +48,6 @@ pub(crate) fn execute_function_call(
     config: &RuntimeConfig,
     is_last_action: bool,
     view_config: Option<ViewConfig>,
-    chain_store: &ChainStore,
 ) -> Result<VMOutcome, RuntimeError> {
     let account_id = runtime_ext.account_id();
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
@@ -96,7 +94,6 @@ pub(crate) fn execute_function_call(
         random_seed,
         view_config,
         output_data_receivers,
-        chain_store,
     };
 
     // Enable caching chunk mode for the function call. This allows to charge for nodes touched in a chunk only once for
@@ -170,7 +167,7 @@ pub(crate) fn action_function_call(
     config: &RuntimeConfig,
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
-    chain_store: &ChainStore,
+    chain_store: Store,
 ) -> Result<(), RuntimeError> {
     if account.amount().checked_add(function_call.deposit).is_none() {
         return Err(StorageError::StorageInconsistentState(
@@ -186,6 +183,7 @@ pub(crate) fn action_function_call(
         &apply_state.prev_block_hash,
         &apply_state.block_hash,
         epoch_info_provider,
+        chain_store,
         apply_state.current_protocol_version,
     );
     let outcome = execute_function_call(
@@ -200,7 +198,6 @@ pub(crate) fn action_function_call(
         config,
         is_last_action,
         None,
-        chain_store,
     )?;
 
     match &outcome.aborted {

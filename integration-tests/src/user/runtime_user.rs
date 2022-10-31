@@ -100,6 +100,7 @@ impl RuntimeUser {
                     &txs,
                     &self.epoch_info_provider,
                     Default::default(),
+                    near_store::test_utils::create_test_store(),
                 )
                 .map_err(|e| match e {
                     RuntimeError::InvalidTxError(e) => {
@@ -269,6 +270,7 @@ impl User for RuntimeUser {
                 args,
                 &mut result.logs,
                 &self.epoch_info_provider,
+                near_store::test_utils::create_test_store(),
             )
             .map_err(|err| err.to_string())?;
         Ok(result)
