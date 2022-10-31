@@ -697,6 +697,10 @@ def neard_amend_genesis(neard, validator_node_names, genesis_filename_in,
         str(10**9),
         '--protocol-version',
         '49',
+        '--protocol-reward-rate',
+        '1/10',
+        '--block-producer-kickout-threshold',
+        '10',
     ]
     if chain_id is not None:
         cmd.extend(['--chain-id', chain_id])
