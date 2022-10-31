@@ -36,6 +36,8 @@ use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
+use near_primitives::views::EdgeView;
+use near_primitives::views::NetworkGraphView;
 use near_primitives::views::{KnownPeerStateView, PeerStoreView};
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
@@ -1500,6 +1502,19 @@ impl Handler<GetDebugStatus> for PeerManagerActor {
                 });
                 DebugStatus::PeerStore(PeerStoreView { peer_states: peer_states_view })
             }
+            GetDebugStatus::Graph => DebugStatus::Graph(NetworkGraphView {
+                edges: self
+                    .state
+                    .graph
+                    .read()
+                    .edges()
+                    .iter()
+                    .map(|(_, edge)| {
+                        let key = edge.key();
+                        EdgeView { peer0: key.0.clone(), peer1: key.1.clone(), nonce: edge.nonce() }
+                    })
+                    .collect(),
+            }),
         }
     }
 }

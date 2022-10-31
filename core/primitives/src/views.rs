@@ -392,6 +392,18 @@ pub struct PeerStoreView {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct EdgeView {
+    pub peer0: PeerId,
+    pub peer1: PeerId,
+    pub nonce: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct NetworkGraphView {
+    pub edges: Vec<EdgeView>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct ShardSyncDownloadView {
     pub downloads: Vec<DownloadStatusView>,
     pub status: String,
