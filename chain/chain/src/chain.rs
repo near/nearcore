@@ -123,7 +123,7 @@ const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 /// has not been caught up yet, thus the two modes IsCaughtUp and NotCaughtUp.
 /// CatchingUp is for when apply_chunks is called through catchup_blocks, this is to catch up the
 /// shard states for the next epoch
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Copy, Clone, Debug)]
 enum ApplyChunksMode {
     IsCaughtUp,
     CatchingUp,
@@ -1922,6 +1922,7 @@ impl Chain {
             &block,
             &provenance,
             &mut block_processing_artifact.challenges,
+            &mut block_processing_artifact.invalid_chunks,
             block_received_time,
             state_patch,
         );
@@ -2098,6 +2099,14 @@ impl Chain {
         let prev_head = self.store.head()?;
         let provenance = block_preprocess_info.provenance.clone();
         let block_start_processing_time = block_preprocess_info.block_start_processing_time.clone();
+        // TODO(#8055): this zip relies on the ordering of the apply_results.
+        for (apply_result, chunk) in apply_results.iter().zip(block.chunks().iter()) {
+            if let Err(err) = apply_result {
+                if err.is_bad_data() {
+                    block_processing_artifacts.invalid_chunks.push(chunk.clone());
+                }
+            }
+        }
         let new_head =
             match self.postprocess_block_only(me, &block, block_preprocess_info, apply_results) {
                 Err(err) => {
@@ -2164,6 +2173,7 @@ impl Chain {
         block: &MaybeValidated<Block>,
         provenance: &Provenance,
         challenges: &mut Vec<ChallengeBody>,
+        invalid_chunks: &mut Vec<ShardChunkHeader>,
         block_received_time: Instant,
         state_patch: SandboxStatePatch,
     ) -> Result<
@@ -2325,6 +2335,7 @@ impl Chain {
             // otherwise put the block into the permanent storage, waiting for be caught up
             if is_caught_up { ApplyChunksMode::IsCaughtUp } else { ApplyChunksMode::NotCaughtUp },
             state_patch,
+            invalid_chunks,
         )?;
 
         Ok((
@@ -3162,6 +3173,7 @@ impl Chain {
                 &receipts_by_shard,
                 ApplyChunksMode::CatchingUp,
                 Default::default(),
+                &mut Vec::new(),
             )?;
             blocks_catch_up_state.scheduled_blocks.insert(pending_block);
             block_catch_up_scheduler(BlockCatchUpRequest {
@@ -3485,14 +3497,12 @@ impl Chain {
         incoming_receipts: &HashMap<ShardId, Vec<ReceiptProof>>,
         mode: ApplyChunksMode,
         mut state_patch: SandboxStatePatch,
+        invalid_chunks: &mut Vec<ShardChunkHeader>,
     ) -> Result<
         Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send + 'static>>,
         Error,
     > {
         let _span = tracing::debug_span!(target: "chain", "apply_chunks_preprocessing").entered();
-        let mut result: Vec<
-            Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send + 'static>,
-        > = Vec::new();
         #[cfg(not(feature = "mock_node"))]
         let protocol_version =
             self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
@@ -3501,9 +3511,13 @@ impl Chain {
         let will_shard_layout_change =
             self.runtime_adapter.will_shard_layout_change_next_epoch(prev_hash)?;
         let prev_chunk_headers = Chain::get_prev_chunk_headers(&*self.runtime_adapter, prev_block)?;
-        for (shard_id, (chunk_header, prev_chunk_header)) in
-            (block.chunks().iter().zip(prev_chunk_headers.iter())).enumerate()
-        {
+        let mut process_one_chunk = |shard_id: usize,
+                                     chunk_header: &ShardChunkHeader,
+                                     prev_chunk_header: &ShardChunkHeader|
+         -> Result<
+            Option<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send + 'static>>,
+            Error,
+        > {
             // XXX: This is a bit questionable -- sandbox state patching works
             // only for a single shard. This so far has been enough.
             let state_patch = state_patch.take();
@@ -3630,9 +3644,12 @@ impl Chain {
                                     &transaction.transaction.block_hash,
                                     transaction_validity_period,
                                 )
-                                .map_err(|_| Error::from(Error::InvalidTransactions))?;
+                                .map_err(|_|
+
+                                    Error::from(Error::InvalidTransactions))?;
+                                }
                         }
-                    };
+                    ;
 
                     let chunk_inner = chunk.cloned_header().take_inner();
                     let gas_limit = chunk_inner.gas_limit();
@@ -3658,7 +3675,7 @@ impl Chain {
                     let height = chunk_header.height_included();
                     let prev_block_hash = chunk_header.prev_block_hash().clone();
 
-                    result.push(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
+                    Ok(Some(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
                         let _span = tracing::debug_span!(
                             target: "chain",
                             parent: parent_span,
@@ -3683,6 +3700,7 @@ impl Chain {
                             true,
                             is_first_block_with_chunk_of_version,
                             state_patch,
+
                         ) {
                             Ok(apply_result) => {
                                 let apply_split_result_or_state_changes =
@@ -3706,7 +3724,7 @@ impl Chain {
                             }
                             Err(err) => Err(err),
                         }
-                    }));
+                    })))
                 } else {
                     let new_extra = self.get_chunk_extra(prev_block.hash(), &shard_uid)?.clone();
 
@@ -3719,7 +3737,7 @@ impl Chain {
                     let height = block.header().height();
                     let prev_block_hash = *prev_block.hash();
 
-                    result.push(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
+                    Ok(Some(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
                         let _span = tracing::debug_span!(
                             target: "chain",
                             parent: parent_span,
@@ -3743,6 +3761,7 @@ impl Chain {
                             false,
                             false,
                             state_patch,
+
                         ) {
                             Ok(apply_result) => {
                                 let apply_split_result_or_state_changes =
@@ -3765,7 +3784,7 @@ impl Chain {
                             }
                             Err(err) => Err(err),
                         }
-                    }));
+                    })))
                 }
             } else if let Some(split_state_roots) = split_state_roots {
                 // case 3)
@@ -3778,7 +3797,7 @@ impl Chain {
                     self.store().get_state_changes_for_split_states(block.hash(), shard_id)?;
                 let runtime_adapter = self.runtime_adapter.clone();
                 let block_hash = *block.hash();
-                result.push(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
+                Ok(Some(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
                     let _span = tracing::debug_span!(
                         target: "chain",
                         parent: parent_span,
@@ -3795,11 +3814,29 @@ impl Chain {
                             state_changes,
                         )?,
                     }))
-                }));
+                })))
+            } else {
+                Ok(None)
             }
-        }
-
-        Ok(result)
+        };
+        block
+            .chunks()
+            .iter()
+            .zip(prev_chunk_headers.iter())
+            .enumerate()
+            .filter_map(|(shard_id, (chunk_header, prev_chunk_header))| {
+                match process_one_chunk(shard_id, chunk_header, prev_chunk_header) {
+                    Ok(Some(processor)) => Some(Ok(processor)),
+                    Ok(None) => None,
+                    Err(err) => {
+                        if err.is_bad_data() {
+                            invalid_chunks.push(chunk_header.clone());
+                        }
+                        Some(Err(err))
+                    }
+                }
+            })
+            .collect()
     }
 }
 

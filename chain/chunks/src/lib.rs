@@ -947,14 +947,10 @@ impl ShardsManager {
         }
     }
 
-    pub fn num_chunks_for_block(&mut self, prev_block_hash: &CryptoHash) -> ShardId {
-        self.encoded_chunks.num_chunks_for_block(prev_block_hash)
-    }
-
     pub fn prepare_chunks(
-        &mut self,
+        &self,
         prev_block_hash: &CryptoHash,
-    ) -> HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)> {
+    ) -> HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)> {
         self.encoded_chunks.get_chunk_headers_for_block(prev_block_hash)
     }
 
@@ -1019,13 +1015,14 @@ impl ShardsManager {
             .collect()
     }
 
+    /// Returns true if we were able to answer the request. This is for testing.
     pub fn process_partial_encoded_chunk_request(
         &mut self,
         request: PartialEncodedChunkRequestMsg,
         route_back: CryptoHash,
         chain_store: &mut ChainStore,
         rs: &mut ReedSolomonWrapper,
-    ) {
+    ) -> bool {
         let _span = tracing::debug_span!(
             target: "chunks",
             "process_partial_encoded_chunk_request",
@@ -1049,8 +1046,10 @@ impl ShardsManager {
         if let Some(response) = response {
             self.peer_manager_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::PartialEncodedChunkResponse { route_back, response },
-            ))
+            ));
+            return true;
         }
+        false
     }
 
     fn prepare_partial_encoded_chunk_response(
@@ -1828,7 +1827,11 @@ impl ShardsManager {
         // self.seals_mgr.track_seals();
 
         if have_all_parts && self.seals_mgr.should_trust_chunk_producer(&chunk_producer) {
-            self.encoded_chunks.insert_chunk_header(header.shard_id(), header.clone());
+            self.encoded_chunks.insert_chunk_header(
+                header.shard_id(),
+                header.clone(),
+                chunk_producer,
+            );
         }
         // we can safely unwrap here because we already checked that chunk_hash exist in encoded_chunks
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
@@ -2270,7 +2273,7 @@ impl ShardsManager {
         }
 
         // Add it to the set of chunks to be included in the next block
-        self.encoded_chunks.insert_chunk_header(shard_id, chunk_header);
+        self.encoded_chunks.insert_chunk_header(shard_id, chunk_header, self.me.clone().unwrap());
 
         // Store the chunk in the permanent storage
         self.decode_and_persist_encoded_chunk(encoded_chunk, chain_store, merkle_paths)?;
