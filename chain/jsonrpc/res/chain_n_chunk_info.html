@@ -122,7 +122,7 @@
             let num_shards = 0;
             chain_info.blocks_info.forEach(block => {
                 if (block.hash == head.hash) {
-                    $('.js-blocks-tbody').append($("<tr><td colspan=10><b>HEAD</b></td></tr>"));
+                    $('.js-blocks-tbody').append($("<tr><th colspan=10>HEAD</th></tr>"));
                 }
                 num_shards = block.chunks_info.length;
                 let row = $('<tr>');
