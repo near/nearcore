@@ -942,10 +942,16 @@ pub fn init_configs(
             let mut genesis = match &config.genesis_records_file {
                 Some(records_file) => {
                     let records_path = dir.join(records_file);
-                    let records_path_str = records_path.to_str().with_context(|| "Records path must be initialized")?;
-                    Genesis::from_files(&genesis_path_str, &records_path_str, GenesisValidationMode::Full)
-                },
-                None => Genesis::from_file(&genesis_path_str, GenesisValidationMode::Full)
+                    let records_path_str = records_path
+                        .to_str()
+                        .with_context(|| "Records path must be initialized")?;
+                    Genesis::from_files(
+                        &genesis_path_str,
+                        &records_path_str,
+                        GenesisValidationMode::Full,
+                    )
+                }
+                None => Genesis::from_file(&genesis_path_str, GenesisValidationMode::Full),
             };
 
             genesis.config.chain_id = chain_id.clone();
@@ -1349,6 +1355,7 @@ fn test_init_config_localnet() {
         false,
         None,
         false,
+        None,
         None,
         false,
         None,
