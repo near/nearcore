@@ -340,13 +340,6 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error>;
 
-    fn num_total_parts(&self) -> usize;
-
-    fn num_data_parts(&self) -> usize;
-
-    /// Returns `account_id` that suppose to have the `part_id`.
-    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error>;
-
     /// Returns true if the shard layout will change in the next epoch
     /// Current epoch is the epoch of the block after `parent_hash`
     fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
