@@ -24,14 +24,10 @@ pub enum KeyType {
 
 impl Display for KeyType {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(
-            f,
-            "{}",
-            match self {
-                KeyType::ED25519 => "ed25519",
-                KeyType::SECP256K1 => "secp256k1",
-            },
-        )
+        f.write_str(match self {
+            KeyType::ED25519 => "ed25519",
+            KeyType::SECP256K1 => "secp256k1",
+        })
     }
 }
 
@@ -111,7 +107,7 @@ impl AsRef<[u8]> for Secp256K1PublicKey {
 
 impl std::fmt::Debug for Secp256K1PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", bs58::encode(&self.0.to_vec()).into_string())
+        Display::fmt(&Bs58(&self.0), f)
     }
 }
 
@@ -164,7 +160,7 @@ impl TryFrom<&[u8]> for ED25519PublicKey {
 
 impl std::fmt::Debug for ED25519PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", bs58::encode(&self.0.to_vec()).into_string())
+        Display::fmt(&Bs58(&self.0), f)
     }
 }
 
@@ -260,7 +256,7 @@ impl Display for PublicKey {
             PublicKey::ED25519(public_key) => (KeyType::ED25519, &public_key.0[..]),
             PublicKey::SECP256K1(public_key) => (KeyType::SECP256K1, &public_key.0[..]),
         };
-        write!(fmt, "{}:{}", key_type, bs58::encode(key_data).into_string())
+        write!(fmt, "{}:{}", key_type, Bs58(key_data))
     }
 }
 
@@ -386,11 +382,7 @@ impl PartialEq for ED25519SecretKey {
 
 impl std::fmt::Debug for ED25519SecretKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(
-            f,
-            "{}",
-            bs58::encode(&self.0[..ed25519_dalek::SECRET_KEY_LENGTH].to_vec()).into_string()
-        )
+        Display::fmt(&Bs58(&self.0[..ed25519_dalek::SECRET_KEY_LENGTH]), f)
     }
 }
 
@@ -469,11 +461,11 @@ impl SecretKey {
 
 impl std::fmt::Display for SecretKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        let data = match self {
-            SecretKey::ED25519(secret_key) => bs58::encode(&secret_key.0[..]).into_string(),
-            SecretKey::SECP256K1(secret_key) => bs58::encode(&secret_key[..]).into_string(),
+        let (key_type, key_data) = match self {
+            SecretKey::ED25519(secret_key) => (KeyType::ED25519, &secret_key.0[..]),
+            SecretKey::SECP256K1(secret_key) => (KeyType::SECP256K1, &secret_key[..]),
         };
-        write!(f, "{}:{}", self.key_type(), data)
+        write!(f, "{}:{}", key_type, Bs58(key_data))
     }
 }
 
@@ -524,11 +516,7 @@ impl serde::Serialize for SecretKey {
     where
         S: serde::Serializer,
     {
-        let data = match self {
-            SecretKey::ED25519(secret_key) => bs58::encode(&secret_key.0[..]).into_string(),
-            SecretKey::SECP256K1(secret_key) => bs58::encode(&secret_key[..]).into_string(),
-        };
-        serializer.serialize_str(&format!("{}:{}", self.key_type(), data))
+        serializer.collect_str(self)
     }
 }
 
@@ -639,7 +627,7 @@ impl PartialEq for Secp256K1Signature {
 
 impl Debug for Secp256K1Signature {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", bs58::encode(&self.0.to_vec()).into_string())
+        Display::fmt(&Bs58(&self.0), f)
     }
 }
 
@@ -777,19 +765,17 @@ impl BorshDeserialize for Signature {
 
 impl Display for Signature {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        let data = match self {
-            Signature::ED25519(signature) => {
-                bs58::encode(&signature.to_bytes().to_vec()).into_string()
-            }
-            Signature::SECP256K1(signature) => bs58::encode(&signature.0[..]).into_string(),
+        let (key_type, key_data) = match self {
+            Signature::ED25519(signature) => (KeyType::ED25519, signature.as_ref()),
+            Signature::SECP256K1(signature) => (KeyType::SECP256K1, &signature.0[..]),
         };
-        write!(f, "{}", format!("{}:{}", self.key_type(), data))
+        write!(f, "{}:{}", key_type, Bs58(key_data))
     }
 }
 
 impl Debug for Signature {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", self)
+        Display::fmt(self, f)
     }
 }
 
@@ -853,6 +839,27 @@ impl<'de> serde::Deserialize<'de> for Signature {
         s.parse().map_err(|err: crate::errors::ParseSignatureError| {
             serde::de::Error::custom(err.to_string())
         })
+    }
+}
+
+/// Helper struct which provides Display implementation for bytes slice
+/// encoding them using base58.
+// TODO(mina86): Get rid of it once bs58 has this feature.  There’s currently PR
+// for that.
+struct Bs58<'a>(&'a [u8]);
+
+impl<'a> core::fmt::Display for Bs58<'a> {
+    fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        debug_assert!(self.0.len() <= 65);
+        // The largest buffer we’re ever encoding is 65-byte long.  Base58
+        // increases size of the value by less than 40%.  96-byte buffer is
+        // therefore enough to fit the largest value we’re ever encoding.
+        let mut buf = [0u8; 96];
+        let len = bs58::encode(self.0).into(&mut buf[..]).unwrap();
+        let output = &buf[..len];
+        // SAFETY: we know that alphabet can only include ASCII characters
+        // thus our result is an ASCII string.
+        fmt.write_str(unsafe { std::str::from_utf8_unchecked(output) })
     }
 }
 
