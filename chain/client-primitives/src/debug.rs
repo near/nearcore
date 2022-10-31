@@ -6,7 +6,9 @@ use std::collections::HashMap;
 use crate::types::StatusError;
 use actix::Message;
 use chrono::DateTime;
-use near_primitives::views::{CatchupStatusView, EpochValidatorInfo, SyncStatusView};
+use near_primitives::views::{
+    CatchupStatusView, ChainProcessingInfo, EpochValidatorInfo, SyncStatusView,
+};
 use near_primitives::{
     block_header::ApprovalInner,
     hash::CryptoHash,
@@ -178,6 +180,8 @@ pub enum DebugStatus {
     ValidatorStatus,
     // Request for the current catchup status
     CatchupStatus,
+    // Request for the current state of chain processing (blocks in progress etc).
+    ChainProcessingStatus,
 }
 
 impl Message for DebugStatus {
@@ -195,4 +199,6 @@ pub enum DebugStatusResponse {
     BlockStatus(DebugBlockStatusData),
     // Detailed information about the validator (approvals, block & chunk production etc.)
     ValidatorStatus(ValidatorStatus),
+    // Detailed information about chain processing (blocks in progress etc).
+    ChainProcessingStatus(ChainProcessingInfo),
 }
