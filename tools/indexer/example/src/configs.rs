@@ -49,6 +49,9 @@ pub(crate) struct InitConfigArgs {
     /// Specify a custom download URL for the genesis-file.
     #[clap(long)]
     pub download_genesis_url: Option<String>,
+    /// Specify a custom download URL for the records-file.
+    #[clap(long)]
+    pub download_records_url: Option<String>,
     #[clap(long)]
     /// Download the verified NEAR config file automatically.
     pub download_config: bool,
@@ -73,6 +76,7 @@ impl From<InitConfigArgs> for near_indexer::InitConfigArgs {
             genesis: config_args.genesis,
             download_genesis: config_args.download_genesis,
             download_genesis_url: config_args.download_genesis_url,
+            download_records_url: config_args.download_records_url,
             download_config: config_args.download_config,
             download_config_url: config_args.download_config_url,
             boot_nodes: config_args.boot_nodes,
