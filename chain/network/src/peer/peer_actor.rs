@@ -11,8 +11,7 @@ use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::private_actix::{
-    PeerToManagerMsg, PeerToManagerMsgResp, PeersRequest, PeersResponse, RegisterPeer,
-    RegisterPeerError, RegisterPeerResponse, SendMessage,
+    RegisterPeerError, SendMessage,
 };
 use crate::routing::edge::verify_nonce;
 use crate::stats::metrics;
@@ -27,7 +26,6 @@ use lru::LruCache;
 use near_crypto::Signature;
 use near_o11y::{
     handler_debug_span, log_assert, pretty, OpenTelemetrySpanExt, WithSpanContext,
-    WithSpanContextExt,
 };
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
@@ -511,6 +509,9 @@ impl PeerActor {
             send_accounts_data_demux: demux::Demux::new(
                 self.network_state.config.accounts_data_broadcast_rate_limit,
             ),
+            send_routing_table_update_demux: demux::Demux::new(
+                self.network_state.config.routing_table_update_rate_limit,
+            ),
         });
 
         let tracker = self.tracker.clone();
@@ -870,7 +871,7 @@ impl PeerActor {
     fn handle_msg_ready(
         &mut self,
         ctx: &mut actix::Context<Self>,
-        conn: &connection::Connection,
+        conn: Arc<connection::Connection>,
         peer_msg: PeerMessage,
     ) {
         match peer_msg.clone() {
@@ -894,7 +895,7 @@ impl PeerActor {
                 self.network_state
                     .config
                     .event_sink
-                    .push(Event::MessageProcessed(tcp::Tier::T2, peer_msg));
+                    .push(Event::MessageProcessed(peer_msg));
             }
             PeerMessage::PeersResponse(peers) => {
                 tracing::debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
@@ -908,7 +909,7 @@ impl PeerActor {
                 self.network_state
                     .config
                     .event_sink
-                    .push(Event::MessageProcessed(tcp::Tier::T2, peer_msg));
+                    .push(Event::MessageProcessed(peer_msg));
             }
             PeerMessage::RequestUpdateNonce(edge_info) => {
                 let clock = self.clock.clone();
@@ -945,11 +946,11 @@ impl PeerActor {
                     network_state
                         .config
                         .event_sink
-                        .push(Event::MessageProcessed(tcp::Tier::T2, peer_msg));
+                        .push(Event::MessageProcessed(peer_msg));
                 });
             }
             PeerMessage::SyncRoutingTable(rtu) => {
-                self.handle_sync_routing_table(ctx, conn, rtu);
+                self.handle_sync_routing_table(conn, rtu);
                 self.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
             }
             PeerMessage::SyncAccountsData(msg) => {
@@ -1049,7 +1050,7 @@ impl PeerActor {
                                 .event_sink
                                 .push(Event::MessageProcessed(PeerMessage::Routed(msg)));
                         }
-                        _ => self.receive_message(ctx, conn, PeerMessage::Routed(msg.clone())),
+                        _ => self.receive_message(ctx, &conn, PeerMessage::Routed(msg.clone())),
                     }
                 } else {
                     if msg.decrease_ttl() {
@@ -1063,14 +1064,13 @@ impl PeerActor {
                     }
                 }
             }
-            msg => self.receive_message(ctx, conn, msg),
+            msg => self.receive_message(ctx, &conn, msg),
         }
     }
 
     fn handle_sync_routing_table(
         &mut self,
-        ctx: &mut actix::Context<Self>,
-        conn: &connection::Connection,
+        conn: Arc<connection::Connection>,
         rtu: RoutingTableUpdate,
     ) {
         // Process edges and add new edges to the routing table. Also broadcast new edges.
@@ -1299,7 +1299,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
                     }
                 }
                 // Handle the message.
-                self.handle_msg_ready(ctx, &conn.clone(), peer_msg);
+                self.handle_msg_ready(ctx, conn.clone(), peer_msg);
             }
         }
     }
