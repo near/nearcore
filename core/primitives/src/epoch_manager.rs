@@ -153,12 +153,13 @@ pub mod block_info {
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
     use near_primitives_core::types::{AccountId, Balance, BlockHeight, ProtocolVersion};
+    use serde::Serialize;
     use std::collections::HashMap;
 
     pub use super::BlockInfoV1;
 
     /// Information per each block.
-    #[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug)]
+    #[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug, Serialize)]
     pub enum BlockInfo {
         V1(BlockInfoV1),
         V2(BlockInfoV2),
@@ -341,7 +342,7 @@ pub mod block_info {
     }
 
     // V1 -> V2: Use versioned ValidatorStake structure in proposals
-    #[derive(Default, BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug)]
+    #[derive(Default, BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug, Serialize)]
     pub struct BlockInfoV2 {
         pub hash: CryptoHash,
         pub height: BlockHeight,
@@ -363,7 +364,7 @@ pub mod block_info {
 }
 
 /// Information per each block.
-#[derive(Default, BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug, Serialize)]
 pub struct BlockInfoV1 {
     pub hash: CryptoHash,
     pub height: BlockHeight,
@@ -422,7 +423,7 @@ impl BlockInfoV1 {
     }
 }
 
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ValidatorWeight(ValidatorId, u64);
 
 pub mod epoch_info {
@@ -435,6 +436,7 @@ pub mod epoch_info {
     use near_primitives_core::types::{
         AccountId, Balance, EpochHeight, ProtocolVersion, ValidatorId,
     };
+    use serde::Serialize;
     use smart_default::SmartDefault;
     use std::collections::{BTreeMap, HashMap};
 
@@ -447,7 +449,7 @@ pub mod epoch_info {
     pub use super::EpochInfoV1;
 
     /// Information per epoch.
-    #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+    #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize)]
     pub enum EpochInfo {
         V1(EpochInfoV1),
         V2(EpochInfoV2),
@@ -461,7 +463,9 @@ pub mod epoch_info {
     }
 
     // V1 -> V2: Use versioned ValidatorStake structure in validators and fishermen
-    #[derive(SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+    #[derive(
+        SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize,
+    )]
     pub struct EpochInfoV2 {
         /// Ordinal of given epoch from genesis.
         /// There can be multiple epochs with the same ordinal in case of long forks.
@@ -497,7 +501,9 @@ pub mod epoch_info {
 
     // V2 -> V3: Structures for randomly selecting validators at each height based on new
     // block producer and chunk producer selection algorithm.
-    #[derive(SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+    #[derive(
+        SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize,
+    )]
     pub struct EpochInfoV3 {
         pub epoch_height: EpochHeight,
         pub validators: Vec<ValidatorStake>,
@@ -879,7 +885,9 @@ pub mod epoch_info {
 }
 
 /// Information per epoch.
-#[derive(SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Serialize,
+)]
 pub struct EpochInfoV1 {
     /// Ordinal of given epoch from genesis.
     /// There can be multiple epochs with the same ordinal in case of long forks.

@@ -24,7 +24,6 @@ use crate::challenge::{Challenge, ChallengesResult};
 use crate::contract::ContractCode;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
-use crate::logging;
 use crate::merkle::{combine_hash, MerklePath};
 use crate::network::PeerId;
 use crate::profile::Cost;
@@ -253,7 +252,7 @@ pub struct KnownPeerStateView {
     pub addr: String,
     pub first_seen: i64,
     pub last_seen: i64,
-    pub last_attempt: Option<i64>,
+    pub last_attempt: Option<(i64, String)>,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -480,8 +479,18 @@ pub enum BlockProcessingStatus {
     Orphan,
     WaitingForChunks,
     InProcessing,
-    Processed,
+    Accepted,
+    Error(String),
+    Dropped(DroppedReason),
     Unknown,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum DroppedReason {
+    // If the node has already processed a block at this height
+    HeightProcessed,
+    // If the block processing pool is full
+    TooManyProcessingBlocks,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -529,7 +538,6 @@ pub struct DetailedDebugStatus {
     pub current_head_status: BlockStatusView,
     pub current_header_head_status: BlockStatusView,
     pub block_production_delay_millis: u64,
-    pub chain_processing_info: ChainProcessingInfo,
 }
 
 // TODO: add more information to status.
@@ -1376,10 +1384,7 @@ impl fmt::Debug for FinalExecutionOutcomeView {
             .field("status", &self.status)
             .field("transaction", &self.transaction)
             .field("transaction_outcome", &self.transaction_outcome)
-            .field(
-                "receipts_outcome",
-                &format_args!("{}", logging::pretty_vec(&self.receipts_outcome)),
-            )
+            .field("receipts_outcome", &pretty::Slice(&self.receipts_outcome))
             .finish()
     }
 }

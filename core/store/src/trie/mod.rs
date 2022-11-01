@@ -17,6 +17,7 @@ use near_primitives::types::{StateRoot, StateRootNode};
 
 use crate::flat_state::FlatState;
 pub use crate::trie::config::TrieConfig;
+pub(crate) use crate::trie::config::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT;
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 pub use crate::trie::nibble_slice::NibbleSlice;
@@ -498,6 +499,16 @@ pub struct TrieRefcountChange {
     rc: std::num::NonZeroU32,
 }
 
+impl TrieRefcountChange {
+    pub fn hash(&self) -> &CryptoHash {
+        &self.trie_node_or_value_hash
+    }
+
+    pub fn payload(&self) -> &[u8] {
+        self.trie_node_or_value.as_slice()
+    }
+}
+
 ///
 /// TrieChanges stores delta for refcount.
 /// Multiple versions of the state work the following way:
@@ -532,6 +543,10 @@ pub struct TrieChanges {
 impl TrieChanges {
     pub fn empty(old_root: StateRoot) -> Self {
         TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
+    }
+
+    pub fn insertions(&self) -> &[TrieRefcountChange] {
+        self.insertions.as_slice()
     }
 }
 

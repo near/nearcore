@@ -6,13 +6,15 @@ use crate::network_protocol::{
     RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
 };
 use crate::peer_manager::connection;
+use crate::peer_manager::peer_store;
 use crate::private_actix::{PeerToManagerMsg, ValidateEdgeList};
 use crate::routing;
 use crate::routing::edge_validator_actor::EdgeValidatorHelper;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
+use crate::store;
 use crate::time;
-use crate::types::ChainInfo;
+use crate::types::{ChainInfo, ReasonForBan};
 use actix::Recipient;
 use arc_swap::ArcSwap;
 use near_o11y::{WithSpanContext, WithSpanContextExt};
@@ -20,6 +22,7 @@ use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
+use parking_lot::RwLock;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tracing::{debug, trace};
@@ -50,6 +53,10 @@ pub(crate) struct NetworkState {
     pub tier2: connection::Pool,
     /// Semaphore limiting inflight inbound handshakes.
     pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
+    /// Peer store that provides read/write access to peers.
+    pub peer_store: peer_store::PeerStore,
+    /// A graph of the whole NEAR network.
+    pub graph: Arc<RwLock<routing::GraphWithCache>>,
 
     /// View of the Routing table. It keeps:
     /// - routing information - how to route messages
@@ -67,34 +74,30 @@ pub(crate) struct NetworkState {
 
 impl NetworkState {
     pub fn new(
+        clock: &time::Clock,
+        store: store::Store,
+        peer_store: peer_store::PeerStore,
         config: Arc<config::VerifiedConfig>,
         genesis_id: GenesisId,
         client: Arc<dyn client::Client>,
         peer_manager_addr: Recipient<WithSpanContext<PeerToManagerMsg>>,
-        routing_table_addr: actix::Addr<routing::Actor>,
-        routing_table_view: RoutingTableView,
     ) -> Self {
+        let graph = Arc::new(RwLock::new(routing::GraphWithCache::new(config.node_id())));
         Self {
-            routing_table_addr,
+            routing_table_addr: routing::Actor::spawn(clock.clone(), store.clone(), graph.clone()),
+            graph,
             genesis_id,
             client,
             peer_manager_addr,
             chain_info: Default::default(),
             tier2: connection::Pool::new(config.node_id()),
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
+            peer_store,
             accounts_data: Arc::new(accounts_data::Cache::new()),
-            routing_table_view,
+            routing_table_view: RoutingTableView::new(store, config.node_id()),
             routing_table_exchange_helper: Default::default(),
             config,
             txns_since_last_block: AtomicUsize::new(0),
-        }
-    }
-
-    /// Query connected peers for more peers.
-    pub fn ask_for_more_peers(&self) {
-        let msg = Arc::new(PeerMessage::PeersRequest);
-        for peer in self.tier2.load().ready.values() {
-            peer.send_message(msg.clone());
         }
     }
 
@@ -107,9 +110,31 @@ impl NetworkState {
         PartialEdgeInfo::new(&self.config.node_id(), peer1, nonce, &self.config.node_key)
     }
 
+    /// Stops peer instance if it is still connected,
+    /// and then mark peer as banned in the peer store.
+    pub fn disconnect_and_ban(
+        &self,
+        clock: &time::Clock,
+        peer_id: &PeerId,
+        ban_reason: ReasonForBan,
+    ) {
+        let tier2 = self.tier2.load();
+        if let Some(peer) = tier2.ready.get(peer_id) {
+            peer.stop(Some(ban_reason));
+        } else {
+            if let Err(err) = self.peer_store.peer_ban(clock, peer_id, ban_reason) {
+                tracing::error!(target: "network", ?err, "Failed to save peer data");
+            }
+        }
+    }
+
     /// Removes the connection from the state.
-    // TODO(gprusak): move PeerManagerActor::unregister logic here as well.
-    pub fn unregister(&self, conn: &Arc<connection::Connection>) {
+    pub fn unregister(
+        &self,
+        clock: &time::Clock,
+        conn: &Arc<connection::Connection>,
+        ban_reason: Option<ReasonForBan>,
+    ) {
         let peer_id = conn.peer_info.id.clone();
         self.tier2.remove(&peer_id);
 
@@ -123,6 +148,15 @@ impl NetworkState {
                     RoutingTableUpdate::from_edges(vec![edge_update]),
                 )));
             }
+        }
+
+        // Save the fact that we are disconnecting to the PeerStore.
+        let res = match ban_reason {
+            Some(ban_reason) => self.peer_store.peer_ban(&clock, &conn.peer_info.id, ban_reason),
+            None => self.peer_store.peer_disconnected(clock, &conn.peer_info.id),
+        };
+        if let Err(err) = res {
+            tracing::error!(target: "network", ?err, "Failed to save peer data");
         }
     }
 

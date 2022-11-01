@@ -1,5 +1,7 @@
 mod alt_bn128;
 mod context;
+#[cfg(feature = "protocol_feature_ed25519_verify")]
+mod ed25519_verify;
 mod fixtures;
 mod gas_counter;
 mod helpers;

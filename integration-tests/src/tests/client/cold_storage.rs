@@ -1,13 +1,15 @@
 use crate::tests::client::process_blocks::create_nightshade_runtimes;
+use borsh::BorshDeserialize;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_test_logger;
+use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
-use near_store::cold_storage::{test_cold_genesis_update, update_cold_db};
+use near_store::cold_storage::{test_cold_genesis_update, test_get_store_reads, update_cold_db};
 use near_store::db::TestDB;
 use near_store::{DBCol, NodeStorage, Store, Temperature};
 use nearcore::config::GenesisExt;
@@ -22,10 +24,26 @@ fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) 
     assert_eq!(first_res.unwrap(), second_res.unwrap());
 }
 
-fn check_iter(first_store: &Store, second_store: &Store, col: DBCol) {
-    for (key, _) in first_store.iter(col).map(Result::unwrap) {
-        check_key(first_store, second_store, col, &key);
+fn check_iter(
+    first_store: &Store,
+    second_store: &Store,
+    col: DBCol,
+    no_check_rules: &Vec<Box<dyn Fn(DBCol, &Box<[u8]>) -> bool>>,
+) -> u64 {
+    let mut num_checks = 0;
+    for (key, value) in first_store.iter(col).map(Result::unwrap) {
+        let mut check = true;
+        for no_check in no_check_rules {
+            if no_check(col, &value) {
+                check = false;
+            }
+        }
+        if check {
+            check_key(first_store, second_store, col, &key);
+            num_checks += 1;
+        }
     }
+    num_checks
 }
 
 /// Deploying test contract and calling write_random_value 5 times every block for 4 epochs.
@@ -56,6 +74,9 @@ fn test_storage_after_commit_of_cold_update() {
 
     test_cold_genesis_update(&*cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
 
+    let state_reads = test_get_store_reads(DBCol::State);
+    let state_changes_reads = test_get_store_reads(DBCol::StateChanges);
+
     for h in 1..max_height {
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         if h == 1 {
@@ -71,47 +92,94 @@ fn test_storage_after_commit_of_cold_update() {
             );
             env.clients[0].process_tx(tx, false, false);
         }
-        for i in 0..5 {
-            let tx = SignedTransaction::from_actions(
-                h * 10 + i,
-                "test0".parse().unwrap(),
-                "test0".parse().unwrap(),
-                &signer,
-                vec![Action::FunctionCall(FunctionCallAction {
-                    method_name: "write_random_value".to_string(),
-                    args: vec![],
-                    gas: 100_000_000_000_000,
-                    deposit: 0,
-                })],
-                last_hash,
-            );
-            env.clients[0].process_tx(tx, false, false);
-        }
-        for i in 0..5 {
-            let tx = SignedTransaction::send_money(
-                h * 10 + i,
-                "test0".parse().unwrap(),
-                "test0".parse().unwrap(),
-                &signer,
-                1,
-                last_hash,
-            );
-            env.clients[0].process_tx(tx, false, false);
+        // Don't send transactions in last two blocks. Because on last block production a chunk from
+        // the next block will be produced and information about these transactions will be written
+        // into db. And it is a PAIN to filter it out, especially for Receipts.
+        if h + 2 < max_height {
+            for i in 0..5 {
+                let tx = SignedTransaction::from_actions(
+                    h * 10 + i,
+                    "test0".parse().unwrap(),
+                    "test0".parse().unwrap(),
+                    &signer,
+                    vec![Action::FunctionCall(FunctionCallAction {
+                        method_name: "write_random_value".to_string(),
+                        args: vec![],
+                        gas: 100_000_000_000_000,
+                        deposit: 0,
+                    })],
+                    last_hash,
+                );
+                env.clients[0].process_tx(tx, false, false);
+            }
+            for i in 0..5 {
+                let tx = SignedTransaction::send_money(
+                    h * 10 + i,
+                    "test0".parse().unwrap(),
+                    "test1".parse().unwrap(),
+                    &signer,
+                    1,
+                    last_hash,
+                );
+                env.clients[0].process_tx(tx, false, false);
+            }
         }
 
         let block = env.clients[0].produce_block(h).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
 
-        last_hash = block.hash().clone();
+        update_cold_db(
+            &*cold_db,
+            &env.clients[0].runtime_adapter.store(),
+            &env.clients[0]
+                .runtime_adapter
+                .get_shard_layout(
+                    &env.clients[0]
+                        .runtime_adapter
+                        .get_epoch_id_from_prev_block(&last_hash)
+                        .unwrap(),
+                )
+                .unwrap(),
+            &h,
+        )
+        .unwrap();
 
-        update_cold_db(&*cold_db, &env.clients[0].runtime_adapter.store(), &h).unwrap();
+        last_hash = block.hash().clone();
     }
+
+    // assert that we don't read State from db, but from TrieChanges
+    assert_eq!(state_reads, test_get_store_reads(DBCol::State));
+    // assert that we don't read StateChanges from db again after iter_prefix
+    assert_eq!(state_changes_reads, test_get_store_reads(DBCol::StateChanges));
 
     let cold_store = NodeStorage::new(cold_db).get_store(Temperature::Hot);
 
+    // We still need to filter out one chunk
+    let mut no_check_rules: Vec<Box<dyn Fn(DBCol, &Box<[u8]>) -> bool>> = vec![];
+    no_check_rules.push(Box::new(move |col, value| -> bool {
+        if col == DBCol::Chunks {
+            let chunk = ShardChunk::try_from_slice(&*value).unwrap();
+            if *chunk.prev_block() == last_hash {
+                return true;
+            }
+        }
+        false
+    }));
+
     for col in DBCol::iter() {
         if col.is_cold() {
-            check_iter(&env.clients[0].runtime_adapter.store(), &cold_store, col);
+            let num_checks = check_iter(
+                &env.clients[0].runtime_adapter.store(),
+                &cold_store,
+                col,
+                &no_check_rules,
+            );
+            // assert that this test actually checks something
+            assert!(
+                col == DBCol::StateChangesForSplitStates
+                    || col == DBCol::StateHeaders
+                    || num_checks > 0
+            );
         }
     }
 }

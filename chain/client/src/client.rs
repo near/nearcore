@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use lru::LruCache;
 use near_chunks::client::{ClientAdapterForShardsManager, ShardedTransactionPool};
 use near_chunks::logic::{
     cares_about_shard_this_or_next_epoch, decode_encoded_chunk, persist_chunk,
@@ -14,7 +15,6 @@ use near_client_primitives::debug::ChunkProduction;
 use near_primitives::time::Clock;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::adapter::NetworkClientResponses;
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
     OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
@@ -44,6 +44,7 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 
+use crate::adapter::ProcessTxResponse;
 use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
@@ -55,9 +56,10 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::network::PeerId;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::CatchupStatusView;
+use near_primitives::views::{CatchupStatusView, DroppedReason};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
+const CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE: usize = 2048;
 
 /// The time we wait for the response to a Epoch Sync request before retrying
 // TODO #3488 set 30_000
@@ -93,6 +95,8 @@ pub struct Client {
     pub shards_mgr: ShardsManager,
     me: Option<AccountId>,
     pub sharded_tx_pool: ShardedTransactionPool,
+    prev_block_to_chunk_headers_ready_for_inclusion:
+        LruCache<CryptoHash, HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)>>,
     /// Network adapter.
     network_adapter: Arc<dyn PeerManagerAdapter>,
     /// Signer for block producer (if present).
@@ -246,6 +250,9 @@ impl Client {
             shards_mgr,
             me,
             sharded_tx_pool,
+            prev_block_to_chunk_headers_ready_for_inclusion: LruCache::new(
+                CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE,
+            ),
             network_adapter,
             validator_signer,
             pending_approvals: lru::LruCache::new(num_block_producer_seats),
@@ -402,6 +409,23 @@ impl Client {
         Ok(false)
     }
 
+    pub fn get_chunk_headers_ready_for_inclusion(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)> {
+        self.prev_block_to_chunk_headers_ready_for_inclusion
+            .peek(prev_block_hash)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub fn get_num_chunks_ready_for_inclusion(&self, prev_block_hash: &CryptoHash) -> usize {
+        self.prev_block_to_chunk_headers_ready_for_inclusion
+            .peek(prev_block_hash)
+            .map(|x| x.len())
+            .unwrap_or(0)
+    }
+
     /// Produce block if we are block producer for given `next_height` block height.
     /// Either returns produced block (not applied) or error.
     pub fn produce_block(&mut self, next_height: BlockHeight) -> Result<Option<Block>, Error> {
@@ -464,7 +488,7 @@ impl Client {
             }
         }
 
-        let new_chunks = self.shards_mgr.prepare_chunks(&prev_hash);
+        let new_chunks = self.get_chunk_headers_ready_for_inclusion(&prev_hash);
         debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}, {} new chunks", validator_signer.validator_id(),
                next_height, prev.height(), format_hash(head.last_block_hash), new_chunks.len());
 
@@ -856,6 +880,7 @@ impl Client {
             } else {
                 debug!(target: "client", error = %err, "Process block: refused by chain");
             }
+            self.chain.blocks_delay_tracker.mark_block_errored(&hash, err.to_string());
         }
     }
 
@@ -871,9 +896,13 @@ impl Client {
         was_requested: bool,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), near_chain::Error> {
+        self.chain.blocks_delay_tracker.mark_block_received(&block, Clock::instant(), Clock::utc());
         // To protect ourselves from spamming, we do some pre-check on block height before we do any
         // real processing.
         if !self.check_block_height(&block, was_requested)? {
+            self.chain
+                .blocks_delay_tracker
+                .mark_block_dropped(block.hash(), DroppedReason::HeightProcessed);
             return Ok(());
         }
         let prev_hash = *block.header().prev_hash();
@@ -1130,6 +1159,16 @@ impl Client {
         if let Err(err) = update.commit() {
             error!(target: "client", "Error saving invalid chunk: {:?}", err);
         }
+    }
+
+    pub fn on_chunk_header_ready_for_inclusion(&mut self, chunk_header: ShardChunkHeader) {
+        let prev_block_hash = chunk_header.prev_block_hash();
+        self.prev_block_to_chunk_headers_ready_for_inclusion
+            .get_or_insert(prev_block_hash.clone(), || HashMap::new());
+        self.prev_block_to_chunk_headers_ready_for_inclusion
+            .get_mut(prev_block_hash)
+            .unwrap()
+            .insert(chunk_header.shard_id(), (chunk_header, chrono::Utc::now()));
     }
 
     pub fn sync_block_headers(
@@ -1432,6 +1471,7 @@ impl Client {
             self.runtime_adapter.as_ref(),
         )?;
         persist_chunk(partial_chunk.clone(), Some(shard_chunk), self.chain.mut_store())?;
+        self.on_chunk_header_ready_for_inclusion(encoded_chunk.cloned_header());
         self.shards_mgr.distribute_encoded_chunk(
             partial_chunk,
             encoded_chunk,
@@ -1717,11 +1757,11 @@ impl Client {
         tx: SignedTransaction,
         is_forwarded: bool,
         check_only: bool,
-    ) -> NetworkClientResponses {
+    ) -> ProcessTxResponse {
         unwrap_or_return!(self.process_tx_internal(&tx, is_forwarded, check_only), {
             let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
             warn!(target: "client", "I'm: {:?} Dropping tx: {:?}", me, tx);
-            NetworkClientResponses::NoResponse
+            ProcessTxResponse::NoResponse
         })
     }
 
@@ -1763,7 +1803,7 @@ impl Client {
         tx: &SignedTransaction,
         is_forwarded: bool,
         check_only: bool,
-    ) -> Result<NetworkClientResponses, Error> {
+    ) -> Result<ProcessTxResponse, Error> {
         let head = self.chain.head()?;
         let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
         let cur_block_header = self.chain.head_header()?;
@@ -1777,7 +1817,7 @@ impl Client {
             transaction_validity_period,
         ) {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
-            return Ok(NetworkClientResponses::InvalidTx(e));
+            return Ok(ProcessTxResponse::InvalidTx(e));
         }
         let gas_price = cur_block_header.gas_price();
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
@@ -1790,7 +1830,7 @@ impl Client {
             .expect("no storage errors")
         {
             debug!(target: "client", "Invalid tx during basic validation: {:?}", err);
-            return Ok(NetworkClientResponses::InvalidTx(err));
+            return Ok(ProcessTxResponse::InvalidTx(err));
         }
 
         let shard_id =
@@ -1808,7 +1848,7 @@ impl Client {
                         return Err(Error::Other("Node has not caught up yet".to_string()));
                     } else {
                         self.forward_tx(&epoch_id, tx)?;
-                        return Ok(NetworkClientResponses::RequestRouted);
+                        return Ok(ProcessTxResponse::RequestRouted);
                     }
                 }
             };
@@ -1818,9 +1858,9 @@ impl Client {
                 .expect("no storage errors")
             {
                 debug!(target: "client", "Invalid tx: {:?}", err);
-                Ok(NetworkClientResponses::InvalidTx(err))
+                Ok(ProcessTxResponse::InvalidTx(err))
             } else if check_only {
-                Ok(NetworkClientResponses::ValidTx)
+                Ok(ProcessTxResponse::ValidTx)
             } else {
                 let active_validator = self.active_validator(shard_id)?;
 
@@ -1842,30 +1882,30 @@ impl Client {
                     if !is_forwarded {
                         self.possibly_forward_tx_to_next_epoch(tx)?;
                     }
-                    Ok(NetworkClientResponses::ValidTx)
+                    Ok(ProcessTxResponse::ValidTx)
                 } else if !is_forwarded {
                     trace!(target: "client", shard_id, "Forwarding a transaction.");
                     metrics::TRANSACTION_RECEIVED_NON_VALIDATOR.inc();
                     self.forward_tx(&epoch_id, tx)?;
-                    Ok(NetworkClientResponses::RequestRouted)
+                    Ok(ProcessTxResponse::RequestRouted)
                 } else {
                     trace!(target: "client", shard_id, "Non-validator received a forwarded transaction, dropping it.");
                     metrics::TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED.inc();
-                    Ok(NetworkClientResponses::NoResponse)
+                    Ok(ProcessTxResponse::NoResponse)
                 }
             }
         } else if check_only {
-            Ok(NetworkClientResponses::DoesNotTrackShard)
+            Ok(ProcessTxResponse::DoesNotTrackShard)
         } else {
             if is_forwarded {
                 // received forwarded transaction but we are not tracking the shard
                 debug!(target: "client", "Received forwarded transaction but no tracking shard {}, I'm {:?}", shard_id, me);
-                return Ok(NetworkClientResponses::NoResponse);
+                return Ok(ProcessTxResponse::NoResponse);
             }
             // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
 
             self.forward_tx(&epoch_id, tx)?;
-            Ok(NetworkClientResponses::RequestRouted)
+            Ok(ProcessTxResponse::RequestRouted)
         }
     }
 

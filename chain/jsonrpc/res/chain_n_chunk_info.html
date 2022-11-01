@@ -1,4 +1,4 @@
-<html>
+<!DOCTYPE html>
 <head>
     <style>
         table {
@@ -45,6 +45,11 @@
                 String(time.getUTCSeconds()).padStart(2, "0") + "." + String(time.getUTCMilliseconds()).padStart(3, '0')
         }
 
+        function printStatus(blockStatus) {
+            if (typeof blockStatus === "string") return blockStatus
+            return JSON.stringify(blockStatus)
+        }
+
         function printDuration(start, end) {
             let duration = Date.parse(end) - Date.parse(start);
             if (duration > 0) {
@@ -63,7 +68,7 @@
             row.append("<th>In Progress for</th>");
             row.append("<th>In Orphan for</th>");
             row.append("<th>Missing Chunks for</th>");
-            for (i = 0; i < num_shards; i+=1) {
+            for (i = 0; i < num_shards; ++i) {
                 row.append("<th>Shard " + i + "</th>");
             }
             $('.js-blocks-thead').append(row);
@@ -103,51 +108,68 @@
             })
         }
 
-        $(document).ready(() => {
-            $('span').text("Loading...");
+        function onChainInfoFetched(status_data, data) {
+            let head = status_data.detailed_debug_status.current_head_status;
+            let header_head = status_data.detailed_debug_status.current_header_head_status;
+            $('.js-chain-info-summary-head').append("Current head: " + head.hash + "@" + head.height + "\n");
+            $('.js-chain-info-summary-header-head').append("Current header head: " + header_head.hash + "@" + header_head.height + "\n");
+
+            let chain_info = data.status_response.ChainProcessingStatus;
+            $('.js-chain-info-summary-orphans').append("Num blocks in orphan pool: " + chain_info.num_orphans + "\n");
+            $('.js-chain-info-summary-missing-chunks').append("Num blocks in missing chunks pool: " + chain_info.num_blocks_missing_chunks + "\n");
+            $('.js-chain-info-summary-processing').append("Num blocks in processing: " + chain_info.num_blocks_in_processing + "\n");
+
+            let num_shards = 0;
+            chain_info.blocks_info.forEach(block => {
+                if (block.hash == head.hash) {
+                    $('.js-blocks-tbody').append($("<tr><th colspan=10>HEAD</th></tr>"));
+                }
+                num_shards = block.chunks_info.length;
+                let row = $('<tr>');
+                row.append($('<td>').append(block.height));
+                row.append($('<td>').append(block.hash));
+                row.append($('<td>').append(prettyTime(block.received_timestamp)));
+                row.append($('<td>').append(printStatus(block.block_status)));
+                row.append($('<td>').append(printTimeInMs(block.in_progress_ms)));
+                row.append($('<td>').append(printTimeInMs(block.orphaned_ms)));
+                row.append($('<td>').append(printTimeInMs(block.missing_chunks_ms)));
+                printChunksInfo(block.chunks_info, block.received_timestamp, row);
+                $('.js-blocks-tbody').append(row);
+            })
+
+            chain_info.floating_chunks_info.forEach(chunk => {
+                let row = $('<tr>');
+                row.append($('<td>').append(chunk.height_created));
+                row.append($('<td>').append(chunk.shard_id));
+                row.append($('<td>').append(chunk.chunk_hash));
+                row.append($('<td>').append(chunk.created_by));
+                row.append($('<td>').append(chunk.status));
+            })
+            generateBlocksTableHeader(num_shards);
+        }
+
+        function fetchChainInfo(status_data) {
+            $.ajax({
+                type: "GET",
+                url: "/debug/api/chain_processing_status",
+                success: data => {
+                    onChainInfoFetched(status_data, data);
+                },
+                dataType: "json",
+                error: function (errMsg, textStatus, errorThrown) {
+                    alert("Failed: " + textStatus + " :" + errorThrown);
+                },
+                contentType: "application/json; charset=utf-8",
+            });
+        }
+
+
+        function fetchStatus() {
             $.ajax({
                 type: "GET",
                 url: "/debug/api/status",
                 success: data => {
-                    let head = data.detailed_debug_status.current_head_status;
-                    let header_head = data.detailed_debug_status.current_header_head_status;
-                    $('.js-chain-info-summary-head').append("Current head: " + head.hash + "@" + head.height + "\n");
-                    $('.js-chain-info-summary-header-head').append("Current header head: " + header_head.hash + "@" + header_head.height + "\n");
-                    let chain_info = data.detailed_debug_status.chain_processing_info;
-                    $('.js-chain-info-summary-orphans').append("Num blocks in orphan pool: " + chain_info.num_orphans + "\n");
-                    $('.js-chain-info-summary-missing-chunks').append("Num blocks in missing chunks pool: " + chain_info.num_blocks_missing_chunks + "\n");
-                    $('.js-chain-info-summary-processing').append("Num blocks in processing: " + chain_info.num_blocks_in_processing + "\n");
-
-                    let num_shards = 0;
-                    chain_info.blocks_info.forEach(block => {
-                        if (block.hash == head.hash) {
-                            $('.js-blocks-tbody').append($("<tr><td colspan=10><b>HEAD</b></td></tr>"));
-                        }
-                        num_shards = block.chunks_info.length;
-                        let row = $('<tr>');
-                        row.append($('<td>').append(block.height));
-                        row.append($('<td>').append(block.hash));
-                        row.append($('<td>').append(prettyTime(block.received_timestamp)));
-                        row.append($('<td>').append(block.block_status));
-                        row.append($('<td>').append(printTimeInMs(block.in_progress_ms)));
-                        row.append($('<td>').append(printTimeInMs(block.orphaned_ms)));
-                        row.append($('<td>').append(printTimeInMs(block.missing_chunks_ms)));
-                        printChunksInfo(block.chunks_info, block.received_timestamp, row);
-                        $('.js-blocks-tbody').append(row)
-
-                    })
-
-                    chain_info.floating_chunks_info.forEach(chunk=> {
-                        let row = $('<tr>');
-                        row.append($('<td>').append(chunk.height_created));
-                        row.append($('<td>').append(chunk.shard_id));
-                        row.append($('<td>').append(chunk.chunk_hash));
-                        row.append($('<td>').append(chunk.created_by));
-                        row.append($('<td>').append(chunk.status));
-
-                    })
-
-                    generateBlocksTableHeader(num_shards);
+                    fetchChainInfo(data);
                 },
                 dataType: "json",
                 error: function (errMsg, textStatus, errorThrown) {
@@ -155,10 +177,15 @@
                 },
                 contentType: "application/json; charset=utf-8",
             })
+        }
 
+        $(document).ready(() => {
+            $('span').text("Loading...");
+            fetchStatus();
         });
     </script>
 </head>
+
 <body>
     <h1>
         Welcome to the Chain & Chunk Status page!
@@ -174,13 +201,13 @@
     <div>Floating chunks are the chunks for which we don't know the block they belong to yet.</div>
     <table>
         <thead>
-        <tr>
-            <th>Height</th>
-            <th>ShardId</th>
-            <th>Hash</th>
-            <th>Created by</th>
-            <th>Status</th>
-        </tr>
+            <tr>
+                <th>Height</th>
+                <th>ShardId</th>
+                <th>Hash</th>
+                <th>Created by</th>
+                <th>Status</th>
+            </tr>
         </thead>
         <tbody class="js-floating-chunks-tbody">
         </tbody>
@@ -194,5 +221,3 @@
         </tbody>
     </table>
 </body>
-
-</html>
