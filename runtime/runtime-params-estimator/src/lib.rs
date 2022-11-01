@@ -932,15 +932,32 @@ fn ecrecover_base(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 #[cfg(feature = "protocol_feature_ed25519_verify")]
-// TODO: gas estimation will be calculated later -> setting a placeholder for now
+// TODO: gas estimation will be calculated later -> setting a placeholder for
+// now TODO: ed25519_dalek's verify function uses variable time elliptic curve
+// scalar multiplication. Check if some inputs are significantly slower to
+// verify. If yes, update the estimation to evaluate several points and take the
+// maximum estimation. Otherwise, remove the TODO and show the analysis in git
+// message.
 fn ed25519_verify_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "ed25519_verify_10k", ExtCosts::ed25519_verify_base, 10_000)
+    if ctx.cached.ed25519_verify_base.is_none() {
+        let cost = fn_cost(ctx, "ed25519_verify_32b_64", ExtCosts::ed25519_verify_base, 64);
+        ctx.cached.ed25519_verify_base = Some(cost);
+    }
+    ctx.cached.ed25519_verify_base.clone().unwrap()
 }
 
 #[cfg(feature = "protocol_feature_ed25519_verify")]
 // TODO: gas estimation will be calculated later -> setting a placeholder for now
 fn ed25519_verify_byte(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "ed25519_verify_10k", ExtCosts::ed25519_verify_byte, 960000)
+    let base = ed25519_verify_base(ctx);
+    // inside the WASM function, there are 64 calls to `ed25519_verify`.
+    let base_call_num = 64;
+    // each call checks a message of size 16kiB
+    let iteration_bytes = 16384;
+    let total_bytes = base_call_num * iteration_bytes;
+    let byte = fn_cost(ctx, "ed25519_verify_16kib_64", ExtCosts::ed25519_verify_byte, total_bytes);
+    // need to subtract the base cost, which has already been divided by the number of bytes per iteration
+    byte - base / iteration_bytes
 }
 
 fn alt_bn128g1_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {
