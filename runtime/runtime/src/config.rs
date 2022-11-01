@@ -120,7 +120,20 @@ pub fn total_send_fees(
             },
             DeleteKey(_) => cfg.delete_key_cost.send_fee(sender_is_receiver),
             DeleteAccount(_) => cfg.delete_account_cost.send_fee(sender_is_receiver),
-            Delegate(_) => cfg.delegate_cost.send_fee(sender_is_receiver),
+            Delegate(signed_delegate_action) => {
+                let delegate_cost = cfg.delegate_cost.send_fee(sender_is_receiver);
+                let delegate_action = &signed_delegate_action.delegate_action;
+                let sender_is_receiver = delegate_action.sender_id == delegate_action.receiver_id;
+
+                delegate_cost
+                    + total_send_fees(
+                        config,
+                        sender_is_receiver,
+                        &delegate_action.get_actions().unwrap(),
+                        &delegate_action.receiver_id,
+                        current_protocol_version,
+                    )?
+            }
         };
         result = safe_add_gas(result, delta)?;
     }
