@@ -204,6 +204,8 @@ pub enum ActionsValidationError {
     DelegateActionDeserializeError,
     /// DelegateAction actions contain another DelegateAction
     DelegateActionCantContainNestedOne,
+    /// There should be the only one DelegateAction
+    DelegateActionMustBeOnlyOne,
 }
 
 /// Describes the error for validating a receipt.
@@ -329,6 +331,10 @@ impl Display for ActionsValidationError {
                 f,
                 "DelegateAction must not contain another DelegateAction"
             ),
+            ActionsValidationError::DelegateActionMustBeOnlyOne => write!(
+                f,
+                "The actions can contain the ony one DelegateAction"
+            )
         }
     }
 }

@@ -301,18 +301,11 @@ pub(crate) fn validate_actions(
             if iter.peek().is_some() {
                 return Err(ActionsValidationError::DeleteActionMustBeFinal);
             }
-        } else if let Action::Delegate(signed_delegate_action) = action {
+        } else if let Action::Delegate(_) = action {
             if found_delegate_action {
-                return Err(ActionsValidationError::DelegateActionCantContainNestedOne);
+                return Err(ActionsValidationError::DelegateActionMustBeOnlyOne);
             }
             found_delegate_action = true;
-
-            let delegate_actions = signed_delegate_action.delegate_action.get_actions();
-            if let Ok(delegate_actions) = &delegate_actions {
-                validate_actions(limit_config, &delegate_actions)?;
-            } else {
-                return Err(ActionsValidationError::DelegateActionDeserializeError);
-            }
         }
         validate_action(limit_config, action)?;
     }
@@ -351,20 +344,17 @@ fn validate_delegate_action(
     limit_config: &VMLimitConfig,
     signed_delegate_action: &SignedDelegateAction,
 ) -> Result<(), ActionsValidationError> {
-    let delegate_action = &signed_delegate_action.delegate_action;
-    let actions = delegate_action.get_actions().unwrap();
-
-    // DelegateAction shouldn't contain a nested DelegateAction
-    if actions.iter().any(|a| matches!(a, Action::Delegate(_))) {
-        return Err(ActionsValidationError::TotalNumberOfActionsExceeded {
-            total_number_of_actions: actions.len() as u64,
-            limit: 0,
-        });
+    let delegate_actions = signed_delegate_action.delegate_action.get_actions();
+    if let Ok(delegate_actions) = &delegate_actions {
+        // DelegateAction shouldn't contain a nested DelegateAction
+        if delegate_actions.iter().any(|a| matches!(a, Action::Delegate(_))) {
+            return Err(ActionsValidationError::DelegateActionCantContainNestedOne);
+        }
+        validate_actions(limit_config, &delegate_actions)?;
+        Ok(())
+    } else {
+        Err(ActionsValidationError::DelegateActionDeserializeError)
     }
-
-    validate_actions(limit_config, &actions)?;
-
-    Ok(())
 }
 
 /// Validates `DeployContractAction`. Checks that the given contract size doesn't exceed the limit.

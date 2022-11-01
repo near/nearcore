@@ -16,9 +16,7 @@ use near_primitives::transaction::{
     DeployContractAction, FunctionCallAction, SignedDelegateAction, StakeAction, TransferAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode,
-};
+use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
@@ -355,8 +353,11 @@ pub(crate) fn try_refund_allowance(
     Ok(())
 }
 
-pub(crate) fn action_transfer(account: &mut Account, deposit: Balance) -> Result<(), StorageError> {
-    account.set_amount(account.amount().checked_add(deposit).ok_or_else(|| {
+pub(crate) fn action_transfer(
+    account: &mut Account,
+    transfer: &TransferAction,
+) -> Result<(), StorageError> {
+    account.set_amount(account.amount().checked_add(transfer.deposit).ok_or_else(|| {
         StorageError::StorageInconsistentState("Account balance integer overflow".to_string())
     })?);
     Ok(())
@@ -413,7 +414,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     account_id: &AccountId,
-    deposit: Balance,
+    transfer: &TransferAction,
     block_height: BlockHeight,
     current_protocol_version: ProtocolVersion,
 ) {
@@ -442,7 +443,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
         .expect("we should be able to deserialize ED25519 public key");
 
     *account = Some(Account::new(
-        deposit,
+        transfer.deposit,
         0,
         CryptoHash::default(),
         fee_config.storage_usage_config.num_bytes_account
@@ -644,7 +645,7 @@ pub(crate) fn apply_delegate_action(
         return Ok(());
     };
 
-    validate_access_key(state_update, apply_state, sender_id, delegate_action, result)?;
+    validate_delegate_action_key(state_update, apply_state, sender_id, delegate_action, result)?;
     if result.result.is_err() {
         return Ok(());
     }
@@ -690,7 +691,7 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
     })
 }
 
-pub fn validate_access_key(
+fn validate_delegate_action_key(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
     sender_id: &AccountId,
@@ -720,18 +721,17 @@ pub fn validate_access_key(
         .into());
         return Ok(());
     }
-    if checked_feature!("stable", AccessKeyNonceRange, apply_state.current_protocol_version) {
-        let upper_bound = apply_state.block_index
-            * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-        if delegate_action.nonce >= upper_bound {
-            result.result = Err(ActionErrorKind::DelegateActionNonceTooLarge {
-                delegate_nonce: delegate_action.nonce,
-                upper_bound,
-            }
-            .into());
-            return Ok(());
+
+    let upper_bound = apply_state.block_index
+        * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+    if delegate_action.nonce >= upper_bound {
+        result.result = Err(ActionErrorKind::DelegateActionNonceTooLarge {
+            delegate_nonce: delegate_action.nonce,
+            upper_bound,
         }
-    };
+        .into());
+        return Ok(());
+    }
 
     access_key.nonce = delegate_action.nonce;
 

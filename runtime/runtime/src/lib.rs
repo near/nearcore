@@ -371,7 +371,7 @@ impl Runtime {
             }
             Action::Transfer(transfer) => {
                 if let Some(account) = account.as_mut() {
-                    action_transfer(account, transfer.deposit)?;
+                    action_transfer(account, transfer)?;
                     // Check if this is a gas refund, then try to refund the access key allowance.
                     if is_refund && action_receipt.signer_id == receipt.receiver_id {
                         try_refund_allowance(
@@ -393,7 +393,7 @@ impl Runtime {
                         account,
                         actor_id,
                         &receipt.receiver_id,
-                        transfer.deposit,
+                        transfer,
                         apply_state.block_index,
                         apply_state.current_protocol_version,
                     );
