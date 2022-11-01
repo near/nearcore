@@ -73,6 +73,7 @@ pub struct FlatStorageCreator {
     pub start_height: BlockHeight,
     pub shard_creators: Vec<Arc<Mutex<FlatStorageShardCreator>>>,
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
+    /// Used to spawn threads for traversing state parts.
     pub pool: rayon::ThreadPool,
 }
 
