@@ -172,6 +172,19 @@ async fn accounts_data_gradual_epoch_change() {
 #[tokio::test(flavor = "multi_thread")]
 async fn accounts_data_rate_limiting() {
     init_test_logger();
+    /* Each actix arbiter (in fact, the underlying tokio runtime) creates 4 file descriptors:
+     * 1. eventfd2()
+     * 2. epoll_create1()
+     * 3. fcntl() duplicating one end of some globally shared socketpair()
+     * 4. fcntl() duplicating epoll socket created in (2)
+     * This gives 5 file descriptors per PeerActor (4 + 1 TCP socket).
+     * PeerManager (together with the whole ActixSystem) creates 13 file descriptors.
+     * The usual default soft limit on the number of file descriptors on linux is 1024.
+     * Here we adjust it appropriately to account for test requirements.
+     */
+    let limit = rlimit::Resource::NOFILE.get().unwrap();
+    rlimit::Resource::NOFILE.set(std::cmp::min(limit.1, 3000), limit.1).unwrap();
+
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
