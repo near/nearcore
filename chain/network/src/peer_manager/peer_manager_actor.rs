@@ -2,9 +2,8 @@ use crate::client;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
-    AccountData, AccountOrPeerIdOrHash, Edge, EdgeState, PartialEdgeInfo, PeerInfo, PeerMessage,
-    Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo,
-    SyncAccountsData,
+    AccountData, AccountOrPeerIdOrHash, Edge, EdgeState, PeerInfo, PeerMessage, Ping, Pong,
+    RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
@@ -47,12 +46,6 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn, Instrument};
 
-/// How much time to wait (in milliseconds) after we send update nonce request before disconnecting.
-/// This number should be large to handle pair of nodes with high latency.
-const WAIT_ON_TRY_UPDATE_NONCE: time::Duration = time::Duration::milliseconds(6_000);
-/// If we see an edge between us and other peer, but this peer is not a current connection, wait this
-/// timeout and in case it didn't become a connected peer, broadcast edge removal update.
-const WAIT_PEER_BEFORE_REMOVE: time::Duration = time::Duration::milliseconds(6_000);
 /// Ratio between consecutive attempts to establish connection with another peer.
 /// In the kth step node should wait `10 * EXPONENTIAL_BACKOFF_RATIO**k` milliseconds
 const EXPONENTIAL_BACKOFF_RATIO: f64 = 1.1;
@@ -64,6 +57,9 @@ const BROADCAST_VALIDATED_EDGES_INTERVAL: time::Duration = time::Duration::milli
 const BROAD_CAST_EDGES_MAX_WORK_ALLOWED: time::Duration = time::Duration::milliseconds(50);
 /// How often should we update the routing table
 const UPDATE_ROUTING_TABLE_INTERVAL: time::Duration = time::Duration::milliseconds(1_000);
+/// How often should we check wheter local edges match the connection pool.
+const FIX_LOCAL_EDGES_INTERVAL: time::Duration = time::Duration::seconds(60);
+
 /// How often to report bandwidth stats.
 const REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL: time::Duration =
     time::Duration::milliseconds(60_000);
@@ -222,6 +218,16 @@ impl Actor for PeerManagerActor {
         );
 
         let skip_tombstones = self.config.skip_tombstones.map(|it| self.clock.now() + it);
+
+        let state = self.state.clone();
+        ctx.spawn(wrap_future(async move {
+            let mut interval = tokio::time::interval(FIX_LOCAL_EDGES_INTERVAL.try_into().unwrap());
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                state.fix_local_edges();
+            }
+        }));
 
         // Periodically reads valid edges from `EdgesVerifierActor` and broadcast.
         self.broadcast_validated_edges_trigger(
@@ -424,27 +430,6 @@ impl PeerManagerActor {
         }
 
         if !new_edges.is_empty() {
-            // Check whenever there is an edge indicating whenever there is a peer we should be
-            // connected to but we aren't. And try to resolve the inconsistency.
-            // Also check whenever there is an edge indicating that we should be disconnected
-            // from a peer, but we are connected. And try to resolve the inconsistency.
-            let new_local_edges = self.state.routing_table_view.add_local_edges(&new_edges);
-            let tier2 = self.state.tier2.load();
-            for edge in new_local_edges {
-                let other_peer = edge.other(&self.my_peer_id).unwrap();
-                match (tier2.ready.contains_key(other_peer), edge.edge_type()) {
-                    // This is an active connection, while the edge indicates it shouldn't.
-                    (true, EdgeState::Removed) => {
-                        self.maybe_remove_connected_peer(ctx, &edge, other_peer)
-                    }
-                    // We are not connected to this peer, but routing table contains
-                    // information that we do. We should wait and remove that peer
-                    // from routing table
-                    (false, EdgeState::Active) => Self::wait_peer_or_remove(ctx, edge),
-                    // OK
-                    _ => {}
-                }
-            }
             self.state
                 .routing_table_addr
                 .send(
@@ -598,75 +583,6 @@ impl PeerManagerActor {
             })
             .map(|p| p.peer_info.id.clone())
             .collect()
-    }
-
-    fn wait_peer_or_remove(ctx: &mut Context<Self>, edge: Edge) {
-        // This edge says this is an connected peer, which is currently not in the set of connected peers.
-        // Wait for some time to let the connection begin or broadcast edge removal instead.
-        near_performance_metrics::actix::run_later(
-            ctx,
-            WAIT_PEER_BEFORE_REMOVE.try_into().unwrap(),
-            move |act, _ctx| {
-                let other = edge.other(&act.my_peer_id).unwrap();
-                if act.state.tier2.load().ready.contains_key(other) {
-                    return;
-                }
-                // Peer is still not connected after waiting a timeout.
-                let new_edge = edge.remove_edge(act.my_peer_id.clone(), &act.config.node_key);
-                act.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-                    RoutingTableUpdate::from_edges(vec![new_edge]),
-                )));
-            },
-        );
-    }
-
-    // If we receive an edge indicating that we should no longer be connected to a peer.
-    // We will broadcast that edge to that peer, and if that peer doesn't reply within specific time,
-    // that peer will be removed. However, the connected peer may gives us a new edge indicating
-    // that we should in fact be connected to it.
-    fn maybe_remove_connected_peer(
-        &mut self,
-        ctx: &mut Context<Self>,
-        edge: &Edge,
-        other: &PeerId,
-    ) {
-        let nonce = edge.next();
-
-        if let Some(last_nonce) = self.local_peer_pending_update_nonce_request.get(other) {
-            if *last_nonce >= nonce {
-                // We already tried to update an edge with equal or higher nonce.
-                return;
-            }
-        }
-
-        self.state.tier2.send_message(
-            other.clone(),
-            Arc::new(PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
-                &self.my_peer_id,
-                other,
-                nonce,
-                &self.config.node_key,
-            ))),
-        );
-
-        self.local_peer_pending_update_nonce_request.insert(other.clone(), nonce);
-
-        let other = other.clone();
-        near_performance_metrics::actix::run_later(
-            ctx,
-            WAIT_ON_TRY_UPDATE_NONCE.try_into().unwrap(),
-            move |act, _ctx| {
-                if let Some(cur_nonce) = act.local_peer_pending_update_nonce_request.get(&other) {
-                    if *cur_nonce == nonce {
-                        if let Some(peer) = act.state.tier2.load().ready.get(&other) {
-                            // Send disconnect signal to this peer if we haven't edge update.
-                            peer.stop(None);
-                        }
-                        act.local_peer_pending_update_nonce_request.remove(&other);
-                    }
-                }
-            },
-        );
     }
 
     /// Check if the number of connections (excluding whitelisted ones) exceeds ideal_connections_hi.

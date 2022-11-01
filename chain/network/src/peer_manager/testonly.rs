@@ -162,7 +162,7 @@ impl ActorHandler {
                     Some(())
                 }
                 Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
-                    panic!("PeerManager accepted the handshake")
+                    panic!("PeerManager rejected the handshake")
                 }
                 _ => None,
             })
