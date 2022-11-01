@@ -3348,6 +3348,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-ping"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap 3.1.18",
+ "near-network",
+ "near-o11y",
+ "near-primitives",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "near-pool"
 version = "0.0.0"
 dependencies = [
@@ -3706,6 +3720,7 @@ dependencies = [
  "near-mirror",
  "near-o11y",
  "near-performance-metrics",
+ "near-ping",
  "near-primitives",
  "near-rust-allocator-proxy",
  "near-store",

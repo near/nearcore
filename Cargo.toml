@@ -47,6 +47,7 @@ members = [
     "tools/indexer/example",
     "tools/mirror",
     "tools/mock-node",
+    "tools/ping",
     "tools/restaked",
     "tools/rpctypegen/core",
     "tools/rpctypegen/macro",
