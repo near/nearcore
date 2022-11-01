@@ -4,13 +4,8 @@ use crate::routing;
 use crate::stats::metrics;
 use crate::store;
 use crate::time;
-use actix::{
-    Actor as _, ActorContext as _, Context, 
-    Running,
-};
-use near_o11y::{
-    handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext,
-};
+use actix::{Actor as _, ActorContext as _, Context, Running};
+use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
 use parking_lot::RwLock;
@@ -48,13 +43,7 @@ impl Actor {
         graph: Arc<RwLock<routing::GraphWithCache>>,
     ) -> Self {
         let my_peer_id = graph.read().my_peer_id();
-        Self {
-            clock,
-            my_peer_id,
-            graph,
-            store,
-            peer_reachable_at: Default::default(),
-        }
+        Self { clock, my_peer_id, graph, store, peer_reachable_at: Default::default() }
     }
 
     pub fn spawn(

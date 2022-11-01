@@ -2,9 +2,8 @@ use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
-    RoutingTableUpdate,
-    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerMessage, SignedAccountData,
-    SyncAccountsData,
+    Edge, PartialEdgeInfo, PeerChainInfoV2, PeerInfo, PeerMessage, RoutingTableUpdate,
+    SignedAccountData, SyncAccountsData,
 };
 use crate::peer::peer_actor;
 use crate::peer::peer_actor::PeerActor;
@@ -67,7 +66,7 @@ pub(crate) struct Connection {
 
     /// A helper data structure for limiting reading, reporting stats.
     pub send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
-    pub send_routing_table_update_demux: demux::Demux<Arc<RoutingTableUpdate>,()>,
+    pub send_routing_table_update_demux: demux::Demux<Arc<RoutingTableUpdate>, ()>,
 }
 
 impl fmt::Debug for Connection {
@@ -122,13 +121,26 @@ impl Connection {
                 .call(rtu, {
                     let this = this.clone();
                     |rtus: Vec<Arc<RoutingTableUpdate>>| async move {
-                        this.send_message(Arc::new(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
-                            edges: rtus.iter().map(|rtu|rtu.edges.iter()).flatten().cloned().collect(),
-                            accounts: rtus.iter().map(|rtu|rtu.accounts.iter()).flatten().cloned().collect(),
-                        })));
-                        rtus.iter().map(|_|()).collect()
+                        this.send_message(Arc::new(PeerMessage::SyncRoutingTable(
+                            RoutingTableUpdate {
+                                edges: rtus
+                                    .iter()
+                                    .map(|rtu| rtu.edges.iter())
+                                    .flatten()
+                                    .cloned()
+                                    .collect(),
+                                accounts: rtus
+                                    .iter()
+                                    .map(|rtu| rtu.accounts.iter())
+                                    .flatten()
+                                    .cloned()
+                                    .collect(),
+                            },
+                        )));
+                        rtus.iter().map(|_| ()).collect()
                     }
-                }).await;
+                })
+                .await;
             if res.is_err() {
                 tracing::info!(
                     "peer {} disconnected, while sending SyncRoutingTable",
@@ -137,7 +149,7 @@ impl Connection {
             }
         }
     }
- 
+
     pub fn send_accounts_data(
         self: &Arc<Self>,
         data: Vec<Arc<SignedAccountData>>,

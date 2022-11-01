@@ -2,8 +2,7 @@ use crate::broadcast;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PeerMessage, RawRoutedMessage, RoutedMessageBody,
-    RoutedMessageV2,
+    Edge, PartialEdgeInfo, PeerMessage, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
 };
 use crate::peer::peer_actor::{ClosingReason, PeerActor};
 use crate::peer_manager::network_state::NetworkState;

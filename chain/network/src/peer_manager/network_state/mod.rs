@@ -4,8 +4,8 @@ use crate::concurrency;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::config;
 use crate::network_protocol::{
-    Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong, RawRoutedMessage,
-    RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
+    Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
+    RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
 };
 use crate::peer_manager::connection;
 use crate::peer_manager::peer_manager_actor::Event;
@@ -18,7 +18,7 @@ use crate::store;
 use crate::time;
 use crate::types::{ChainInfo, PeerType, ReasonForBan};
 use arc_swap::ArcSwap;
-use near_o11y::{WithSpanContextExt};
+use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -277,9 +277,10 @@ impl NetworkState {
             if edge.edge_type() == EdgeState::Active {
                 let edge_update = edge.remove_edge(self.config.node_id(), &self.config.node_key);
                 self.add_edges_to_routing_table(clock, vec![edge_update.clone()]).await.unwrap();
-                self.broadcast_routing_table_update(
-                    Arc::new(RoutingTableUpdate::from_edges(vec![edge_update]))
-                ).await;
+                self.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_edges(
+                    vec![edge_update],
+                )))
+                .await;
             }
         }
 
@@ -294,9 +295,13 @@ impl NetworkState {
     }
 
     async fn broadcast_routing_table_update(&self, rtu: Arc<RoutingTableUpdate>) {
-        let handles: Vec<_> = self.tier2.load().ready.values().map(|conn|{
-            conn.send_routing_table_update(rtu.clone())
-        }).collect();
+        let handles: Vec<_> = self
+            .tier2
+            .load()
+            .ready
+            .values()
+            .map(|conn| conn.send_routing_table_update(rtu.clone()))
+            .collect();
         futures_util::future::join_all(handles).await;
     }
 
@@ -410,9 +415,10 @@ impl NetworkState {
         let new_accounts = self.routing_table_view.add_accounts(accounts);
         tracing::debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
         if new_accounts.len() > 0 {
-            self.broadcast_routing_table_update(
-                Arc::new(RoutingTableUpdate::from_accounts(new_accounts)),
-            ).await;
+            self.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_accounts(
+                new_accounts,
+            )))
+            .await;
         }
     }
 
@@ -472,9 +478,8 @@ impl NetworkState {
         }
         // Broadcast new edges to all other peers.
         if edges.len() > 0 {
-            self.broadcast_routing_table_update(
-                Arc::new(RoutingTableUpdate::from_edges(edges)),
-            ).await;
+            self.broadcast_routing_table_update(Arc::new(RoutingTableUpdate::from_edges(edges)))
+                .await;
         }
         if !ok {
             return Err(ReasonForBan::InvalidEdge);
@@ -564,9 +569,10 @@ impl NetworkState {
                         // Peer is still not connected after waiting a timeout.
                         let new_edge =
                             edge.remove_edge(this.config.node_id(), &this.config.node_key);
-                        this.broadcast_routing_table_update(
-                            Arc::new(RoutingTableUpdate::from_edges(vec![new_edge])),
-                        ).await;
+                        this.broadcast_routing_table_update(Arc::new(
+                            RoutingTableUpdate::from_edges(vec![new_edge]),
+                        ))
+                        .await;
                     });
                 }
                 // OK

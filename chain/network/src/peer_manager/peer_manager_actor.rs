@@ -2,9 +2,8 @@ use crate::client;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
-    AccountData, AccountOrPeerIdOrHash, Edge, PeerMessage,
-    Ping, Pong, RawRoutedMessage, RoutedMessageBody, StateResponseInfo,
-    SyncAccountsData,
+    AccountData, AccountOrPeerIdOrHash, Edge, PeerMessage, Ping, Pong, RawRoutedMessage,
+    RoutedMessageBody, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
@@ -22,9 +21,7 @@ use crate::types::{
     PeerType, SetChainInfo,
 };
 use actix::fut::future::wrap_future;
-use actix::{
-    Actor, AsyncContext, Context, Handler, Running,
-};
+use actix::{Actor, AsyncContext, Context, Handler, Running};
 use anyhow::Context as _;
 use near_o11y::{handler_trace_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
@@ -35,7 +32,7 @@ use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use rand::Rng;
 use std::cmp::min;
-use std::collections::{HashSet};
+use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};

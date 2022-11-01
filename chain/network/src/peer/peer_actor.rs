@@ -10,9 +10,7 @@ use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event;
-use crate::private_actix::{
-    RegisterPeerError, SendMessage,
-};
+use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::routing::edge::verify_nonce;
 use crate::stats::metrics;
 use crate::tcp;
@@ -24,9 +22,7 @@ use actix::fut::future::wrap_future;
 use actix::{Actor, ActorContext, ActorFutureExt, AsyncContext, Context, Handler, Running};
 use lru::LruCache;
 use near_crypto::Signature;
-use near_o11y::{
-    handler_debug_span, log_assert, pretty, OpenTelemetrySpanExt, WithSpanContext,
-};
+use near_o11y::{handler_debug_span, log_assert, pretty, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -589,7 +585,7 @@ impl PeerActor {
                                 RoutingTableUpdate::from_edges(vec![conn.edge.clone()]),
                             )));
                         }
-                        
+
                         // Exchange peers periodically.
                         ctx.spawn(wrap_future({
                             let conn = conn.clone();
@@ -892,10 +888,7 @@ impl PeerActor {
                     tracing::debug!(target: "network", "Peers request from {}: sending {} peers.", self.peer_info, peers.len());
                     self.send_message_or_log(&PeerMessage::PeersResponse(peers));
                 }
-                self.network_state
-                    .config
-                    .event_sink
-                    .push(Event::MessageProcessed(peer_msg));
+                self.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
             }
             PeerMessage::PeersResponse(peers) => {
                 tracing::debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
@@ -906,10 +899,7 @@ impl PeerActor {
                 ) {
                     tracing::error!(target: "network", ?err, "Fail to update peer store");
                 };
-                self.network_state
-                    .config
-                    .event_sink
-                    .push(Event::MessageProcessed(peer_msg));
+                self.network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
             }
             PeerMessage::RequestUpdateNonce(edge_info) => {
                 let clock = self.clock.clone();
@@ -943,10 +933,7 @@ impl PeerActor {
                     conn.send_message(Arc::new(PeerMessage::SyncRoutingTable(
                         RoutingTableUpdate { accounts: vec![], edges: vec![edge] },
                     )));
-                    network_state
-                        .config
-                        .event_sink
-                        .push(Event::MessageProcessed(peer_msg));
+                    network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
                 });
             }
             PeerMessage::SyncRoutingTable(rtu) => {
@@ -962,7 +949,13 @@ impl PeerActor {
                     self.send_message_or_log(&PeerMessage::SyncAccountsData(SyncAccountsData {
                         requesting_full_sync: false,
                         incremental: false,
-                        accounts_data: network_state.accounts_data.load().data.values().cloned().collect(),
+                        accounts_data: network_state
+                            .accounts_data
+                            .load()
+                            .data
+                            .values()
+                            .cloned()
+                            .collect(),
                     }));
                 }
                 assert!(self.network_state.arbiter.spawn(async move {
@@ -1002,10 +995,7 @@ impl PeerActor {
                         }
                     }
                     .await;
-                    network_state
-                        .config
-                        .event_sink
-                        .push(Event::MessageProcessed(peer_msg));
+                    network_state.config.event_sink.push(Event::MessageProcessed(peer_msg));
                 }));
             }
             PeerMessage::Routed(mut msg) => {
