@@ -170,8 +170,6 @@ async fn wait_for_edges(peer: &mut peer::testonly::PeerHandle, want: &HashSet<Ed
                 PeerMessage::SyncRoutingTable(msg),
             )) => {
                 got.extend(msg.edges);
-                tracing::debug!(target:"dupa", "got = {:?}",got.iter().map(|e|e.hash()).collect::<Vec<_>>());
-                tracing::debug!(target:"dupa", "want = {:?}",want.iter().map(|e|e.hash()).collect::<Vec<_>>());
                 assert!(want.is_superset(&got));
             }
             // Ignore other messages.
