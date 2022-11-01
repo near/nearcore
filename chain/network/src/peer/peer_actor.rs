@@ -1077,11 +1077,14 @@ impl PeerActor {
         let edges = rtu.edges;
         let accounts = rtu.accounts;
 
-        // Filter known accounts before validating them.
+        // For every announce we received, we fetch the last announce with the same account_id
+        // that we already broadcasted. Client actor will both verify signatures of the received announces
+        // as well as filter out those which are older than the fetched ones (to avoid overriding
+        // a newer announce with an older one).
         let old = self
             .network_state
             .routing_table_view
-            .get_announces(accounts.iter().map(|a| &a.account_id));
+            .get_broadcasted_announces(accounts.iter().map(|a| &a.account_id));
         let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = accounts
             .into_iter()
             .map(|aa| {
