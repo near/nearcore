@@ -60,6 +60,7 @@ mod imp {
     use near_primitives::types::ShardId;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
+    use tracing::debug;
 
     use crate::{Store, StoreUpdate};
 
@@ -219,14 +220,15 @@ mod imp {
                 let flat_storage_state = {
                     let flat_storage_states =
                         self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
-                    // We unwrap here because flat storage state for this shard should already be
-                    // added. If not, it is a bug in our code and we can't keep processing blocks
-                    flat_storage_states
-                        .get(&shard_id)
-                        .unwrap_or_else(|| {
-                            panic!("FlatStorageState for shard {} is not ready", shard_id)
-                        })
-                        .clone()
+                    // It is possible that flat storage state does not exist yet because it is being created in
+                    // background.
+                    match flat_storage_states.get(&shard_id) {
+                        Some(flat_storage_state) => flat_storage_state.clone(),
+                        None => {
+                            debug!(target: "chain", "FlatStorageState is not ready");
+                            return None;
+                        }
+                    }
                 };
                 Some(FlatState {
                     store: self.0.store.clone(),
