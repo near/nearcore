@@ -465,7 +465,7 @@ pub enum ActionErrorKind {
     DelegateActionSenderDoesNotMatchTxReceiver { sender_id: AccountId, receiver_id: AccountId },
     /// Sender account doesn't exist
     DelegateActionSenderDoesNotExist { sender_id: AccountId },
-    /// Delegate action has expired
+    /// Delegate action has expired. `max_block_height` is less than actual block height.
     DelegateActionExpired,
     /// The given public key doesn't exist for Sender account
     DelegateActionAccessKeyError(InvalidAccessKeyError),

@@ -630,6 +630,10 @@ pub(crate) fn apply_delegate_action(
         result.result = Err(ActionErrorKind::DelegateActionInvalidSignature.into());
         return Ok(());
     }
+    if apply_state.block_index > delegate_action.max_block_height {
+        result.result = Err(ActionErrorKind::DelegateActionExpired.into());
+        return Ok(());
+    }
     if delegate_action.sender_id.as_str() != sender_id.as_str() {
         result.result = Err(ActionErrorKind::DelegateActionSenderDoesNotMatchTxReceiver {
             sender_id: delegate_action.sender_id.clone(),

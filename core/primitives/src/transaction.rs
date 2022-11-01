@@ -4,6 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::io::{Error, ErrorKind};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives_core::types::BlockHeight;
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
@@ -258,8 +259,8 @@ pub struct DelegateAction {
     /// Nonce to ensure that the same delegate action is not sent twice by a relayer and should match for given account's `public_key`.
     /// After this action is processed it will increment.
     pub nonce: Nonce,
-    /// The hash of the block in the blockchain on top of which the given DelegateAction is valid
-    pub block_hash: CryptoHash,
+    /// The maximal height of the block in the blockchain below which the given DelegateAction is valid.
+    pub max_block_height: BlockHeight,
     /// Public key that is used to sign this delegated action.
     pub public_key: PublicKey,
 }
