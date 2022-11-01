@@ -48,9 +48,11 @@ pub(crate) struct NetworkState {
     /// PeerActor can be stopped at any moment.
     /// WARNING: DO NOT spawn infinite futures/background loops on this arbiter,
     /// as it will be automatically closed only when the NetworkState is dropped.
-    pub arbiter: actix::ArbiterHandle,
+    arbiter: actix::ArbiterHandle,
     /// PeerManager config.
     pub config: Arc<config::VerifiedConfig>,
+    /// When network state has been constructed.
+    pub start_time: time::Instant,
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     pub client: Arc<dyn client::Client>,
@@ -119,6 +121,7 @@ impl NetworkState {
             routing_table_exchange_helper: Default::default(),
             config,
             txns_since_last_block: AtomicUsize::new(0),
+            start_time: clock.now(),
         }
     }
 
@@ -151,7 +154,7 @@ impl NetworkState {
 
     /// Removes the connection from the state.
     pub fn unregister(
-        &self,
+        self: &Arc<Self>,
         clock: &time::Clock,
         conn: &Arc<connection::Connection>,
         ban_reason: Option<ReasonForBan>,
@@ -164,10 +167,7 @@ impl NetworkState {
         if let Some(edge) = self.routing_table_view.get_local_edge(&peer_id) {
             if edge.edge_type() == EdgeState::Active {
                 let edge_update = edge.remove_edge(self.config.node_id(), &self.config.node_key);
-                self.add_verified_edges_to_routing_table(vec![edge_update.clone()]);
-                self.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-                    RoutingTableUpdate::from_edges(vec![edge_update]),
-                )));
+                self.add_verified_edges_to_routing_table(clock, vec![edge_update.clone()]); 
             }
         }
 
@@ -287,13 +287,36 @@ impl NetworkState {
         }
     }
 
-    pub fn add_verified_edges_to_routing_table(&self, edges: Vec<Edge>) {
+    pub fn add_verified_edges_to_routing_table(self: &Arc<Self>, clock: &time::Clock, edges: Vec<Edge>) { 
         if edges.is_empty() {
             return;
         }
         self.routing_table_view.add_local_edges(&edges);
-        self.routing_table_addr
-            .do_send(routing::actor::Message::AddVerifiedEdges { edges }.with_span_context());
+        let this = self.clone();
+        let clock = clock.clone();
+        self.arbiter.spawn(async move {
+            match this.routing_table_addr.send(
+                routing::actor::Message::AddVerifiedEdges { edges }
+                .with_span_context(),
+            ).await {
+                Ok(routing::actor::Response::AddVerifiedEdgesResponse(mut edges)) => {
+                    // Don't send tombstones during the initial time.
+                    // Most of the network is created during this time, which results
+                    // in us sending a lot of tombstones to peers.
+                    // Later, the amount of new edges is a lot smaller.
+                    if let Some(skip_tombstones_duration) = this.config.skip_tombstones {
+                        if clock.now() < this.start_time + skip_tombstones_duration {
+                            edges.retain(|e| e.edge_type() == EdgeState::Active);
+                            metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
+                        }
+                    }
+                    this.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
+                        RoutingTableUpdate::from_edges(edges),
+                    )));
+                }
+                _ => tracing::error!(target: "network", "expected AddVerifiedEdgesResponse"),
+            }
+        });
     }
 
     pub fn broadcast_accounts(&self, accounts: Vec<AnnounceAccount>) {
@@ -329,7 +352,7 @@ impl NetworkState {
     /// a) there is a peer we should be connected to, but we aren't
     /// b) there is an edge indicating that we should be disconnected from a peer, but we are connected.
     /// Try to resolve the inconsistency.
-    pub fn fix_local_edges(self: &Arc<Self>) {
+    pub fn fix_local_edges(self: &Arc<Self>, clock: &time::Clock) {
         let local_edges = self.routing_table_view.get_local_edges();
         let tier2 = self.tier2.load();
         for edge in local_edges {
@@ -364,6 +387,7 @@ impl NetworkState {
                 // from routing table
                 (None, EdgeState::Active) => {
                     let this = self.clone();
+                    let clock = clock.clone();
                     let other_peer = other_peer.clone();
                     self.arbiter.spawn(async move {
                         // This edge says this is an connected peer, which is currently not in the set of connected peers.
@@ -375,10 +399,7 @@ impl NetworkState {
                         // Peer is still not connected after waiting a timeout.
                         let new_edge =
                             edge.remove_edge(this.config.node_id(), &this.config.node_key);
-                        this.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
-                        this.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
-                            RoutingTableUpdate::from_edges(vec![new_edge.clone()]),
-                        )));
+                        this.add_verified_edges_to_routing_table(&clock, vec![new_edge.clone()]); 
                     });
                 }
                 // OK

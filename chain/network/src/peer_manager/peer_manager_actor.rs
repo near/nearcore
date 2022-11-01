@@ -3,7 +3,7 @@ use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::{
     AccountData, AccountOrPeerIdOrHash, Edge, EdgeState, PeerInfo, PeerMessage, Ping, Pong,
-    RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
+    RawRoutedMessage, RoutedMessageBody, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
@@ -40,11 +40,11 @@ use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use rand::Rng;
 use std::cmp::min;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashSet};
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use tracing::{debug, error, info, warn, Instrument};
+use tracing::{debug, error, info, warn};
 
 /// Ratio between consecutive attempts to establish connection with another peer.
 /// In the kth step node should wait `10 * EXPONENTIAL_BACKOFF_RATIO**k` milliseconds
@@ -128,8 +128,6 @@ pub struct PeerManagerActor {
     my_peer_id: PeerId,
     /// Flag that track whether we started attempts to establish outbound connections.
     started_connect_attempts: bool,
-    /// Connected peers we have sent new edge update, but we haven't received response so far.
-    local_peer_pending_update_nonce_request: HashMap<PeerId, u64>,
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
     /// reached.
     whitelist_nodes: Vec<WhitelistNode>,
@@ -217,15 +215,14 @@ impl Actor for PeerManagerActor {
             (MONITOR_PEERS_INITIAL_DURATION, self.config.monitor_peers_max_period),
         );
 
-        let skip_tombstones = self.config.skip_tombstones.map(|it| self.clock.now() + it);
-
         let state = self.state.clone();
+        let clock = self.clock.clone();
         ctx.spawn(wrap_future(async move {
             let mut interval = tokio::time::interval(FIX_LOCAL_EDGES_INTERVAL.try_into().unwrap());
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 interval.tick().await;
-                state.fix_local_edges();
+                state.fix_local_edges(&clock);
             }
         }));
 
@@ -233,7 +230,6 @@ impl Actor for PeerManagerActor {
         self.broadcast_validated_edges_trigger(
             ctx,
             BROADCAST_VALIDATED_EDGES_INTERVAL,
-            skip_tombstones,
         );
 
         // Periodically updates routing table and prune edges that are no longer reachable.
@@ -290,7 +286,6 @@ impl PeerManagerActor {
             config: config.clone(),
             max_num_peers: config.max_num_peers,
             started_connect_attempts: false,
-            local_peer_pending_update_nonce_request: HashMap::new(),
             whitelist_nodes,
             state: Arc::new(NetworkState::new(
                 &clock,
@@ -409,8 +404,6 @@ impl PeerManagerActor {
         &mut self,
         ctx: &mut Context<Self>,
         interval: time::Duration,
-        // If set, don't push any tombstones until this time.
-        skip_tombstones_until: Option<time::Instant>,
     ) {
         let _span =
             tracing::trace_span!(target: "network", "broadcast_validated_edges_trigger").entered();
@@ -428,55 +421,13 @@ impl PeerManagerActor {
                 break;
             }
         }
-
-        if !new_edges.is_empty() {
-            self.state
-                .routing_table_addr
-                .send(
-                    routing::actor::Message::AddVerifiedEdges { edges: new_edges }
-                        .with_span_context(),
-                )
-                .in_current_span()
-                .into_actor(self)
-                .map(move |response, act, _ctx| {
-                    let _span = tracing::trace_span!(
-                        target: "network",
-                        "broadcast_validated_edges_trigger_response")
-                    .entered();
-
-                    match response {
-                        Ok(routing::actor::Response::AddVerifiedEdgesResponse(
-                            mut filtered_edges,
-                        )) => {
-                            // Don't send tombstones during the initial time.
-                            // Most of the network is created during this time, which results
-                            // in us sending a lot of tombstones to peers.
-                            // Later, the amount of new edges is a lot smaller.
-                            if let Some(skip_tombstones_until) = skip_tombstones_until {
-                                if act.clock.now() < skip_tombstones_until {
-                                    filtered_edges
-                                        .retain(|edge| edge.edge_type() == EdgeState::Active);
-                                    metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
-                                }
-                            }
-                            // Broadcast new edges to all other peers.
-                            act.state.tier2.broadcast_message(Arc::new(
-                                PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(
-                                    filtered_edges,
-                                )),
-                            ));
-                        }
-                        _ => error!(target: "network", "expected AddVerifiedEdgesResponse"),
-                    }
-                })
-                .spawn(ctx);
-        };
+        self.state.add_verified_edges_to_routing_table(&self.clock,new_edges); 
 
         near_performance_metrics::actix::run_later(
             ctx,
             interval.try_into().unwrap(),
             move |act, ctx| {
-                act.broadcast_validated_edges_trigger(ctx, interval, skip_tombstones_until);
+                act.broadcast_validated_edges_trigger(ctx, interval);
             },
         );
     }
@@ -499,7 +450,7 @@ impl PeerManagerActor {
         if let Err(err) = self.state.peer_store.peer_connected(&self.clock, peer_info) {
             error!(target: "network", ?err, "Failed to save peer data");
         }
-        self.state.add_verified_edges_to_routing_table(vec![connection.edge.clone()]);
+        self.state.add_verified_edges_to_routing_table(&self.clock, vec![connection.edge.clone()]);
         Ok(())
     }
 
@@ -1199,35 +1150,16 @@ impl PeerManagerActor {
                         edge_info.signature,
                     );
 
-                    self.state.add_verified_edges_to_routing_table(vec![new_edge.clone()]);
+                    self.state.add_verified_edges_to_routing_table(&self.clock, vec![new_edge.clone()]);
                     PeerToManagerMsgResp::EdgeUpdate(Box::new(new_edge))
                 } else {
                     PeerToManagerMsgResp::BanPeer(ReasonForBan::InvalidEdge)
                 }
             }
             PeerToManagerMsg::ResponseUpdateNonce(edge) => {
-                if let Some(other_peer) = edge.other(&self.my_peer_id) {
+                if edge.other(&self.my_peer_id).is_some() {
                     if edge.verify() {
-                        // This happens in case, we get an edge, in `RoutingTableActor`,
-                        // which says that we shouldn't be connected to local peer, but we are.
-                        // This is a part of logic used to ask peer, if he really want to be disconnected.
-                        if self
-                            .state
-                            .routing_table_view
-                            .is_local_edge_newer(other_peer, edge.nonce())
-                        {
-                            if let Some(nonce) =
-                                self.local_peer_pending_update_nonce_request.get(other_peer)
-                            {
-                                if edge.nonce() >= *nonce {
-                                    // This means that, `other_peer` responded that we should keep
-                                    // the connection that that peer. Therefore, we are
-                                    // cleaning up this data structure.
-                                    self.local_peer_pending_update_nonce_request.remove(other_peer);
-                                }
-                            }
-                        }
-                        self.state.add_verified_edges_to_routing_table(vec![edge.clone()]);
+                        self.state.add_verified_edges_to_routing_table(&self.clock, vec![edge.clone()]);
                         PeerToManagerMsgResp::Empty
                     } else {
                         PeerToManagerMsgResp::BanPeer(ReasonForBan::InvalidEdge)
