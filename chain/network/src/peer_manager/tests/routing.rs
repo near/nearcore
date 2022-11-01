@@ -170,6 +170,8 @@ async fn wait_for_edges(peer: &mut peer::testonly::PeerHandle, want: &HashSet<Ed
                 PeerMessage::SyncRoutingTable(msg),
             )) => {
                 got.extend(msg.edges);
+                tracing::debug!(target:"dupa", "got = {:?}",got.iter().map(|e|e.hash()).collect::<Vec<_>>());
+                tracing::debug!(target:"dupa", "want = {:?}",want.iter().map(|e|e.hash()).collect::<Vec<_>>());
                 assert!(want.is_superset(&got));
             }
             // Ignore other messages.
@@ -214,14 +216,8 @@ async fn no_edge_broadcast_after_restart() {
         let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
         let edge = peer.complete_handshake().await;
 
-        // Receive the initial sync, which will consist just of the current edge:
-        // - the disconnected edges from the previous iterations are not loaded yet.
-        // - the local edges weren't stored at all.
-        tracing::info!(target: "test", "wait_for_edges(<first edge>)");
-        wait_for_edges(&mut peer, &[edge.clone()].into()).await;
-
         // Create a bunch of fresh unreachable edges, then send all the edges created so far.
-        let fresh_edges: HashSet<_> = [
+        let mut fresh_edges: HashSet<_> = [
             data::make_edge(&data::make_signer(rng), &data::make_signer(rng)),
             data::make_edge(&data::make_signer(rng), &data::make_signer(rng)),
             data::make_edge_tombstone(&data::make_signer(rng), &data::make_signer(rng)),
@@ -237,8 +233,9 @@ async fn no_edge_broadcast_after_restart() {
         }))
         .await;
 
-        // Wait for the fresh edges to be broadcasted back.
+        // Wait for the fresh edges and the connection edge to be broadcasted back.
         tracing::info!(target: "test", "wait_for_edges(<fresh edges>)");
+        fresh_edges.insert(edge);
         wait_for_edges(&mut peer, &fresh_edges).await;
 
         // Wait for all the disconnected edges created so far to be saved to storage.

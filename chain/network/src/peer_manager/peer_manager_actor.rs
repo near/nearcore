@@ -40,7 +40,7 @@ use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use rand::Rng;
 use std::cmp::min;
-use std::collections::{HashSet};
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -227,10 +227,7 @@ impl Actor for PeerManagerActor {
         }));
 
         // Periodically reads valid edges from `EdgesVerifierActor` and broadcast.
-        self.broadcast_validated_edges_trigger(
-            ctx,
-            BROADCAST_VALIDATED_EDGES_INTERVAL,
-        );
+        self.broadcast_validated_edges_trigger(ctx, BROADCAST_VALIDATED_EDGES_INTERVAL);
 
         // Periodically updates routing table and prune edges that are no longer reachable.
         self.update_routing_table_trigger(ctx, UPDATE_ROUTING_TABLE_INTERVAL);
@@ -421,7 +418,7 @@ impl PeerManagerActor {
                 break;
             }
         }
-        self.state.add_verified_edges_to_routing_table(&self.clock,new_edges); 
+        self.state.add_verified_edges_to_routing_table(&self.clock, new_edges);
 
         near_performance_metrics::actix::run_later(
             ctx,
@@ -1150,7 +1147,8 @@ impl PeerManagerActor {
                         edge_info.signature,
                     );
 
-                    self.state.add_verified_edges_to_routing_table(&self.clock, vec![new_edge.clone()]);
+                    self.state
+                        .add_verified_edges_to_routing_table(&self.clock, vec![new_edge.clone()]);
                     PeerToManagerMsgResp::EdgeUpdate(Box::new(new_edge))
                 } else {
                     PeerToManagerMsgResp::BanPeer(ReasonForBan::InvalidEdge)
@@ -1159,7 +1157,8 @@ impl PeerManagerActor {
             PeerToManagerMsg::ResponseUpdateNonce(edge) => {
                 if edge.other(&self.my_peer_id).is_some() {
                     if edge.verify() {
-                        self.state.add_verified_edges_to_routing_table(&self.clock, vec![edge.clone()]);
+                        self.state
+                            .add_verified_edges_to_routing_table(&self.clock, vec![edge.clone()]);
                         PeerToManagerMsgResp::Empty
                     } else {
                         PeerToManagerMsgResp::BanPeer(ReasonForBan::InvalidEdge)

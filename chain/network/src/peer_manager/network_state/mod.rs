@@ -167,7 +167,7 @@ impl NetworkState {
         if let Some(edge) = self.routing_table_view.get_local_edge(&peer_id) {
             if edge.edge_type() == EdgeState::Active {
                 let edge_update = edge.remove_edge(self.config.node_id(), &self.config.node_key);
-                self.add_verified_edges_to_routing_table(clock, vec![edge_update.clone()]); 
+                self.add_verified_edges_to_routing_table(clock, vec![edge_update.clone()]);
             }
         }
 
@@ -287,7 +287,11 @@ impl NetworkState {
         }
     }
 
-    pub fn add_verified_edges_to_routing_table(self: &Arc<Self>, clock: &time::Clock, edges: Vec<Edge>) { 
+    pub fn add_verified_edges_to_routing_table(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+        edges: Vec<Edge>,
+    ) {
         if edges.is_empty() {
             return;
         }
@@ -295,10 +299,11 @@ impl NetworkState {
         let this = self.clone();
         let clock = clock.clone();
         self.arbiter.spawn(async move {
-            match this.routing_table_addr.send(
-                routing::actor::Message::AddVerifiedEdges { edges }
-                .with_span_context(),
-            ).await {
+            match this
+                .routing_table_addr
+                .send(routing::actor::Message::AddVerifiedEdges { edges }.with_span_context())
+                .await
+            {
                 Ok(routing::actor::Response::AddVerifiedEdgesResponse(mut edges)) => {
                     // Don't send tombstones during the initial time.
                     // Most of the network is created during this time, which results
@@ -399,7 +404,7 @@ impl NetworkState {
                         // Peer is still not connected after waiting a timeout.
                         let new_edge =
                             edge.remove_edge(this.config.node_id(), &this.config.node_key);
-                        this.add_verified_edges_to_routing_table(&clock, vec![new_edge.clone()]); 
+                        this.add_verified_edges_to_routing_table(&clock, vec![new_edge.clone()]);
                     });
                 }
                 // OK
