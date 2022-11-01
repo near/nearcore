@@ -83,9 +83,9 @@ use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::flat_state::FlatStorageError;
 #[cfg(feature = "protocol_feature_flat_state")]
-use near_store::flat_state::FlatStateDelta;
-use near_store::flat_state::{store_helper, FlatStorageError};
+use near_store::flat_state::{store_helper, FlatStateDelta};
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -4771,7 +4771,7 @@ impl<'a> ChainUpdate<'a> {
                     .map_err(|e| StorageError::from(e))?;
                 self.chain_store_update.merge(store_update);
             } else {
-                info!(target: "chain", "Add flat state delta for migration");
+                info!(target: "chain", %shard_id, "Add delta for flat storage creation");
                 let mut store_update = self.chain_store_update.store().store_update();
                 store_helper::set_delta(&mut store_update, shard_id, block_hash.clone(), &delta)
                     .map_err(|e| StorageError::from(e))?;

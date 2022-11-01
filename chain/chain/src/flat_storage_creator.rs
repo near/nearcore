@@ -87,11 +87,13 @@ impl FlatStorageCreator {
                 Arc::new(Mutex::new(FlatStorageShardCreator::new(shard_id, chain_store)))
             })
             .collect();
-        let mut all_created = true;
+        let mut creation_needed = false;
         for shard_creator in shard_creators.iter() {
             let guard = shard_creator.lock().unwrap();
             let shard_id = guard.shard_id;
             info!(target: "chain", %shard_id, "Flat storage creation status: {:?}", guard.status);
+
+            #[cfg(feature = "protocol_feature_flat_state")]
             if matches!(guard.status, CreationStatus::Finished) {
                 runtime_adapter.create_flat_storage_state_for_shard(
                     shard_id,
@@ -99,13 +101,11 @@ impl FlatStorageCreator {
                     chain_store,
                 );
             } else {
-                all_created = false;
+                creation_needed = true;
             }
         }
 
-        if all_created {
-            None
-        } else {
+        if creation_needed {
             Some(Self {
                 start_height,
                 shard_creators,
@@ -115,6 +115,8 @@ impl FlatStorageCreator {
                     .build()
                     .unwrap(),
             })
+        } else {
+            None
         }
     }
 
