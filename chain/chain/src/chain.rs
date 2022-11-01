@@ -2160,7 +2160,6 @@ impl Chain {
                         }
                     });
                 } else {
-                    let final_head = self.final_head()?;
                     match &self.flat_storage_creator {
                         Some(flat_storage_creator) => {
                             flat_storage_creator.update_status(shard_id, &self.store)?;

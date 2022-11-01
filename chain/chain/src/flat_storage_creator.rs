@@ -6,13 +6,13 @@ use near_primitives::types::{BlockHeight, ShardId};
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
-pub const STATUS_KEY: &[u8; 6] = b"STATUS";
-
 /// Number of parts to which we divide shard state for parallel traversal.
 // TODO: consider changing it for different shards, ensure that shard memory usage / `NUM_PARTS` < X MiB.
+#[allow(unused)]
 const NUM_PARTS: u64 = 4_000;
 
 /// Number of traversed parts during a single step of fetching state.
+#[allow(unused)]
 const PART_STEP: u64 = 50;
 
 /// Status of flat storage creation for the shard.
@@ -28,11 +28,14 @@ pub enum CreationStatus {
     /// Status contains block hash for which we fetch the shard state and step of fetching state. Progress of each step
     /// is saved to disk, so if creation is interrupted during some step, it won't repeat previous steps and will start
     /// from this step again.
+    #[allow(unused)]
     FetchingState((CryptoHash, u64)),
     /// Flat storage is initialized but its head is too far away from chain final head. We need to apply deltas until
     /// the head reaches final head.
+    #[allow(unused)]
     CatchingUp,
     /// Flat storage head is the same as chain final head. We can create `FlatStorageState`.
+    #[allow(unused)]
     Finished,
 }
 
@@ -93,8 +96,8 @@ impl FlatStorageCreator {
             let shard_id = guard.shard_id;
             info!(target: "chain", %shard_id, "Flat storage creation status: {:?}", guard.status);
 
-            #[cfg(feature = "protocol_feature_flat_state")]
             if matches!(guard.status, CreationStatus::Finished) {
+                #[cfg(feature = "protocol_feature_flat_state")]
                 runtime_adapter.create_flat_storage_state_for_shard(
                     shard_id,
                     chain_store.head().unwrap().height,
@@ -120,13 +123,8 @@ impl FlatStorageCreator {
         }
     }
 
-    pub fn get_status(&self, shard_id: ShardId) -> CreationStatus {
-        let guard = self.shard_creators[shard_id as usize].lock().unwrap();
-        guard.status.clone()
-    }
-
     pub fn update_status(&self, shard_id: ShardId, _chain_store: &ChainStore) -> Result<(), Error> {
-        let mut guard = self.shard_creators[shard_id as usize].lock().unwrap();
+        let guard = self.shard_creators[shard_id as usize].lock().unwrap();
 
         match guard.status.clone() {
             CreationStatus::SavingDeltas => {
