@@ -2166,6 +2166,7 @@ impl Chain {
                             flat_storage_creator.update_status(shard_id, &self.store)?;
                         }
                         None => {
+                            #[cfg(feature = "protocol_feature_flat_state")]
                             panic!("Both FlatStorageState and FlatStorageCreator don't exist for shard {shard_id}")
                         }
                     }
