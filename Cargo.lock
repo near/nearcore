@@ -559,6 +559,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "blst"
+version = "0.3.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a30d0edd9dd1c60ddb42b80341c7852f6f985279a5c1a83659dcb65899dec99"
+dependencies = [
+ "cc",
+ "glob",
+ "threadpool",
+ "which",
+ "zeroize",
+]
+
+[[package]]
 name = "bolero"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3555,6 +3568,7 @@ dependencies = [
 name = "near-vm-logic"
 version = "0.0.0"
 dependencies = [
+ "blst",
  "borsh",
  "byteorder",
  "ed25519-dalek",
@@ -5688,6 +5702,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5516c27b78311c50bf42c071425c560ac799b11c30b31f87e3081965fe5e0180"
 dependencies = [
  "once_cell",
+]
+
+[[package]]
+name = "threadpool"
+version = "1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d050e60b33d41c19108b32cea32164033a9013fe3b46cbd4457559bfbf77afaa"
+dependencies = [
+ "num_cpus",
 ]
 
 [[package]]
