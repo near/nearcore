@@ -124,6 +124,12 @@ impl FlatStorageCreator {
     }
 
     pub fn update_status(&self, shard_id: ShardId, _chain_store: &ChainStore) -> Result<(), Error> {
+        if shard_id as usize >= self.shard_creators.len() {
+            // We can request update for not supported shard if resharding happens. We don't support it yet, so we just
+            // return Ok.
+            return Ok(());
+        }
+
         let guard = self.shard_creators[shard_id as usize].lock().unwrap();
 
         match guard.status.clone() {
