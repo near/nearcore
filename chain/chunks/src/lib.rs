@@ -951,17 +951,6 @@ impl ShardsManager {
         }
     }
 
-    pub fn num_chunks_for_block(&mut self, prev_block_hash: &CryptoHash) -> ShardId {
-        self.encoded_chunks.num_chunks_for_block(prev_block_hash)
-    }
-
-    pub fn prepare_chunks(
-        &mut self,
-        prev_block_hash: &CryptoHash,
-    ) -> HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>)> {
-        self.encoded_chunks.get_chunk_headers_for_block(prev_block_hash)
-    }
-
     pub fn receipts_recipient_filter<T>(
         from_shard_id: ShardId,
         tracking_shards: T,
@@ -1809,7 +1798,9 @@ impl ShardsManager {
         // self.seals_mgr.track_seals();
 
         if have_all_parts && self.seals_mgr.should_trust_chunk_producer(&chunk_producer) {
-            self.encoded_chunks.insert_chunk_header(header.shard_id(), header.clone());
+            if self.encoded_chunks.mark_chunk_for_inclusion(&chunk_hash) {
+                self.client_adapter.chunk_header_ready_for_inclusion(header.clone());
+            }
         }
         // we can safely unwrap here because we already checked that chunk_hash exist in encoded_chunks
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
@@ -2168,7 +2159,7 @@ impl ShardsManager {
 
         // Add it to the set of chunks to be included in the next block
         self.encoded_chunks.merge_in_partial_encoded_chunk(&partial_chunk.clone().into());
-        self.encoded_chunks.insert_chunk_header(shard_id, chunk_header);
+        self.encoded_chunks.mark_chunk_for_inclusion(&chunk_header.chunk_hash());
 
         Ok(())
     }
@@ -2911,6 +2902,7 @@ mod test {
                 panic!("Unexpected process_result: {:?}", process_result);
             }
         }
+        assert_eq!(fixture.count_chunk_completion_messages(), 1);
         // Requesting it again should not send any actual requests as the chunk is already
         // complete. Sleeping and resending later should also not send any requests.
         shards_manager.request_chunk_single(
@@ -3054,5 +3046,25 @@ mod test {
         assert_eq!(source, "chunk");
         assert!(response.is_some());
         assert_eq!(response.unwrap().parts.len(), fixture.all_part_ords.len());
+    }
+
+    #[test]
+    fn test_report_chunk_for_inclusion_to_client() {
+        let fixture = ChunkTestFixture::default();
+        let mut shards_manager = ShardsManager::new(
+            Some(fixture.mock_chunk_part_owner.clone()),
+            fixture.mock_runtime.clone(),
+            fixture.mock_network.clone(),
+            fixture.mock_client_adapter.clone(),
+            fixture.chain_store.new_read_only_chunks_store(),
+            None,
+        );
+        let part = fixture.make_partial_encoded_chunk(&fixture.mock_part_ords);
+        shards_manager.process_partial_encoded_chunk(part.clone().into()).unwrap();
+        assert_eq!(fixture.count_chunk_ready_for_inclusion_messages(), 1);
+
+        // test that chunk inclusion message is only sent once.
+        shards_manager.process_partial_encoded_chunk(part.into()).unwrap();
+        assert_eq!(fixture.count_chunk_ready_for_inclusion_messages(), 0);
     }
 }

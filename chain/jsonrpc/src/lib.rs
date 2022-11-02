@@ -786,6 +786,9 @@ impl JsonRpcHandler {
                     "/debug/api/validator_status" => {
                         self.client_send(DebugStatus::ValidatorStatus).await?.rpc_into()
                     }
+                    "/debug/api/chain_processing_status" => {
+                        self.client_send(DebugStatus::ChainProcessingStatus).await?.rpc_into()
+                    }
                     "/debug/api/peer_store" => self
                         .peer_manager_send(near_network::debug::GetDebugStatus::PeerStore)
                         .await?
