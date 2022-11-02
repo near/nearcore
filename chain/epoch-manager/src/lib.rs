@@ -14,8 +14,8 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId,
-    EpochInfoProvider, ShardId, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
-    ValidatorStats,
+    EpochInfoProvider, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
+    ValidatorKickoutReason, ValidatorStats,
 };
 use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
 use near_primitives::views::{
@@ -115,6 +115,7 @@ pub struct EpochManager {
     reward_calculator: RewardCalculator,
     /// Genesis protocol version. Useful when there are protocol upgrades.
     genesis_protocol_version: ProtocolVersion,
+    genesis_num_block_producer_seats: NumSeats,
 
     /// Cache of epoch information.
     epochs_info: SyncLruCache<EpochId, Arc<EpochInfo>>,
@@ -173,11 +174,14 @@ impl EpochManager {
             .get_ser(DBCol::EpochInfo, AGGREGATOR_KEY)
             .map_err(EpochError::from)?
             .unwrap_or_default();
+        let genesis_num_block_producer_seats =
+            config.for_protocol_version(genesis_protocol_version).num_block_producer_seats;
         let mut epoch_manager = EpochManager {
             store,
             config,
             reward_calculator,
             genesis_protocol_version,
+            genesis_num_block_producer_seats,
             epochs_info: SyncLruCache::new(EPOCH_CACHE_SIZE),
             blocks_info: SyncLruCache::new(BLOCK_CACHE_SIZE),
             epoch_id_to_start: SyncLruCache::new(EPOCH_CACHE_SIZE),
