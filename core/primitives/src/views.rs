@@ -538,7 +538,6 @@ pub struct DetailedDebugStatus {
     pub current_head_status: BlockStatusView,
     pub current_header_head_status: BlockStatusView,
     pub block_production_delay_millis: u64,
-    pub chain_processing_info: ChainProcessingInfo,
 }
 
 // TODO: add more information to status.

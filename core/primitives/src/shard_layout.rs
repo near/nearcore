@@ -1,4 +1,5 @@
 use std::cmp::Ordering::Greater;
+use std::{fmt, str};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use serde::{Deserialize, Serialize};
@@ -287,7 +288,7 @@ fn is_top_level_account(top_account: &AccountId, account: &AccountId) -> bool {
 }
 
 /// ShardUId is an unique representation for shards from different shard layout
-#[derive(Serialize, Deserialize, Hash, Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ShardUId {
     pub version: ShardVersion,
     pub shard_id: u32,
@@ -353,6 +354,104 @@ pub fn get_block_shard_uid_rev(
     let block_hash = CryptoHash::try_from(&key[..32])?;
     let shard_id = ShardUId::try_from(&key[32..])?;
     Ok((block_hash, shard_id))
+}
+
+impl fmt::Display for ShardUId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "s{}.v{}", self.shard_id, self.version)
+    }
+}
+
+impl fmt::Debug for ShardUId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+
+impl str::FromStr for ShardUId {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (shard_str, version_str) = s
+            .split_once(".")
+            .ok_or_else(|| format!("shard version and number must be separated by \".\""))?;
+
+        let version = version_str
+            .strip_prefix("v")
+            .ok_or_else(|| format!("shard version must start with \"v\""))?
+            .parse::<ShardVersion>()
+            .map_err(|e| format!("shard version after \"v\" must be a number, {e}"))?;
+
+        let shard_str =
+            shard_str.strip_prefix("s").ok_or_else(|| format!("shard id must start with \"s\""))?;
+        let shard_id = shard_str
+            .parse::<u32>()
+            .map_err(|e| format!("shard id after \"s\" must be a number, {e}"))?;
+
+        Ok(ShardUId { shard_id, version })
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ShardUId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_any(ShardUIdVisitor)
+    }
+}
+
+impl serde::Serialize for ShardUId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+struct ShardUIdVisitor;
+impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
+    type Value = ShardUId;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            formatter,
+            "either string format of `ShardUId` like s0v1 for shard 0 version 1, or a map"
+        )
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        v.parse().map_err(|e| E::custom(e))
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::MapAccess<'de>,
+    {
+        // custom struct deserialization for backwards compatibility
+        // TODO(#7894): consider removing this code after checking
+        // `ShardUId` is nowhere serialized in the old format
+        let mut version = None;
+        let mut shard_id = None;
+
+        while let Some((field, value)) = map.next_entry()? {
+            match field {
+                "version" => version = Some(value),
+                "shard_id" => shard_id = Some(value),
+                _ => return Err(serde::de::Error::unknown_field(field, &["version", "shard_id"])),
+            }
+        }
+
+        match (version, shard_id) {
+            (None, _) => Err(serde::de::Error::missing_field("version")),
+            (_, None) => Err(serde::de::Error::missing_field("shard_id")),
+            (Some(version), Some(shard_id)) => Ok(ShardUId { version, shard_id }),
+        }
+    }
 }
 
 #[cfg(test)]

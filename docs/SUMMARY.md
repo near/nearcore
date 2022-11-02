@@ -11,6 +11,7 @@
   - [How Epoch Works](./architecture/how/epoch.md)
   - [Transaction Routing](./architecture/how/tx_routing.md)
   - [Transactions And Receipts](./architecture/how/tx_receipts.md)
+  - [Serialization: Borsh, Json, ProtoBuf](./architecture/how/serialization.md)
 - [Trie](./architecture/trie.md)
 - [Network](./architecture/network.md)
 - [Gas Cost Parameters](./architecture/gas/README.md)
