@@ -3,6 +3,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use near_chain_primitives::Error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_store::flat_state::store_helper;
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
@@ -35,7 +36,6 @@ pub enum CreationStatus {
     #[allow(unused)]
     CatchingUp,
     /// Flat storage head is the same as chain final head. We can create `FlatStorageState`.
-    #[allow(unused)]
     Finished,
 }
 
@@ -57,9 +57,12 @@ pub struct FlatStorageShardCreator {
 impl FlatStorageShardCreator {
     pub fn new(shard_id: ShardId, _chain_store: &ChainStore) -> Self {
         let (traversed_parts_sender, traversed_parts_receiver) = unbounded();
-        // TODO: read flat storage data and set correct status. ChainStore will be used to get flat storage heads and
-        // block heights.
-        let status = CreationStatus::SavingDeltas;
+        // TODO: replace this placeholder with reading flat storage data and setting correct status. ChainStore will be
+        // used to get flat storage heads and block heights.
+        let status = match store_helper::get_flat_head(store, shard_id) {
+            None => CreationStatus::SavingDeltas,
+            Some(_) => CreationStatus::Finished,
+        };
         Self {
             status,
             shard_id,
