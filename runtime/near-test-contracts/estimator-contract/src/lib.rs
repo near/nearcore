@@ -522,7 +522,7 @@ pub unsafe fn ed25519_verify_32b_64() {
 #[cfg(feature = "protocol_feature_ed25519_verify")]
 pub unsafe fn ed25519_verify_16kib_64() {
     // 16kB bytes message
-    let message = ['a' as u8; 16384];
+    let message = [b'a'; 16384];
 
     // private key: OReNDSAXOnl-U6Wki95ut01ehQW_9wcAF_utjzRNreg
     // public key: M4QwJx4Sogjr0KcMI_gsvt-lEU6tgd9GWmgejE_JYlA
