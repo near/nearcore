@@ -10,6 +10,7 @@ use near_o11y::{
     default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
     EnvFilterBuilder, OpenTelemetryLevel,
 };
+use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards};
@@ -94,6 +95,9 @@ impl NeardCmd {
             }
             NeardSubCommand::VerifyProof(cmd) => {
                 cmd.run();
+            }
+            NeardSubCommand::Ping(cmd) => {
+                cmd.run()?;
             }
             NeardSubCommand::Mirror(cmd) => {
                 cmd.run()?;
@@ -190,6 +194,10 @@ pub(super) enum NeardSubCommand {
     #[clap(alias = "verify_proof")]
     VerifyProof(VerifyProofSubCommand),
 
+    /// Connects to a NEAR node and sends ping messages to the accounts it sends
+    /// us after the handshake is completed, printing stats to stdout.
+    Ping(PingCommand),
+
     /// Mirror transactions from a source chain to a test chain with state forked
     /// from it, reproducing traffic and state as closely as possible.
     Mirror(MirrorCommand),
@@ -218,6 +226,9 @@ pub(super) struct InitCmd {
     /// Specify a custom download URL for the genesis file.
     #[clap(long)]
     download_genesis_url: Option<String>,
+    /// Specify a custom download URL for the records file.
+    #[clap(long)]
+    download_records_url: Option<String>,
     /// Specify a custom download URL for the config file.
     #[clap(long)]
     download_config_url: Option<String>,
@@ -296,6 +307,7 @@ impl InitCmd {
             self.genesis.as_deref(),
             self.download_genesis,
             self.download_genesis_url.as_deref(),
+            self.download_records_url.as_deref(),
             self.download_config,
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
