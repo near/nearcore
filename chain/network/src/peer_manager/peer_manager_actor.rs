@@ -7,7 +7,7 @@ use crate::network_protocol::{
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
-use crate::peer_manager::network_state::NetworkState;
+use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
 use crate::private_actix::{
     PeerRequestResult, PeersRequest, RegisterPeer, RegisterPeerError, RegisterPeerResponse, StopMsg,
@@ -239,7 +239,7 @@ impl PeerManagerActor {
         let whitelist_nodes = {
             let mut v = vec![];
             for wn in &config.whitelist_nodes {
-                v.push(wn.try_into()?);
+                v.push(WhitelistNode::from_peer_info(wn)?);
             }
             v
         };
@@ -494,7 +494,7 @@ impl PeerManagerActor {
                 + tier2.outbound_handshakes.len();
 
         (total_connections < self.config.ideal_connections_lo as usize
-            || (total_connections < self.state.max_num_peers.load() as usize
+            || (total_connections < self.state.max_num_peers.load(Ordering::Relaxed) as usize
                 && potential_outbound_connections < self.config.minimum_outbound_peers as usize))
             && !self.config.outbound_disabled
     }
@@ -820,7 +820,7 @@ impl PeerManagerActor {
                 })
                 .collect(),
             num_connected_peers: tier2.ready.len(),
-            peer_max_count: self.state.max_num_peers.load(),
+            peer_max_count: self.state.max_num_peers.load(Ordering::Relaxed),
             highest_height_peers: self.highest_height_peers(),
             sent_bytes_per_sec: tier2
                 .ready
@@ -1089,7 +1089,7 @@ impl PeerManagerActor {
     #[perf]
     fn handle_msg_set_adv_options(&mut self, msg: crate::test_utils::SetAdvOptions) {
         if let Some(set_max_peers) = msg.set_max_peers {
-            self.state.max_num_peers.store(set_max_peers as u32);
+            self.state.max_num_peers.store(set_max_peers as u32, Ordering::Relaxed);
         }
     }
 
@@ -1114,7 +1114,7 @@ impl PeerManagerActor {
                 let tier2 = self.state.tier2.load();
                 debug!(target: "network",
                     tier2 = tier2.ready.len(), outgoing_peers = tier2.outbound_handshakes.len(),
-                    max_num_peers = self.state.max_num_peers.load(),
+                    max_num_peers = self.state.max_num_peers.load(Ordering::Relaxed),
                     "Dropping handshake (network at max capacity)."
                 );
                 return RegisterPeerResponse::Reject(RegisterPeerError::ConnectionLimitExceeded);

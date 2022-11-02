@@ -1,6 +1,5 @@
 use crate::accounts_data;
 use crate::client;
-use crate::concurrency::atomic_cell::AtomicCell;
 use crate::config;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
@@ -25,7 +24,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use parking_lot::RwLock;
 use std::net::SocketAddr;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tracing::{debug, trace};
 
@@ -36,9 +35,8 @@ pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 /// We send these messages multiple times to reduce the chance that they are lost
 const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
 
-impl TryFrom<&PeerInfo> for WhitelistNode {
-    type Error = anyhow::Error;
-    fn try_from(pi: &PeerInfo) -> anyhow::Result<Self> {
+impl WhitelistNode {
+    pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
         Ok(Self {
             id: pi.id.clone(),
             addr: if let Some(addr) = pi.addr {
@@ -103,7 +101,7 @@ pub(crate) struct NetworkState {
     /// only so that it can be changed in tests.
     /// TODO(gprusak): determine why tests need to change that dynamically
     /// in the first place.
-    pub max_num_peers: AtomicCell<u32>,
+    pub max_num_peers: AtomicU32,
 }
 
 impl NetworkState {
@@ -132,7 +130,7 @@ impl NetworkState {
             routing_table_view: RoutingTableView::new(store, config.node_id()),
             routing_table_exchange_helper: Default::default(),
             whitelist_nodes,
-            max_num_peers: AtomicCell::new(config.max_num_peers),
+            max_num_peers: AtomicU32::new(config.max_num_peers),
             config,
             txns_since_last_block: AtomicUsize::new(0),
         }
@@ -180,7 +178,8 @@ impl NetworkState {
     pub fn is_inbound_allowed(&self, peer_info: &PeerInfo) -> bool {
         // Check if we have spare inbound connections capacity.
         let tier2 = self.tier2.load();
-        if tier2.ready.len() + tier2.outbound_handshakes.len() < self.max_num_peers.load() as usize
+        if tier2.ready.len() + tier2.outbound_handshakes.len()
+            < self.max_num_peers.load(Ordering::Relaxed) as usize
             && !self.config.inbound_disabled
         {
             return true;
