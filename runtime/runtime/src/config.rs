@@ -125,8 +125,11 @@ pub fn total_send_fees(
                 let delegate_action = &signed_delegate_action.delegate_action;
                 let sender_is_receiver = delegate_action.sender_id == delegate_action.receiver_id;
 
+                // `total_send_fees` is multiplied 2 because the first fee is charged for sending
+                // the inner actions to the tx receiver shard, the second fee is charged for sending
+                // the inner actions from the tx receiver shard to the delegate action receiver shard
                 delegate_cost
-                    + total_send_fees(
+                    + 2 * total_send_fees(
                         config,
                         sender_is_receiver,
                         &delegate_action.get_actions().unwrap(),
