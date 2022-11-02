@@ -9,19 +9,6 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
 
-// run a trivial future until completion => OK
-#[tokio::test]
-async fn must_complete_ok() {
-    assert_eq!(5, must_complete(async move { 5 }).await);
-}
-
-// drop a trivial future without completion => panic (in debug mode at least).
-#[tokio::test]
-#[should_panic]
-async fn must_complete_should_panic() {
-    let _ = must_complete(async move { 6 });
-}
-
 struct Signer {
     epoch_id: EpochId,
     signer: InMemoryValidatorSigner,
