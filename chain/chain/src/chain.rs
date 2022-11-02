@@ -3297,16 +3297,13 @@ impl Chain {
         let receipt_ids = outcome.outcome.receipt_ids.clone();
         let mut results = vec![outcome];
         for receipt_id in &receipt_ids {
-            let receipt_option = self.store.get_receipt(&receipt_id)?;
-            if receipt_option.is_some() {
-                let receipt = receipt_option.unwrap();
+            if let Some(receipt) = self.store.get_receipt(&receipt_id)? {
                 let is_refund = receipt.predecessor_id.is_system();
-                if !is_refund {
-                    results.extend(self.get_recursive_transaction_results(receipt_id)?);
-                } else {
-                    self.get_recursive_transaction_results(receipt_id)?;
+                if is_refund {
+                    continue;
                 }
             }
+            results.extend(self.get_recursive_transaction_results(receipt_id)?);
         }
         Ok(results)
     }
