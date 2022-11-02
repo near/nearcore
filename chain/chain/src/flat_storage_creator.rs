@@ -55,11 +55,11 @@ pub struct FlatStorageShardCreator {
 }
 
 impl FlatStorageShardCreator {
-    pub fn new(shard_id: ShardId, _chain_store: &ChainStore) -> Self {
+    pub fn new(shard_id: ShardId, chain_store: &ChainStore) -> Self {
         let (traversed_parts_sender, traversed_parts_receiver) = unbounded();
         // TODO: replace this placeholder with reading flat storage data and setting correct status. ChainStore will be
         // used to get flat storage heads and block heights.
-        let status = match store_helper::get_flat_head(store, shard_id) {
+        let status = match store_helper::get_flat_head(chain_store.store(), shard_id) {
             None => CreationStatus::SavingDeltas,
             Some(_) => CreationStatus::Finished,
         };
