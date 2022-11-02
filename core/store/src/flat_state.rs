@@ -530,7 +530,11 @@ pub mod store_helper {
 
 #[cfg(not(feature = "protocol_feature_flat_state"))]
 pub mod store_helper {
-    pub fn get_flat_head(store: &Store, shard_id: ShardId) -> Option<CryptoHash> {
+    use crate::Store;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::types::ShardId;
+
+    pub fn get_flat_head(_store: &Store, _shard_id: ShardId) -> Option<CryptoHash> {
         None
     }
 }
