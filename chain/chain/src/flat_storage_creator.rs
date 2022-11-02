@@ -129,18 +129,18 @@ impl FlatStorageCreator {
             // return Ok.
             return Ok(());
         }
-
-        let guard = self.shard_creators[shard_id as usize].lock().unwrap();
-
-        match guard.status.clone() {
-            CreationStatus::SavingDeltas => {
-                // Once final head height > start height, we can switch to next step.
-                // Then, ChainStore is used to get state roots, block infos and flat storage creation in the end.
-                Ok(())
-            }
-            _ => {
-                panic!("Status {:?} is not supported yet", guard.status);
-            }
-        }
+        Ok(())
+        // let guard = self.shard_creators[shard_id as usize].lock().unwrap();
+        //
+        // match guard.status.clone() {
+        //     CreationStatus::SavingDeltas => {
+        //         // Once final head height > start height, we can switch to next step.
+        //         // Then, ChainStore is used to get state roots, block infos and flat storage creation in the end.
+        //         Ok(())
+        //     }
+        //     _ => {
+        //         panic!("Status {:?} is not supported yet", guard.status);
+        //     }
+        // }
     }
 }
