@@ -429,6 +429,29 @@ impl EpochManagerAdapter for KeyValueRuntime {
         Ok(self.num_shards)
     }
 
+    fn num_total_parts(&self) -> usize {
+        12 + (self.num_shards as usize + 1) % 50
+    }
+
+    fn num_data_parts(&self) -> usize {
+        // Same as in Nightshade Runtime
+        let total_parts = self.num_total_parts();
+        if total_parts <= 3 {
+            1
+        } else {
+            (total_parts - 1) / 3
+        }
+    }
+
+    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
+        let validators =
+            &self.get_epoch_block_producers_ordered(epoch_id, &CryptoHash::default())?;
+        // if we don't use data_parts and total_parts as part of the formula here, the part owner
+        //     would not depend on height, and tests wouldn't catch passing wrong height here
+        let idx = part_id as usize + self.num_data_parts() + self.num_total_parts();
+        Ok(validators[idx as usize % validators.len()].0.account_id().clone())
+    }
+
     fn account_id_to_shard_id(
         &self,
         account_id: &AccountId,
@@ -767,29 +790,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _genesis_epoch_id: &EpochId,
     ) -> Result<StoreUpdate, Error> {
         Ok(self.store.store_update())
-    }
-
-    fn num_total_parts(&self) -> usize {
-        12 + (self.num_shards as usize + 1) % 50
-    }
-
-    fn num_data_parts(&self) -> usize {
-        // Same as in Nightshade Runtime
-        let total_parts = self.num_total_parts();
-        if total_parts <= 3 {
-            1
-        } else {
-            (total_parts - 1) / 3
-        }
-    }
-
-    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
-        let validators =
-            &self.get_epoch_block_producers_ordered(epoch_id, &CryptoHash::default())?;
-        // if we don't use data_parts and total_parts as part of the formula here, the part owner
-        //     would not depend on height, and tests wouldn't catch passing wrong height here
-        let idx = part_id as usize + self.num_data_parts() + self.num_total_parts();
-        Ok(validators[idx as usize % validators.len()].0.account_id().clone())
     }
 
     fn cares_about_shard(
