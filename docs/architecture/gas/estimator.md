@@ -20,7 +20,7 @@ clients.
 The estimator code is part of the nearcore repository in the directory
 [runtime/runtime-params-estimator](https://github.com/near/nearcore/tree/master/runtime/runtime-params-estimator).
 
-## Run the Estimator
+## Running the Estimator
 
 Type this in your console to quickly run estimations on a couple of action costs.
 
@@ -50,11 +50,13 @@ This shows how much gas a parameter should cost to satisfy the 1ms = 1Tgas rule.
 It also shows how much time that corresponds to and how long it took to compute
 each of the estimations.
 
-Note that the above does not produce very accurate results and it often has high
-variance as well. It runs an unoptimized binary, the database is small, and the
-metric used is wall-clock time.
+Note that the above does not produce very accurate results and it can have high
+variance as well. It runs an unoptimized binary, the state is small, and the
+metric used is wall-clock time which is always prone to variance in hardware and
+can be affected by other processes currently running on your system.
 
-Once you have your estimation code all ready, it is better to run with large state and an optimized binary.
+Once your estimation code is ready, it is better to run it with a larger state
+and an optimized binary.
 
 ```bash
 cargo run --release -p runtime-params-estimator --features required -- \
@@ -65,7 +67,7 @@ cargo run --release -p runtime-params-estimator --features required -- \
 
 You might also want to run a hardware-agnostic estimation using the following
 command. It uses `docker` and `qemu` under the hood, so it will be quite a bit
-slower. It also won't work if `docker` is not installed on your system.
+slower. You will need to install `docker` to run this command.
 
 
 ```bash
@@ -76,8 +78,8 @@ cargo run --release -p runtime-params-estimator --features required -- \
 ```
 
 Note how the output looks a bit different now. The `i`, `r` and `w` values show
-instruction count, read IO bytes and write IO bytes. The IO byte count is known
-to be inaccurate.
+instruction count, read IO bytes, and write IO bytes respectively. The IO byte
+count is known to be inaccurate.
 
 ```
 + /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so -cpu Westmere-v1 /host/nearcore/target/release/runtime-params-estimator --home /.near --accounts-num 20000 --iters 3 --warmup-iters 1 --metric icount --costs=ActionReceiptCreation,ActionTransfer,ActionCreateAccount,ActionFunctionCallBase --skip-build-test-contract --additional-accounts-num 0 --in-memory-db
@@ -92,19 +94,19 @@ Finished in 17.92s, output saved to:
     /host/nearcore/costs-2022-11-01T16:27:36Z-e40863c9b.txt
 ```
 
-The difference between the metrics will be discusses in the
+The difference between the metrics will be discussed in the
 section on [Estimation Metrics](#estimation-metrics).
 
-This should get you going to run estimations on your local machine. Also check
-`cargo run -p runtime-params-estimator --features required -- --help` for the
-list of options available.
+You should now be all setup for running estimations on your local machine. Also
+check `cargo run -p runtime-params-estimator --features required -- --help` for
+the list of available options.
 
 ## From Estimations to Parameter Values
 
 To calculate the final gas parameter values, there is more to be done than just
 running a single command. After all, these parameters are part of the protocol
-specification. They cannot change easily. And setting them to a wrong value can
-cause severe system instability.
+specification. They cannot be changed easily. And setting them to a wrong value
+can cause severe system instability.
 
 Our current strategy is to run estimations
 with two different metrics and do so on standardized cloud hardware. The output
@@ -120,7 +122,7 @@ contains the CLI arguments parsing code and logic to fill the test database.
 
 The interesting code lives in
 [lib.rs](https://github.com/near/nearcore/blob/e40863c9ba61a0de140c869583b2113358605771/runtime/runtime-params-estimator/src/lib.rs)
-and its submodules. Go and read the comments on the top of that file for a
+and its submodules. The comments on the top of that file provide a
 high-level overview of how estimations work. More details on specific
 estimations are available as comments on the enum variants of `Cost` in
 [costs.rs](https://github.com/near/nearcore/blob/e40863c9ba61a0de140c869583b2113358605771/runtime/runtime-params-estimator/src/cost.rs#L9).
