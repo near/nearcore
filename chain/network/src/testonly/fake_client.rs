@@ -18,6 +18,7 @@ use near_primitives::views::FinalExecutionOutcomeView;
 pub enum Event {
     BlockRequest(CryptoHash),
     Block(Block),
+    SyncLatestBlock(PeerId),
     BlockHeadersRequest(Vec<CryptoHash>),
     BlockHeaders(Vec<BlockHeader>),
     Chunk(Vec<PartialEncodedChunkPart>),
@@ -108,6 +109,10 @@ impl client::Client for Fake {
 
     async fn block(&self, block: Block, _peer_id: PeerId, _was_requested: bool) {
         self.event_sink.push(Event::Block(block));
+    }
+
+    async fn sync_latest_block(&self, peer_id: PeerId) {
+        self.event_sink.push(Event::SyncLatestBlock(peer_id));
     }
 
     async fn block_headers(

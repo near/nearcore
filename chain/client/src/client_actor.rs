@@ -9,6 +9,7 @@ use crate::adapter::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ProcessTxRequest, ProcessTxResponse,
     RecvChallenge, RecvPartialEncodedChunk, RecvPartialEncodedChunkForward,
     RecvPartialEncodedChunkRequest, RecvPartialEncodedChunkResponse, SetNetworkInfo, StateResponse,
+    SyncLatestBlock,
 };
 use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
 use crate::info::{
@@ -464,6 +465,34 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
                         }
                     }
                     _ => {}
+                }
+            }
+        })
+    }
+}
+
+impl Handler<WithSpanContext<SyncLatestBlock>> for ClientActor {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<SyncLatestBlock>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        self.wrap(msg, ctx, "SyncLatestBlock", |this, msg| {
+            // It's important to use the block at head, not header head here, because
+            // the block at header head may be invalid since the full block may not be processed yet
+            match this.client.chain.get_head_block() {
+                Ok(block) => {
+                    this.network_adapter.do_send(
+                        PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::SyncLatestBlock { block, peer_id: msg.peer_id },
+                        )
+                        .with_span_context(),
+                    );
+                }
+                Err(err) => {
+                    warn!(target:"client", error=%err, "Error getting block at head");
                 }
             }
         })
@@ -1487,10 +1516,10 @@ impl ClientActor {
         let head = self.client.chain.head()?;
         let mut is_syncing = self.client.sync_status.is_syncing();
 
-        let full_peer_info = if let Some(full_peer_info) =
+        let peer_info = if let Some(peer_info) =
             self.network_info.highest_height_peers.choose(&mut thread_rng())
         {
-            full_peer_info
+            peer_info
         } else {
             if !self.client.config.skip_sync_wait {
                 warn!(target: "client", "Sync: no peers available, disabling sync");
@@ -1499,28 +1528,26 @@ impl ClientActor {
         };
 
         if is_syncing {
-            if full_peer_info.chain_info.height <= head.height {
+            if peer_info.height <= head.height {
                 info!(target: "client", "Sync: synced at {} [{}], {}, highest height peer: {}",
                       head.height, format_hash(head.last_block_hash),
-                      full_peer_info.peer_info.id, full_peer_info.chain_info.height
+                      peer_info.peer_info.id, peer_info.height,
                 );
                 is_syncing = false;
             }
         } else {
-            if full_peer_info.chain_info.height
-                > head.height + self.client.config.sync_height_threshold
-            {
+            if peer_info.height > head.height + self.client.config.sync_height_threshold {
                 info!(
                     target: "client",
                     "Sync: height: {}, peer id/height: {}/{}, enabling sync",
                     head.height,
-                    full_peer_info.peer_info.id,
-                    full_peer_info.chain_info.height,
+                    peer_info.peer_info.id,
+                    peer_info.height,
                 );
                 is_syncing = true;
             }
         }
-        Ok((is_syncing, full_peer_info.chain_info.height))
+        Ok((is_syncing, peer_info.height))
     }
 
     fn needs_syncing(&self, needs_syncing: bool) -> bool {

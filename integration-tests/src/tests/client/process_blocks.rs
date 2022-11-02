@@ -31,7 +31,8 @@ use near_client::{
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
-    ConnectedPeerInfo, NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, PeerChainInfoInternal,
+    PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
 use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses};
 use near_network::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
@@ -1028,25 +1029,21 @@ fn client_sync_headers() {
             SetNetworkInfo(NetworkInfo {
                 connected_peers: vec![ConnectedPeerInfo::from(&FullPeerInfo {
                     peer_info: peer_info2.clone(),
-                    chain_info: PeerChainInfoV2 {
+                    chain_info: PeerChainInfoInternal {
                         genesis_id: Default::default(),
                         height: 5,
                         tracked_shards: vec![],
                         archival: false,
                     },
-                    partial_edge_info: near_network::types::PartialEdgeInfo::default(),
                 })],
                 num_connected_peers: 1,
                 peer_max_count: 1,
-                highest_height_peers: vec![FullPeerInfo {
+                highest_height_peers: vec![HighestHeightPeerInfo {
                     peer_info: peer_info2,
-                    chain_info: PeerChainInfoV2 {
-                        genesis_id: Default::default(),
-                        height: 5,
-                        tracked_shards: vec![],
-                        archival: false,
-                    },
-                    partial_edge_info: near_network::types::PartialEdgeInfo::default(),
+                    genesis_id: Default::default(),
+                    height: 5,
+                    tracked_shards: vec![],
+                    archival: false,
                 }],
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,

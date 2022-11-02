@@ -14,7 +14,9 @@ use rand::{thread_rng, Rng};
 use tracing::{debug, error, info, warn};
 
 use near_chain::{Chain, RuntimeAdapter};
-use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter};
+use near_network::types::{
+    HighestHeightPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
+};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -132,7 +134,7 @@ pub struct HeaderSync {
     network_adapter: Arc<dyn PeerManagerAdapter>,
     history_locator: Vec<(BlockHeight, CryptoHash)>,
     prev_header_sync: (DateTime<Utc>, BlockHeight, BlockHeight, BlockHeight),
-    syncing_peer: Option<FullPeerInfo>,
+    syncing_peer: Option<HighestHeightPeerInfo>,
     stalling_ts: Option<DateTime<Utc>>,
 
     initial_timeout: Duration,
@@ -167,7 +169,7 @@ impl HeaderSync {
         sync_status: &mut SyncStatus,
         chain: &Chain,
         highest_height: BlockHeight,
-        highest_height_peers: &[FullPeerInfo],
+        highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), near_chain::Error> {
         let _span = tracing::debug_span!(target: "sync", "run", sync = "HeaderSync").entered();
         let header_head = chain.header_head()?;
@@ -201,7 +203,7 @@ impl HeaderSync {
             };
             self.syncing_peer = None;
             if let Some(peer) = highest_height_peers.choose(&mut thread_rng()).cloned() {
-                if peer.chain_info.height > header_head.height {
+                if peer.height > header_head.height {
                     self.syncing_peer = self.request_headers(chain, peer);
                 }
             }
@@ -268,10 +270,10 @@ impl HeaderSync {
                         match sync_status {
                             SyncStatus::HeaderSync { highest_height, .. } => {
                                 if now > *stalling_ts + self.stall_ban_timeout
-                                    && *highest_height == peer.chain_info.height
+                                    && *highest_height == peer.height
                                 {
                                     warn!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}",
-                                        peer.peer_info, peer.chain_info.height);
+                                        peer.peer_info, peer.height);
                                     self.network_adapter.do_send(
                                         PeerManagerMessageRequest::NetworkRequests(
                                             NetworkRequests::BanPeer {
@@ -317,7 +319,11 @@ impl HeaderSync {
     }
 
     /// Request headers from a given peer to advance the chain.
-    fn request_headers(&mut self, chain: &Chain, peer: FullPeerInfo) -> Option<FullPeerInfo> {
+    fn request_headers(
+        &mut self,
+        chain: &Chain,
+        peer: HighestHeightPeerInfo,
+    ) -> Option<HighestHeightPeerInfo> {
         if let Ok(locator) = self.get_locator(chain) {
             debug!(target: "sync", "Sync: request headers: asking {} for headers, {:?}", peer.peer_info.id, locator);
             self.network_adapter.do_send(
@@ -437,7 +443,7 @@ impl BlockSync {
         sync_status: &mut SyncStatus,
         chain: &Chain,
         highest_height: BlockHeight,
-        highest_height_peers: &[FullPeerInfo],
+        highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<bool, near_chain::Error> {
         let _span = tracing::debug_span!(target: "sync", "run", sync = "BlockSync").entered();
         if self.block_sync_due(chain)? {
@@ -486,7 +492,7 @@ impl BlockSync {
     fn block_sync(
         &mut self,
         chain: &Chain,
-        highest_height_peers: &[FullPeerInfo],
+        highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<bool, near_chain::Error> {
         if self.check_state_needed(chain)? {
             return Ok(true);
@@ -567,8 +573,7 @@ impl BlockSync {
             let (height, hash) = request;
             let request_from_archival = self.archive && height < gc_stop_height;
             let peer = if request_from_archival {
-                let archival_peer_iter =
-                    highest_height_peers.iter().filter(|p| p.chain_info.archival);
+                let archival_peer_iter = highest_height_peers.iter().filter(|p| p.archival);
                 archival_peer_iter.choose(&mut rand::thread_rng())
             } else {
                 let peer_iter = highest_height_peers.iter();
@@ -717,7 +722,7 @@ impl StateSync {
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
-        highest_height_peers: &[FullPeerInfo],
+        highest_height_peers: &[HighestHeightPeerInfo],
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
@@ -1060,7 +1065,7 @@ impl StateSync {
         chain: &Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         sync_hash: CryptoHash,
-        highest_height_peers: &[FullPeerInfo],
+        highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<Vec<AccountOrPeerIdOrHash>, Error> {
         // Remove candidates from pending list if request expired due to timeout
         self.last_part_id_requested.retain(|_, request| !request.expired());
@@ -1089,7 +1094,7 @@ impl StateSync {
                 }
             })
             .chain(highest_height_peers.iter().filter_map(|peer| {
-                if peer.chain_info.tracked_shards.contains(&shard_id) {
+                if peer.tracked_shards.contains(&shard_id) {
                     Some(AccountOrPeerIdOrHash::PeerId(peer.peer_info.id.clone()))
                 } else {
                     None
@@ -1110,7 +1115,7 @@ impl StateSync {
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         sync_hash: CryptoHash,
         shard_sync_download: ShardSyncDownload,
-        highest_height_peers: &[FullPeerInfo],
+        highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<ShardSyncDownload, near_chain::Error> {
         let possible_targets = self.possible_targets(
             me,
@@ -1217,7 +1222,7 @@ impl StateSync {
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
-        highest_height_peers: &[FullPeerInfo],
+        highest_height_peers: &[HighestHeightPeerInfo],
         tracking_shards: Vec<ShardId>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
@@ -1466,14 +1471,17 @@ mod test {
         );
 
         let set_syncing_peer = |header_sync: &mut HeaderSync| {
-            header_sync.syncing_peer = Some(FullPeerInfo {
+            header_sync.syncing_peer = Some(HighestHeightPeerInfo {
                 peer_info: PeerInfo {
                     id: PeerId::new(PublicKey::empty(KeyType::ED25519)),
                     addr: None,
                     account_id: None,
                 },
-                chain_info: Default::default(),
-                partial_edge_info: Default::default(),
+                genesis_id: Default::default(),
+                height: 0,
+                hash: Default::default(),
+                tracked_shards: vec![],
+                archival: false,
             });
             header_sync.syncing_peer.as_mut().unwrap().chain_info.height = highest_height;
         };

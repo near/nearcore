@@ -9,7 +9,7 @@ use futures::future::BoxFuture;
 use futures::FutureExt;
 use near_crypto::PublicKey;
 use near_o11y::WithSpanContext;
-use near_primitives::block::{ApprovalMessage, Block};
+use near_primitives::block::{ApprovalMessage, Block, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -225,6 +225,8 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 pub enum NetworkRequests {
     /// Sends block, either when block was just produced or when requested.
     Block { block: Block },
+    /// Sends block to a specific peer. This is used to update the latest block between peers
+    SyncLatestBlock { block: Block, peer_id: PeerId },
     /// Sends approval.
     Approval { approval_message: ApprovalMessage },
     /// Request block with given hash from given peer.
@@ -271,12 +273,60 @@ pub enum NetworkRequests {
     Challenge(Challenge),
 }
 
-/// Combines peer address info, chain and edge information.
+/// Combines peer address info, chain.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
-    pub chain_info: PeerChainInfoV2,
-    pub partial_edge_info: PartialEdgeInfo,
+    pub chain_info: PeerChainInfoInternal,
+}
+
+/// These are the information needed for highest height peers. For these peers, we guarantee that
+/// the height and hash of the latest block are set.
+#[derive(Debug, Clone)]
+pub struct HighestHeightPeerInfo {
+    pub peer_info: PeerInfo,
+    /// Chain Id and hash of genesis block.
+    pub genesis_id: GenesisId,
+    /// Height and hash of the highest block we've ever received from the peer
+    pub height: BlockHeight,
+    /// Hash of the latest block
+    pub hash: CryptoHash,
+    /// Shards that the peer is tracking.
+    pub tracked_shards: Vec<ShardId>,
+    /// Denote if a node is running in archival mode or not.
+    pub archival: bool,
+}
+
+impl From<&FullPeerInfo> for Option<HighestHeightPeerInfo> {
+    fn from(p: &FullPeerInfo) -> Self {
+        if p.chain_info.last_block.is_some() {
+            Some(HighestHeightPeerInfo {
+                peer_info: p.peer_info.clone(),
+                genesis_id: p.chain_info.genesis_id.clone(),
+                height: p.chain_info.last_block.unwrap().0,
+                hash: p.chain_info.last_block.unwrap().1,
+                tracked_shards: p.chain_info.tracked_shards.clone(),
+                archival: p.chain_info.archival,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+/// This is the internal representation of PeerChainInfoV2.
+/// We separate these two structs because PeerChainInfoV2 is part of network protocol, and can't be
+/// modified easily.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct PeerChainInfoInternal {
+    /// Chain Id and hash of genesis block.
+    pub genesis_id: GenesisId,
+    /// Height and hash of the highest block we've ever received from the peer
+    pub last_block: Option<(BlockHeight, CryptoHash)>,
+    /// Shards that the peer is tracking.
+    pub tracked_shards: Vec<ShardId>,
+    /// Denote if a node is running in archival mode or not.
+    pub archival: bool,
 }
 
 impl From<&FullPeerInfo> for ConnectedPeerInfo {
@@ -302,7 +352,8 @@ impl From<&ConnectedPeerInfo> for PeerInfoView {
                 None => "N/A".to_string(),
             },
             account_id: full_peer_info.peer_info.account_id.clone(),
-            height: full_peer_info.chain_info.height,
+            height: full_peer_info.chain_info.last_block.map(|x| x.0),
+            block_hash: full_peer_info.chain_info.last_block.map(|x| x.1),
             tracked_shards: full_peer_info.chain_info.tracked_shards.clone(),
             archival: full_peer_info.chain_info.archival,
             peer_id: full_peer_info.peer_info.id.public_key().clone(),
@@ -348,7 +399,7 @@ pub struct NetworkInfo {
     pub connected_peers: Vec<ConnectedPeerInfo>,
     pub num_connected_peers: usize,
     pub peer_max_count: u32,
-    pub highest_height_peers: Vec<FullPeerInfo>,
+    pub highest_height_peers: Vec<HighestHeightPeerInfo>,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.

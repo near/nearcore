@@ -327,12 +327,18 @@ impl PeerManagerActor {
     }
 
     /// Returns peers close to the highest height
-    fn highest_height_peers(&self) -> Vec<FullPeerInfo> {
-        let infos: Vec<_> =
-            self.state.tier2.load().ready.values().map(|p| p.full_peer_info()).collect();
+    fn highest_height_peers(&self) -> Vec<HighestHeightPeerInfo> {
+        let infos: Vec<HighestHeightPeerInfo> = self
+            .state
+            .tier2
+            .load()
+            .ready
+            .values()
+            .filter_map(|p| (&p.full_peer_info()).into())
+            .collect();
 
         // This finds max height among peers, and returns one peer close to such height.
-        let max_height = match infos.iter().map(|i| i.chain_info.height).max() {
+        let max_height = match infos.iter().map(|i| i.height).max() {
             Some(height) => height,
             None => return vec![],
         };
@@ -340,8 +346,7 @@ impl PeerManagerActor {
         infos
             .into_iter()
             .filter(|i| {
-                i.chain_info.height.saturating_add(self.state.config.highest_peer_horizon)
-                    >= max_height
+                i.height.saturating_add(self.state.config.highest_peer_horizon) >= max_height
             })
             .collect()
     }
@@ -351,14 +356,18 @@ impl PeerManagerActor {
     fn unreliable_peers(&self) -> HashSet<PeerId> {
         let my_height = self.state.chain_info.load().height;
         // Find all peers whose height is below `highest_peer_horizon` from max height peer(s).
+        // or the ones we don't have height information yet
         self.state
             .tier2
             .load()
             .ready
             .values()
             .filter(|p| {
-                p.chain_height.load(Ordering::Relaxed).saturating_add(UNRELIABLE_PEER_HORIZON)
-                    < my_height
+                p.last_block
+                    .read()
+                    .unwrap()
+                    .map(|x| x.0.saturating_add(UNRELIABLE_PEER_HORIZON) < my_height)
+                    .unwrap_or(true)
             })
             .map(|p| p.peer_info.id.clone())
             .collect()
@@ -408,7 +417,7 @@ impl PeerManagerActor {
 
         // If there is not enough archival peers, add them to the safe set.
         if self.state.config.archive {
-            let archival_peers = filter_peers(&|p| p.initial_chain_info.archival);
+            let archival_peers = filter_peers(&|p| p.archival);
             if archival_peers.len()
                 <= self.state.config.archival_peer_connections_lower_bound as usize
             {
@@ -653,6 +662,10 @@ impl PeerManagerActor {
                 self.state.tier2.broadcast_message(Arc::new(PeerMessage::Block(block)));
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::SyncLatestBlock { block, peer_id } => {
+                self.state.tier2.send_message(peer_id, Arc::new(PeerMessage::Block(block)));
+                NetworkResponses::NoResponse
+            }
             NetworkRequests::Approval { approval_message } => {
                 self.state.send_message_to_account(
                     &self.clock,
@@ -752,9 +765,11 @@ impl PeerManagerActor {
                     } else {
                         let mut matching_peers = vec![];
                         for (peer_id, peer) in &self.state.tier2.load().ready {
-                            if (peer.initial_chain_info.archival || !target.only_archival)
-                                && peer.chain_height.load(Ordering::Relaxed) >= target.min_height
-                                && peer.initial_chain_info.tracked_shards.contains(&target.shard_id)
+                            let last_block = peer.last_block.read().unwrap();
+                            if (peer.archival || !target.only_archival)
+                                && last_block.is_some()
+                                && last_block.unwrap().0 >= target.min_height
+                                && peer.tracked_shards.contains(&target.shard_id)
                             {
                                 matching_peers.push(peer_id.clone());
                             }

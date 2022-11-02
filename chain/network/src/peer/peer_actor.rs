@@ -35,8 +35,8 @@ use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, RwLock};
 use tracing::{debug, error, info, warn, Instrument};
 
 /// Maximum number of messages per minute from single peer.
@@ -44,6 +44,8 @@ use tracing::{debug, error, info, warn, Instrument};
 const MAX_PEER_MSG_PER_MIN: usize = usize::MAX;
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::seconds(60);
+/// How often to send the latest block to peers.
+const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(5);
 
 /// Maximum number of transaction messages we will accept between block messages.
 /// The purpose of this constant is to ensure we do not spend too much time deserializing and
@@ -291,7 +293,10 @@ impl PeerActor {
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
         match msg {
-            PeerMessage::Block(b) if self.tracker.lock().has_received(b.hash()) => return,
+            // Temporarily disable this check because now the node needs to send block to its
+            // peers to update its height at the peer. In the future we will introduce a new
+            // peer message type for that and then we can enable this check again.
+            //PeerMessage::Block(b) if self.tracker.lock().has_received(b.hash()) => return,
             PeerMessage::BlockRequest(h) => self.tracker.lock().push_request(*h),
             _ => (),
         };
@@ -318,7 +323,7 @@ impl PeerActor {
             sender_listen_port: self.network_state.config.node_addr.map(|a| a.port()),
             sender_chain_info: PeerChainInfoV2 {
                 genesis_id: self.network_state.genesis_id.clone(),
-                height: chain_info.height,
+                height: 0,
                 tracked_shards: chain_info.tracked_shards.clone(),
                 archival: self.network_state.config.archive,
             },
@@ -489,9 +494,11 @@ impl PeerActor {
         let conn = Arc::new(connection::Connection {
             addr: ctx.address(),
             peer_info: peer_info.clone(),
-            initial_chain_info: handshake.sender_chain_info.clone(),
-            chain_height: AtomicU64::new(handshake.sender_chain_info.height),
             edge,
+            genesis_id: handshake.sender_chain_info.genesis_id.clone(),
+            tracked_shards: handshake.sender_chain_info.tracked_shards.clone(),
+            archival: handshake.sender_chain_info.archival,
+            last_block: RwLock::new(None),
             peer_type: self.peer_type,
             stats: self.stats.clone(),
             _peer_connections_metric: metrics::PEER_CONNECTIONS.new_point(&metrics::Connection {
@@ -599,6 +606,20 @@ impl PeerActor {
                         }));
                         // Sync the RoutingTable.
                         act.sync_routing_table();
+                        // Send latest block periodically
+                        ctx.spawn(wrap_future({
+                            let network_state = act.network_state.clone();
+                            let peer_id = handshake.sender_peer_id.clone();
+                            async move {
+                                let mut interval =
+                                    tokio::time::interval(SYNC_LATEST_BLOCK_INTERVAL.try_into().unwrap());
+                                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                                loop {
+                                    network_state.client.sync_latest_block(peer_id.clone()).await;
+                                    interval.tick().await;
+                                }
+                            }
+                        }));
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
                             edge: conn.edge.clone(),
@@ -802,7 +823,11 @@ impl PeerActor {
         let was_requested = match &msg {
             PeerMessage::Block(block) => {
                 let hash = *block.hash();
-                conn.chain_height.fetch_max(block.header().height(), Ordering::Relaxed);
+                let height = block.header().height();
+                let mut last_block = conn.last_block.write().unwrap();
+                if last_block.is_none() || last_block.unwrap().0 <= height {
+                    *last_block = Some((height, hash));
+                }
                 let mut tracker = self.tracker.lock();
                 tracker.push_received(hash);
                 tracker.has_request(&hash)

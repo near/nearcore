@@ -66,6 +66,8 @@ pub trait Client: Send + Sync + 'static {
 
     async fn block(&self, block: Block, peer_id: PeerId, was_requested: bool);
 
+    async fn sync_latest_block(&self, peer_id: PeerId);
+
     async fn block_headers(
         &self,
         headers: Vec<BlockHeader>,
@@ -146,6 +148,8 @@ impl Client for Noop {
     }
 
     async fn block(&self, _block: Block, _peer_id: PeerId, _was_requested: bool) {}
+
+    async fn sync_latest_block(&self, _peer_id: PeerId) {}
 
     async fn block_headers(
         &self,

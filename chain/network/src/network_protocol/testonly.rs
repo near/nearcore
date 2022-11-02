@@ -283,7 +283,7 @@ impl Chain {
     pub fn get_chain_info(&self) -> ChainInfo {
         ChainInfo {
             tracked_shards: Default::default(),
-            height: self.height(),
+            latest_block: self.tip().clone(),
             tier1_accounts: Arc::new(self.get_tier1_accounts()),
         }
     }

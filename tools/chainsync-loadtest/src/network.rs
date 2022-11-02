@@ -317,6 +317,8 @@ impl near_network::client::Client for Network {
         self.blocks.get(&block.hash().clone()).map(|p| p.set(block));
     }
 
+    async fn sync_latest_block(&self, _peer_id: PeerId) {}
+
     async fn block_headers(
         &self,
         headers: Vec<BlockHeader>,
