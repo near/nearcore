@@ -82,6 +82,10 @@ pub struct FlatStorageCreator {
 
 impl FlatStorageCreator {
     pub fn new(runtime_adapter: Arc<dyn RuntimeAdapter>, chain_store: &ChainStore) -> Option<Self> {
+        if !cfg!(feature = "protocol_feature_flat_state") {
+            return None;
+        }
+
         let chain_head = chain_store.head().unwrap();
         let num_shards = runtime_adapter.num_shards(&chain_head.epoch_id).unwrap();
         let start_height = chain_head.height;
