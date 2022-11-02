@@ -697,6 +697,10 @@ def neard_amend_genesis(neard, validator_node_names, genesis_filename_in,
         str(10**9),
         '--protocol-version',
         '49',
+        '--protocol-reward-rate',
+        '1/10',
+        '--block-producer-kickout-threshold',
+        '10',
     ]
     if chain_id is not None:
         cmd.extend(['--chain-id', chain_id])
@@ -868,7 +872,8 @@ def update_config_file(config_filename_in, config_filename_out, all_node_pks,
     config_json['archival_peer_connections_lower_bound'] = 1
     config_json['network']['boot_nodes'] = ','.join(node_addresses)
     config_json['rpc']['addr'] = '0.0.0.0:3030'
-    config_json['telemetry'] = {}
+    if 'telemetry' in config_json:
+        config_json['telemetry']['endpoints'] = []
 
     with open(config_filename_out, 'w') as f:
         json.dump(config_json, f, indent=2)

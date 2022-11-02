@@ -1122,71 +1122,75 @@ impl<'a> VMLogic<'a> {
     }
 
     /// Verify an ED25519 signature given a message and a public key.
-    /// # Returns
-    /// - 1 meaning the boolean expression true to encode that the signature was properly verified
-    /// - 0 meaning the boolean expression false to encode that the signature failed to be verified
+    ///
+    /// Returns a bool indicating success (1) or failure (0) as a `u64`.
+    ///
+    /// # Errors
+    ///
+    /// * If the public key's size is not equal to 32, or signature size is not
+    ///   equal to 64, returns [HostError::Ed25519VerifyInvalidInput].
+    /// * If any of the signature, message or public key arguments are out of
+    ///   memory bounds, returns [`HostError::MemoryAccessViolation`]
     ///
     /// # Cost
     ///
-    /// Each input can either be in memory or in a register. Set the length of the input to `u64::MAX`
-    /// to declare that the input is a register number and not a pointer.
-    /// Each input has a gas cost input_cost(num_bytes) that depends on whether it is from memory
-    /// or from a register. It is either read_memory_base + num_bytes * read_memory_byte in the
-    /// former case or read_register_base + num_bytes * read_register_byte in the latter. This function
-    /// is labeled as `input_cost` below.
+    /// Each input can either be in memory or in a register. Set the length of
+    /// the input to `u64::MAX` to declare that the input is a register number
+    /// and not a pointer. Each input has a gas cost input_cost(num_bytes) that
+    /// depends on whether it is from memory or from a register. It is either
+    /// read_memory_base + num_bytes * read_memory_byte in the former case or
+    /// read_register_base + num_bytes * read_register_byte in the latter. This
+    /// function is labeled as `input_cost` below.
     ///
-    /// `input_cost(num_bytes_signature) + input_cost(num_bytes_message) + input_cost(num_bytes_public_key) +
-    ///  ed25519_verify_base + ed25519_verify_byte * num_bytes_message`
-    ///
-    /// # Error
-    ///
-    /// If the public key's size is not equal to 32 returns [HostError::Ed25519VerifyInvalidInput].
-    /// If the signature size is not equal to 64  returns [HostError::Ed25519VerifyInvalidInput].
-
+    /// `input_cost(num_bytes_signature) + input_cost(num_bytes_message) +
+    ///  input_cost(num_bytes_public_key) + ed25519_verify_base +
+    ///  ed25519_verify_byte * num_bytes_message`
     #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub fn ed25519_verify(
         &mut self,
-        sig_len: u64,
-        sig_ptr: u64,
-        msg_len: u64,
-        msg_ptr: u64,
-        pub_key_len: u64,
-        pub_key_ptr: u64,
+        signature_len: u64,
+        signature_ptr: u64,
+        message_len: u64,
+        message_ptr: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
     ) -> Result<u64> {
-        use ed25519_dalek::{PublicKey, Signature, Verifier, PUBLIC_KEY_LENGTH, SIGNATURE_LENGTH};
+        use ed25519_dalek::Verifier;
 
         self.gas_counter.pay_base(ed25519_verify_base)?;
 
-        let signature_array = self.get_vec_from_memory_or_register(sig_ptr, sig_len)?;
-        if signature_array.len() != SIGNATURE_LENGTH {
-            return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
-                msg: "invalid signature length".to_string(),
-            }));
-        }
-
-        let signature = match Signature::from_bytes(&signature_array) {
-            Ok(signature) => signature,
-            Err(_) => return Ok(0),
+        let signature: ed25519_dalek::Signature = {
+            let vec = self.get_vec_from_memory_or_register(signature_ptr, signature_len)?;
+            if vec.len() != ed25519_dalek::SIGNATURE_LENGTH {
+                return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
+                    msg: "invalid signature length".to_string(),
+                }));
+            }
+            match ed25519_dalek::Signature::from_bytes(&vec) {
+                Ok(signature) => signature,
+                Err(_) => return Ok(false as u64),
+            }
         };
 
-        let msg = self.get_vec_from_memory_or_register(msg_ptr, msg_len)?;
-        let num_bytes = msg.len();
-        self.gas_counter.pay_per(ed25519_verify_byte, num_bytes as _)?;
+        let message = self.get_vec_from_memory_or_register(message_ptr, message_len)?;
+        self.gas_counter.pay_per(ed25519_verify_byte, message.len() as u64)?;
 
-        let pub_key_array = self.get_vec_from_memory_or_register(pub_key_ptr, pub_key_len)?;
-        if pub_key_array.len() != PUBLIC_KEY_LENGTH {
-            return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
-                msg: "invalid public key length".to_string(),
-            }));
-        }
-        let pub_key = match PublicKey::from_bytes(&pub_key_array) {
-            Ok(pub_key) => pub_key,
-            Err(_) => return Ok(0),
+        let public_key: ed25519_dalek::PublicKey = {
+            let vec = self.get_vec_from_memory_or_register(public_key_ptr, public_key_len)?;
+            if vec.len() != ed25519_dalek::PUBLIC_KEY_LENGTH {
+                return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
+                    msg: "invalid public key length".to_string(),
+                }));
+            }
+            match ed25519_dalek::PublicKey::from_bytes(&vec) {
+                Ok(public_key) => public_key,
+                Err(_) => return Ok(false as u64),
+            }
         };
 
-        match pub_key.verify(&msg, &signature) {
-            Err(_) => Ok(0),
-            Ok(()) => Ok(1),
+        match public_key.verify(&message, &signature) {
+            Err(_) => Ok(false as u64),
+            Ok(()) => Ok(true as u64),
         }
     }
 
