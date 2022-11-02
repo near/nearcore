@@ -489,7 +489,6 @@ pub mod store_helper {
         store
             .get_ser(crate::DBCol::FlatStateMisc, &shard_id.try_to_vec().unwrap())
             .expect("Error reading flat head from storage")
-            .unwrap_or_else(|| panic!("Cannot read flat head for shard {} from storage", shard_id))
     }
 
     pub(crate) fn set_flat_head(
