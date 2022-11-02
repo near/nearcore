@@ -753,7 +753,7 @@ impl PeerManagerActor {
                             error!(target: "network", ?peer_info, "Failed to mark peer as failed.");
                         }
                     }
-                }));
+                }.instrument(tracing::trace_span!(target: "network", "monitor_peers_trigger_connect"))));
             }
         }
 
@@ -850,13 +850,18 @@ impl PeerManagerActor {
     }
 
     fn push_network_info_trigger(&self, ctx: &mut Context<Self>, interval: time::Duration) {
+        let _span = tracing::trace_span!(target: "network", "push_network_info_trigger").entered();
         let network_info = self.get_network_info();
         let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
             .with_label_values(&["push_network_info"])
             .start_timer();
         // TODO(gprusak): just spawn a loop.
         let state = self.state.clone();
-        ctx.spawn(wrap_future(async move { state.client.network_info(network_info).await }));
+        ctx.spawn(wrap_future(
+            async move { state.client.network_info(network_info).await }.instrument(
+                tracing::trace_span!(target: "network", "push_network_info_trigger_future"),
+            ),
+        ));
 
         near_performance_metrics::actix::run_later(
             ctx,
@@ -873,8 +878,10 @@ impl PeerManagerActor {
         msg: NetworkRequests,
         _ctx: &mut Context<Self>,
     ) -> NetworkResponses {
+        let msg_type: &str = msg.as_ref();
         let _span =
-            tracing::trace_span!(target: "network", "handle_msg_network_requests").entered();
+            tracing::trace_span!(target: "network", "handle_msg_network_requests", msg_type)
+                .entered();
         let _d = delay_detector::DelayDetector::new(|| {
             format!("network request {}", msg.as_ref()).into()
         });
@@ -1149,8 +1156,6 @@ impl PeerManagerActor {
         msg: PeerManagerMessageRequest,
         ctx: &mut Context<Self>,
     ) -> PeerManagerMessageResponse {
-        let _span =
-            tracing::trace_span!(target: "network", "handle_peer_manager_message").entered();
         match msg {
             PeerManagerMessageRequest::NetworkRequests(msg) => {
                 PeerManagerMessageResponse::NetworkResponses(
@@ -1366,7 +1371,7 @@ impl Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
                 },
             )));
             state.config.event_sink.push(Event::SetChainInfo);
-        }));
+        }.in_current_span()));
     }
 }
 
