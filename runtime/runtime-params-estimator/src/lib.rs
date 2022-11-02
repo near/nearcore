@@ -933,11 +933,6 @@ fn ecrecover_base(ctx: &mut EstimatorContext) -> GasCost {
 
 #[cfg(feature = "protocol_feature_ed25519_verify")]
 // TODO: gas estimation will be calculated later -> setting a placeholder for
-// now TODO: ed25519_dalek's verify function uses variable time elliptic curve
-// scalar multiplication. Check if some inputs are significantly slower to
-// verify. If yes, update the estimation to evaluate several points and take the
-// maximum estimation. Otherwise, remove the TODO and show the analysis in git
-// message.
 fn ed25519_verify_base(ctx: &mut EstimatorContext) -> GasCost {
     if ctx.cached.ed25519_verify_base.is_none() {
         let cost = fn_cost(ctx, "ed25519_verify_32b_64", ExtCosts::ed25519_verify_base, 64);
