@@ -257,6 +257,11 @@ pub trait ChainStoreAccess {
         tx_hash: &CryptoHash,
     ) -> Result<Option<Arc<SignedTransaction>>, Error>;
 
+    /// Fetch a receipt by id, if it is stored in the store.
+    ///
+    /// Note that not _all_ receipts are persisted. Some receipts are ephemeral,
+    /// get processed immediately after creation and don't even get to the
+    /// database.
     fn get_receipt(&self, receipt_id: &CryptoHash) -> Result<Option<Arc<Receipt>>, Error>;
 
     fn get_genesis_height(&self) -> BlockHeight;
