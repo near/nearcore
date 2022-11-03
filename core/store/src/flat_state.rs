@@ -319,9 +319,7 @@ use crate::{CryptoHash, Store, StoreUpdate};
 pub use imp::{FlatState, FlatStateFactory};
 use near_primitives::state::ValueRef;
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey, ShardId};
-use std::collections::HashMap;
-#[cfg(feature = "protocol_feature_flat_state")]
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(BorshSerialize, BorshDeserialize)]
 pub struct KeyForFlatStateDelta {
@@ -566,6 +564,7 @@ pub mod store_helper {
 
 #[cfg(not(feature = "protocol_feature_flat_state"))]
 pub mod store_helper {
+    use crate::flat_state::FlatStorageStateStatus;
     use crate::Store;
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::ShardId;
