@@ -1,9 +1,8 @@
 use crate::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use near_chain_primitives::Error;
-use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::flat_state::{store_helper, FlatStorageStateStatus};
+use near_store::flat_state::FlatStorageStateStatus;
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
