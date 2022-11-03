@@ -1126,7 +1126,6 @@ impl ChainStoreAccess for ChainStore {
     }
 }
 
-#[cfg(feature = "protocol_feature_flat_state")]
 impl ChainAccessForFlatStorage for ChainStore {
     fn get_block_info(&self, block_hash: &CryptoHash) -> BlockInfo {
         let header = self.get_block_header(block_hash).unwrap();
