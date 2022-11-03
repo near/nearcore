@@ -647,6 +647,7 @@ pub struct TrieDBStorage {
 }
 
 impl TrieDBStorage {
+    #[allow(unused)]
     pub fn new(store: Store, shard_uid: ShardUId) -> Self {
         Self { store, shard_uid }
     }
