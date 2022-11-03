@@ -146,6 +146,7 @@ pub enum Event {
     ServerStarted,
     RoutedMessageDropped,
     RoutingTableUpdate { next_hops: Arc<routing::NextHopTable>, pruned_edges: Vec<Edge> },
+    EdgesVerified(Vec<Edge>),
     Ping(Ping),
     Pong(Pong),
     SetChainInfo,

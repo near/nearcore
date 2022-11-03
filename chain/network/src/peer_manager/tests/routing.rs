@@ -110,13 +110,13 @@ async fn repeated_data_in_sync_routing_table() {
     };
     let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
     let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
-    let edge = peer.complete_handshake().await;
+    peer.complete_handshake().await;
 
     let mut edges_got = HashSet::new();
     let mut edges_want = HashSet::new();
     let mut accounts_got = HashSet::new();
     let mut accounts_want = HashSet::new();
-    edges_want.insert(edge.clone());
+    edges_want.insert(peer.edge.clone().unwrap());
 
     // Gradually increment the amount of data in the system and then broadcast it.
     for i in 0..10 {
@@ -141,7 +141,7 @@ async fn repeated_data_in_sync_routing_table() {
                         // initial full sync and broadcasting the new connection edge,
                         // which may cause the new connection edge to be broadcasted twice.
                         // Synchronize those 2 events, so that behavior here is deterministic.
-                        if e != edge {
+                        if &e != peer.edge.as_ref().unwrap() {
                             assert!(!edges_got.contains(&e), "repeated broadcast: {e:?}");
                         }
                         assert!(edges_want.contains(&e), "unexpected broadcast: {e:?}");
@@ -153,8 +153,8 @@ async fn repeated_data_in_sync_routing_table() {
             }
         }
         // Add more data.
-        let signer = data::make_signer(rng);
-        edges_want.insert(data::make_edge(&peer.cfg.signer(), &signer));
+        let key = data::make_secret_key(rng);
+        edges_want.insert(data::make_edge(&peer.cfg.network.node_key, &key));
         accounts_want.insert(data::make_announce_account(rng));
         // Send all the data created so far. PeerManager is expected to discard the duplicates.
         peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
@@ -217,13 +217,13 @@ async fn no_edge_broadcast_after_restart() {
         };
         let stream = tcp::Stream::connect(&pm.peer_info()).await.unwrap();
         let mut peer = peer::testonly::PeerHandle::start_endpoint(clock.clock(), cfg, stream).await;
-        let edge = peer.complete_handshake().await;
+        peer.complete_handshake().await;
 
         // Create a bunch of fresh unreachable edges, then send all the edges created so far.
         let mut fresh_edges: HashSet<_> = [
-            data::make_edge(&data::make_signer(rng), &data::make_signer(rng)),
-            data::make_edge(&data::make_signer(rng), &data::make_signer(rng)),
-            data::make_edge_tombstone(&data::make_signer(rng), &data::make_signer(rng)),
+            data::make_edge(&data::make_secret_key(rng), &data::make_secret_key(rng)),
+            data::make_edge(&data::make_secret_key(rng), &data::make_secret_key(rng)),
+            data::make_edge_tombstone(&data::make_secret_key(rng), &data::make_secret_key(rng)),
         ]
         .into();
         total_edges.extend(fresh_edges.clone());
@@ -238,7 +238,7 @@ async fn no_edge_broadcast_after_restart() {
 
         // Wait for the fresh edges and the connection edge to be broadcasted back.
         tracing::info!(target: "test", "wait_for_edges(<fresh edges>)");
-        fresh_edges.insert(edge);
+        fresh_edges.insert(peer.edge.clone().unwrap());
         wait_for_edges(&mut peer, &fresh_edges).await;
 
         // Wait for all the disconnected edges created so far to be saved to storage.
@@ -306,4 +306,55 @@ async fn square() {
     drop(pm0);
     drop(pm2);
     drop(pm3);
+}
+
+#[tokio::test]
+async fn fix_local_edges() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let mut pm =
+        start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let conn = pm
+        .start_inbound(chain.clone(), chain.make_config(rng))
+        .await
+        .handshake(&clock.clock())
+        .await;
+    // TODO(gprusak): the case when the edge is updated via UpdateNondeRequest is not covered yet,
+    // as it requires awaiting for the RPC roundtrip which is not implemented yet.
+    let edge1 = data::make_edge(&pm.cfg.node_key, &data::make_secret_key(rng));
+    let edge2 = conn
+        .edge
+        .as_ref()
+        .unwrap()
+        .remove_edge(conn.cfg.network.node_id(), &conn.cfg.network.node_key);
+    let msg = PeerMessage::SyncRoutingTable(RoutingTableUpdate::from_edges(vec![
+        edge1.clone(),
+        edge2.clone(),
+    ]));
+    conn.send(msg).await;
+    let mut got = HashSet::new();
+    let want = [&edge1, &edge2].into_iter().cloned().collect();
+    while !got.is_superset(&want) {
+        pm.events
+            .recv_until(|ev| match ev {
+                Event::PeerManager(PME::EdgesVerified(edges)) => Some(got.extend(edges)),
+                _ => None,
+            })
+            .await;
+    }
+    pm.fix_local_edges(&clock.clock()).await;
+    // TODO(gprusak): make fix_local_edges await closing of the connections, so
+    // that we don't have to wait for it explicitly here.
+    pm.events
+        .recv_until(|ev| match ev {
+            Event::PeerManager(PME::ConnectionClosed { .. }) => Some(()),
+            _ => None,
+        })
+        .await;
+    pm.check_consistency().await;
+    drop(conn);
 }

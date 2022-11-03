@@ -6,6 +6,7 @@ use crate::network_protocol::{
     RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate,
 };
 use crate::peer_manager::connection;
+use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_actix::{PeerToManagerMsg, ValidateEdgeList};
 use crate::routing;
@@ -50,10 +51,7 @@ struct Runtime {
 impl Runtime {
     fn new() -> Self {
         let stop = Arc::new(tokio::sync::Notify::new());
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let handle = runtime.handle().clone();
         let thread = std::thread::spawn({
             let stop = stop.clone();
@@ -77,6 +75,8 @@ pub(crate) struct NetworkState {
     /// PeerActor can be stopped at any moment.
     /// WARNING: DO NOT spawn infinite futures/background loops on this arbiter,
     /// as it will be automatically closed only when the NetworkState is dropped.
+    /// WARNING: actix actors can be spawned only when actix::System::current() is set.
+    /// DO NOT spawn actors from a task on this runtime.
     runtime: Runtime,
     /// PeerManager config.
     pub config: Arc<config::VerifiedConfig>,
@@ -148,7 +148,10 @@ impl NetworkState {
         }
     }
 
-    fn spawn<R:'static + Send>(&self, fut: impl std::future::Future<Output=R> + 'static + Send) -> tokio::task::JoinHandle<R> {
+    fn spawn<R: 'static + Send>(
+        &self,
+        fut: impl std::future::Future<Output = R> + 'static + Send,
+    ) -> tokio::task::JoinHandle<R> {
         self.runtime.handle.spawn(fut.in_current_span())
     }
 
@@ -332,6 +335,7 @@ impl NetworkState {
                 .await
             {
                 Ok(routing::actor::Response::AddVerifiedEdgesResponse(mut edges)) => {
+                    this.config.event_sink.push(Event::EdgesVerified(edges.clone()));
                     // Don't send tombstones during the initial time.
                     // Most of the network is created during this time, which results
                     // in us sending a lot of tombstones to peers.
