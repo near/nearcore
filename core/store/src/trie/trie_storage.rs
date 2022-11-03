@@ -616,21 +616,47 @@ impl TrieStorage for TrieCachingStorage {
     }
 }
 
+fn read_node_from_db(
+    store: &Store,
+    shard_uid: ShardUId,
+    hash: &CryptoHash,
+) -> Result<Arc<[u8]>, StorageError> {
+    let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(shard_uid, hash);
+    let val = store
+        .get(DBCol::State, key.as_ref())
+        .map_err(|_| StorageError::StorageInternalError)?
+        .ok_or_else(|| StorageError::StorageInconsistentState("Trie node missing".to_string()))?;
+    Ok(val.into())
+}
+
 impl TrieCachingStorage {
     fn read_from_db(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let key = Self::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
-        let val = self
-            .store
-            .get(DBCol::State, key.as_ref())
-            .map_err(|_| StorageError::StorageInternalError)?
-            .ok_or_else(|| {
-                StorageError::StorageInconsistentState("Trie node missing".to_string())
-            })?;
-        Ok(val.into())
+        read_node_from_db(&self.store, self.shard_uid, hash)
     }
 
     pub fn prefetch_api(&self) -> &Option<PrefetchApi> {
         &self.prefetch_api
+    }
+}
+
+pub struct TrieDiskStorage {
+    pub(crate) store: Store,
+    pub(crate) shard_uid: ShardUId,
+}
+
+impl TrieDiskStorage {
+    pub fn new(store: Store, shard_uid: ShardUId) -> Self {
+        Self { store, shard_uid }
+    }
+}
+
+impl TrieStorage for TrieDiskStorage {
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
+        read_node_from_db(&self.store, self.shard_uid, hash)
+    }
+
+    fn get_trie_nodes_count(&self) -> TrieNodesCount {
+        unimplemented!();
     }
 }
 
